@@ -1389,3 +1389,46 @@ both "what happened to this card" and "which operation did it belong to".
 `mutation_event` is append-only at the policy level — SELECT and INSERT, no
 UPDATE — so a revert appends compensating events rather than editing history.
 See SECURITY.md for why that matters on Supabase specifically.
+
+---
+
+## DeckPal Family Netlify deployment (2026-08-30)
+
+The family fork keeps the same application boundaries and changes the cloud
+adapter only:
+
+```text
+Family browser / installed PWA
+          |
+          | HTTPS + Supabase bearer JWT
+          v
+Netlify CDN ---- /api/* ----> Netlify Function
+   |                              |
+   | static Vite files            | Express createApp()
+   v                              v
+apps/web/dist               Supabase Postgres + RLS
+                                   |
+                                   +--> Supabase Auth / Storage
+```
+
+`netlify/functions/api.mts` is intentionally a thin adapter. It copies only a
+reviewed environment allowlist into the process contract used by the existing
+API, imports the built Express app, then wraps it with Netlify's Lambda
+compatibility layer. It contains no business rules. `/api/*` is rewritten
+before `/* -> /index.html`, so API errors cannot silently become HTML.
+
+Pokemon TCG Live remains an offline text boundary: the deck parser and exporter
+exchange list text selected by the user. There is no Trainer Club credential,
+Live session, or account-sync component in this topology.
+
+`/api/scan/ai` is routed to a dedicated Netlify Function ahead of the Express
+catch-all. It authenticates with Supabase, reserves a Malaysia-day quota row,
+and calls the Netlify AI Gateway only after browser consent. Claude returns a
+small structured card identity which is resolved against the local TCGdex
+catalogue. Image bytes and their base64 transport representation exist only in
+function memory for that request.
+
+Family prices form a second, explicit price plane. Marketplace sync continues
+to own the global price tables. Members write pending family suggestions;
+administrators moderate them into one current approved observation per family,
+printing, condition and currency while retaining superseded history.

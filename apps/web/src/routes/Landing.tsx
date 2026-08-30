@@ -114,7 +114,6 @@ function PrimaryCta({ children, className = '' }: { children: ReactNode; classNa
   return (
     <Link
       to="/auth"
-      search={{ mode: 'signup' as const }}
       className={`ls-cta ${buttonClass('primary', 'lg')} ${className}`}
     >
       {children}
@@ -249,10 +248,9 @@ function Nav({ scrolled }: { scrolled: boolean }) {
         </Link>
         <Link
           to="/auth"
-          search={{ mode: 'signup' as const }}
           className="ls-cta flex h-[40px] items-center rounded-full bg-action-primary px-[16px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-strong sm:px-[18px]"
         >
-          Get started
+          Family sign in
         </Link>
       </nav>
     </header>
@@ -845,8 +843,8 @@ function Footer() {
               </h2>
               <ul className="flex flex-col gap-[8px] text-[14px]">
                 <li>
-                  <Link to="/auth" search={{ mode: 'signup' as const }} className="text-text-body hover:text-link">
-                    Create account
+                  <Link to="/auth" className="text-text-body hover:text-link">
+                    Invitation sign in
                   </Link>
                 </li>
                 <li>

@@ -384,3 +384,52 @@ properties are load-bearing:
 
 The snapshots contain card ids, quantities, list/deck names and strategy-guide
 text — the same user data as the tables they describe, and no more.
+
+## DeckPal Family Netlify boundary
+
+The family deployment is invitation-only, but invitation state is not an
+authorization control by itself. Every API request is authenticated with a
+Supabase JWT and every family-data query remains subject to database RLS. The
+web UI may hide unavailable actions for clarity; the API and policies must
+still reject the same action when called directly.
+
+Netlify serves the browser and API from one origin. Secrets are Functions-only
+environment variables and are not assigned in `netlify.toml`, emitted through
+`/api/public-config`, logged, or prefixed with `VITE_`. The anon key is public
+by design and has only the rights granted by RLS; the service-role key is
+server-only and must never be used for ordinary family collection reads or
+writes.
+
+The environment adapter logs missing variable *names* only during local smoke
+checks. A configured cloud deployment must have its required database, JWT and
+public Supabase values before it is accepted as a preview. Card scan photos are
+processed in memory and are never written to Postgres, Supabase Storage,
+Netlify Blobs, logs, or local disk. Later scanner work must preserve that
+boundary and enforce the per-member daily quota before any paid AI request.
+
+That scanner boundary is implemented by migrations 054/055 and the dedicated
+`/api/scan/ai` Netlify Function. The function verifies the Supabase bearer
+session and active family membership before reserving quota. Failed model calls
+release the reservation (and restore a consumed bonus); successful calls store
+only model/token/cost metadata and validated card identifiers. The browser must
+show the remaining quota and obtain explicit consent for each AI fallback. The
+free hash matcher never consumes AI quota.
+
+Manual family prices use a separate `family_price_suggestion` audit table.
+Authenticated active members can propose their own rows. Pending/rejected rows
+are visible only to their proposer and administrators; approved rows are
+visible to the active family. There is no direct authenticated UPDATE policy:
+approval, rejection, and superseding go through the admin-validated moderation
+function. Automatic `price_current`, `price_observation`, and `price_bucket`
+data is never overwritten by a family suggestion.
+
+The moderation function is `SECURITY DEFINER`, so its `p_actor` argument is
+treated as untrusted. It extracts the verified subject from the transaction's
+`request.jwt.claims` and rejects a missing or mismatched subject before checking
+the admin role. This prevents a member from calling the Supabase RPC directly
+with a known administrator UUID and approving their own proposal.
+
+Pokemon TCG Live integration exchanges user-selected deck-list text only. The
+preview route performs no writes and preserves unresolved lines as warnings.
+The application never requests Trainer Club credentials, cookies, or Live
+session tokens.

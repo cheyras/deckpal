@@ -293,6 +293,86 @@ export interface ScanResponse {
   note?: string
 }
 
+export interface FamilyAiQuota {
+  enabled: boolean
+  model: string
+  limit: number
+  used: number
+  reserved: number
+  bonusRemaining: number
+  remaining: number
+  resetsAt: string
+}
+
+export interface FamilyAiUsage {
+  settings: { enabled: boolean; defaultDailyLimit: number; warningPercent: number }
+  memberLimits: { userId: string; dailyLimit: number | null; bonusRemaining: number }[]
+  rows: {
+    user_id: string
+    username: string
+    usage_day: string
+    succeeded: number
+    failed: number
+    input_tokens: number
+    output_tokens: number
+    estimated_cost_microusd: string
+  }[]
+}
+
+export interface FamilyPriceSuggestion {
+  id: string
+  cardVariantId: string
+  cardId: string
+  cardName: string
+  cardNumber: string
+  setName: string
+  variantName: string | null
+  proposedBy: string
+  proposerName: string
+  amountMinor: number
+  currencyCode: string
+  sourceName: string
+  sourceUrl: string | null
+  condition: 'NM' | 'LP' | 'MP' | 'HP' | 'DMG'
+  observedOn: string
+  notes: string | null
+  status: 'pending' | 'approved' | 'rejected' | 'superseded'
+  decisionNote: string | null
+  createdAt: string
+}
+
+export type ApprovedFamilyPrice = FamilyPriceSuggestion & { status: 'approved' }
+
+export interface DeckImportPreview {
+  source: 'ptcgl' | 'massentry'
+  format: DeckFormat
+  total: number
+  resolved: { cardId: string; name: string; number: string; setId: string; quantity: number; resolution?: string }[]
+  unresolved: string[]
+  warnings: { code: string; message: string }[]
+  variantNote: string
+}
+
+export interface FamilyCollectionImportPreview {
+  fingerprint: string
+  errors: { row: number; message: string }[]
+  matched: { cardId: string; finish: string; quantity: number; condition: string; variantId: number; variantName: string }[]
+  ambiguous: { cardId: string; finish: string; quantity: number; condition: string; candidates: { variantId: number; variantName: string }[] }[]
+  unresolved: { cardId: string; finish: string; quantity: number; condition: string; reason: string }[]
+}
+
+export interface AiScanResponse extends ScanResponse {
+  recognition: {
+    name: string
+    setName?: string | null
+    collectorNumber?: string | null
+    language?: string | null
+    confidence: number
+  }
+  quota: { remaining: number }
+  privacy: { imageStored: false }
+}
+
 // Response of POST /collection/cards/:cardId/have (tile-level Have/Need toggle).
 export interface HaveMutationResponse {
   cardId: string
@@ -985,6 +1065,7 @@ export interface InsightsOverview {
   pokedex: { captured: number; total: number; pct: number }
 }
 export interface MeResponse {
+  userId?: string
   username: string
   /** True when this account may open /design in production (owner only).
    *  Retained for that gate; new surfaces should read `owner`. */
@@ -1007,6 +1088,55 @@ export interface MeResponse {
    * cannot drift again.
    */
   decke?: boolean
+  family?: FamilyContext | null
+}
+
+export interface FamilyContext {
+  familyId: string
+  familyName: string
+  role: 'admin' | 'member'
+  status: 'invited' | 'active' | 'disabled'
+}
+
+export interface FamilyMemberSummary {
+  userId: string
+  username: string
+  displayName: string | null
+  role: 'admin' | 'member'
+  status: 'invited' | 'active' | 'disabled'
+  joinedAt: string | null
+  uniqueCards: number
+  totalQuantity: number
+}
+
+export interface FamilyCollectionItem {
+  id: string
+  cardVariantId: string
+  cardId: string
+  cardTcgdexId: string
+  cardName: string
+  number: string
+  variantName: string | null
+  setName: string
+  quantity: number
+  condition: string | null
+  updatedAt: string
+  images: { low: string; high: string }
+}
+
+export interface FamilyCollectionPage {
+  ownerUserId: string
+  items: FamilyCollectionItem[]
+  nextCursor: string | null
+}
+
+export interface FamilyInvitation {
+  id: string
+  email: string
+  role: string
+  status: string
+  expiresAt: string
+  createdAt?: string
 }
 /**
  * The account's settings row (user_settings + migration 049's UI columns).
@@ -1276,7 +1406,7 @@ export const api = {
    * `apps/api/src/routes/collection.ts` and `API.md`.
    */
   collectionBatch: (
-    items: { variantId: number; delta?: number; quantity?: number }[],
+    items: { variantId: number; delta?: number; quantity?: number; condition?: 'NM' | 'LP' | 'MP' | 'HP' | 'DMG' }[],
     opts: { source?: string; note?: string; idempotencyKey?: string; signal?: AbortSignal } = {},
   ) => {
     const { signal, ...rest } = opts
@@ -1294,6 +1424,51 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': contentType || 'application/octet-stream', ...auth },
       body: bytes,
+      signal,
+    })
+  },
+  familyAiQuota: (signal?: AbortSignal) => get<FamilyAiQuota>('/family/ai/quota', signal),
+  familyAiUsage: (signal?: AbortSignal) => get<FamilyAiUsage>('/family/ai/usage', signal),
+  updateFamilyAiSettings: (settings: { enabled: boolean; defaultDailyLimit: number; warningPercent?: number }) =>
+    send<{ settings: FamilyAiUsage['settings'] }>('PATCH', '/family/ai/settings', settings),
+  updateFamilyMemberAiLimit: (userId: string, value: { dailyLimit: number | null; bonusRemaining: number }) =>
+    send<{ member: { userId: string; dailyLimit: number | null; bonusRemaining: number } }>(
+      'PATCH',
+      `/family/members/${encodeURIComponent(userId)}/ai-limit`,
+      value,
+    ),
+  familyManualPrices: (cardId: string, signal?: AbortSignal) =>
+    get<{ prices: ApprovedFamilyPrice[] }>(`/family/cards/${encodeURIComponent(cardId)}/manual-prices`, signal),
+  familyPriceSuggestions: (status: FamilyPriceSuggestion['status'] = 'pending', signal?: AbortSignal) =>
+    get<{ suggestions: FamilyPriceSuggestion[] }>(`/family/prices/suggestions?status=${encodeURIComponent(status)}`, signal),
+  proposeFamilyPrice: (body: {
+    cardVariantId: number
+    amountMinor: number
+    currencyCode: string
+    sourceName: string
+    sourceUrl?: string | null
+    condition: FamilyPriceSuggestion['condition']
+    observedOn: string
+    notes?: string | null
+  }) => send<{ suggestion: FamilyPriceSuggestion }>('POST', '/family/prices/suggestions', body),
+  decideFamilyPrice: (id: string, decision: 'approve' | 'reject', note?: string | null) =>
+    send<{ suggestion: FamilyPriceSuggestion }>(
+      'POST',
+      `/family/prices/suggestions/${encodeURIComponent(id)}/${decision}`,
+      { note: note ?? null },
+    ),
+  previewFamilyCollectionImport: (text: string) =>
+    send<FamilyCollectionImportPreview>('POST', '/family/import/preview', { text }),
+  scanWithAi: async (blob: Blob, signal?: AbortSignal): Promise<AiScanResponse> => {
+    const auth = await authHeaders()
+    return request<AiScanResponse>('/scan/ai', {
+      method: 'POST',
+      headers: {
+        'Content-Type': blob.type || 'image/jpeg',
+        'X-Request-Id': crypto.randomUUID(),
+        ...auth,
+      },
+      body: blob,
       signal,
     })
   },
@@ -1347,6 +1522,8 @@ export const api = {
   restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
+  previewDeckImport: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; source?: 'ptcgl' | 'massentry' }) =>
+    send<DeckImportPreview>('POST', '/decks/import/preview', body),
   // variantId (migration 051): which printing. Omitted = the card's primary
   // variant on add; on set/remove the server targets the card's single deck
   // row when there is exactly one and 400s when several printings would be
@@ -1408,6 +1585,32 @@ export const api = {
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
   me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
+  familyMe: (signal?: AbortSignal) => get<{ userId: string; family: FamilyContext | null }>('/family/me', signal),
+  bootstrapFamily: (name: string) =>
+    send<{ family: FamilyContext }>('POST', '/family/bootstrap', { name }),
+  familyMembers: (signal?: AbortSignal) =>
+    get<{ members: FamilyMemberSummary[] }>('/family/members', signal),
+  familyCollection: (userId: string, cursor?: string, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ limit: '100' })
+    if (cursor) params.set('cursor', cursor)
+    return get<FamilyCollectionPage>(
+      `/family/members/${encodeURIComponent(userId)}/collection?${params.toString()}`,
+      signal,
+    )
+  },
+  familyInvitations: (signal?: AbortSignal) =>
+    get<{ invitations: FamilyInvitation[] }>('/family/invitations', signal),
+  inviteFamilyMember: (email: string) =>
+    send<{ invitation: FamilyInvitation }>('POST', '/family/invitations', { email }),
+  revokeFamilyInvitation: (id: string) =>
+    send<void>('DELETE', `/family/invitations/${encodeURIComponent(id)}`),
+  activateFamilyInvitation: () => send<{ family: FamilyContext }>('POST', '/family/activate'),
+  setFamilyMemberStatus: (userId: string, status: 'active' | 'disabled') =>
+    send<{ member: { userId: string; status: string } }>(
+      'PATCH',
+      `/family/members/${encodeURIComponent(userId)}`,
+      { status },
+    ),
   // Account settings (migration 049) — the server-side home of what used to be
   // device-only preferences. PATCH takes any subset and returns the whole row.
   settings: (signal?: AbortSignal) => get<{ settings: UserSettings }>('/me/settings', signal),

@@ -2,7 +2,7 @@
   "name": "deckpal",
   "private": true,
   "version": "0.1.0",
-  "description": "Self-hosted, single-user TCG collection tracker — catalog, prices, deck builder, card scanner, MCP server, and React PWA.",
+  "description": "Private family Pokemon TCG collection tracker powered by DeckPal and TCGdex.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -18,7 +18,9 @@
     "migrate:status": "pnpm --filter @deckpal/db migrate:status",
     "build": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-images build && pnpm --filter deckpal-sync build",
     "typecheck": "pnpm -r typecheck",
-    "dev:api": "pnpm --filter deckpal-api dev"
+    "dev:api": "pnpm --filter deckpal-api dev",
+    "test:netlify": "node --import tsx --test netlify/functions/**/*.test.mts",
+    "check:netlify-config": "node scripts/check-netlify-config.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
@@ -28,9 +30,14 @@
   },
   "dependencies": {
     "@ai-sdk/gateway": "4.0.52",
+    "@anthropic-ai/sdk": "^0.122.0",
     "@deckpal/db": "workspace:*",
+    "@netlify/aws-lambda-compat": "^2.0.0",
+    "@netlify/functions": "^6.0.0",
+    "@supabase/supabase-js": "^2.112.3",
     "ai": "7.0.66",
     "pg": "^8.23.0",
+    "serverless-http": "^4.0.0",
     "zod": "4.4.3"
   }
 }

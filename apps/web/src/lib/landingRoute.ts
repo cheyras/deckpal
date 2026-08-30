@@ -15,6 +15,7 @@ function stripBase(pathname: string): string {
 const CHROMELESS_PATHS = new Set([
   '/auth', // sign in / sign up / forgot password
   '/auth/reset', // password-recovery link target
+  '/auth/invite', // invitation acceptance and initial password setup
   '/signed-out', // post-sign-out confirmation
   '/authorize', // OAuth "Connect" consent screen — must render signed-out, see Authorize.tsx
   '/design', // design-system editor — no app chrome; owner-only in prod (gated in main.tsx via /me.designEditor)

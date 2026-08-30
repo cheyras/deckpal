@@ -17,6 +17,7 @@ import { rangeWindow } from '../lib/insightsCaption'
 import { bucketDayLabel, bucketRangeLabel, chartPoints, grainCaption } from '../lib/priceGrain'
 import { Sheet, useSheetClose } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { ManualPricePanel } from '../components/ManualPricePanel'
 
 // ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
 // so the three bars move instantly, then reconcile against the authoritative
@@ -831,6 +832,10 @@ function CardTab({
           Prices reflect the latest daily sync. Self-hosted feed — no affiliate relationship.
         </p>
       </div>
+
+      {data.variants.some((variant) => variant.quantity !== undefined) && (
+        <ManualPricePanel cardId={data.card.cardId} variants={data.variants} />
+      )}
 
       {/* attacks */}
       {c.attacks.length > 0 && (

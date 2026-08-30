@@ -64,13 +64,7 @@ function SignInChip() {
       >
         Sign in
       </Link>
-      <Link
-        to="/auth"
-        search={{ mode: 'signup' } as never}
-        className="flex h-[38px] items-center rounded-full bg-action-primary px-[16px] text-[14px] font-semibold text-action-primary-text hover:opacity-90"
-      >
-        Sign up free
-      </Link>
+      <span className="hidden text-[12px] font-semibold text-text-muted sm:inline">Invitation only</span>
     </div>
   )
 }
@@ -90,6 +84,7 @@ interface NavItem {
 // "English TCG" expands to the live series list; every other entry is wired.
 const NAV: NavItem[] = [
   { label: 'Pokémon TCG (English)', icon: 'cards', to: '/series', expandable: true },
+  { label: 'Family Collections', icon: 'user', to: '/family', gated: true },
   { label: 'My Lists', icon: 'lists', to: '/lists', gated: true },
   { label: 'Deck Builder', icon: 'deck', to: '/decks', gated: true },
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
@@ -156,7 +151,7 @@ function NavRow({
   )
   if (locked) {
     return (
-      <Link to="/auth" search={{ mode: 'signup' } as never} className="block">
+      <Link to="/auth" className="block">
         {body}
       </Link>
     )

@@ -35,6 +35,7 @@ import { isReturningVisitor } from './lib/returningVisitor'
 import { Auth } from './routes/Auth'
 import { Authorize } from './routes/Authorize'
 import { ResetPassword } from './routes/auth/ResetPassword'
+import { AcceptInvite } from './routes/auth/AcceptInvite'
 import { SignedOut } from './routes/auth/SignedOut'
 import { Landing } from './routes/Landing'
 import { SeriesIndex } from './routes/SeriesIndex'
@@ -51,6 +52,9 @@ import { SpeciesDetail } from './routes/SpeciesDetail'
 import { Profile } from './routes/Profile'
 import { Scan } from './routes/Scan'
 import { SearchResults } from './routes/SearchResults'
+import { Family } from './routes/Family'
+import { FamilyAdmin } from './routes/FamilyAdmin'
+import { PriceApprovalAdmin } from './routes/PriceApprovalAdmin'
 import { validateGlobalSearch, GLOBAL_SEARCH_DEFAULTS } from './routes/globalSearch'
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
@@ -258,6 +262,24 @@ const scanRoute = createRoute({
   component: Scan,
 })
 
+const familyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/family',
+  component: Family,
+})
+
+const familyAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/family/admin',
+  component: FamilyAdmin,
+})
+
+const familyPriceAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/family/admin/prices',
+  component: PriceApprovalAdmin,
+})
+
 // Global cross-set card search — the destination for the header search field.
 const searchRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -267,15 +289,14 @@ const searchRoute = createRoute({
   component: SearchResults,
 })
 
-// `?mode=signup` opens the form on the Sign Up tab — the landing page's primary
-// CTA links here, and dropping someone on the Sign In tab after they clicked
-// "Create your free account" is a needless extra click. `?mode=forgot` gives
-// the password-reset request its own shareable URL.
+// Public registration is disabled for the family fork. `?mode=forgot` gives
+// the password-reset request its own shareable URL; accounts originate only
+// from an administrator invitation.
 const authRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth',
-  validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' | 'forgot'; next?: string } => ({
-    mode: raw.mode === 'signup' ? 'signup' : raw.mode === 'forgot' ? 'forgot' : undefined,
+  validateSearch: (raw: Record<string, unknown>): { mode?: 'forgot'; next?: string } => ({
+    mode: raw.mode === 'forgot' ? 'forgot' : undefined,
     // Same-origin relative path only — /authorize is the one caller today,
     // bouncing a signed-out visitor here and back once they sign in.
     next: isSafeNextPath(raw.next) ? raw.next : undefined,
@@ -322,6 +343,13 @@ const authResetRoute = createRoute({
   component: ResetPassword,
 })
 
+const authInviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/invite',
+  beforeLoad: cloudOnly,
+  component: AcceptInvite,
+})
+
 // Where signing out lands — a confirmation, not the login form.
 const signedOutRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -335,6 +363,7 @@ const coreRoutes = [
   authRoute,
   authorizeRoute,
   authResetRoute,
+  authInviteRoute,
   signedOutRoute,
   seriesIndexRoute,
   seriesDetailRoute,
@@ -350,6 +379,9 @@ const coreRoutes = [
   profileRoute,
   profileAliasRoute,
   scanRoute,
+  familyRoute,
+  familyAdminRoute,
+  familyPriceAdminRoute,
   searchRoute,
 ]
 

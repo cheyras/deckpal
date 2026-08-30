@@ -931,3 +931,54 @@ Rolling back is `DROP TABLE mutation_event, mutation_batch;`,
 `ALTER TABLE card_list DROP COLUMN deleted_at; ALTER TABLE deck DROP COLUMN deleted_at;`
 plus deleting the three `schema_migrations` rows — but note that the deployed
 code requires all three, so roll the code back first.
+
+---
+
+## DeckPal Family on Netlify
+
+Netlify builds the React PWA into `apps/web/dist` and bundles
+`netlify/functions/api.mts` as the same-origin `/api/*` backend. Configure the
+following in the Netlify environment-variable UI with Functions scope; never
+put their values in `netlify.toml` or a committed `.env` file.
+
+| Name | Exposure | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Server secret | Supabase pooled Postgres connection |
+| `SUPABASE_MODE=true` | Server | Enables cloud JWT/RLS behaviour |
+| `SUPABASE_JWT_SECRET` | Server secret | Verifies family member JWTs |
+| `SUPABASE_URL` | Server | Supabase project URL for storage and auth |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server secret | Server-only sync/storage operations |
+| `VITE_SUPABASE_URL` | Public | Browser authentication project URL |
+| `VITE_SUPABASE_ANON_KEY` | Public | Browser anon key, constrained by RLS |
+| `API_BASE_PATH=/api` | Server | Mounts Express at the Netlify API route |
+| `DESIGN_EDITOR_USER_ID` | Server | Administrator Supabase user UUID |
+| `FAMILY_OWNER_USER_ID` | Server | Account allowed to initialise the family |
+| `FAMILY_INVITE_REDIRECT_URL` | Server | Invite callback, normally `https://your-site.netlify.app/auth/invite` |
+| `CARD_ART_BUCKET` | Server, optional | Card-art bucket override |
+
+Enable Netlify AI Gateway for the site. Netlify supplies
+`ANTHROPIC_BASE_URL` automatically; do not add a personal Anthropic token to
+the browser or repository. The scanner uses `claude-haiku-4-5-20251001` and
+stores token counts plus a cost estimate in `ai_scan_event`, never the image.
+At the current published rate used by the application, the estimate is US$1/M
+input tokens and US$5/M output tokens. Confirm current pricing in the Netlify
+dashboard before production because provider prices can change.
+
+Apply migrations 052 through 057 after backing up the Supabase project. They
+add family membership/RLS, AI metering, and moderated family prices. The family
+owner then opens the app once to initialise the family and invites each member.
+New members begin with empty collections.
+
+The admin collection-import panel accepts JSON
+`{"items":[{"cardId":"sv3-125","finish":"normal","quantity":1,"condition":"NM"}]}`
+or CSV `cardId,finish,quantity,condition`. It previews all matches before using
+the existing idempotent collection batch writer; the uploaded text is not
+stored. The selected condition is persisted on the admin's collection row. A
+file that assigns two conditions to the same physical printing is rejected for
+manual correction because DeckPal stores one condition per printing.
+
+A draft deploy must use a separate Supabase development project. Run
+`pnpm test:netlify`, `pnpm check:netlify-config`, `pnpm build`, and
+`pnpm --filter deckpal-web build` before creating that preview. Production is
+not published until the family administrator explicitly chooses the Netlify
+site and Supabase project.

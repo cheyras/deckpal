@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
+import { api, type CreateDeckBody, type DeckFormat, type DeckImportPreview, type DeckSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { RecycleBin } from '../components/RecycleBin'
@@ -119,12 +119,29 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const [text, setText] = useState('')
   const [name, setName] = useState('')
   const [formatCode, setFormatCode] = useState<DeckFormat>('standard')
+  const [preview, setPreview] = useState<DeckImportPreview | null>(null)
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [acknowledged, setAcknowledged] = useState(false)
+  const previewImport = async () => {
+    setPreviewBusy(true)
+    setPreviewError(null)
+    try {
+      setPreview(await api.previewDeckImport({ text, formatCode, source: 'ptcgl' }))
+    } catch (cause) {
+      setPreviewError(cause instanceof Error ? cause.message : 'Preview failed')
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
   return (
     <Modal title="Import from PTCG Live" onClose={onClose} wide>
       <form
         onSubmit={(e) => {
           e.preventDefault()
           if (!text.trim()) return
+          if (!preview) { void previewImport(); return }
+          if (preview.unresolved.length > 0 && !acknowledged) return
           onSubmit({ text, formatCode, name: name.trim() || undefined })
         }}
         className="flex flex-col gap-[16px]"
@@ -141,7 +158,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           </label>
           <label className="flex flex-col gap-[6px]">
             <span className="text-[14px] font-semibold text-text-secondary">Format</span>
-            <select value={formatCode} onChange={(e) => setFormatCode(e.target.value as DeckFormat)}
+            <select value={formatCode} onChange={(e) => { setFormatCode(e.target.value as DeckFormat); setPreview(null); setAcknowledged(false) }}
               className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[12px] text-[14px] text-text-primary">
               {FORMATS.map((f) => <option key={f} value={f}>{FORMAT_META[f].label}</option>)}
             </select>
@@ -150,16 +167,34 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         <textarea
           autoFocus
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { setText(e.target.value); setPreview(null); setAcknowledged(false) }}
           rows={12}
           placeholder={'Pokémon: 6\n3 Charizard ex OBF 125\n…\n\nTrainer: …\n\nEnergy: …\n\nTotal Cards: 60'}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
         />
+        {preview && (
+          <div className="rounded-xl border border-border-default bg-surface-secondary p-[13px] text-[13px]">
+            <div className="flex flex-wrap gap-x-[18px] gap-y-[4px] font-semibold text-text-primary">
+              <span>{preview.resolved.length} baris dipadankan</span>
+              <span>{preview.total}/60 kad</span>
+              <span>{preview.unresolved.length} tidak dipadankan</span>
+            </div>
+            <p className="mt-[6px] text-[12px] text-text-muted">{preview.variantNote}</p>
+            {preview.warnings.map((warning, index) => <p key={`${warning.code}:${index}`} className="mt-[5px] text-warning">{warning.message}</p>)}
+            {preview.unresolved.length > 0 && (
+              <>
+                <ul className="mt-[8px] max-h-[130px] list-disc overflow-auto pl-[18px] text-error">{preview.unresolved.map((line, index) => <li key={index}>{line}</li>)}</ul>
+                <label className="mt-[9px] flex items-start gap-[8px] text-text-secondary"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} className="mt-[2px]" />Saya faham baris di atas tidak akan dimasukkan.</label>
+              </>
+            )}
+          </div>
+        )}
+        {previewError && <div className="text-[14px] text-error">{previewError}</div>}
         {error && <div className="text-[14px] text-error">{error}</div>}
         <div className="flex justify-end gap-[10px]">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!text.trim()} loading={busy}>
-            {busy ? 'Importing…' : 'Import Deck'}
+          <Button type="submit" disabled={!text.trim() || (!!preview && preview.unresolved.length > 0 && !acknowledged)} loading={busy || previewBusy}>
+            {previewBusy ? 'Memeriksa…' : busy ? 'Importing…' : preview ? 'Sahkan dan Import Deck' : 'Preview Import'}
           </Button>
         </div>
       </form>

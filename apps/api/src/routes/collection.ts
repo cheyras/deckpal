@@ -246,6 +246,7 @@ export interface BatchItemInput {
   variantId: number;
   delta?: number;
   quantity?: number;
+  condition?: 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
 }
 
 /** What a folded item resolves to: either a signed delta or an absolute target. */
@@ -256,6 +257,8 @@ export interface FoldedOp {
   delta: number;
   /** Absolute target before `delta` is applied (mode 'set' only). */
   target?: number;
+  /** Optional physical condition to persist with this printing. */
+  condition?: 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
   /** Input indices that merged into this op, for the folding report. */
   from: number[];
 }
@@ -272,8 +275,14 @@ function parseBatchItems(raw: unknown): BatchItemInput[] {
     const hasDelta = o.delta !== undefined && o.delta !== null;
     const hasQuantity = o.quantity !== undefined && o.quantity !== null;
     if (hasDelta === hasQuantity) throw badRequest(`items[${i}] needs exactly one of delta or quantity`);
-    if (hasDelta) return { variantId, delta: parseDelta(o.delta) };
-    return { variantId, quantity: parseQuantity(o.quantity) };
+    const condition = o.condition === undefined || o.condition === null || o.condition === ''
+      ? undefined
+      : String(o.condition).trim().toUpperCase();
+    if (condition !== undefined && !['NM', 'LP', 'MP', 'HP', 'DMG'].includes(condition)) {
+      throw badRequest(`items[${i}].condition must be NM, LP, MP, HP or DMG`);
+    }
+    if (hasDelta) return { variantId, delta: parseDelta(o.delta), condition: condition as BatchItemInput['condition'] };
+    return { variantId, quantity: parseQuantity(o.quantity), condition: condition as BatchItemInput['condition'] };
   });
 }
 
@@ -300,6 +309,7 @@ export function foldItems(items: readonly BatchItemInput[]): {
       order.push(it.variantId);
     }
     op.from.push(i);
+    if (it.condition !== undefined) op.condition = it.condition;
     if (it.quantity !== undefined) {
       op.mode = 'set';
       op.target = it.quantity;
@@ -352,7 +362,7 @@ collectionRouter.post(
       userId,
       ops.map((o) => ({
         key: o.variantId,
-        op: o.mode === 'set' ? `set:${o.target!}` : 'delta',
+        op: `${o.mode === 'set' ? `set:${o.target!}` : 'delta'}${o.condition ? `:condition:${o.condition}` : ''}`,
         value: o.delta,
       })),
     );
@@ -442,15 +452,18 @@ collectionRouter.post(
               [userId, sortedIds],
             );
           }
-          const locked = await client.query<{ card_variant_id: string; quantity: number }>(
-            `SELECT card_variant_id, quantity
+          const locked = await client.query<{ card_variant_id: string; quantity: number; condition: string | null }>(
+            `SELECT card_variant_id, quantity, condition
                FROM collection_item
               WHERE user_id = $1 AND card_variant_id = ANY($2::bigint[])
               ORDER BY card_variant_id
                 ${dryRun ? '' : 'FOR UPDATE'}`,
             [userId, sortedIds],
           );
-          const current = new Map(locked.rows.map((r) => [Number(r.card_variant_id), Number(r.quantity)]));
+          const current = new Map(locked.rows.map((r) => [Number(r.card_variant_id), {
+            quantity: Number(r.quantity),
+            condition: r.condition,
+          }]));
 
           // ── Compute ────────────────────────────────────────────────────────
           interface Change {
@@ -459,48 +472,60 @@ collectionRouter.post(
             after: number;
             requested: number;
             effective: number;
+            conditionBefore: string | null;
+            conditionAfter: string | null;
           }
           const changes: Change[] = ops.map((op) => {
-            const before = current.get(op.variantId) ?? 0;
+            const existing = current.get(op.variantId) ?? { quantity: 0, condition: null };
+            const before = existing.quantity;
             const base = op.mode === 'set' ? op.target! : before;
             const target = base + op.delta;
             const after = Math.max(0, Math.min(100000, target));
-            return { op, before, after, requested: target - before, effective: after - before };
+            return {
+              op,
+              before,
+              after,
+              requested: target - before,
+              effective: after - before,
+              conditionBefore: existing.condition,
+              conditionAfter: op.condition ?? existing.condition,
+            };
           });
-          const moved = changes.filter((c) => c.effective !== 0);
+          const changed = changes.filter((c) => c.effective !== 0 || c.conditionAfter !== c.conditionBefore);
+          const quantityMoved = changed.filter((c) => c.effective !== 0);
 
           if (dryRun) {
             return {
               dryRun: true,
               batchId: null,
               applied: 0,
-              wouldApply: moved.length,
-              unchanged: changes.length - moved.length,
+              wouldApply: changed.length,
+              unchanged: changes.length - changed.length,
               items: changes.map((c) => shapeChange(c.op.variantId, c, meta)),
               folded,
             };
           }
 
           // ── Write ──────────────────────────────────────────────────────────
-          if (moved.length > 0) {
+          if (changed.length > 0) {
             const upd: string[] = [];
             const updParams: unknown[] = [userId];
-            for (const c of moved) {
+            for (const c of changed) {
               const b = updParams.length;
-              upd.push(`($${b + 1}::bigint, $${b + 2}::int)`);
-              updParams.push(c.op.variantId, c.after);
+              upd.push(`($${b + 1}::bigint, $${b + 2}::int, $${b + 3}::text)`);
+              updParams.push(c.op.variantId, c.after, c.conditionAfter);
             }
             await client.query(
               `UPDATE collection_item ci
-                  SET quantity = v.qty, updated_at = now()
-                 FROM (VALUES ${upd.join(', ')}) AS v(variant_id, qty)
-                WHERE ci.user_id = $1 AND ci.card_variant_id = v.variant_id`,
+                  SET quantity = v.qty, condition = v.condition, updated_at = now()
+                 FROM (VALUES ${upd.join(', ')}) AS v(variant_id, qty, condition)
+                 WHERE ci.user_id = $1 AND ci.card_variant_id = v.variant_id`,
               updParams,
             );
 
             // First acquisition = this (user, variant) has never had a positive
             // quantity before. One query for the whole batch.
-            const gained = moved.filter((c) => c.after > 0).map((c) => c.op.variantId);
+            const gained = quantityMoved.filter((c) => c.after > 0).map((c) => c.op.variantId);
             const priorRows = gained.length
               ? await client.query<{ card_variant_id: string }>(
                   `SELECT DISTINCT card_variant_id FROM collection_event
@@ -509,28 +534,30 @@ collectionRouter.post(
                 )
               : { rows: [] as Array<{ card_variant_id: string }> };
             const seen = new Set(priorRows.rows.map((r) => Number(r.card_variant_id)));
-            const firstAcq = new Map(moved.map((c) => [c.op.variantId, c.after > 0 && !seen.has(c.op.variantId)]));
+            const firstAcq = new Map(quantityMoved.map((c) => [c.op.variantId, c.after > 0 && !seen.has(c.op.variantId)]));
 
-            const evVals: string[] = [];
-            const evParams: unknown[] = [userId, source, note, batchId];
-            for (const c of moved) {
-              const b = evParams.length;
-              evVals.push(`($1, $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $2, $3, $4)`);
-              evParams.push(c.op.variantId, c.effective, c.after, firstAcq.get(c.op.variantId) ?? false);
+            if (quantityMoved.length > 0) {
+              const evVals: string[] = [];
+              const evParams: unknown[] = [userId, source, note, batchId];
+              for (const c of quantityMoved) {
+                const b = evParams.length;
+                evVals.push(`($1, $${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $2, $3, $4)`);
+                evParams.push(c.op.variantId, c.effective, c.after, firstAcq.get(c.op.variantId) ?? false);
+              }
+              await client.query(
+                `INSERT INTO collection_event
+                   (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note, batch_id)
+                 VALUES ${evVals.join(', ')}`,
+                evParams,
+              );
             }
-            await client.query(
-              `INSERT INTO collection_event
-                 (user_id, card_variant_id, delta, quantity_after, is_first_acquisition, source, note, batch_id)
-               VALUES ${evVals.join(', ')}`,
-              evParams,
-            );
 
-            const events: MutationEventInput[] = moved.map((c) => ({
+            const events: MutationEventInput[] = changed.map((c) => ({
               entityType: 'collection_item',
               entityId: String(c.op.variantId),
               operation: c.op.mode === 'set' ? OPS.quantitySet : OPS.quantityDelta,
-              before: { quantity: c.before },
-              after: { quantity: c.after },
+              before: { quantity: c.before, condition: c.conditionBefore },
+              after: { quantity: c.after, condition: c.conditionAfter },
               requestedDelta: c.requested,
               effectiveDelta: c.effective,
             }));
@@ -548,8 +575,8 @@ collectionRouter.post(
             dryRun: false,
             batchId,
             replayed: false,
-            applied: moved.length,
-            unchanged: changes.length - moved.length,
+            applied: changed.length,
+            unchanged: changes.length - changed.length,
             items: changes.map((c) => shapeChange(c.op.variantId, c, meta)),
             progress,
             folded,
@@ -565,7 +592,7 @@ collectionRouter.post(
           await closeBatch(client, batchId!, payload, {
             items: items.length,
             ops: ops.length,
-            applied: moved.length,
+            applied: changed.length,
             sets: setIds.length,
           });
           return payload;
@@ -588,7 +615,14 @@ collectionRouter.post(
 /** Per-item row in the batch response — the same before/after the log stores. */
 function shapeChange(
   variantId: number,
-  c: { before: number; after: number; requested: number; effective: number },
+  c: {
+    before: number;
+    after: number;
+    requested: number;
+    effective: number;
+    conditionBefore: string | null;
+    conditionAfter: string | null;
+  },
   meta: Map<number, BatchVariantRow>,
 ): Record<string, unknown> {
   const m = meta.get(variantId);
@@ -600,6 +634,8 @@ function shapeChange(
     after: c.after,
     delta: c.effective,
     requestedDelta: c.requested,
+    conditionBefore: c.conditionBefore,
+    conditionAfter: c.conditionAfter,
     // Non-zero only when the [0, 100000] clamp bit. Surfaced because a revert
     // of a clamped change cannot be exact, and the caller should know now.
     clamped: c.requested !== c.effective,

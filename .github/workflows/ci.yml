@@ -26,7 +26,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 10
+          version: 11
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -123,6 +123,13 @@ jobs:
           pnpm --filter deckpal-api build
           pnpm --filter deckpal-mcp build
           node scripts/check-functions.mjs
+
+      - name: Netlify deployment gates
+        run: |
+          pnpm test:netlify
+          pnpm check:netlify-config
+          pnpm --filter deckpal-web build
+          node --import tsx scripts/check-netlify-function.mjs
 
       # Deck-E's rig, playbook and procedural layers, checked against the
       # generated fixtures and against the glb's own bind pose. These existed

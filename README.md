@@ -11,6 +11,28 @@ core is AGPL-3.0 — anyone can fork and self-host. The architecture is
 cloud-first: Vercel + Supabase for the hosted path, plain Postgres for
 self-hosters.
 
+## DeckPal Family fork
+
+This branch adapts DeckPal for a private, invitation-only family collection.
+It uses Netlify for the web application and API, Supabase for family accounts
+and data, and TCGdex for catalogue data. It preserves the upstream
+AGPL-3.0-only licence and corresponding-source obligations; the original
+project remains available at <https://github.com/cheyras/deckpal>.
+
+Pokemon TCG Live support is deliberately text-only: deck lists can be imported
+from or exported to the Live format, but DeckPal Family never asks for or stores
+a Pokemon Trainer Club login.
+
+Family members can see one another's collections while retaining owner-only
+editing. Accounts are created by administrator invitation. Manual Japanese or
+local-market prices are submitted with a source and require administrator
+approval; they remain visibly separate from automatic marketplace prices.
+
+The scanner tries DeckPal's free perceptual-hash matcher first. A member may
+explicitly consent to a Claude fallback after that fails. The default is five
+successful AI scans per member per Malaysia day, configurable by the family
+administrator. Scan images are processed in memory and are not stored.
+
 ---
 
 ## Features
