@@ -73,7 +73,19 @@ interface ListSummaryRow {
   cover_serie: string | null;
   cover_setcode: string | null;
   cover_local: string | null;
+  /** Up to COVER_MAX distinct cards for the index tile's mosaic, cover pick first. */
+  covers: { serie: string; setcode: string; local: string }[] | null;
 }
+
+/**
+ * How many cards the index tile's cover mosaic will ever show. The owner's
+ * spec verbatim: "a grid of the cards in the list … determine how many across
+ * smartly … a maximum that will show." At the tile's 132px cover height, two
+ * rows of four is the floor where a card is still recognisable as itself;
+ * a third row or a fifth column is confetti. The web picks the grid shape
+ * from however many of these it gets (1 → the old single cover).
+ */
+const COVER_MAX = 8;
 
 function shapeSummary(r: ListSummaryRow) {
   const itemCount = Number(r.item_count);
@@ -96,6 +108,10 @@ function shapeSummary(r: ListSummaryRow) {
         : { owned: ownedCount, total: itemCount, pct: pct(ownedCount, itemCount), copies: ownedCopies },
     marketValueUsd: r.market_minor != null ? toMajor(Number(r.market_minor), 'USD') : null,
     coverImage: r.cover_local && r.cover_serie && r.cover_setcode ? cardImages(r.cover_serie, r.cover_setcode, r.cover_local) : null,
+    // The mosaic: distinct cards in list order (explicit cover pick first).
+    // `coverImage` above stays as the first-tile shorthand so nothing that
+    // only wants one image has to learn the array.
+    coverImages: (r.covers ?? []).map((c) => cardImages(c.serie, c.setcode, c.local)),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -127,7 +143,8 @@ async function summaryQuery(
             COALESCE(agg.owned_count, 0)  AS owned_count,
             COALESCE(agg.owned_copies, 0) AS owned_copies,
             agg.market_minor,
-            cover.serie AS cover_serie, cover.setcode AS cover_setcode, cover.local_id AS cover_local
+            cover.serie AS cover_serie, cover.setcode AS cover_setcode, cover.local_id AS cover_local,
+            mosaic.covers
        FROM card_list cl
   LEFT JOIN LATERAL (
          SELECT count(*) AS item_count,
@@ -173,6 +190,33 @@ async function summaryQuery(
                 )
           LIMIT 1
        ) cover ON true
+  LEFT JOIN LATERAL (
+         -- The mosaic's tiles: the first COVER_MAX DISTINCT CARDS in list
+         -- order, with the explicit cover pick promoted to tile one. Distinct
+         -- by card, not variant/item, because a static list legitimately holds
+         -- four copies of one card and a cover showing the same art four times
+         -- reads as a rendering bug, not a quantity.
+         SELECT json_agg(json_build_object('serie', t.serie, 'setcode', t.setcode, 'local', t.local_id)
+                         ORDER BY t.pick, t.position, t.added_at) AS covers
+           FROM (
+             SELECT d.*
+               FROM (
+                 SELECT DISTINCT ON (cv.card_id)
+                        ser.tcgdex_id AS serie, cs.tcgdex_id AS setcode, c.local_id,
+                        li3.position, li3.added_at,
+                        (cv.id IS DISTINCT FROM cl.cover_card_variant_id) AS pick
+                   FROM list_item li3
+                   JOIN card_variant cv ON cv.id = li3.card_variant_id
+                   JOIN card c ON c.id = cv.card_id
+                   JOIN card_set cs ON cs.id = c.set_id
+                   JOIN series ser ON ser.id = cs.series_id
+                  WHERE li3.list_id = cl.id AND li3.card_variant_id IS NOT NULL
+                  ORDER BY cv.card_id, li3.position, li3.added_at
+               ) d
+              ORDER BY d.pick, d.position, d.added_at
+              LIMIT ${COVER_MAX}
+           ) t
+       ) mosaic ON true
       WHERE cl.user_id = $1
         AND (cl.deleted_at IS NOT NULL) = $2
         ${filter}

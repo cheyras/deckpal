@@ -568,6 +568,8 @@ export interface ListSummary {
   progress: ListProgress | null
   marketValueUsd: number | null
   coverImage: { low: string; high: string } | null
+  /** Up to 8 distinct cards for the index tile's mosaic, cover pick first. */
+  coverImages: { low: string; high: string }[]
   createdAt: string
   updatedAt: string
 }
