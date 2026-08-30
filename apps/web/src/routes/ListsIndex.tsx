@@ -16,6 +16,48 @@ const KIND_META: Record<ListKind, { label: string }> = {
   pokedex_binder: { label: 'Pokédex Binder' },
 }
 
+/**
+ * The cover as a grid of the list's own cards (2026-08-29 walkthrough,
+ * deferred item: "like a grid of the cards in the list … determine how many
+ * across smartly … a maximum that will show").
+ *
+ * The layout ladder only ever uses shapes it can FILL — 4×2, 3×2, 2×2, 3×1,
+ * 2×1 — because a half-empty second row reads as a loading failure, not a
+ * design. One card keeps the old single-art cover; past eight the rest are
+ * summarised by the +N chip rather than shrunk into confetti (the server
+ * sends at most 8 — distinct cards, cover pick first).
+ */
+function CoverMosaic({ list }: { list: ListSummary }) {
+  const tiles = list.coverImages ?? []
+  if (tiles.length === 0) {
+    return <Icon name="lists" size={40} className="text-icon-muted" />
+  }
+  if (tiles.length === 1) {
+    return <img src={tiles[0]!.low} alt="" className="h-full w-full object-cover" style={{ objectPosition: 'center 22%' }} />
+  }
+  const [cols, rows] =
+    tiles.length >= 8 ? [4, 2] : tiles.length >= 6 ? [3, 2] : tiles.length >= 4 ? [2, 2] : tiles.length === 3 ? [3, 1] : [2, 1]
+  const shown = tiles.slice(0, cols * rows)
+  const more = list.itemCount - shown.length
+  return (
+    <>
+      <div
+        className="grid h-full w-full gap-[2px]"
+        style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}
+      >
+        {shown.map((img, i) => (
+          <img key={i} src={img.low} alt="" className="h-full w-full object-cover" style={{ objectPosition: 'center 25%' }} />
+        ))}
+      </div>
+      {more > 0 && (
+        <span className="absolute bottom-[8px] right-[8px] rounded-full bg-surface-primary/80 px-[8px] py-[2px] text-[12px] font-bold text-text-secondary backdrop-blur-sm">
+          +{more}
+        </span>
+      )}
+    </>
+  )
+}
+
 function ListCard({ list }: { list: ListSummary }) {
   return (
     <Link
@@ -26,11 +68,7 @@ function ListCard({ list }: { list: ListSummary }) {
     >
       {/* cover */}
       <div className="relative flex h-[132px] items-center justify-center overflow-hidden bg-surface-secondary">
-        {list.coverImage ? (
-          <img src={list.coverImage.low} alt="" className="h-full w-full object-cover" style={{ objectPosition: 'center 22%' }} />
-        ) : (
-          <Icon name="lists" size={40} className="text-icon-muted" />
-        )}
+        <CoverMosaic list={list} />
         <span className="absolute right-[10px] top-[10px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[14px] font-bold text-text-secondary backdrop-blur-sm">
           {KIND_META[list.kind].label}
         </span>

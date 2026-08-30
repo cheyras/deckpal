@@ -486,9 +486,14 @@ summary aggregates.
                "itemCount": 12, "progress": { "owned": 3, "total": 12, "pct": 25, "copies": 4 },
                "marketValueUsd": 67.12,
                "coverImage": { "low": "…", "high": "…" },
+               "coverImages": [ { "low": "…", "high": "…" } ],
                "createdAt": "…", "updatedAt": "…" } ] }
 ```
-`progress` is `null` for `static` lists (no collection tie).
+`progress` is `null` for `static` lists (no collection tie). `coverImages` is
+up to 8 DISTINCT CARDS in list order with the explicit cover pick first —
+the index tile's mosaic (distinct by card, because a static list holding four
+copies of one card is a quantity, not four tiles). `coverImage` remains the
+first-tile shorthand.
 
 ### GET /deckpal/api/lists/:id
 One list's summary plus its resolved items in position order. Card items carry
