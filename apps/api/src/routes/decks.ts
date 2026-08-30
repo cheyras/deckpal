@@ -36,10 +36,15 @@ export const decksRouter: Router = Router();
  * Live schema (read from the DB, not SCHEMA.md's richer proposal):
  *   deck(id uuid, user_id, format_code, glc_type, name, description, cover_card_id,
  *        cover_render, is_favorite, created_at, updated_at)
- *   deck_card(deck_id, card_id, user_id, quantity smallint 1..60) PK(deck_id,card_id)
- * deck_card is variant-agnostic (keyed by card.id, a print). Same print on two import
- * lines (PH vs non-PH) is summed. Unresolved lines cannot be stored (card_id NOT NULL,
- * FK) — they are reported to the caller, never dropped silently.
+ *   deck_card(deck_id, card_id, card_variant_id, user_id, quantity smallint 1..60)
+ *             PK(deck_id, card_variant_id)   — migration 051
+ * deck_card is VARIANT-scoped: one row per printing, so "2 normals and 1 reverse
+ * holofoil" is two rows. card_id stays denormalised (kept honest by a composite
+ * FK) so the legality engine and every card-level join stay card-keyed — the
+ * ENGINE model aggregates rows by card before validating, since the rules of
+ * the game do not care which printing you sleeve. `owned` and `price` are the
+ * ROW's variant's own numbers now, not a rollup/representative. Unresolved
+ * import lines cannot be stored (FKs) — reported to the caller, never dropped.
  *
  * Single default user, user_id threaded everywhere. Parameterized queries only —
  * users paste decklists, treat every value as untrusted.
@@ -160,6 +165,12 @@ function logPreviewRateOk(userId: string): boolean {
 
 interface DeckRow {
   card_id: string;
+  card_variant_id: string;
+  variant_kind_code: string;
+  variant_display: string | null;
+  variant_kind_display: string;
+  variant_tier: string | null;
+  variant_is_primary: boolean;
   quantity: number;
   tcgdex_id: string;
   local_id: string;
@@ -210,7 +221,9 @@ interface DeckMeta {
 }
 
 const DECK_CARD_SELECT = `
-  SELECT dc.card_id, dc.quantity,
+  SELECT dc.card_id, dc.card_variant_id, dc.quantity,
+         cvd.variant_kind_code, cvd.display_name AS variant_display, vk.display_name AS variant_kind_display,
+         vtr.tier AS variant_tier, cvd.is_primary AS variant_is_primary,
          c.tcgdex_id, c.local_id, c.local_id_numeric, c.number_sort, c.name, c.name_normalized,
          c.category, c.stage, c.suffix, c.trainer_type, c.energy_type, c.hp, c.retreat,
          c.regulation_mark, c.evolve_from, c.released_on, c.rarity, c.illustrator,
@@ -218,34 +231,34 @@ const DECK_CARD_SELECT = `
          ser.tcgdex_id AS series_tcgdex_id, ser.slug AS series_slug,
          price.market_minor, price.currency_code,
          owned.owned_qty,
-         buy.tcgplayer_url, buy.tcgplayer_product_id, buy.tcgplayer_printing, buy.tcgplayer_mass_entry
+         cvd.tcgplayer_url, cvd.tcgplayer_product_id, cvd.tcgplayer_printing, cvd.tcgplayer_mass_entry
     FROM deck_card dc
+    JOIN card_variant cvd ON cvd.id = dc.card_variant_id
+    JOIN variant_kind vk ON vk.code = cvd.variant_kind_code
+    LEFT JOIN variant_tier_resolved vtr ON vtr.card_variant_id = cvd.id
     JOIN card c ON c.id = dc.card_id
     JOIN card_set s ON s.id = c.set_id
     JOIN series ser ON ser.id = s.series_id
     LEFT JOIN LATERAL (
+           -- THE ROW'S OWN PRINTING'S price — the whole point of migration
+           -- 051. No representative fallback: an unpriced printing is null,
+           -- exactly as it is on a list row.
            SELECT pc.market_minor, pc.currency_code
-             FROM card_variant cvp
-             JOIN price_current pc ON pc.card_variant_id = cvp.id
+             FROM price_current pc
+            WHERE pc.card_variant_id = dc.card_variant_id
               AND pc.source_code = 'tcgcsv' AND pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
-            WHERE cvp.card_id = c.id
-            ORDER BY cvp.is_primary DESC, cvp.sort_order LIMIT 1
+            LIMIT 1
          ) price ON true
     LEFT JOIN LATERAL (
+           -- Owned copies OF THIS PRINTING, not a whole-card rollup — "You
+           -- own 0 / 1" stops lying when you own a different printing.
            SELECT COALESCE(SUM(ci.quantity), 0) AS owned_qty
-             FROM card_variant cv
-             JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = dc.user_id
-            WHERE cv.card_id = c.id
+             FROM collection_item ci
+            WHERE ci.card_variant_id = dc.card_variant_id AND ci.user_id = dc.user_id
          ) owned ON true
-    LEFT JOIN LATERAL (
-           SELECT cv.tcgplayer_url, cv.tcgplayer_product_id, cv.tcgplayer_printing, cv.tcgplayer_mass_entry
-             FROM card_variant cv
-            WHERE cv.card_id = c.id
-            ORDER BY cv.is_primary DESC, cv.sort_order LIMIT 1
-         ) buy ON true
    WHERE dc.deck_id = $1 AND dc.user_id = $2
    ORDER BY CASE c.category WHEN 'Pokemon' THEN 0 WHEN 'Trainer' THEN 1 ELSE 2 END,
-            c.name, c.number_sort`;
+            c.name, c.number_sort, cvd.sort_order`;
 
 function sectionOf(cat: DeckRow['category']): Section {
   return cat === 'Pokemon' ? 'pokemon' : cat === 'Trainer' ? 'trainer' : 'energy';
@@ -307,12 +320,26 @@ function toFacts(r: DeckRow, types: PokemonType[]): CardFacts {
 }
 
 function buildDeckModel(meta: DeckMeta, rows: DeckRow[], types: Map<number, PokemonType[]>, formatOverride?: FormatCode): { deck: Deck; facts: CardFacts[] } {
+  // The rules of the game do not care which printing you sleeve, so the
+  // ENGINE model aggregates the per-variant rows back to one entry per card
+  // (2 Normal + 1 RH = one entry, quantity 3). This is also what keeps the
+  // legality engine's prints/reprint logic exactly as it was before 051 —
+  // it never sees two "copies" of one card id.
   const entries: DeckEntry[] = [];
   const facts: CardFacts[] = [];
+  const byCard = new Map<number, DeckEntry>();
   for (const r of rows) {
-    const f = toFacts(r, types.get(Number(r.card_id)) ?? []);
+    const id = Number(r.card_id);
+    const existing = byCard.get(id);
+    if (existing) {
+      existing.quantity = Math.min(60, existing.quantity + r.quantity);
+      continue;
+    }
+    const f = toFacts(r, types.get(id) ?? []);
     facts.push(f);
-    entries.push({ card: f, quantity: r.quantity, section: sectionOf(r.category) });
+    const e: DeckEntry = { card: f, quantity: r.quantity, section: sectionOf(r.category) };
+    byCard.set(id, e);
+    entries.push(e);
   }
   return {
     deck: {
@@ -342,6 +369,15 @@ function shapeCard(r: DeckRow) {
   const owned = Number(r.owned_qty);
   return {
     cardId: r.tcgdex_id,
+    // Which PRINTING this row is (migration 051). Same shape as a list item's
+    // `variant`, so VariantChip renders both.
+    variantId: Number(r.card_variant_id),
+    variant: {
+      kind: r.variant_kind_code,
+      displayName: r.variant_display ?? r.variant_kind_display,
+      tier: r.variant_tier,
+      isPrimary: r.variant_is_primary,
+    },
     name: r.name,
     number: r.local_id,
     numberSort: r.number_sort,
@@ -661,7 +697,10 @@ decksRouter.post(
 );
 
 // ── card add / set-quantity / remove ──────────────────────────────────────────
-// deck_card is keyed by card.id (bigint). The UI speaks tcgdex ids; resolve first.
+// deck_card is keyed by (deck, card_variant) since migration 051. The UI
+// speaks tcgdex card ids (+ an optional variantId); resolve the card first,
+// then the printing — omitted variantId means the card's primary variant, the
+// same default every import and the pre-051 backfill used.
 async function resolveCardId(client: pg.PoolClient, ref: string): Promise<number> {
   // numeric → catalogue id; else tcgdex id (english print)
   if (/^\d+$/.test(ref)) {
@@ -679,6 +718,27 @@ async function resolveCardId(client: pg.PoolClient, ref: string): Promise<number
  * agent holding a stale id could keep editing something the user believes is
  * gone. Restore it first (POST /decks/:id/restore), then edit it.
  */
+/**
+ * Resolve which PRINTING a write means. An explicit variantId must belong to
+ * the card (a variant of a different card is a caller bug, said plainly);
+ * omitted means the card's primary variant.
+ */
+async function resolveVariantId(client: pg.PoolClient, cardId: number, variantRef: unknown): Promise<number> {
+  if (variantRef !== undefined && variantRef !== null && String(variantRef).trim() !== '') {
+    const vid = Number(variantRef);
+    if (!Number.isInteger(vid) || vid <= 0) throw badRequest('variantId must be a positive integer');
+    const r = await client.query(`SELECT 1 FROM card_variant WHERE id = $1 AND card_id = $2`, [vid, cardId]);
+    if (!r.rows[0]) throw badRequest(`variant ${vid} is not a printing of that card`);
+    return vid;
+  }
+  const r = await client.query<{ id: string }>(
+    `SELECT id FROM card_variant WHERE card_id = $1 ORDER BY is_primary DESC, sort_order LIMIT 1`,
+    [cardId],
+  );
+  if (!r.rows[0]) throw notFound(`card ${cardId} has no printings`);
+  return Number(r.rows[0].id);
+}
+
 async function assertDeck(client: pg.PoolClient, deckId: string, userId: string): Promise<void> {
   const r = await client.query(`SELECT 1 FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`, [
     deckId,
@@ -704,12 +764,13 @@ decksRouter.post(
     await withTx(async (client) => {
       await assertDeck(client, deckId, userId);
       const cardId = await resolveCardId(client, ref);
+      const variantId = await resolveVariantId(client, cardId, body.variantId ?? body.cardVariantId);
       await client.query(
-        `INSERT INTO deck_card (deck_id, card_id, user_id, quantity)
-              VALUES ($1, $2, $3, LEAST($4, 60))
-         ON CONFLICT (deck_id, card_id)
-         DO UPDATE SET quantity = LEAST(deck_card.quantity + $4, 60)`,
-        [deckId, cardId, userId, qty],
+        `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity)
+              VALUES ($1, $2, $3, $4, LEAST($5, 60))
+         ON CONFLICT (deck_id, card_variant_id)
+         DO UPDATE SET quantity = LEAST(deck_card.quantity + $5, 60)`,
+        [deckId, cardId, variantId, userId, qty],
       );
       await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1`, [deckId]);
       await recordDeckChange(client, deckId, { source, note: versionNote });
@@ -737,13 +798,34 @@ decksRouter.patch(
     await withTx(async (client) => {
       await assertDeck(client, deckId, userId);
       const cardId = await resolveCardId(client, ref);
+      // Which printing? Explicit variantId wins. Without one: if the card is
+      // in the deck as exactly one printing, that row is obviously the one
+      // meant (and every pre-051 caller keeps working); as several, the
+      // request is genuinely ambiguous and 400s rather than guessing which
+      // printing to resize. A card not in the deck yet targets its primary.
+      const explicit = body.variantId ?? body.cardVariantId ?? req.query.variant;
+      let variantId: number;
+      if (explicit !== undefined && explicit !== null && String(explicit).trim() !== '') {
+        variantId = await resolveVariantId(client, cardId, explicit);
+      } else {
+        const inDeck = await client.query<{ card_variant_id: string }>(
+          `SELECT card_variant_id FROM deck_card WHERE deck_id = $1 AND card_id = $2 AND user_id = $3`,
+          [deckId, cardId, userId],
+        );
+        if (inDeck.rows.length > 1) {
+          throw badRequest(
+            `that card is in this deck as ${inDeck.rows.length} printings — pass variantId to say which one`,
+          );
+        }
+        variantId = inDeck.rows[0] ? Number(inDeck.rows[0].card_variant_id) : await resolveVariantId(client, cardId, null);
+      }
       if (qty === 0) {
-        await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_id = $2 AND user_id = $3`, [deckId, cardId, userId]);
+        await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_variant_id = $2 AND user_id = $3`, [deckId, variantId, userId]);
       } else {
         await client.query(
-          `INSERT INTO deck_card (deck_id, card_id, user_id, quantity) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (deck_id, card_id) DO UPDATE SET quantity = $4`,
-          [deckId, cardId, userId, qty],
+          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (deck_id, card_variant_id) DO UPDATE SET quantity = $5`,
+          [deckId, cardId, variantId, userId, qty],
         );
       }
       await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1`, [deckId]);
@@ -769,7 +851,16 @@ decksRouter.delete(
     await withTx(async (client) => {
       await assertDeck(client, deckId, userId);
       const cardId = await resolveCardId(client, ref);
-      await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_id = $2 AND user_id = $3`, [deckId, cardId, userId]);
+      // ?variant=<id> (or body.variantId) removes ONE printing; without it the
+      // whole card goes, every printing — which is both what "remove this
+      // card" means and exactly what pre-051 callers expect.
+      const explicit = body.variantId ?? body.cardVariantId ?? req.query.variant;
+      if (explicit !== undefined && explicit !== null && String(explicit).trim() !== '') {
+        const variantId = await resolveVariantId(client, cardId, explicit);
+        await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_variant_id = $2 AND user_id = $3`, [deckId, variantId, userId]);
+      } else {
+        await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_id = $2 AND user_id = $3`, [deckId, cardId, userId]);
+      }
       await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1`, [deckId]);
       await recordDeckChange(client, deckId, { source, note: versionNote });
     });
@@ -844,10 +935,25 @@ decksRouter.post(
         [userId, format, glcType, name],
       );
       const id = row.rows[0]!.id;
+      // PTCG Live text has no printing information, so every imported line
+      // lands on the card's PRIMARY variant — the same representative the
+      // pre-051 read paths always assumed, resolved in one batch. Said in the
+      // response (`import.variantNote`) rather than silently.
+      const primaries = byCard.size
+        ? await client.query<{ card_id: string; id: string }>(
+            `SELECT DISTINCT ON (card_id) card_id, id FROM card_variant
+              WHERE card_id = ANY($1::bigint[])
+              ORDER BY card_id, is_primary DESC, sort_order`,
+            [[...byCard.keys()]],
+          )
+        : { rows: [] as { card_id: string; id: string }[] };
+      const primaryOf = new Map(primaries.rows.map((r) => [Number(r.card_id), Number(r.id)]));
       for (const [cardId, quantity] of byCard) {
+        const variantId = primaryOf.get(cardId);
+        if (variantId === undefined) continue; // catalog corruption; unresolvable is already reported
         await client.query(
-          `INSERT INTO deck_card (deck_id, card_id, user_id, quantity) VALUES ($1, $2, $3, $4)`,
-          [id, cardId, userId, quantity],
+          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)`,
+          [id, cardId, variantId, userId, quantity],
         );
       }
       await recordDeckChange(client, id, { source: writeSource }); // seed v1 with the imported list
@@ -865,6 +971,9 @@ decksRouter.post(
         distinctCards: byCard.size,
         unresolved: unresolved.map((w) => w.message),
         warnings: (resolved.importWarnings ?? []).filter((w) => w.code !== 'UNRESOLVED_CARD'),
+        // Decklist text carries no printing info; every line was stored as
+        // the card's primary variant (migration 051).
+        variantNote: 'Imported lines have no printing information — each card was added as its primary printing.',
       },
     });
   }),
@@ -883,7 +992,10 @@ decksRouter.get(
 
     if (kind === 'massentry') {
       // Buy format (§1.9): use the stored per-variant Mass Entry line when present,
-      // else a bare name line. Never share the PTCGL formatter.
+      // else a bare name line. Never share the PTCGL formatter. Deliberately
+      // NOT aggregated by card (unlike PTCGL below): each row is a printing
+      // with its own TCGplayer token, and buying is exactly where the
+      // printing matters.
       const text = serializeMassEntry(
         rows.map((r) => ({
           quantity: r.quantity,
@@ -900,19 +1012,31 @@ decksRouter.get(
 
     // PTCGL: emit real PTCGL vocabulary (set codes, brace Energy, stripped zeros)
     // with structured warnings for anything Live cannot resolve — see deck/export.ts.
-    const exportRows: ExportRow[] = rows.map((r) => ({
-      cardId: Number(r.card_id),
-      tcgdexId: r.tcgdex_id,
-      quantity: r.quantity,
-      name: r.name,
-      localId: r.local_id,
-      category: r.category,
-      energyType: r.energy_type,
-      setTcgdexId: r.set_tcgdex_id,
-      setName: r.set_name,
-    }));
-    const { text, warnings } = await buildPtcglExport(exportRows, (row) => findLiveReprint(dbHandle(), row));
-    userCache(res);
+    // PTCGL lines are PER CARD: since migration 051 the deck rows are per
+    // printing, so "2 Normal + 1 RH" must aggregate to "3 Shieldon PBL 61",
+    // never two lines of the same card.
+    const byCardExport = new Map<number, ExportRow>();
+    for (const r of rows) {
+      const id = Number(r.card_id);
+      const cur = byCardExport.get(id);
+      if (cur) {
+        cur.quantity = Math.min(60, cur.quantity + r.quantity);
+        continue;
+      }
+      byCardExport.set(id, {
+        cardId: id,
+        tcgdexId: r.tcgdex_id,
+        quantity: r.quantity,
+        name: r.name,
+        localId: r.local_id,
+        category: r.category,
+        energyType: r.energy_type,
+        setTcgdexId: r.set_tcgdex_id,
+        setName: r.set_name,
+      });
+    }
+    const exportRows: ExportRow[] = [...byCardExport.values()];
+    const { text, warnings } = await buildPtcglExport(exportRows, (row) => findLiveReprint(dbHandle(), row));    userCache(res);
     res.json({ format: kind, text, warnings });
   }),
 );
@@ -1007,6 +1131,8 @@ decksRouter.get(
       ownedMinor += (unit ?? 0) * Math.min(owned, r.quantity);
       return {
         cardId: r.tcgdex_id,
+        variantId: Number(r.card_variant_id),
+        variant: r.variant_display ?? r.variant_kind_display,
         name: r.name,
         number: r.local_id,
         setId: r.set_tcgdex_id,
@@ -1031,6 +1157,8 @@ decksRouter.get(
         const massEntry = deckMeLine(r, missingQty);
         return {
           cardId: r.tcgdex_id,
+          variantId: Number(r.card_variant_id),
+          variant: r.variant_display ?? r.variant_kind_display,
           name: r.name,
           number: r.local_id,
           setId: r.set_tcgdex_id,
@@ -1085,8 +1213,9 @@ decksRouter.get(
         name: r.name,
         number: r.local_id,
         setId: r.set_tcgdex_id,
-        // Deck rows are variant-agnostic, so there is no variant label to give.
-        variant: null,
+        // Since migration 051 the row IS a printing — name it, so the cart
+        // line buys the variant actually sleeved.
+        variant: r.variant_display ?? r.variant_kind_display,
       });
     }
     const build = buildCart(inputs);
@@ -1155,17 +1284,77 @@ async function battleRecordByVersion(deckId: string): Promise<Map<number, WinLos
 
 const snapshotCount = (cards: SnapshotEntry[]): number => cards.reduce((n, c) => n + c.quantity, 0);
 
-/** Card-list delta between two snapshots, keyed by catalogue card id. */
-function diffSnapshots(prev: SnapshotEntry[], cur: SnapshotEntry[]) {
-  const prevBy = new Map(prev.map((c) => [c.cardId, c]));
-  const curBy = new Map(cur.map((c) => [c.cardId, c]));
-  const added = cur.filter((c) => !prevBy.has(c.cardId))
-    .map((c) => ({ name: c.name, tcgdexId: c.tcgdexId, quantity: c.quantity }));
-  const removed = prev.filter((c) => !curBy.has(c.cardId))
-    .map((c) => ({ name: c.name, tcgdexId: c.tcgdexId, quantity: c.quantity }));
-  const changed = cur.filter((c) => prevBy.has(c.cardId) && prevBy.get(c.cardId)!.quantity !== c.quantity)
-    .map((c) => ({ name: c.name, tcgdexId: c.tcgdexId, from: prevBy.get(c.cardId)!.quantity, to: c.quantity }));
-  return { added, removed, changed };
+/**
+ * Card-list delta between two snapshots.
+ *
+ * Snapshots are one entry per PRINTING since migration 051, and pre-051
+ * snapshots are one entry per card with no variantId — so the diff runs at
+ * the CARD level (totals aggregated first), which makes an old snapshot vs a
+ * new one of the same cards read as "no change", never as everything having
+ * swapped. Printings get their own quiet lane: when a card's total is
+ * unchanged but its printing mix moved (both sides variant-aware), that is a
+ * `printings` line naming the swap — and nothing is said about printings
+ * anywhere else, per the plan: name the variant when two printings of one
+ * card diverge, stay quiet about it when they don't.
+ */
+export function diffSnapshots(prev: SnapshotEntry[], cur: SnapshotEntry[]) {
+  interface Agg {
+    name: string;
+    tcgdexId: string;
+    quantity: number;
+    /** printing mix, only when EVERY entry of the card names its variant. */
+    variants: Map<number, { quantity: number; label: string }> | null;
+  }
+  const aggregate = (list: SnapshotEntry[]): Map<number, Agg> => {
+    const by = new Map<number, Agg>();
+    for (const c of list) {
+      let a = by.get(c.cardId);
+      if (!a) {
+        a = { name: c.name, tcgdexId: c.tcgdexId, quantity: 0, variants: new Map() };
+        by.set(c.cardId, a);
+      }
+      a.quantity += c.quantity;
+      if (a.variants !== null && typeof c.variantId === 'number') {
+        const v = a.variants.get(c.variantId);
+        a.variants.set(c.variantId, {
+          quantity: (v?.quantity ?? 0) + c.quantity,
+          label: c.variantName ?? v?.label ?? `printing ${c.variantId}`,
+        });
+      } else {
+        a.variants = null; // pre-051 entry — the mix is unknowable
+      }
+    }
+    return by;
+  };
+  const prevBy = aggregate(prev);
+  const curBy = aggregate(cur);
+  const added = [...curBy.entries()].filter(([id]) => !prevBy.has(id))
+    .map(([, c]) => ({ name: c.name, tcgdexId: c.tcgdexId, quantity: c.quantity }));
+  const removed = [...prevBy.entries()].filter(([id]) => !curBy.has(id))
+    .map(([, c]) => ({ name: c.name, tcgdexId: c.tcgdexId, quantity: c.quantity }));
+  const changed = [...curBy.entries()]
+    .filter(([id, c]) => prevBy.has(id) && prevBy.get(id)!.quantity !== c.quantity)
+    .map(([id, c]) => ({ name: c.name, tcgdexId: c.tcgdexId, from: prevBy.get(id)!.quantity, to: c.quantity }));
+  const mixOf = (m: Map<number, { quantity: number; label: string }>): string =>
+    [...m.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, v]) => `${v.quantity}× ${v.label}`)
+      .join(' + ');
+  const printings = [...curBy.entries()]
+    .filter(([id, c]) => {
+      const p2 = prevBy.get(id);
+      if (!p2 || p2.quantity !== c.quantity || !p2.variants || !c.variants) return false;
+      if (p2.variants.size !== c.variants.size) return true;
+      for (const [vid, v] of c.variants) if (p2.variants.get(vid)?.quantity !== v.quantity) return true;
+      return false;
+    })
+    .map(([id, c]) => ({
+      name: c.name,
+      tcgdexId: c.tcgdexId,
+      from: mixOf(prevBy.get(id)!.variants!),
+      to: mixOf(c.variants!),
+    }));
+  return { added, removed, changed, printings };
 }
 
 function parseVersionNumber(v: unknown, field = 'version'): number {
@@ -1328,16 +1517,53 @@ decksRouter.post(
       const skipped = target.cards.filter((c) => !liveIds.has(c.cardId))
         .map((c) => ({ cardId: c.cardId, tcgdexId: c.tcgdexId, name: c.name }));
 
-      // Reconcile deck_card to the snapshot in one pass.
-      await client.query(
-        `DELETE FROM deck_card WHERE deck_id = $1 AND card_id <> ALL($2::bigint[])`,
-        [deckId, apply.map((c) => c.cardId)],
-      );
+      // Resolve each entry to a PRINTING (migration 051). A post-051 snapshot
+      // names its variant; use it if it is still a printing of that card.
+      // A pre-051 snapshot (or a since-retired variant id) falls back to the
+      // card's primary variant — "primary, never a change" is the documented
+      // reading of a variant-less snapshot.
+      const namedVariants = [...new Set(apply.map((c) => c.variantId).filter((v): v is number => typeof v === 'number'))];
+      const validVariant = new Map<number, number>(); // variantId -> cardId
+      if (namedVariants.length) {
+        const rows = await client.query<{ id: string; card_id: string }>(
+          `SELECT id, card_id FROM card_variant WHERE id = ANY($1::bigint[])`,
+          [namedVariants],
+        );
+        for (const r of rows.rows) validVariant.set(Number(r.id), Number(r.card_id));
+      }
+      const primaries = apply.length
+        ? await client.query<{ card_id: string; id: string }>(
+            `SELECT DISTINCT ON (card_id) card_id, id FROM card_variant
+              WHERE card_id = ANY($1::bigint[])
+              ORDER BY card_id, is_primary DESC, sort_order`,
+            [apply.map((c) => c.cardId)],
+          )
+        : { rows: [] as { card_id: string; id: string }[] };
+      const primaryOf = new Map(primaries.rows.map((r) => [Number(r.card_id), Number(r.id)]));
+
+      // One target quantity per printing (two old entries can land on one
+      // primary only in theory, but a sum beats a silent overwrite).
+      const byVariant = new Map<number, { cardId: number; quantity: number }>();
       for (const c of apply) {
+        const vid =
+          typeof c.variantId === 'number' && validVariant.get(c.variantId) === c.cardId
+            ? c.variantId
+            : primaryOf.get(c.cardId);
+        if (vid === undefined) continue;
+        const cur = byVariant.get(vid);
+        byVariant.set(vid, { cardId: c.cardId, quantity: Math.min(60, (cur?.quantity ?? 0) + Math.max(1, c.quantity)) });
+      }
+
+      // Reconcile deck_card to the snapshot in one pass, keyed by printing.
+      await client.query(
+        `DELETE FROM deck_card WHERE deck_id = $1 AND card_variant_id <> ALL($2::bigint[])`,
+        [deckId, [...byVariant.keys()]],
+      );
+      for (const [vid, t] of byVariant) {
         await client.query(
-          `INSERT INTO deck_card (deck_id, card_id, user_id, quantity) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (deck_id, card_id) DO UPDATE SET quantity = $4`,
-          [deckId, c.cardId, userId, Math.min(60, Math.max(1, c.quantity))],
+          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (deck_id, card_variant_id) DO UPDATE SET quantity = $5`,
+          [deckId, t.cardId, vid, userId, t.quantity],
         );
       }
       if (includeStrategy) {

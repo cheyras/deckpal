@@ -1580,6 +1580,14 @@ CREATE TABLE deck (
   CHECK ((glc_type IS NOT NULL) OR format_code <> 'glc')
 );
 
+
+-- Migration 051 (2026-08-29): variant-scoped decks. One row per PRINTING —
+-- PK (deck_id, card_variant_id); card_id KEPT denormalised for card-level
+-- joins (engine, exports), held honest by a composite FK to
+-- card_variant(id, card_id). Backfill: each pre-051 row took its card's
+-- primary variant.
+ALTER TABLE deck_card ADD COLUMN card_variant_id BIGINT NOT NULL; -- (+ FKs, PK swap; see migration)
+
 CREATE TABLE deck_card (
   deck_id  UUID   NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
   card_id  BIGINT NOT NULL REFERENCES card(id) ON DELETE RESTRICT,
