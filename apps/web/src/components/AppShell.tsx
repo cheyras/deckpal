@@ -78,13 +78,23 @@ interface NavItem {
   soon?: boolean
   /** Needs an account. Signed out, the row links to /auth instead of a dead end. */
   gated?: boolean
+  /**
+   * Deck-E (the AI character) may travel to, ring or press this row. Default
+   * true — every top-level page is his to walk someone to. Set false when the
+   * route's SUBTREE hosts a sensitive surface: `/family` is off because
+   * `/family/admin` and `/family/admin/prices` live under it (price approval,
+   * per-member AI quotas, disabling accounts, invites) — the same reason
+   * `/profile` is absent from `ROUTE_ALLOWLIST`. The row then renders as a
+   * plain `<Link>` with none of the `data-decke-*` attributes.
+   */
+  deckeReachable?: boolean
 }
 
 // Order mirrors pkmn.gg's rail (UI-SPEC §3.1). Single-user English-TCG build:
 // "English TCG" expands to the live series list; every other entry is wired.
 const NAV: NavItem[] = [
   { label: 'Pokémon TCG (English)', icon: 'cards', to: '/series', expandable: true },
-  { label: 'Family Collections', icon: 'user', to: '/family', gated: true },
+  { label: 'Family Collections', icon: 'user', to: '/family', gated: true, deckeReachable: false },
   { label: 'My Lists', icon: 'lists', to: '/lists', gated: true },
   { label: 'Deck Builder', icon: 'deck', to: '/decks', gated: true },
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
@@ -156,6 +166,16 @@ function NavRow({
       </Link>
     )
   }
+  if (item.to && item.deckeReachable === false) {
+    // Opted out of Deck-E's reach: the route's subtree hosts a sensitive
+    // surface (see `NavItem.deckeReachable`). Same `<Link>`, none of the
+    // `data-decke-*` attributes, so it is neither travelled to nor pressed.
+    return (
+      <Link to={item.to} className="block">
+        {body}
+      </Link>
+    )
+  }
   if (item.to) {
     return (
       // `data-decke-landmark` is what makes this reachable by Deck-E, and its
@@ -179,15 +199,18 @@ function NavRow({
       //      (The mobile drawer wraps this in a `<div onClick={onClose}>` to
       //      shut the drawer — closing a drawer is chrome, not a write, and it
       //      is what a real tap does too.)
-      //   2. NAVIGATION STAYS ON THE ALLOWLIST. Every `to` in `NAV` above is on
-      //      `ROUTE_ALLOWLIST`, which the audit test in
-      //      `character/host/__tests__/uiTools.test.ts` pins by reading this
-      //      array and running each `to` through `routeAllowed`. It has to be
-      //      pinned rather than eyeballed because `to` is a VARIABLE here: a
-      //      seventh `NAV` entry pointing at `/profile` would inherit this
-      //      marking silently. `resolveClickTarget` refuses an off-allowlist or
-      //      cross-origin `href` at press time as well, so the check exists in
-      //      both places on purpose.
+      //   2. NAVIGATION STAYS ON THE ALLOWLIST. Every `to` in `NAV` above that
+      //      reaches this branch is on `ROUTE_ALLOWLIST` — a row whose subtree
+      //      is sensitive carries `deckeReachable: false` and returns from the
+      //      branch above without any marking (`/family`, which holds
+      //      `/family/admin`). The audit test in
+      //      `character/host/__tests__/uiTools.test.ts` pins this by reading
+      //      this array and running every reachable `to` through `routeAllowed`.
+      //      It has to be pinned rather than eyeballed because `to` is a
+      //      VARIABLE here: a new `NAV` entry pointing at `/profile` would
+      //      inherit this marking silently. `resolveClickTarget` refuses an
+      //      off-allowlist or cross-origin `href` at press time as well, so the
+      //      check exists in both places on purpose.
       //   3. NOT AUTH. The signed-out gated row is the `locked` branch ABOVE,
       //      which returns its own `<Link to="/auth">` carrying neither
       //      attribute — so the sign-up path is not reachable, pointable or

@@ -283,12 +283,19 @@ test('every sidebar route a marked nav row can reach is on the allowlist', () =>
   )
   const m = src.match(/const NAV: NavItem\[\] = \[([\s\S]*?)\n\]/)
   assert.ok(m, 'could not find the NAV array in components/AppShell.tsx')
-  const routes = [...m[1]!.matchAll(/\bto:\s*'([^']*)'/g)].map((x) => x[1]!)
+  // One NAV entry per line. A row carrying `deckeReachable: false` renders as a
+  // plain `<Link>` with no `data-decke-*` marking (its route subtree is
+  // sensitive — `/family` holds `/family/admin`), so Deck-E cannot press it and
+  // its `to` is deliberately NOT required on the allowlist.
+  const routes = m[1]!
+    .split('\n')
+    .filter((line) => /\bto:\s*'[^']*'/.test(line) && !/\bdeckeReachable:\s*false\b/.test(line))
+    .map((line) => line.match(/\bto:\s*'([^']*)'/)![1]!)
 
   // A finder that finds nothing passes vacuously, which reads exactly like
   // "every route is fine". Pin the count so a rename of NAV or a switch to
   // double quotes fails loudly instead of silently approving.
-  assert.ok(routes.length >= 6, `found only ${routes.length} nav routes; the matcher is broken`)
+  assert.ok(routes.length >= 5, `found only ${routes.length} nav routes; the matcher is broken`)
   for (const route of routes) {
     assert.ok(
       routeAllowed(route),

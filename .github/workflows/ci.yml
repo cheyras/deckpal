@@ -81,6 +81,17 @@ jobs:
       - name: PDF export brand mark (pure, no DB)
         run: pnpm --filter deckpal-api test:export
 
+      # The family fork's server-side rules that do not need a database: the
+      # membership access resolver, the invitation service's fail-closed
+      # behaviour and seven-day expiry, the per-member AI quota's Malaysia
+      # midnight reset, manual-price input validation, and the two SQL-text
+      # contracts (migration 052's invitation-only boundary, and 053's RLS
+      # expanding reads without granting cross-owner writes). Its own step
+      # because CI does not run `pnpm -r test`, so an unwired suite never runs —
+      # and this whole feature area was added with no CI step at all.
+      - name: Family fork guards — access, invites, AI quota, prices, RLS text (pure, no DB)
+        run: pnpm --filter deckpal-api test:family
+
       # The variant-classification suite. It lives in `packages/agent-tools`
       # rather than in the API, because that is where `pickVariant` lives — and
       # it pins the HARD CONSTRAINT that the approval card's provenance is a NEW
@@ -143,6 +154,13 @@ jobs:
       # does not run `pnpm -r test`, so an unwired suite never runs at all.
       - name: Insights caption tests (pure, no DB)
         run: pnpm --filter deckpal-web test:insights
+
+      # The family fork's client-side view state (apps/web/src/routes/__tests__):
+      # member sort order, the active-admin gate on the administration screen,
+      # and the selected-member fallback. Same story as the caption suite above:
+      # CI does not run `pnpm -r test`, so an unwired suite never runs at all.
+      - name: Family view-state tests (pure, no DB)
+        run: pnpm --filter deckpal-web test:family
 
       # The chunked price-history replay's resume protocol. A two-year backfill
       # is ~16 sequential workflow runs and its failure mode is a run that
