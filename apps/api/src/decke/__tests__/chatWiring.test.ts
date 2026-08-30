@@ -106,9 +106,17 @@ test('the failing-tool ledger is rebuilt per request and handed to the data tool
   assert.match(CODE, /const retryRequested = readerAsksRetry\(latestUserText\(messages\)\)/);
   // Threaded in. A ledger that is built and not passed is this repository's
   // most repeated defect, and is exactly what happened to the two guards above.
-  assert.match(CODE, /\n\s*failing,\r?\n\s*retryRequested,\r?\n\s*conversationId,/);
+  assert.match(CODE, /\n\s*failing,\r?\n\s*retryRequested,/);
   // The reader's OWN words are the only bypass — never the model's.
   assert.doesNotMatch(CODE, /readerAsksRetry\((?!latestUserText)/);
+});
+
+test('the already-told ledger is rebuilt per request and handed to the data tools', () => {
+  // Same source, lifetime and argument as `failing` above — and the same
+  // defect class if unthreaded: `toldAlready.ts` with no caller is a green
+  // suite annotating nothing.
+  assert.match(CODE, /const told = priorSummaries\(messages\)/);
+  assert.match(CODE, /priorSummaries: told,/);
 });
 
 test('the conversation id is read from the body and used for nothing but the log', () => {

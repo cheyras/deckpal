@@ -131,6 +131,7 @@ import {
   seedObservedIds,
 } from '../apps/api/dist/decke/turnGuards.js'
 import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
+import { priorSummaries } from '../apps/api/dist/decke/toldAlready.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -499,6 +500,9 @@ async function serve(request) {
   // makes for its own bypass. See `decke/failing.ts`.
   const failing = failingTools(messages)
   const retryRequested = readerAsksRetry(latestUserText(messages))
+  // What the reader has already been shown, tool by tool — same reconstruct-
+  // from-the-wire shape as `failing` above. See `decke/toldAlready.ts`.
+  const told = priorSummaries(messages)
 
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
@@ -765,6 +769,13 @@ async function serve(request) {
           // reader's own "try again", the only thing that closes the circuit.
           failing,
           retryRequested,
+          // ── AND WHAT THEY HAVE ALREADY BEEN SHOWN ────────────────────────
+          //
+          // A read whose summary matches one the reader already saw gets a
+          // one-line annotation on the MODEL's copy only — the chip stays
+          // honest about the lookup that really ran. Data tools only: the
+          // deep tier's sub-agents have no reader to have told anything to.
+          priorSummaries: told,
           // Log-only, for the one line a tripped breaker writes.
           conversationId,
           grounding: groundingForTools,
