@@ -112,6 +112,46 @@ export async function snapshotAllUsers(
   };
 }
 
+export type PriceGrain = 'day' | 'week' | 'month';
+
+/** How stale a price may be, per tier: the grain's own length, plus the 2 days
+ *  the daily band already allowed for a late or missed ingest. */
+export const GRAIN_STALENESS: Record<PriceGrain, number> = { day: 2, week: 9, month: 33 };
+
+export interface PriceGrainBands {
+  /** First day still held at DAILY grain, or null if nothing is rolled up. */
+  dayFloor: string | null;
+  /** Oldest day covered by a WEEK bucket, or null if there is no weekly tier. */
+  weekFloor: string | null;
+}
+
+/**
+ * Which price tier covers day `d`, and therefore how stale a price for it may
+ * legitimately be.
+ *
+ * The gate below used to be a flat 2 days, which was right when every day in
+ * history had a row of its own. Since the retention tiers landed (migration
+ * 048) a day in the weekly band has no price OF ITS OWN by design — the nearest
+ * reading is that week's close, up to 9 days back. A flat gate turns that into
+ * "no price observation within 2 day(s)" and skips every day past the daily
+ * window, which would make `snapshot-backfill` useless for exactly the range it
+ * exists to repair.
+ *
+ * Scaling the gate is NOT the same as loosening it. Within each band the gate
+ * still refuses a price older than that band can explain, so a genuine ingest
+ * outage still reads as an outage rather than as the tiers doing their job.
+ * What the reconstruction loses is DISCLOSED (`BackfillResult.grains`) rather
+ * than hidden: a value point rebuilt in the weekly band carries an up-to-9-day
+ * old close, and that is the cost of the tiers, not a defect.
+ *
+ * Pure, and exported, because it is the whole of the new policy.
+ */
+export function grainForDay(d: string, bands: PriceGrainBands): PriceGrain {
+  if (!bands.dayFloor || d >= bands.dayFloor) return 'day';
+  if (bands.weekFloor && d >= bands.weekFloor) return 'week';
+  return 'month';
+}
+
 export interface BackfillOpts {
   from: string;
   to: string;
@@ -119,14 +159,15 @@ export interface BackfillOpts {
    * How stale a price may be and still be used for a given day, in days.
    *
    * This is the honesty knob. Reconstructing a past day needs a price FOR that
-   * day; when the nearest earlier observation is weeks old, carrying it forward
-   * does not recover history, it draws a flat line and calls it market data.
-   * At the default of 2 a normally-fed database (prices land daily) backfills
-   * cleanly, and a real ingestion outage is REFUSED rather than papered over —
-   * such a day is reported in `skipped`, not written.
+   * day; when the nearest earlier reading is older than its own tier can
+   * explain, carrying it forward does not recover history, it draws a flat line
+   * and calls it market data. Such a day is reported in `skipped`, not written.
    *
-   * Raise it only deliberately, knowing the resulting segment is carried
-   * forward rather than observed.
+   * UNSET is the right setting: the gate is then derived per day from the tier
+   * covering it (`GRAIN_STALENESS`) — 2 days in the daily band, 9 in the weekly
+   * one, 33 in the monthly one. Setting it pins ONE number across every tier,
+   * which is necessarily either too strict for old days or too loose for recent
+   * ones.
    */
   maxPriceStalenessDays?: number;
 }
@@ -136,6 +177,60 @@ export interface BackfillResult {
   inserted: number;
   /** Days that had no price data fresh enough to reconstruct honestly. */
   skipped: { date: string; reason: string }[];
+  /**
+   * How many days were rebuilt against each tier, and the staleness that tier
+   * allows. The disclosed cost of tiered retention — reported, never stored,
+   * because the number belongs to the reconstruction rather than to the value.
+   */
+  grains: { grain: PriceGrain; days: number; maxStaleDays: number }[];
+}
+
+/** The two grain floors the API reader uses, read once per run. */
+export async function priceGrainBands(client: Queryable): Promise<PriceGrainBands> {
+  const { rows: has } = await client.query<{ t: string | null }>(
+    `SELECT to_regclass('public.price_bucket')::text AS t`,
+  );
+  if (!has[0]?.t) return { dayFloor: null, weekFloor: null };
+  const { rows } = await client.query<{ day_floor: string | null; week_floor: string | null }>(
+    `SELECT to_char((SELECT max(bucket_start) + interval '1 month'
+                       FROM price_bucket WHERE grain = 'month'), 'YYYY-MM-DD') AS day_floor,
+            to_char((SELECT min(bucket_start)
+                       FROM price_bucket WHERE grain = 'week'),  'YYYY-MM-DD') AS week_floor`,
+  );
+  return { dayFloor: rows[0]?.day_floor ?? null, weekFloor: rows[0]?.week_floor ?? null };
+}
+
+/**
+ * "What was this variant worth as of day D", across both tiers.
+ *
+ * Daily observations keep their own `captured_at` day. A BUCKET is filed at its
+ * END date and contributes its CLOSE — the value that was true at the end of
+ * the period — and only when that end is at or before D. That `<= D` is the
+ * no-future-peeking rule: a Wednesday in the middle of a week must not be
+ * priced off that week's Sunday close, which had not happened yet.
+ */
+function pricedCte(withBuckets: boolean): string {
+  const bucketEnd = `(CASE WHEN b.grain = 'week' THEN b.bucket_start + 6
+                          ELSE (b.bucket_start + interval '1 month' - interval '1 day')::date END)`;
+  const daily = `
+       SELECT po.card_variant_id, po.source_code,
+              upper(btrim(po.currency_code)) AS currency_code,
+              (po.captured_at AT TIME ZONE 'UTC')::date AS as_of,
+              po.market_minor
+         FROM price_observation po
+        WHERE po.market_minor IS NOT NULL
+          AND po.captured_at < ($1::date + 1)
+          AND po.captured_at >= ($1::date + 1) - ($2::text || ' days')::interval`;
+  if (!withBuckets) return daily;
+  return `${daily}
+        UNION ALL
+       SELECT b.card_variant_id, b.source_code,
+              upper(btrim(b.currency_code)) AS currency_code,
+              ${bucketEnd} AS as_of,
+              b.close_minor AS market_minor
+         FROM price_bucket b
+        WHERE ${bucketEnd} <= $1::date
+          AND ${bucketEnd} >  (($1::date + 1) - ($2::text || ' days')::interval)::date`;
 }
 
 /**
@@ -161,8 +256,10 @@ export async function backfillValuePoints(
   client: Queryable,
   opts: BackfillOpts,
 ): Promise<BackfillResult> {
-  const maxStale = opts.maxPriceStalenessDays ?? 2;
   const skipped: BackfillResult['skipped'] = [];
+  const bands = await priceGrainBands(client);
+  const PRICED = pricedCte(bands.dayFloor != null);
+  const grainDays: Record<PriceGrain, number> = { day: 0, week: 0, month: 0 };
 
   // Which currencies the live table can price today — the yardstick for
   // "did this day lose one?" rather than a hardcoded list that would go stale
@@ -186,19 +283,24 @@ export async function backfillValuePoints(
   for (const { d } of dayRows) {
     days += 1;
 
+    // The gate scales with the tier covering THIS day, unless the caller pinned
+    // it. Named in every message below, so a skip always says which standard
+    // the day failed to meet — an outage and a rolled-up range must not produce
+    // the same sentence.
+    const grain = grainForDay(d, bands);
+    const maxStale = opts.maxPriceStalenessDays ?? GRAIN_STALENESS[grain];
+    const tier = `${grain} grain (${maxStale}-day window)`;
+
     // Freshness gate first: one cheap question before any heavy join.
-    const { rows: fresh } = await client.query<{ newest: string | null; age_days: number | null }>(
-      `SELECT to_char(max(po.captured_at), 'YYYY-MM-DD') AS newest,
-              EXTRACT(day FROM ($1::date + 1) - max(po.captured_at))::int AS age_days
-         FROM price_observation po
-        WHERE po.captured_at < ($1::date + 1)
-          AND po.captured_at >= ($1::date + 1) - ($2::text || ' days')::interval`,
+    const { rows: fresh } = await client.query<{ newest: string | null }>(
+      `SELECT to_char(max(p.as_of), 'YYYY-MM-DD') AS newest FROM (${PRICED}) p`,
       [d, String(maxStale + 1)],
     );
     if (!fresh[0]?.newest) {
       skipped.push({
         date: d,
-        reason: `no price observation within ${maxStale} day(s) of ${d} — the day cannot be reconstructed, only guessed`,
+        reason: `no price reading within ${maxStale} day(s) of ${d} at ${tier} — ` +
+                'the day cannot be reconstructed, only guessed',
       });
       continue;
     }
@@ -209,31 +311,27 @@ export async function backfillValuePoints(
     // looks complete. Name the currencies actually reconstructible for the day,
     // so a per-currency outage is reported rather than absorbed.
     const { rows: curs } = await client.query<{ currency_code: string }>(
-      `SELECT DISTINCT upper(btrim(po.currency_code)) AS currency_code
-         FROM price_observation po
-        WHERE po.market_minor IS NOT NULL
-          AND po.captured_at < ($1::date + 1)
-          AND po.captured_at >= ($1::date + 1) - ($2::text || ' days')::interval`,
+      `SELECT DISTINCT p.currency_code FROM (${PRICED}) p`,
       [d, String(maxStale + 1)],
     );
     const have = new Set(curs.map((c) => c.currency_code));
     for (const c of expectedCurrencies) {
       if (!have.has(c)) {
-        skipped.push({ date: d, reason: `${c} has no price observation within ${maxStale} day(s) of ${d}` });
+        skipped.push({
+          date: d,
+          reason: `${c} has no price reading within ${maxStale} day(s) of ${d} at ${tier}`,
+        });
       }
     }
+    grainDays[grain] += 1;
 
     const { rows } = await client.query<{ user_id: string }>(
-      `WITH latest AS (
-         SELECT DISTINCT ON (po.card_variant_id, po.source_code, po.currency_code)
-                po.card_variant_id,
-                upper(btrim(po.currency_code)) AS currency_code,
-                po.market_minor
-           FROM price_observation po
-          WHERE po.market_minor IS NOT NULL
-            AND po.captured_at < ($1::date + 1)
-            AND po.captured_at >= ($1::date + 1) - ($2::text || ' days')::interval
-          ORDER BY po.card_variant_id, po.source_code, po.currency_code, po.captured_at DESC
+      `WITH priced AS (${PRICED}),
+       latest AS (
+         SELECT DISTINCT ON (p.card_variant_id, p.source_code, p.currency_code)
+                p.card_variant_id, p.currency_code, p.market_minor
+           FROM priced p
+          ORDER BY p.card_variant_id, p.source_code, p.currency_code, p.as_of DESC
        ),
        best AS (
          SELECT card_variant_id, currency_code, max(market_minor) AS best_minor
@@ -273,7 +371,18 @@ export async function backfillValuePoints(
     inserted += rows.length;
   }
 
-  return { days, inserted, skipped };
+  return {
+    days,
+    inserted,
+    skipped,
+    grains: (['day', 'week', 'month'] as const)
+      .filter((g) => grainDays[g] > 0)
+      .map((g) => ({
+        grain: g,
+        days: grainDays[g],
+        maxStaleDays: opts.maxPriceStalenessDays ?? GRAIN_STALENESS[g],
+      })),
+  };
 }
 
 /**
