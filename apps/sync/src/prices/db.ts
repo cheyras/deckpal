@@ -138,6 +138,28 @@ export async function appendObservations(
   return inserted;
 }
 
+// How many history rows are ACTUALLY STORED for one (source, currency, captured_at).
+//
+// `appendObservations` returns what its own INSERT produced, which is legitimately 0 on a
+// replay of an already-ingested stamp — so its return value cannot distinguish "the history
+// was already there" from "the history never landed". Only a read-back can, and a job that
+// destroys or skips its own history while reporting `ok` is invisible without one
+// (AGENTS.md B11). Counts through the PARENT so a row that routed into a partition other
+// than the one `ensureObservationPartition` prepared is still counted.
+export async function countObservations(
+  client: Queryable,
+  sourceId: number,
+  currency: string,
+  capturedAt: Date,
+): Promise<number> {
+  const { rows } = await client.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM price_observation
+      WHERE source_code = $1 AND currency_code = $2 AND captured_at = $3`,
+    [sourceId, currency, capturedAt],
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
 // price_current is the hot snapshot: upsert on (card_variant_id, source_code, currency_code).
 // Always reflects the latest fetch; priced_at carries the source freshness stamp.
 export async function upsertCurrent(
