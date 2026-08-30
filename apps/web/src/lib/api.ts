@@ -684,6 +684,9 @@ export interface DeckSummary {
 }
 export interface DeckCard {
   cardId: string
+  /** Which PRINTING this row is (migration 051) — one row per variant now. */
+  variantId: number
+  variant: { kind: string | null; displayName: string | null; tier: string | null; isPrimary: boolean | null } | null
   name: string
   number: string
   numberSort: string | null
@@ -871,11 +874,17 @@ export interface SnapshotCard {
   tcgdexId: string
   name: string
   quantity: number
+  /** Which printing (migration 051). Absent on pre-051 snapshots. */
+  variantId?: number
+  variantName?: string | null
 }
 export interface DeckVersionDiff {
   added: { name: string; tcgdexId: string; quantity: number }[]
   removed: { name: string; tcgdexId: string; quantity: number }[]
   changed: { name: string; tcgdexId: string; from: number; to: number }[]
+  /** Same card, same total, different printing mix — e.g. "2× Normal" →
+   *  "1× Normal + 1× Reverse Holofoil". Absent from pre-051 responses. */
+  printings?: { name: string; tcgdexId: string; from: string; to: string }[]
 }
 export interface DeckVersionDetail {
   version: number
@@ -1338,12 +1347,22 @@ export const api = {
   restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
-  addDeckCard: (id: string, cardId: string, quantity = 1) =>
-    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity }),
-  setDeckCardQuantity: (id: string, cardId: string, quantity: number) =>
-    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, { quantity }),
-  removeDeckCard: (id: string, cardId: string) =>
-    send<DeckDetail>('DELETE', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`),
+  // variantId (migration 051): which printing. Omitted = the card's primary
+  // variant on add; on set/remove the server targets the card's single deck
+  // row when there is exactly one and 400s when several printings would be
+  // ambiguous — so pass it whenever the row is known.
+  addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number) =>
+    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }),
+  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
+      quantity,
+      ...(variantId != null ? { variantId } : {}),
+    }),
+  removeDeckCard: (id: string, cardId: string, variantId?: number) =>
+    send<DeckDetail>(
+      'DELETE',
+      `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}${variantId != null ? `?variant=${variantId}` : ''}`,
+    ),
   validateDeck: (id: string, format?: DeckFormat, signal?: AbortSignal) =>
     get<{ validation: ValidationResult; cardRefs: Record<string, CardRef> }>(
       `/decks/${encodeURIComponent(id)}/validate${format ? `?format=${format}` : ''}`,

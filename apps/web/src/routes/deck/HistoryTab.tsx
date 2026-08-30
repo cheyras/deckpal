@@ -30,7 +30,12 @@ function VersionRow({
 }) {
   const [open, setOpen] = useState(false)
   const diff = detail?.diff ?? null
-  const diffEmpty = diff !== null && diff.added.length === 0 && diff.removed.length === 0 && diff.changed.length === 0
+  const diffEmpty =
+    diff !== null &&
+    diff.added.length === 0 &&
+    diff.removed.length === 0 &&
+    diff.changed.length === 0 &&
+    (diff.printings?.length ?? 0) === 0
   return (
     <div className="rounded-xl border border-border-default bg-surface-secondary p-[14px]">
       <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[4px]">
@@ -77,6 +82,13 @@ function VersionRow({
           {diff.removed.map((c) => (
             <div key={`r-${c.tcgdexId}`} style={{ color: DIFF_REMOVE }}>
               −{c.quantity} {c.name}
+            </div>
+          ))}
+          {/* Printing swaps: same card, same count, different mix. Neutral
+              colour — nothing entered or left the deck. */}
+          {(diff.printings ?? []).map((c) => (
+            <div key={`p-${c.tcgdexId}`} className="text-text-muted">
+              ⇄ {c.name}: {c.from} → {c.to}
             </div>
           ))}
         </div>

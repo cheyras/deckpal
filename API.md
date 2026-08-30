@@ -620,6 +620,23 @@ the list. Bumps the list's `updated_at`.
 
 ## Decks — builder, engine, intelligence
 
+**Variant-scoped since migration 051.** `deck_card` is one row per PRINTING
+(PK `(deck_id, card_variant_id)`; `card_id` kept denormalised, held honest by
+a composite FK) — "2 Normal + 1 Reverse Holofoil" is two rows. Deck cards
+carry `variantId` + `variant {kind, displayName, tier, isPrimary}`; `owned`
+and `price` are that printing's own numbers, not a rollup/representative.
+The card add/set/remove routes take an optional `variantId` (body, or
+`?variant=` on DELETE): omitted on add = the card's primary printing; omitted
+on PATCH targets the card's single deck row and 400s when several printings
+make it ambiguous; omitted on DELETE removes the whole card, every printing.
+Imports resolve to primary printings and say so (`import.variantNote`). The
+ENGINE (validation/legality) and PTCGL export aggregate rows to card level —
+game rules and Live lines are per card; the Mass Entry export stays per
+printing on purpose (each row has its own TCGplayer token). Version snapshots
+gain `variantId`/`variantName`; the version diff aggregates to card level
+(a pre-051 snapshot reads as "primary, never a change") and reports
+same-total printing swaps in its own `printings` array.
+
 Persistence + validation + interchange on top of the verified deck engine in
 `apps/api/src/deck`. `deck` is keyed by UUID; `deck_card` is **variant-agnostic**
 (keyed by `card.id`, a print — same print on two import lines is summed).

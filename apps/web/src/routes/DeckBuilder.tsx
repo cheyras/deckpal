@@ -13,6 +13,7 @@ import { fmtUsd, fmtPrice } from '../lib/format'
 import { FORMAT_META, LegalBadge } from './deckShared'
 import { type DeckSearch, type DeckTab, DECK_SEARCH_DEFAULTS } from './deckSearch'
 import { CardSheet } from './CardDetail'
+import { VariantChip } from '../components/VariantChip'
 import { StrategyTab } from './deck/StrategyTab'
 import { BattlesTab } from './deck/BattlesTab'
 import { HistoryTab } from './deck/HistoryTab'
@@ -148,42 +149,91 @@ function PrintedSetCode({ code }: { code: string | null }) {
   )
 }
 
-function DeckCardContext({ card, offending, onSet }: {
-  card: DeckCard; offending: boolean; onSet: (q: number) => void
+function DeckCardContext({ entries, offending, onSet, onAdd }: {
+  /** Every printing of this card that is in the deck, in deck order. */
+  entries: DeckCard[]
+  offending: boolean
+  onSet: (variantId: number, q: number) => void
+  onAdd: (variantId: number) => void
 }) {
-  const short = Math.max(0, card.quantity - card.owned)
-  const unit = card.price?.market ?? null
-  const lineTotal = unit != null ? unit * card.quantity : null
+  const first = entries[0]!
+  const totalQty = entries.reduce((n, e) => n + e.quantity, 0)
+  const totalOwned = entries.reduce((n, e) => n + Math.min(e.owned, e.quantity), 0)
+  const short = Math.max(0, totalQty - totalOwned)
+  const lineTotal = entries.reduce<number | null>((n, e) => {
+    const unit = e.price?.market ?? null
+    if (unit == null) return n
+    return (n ?? 0) + unit * e.quantity
+  }, null)
+
+  // The card's full printing list, for "add another printing" — same query
+  // key the card sheet itself uses, so this is a cache read, not a request.
+  const cardDetail = useQuery({ queryKey: ['card', first.cardId], queryFn: ({ signal }) => api.card(first.cardId, signal) })
+  const inDeck = new Set(entries.map((e) => e.variantId))
+  const otherPrintings = (cardDetail.data?.variants ?? []).filter((v) => !inDeck.has(v.variantId))
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   return (
     <div className="mt-[16px]">
-      {/* One row per deck ENTRY for this card, mapped over a list rather than
-          hard-coded, because that is the shape variant-scoped deck records need:
-          2 Normal + 1 Reverse Holofoil is two entries, each with its own count.
-          deck_card is still keyed on card today (see its schema comment), so the
-          list has exactly one element until that migration lands.
+      {/* One row per PRINTING in the deck (migration 051): 2 Normal + 1
+          Reverse Holofoil is two rows, each with its own count, owned number
+          and price — the exact shape the owner asked for on 2026-08-12.
 
           Neither the art nor the name/set heading is repeated here — the card
           body renders both immediately above this tab strip, and showing them
           again was the same card twice, once small and once large. */}
-      <div className="flex items-center justify-between gap-[12px] rounded-lg bg-surface-secondary px-[12px] py-[10px]">
-        <div className="min-w-0 text-[14px] text-text-muted">
-          {card.setName} · {card.setId.toUpperCase()} {card.number}
-          {card.setCode && <span className="ml-[6px] inline-block"><PrintedSetCode code={card.setCode} /></span>}
-          {card.regulationMark && <span className="ml-[6px] rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
-        </div>
-        {/* same mutation the deck row uses, so the tab is not read-only */}
-        <div className="flex shrink-0 items-center gap-[8px]">
-          <span className="text-[14px] text-text-muted">Copies</span>
-          <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-            <Icon name="minus" size={13} />
-          </button>
-          <span className="w-[22px] text-center text-[16px] font-bold text-text-primary">{card.quantity}</span>
-          <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-            <Icon name="plus" size={13} />
-          </button>
-        </div>
+      <div className="flex flex-col gap-[6px]">
+        {entries.map((e) => {
+          const unit = e.price?.market ?? null
+          return (
+            <div key={e.variantId} className="flex items-center justify-between gap-[12px] rounded-lg bg-surface-secondary px-[12px] py-[10px]">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-[8px] gap-y-[2px] text-[14px] text-text-muted">
+                {e.variant && <VariantChip variant={e.variant} className="text-text-body" />}
+                <span className="whitespace-nowrap">{e.setId.toUpperCase()} {e.number}</span>
+                {e.setCode && <PrintedSetCode code={e.setCode} />}
+                {e.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{e.regulationMark}</span>}
+                <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>
+                {unit != null && <span className="whitespace-nowrap text-change-positive">{fmtPrice(e.price)}</span>}
+              </div>
+              {/* same mutation the deck row uses, so the tab is not read-only */}
+              <div className="flex shrink-0 items-center gap-[8px]">
+                <button onClick={() => onSet(e.variantId, e.quantity - 1)} aria-label="Decrease copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+                  <Icon name="minus" size={13} />
+                </button>
+                <span className="w-[22px] text-center text-[16px] font-bold text-text-primary">{e.quantity}</span>
+                <button onClick={() => onSet(e.variantId, e.quantity + 1)} aria-label="Increase copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+                  <Icon name="plus" size={13} />
+                </button>
+              </div>
+            </div>
+          )
+        })}
       </div>
+
+      {/* The other printings this card exists as — the variant picker of the
+          add flow, put where the printings are already on screen. */}
+      {otherPrintings.length > 0 && (
+        <div className="mt-[8px]">
+          {pickerOpen ? (
+            <div className="flex flex-col gap-[4px]">
+              {otherPrintings.map((v) => (
+                <button
+                  key={v.variantId}
+                  onClick={() => { setPickerOpen(false); onAdd(v.variantId) }}
+                  className="flex items-center justify-between rounded-lg bg-surface-tertiary px-[12px] py-[8px] text-[14px] text-text-body hover:bg-action-default-hover"
+                >
+                  <span className="truncate font-semibold">{v.displayName}</span>
+                  <span className="shrink-0 text-action-primary">+ Add</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button onClick={() => setPickerOpen(true)} className="text-[14px] font-semibold text-action-primary hover:underline">
+              + Add another printing ({otherPrintings.length} more)
+            </button>
+          )}
+        </div>
+      )}
 
       {offending && (
         <div className="mt-[12px] flex items-start gap-[8px] rounded-lg bg-warning/10 px-[10px] py-[8px] text-[14px] text-warning">
@@ -196,7 +246,7 @@ function DeckCardContext({ card, offending, onSet }: {
         <div className="rounded-lg bg-surface-secondary px-[10px] py-[8px]">
           <div className="text-[14px] text-text-muted">You own</div>
           <div className={`text-[15px] font-bold ${short === 0 ? 'text-change-positive' : 'text-text-primary'}`}>
-            {card.owned} / {card.quantity}
+            {totalOwned} / {totalQty}
           </div>
         </div>
         <div className="rounded-lg bg-surface-secondary px-[10px] py-[8px]">
@@ -208,17 +258,14 @@ function DeckCardContext({ card, offending, onSet }: {
         <div className="rounded-lg bg-surface-secondary px-[10px] py-[8px]">
           <div className="text-[14px] text-text-muted">Deck cost</div>
           <div className="text-[15px] font-bold text-change-positive">{fmtUsd(lineTotal)}</div>
-          {unit != null && card.quantity > 1 && (
-            <div className="text-[14px] text-text-muted">{fmtPrice(card.price)} each</div>
-          )}
         </div>
       </div>
     </div>
   )
 }
 
-function DeckRow({ card, offending, onSet, onRemove, onOpen }: {
-  card: DeckCard; offending: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void
+function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
+  card: DeckCard; offending: boolean; showVariant: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void
 }) {
   return (
     <div className={`flex items-center gap-[10px] rounded-lg p-[6px] pr-[8px] ${offending ? 'bg-[rgba(255,157,66,0.10)] ring-1 ring-[rgba(255,157,66,0.5)]' : 'hover:bg-surface-tertiary/60'}`}>
@@ -241,6 +288,7 @@ function DeckRow({ card, offending, onSet, onRemove, onOpen }: {
               Each item is atomic — nowrap — and the row wraps BETWEEN them. */}
           <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[2px] text-[14px] text-text-muted">
             <span className="whitespace-nowrap">{card.setId.toUpperCase()} {card.number}</span>
+            {showVariant && card.variant && <VariantChip variant={card.variant} className="font-medium" />}
             <PrintedSetCode code={card.setCode} />
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
             <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
@@ -562,7 +610,8 @@ export function DeckBuilder() {
   }
 
   const setQty = useMutation({
-    mutationFn: ({ cardId, quantity }: { cardId: string; quantity: number }) => api.setDeckCardQuantity(id, cardId, quantity),
+    mutationFn: ({ cardId, quantity, variantId }: { cardId: string; quantity: number; variantId?: number }) =>
+      api.setDeckCardQuantity(id, cardId, quantity, variantId),
     onMutate: async ({ cardId, quantity }) => {
       await qc.cancelQueries({ queryKey: key })
       const prev = qc.getQueryData<DeckDetail>(key)
@@ -576,16 +625,24 @@ export function DeckBuilder() {
     onSuccess: (d) => { setDetail(d); invalidateSideQueries() },
   })
   const addCard = useMutation({
-    mutationFn: ({ cardId, quantity }: { cardId: string; quantity: number }) => api.addDeckCard(id, cardId, quantity),
+    mutationFn: ({ cardId, quantity, variantId }: { cardId: string; quantity: number; variantId?: number }) =>
+      api.addDeckCard(id, cardId, quantity, variantId),
     onSuccess: (d) => { setAddingId(null); setDetail(d); invalidateSideQueries() },
     onError: () => setAddingId(null),
   })
   const removeCard = useMutation({
-    mutationFn: (cardId: string) => api.removeDeckCard(id, cardId),
-    onMutate: async (cardId) => {
+    mutationFn: ({ cardId, variantId }: { cardId: string; variantId?: number }) => api.removeDeckCard(id, cardId, variantId),
+    onMutate: async ({ cardId, variantId }) => {
       await qc.cancelQueries({ queryKey: key })
       const prev = qc.getQueryData<DeckDetail>(key)
-      if (prev) qc.setQueryData<DeckDetail>(key, { ...prev, cards: prev.cards.filter((c) => c.cardId !== cardId) })
+      // Optimistic removal matches the server: one printing when named, the
+      // whole card otherwise.
+      if (prev) {
+        qc.setQueryData<DeckDetail>(key, {
+          ...prev,
+          cards: prev.cards.filter((c) => (variantId != null ? !(c.cardId === cardId && c.variantId === variantId) : c.cardId !== cardId)),
+        })
+      }
       return { prev }
     },
     onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
@@ -649,11 +706,22 @@ export function DeckBuilder() {
   }, [detail])
 
   // Resolved from the live deck (not frozen at open time) so the sheet's copies,
-  // owned count and cost re-render as the underlying mutations settle.
-  const sheetCard = useMemo(
-    () => (search.card ? (detail?.cards.find((c) => c.cardId === search.card) ?? null) : null),
+  // owned count and cost re-render as the underlying mutations settle. ALL of
+  // the card's printings, in deck order — the "In this deck" tab shows the
+  // variants that are actually in the deck, each with its own count.
+  const sheetEntries = useMemo(
+    () => (search.card ? (detail?.cards ?? []).filter((c) => c.cardId === search.card) : []),
     [detail, search.card],
   )
+  const sheetCard = sheetEntries[0] ?? null
+  // Cards the deck holds as more than one printing — their rows must SAY
+  // which printing each is, or two identical-looking lines differ only in
+  // price and read as a bug.
+  const multiPrint = useMemo(() => {
+    const seen = new Map<string, number>()
+    for (const c of detail?.cards ?? []) seen.set(c.cardId, (seen.get(c.cardId) ?? 0) + 1)
+    return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([id]) => id))
+  }, [detail])
 
   const grouped = useMemo(() => {
     const cards = detail?.cards ?? []
@@ -820,9 +888,10 @@ export function DeckBuilder() {
                       </div>
                       <div className="flex flex-col gap-[4px]">
                         {rows.map((c) => (
-                          <DeckRow key={c.cardId} card={c} offending={offending.has(c.cardId)}
-                            onSet={(q) => setQty.mutate({ cardId: c.cardId, quantity: Math.max(0, Math.min(60, q)) })}
-                            onRemove={() => removeCard.mutate(c.cardId)}
+                          <DeckRow key={`${c.cardId}:${c.variantId}`} card={c} offending={offending.has(c.cardId)}
+                            showVariant={multiPrint.has(c.cardId) || c.variant?.isPrimary === false}
+                            onSet={(q) => setQty.mutate({ cardId: c.cardId, variantId: c.variantId, quantity: Math.max(0, Math.min(60, q)) })}
+                            onRemove={() => removeCard.mutate({ cardId: c.cardId, variantId: c.variantId })}
                             onOpen={() => patchSearch({ card: c.cardId })} />
                         ))}
                       </div>
@@ -898,9 +967,10 @@ export function DeckBuilder() {
           onClose={() => patchSearch({ card: undefined })}
           contextSlot={
             <DeckCardContext
-              card={sheetCard}
+              entries={sheetEntries}
               offending={offending.has(sheetCard.cardId)}
-              onSet={(q) => setQty.mutate({ cardId: sheetCard.cardId, quantity: Math.max(0, Math.min(60, q)) })}
+              onSet={(variantId, q) => setQty.mutate({ cardId: sheetCard.cardId, variantId, quantity: Math.max(0, Math.min(60, q)) })}
+              onAdd={(variantId) => addCard.mutate({ cardId: sheetCard.cardId, quantity: 1, variantId })}
             />
           }
         />
