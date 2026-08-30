@@ -13,6 +13,12 @@ const managedKeys = [
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
   'API_BASE_PATH',
+  'PGHOST',
+  'PGPORT',
+  'PGDATABASE',
+  'PGUSER',
+  'PGPASSWORD',
+  'PGSSLMODE',
 ] as const
 
 type ManagedKey = (typeof managedKeys)[number]
@@ -64,15 +70,51 @@ describe('Netlify environment bridge', () => {
     assert.equal(process.env.DATABASE_URL, 'postgres://local')
   })
 
+  it('maps DATABASE_URL into the PG variables consumed by DeckPal', () => {
+    hydrateDeckPalEnvironment((name) =>
+      name === 'DATABASE_URL'
+        ? 'postgresql://postgres.family:p%3Dword@pooler.example.com:5432/postgres?sslmode=require'
+        : undefined,
+    )
+
+    assert.equal(process.env.PGHOST, 'pooler.example.com')
+    assert.equal(process.env.PGPORT, '5432')
+    assert.equal(process.env.PGDATABASE, 'postgres')
+    assert.equal(process.env.PGUSER, 'postgres.family')
+    assert.equal(process.env.PGPASSWORD, 'p=word')
+    assert.equal(process.env.PGSSLMODE, 'require')
+  })
+
+  it('does not let DATABASE_URL overwrite explicit PG variables', () => {
+    process.env.PGHOST = 'explicit.example.com'
+
+    hydrateDeckPalEnvironment((name) =>
+      name === 'DATABASE_URL'
+        ? 'postgresql://postgres.family:secret@pooler.example.com:5432/postgres'
+        : undefined,
+    )
+
+    assert.equal(process.env.PGHOST, 'explicit.example.com')
+  })
+
   it('reports every required Supabase value that is absent', () => {
     hydrateDeckPalEnvironment(() => undefined)
 
     assert.deepEqual(missingRequiredEnvironment(), [
       'DATABASE_URL',
-      'SUPABASE_JWT_SECRET',
       'VITE_SUPABASE_URL',
       'VITE_SUPABASE_ANON_KEY',
     ])
+  })
+
+  it('accepts modern Supabase ES256/JWKS auth without a legacy JWT secret', () => {
+    process.env.DATABASE_URL = 'postgres://family'
+    process.env.VITE_SUPABASE_URL = 'https://family.supabase.co'
+    process.env.VITE_SUPABASE_ANON_KEY = 'anon'
+
+    hydrateDeckPalEnvironment(() => undefined)
+
+    assert.deepEqual(missingRequiredEnvironment(), [])
   })
 
   it('does not require Supabase values when Supabase mode is disabled', () => {

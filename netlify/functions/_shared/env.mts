@@ -30,10 +30,27 @@ const NETLIFY_ENV_ALLOWLIST = [
 
 const REQUIRED_SUPABASE_ENV = [
   'DATABASE_URL',
-  'SUPABASE_JWT_SECRET',
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
 ] as const
+
+function hydratePostgresEnvironment(databaseUrl: string): void {
+  const parsed = new URL(databaseUrl)
+  const values: Record<string, string> = {
+    PGHOST: parsed.hostname,
+    PGPORT: parsed.port || '5432',
+    PGDATABASE: decodeURIComponent(parsed.pathname.replace(/^\//, '') || 'postgres'),
+    PGUSER: decodeURIComponent(parsed.username),
+    PGPASSWORD: decodeURIComponent(parsed.password),
+  }
+
+  const sslmode = parsed.searchParams.get('sslmode')
+  if (sslmode) values.PGSSLMODE = sslmode
+
+  for (const [name, value] of Object.entries(values)) {
+    if (process.env[name] === undefined && value) process.env[name] = value
+  }
+}
 
 /**
  * Copy the small, reviewed set of Netlify values needed by DeckPal into the
@@ -52,6 +69,9 @@ export function hydrateDeckPalEnvironment(
 
   process.env.SUPABASE_MODE ??= 'true'
   process.env.API_BASE_PATH ??= '/api'
+
+  const databaseUrl = process.env.DATABASE_URL?.trim()
+  if (databaseUrl) hydratePostgresEnvironment(databaseUrl)
 }
 
 /** Return names only. Secret values must never enter logs or error messages. */

@@ -945,7 +945,7 @@ put their values in `netlify.toml` or a committed `.env` file.
 |---|---|---|
 | `DATABASE_URL` | Server secret | Supabase pooled Postgres connection |
 | `SUPABASE_MODE=true` | Server | Enables cloud JWT/RLS behaviour |
-| `SUPABASE_JWT_SECRET` | Server secret | Verifies family member JWTs |
+| `SUPABASE_JWT_SECRET` | Server secret, legacy only | Verifies HS256 family member JWTs; omit for new ES256 projects, which use `SUPABASE_URL` JWKS |
 | `SUPABASE_URL` | Server | Supabase project URL for storage and auth |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server secret | Server-only sync/storage operations |
 | `VITE_SUPABASE_URL` | Public | Browser authentication project URL |

@@ -87,6 +87,7 @@ deploy/
 # ── machine-local agent instructions (not portable) ─────────────────────
 CLAUDE.local.md
 .vercel
+.netlify/
 
 # ── agent scheduler state (live session state, never committed) ──────────
 .claude/scheduled_tasks.lock
