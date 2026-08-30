@@ -388,7 +388,7 @@ scheduled; `price-rollup.yml` is dispatch-only until its first supervised run.
 | `catalog-refresh.yml` | Sundays 04:30 UTC | `card` / `card_set` in step with upstream TCGdex |
 | `price-refresh.yml` | every 15 min, plus 02:10 and 21:10 UTC | polls TCGCSV's `last-updated.txt` and ingests on change; nightly Cardmarket ingest, all-users value snapshot, set-progress reconcile |
 | `price-backfill.yml` | manual only | replays TCGCSV daily archives into `price_observation` for a past range |
-| `price-rollup.yml` | **manual only, cron commented out** | tiered retention: rolls old months into weekly/monthly OHLC `price_bucket` rows, verifies them against the source, then retires and later DROPS the daily partition |
+| `price-rollup.yml` | 3rd of the month, 04:20 UTC (armed 2026-08-30) | tiered retention: rolls old months into weekly/monthly OHLC `price_bucket` rows, verifies them against the source, then retires and later DROPS the daily partition |
 
 **`price-refresh.yml` is what keeps prices and the Insights charts alive on the
 cloud tier.** Until 2026-08-29 nothing did: `apps/sync` is a long-running
@@ -409,14 +409,19 @@ successful run per job, straight from `sync_run`. That block is what diagnosed
 the original outage and is the authoritative check — a green Actions run only
 says the workflow executed.
 
-**`price-rollup.yml` destroys data by design, so its `schedule:` block ships
-COMMENTED OUT.** Daily price rows forever are ~6.6 GB/year against a Supabase Pro
-allowance of 8 GB; the tiers are ~2.9 GB steady state, growing ~0.27 GB/year. The
-order for arming it is in the workflow's own header: backfill chain complete →
-`dry_run: true` dispatch → supervised catch-up in `limit`-sized chunks, oldest
-first → record the `pg_total_relation_size` totals before and after in
-DECISIONS.md → only then uncomment the cron, in its own commit. A job that
-destroys history does not get to introduce itself on a schedule.
+**`price-rollup.yml` destroys data by design, so its `schedule:` shipped
+COMMENTED OUT and was armed only after a supervised first run.** Daily price rows
+forever are ~6.6 GB/year against a Supabase Pro allowance of 8 GB. The catch-up
+ran against the live database on 2026-08-30: 23 months oldest-first, every
+verification exact, **2.374 GiB → 0.495 GiB**. The order in the workflow's own
+header — backfill complete → `dry_run` → supervised chunks → record the
+before/after totals → then the cron — is the order to repeat if this ever has to
+be redone.
+
+Steady state is one small run a month. If a run goes red, read `haltedAt` and
+`notAttempted` in its summary first: the job stops at a month it cannot finish
+rather than rolling past it, and the months behind it are deliberately left
+alone.
 
 **There is a repair deadline, and it is finite.** A month with days nobody
 ingested is refused by the rollup (and the run HALTS there rather than rolling

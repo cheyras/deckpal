@@ -1058,6 +1058,22 @@ export async function runRollup(client: Queryable, opts: RollupOpts = {}): Promi
   // Pin it once for the whole run rather than trusting the server's default.
   await client.query(`SET TimeZone TO 'UTC'`);
 
+  // ── Why this job raises its own statement timeout ──────────────────────────
+  // Supabase ships `statement_timeout = 2min` on the database role. That is a
+  // sensible ceiling for an interactive API query and the wrong one for a
+  // monthly maintenance job: the recompute-and-EXCEPT verification over a
+  // week-grain month is ~24k variants x 5 weeks and takes longer than that at
+  // production scale. Measured 2026-08-30 against the live database, where the
+  // catch-up died on 2025-11 with "canceling statement due to statement
+  // timeout" — AFTER writing its buckets and BEFORE detaching anything, which
+  // is the safe half of the failure but still a job that cannot finish.
+  //
+  // A finite ceiling rather than 0: a genuinely stuck statement on this
+  // connection holds locks against the price ingest, and a run that has hung
+  // for half an hour is a run to look at rather than one to wait on. Session
+  // scope, on a worker connection (B2), so nothing the API does is affected.
+  await client.query(`SET statement_timeout TO '30min'`);
+
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const runId = opts.dryRun ? null : await startRun(client, 'prices-rollup', today);
 

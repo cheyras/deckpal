@@ -88,7 +88,11 @@ const jsonOnlyGuard = {
 registerRoute(
   ({ url, request }) => url.pathname.startsWith(`${BASE}api/`) && request.method === 'GET',
   new NetworkFirst({
-    cacheName: 'deckpal-api-v1',
+    // ⚠ BUMP THIS NAME WHENEVER AN API RESPONSE CHANGES SHAPE. Entries live for
+    // seven days, so without a bump the new bundle keeps being served old-shaped
+    // bodies from this cache long after the deploy. v2: price history became
+    // OHLC buckets (2026-08-30).
+    cacheName: 'deckpal-api-v2',
     networkTimeoutSeconds: 5,
     plugins: [
       new CacheableResponsePlugin({ statuses: [200] }),

@@ -63,16 +63,21 @@ function axisLabel(iso: string, spanDays: number): string {
 
 /** `n` evenly spaced day-numbers across [a, b], inclusive of both ends. */
 function spread(a: number, b: number, n: number): number[] {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return []
   if (b <= a) return [a]
   const step = (b - a) / (n - 1)
   return Array.from({ length: n }, (_, i) => Math.round(a + step * i))
 }
 
 function isoOfDay(day: number): string {
+  // `new Date(NaN).toISOString()` THROWS. Reached through `spread()`, one
+  // unparseable date anywhere in the data made every tick NaN and took the
+  // whole page down with a RangeError — see the guard on `lines` below.
+  if (!Number.isFinite(day)) return ''
   return new Date(day * 86_400_000).toISOString().slice(0, 10)
 }
 
-/** Days since epoch — the x scale's unit. */
+/** Days since epoch — the x scale's unit. NaN for anything unparseable. */
 function dayNumber(iso: string): number {
   return Math.floor(Date.parse(`${iso}T00:00:00Z`) / 86_400_000)
 }
@@ -133,10 +138,28 @@ export function ValueChart({
     return () => ro.disconnect()
   }, [])
 
-  const lines: ChartSeries[] =
+  // ── EVERY point is checked before it reaches the scales ────────────────────
+  //
+  // This is not defensive programming for its own sake. On 2026-08-30 the price
+  // response changed shape (a point became an OHLC bucket), and a PWA keeps the
+  // PREVIOUS bundle running until the user reloads — so the old chart received
+  // points with no `date` at all, `Date.parse(undefined)` gave NaN, and
+  // `isoOfDay` threw a RangeError that unmounted the entire card page. The API
+  // and the web ship in one commit and that is still not enough, because the
+  // client in the browser is not the client you deployed.
+  //
+  // A point this component cannot place is dropped. A short line is a legible
+  // failure; a blank page with "Something went wrong!" is not.
+  const raw: ChartSeries[] =
     series && series.length
       ? [...series]
       : [{ label: 'Your Collection', color: 'var(--color-action-primary)', points: points ?? [] }]
+  const lines: ChartSeries[] = raw.map((l) => ({
+    ...l,
+    points: l.points.filter(
+      (p) => Number.isFinite(dayNumber(p.date)) && typeof p.value === 'number' && Number.isFinite(p.value),
+    ),
+  }))
 
   const W = Math.max(320, Math.round(measured) || 640)
   const H = height
@@ -229,12 +252,12 @@ export function ValueChart({
   // window they must span the WINDOW (otherwise a 2-year axis is labelled with
   // six dates from one week in August); without one they thin the data dates as
   // before.
-  const tickDates = domain
-    ? spread(xMin, xMax, 6).map(isoOfDay)
+  const tickDates = (domain
+    ? spread(xMin, xMax, 6).map(isoOfDay).filter(Boolean)
     : dates.filter((_, i) => {
         const stepEvery = Math.max(1, Math.ceil(dates.length / 6))
         return dates.length <= 1 || i % stepEvery === 0 || i === dates.length - 1
-      })
+      }))
 
   const onMove = (e: React.MouseEvent<SVGSVGElement>): void => {
     if (dates.length === 0) return

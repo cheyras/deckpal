@@ -14,9 +14,10 @@
 # GB/year. The two-year Pokémon backfill alone is ~2.5 GB, ~2.2 GB of which the
 # catch-up rollup reclaims.
 #
-# ── THE SCHEDULE IS DELIBERATELY NOT ENABLED ────────────────────────────────
+# ── THE SCHEDULE WAS NOT ENABLED UNTIL THE FIRST RUN WAS SUPERVISED ─────────
 # A job that destroys history does not get to introduce itself on a cron. The
-# order is:
+# order below was followed on 2026-08-30 and the cron is now armed; it is kept
+# because it is the order to repeat if this ever has to be re-run from scratch:
 #
 #   1. The archive backfill chain reports `remaining: 0` (price-backfill.yml).
 #   2. The owner dispatches this workflow with `dry_run: true` and reads the
@@ -47,12 +48,14 @@
 name: Price history rollup
 
 on:
-  # ⚠ Uncomment ONLY after the supervised catch-up described above has run and
-  # been verified. The 3rd of the month leaves the live ingest two full days to
-  # own the new month before anything two months older is considered.
-  #
-  # schedule:
-  #   - cron: '20 4 3 * *'
+  # ARMED 2026-08-30, after the supervised catch-up ran against the live
+  # database: 23 months rolled up oldest-first, every verification exact
+  # (storedNotRecomputed/recomputedNotStored/shrunk all 0, conservation equal on
+  # every month), 2.374 GiB -> 0.495 GiB. The 3rd of the month leaves the live
+  # ingest two full days to own the new month before anything two months older
+  # is considered.
+  schedule:
+    - cron: '20 4 3 * *'
   workflow_dispatch:
     inputs:
       month:
