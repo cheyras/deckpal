@@ -56,7 +56,7 @@ import {
 import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
-import { freshCalls, isShownInTranscript, lookupRecord } from './chat/lookupRecord'
+import { failureParts, freshCalls, isShownInTranscript, lookupRecord } from './chat/lookupRecord'
 import {
   CLIENT_TOOLS,
   isClientTool,
@@ -997,7 +997,7 @@ export function useDeckeChat(
         /** Tool call ids already carried into a later leg. See `lookupRecord`. */
         const replayedChips = new Set<string>()
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
-          const outcome = await streamLeg(wire, ac.signal, {
+          const outcome = await streamLeg(wire, conversationRef.current, ac.signal, {
             onText: (chunk) => {
               if (!saidSoFar) {
                 // The talk overlay latches on the FIRST token and is released in
@@ -1969,6 +1969,16 @@ export { APPROVAL_PHRASE }
  */
 async function streamLeg(
   wire: WireMessage[],
+  /**
+   * This conversation's id, LOG-ONLY on the server.
+   *
+   * It names the conversation on the one structured line a tripped tool-circuit
+   * breaker writes, so an operator reading Vercel's log can tell one outage
+   * from two. Nothing on the server reads it for a decision — see
+   * `decke/failing.ts` — and the same id is already what `recordTurn` files the
+   * turn under, so the log line and the transcript line up.
+   */
+  conversationId: string,
   signal: AbortSignal,
   handlers: LegHandlers,
 ): Promise<LegOutcome> {
@@ -2006,6 +2016,7 @@ async function streamLeg(
       messages: wire,
       route: window.location.pathname,
       landmarks: collectLandmarks(),
+      conversationId,
     }),
   })
 
@@ -2219,6 +2230,18 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
       // its figure again with more confidence than the first time.
       const record = lookupRecord(messageTools(m))
       if (record) parts.push(record)
+      // AND WHAT FAILED, WHICH THIS USED TO ERASE.
+      //
+      // `lookupRecord` replays `ok`/`partial` only, so a failure had no way out
+      // of its turn — and the server, which keeps nothing between requests, had
+      // by construction no record that any tool had ever failed. `battle_logs`
+      // 500ed on four turns of one conversation and was re-called on every one
+      // of them, once immediately after promising not to.
+      //
+      // Replayed as the SDK's real `output-error` part rather than as prose, so
+      // it converts back into the failed tool call it was; `decke/failing.ts`
+      // counts them and opens the circuit. Bounded — `MAX_REPLAYED_FAILURES`.
+      for (const failure of failureParts(messageTools(m))) parts.push(failure)
       // A turn that produced only tool records and no speech still has to be a
       // valid message; the filter above lets it through, so guard the shape.
       return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text }] }

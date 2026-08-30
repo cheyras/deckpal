@@ -125,10 +125,12 @@ import {
   shouldFireFlailing,
   summarizeFailures,
   phantomClaims,
+  promisedWithoutActing,
   ungroundedCardIds,
   harvestObservedIds,
   seedObservedIds,
 } from '../apps/api/dist/decke/turnGuards.js'
+import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -460,7 +462,12 @@ async function serve(request) {
     return json({ error: 'malformed body' }, 400)
   }
 
-  const { messages, route = '/', landmarks = [] } = body ?? {}
+  // `conversationId` is LOG-ONLY: it names the conversation on the one
+  // structured line a tripped circuit breaker writes, so two lines can be told
+  // apart as one outage or two. Nothing reads it for a decision, and an older
+  // browser that does not send it logs `conversation=unknown` rather than
+  // suppressing the line. See `decke/failing.ts`.
+  const { messages, route = '/', landmarks = [], conversationId } = body ?? {}
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages must be a non-empty array' }, 400)
   }
@@ -477,6 +484,21 @@ async function serve(request) {
   // cannot fake, and what re-opens a name-level family (guide / research) the
   // reader raises again. See `declined.ts`'s bypass section.
   const declined = declinedCalls(messages, latestUserText(messages))
+
+  // ── AND WHAT HAS BEEN FAILING ALL CONVERSATION ────────────────────────────
+  //
+  // Same source, same lifetime, same reason as `declined` above: rebuilt from
+  // the replayed history because the server keeps nothing between requests.
+  // `battle_logs` 500ed on four turns of one conversation and was re-called on
+  // every one of them — the error chips were erased at the turn boundary, so
+  // nothing in the model's context said the tool had ever failed. The browser
+  // now replays failed calls as `output-error` parts and this counts them.
+  //
+  // The reader's own latest message is the ONLY thing that re-opens a tripped
+  // breaker — the same "one fact the model cannot fake" argument `declined.ts`
+  // makes for its own bypass. See `decke/failing.ts`.
+  const failing = failingTools(messages)
+  const retryRequested = readerAsksRetry(latestUserText(messages))
 
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
@@ -735,6 +757,16 @@ async function serve(request) {
           // write) and `research_meta` (a deep call), four declines apiece
           // across the corpus. See `decke/declined.ts`.
           declined,
+          // ── AND WHAT HAS BEEN DOWN ALL CONVERSATION ──────────────────────
+          //
+          // A tool that failed in `CIRCUIT_BUDGET` distinct earlier turns is
+          // not called again; the adapter returns an honest non-result and an
+          // `error` chip saying the call was not made. `retryRequested` is the
+          // reader's own "try again", the only thing that closes the circuit.
+          failing,
+          retryRequested,
+          // Log-only, for the one line a tripped breaker writes.
+          conversationId,
           grounding: groundingForTools,
         }),
         // THE DEEP TIER. Four sub-agents, each with its own model, step
@@ -1233,6 +1265,25 @@ async function serve(request) {
           const calledToolNames = []
           for (const s of steps) for (const c of (s.toolCalls ?? [])) calledToolNames.push(c.toolName)
           const phases = guardEvents.map((e) => e.phase)
+          // THE TOOLS THAT ACTUALLY REACHED A RESULT, by name. This is the
+          // definition `turnGuards.ts` states for `completedToolNames` — a
+          // completed `guardEvent` — and the empty-answer guard's held-write
+          // carve-out is meaningless without it. It shipped in #138 with the
+          // call site passing three of five arguments, so `completedToolNames`
+          // defaulted to `[]`, every called tool read as PENDING, and the guard
+          // returned false on every reachable call. A guard that cannot fire is
+          // this repository's most repeated defect; `chatWiring.test.ts` now
+          // pins the argument list.
+          const completedToolNames = guardEvents
+            .filter((e) => e.phase === 'ok' || e.phase === 'partial' || e.phase === 'error' || e.phase === 'declined')
+            .map((e) => e.name)
+          // The per-step shape the promise detector needs: it has to know
+          // whether anything RAN after the last thing said, which only the step
+          // order can answer. See `promisedWithoutActing`.
+          const turnSteps = steps.map((s) => ({
+            text: s.text ?? '',
+            toolNames: (s.toolCalls ?? []).map((c) => c.toolName),
+          }))
           // `result.finishReason` is an already-settled promise by this point;
           // awaiting it again is cheap and keeps this block self-contained.
           const finishReason = await result.finishReason.catch(() => undefined)
@@ -1249,29 +1300,48 @@ async function serve(request) {
           if (needsContinuation(String(finishReason ?? ''))) {
             // (b) TRUNCATION — cut off mid-sentence.
             note = ' …I got cut off mid-sentence there. Say "keep going" and I\'ll finish the thought.'
-          } else if (errorBudgetExceeded(phases)) {
-            // (c) FLAILING — too many errors across the turn; stop and summarise.
+          } else if (shouldFireFlailing(phases, answerText)) {
+            // (c) FLAILING — too many errors across the turn AND the turn did
+            // not recover into a substantive answer. `errorBudgetExceeded`
+            // alone told a turn that flailed and then answered well that it had
+            // flailed, which is a correction for something it fixed. The bare
+            // predicate stays in `stopWhen`, where it must trip mid-flight
+            // before any answer exists.
             const chips = guardEvents
               .filter((e) => e.phase === 'error')
               .map((e) => ({ name: e.name, title: e.title }))
             note =
               `\n\nI kept hitting walls there. ${summarizeFailures(chips)} ` +
               'Rather than keep flailing, tell me to try a different way — or ask it differently and I will.'
-          } else if (needsAnswerNudge(answerText, calledToolNames, CLIENT_SET)) {
+          } else if (
+            needsAnswerNudge(answerText, calledToolNames, CLIENT_SET, completedToolNames, SERVER_SET)
+          ) {
             // (a) EMPTY ANSWER — tools ran, no client tool, nothing said.
+            // ALL FIVE ARGUMENTS. The held-write and panel carve-outs are the
+            // whole of this guard's precision and both of them read the last
+            // two; see `completedToolNames` above for what happened without.
             note =
               'I looked things up and then never actually answered you — that\'s on me. ' +
               'Ask that again and I\'ll answer from what I found.'
           } else {
-            // (d) PHANTOM ACTIONS / UNGROUNDED IDS — only meaningful AFTER the
-            // model produced text, which is why this branch is last: (a) above
-            // already owned the empty-text turn.
+            // (d) PHANTOM ACTIONS / PROMISES / UNGROUNDED IDS — only meaningful
+            // AFTER the model produced text, which is why this branch is last:
+            // (a) above already owned the empty-text turn.
             const phantoms = phantomClaims(answerText, calledToolNames)
+            // (d2) A PROMISE THE TURN THEN ENDED ON. Ranked below (d) because
+            // claiming an action already happened is the worse of the two, and
+            // above the ungrounded-id caution because a promise nobody kept is
+            // the whole reader-visible turn rather than one detail in it.
+            const promised = promisedWithoutActing(turnSteps, CLIENT_SET, completedToolNames)
             const ungrounded = ungroundedCardIds(answerText, observedIds)
             if (phantoms.length > 0) {
               note =
                 '\n\nOne correction: I talked about doing that just now, but I never actually ran it — ' +
                 'nothing has changed. Say the word and I\'ll actually do it.'
+            } else if (promised) {
+              note =
+                '\n\nAnd then I stopped: I said I was about to go and do that, and I never ran anything — ' +
+                'so nothing came back and nothing changed. Tell me to go ahead and I\'ll actually do it.'
             } else if (ungrounded.length > 0) {
               note =
                 `\n\nA caution: I named ${ungrounded.join(', ')} without looking it up this turn — ` +

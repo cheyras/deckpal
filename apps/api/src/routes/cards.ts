@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { cardImages, pool, q, q1, shapePrice, tcgplayerUrl, toMajor, type PriceRow } from '../db.js';
+import { cardImages, dbHandle, q, q1, shapePrice, tcgplayerUrl, toMajor, type PriceRow } from '../db.js';
 import { asyncHandler, notFound, oneOf, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
 import { cardLegality, formatConfig, loadByTcgdexId, buildReprintOracle } from '../deck/index.js';
@@ -284,7 +284,7 @@ cardsRouter.get(
   '/:cardId/legality',
   asyncHandler(async (req, res) => {
     const cardTcgdexId = String(req.params.cardId);
-    const facts = await loadByTcgdexId(pool, cardTcgdexId);
+    const facts = await loadByTcgdexId(dbHandle(), cardTcgdexId);
     if (!facts) throw notFound(`No card '${cardTcgdexId}'`);
 
     // The reprint oracle (§2.1.5) is what stops a rotated-out printing being
@@ -293,7 +293,7 @@ cardsRouter.get(
     // one that needs it; `buildReprintOracle` self-shortcuts when the card
     // already carries a legal mark.
     const legalMarks = formatConfig('standard').legal_marks;
-    const oracle = await buildReprintOracle(pool, [facts], legalMarks);
+    const oracle = await buildReprintOracle(dbHandle(), [facts], legalMarks);
 
     userCache(res);
     res.json(cardLegality(facts, { isInFormatByReprint: oracle }));

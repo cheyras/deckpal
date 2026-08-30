@@ -49,6 +49,12 @@ import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckp
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
 import { CallLedger, callKey } from '../repeat.js';
 import { alreadyDeclinedMessage } from '../declined.js';
+import {
+  circuitChipSummary,
+  circuitMessage,
+  circuitOpen,
+  circuitOpenLogLine,
+} from '../failing.js';
 import { NoOpMemo, noOpMessage } from '../noOp.js';
 import { briefArgs } from '../toolArgs.js';
 
@@ -272,6 +278,30 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * a sub-agent (no reader, no dialog) and for the tests.
    */
   declined?: ReadonlySet<string>;
+  /**
+   * How many distinct earlier turns each tool has FAILED in, this conversation.
+   *
+   * Rebuilt per request from the replayed history by `failing.ts`, the same way
+   * `declined` is. A tool at or over `CIRCUIT_BUDGET` is not called: the reader
+   * watched `battle_logs` 500 across four turns and be re-called every one of
+   * them, because the error chips were erased at the turn boundary and the
+   * model had no way to know. Absent means nothing has failed — correct for a
+   * sub-agent and for the tests.
+   */
+  failing?: ReadonlyMap<string, number>;
+  /**
+   * Did the READER's own latest message ask for a retry?
+   *
+   * The one bypass, and the only thing that closes an open circuit — see
+   * `failing.ts`. The model cannot write this sentence; only they can.
+   */
+  retryRequested?: boolean;
+  /**
+   * This conversation's id, for the one structured log line a tripped breaker
+   * writes. Never used for anything else, and its absence must never suppress
+   * the line.
+   */
+  conversationId?: string;
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
   onEvent?: (e: ToolEvent) => void;
   /**
@@ -479,6 +509,31 @@ export function wouldMutate(def: ToolDefinition, input: unknown): boolean {
   // true (harmless — the handler's read branch ignores dry_run), and the
   // handler takes the same read branch either way.
   if (def.name === 'add_battle_log' && !(input as { deck_id?: unknown } | null | undefined)?.deck_id) {
+    return false;
+  }
+  // ── deck_strategy with NO markdown is a pure read, not a write ─────────────
+  //
+  // Same class as the `add_battle_log` carve-out above, one tool over, and the
+  // same argument: the tool's own contract makes the branch a read BY
+  // CONSTRUCTION. `deckIntel.ts` returns the guide text and RETURNS before the
+  // `PUT /decks/{id}/strategy` that only a `markdown` argument can reach, so no
+  // input value can make that branch write — while `wouldMutate` classified on
+  // `dry_run` alone (deck_strategy has none) and returned true for every shape.
+  // The reader asked for "the low-down on my deck", a pure read, and was shown
+  // "Let him write the strategy guide for this deck?" — a consent dialog for a
+  // call incapable of writing, which is the opposite of informed consent.
+  //
+  // `declined.ts`'s `isGuideWrite` already encodes exactly this rule ("A read
+  // (no `markdown`) is a different question and is explicitly NOT suppressed");
+  // this file was the only one in the stack that did not know it.
+  //
+  // THE WRITE SHAPE IS UNTOUCHED: `markdown` present is still always-approval
+  // and still unpreviewable (X3, and WS2's "keep deck_strategy always-approval"
+  // is about the replace, which is what has no dry_run to preview with).
+  if (
+    def.name === 'deck_strategy' &&
+    (input as { markdown?: unknown } | null | undefined)?.markdown === undefined
+  ) {
     return false;
   }
   const hasDryRun = def.inputSchema ? 'dry_run' in def.inputSchema.shape : false;
@@ -865,10 +920,50 @@ function buildApprovalPreview(
   return { ...base, editable, rows, skipped };
 }
 
+/** The chip's length ceiling, shared by both summarisers so they cannot drift. */
+const SUMMARY_CAP = 120;
+
 /** One-line summary of what a tool actually returned, for its chip. */
 function summarise(result: ToolResult): string {
   const first = result.text.split('\n', 1)[0] ?? '';
-  return first.length > 120 ? `${first.slice(0, 117)}…` : first;
+  return first.length > SUMMARY_CAP ? `${first.slice(0, SUMMARY_CAP - 3)}…` : first;
+}
+
+/**
+ * The same summary for a FAILED result — first line plus what it was leading to.
+ *
+ * A resolver miss is written as a lead-in and a list. `entities.ts`'s
+ * `explainMiss` returns:
+ *
+ *   No deck is named exactly 'slowking toolbox'. The closest is:
+ *   <id> — Toolbox Slowking | …
+ *   If that is the one you mean, call this again with its id.
+ *
+ * The MODEL received all three lines. The reader's chip showed only the first,
+ * and the first line's entire job is to introduce the second — so the row read
+ * *"The closest is:"* and stopped, which is how it appeared in the transcript
+ * and is why the candidate looked missing when it never was. The other
+ * `explainMiss` shapes ("Closest:", "Say which by passing its id:") fail the
+ * same way.
+ *
+ * So an error keeps its following lines, joined with ` · `, under the SAME cap
+ * as every other chip — the cap is what bounds a chip, not the line count. Only
+ * the error path takes this: a successful result's first line is a summary by
+ * construction and the rest of it is the payload the panel already shows.
+ */
+export function summariseError(result: ToolResult): string {
+  const lines = result.text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length === 0) return '';
+  let out = lines[0]!;
+  for (const line of lines.slice(1)) {
+    const next = `${out} · ${line}`;
+    if (next.length > SUMMARY_CAP) break;
+    out = next;
+  }
+  return out.length > SUMMARY_CAP ? `${out.slice(0, SUMMARY_CAP - 3)}…` : out;
 }
 
 /**
@@ -906,6 +1001,17 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const declined = opts.declined ?? new Set<string>();
   const alreadyDeclined = (name: string, input: unknown): boolean =>
     declined.size > 0 && declined.has(callKey(name, input));
+  // ── AND WHAT HAS BEEN FAILING ALL CONVERSATION ────────────────────────────
+  //
+  // Same shape as `declined` above and for the same reason: rebuilt per request
+  // from the replayed history, never held between them. Empty for a sub-agent,
+  // which has no conversation to have failed in.
+  const failing = opts.failing ?? new Map<string, number>();
+  const retryRequested = opts.retryRequested === true;
+  // ONE LOG LINE PER TOOL PER REQUEST. A breaker that trips on three calls in
+  // one turn is one outage, and three identical lines is three times the noise
+  // for the same fact.
+  const circuitLogged = new Set<string>();
   /**
    * "Would this write change anything?", memoised for this request.
    *
@@ -1053,6 +1159,42 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             return message;
           }
 
+          // ── AND A TOOL THAT HAS BEEN DOWN ALL CONVERSATION IS NOT CALLED ──
+          //
+          // Placed HERE, immediately after the decline short-circuit, because
+          // that block is the proven pattern for this exact job: it emits its
+          // own chip AND returns its own model-visible string, both BEFORE the
+          // handler runs, so no backend call is made and both surfaces tell the
+          // same truth.
+          //
+          // Measured: `battle_logs` returned "Internal server error" on four
+          // turns and was re-called on every one of them, once in the turn
+          // straight after Deck-E promised to stop. It was not disobeying — the
+          // error chips were erased at the turn boundary, so nothing in its
+          // context said the tool had ever failed. See `failing.ts`.
+          //
+          // X2: the chip is `error`, never `ok`, and its summary says the call
+          // was NOT made. The trip is a real event; a fabricated success would
+          // not be.
+          if (circuitOpen(failing, def.name, retryRequested)) {
+            const failures = failing.get(def.name) ?? 0;
+            if (!circuitLogged.has(def.name)) {
+              circuitLogged.add(def.name);
+              // REPORTING v1, and the whole of it: one structured line into
+              // Vercel's error stream. The reader asked for a mechanism to
+              // report a tooling bug; this is the operator's half of it, and
+              // `circuitMessage` is the reader's.
+              console.error(circuitOpenLogLine(def.name, failures, opts.conversationId));
+            }
+            opts.onEvent?.({
+              phase: 'error',
+              ...chip,
+              summary: circuitChipSummary(def.name, failures),
+              ...argsPart(args),
+            });
+            return circuitMessage(def.name, failures);
+          }
+
           // NOT EXECUTED EITHER, and this is the half that keeps the pair in
           // step: `needsApproval` returned false for this call, so nothing
           // held it — running it here would be an unapproved write. It is a
@@ -1116,7 +1258,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             opts.onEvent?.({
               phase: result.isError ? 'error' : 'ok',
               ...chip,
-              summary: summarise(result),
+              // A FAILURE KEEPS ITS FOLLOWING LINES. `summarise` cuts to the
+              // first line, and a resolver miss's first line is a colon-ended
+              // lead-in whose whole job is to introduce the candidates — the
+              // reader saw "The closest is:" and nothing after it. See
+              // `summariseError`.
+              summary: result.isError ? summariseError(result) : summarise(result),
             });
             return { text, failed: result.isError === true };
           };

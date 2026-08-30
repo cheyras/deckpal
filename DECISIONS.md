@@ -14743,3 +14743,119 @@ history should really cascade from it. That is a schema-shaped question about a
 different subsystem, and the honest state is "an append-only table lost 15
 nights of rows and we do not know how". What this branch guarantees is that the
 NEXT occurrence is loud on night one instead of invisible for three weeks.
+## 2026-08-29 — A request never takes a second connection: `dbHandle()`
+
+**Decided by:** Claude (Fable 5) on behalf of @cheyras, from six production stack traces
+**Decision:** `dbHandle()` in `apps/api/src/db.ts` returns the request's RLS-held
+client (`rlsStore.getStore()`) or falls back to the pool; the deck adapters in
+`apps/api/src/deck/db.ts` and `export.ts` take `Queryable` instead of `pg.Pool`;
+every in-request call site (`routes/decks.ts`, `routes/cards.ts`) passes it.
+`makePool` warns at boot when a pooled `request` pool is sized below its role
+default, and `PGPOOL_MAX_API` is documented in `DEPLOYMENT.md` (B11).
+**Why:** All six 500s in the 2026-08-29 Deck-E transcript ("battle_logs failed:
+Internal server error" ×4, decks ×2) were one bug: `pg-pool` connect timeouts.
+`validate()` passed the module `pool` to `buildReprintOracle`, whose implicit
+connect→query→release is a SECOND checkout taken while the SUPABASE_MODE RLS
+middleware already holds one client for the whole request — N concurrent
+requests want 2N connections, and production's request pool was pinned to 2 by
+a stale `PGPOOL_MAX_API` override (a self-host value; `.env.example` un-pinned
+it on 2026-08-11, the Vercel env never followed). Two concurrent `GET /decks`
+deadlocked until `connectionTimeoutMillis`. PR #138 did not introduce the call
+site (it predates it, `07405e7`); it raised the arrival rate. `battle_logs`
+failed alongside because its deck-name resolution rides the same `/decks` call.
+**Implications:** These catalog reads now run inside the request's RLS
+transaction instead of on a BYPASSRLS connection — strictly tighter. The stale
+Production `PGPOOL_MAX_API` override still needs removing by the maintainer
+(B9); until then the boot warning names it. `deckeHistory.ts`'s own
+pool write is deliberate (escapes the `authenticated` role per migration 044)
+and was left alone. A unit test pins both the helper and the no-second-checkout
+call shape, and fails with the production stack frame if regressed.
+
+## 2026-08-29 — deck_history reads loosely, and `decks` can hand back the guide
+
+**Decided by:** Claude (Fable 5) on behalf of @cheyras (Deck-E reliability pass)
+**Decision:** `deck_history` resolves its deck with `strict: revert_to !==
+undefined` instead of unconditionally strict, and echoes the resolver's
+`picked.note` on the timeline and snapshot returns. `decks` gains
+`include: ['strategy']`, which renders the full strategy-guide markdown from
+the deck-detail payload it already fetches.
+**Why:** Two of `deck_history`'s three modes are GETs, but all three paid the
+write branch's price — in one measured turn `decks({deck_id:'slowking
+toolbox'})` returned the deck and `deck_history` refused the same words.
+Separately, `decks` reported the guide only as a label plus character count, so
+reading it meant a second, approval-gated `deck_strategy` call; Deck-E kept
+quoting "14k characters" and offering that call instead of answering.
+**Implications:** `revert_to` is unchanged — still strict, still ≤N ranked
+candidates and never a guess (pinned by a test). Read paths now name the deck
+they picked. The guide renders in full and last: in full because
+`deck_strategy`'s read branch returns no less, last because it is the only
+unbounded section in that response. Zero extra API calls.
+
+## 2026-08-29 — Deck-E harness: failures survive the turn boundary
+
+**Decided by:** owner, via the 2026-08-29 slowking transcript
+**Decision:** Error chips are replayed to the next turn as real `output-error`
+tool parts (`lookupRecord.failureParts`, capped at 4 per turn). A new
+`decke/failing.ts` rebuilds, per request, how many DISTINCT earlier turns each
+tool failed in; at 2 the tool is not called — `aisdk.ts execute` returns a
+`[[NO_WORK]] TOOL DOWN` result and emits an `error` chip saying the call was
+not made. The reader's own "try again" is the only thing that re-opens it. One
+`console.error('[decke] tool-circuit-open tool=… failures=… conversation=…')`
+per tool per request; `conversationId` is now on the `/api/chat` body,
+log-only. This is v1 of the owner's ask that Deck-E report tooling faults he
+keeps hitting.
+**Why:** `battle_logs` 500ed on four turns and was re-called every one of them,
+once immediately after promising not to. It was not disobeying: `lookupRecord`
+replayed `ok`/`partial` chips only and the server keeps nothing between
+requests, so no turn's context contained the fact that any tool had ever
+failed. No prompt can reach a fact that is not in the window.
+**Implications:** The breaker is turn-scoped, not call-scoped — `repeat.ts`
+still owns within-turn repetition. The chip is never `ok` (X2) and never
+`declined` (that word means the READER stopped it). The synthetic result tells
+him to answer from what he already has and NOT to restate prior summaries,
+which is the other half of the same transcript. Deep-tier sub-agents get an
+empty ledger for now — deliberate, flagged, not forgotten.
+
+## 2026-08-29 — Two turn guards that shipped unplugged, and a third for the promise
+
+**Decided by:** Claude (Fable 5) on behalf of @cheyras, from the #138 review
+**Decision:** `needsAnswerNudge` is called with all five arguments and
+`shouldFireFlailing` replaces the bare `errorBudgetExceeded` at the turn-end
+note (the mid-turn breaker in `stopWhen` keeps the bare predicate). A new
+`promisedWithoutActing` fires when the turn's last spoken sentences promise
+imminent first-person action ("One sec.", "First, I'll grab…") and nothing ran
+after them; it joins the one-guard-per-turn chain between phantom claims and
+ungrounded ids. Every one of these wirings is now pinned by source text in
+`chatWiring.test.ts`.
+**Why:** `needsAnswerNudge` shipped in #138 with 3 of 5 args, so the
+pending-tool carve-out matched everything and the guard could never fire;
+`shouldFireFlailing` was imported and never called, so a recovered turn was
+still told it flailed. Both had green unit tests — the tests exercised the
+functions, not the wiring. The measured turn ended "First, I'll grab your
+deck's battle logs … One sec." with no call after it, which no existing
+detector's tense or shape covered.
+**Implications:** `phantomClaims` was NOT widened — its precision argument is
+its design. A new detector in this chain must arrive with a `chatWiring` pin,
+or it is dead code with a green suite, which is what happened twice.
+
+## 2026-08-29 — A read is not a write, and the first "no" gets the full briefing
+
+**Decided by:** owner, in the 2026-08-29 transcript
+**Decision:** `wouldMutate` treats `deck_strategy` with no `markdown` as a read
+(contract-shaped carve-out mirroring `add_battle_log`'s). Error chips keep the
+lines their first line was leading into (`summariseError`). `DECLINED_REASON`
+now carries the same `[[NO_WORK]]`-led doctrine the server-side repeat refusal
+has carried since #138.
+**Why:** "the permission prompt asked if you could WRITE this strategy guide,
+when the request really only necessitated reading it" — `deck_strategy` has no
+`dry_run`, so every shape classified as a write even though the markdown-less
+branch returns before the PUT. The `deck_history` resolver miss rendered as
+"The closest is:" with the candidates cut off, because the chip summariser took
+the first line and that line is a lead-in. And "after i cancelled, you output a
+response that seemed canned like it was fore-assuming that i would say yes" —
+the first decline told the model four words ("the reader declined"), while a
+repeat decline got the full server-side briefing.
+**Implications:** The guide REPLACE is untouched: still always-approval, still
+unpreviewable, still name-suppressed after a decline. `ABANDONED_REASON` stays
+short and distinct — `declined.ts` compares against it exactly, and an
+unanswered panel is not a refusal.

@@ -16,6 +16,7 @@ import {
   shouldFireFlailing,
   summarizeFailures,
   phantomClaims,
+  promisedWithoutActing,
   ungroundedCardIds,
   seedObservedIds,
 } from '../turnGuards.js'
@@ -371,4 +372,120 @@ test('seedObservedIds: ids carried in the replayed conversation are observed', (
 test('seedObservedIds: empty input yields an empty set', () => {
   assert.equal(seedObservedIds([]).size, 0)
   assert.equal(seedObservedIds(['', '   ']).size, 0)
+})
+// ── (d2) promisedWithoutActing ──────────────────────────────────────────────
+//
+// Each test below was run RED against a mutated implementation and restored:
+// the "acted after promising" check deleted, the terminal-sentence window
+// widened to the whole answer, the conditional-offer suppressor removed, and
+// the pending-tool carve-out dropped.
+
+/** The verbatim turn-1 answer from the 2026-08-29 transcript. */
+const TURN_ONE =
+  "Got it, let's pull the real picture instead of guessing. First, I'll grab " +
+  "your deck's battle logs and strategy guide (if it has one). One sec."
+
+test('promisedWithoutActing: the measured turn — a promise, then the turn ended', () => {
+  // The reader declined an approval, got this, and nothing ran after it.
+  assert.equal(promisedWithoutActing([{ text: TURN_ONE, toolNames: [] }]), 'One sec')
+})
+
+test('promisedWithoutActing: the other measured shapes fire too', () => {
+  const fires = (text: string) => promisedWithoutActing([{ text, toolNames: [] }])
+  assert.ok(fires('Right, let me pull your battle logs.'))
+  assert.ok(fires('Stand by.'))
+  assert.ok(fires('Give me one second.'))
+  assert.ok(fires('Rebuilding the guide now. [starting the edit]'))
+  assert.ok(fires('Hang on.'))
+})
+
+test('promisedWithoutActing: a promise that was KEPT is not a defect', () => {
+  // The whole reason this reads steps rather than the answer text: "let me
+  // pull the logs" followed by a real call is a model doing its job, and
+  // correcting it for that would be inventing a fault.
+  assert.equal(
+    promisedWithoutActing(
+      [
+        { text: 'Let me pull your battle logs.', toolNames: [] },
+        { text: '', toolNames: ['battle_logs'] },
+      ],
+      CLIENT,
+      ['battle_logs'],
+    ),
+    null,
+  )
+})
+
+test('promisedWithoutActing: a client-tool handoff is not a broken promise', () => {
+  // The words ride the next leg — "one sec" is literally true. Same carve-out
+  // needsAnswerNudge makes.
+  //
+  // The client tool is passed as COMPLETED here on purpose. A client tool
+  // produces no server event today, so the pending carve-out below would cover
+  // this case by accident — and a carve-out that holds only by accident stops
+  // holding the day the browser's own results are counted. This is the fixture
+  // that fails if the handoff check itself is deleted.
+  assert.equal(
+    promisedWithoutActing([{ text: 'Taking you there. One sec.', toolNames: ['escort'] }], CLIENT, ['escort']),
+    null,
+  )
+  // …and the ordinary shape, where the handoff has no completed event at all.
+  assert.equal(
+    promisedWithoutActing([{ text: 'Taking you there. One sec.', toolNames: ['escort'] }], CLIENT, []),
+    null,
+  )
+})
+
+test('promisedWithoutActing: a HELD write is an open question, not a broken promise', () => {
+  // X3 — the write call IS the approval request. `deck_strategy` was called and
+  // never completed, so the leg ended silent because the card is open.
+  assert.equal(
+    promisedWithoutActing(
+      [{ text: "I'll get that saved for you. One sec.", toolNames: ['deck_strategy'] }],
+      CLIENT,
+      [],
+    ),
+    null,
+  )
+})
+
+test('promisedWithoutActing: an OFFER is not a promise', () => {
+  const quiet = (text: string) => promisedWithoutActing([{ text, toolNames: [] }])
+  // Ending a turn on a question is the correct thing to do.
+  assert.equal(quiet('Want me to grab the logs?'), null)
+  assert.equal(quiet("I'll pull the full guide up if you want."), null)
+  assert.equal(quiet('Say the word and I will pull the logs.'), null)
+  assert.equal(quiet("I won't pull that again."), null)
+})
+
+test('promisedWithoutActing: a mid-answer promise that the answer moved past is not terminal', () => {
+  // Only the FINAL TWO SENTENCES of the last speaking line are read. This
+  // answer promised, delivered, and closed — there is nothing to correct, and
+  // searching the whole answer would correct it anyway.
+  const oneLine =
+    'Let me pull your battle logs. ' +
+    'Your record is 8-7 across 15 logged games, and v2 is the outlier at 0-3. ' +
+    'The list itself is Mega-heavy, built around Slowking for draw.'
+  assert.equal(promisedWithoutActing([{ text: oneLine, toolNames: [] }]), null)
+  // Same across lines: only the last one speaks for the end of the turn.
+  const text = [
+    'Let me pull your battle logs.',
+    '',
+    'Your record is 8-7 across 15 logged games, and v2 is the outlier at 0-3.',
+  ].join('\n')
+  assert.equal(promisedWithoutActing([{ text, toolNames: [] }]), null)
+})
+
+test('promisedWithoutActing: no text at all belongs to the empty-answer guard', () => {
+  assert.equal(promisedWithoutActing([]), null)
+  assert.equal(promisedWithoutActing([{ text: '   ', toolNames: ['decks'] }], CLIENT, ['decks']), null)
+})
+
+test('promisedWithoutActing: "take a second look" is not a promise to wait', () => {
+  // The bare-wait family carries its quantifier for exactly this reason: "a
+  // second" occurs inside ordinary sentences and "one sec" does not.
+  assert.equal(
+    promisedWithoutActing([{ text: 'Worth a second look at the energy line.', toolNames: [] }]),
+    null,
+  )
 })

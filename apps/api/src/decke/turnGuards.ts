@@ -28,6 +28,11 @@
  *       the angriest quotes); or names a card id that appeared in NO tool result
  *       this turn ("search returned me02-013 | $4.67, answer said me02-125,
  *       $770").
+ *   (d2) PROMISED WITHOUT ACTING — the answer ENDS on a promise of imminent
+ *       action ("First, I'll grab your deck's battle logs … One sec.") and the
+ *       turn ends with nothing run after it. A separate detector from (d), not
+ *       a widening of it: see `promisedWithoutActing` for why the tense and the
+ *       shape are different and why widening would cost (d) its precision.
  *
  * The guards are PURE DETECTORS. Each returns a boolean (or, for (d), the
  * offending phrases/ids), and the wrapper in `api/chat.mjs` decides what to do
@@ -373,6 +378,146 @@ export function phantomClaims(answerText: string, calledToolNames: string[]): st
     }
   }
   return phantoms
+}
+
+/**
+ * (d2) PROMISED WITHOUT ACTING — the answer ENDS on a promise of imminent
+ * first-person action and the turn ends there, with nothing run after it.
+ *
+ * A SIBLING OF `phantomClaims`, DELIBERATELY NOT A WIDENING OF IT. That
+ * detector's whole design argument is precision over recall, and its families
+ * are present-tense claims that an action IS HAPPENING. A promise is the other
+ * tense and the other shape — "I'll grab your battle logs. One sec." claims
+ * nothing has happened yet, so no `phantomClaims` family can match it without
+ * loosening every family for a case none of them describe.
+ *
+ * The measured turn, verbatim, 2026-08-29:
+ *
+ *   "Got it, let's pull the real picture instead of guessing. First, I'll grab
+ *    your deck's battle logs and strategy guide (if it has one). One sec."
+ *
+ * — and the turn ENDED there. No tool call followed, nothing arrived, and the
+ * reader was left watching a promise. It arrived immediately after they had
+ * declined an approval, which is the other half of why it read as pre-written.
+ *
+ * ── WHY THIS TAKES STEPS AND NOT JUST THE ANSWER TEXT ────────────────────────
+ *
+ * "Promised" is not the defect; "promised and then did not act" is. A model
+ * that says "let me pull the logs" in step 2 and calls `battle_logs` in step 3
+ * kept its word, and correcting it for that would be inventing a fault. The
+ * only place that ordering exists is the step list, so the detector reads it:
+ * the promise must be in the LAST step that produced text, and no step after
+ * that one may have called anything.
+ *
+ * ── THE THREE CARVE-OUTS, EACH STRUCTURAL ────────────────────────────────────
+ *
+ *   - A CLIENT-TOOL HANDOFF. A turn ending on `goTo`/`escort`/`journey` hands
+ *     off to the browser and the words ride the next leg — "one sec" is then
+ *     literally true, and the same carve-out `needsAnswerNudge` makes.
+ *   - A PENDING TOOL CALL. A called tool with no completed event is a HELD
+ *     WRITE waiting on the reader (X3: the write call IS the approval request).
+ *     "One sec" in front of an approval card is not a broken promise, it is the
+ *     card opening.
+ *   - NO TEXT AT ALL. That is the empty-answer defect and `needsAnswerNudge`
+ *     owns it; firing both would spend the turn's one guard on the wrong one.
+ *
+ * And, inside the sentence, the same two suppressors `phantomClaims` carries
+ * plus one more: negation ("I won't pull them"), a CONDITIONAL offer ("I'll
+ * pull it up if you want", "want me to grab the logs") — which is an offer the
+ * reader has to answer, the opposite of a promise — and any sentence that ends
+ * in a question mark, for the same reason.
+ *
+ * Returns the promise phrase that fired, or `null`.
+ */
+export interface TurnStep {
+  /** What the model said in this step. */
+  text?: string
+  /** The tools this step called, by name. */
+  toolNames?: readonly string[]
+}
+
+/**
+ * Phrases that promise imminent first-person action. Curated, not generative:
+ * a false positive tells a reader the model is being corrected for something it
+ * did not do, so the bar is the same one `phantomClaims` sets.
+ *
+ * Bare waits are listed with their quantifier attached (`one sec`, `two
+ * seconds`, `just a moment`) because a bare "a second" also occurs inside "take
+ * a second look", which is not a promise at all.
+ */
+const PROMISE_FAMILIES: RegExp[] = [
+  // "One sec." — the measured turn's last three characters of content.
+  /\b(?:one|two|a couple(?: of)?|just a|just one)\s+(?:secs?|seconds?|moments?|minutes?)\b/i,
+  /\bgive me (?:a|one|two|another)\s+(?:secs?|seconds?|moments?|minutes?)\b/i,
+  /\bhang on\b|\bhang tight\b|\bsit tight\b|\bstand by\b|\bbear with me\b|\bright back\b/i,
+  // "First, I'll grab your deck's battle logs …"
+  /\b(?:I['’]ll|I will|I['’]m going to|I['’]m gonna|I am going to|let me)\s+(?:just\s+|go\s+|first\s+|now\s+|quickly\s+)?(?:grab|pull|fetch|get|check|look|read|run|start|dig|open|load|take a look|have a look)\b/i,
+  // A stage direction standing in for the act: "[starting the edit]".
+  /\[(?:starting|running|fetching|grabbing|pulling|checking|loading|reading|working)\b[^\]]*\]/i,
+]
+
+/**
+ * An OFFER is not a promise. "I'll pull it up if you want" and "want me to grab
+ * the logs" both hand the decision back to the reader, and ending a turn there
+ * is the correct thing to do — so a sentence carrying one of these is never a
+ * broken promise, however it is phrased.
+ */
+const CONDITIONAL_OFFER =
+  /\b(?:if you|if that|if it|if they|want me to|do you want|just say|say the word|let me know|whenever you|when you're|next time|later on|tomorrow)\b/i
+
+/** Same negation vocabulary `phantomClaims` uses — "I won't pull them" is not a promise. */
+const PROMISE_NEGATION = /\b(?:not|n't|won't|never|without|instead of)\b/i
+
+export function promisedWithoutActing(
+  steps: readonly TurnStep[],
+  clientToolNames: Set<string> = CLIENT,
+  completedToolNames: string[] = [],
+): string | null {
+  // The LAST step that actually said something. No text anywhere is the
+  // empty-answer defect, which `needsAnswerNudge` owns.
+  let lastTextIdx = -1
+  for (let i = 0; i < steps.length; i++) {
+    if (String(steps[i]?.text ?? '').trim().length > 0) lastTextIdx = i
+  }
+  if (lastTextIdx < 0) return null
+
+  // ACTED AFTER PROMISING — the promise was kept, and there is nothing to say.
+  for (let i = lastTextIdx + 1; i < steps.length; i++) {
+    if ((steps[i]?.toolNames ?? []).length > 0) return null
+  }
+
+  const called: string[] = []
+  for (const s of steps) for (const n of s.toolNames ?? []) called.push(n)
+  // A navigation handoff — the browser is about to act and the words ride the
+  // next leg. Same carve-out as `needsAnswerNudge`.
+  for (const n of called) if (clientToolNames.has(n)) return null
+  // A HELD WRITE is an open question, not a broken promise (X3).
+  const completed = new Set(completedToolNames)
+  for (const n of called) if (!completed.has(n)) return null
+
+  // The promise has to be TERMINAL. Only the last speaking line's final two
+  // sentences are read: "one sec" in the middle of an answer that then went on
+  // to answer is not a defect.
+  const lines = String(steps[lastTextIdx]?.text ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith('#'))
+  const last = lines[lines.length - 1]
+  if (!last) return null
+  const sentences = last.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0)
+  const tail = sentences.slice(-2)
+
+  for (const sentence of tail) {
+    // A question is an offer waiting on them, not a promise.
+    if (sentence.trim().endsWith('?')) continue
+    if (CONDITIONAL_OFFER.test(sentence)) continue
+    if (PROMISE_NEGATION.test(sentence)) continue
+    for (const re of PROMISE_FAMILIES) {
+      const m = sentence.match(re)
+      if (m) return m[0]
+    }
+  }
+  return null
 }
 
 /**
