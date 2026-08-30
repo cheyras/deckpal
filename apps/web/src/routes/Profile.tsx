@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
@@ -18,7 +18,14 @@ import { useLateEntrance } from '../lib/lateEntrance'
 import { signOutBounded } from '../lib/authSession'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
+// The showcase's offline cache. The durable copy moved to the ACCOUNT — the
+// user_showcase table has existed since migration 005 and this page finally
+// uses it (via /me/showcase), so a profile curated here shows up on the next
+// device too. localStorage keeps the instant first paint and the offline case.
 const SHOWCASE_KEY = 'deckpal.showcase.v1'
+// Set once the local picks have been offered up to an empty account row, so a
+// deliberate later "clear my showcase" is not resurrected by an old cache.
+const SHOWCASE_PUSHED_KEY = 'deckpal.showcase.pushed.v1'
 
 interface ShowcasePick {
   cardId: string
@@ -82,8 +89,46 @@ export function Profile() {
   const [signingOut, setSigningOut] = useState(false)
   const photo = useAvatarEditor()
 
+  // Cache-first render, account-truth follow-up: paint from localStorage
+  // immediately, then let /me/showcase overwrite it when it answers.
   const [showcase, setShowcase] = useState<ShowcasePick[]>(() => loadShowcase())
   const [picking, setPicking] = useState<number | null>(null)
+  const serverShowcase = useQuery({ queryKey: ['showcase'], queryFn: ({ signal }) => api.showcase(signal) })
+  const hydratedShowcase = useRef(false)
+  useEffect(() => {
+    if (!serverShowcase.data || hydratedShowcase.current) return
+    hydratedShowcase.current = true
+    const fromServer: ShowcasePick[] = serverShowcase.data.showcase.map((s) => ({
+      cardId: s.cardId,
+      name: s.name,
+      low: s.images.low,
+      high: s.images.high,
+    }))
+    let pushed = true
+    try {
+      pushed = localStorage.getItem(SHOWCASE_PUSHED_KEY) === '1'
+    } catch {
+      /* no storage — nothing local to migrate up either */
+    }
+    const local = loadShowcase()
+    if (!pushed && fromServer.length === 0 && local.length > 0) {
+      // One-time migration: this device curated a showcase before the account
+      // could hold one. Offer it up; the server's answer becomes the truth.
+      api
+        .setShowcase(local.map((p) => p.cardId))
+        .then((res) => {
+          setShowcase(res.showcase.map((s) => ({ cardId: s.cardId, name: s.name, low: s.images.low, high: s.images.high })))
+        })
+        .catch((e) => console.warn('showcase migration failed:', e))
+    } else {
+      setShowcase(fromServer)
+    }
+    try {
+      localStorage.setItem(SHOWCASE_PUSHED_KEY, '1')
+    } catch {
+      /* fine */
+    }
+  }, [serverShowcase.data])
   useEffect(() => {
     try {
       localStorage.setItem(SHOWCASE_KEY, JSON.stringify(showcase))
@@ -99,7 +144,11 @@ export function Profile() {
       while (next.length < 4) next.push(undefined as unknown as ShowcasePick)
       if (pick) next[idx] = pick
       else next.splice(idx, 1)
-      return next.filter(Boolean).slice(0, 4)
+      const out = next.filter(Boolean).slice(0, 4)
+      // Write-through to the account. Optimistic — the local state and cache
+      // already show the change; a failed PUT surfaces on the next hydration.
+      api.setShowcase(out.map((p) => p.cardId)).catch((e) => console.warn('showcase save failed:', e))
+      return out
     })
     setPicking(null)
   }

@@ -1,4 +1,5 @@
 import { setTopbar } from '../../lib/topbar'
+import { pushSettings } from '../../lib/settingsSync'
 import { useTopbar } from '../../lib/useTopbar'
 
 /**
@@ -19,7 +20,10 @@ export function TopbarToggle() {
           <button
             key={option}
             type="button"
-            onClick={() => setTopbar(option)}
+            onClick={() => {
+              setTopbar(option)
+              pushSettings({ topbar: option })
+            }}
             aria-pressed={active}
             title={option === 'cover' ? 'Translucent, blurred, grained' : 'Opaque — the pre-effect header'}
             className={[

@@ -1955,6 +1955,19 @@ CREATE TABLE user_settings (
   enabled_catalogues TEXT NOT NULL DEFAULT 'en'                                -- §5.6 (A4)
 );
 
+-- Migration 049 (2026-08-29): the five UI preferences that had grown up in
+-- localStorage move to the account (owner request — "not remembered on this
+-- device only"). skin/topbar are NULLable: NULL = "no explicit choice, follow
+-- the app default", which keeps the code-side defaults flippable without a
+-- data migration.
+ALTER TABLE user_settings
+  ADD COLUMN decke_hidden       BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN skin               TEXT CHECK (skin IN ('premium','classic')),
+  ADD COLUMN topbar             TEXT CHECK (topbar IN ('cover','flat')),
+  ADD COLUMN series_sort_key    TEXT NOT NULL DEFAULT 'recency' CHECK (series_sort_key IN ('recency','az','pct')),
+  ADD COLUMN series_sort_dir    TEXT NOT NULL DEFAULT 'desc' CHECK (series_sort_dir IN ('asc','desc')),
+  ADD COLUMN series_group_owned BOOLEAN NOT NULL DEFAULT TRUE;
+
 CREATE TABLE user_profile (
   user_id BIGINT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
   display_name TEXT, bio TEXT, avatar_path TEXT, banner_path TEXT,
