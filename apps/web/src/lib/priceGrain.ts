@@ -66,7 +66,14 @@ export interface ChartPoint {
  * renders the seam correctly for free.
  */
 export function chartPoints(points: readonly PriceHistoryPoint[]): ChartPoint[] {
-  return points.map((p) => ({ date: p.end, value: p.close, low: p.low, high: p.high }))
+  // The service worker caches API GETs for seven days (NetworkFirst), so a NEW
+  // bundle can be handed an OLD-shaped body — `{date, value}` with no `end` or
+  // `close` — for up to a week after a shape change. Such a point is skipped
+  // rather than mapped to `{date: undefined}`, which is unplottable and used to
+  // crash the chart.
+  return points
+    .filter((p) => typeof p?.end === 'string' && typeof p?.close === 'number')
+    .map((p) => ({ date: p.end, value: p.close, low: p.low, high: p.high }))
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
