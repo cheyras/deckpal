@@ -30,6 +30,7 @@ import { meRouter } from './routes/me.js';
 import { deckeHistoryRouter } from './routes/deckeHistory.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
+import { scanFlagsRouter } from './dev/scanFlags.js';
 import { bugsRouter } from './routes/bugs.js';
 import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
@@ -415,6 +416,13 @@ export function createApp(): express.Express {
   // the insights router and mounted here. Every other /insights route is a
   // report on YOUR collection and stays gated below.
   api.use('/insights', publicPokedexRouter);
+
+  // The scan-harness dev-only flag uploader. Mounted here, ahead of
+  // resolveIdentity, so its own ownerGate (see dev/scanFlags.ts) is the only
+  // check: a Vercel preview deployment is already fronted by Vercel SSO and
+  // must not ALSO be forced through resolveIdentity's 401 for having no app
+  // session, and self-host has no Supabase auth to resolve identity from.
+  api.use('/dev/scan-flags', scanFlagsRouter);
 
   // ── User-scoped routes ────────────────────────────────────────────────────
   // resolveIdentity settles "who is calling" once, for both deployments:

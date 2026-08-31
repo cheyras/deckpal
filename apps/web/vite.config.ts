@@ -159,6 +159,12 @@ export default defineConfig(async ({ command }) => {
           //
           //   models/**      5.6 MB of glb, HDRI and the SDF glyph atlas
           //   assets/Decke-* ~1.17 MB — three.js plus the character runtime.
+          //   dev-assets/**  13.3 MB — OpenCV 5.0.0 (opencv.js), the real-OpenCV
+          //                  engine /dev/scan-harness lazy-loads on demand for its
+          //                  Engine A/B toggle. Same shape of risk as the character:
+          //                  a dev-only route whose heavy payload must be fetched
+          //                  only by whoever actually clicks into it, not by every
+          //                  visitor's service worker on first load.
           //   Measured from `pnpm --filter deckpal-web build` on 2026-08-22
           //   rather than estimated, and DELIBERATELY APPROXIMATE: it drifts
           //   with every dependency bump, and a precise figure written down in
@@ -176,7 +182,7 @@ export default defineConfig(async ({ command }) => {
           // into EVERY visitor's cache on first load, for a route exactly one
           // account can open. The route is lazy, so with them the cost is paid
           // only by whoever actually opens it.
-          globIgnores: ['models/**', 'assets/Decke-*.js'],
+          globIgnores: ['models/**', 'assets/Decke-*.js', 'dev-assets/**'],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         // Leave this off. Turning it on would put the service worker in front of
