@@ -14,7 +14,7 @@
  * connection while a request holds one is the deadlock B2 exists to prevent.
  */
 import pg from 'pg';
-import { loadEnv, makePool, type Queryable } from '@deckpal/db';
+import { loadEnv, makePool, type Queryable } from '../workspace-db.js';
 import type { CardFacts, Deck, DeckEntry, FormatCode, PokemonType, ValidationWarning } from './types.js';
 import type { ParsedDeck, ParsedLine } from './ptcgl.js';
 import { normalizeName, BRACE_TO_TYPE } from './names.js';

@@ -25,7 +25,7 @@
  *    a bare name line (resolvable for Trainer/Energy per Limitless S10) with a
  *    structured warning. Never a silent garbage line.
  */
-import type { Queryable } from '@deckpal/db';
+import type { Queryable } from '../workspace-db.js';
 import { serializePtcgl, type SerializableLine, type Section } from './ptcgl.js';
 import { setAliases } from './data.js';
 import { BRACE_TO_TYPE } from './names.js';

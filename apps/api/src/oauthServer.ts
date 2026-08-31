@@ -9,7 +9,7 @@ import {
   getClient,
   registerClient,
   verifyPkceS256,
-} from '@deckpal/db';
+} from './workspace-db.js';
 
 /**
  * The public, unauthenticated half of the OAuth 2.1 "Connect" flow —

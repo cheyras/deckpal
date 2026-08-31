@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
-import { loadEnv, makePool, type Queryable } from '@deckpal/db';
+import { loadEnv, makePool, type Queryable } from './workspace-db.js';
 import { pct } from './insights/trainerLevel.js';
 
 /**

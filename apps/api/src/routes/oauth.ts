@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { asyncHandler, badRequest, notFound } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { createAuthCode, getClient } from '@deckpal/db';
+import { createAuthCode, getClient } from '../workspace-db.js';
 
 /**
  * The signed-in half of the OAuth "Connect" flow — showing what a client is
