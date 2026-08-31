@@ -58,6 +58,12 @@
 name: Catalog refresh
 
 on:
+  # Register this workflow when a fork first adds it to its default branch.
+  # The path filter keeps ordinary application pushes from refreshing the
+  # full catalog; regular refreshes remain scheduled or manually dispatched.
+  push:
+    branches: [main]
+    paths: ['.github/workflows/catalog-refresh.yml']
   schedule:
     # Sundays 04:30 UTC. Off the hour on purpose: GitHub's scheduler is
     # best-effort and queues hardest on the hour.
