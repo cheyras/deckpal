@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import {
   hasStorageEnv,
   listObjectsRecursive,
+  objectExists,
   publicObjectUrl,
   putUnmanifestedObject,
   unknownProvenance,
@@ -23,6 +24,13 @@ import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
  */
 
 const FLAG_ID_RE = /^(\d+)\.(png|json)$/;
+// The comment sidecar is a distinct object class from the flag's own png/json
+// (it's written by a later, separate request, and may never exist at all), so
+// it gets its own regex rather than a third alternative on FLAG_ID_RE above —
+// that one still means exactly "a flag's own capture files" everywhere it's
+// used (the listing loop's byId map, the .files it reports).
+const COMMENT_RE = /^(\d+)\.comment\.json$/;
+const ID_RE = /^\d+$/;
 const PREFIX = 'dev-flags/';
 
 // ~3MB for the decoded frame + its sidecar JSON combined. The app-wide
@@ -34,6 +42,9 @@ const PREFIX = 'dev-flags/';
 // or re-checking any limit — not a smaller cap, just a no-op. The cap is
 // therefore enforced by hand, after decoding, below.
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+
+// A comment is a short owner annotation, not a report; 4KB is generous for that.
+const MAX_COMMENT_BYTES = 4 * 1024;
 
 /**
  * Same identity this deployment already uses for every other owner-only
@@ -67,6 +78,22 @@ function ownerGate(req: Request, res: Response, next: NextFunction): void {
     return;
   }
   res.status(403).json({ error: { code: 'forbidden', message: 'Owner only.' } });
+}
+
+/**
+ * The comment TEXT for one flag, or null if it has none / the fetch failed.
+ * Best-effort: a corrupt or unreachable comment object must not break the
+ * list, since every other field in that entry is still good.
+ */
+async function readComment(objectPath: string): Promise<string | null> {
+  try {
+    const upstream = await fetch(publicObjectUrl(objectPath));
+    if (!upstream.ok) return null;
+    const data = (await upstream.json()) as { comment?: unknown };
+    return typeof data.comment === 'string' ? data.comment : null;
+  } catch {
+    return null;
+  }
 }
 
 export const scanFlagsRouter: Router = Router();
@@ -116,6 +143,42 @@ scanFlagsRouter.post(
   }),
 );
 
+// ── POST /:id/comment — annotate a flagged frame ────────────────────────────
+scanFlagsRouter.post(
+  '/:id/comment',
+  asyncHandler(async (req, res) => {
+    if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
+
+    const id = str(req.params.id) ?? '';
+    if (!ID_RE.test(id)) throw badRequest('bad flag id');
+
+    const body = (req.body ?? {}) as { comment?: unknown };
+    const comment = typeof body.comment === 'string' ? body.comment.trim() : '';
+    if (!comment) throw badRequest('comment is required');
+    if (Buffer.byteLength(comment, 'utf8') > MAX_COMMENT_BYTES) {
+      throw new ApiError(413, 'payload_too_large', `comment is over the ${MAX_COMMENT_BYTES / 1024} KB limit`);
+    }
+
+    // The flag itself has to exist — a comment with nothing to attach to is a
+    // typo'd id, not a new resource. Its .json sidecar is the flag's identity
+    // (the .png could in principle be missing on a partial failure; the .json
+    // is what the POST / handler writes second, so its presence is the
+    // stronger signal that the upload actually completed).
+    if (!(await objectExists(`${PREFIX}${id}.json`))) throw notFound('no such flag');
+
+    const record = { comment, updatedAt: new Date().toISOString() };
+    await putUnmanifestedObject({
+      objectPath: `${PREFIX}${id}.comment.json`,
+      bytes: Buffer.from(JSON.stringify(record, null, 2), 'utf8'),
+      provenance: unknownProvenance('scan-harness owner comment — typed in the harness UI, no upstream URL'),
+      tierProvenanceReason: 'comment sidecar for a dev-flags capture — same class as the paired PNG/JSON above; x-upsert makes a re-POST an edit',
+      contentType: 'application/json',
+    });
+
+    res.json({ ok: true, id: Number(id), ...record });
+  }),
+);
+
 // ── GET / — list flagged frames, newest first ───────────────────────────────
 scanFlagsRouter.get(
   '/',
@@ -124,10 +187,21 @@ scanFlagsRouter.get(
       res.json({ flags: [] });
       return;
     }
+    // One listing call sees every key under the prefix, including which ids
+    // have a comment.json — but not what it SAYS, since Storage's list
+    // endpoint reports size/type/etag, never content. Comment TEXT is fetched
+    // below (commentPaths), and only for ids that both (a) survive the
+    // top-200 cut and (b) actually have a comment.json — few in practice.
     const objects = await listObjectsRecursive(PREFIX.slice(0, -1));
     const byId = new Map<string, { files: string[]; size: number }>();
+    const commentPaths = new Map<string, string>(); // id -> comment.json object path
     for (const obj of objects) {
       const name = obj.path.slice(PREFIX.length);
+      const cm = COMMENT_RE.exec(name);
+      if (cm) {
+        commentPaths.set(cm[1]!, obj.path);
+        continue;
+      }
       const m = FLAG_ID_RE.exec(name);
       if (!m) continue; // ignore anything under the prefix this router didn't write
       const id = m[1]!;
@@ -137,15 +211,22 @@ scanFlagsRouter.get(
       entry.size += obj.byteSize;
       byId.set(id, entry);
     }
-    const flags = [...byId.entries()]
+    const top = [...byId.entries()]
       .sort((a, b) => Number(b[0]) - Number(a[0]))
-      .slice(0, 200)
-      .map(([id, { files, size }]) => ({
-        id: Number(id),
-        files,
-        size,
-        uploadedAt: new Date(Number(id)).toISOString(), // the id IS the capture time
-      }));
+      .slice(0, 200);
+    const flags = await Promise.all(
+      top.map(async ([id, { files, size }]) => {
+        const cpath = commentPaths.get(id);
+        const comment = cpath ? await readComment(cpath) : null;
+        return {
+          id: Number(id),
+          files,
+          size,
+          uploadedAt: new Date(Number(id)).toISOString(), // the id IS the capture time
+          comment,
+        };
+      }),
+    );
     res.json({ flags });
   }),
 );
@@ -155,7 +236,9 @@ scanFlagsRouter.get(
   '/:file',
   asyncHandler(async (req, res) => {
     const file = str(req.params.file) ?? '';
-    if (!FLAG_ID_RE.test(file)) throw badRequest('bad file id');
+    // A flag's own png/json, OR its comment sidecar — nothing else lives
+    // under this prefix, and no path tricks: both regexes are `^...$`.
+    if (!FLAG_ID_RE.test(file) && !COMMENT_RE.test(file)) throw badRequest('bad file id');
     if (!hasStorageEnv()) throw notFound('no object store configured');
 
     // The bucket is public (see object-store.ts); fetching its own published

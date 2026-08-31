@@ -73,6 +73,16 @@
      synthetic-fixture quirk (item 4). Amber like the flag-status/seg accents,
      not red -- this is expected behavior, not something gone wrong. */
   .note { font-size:12px; color:#ffd479; background:#3a2a05; border:1px solid #9e6a03; border-radius:6px; padding:6px 10px; margin-top:8px; max-width:640px; }
+  /* Flags tab: grid of flagged-frame thumbnails + a detail/annotate view. */
+  .flags-grid-items { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; margin-top:12px; max-width:960px; }
+  .flag-tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; cursor:pointer; text-align:left; padding:0; font:inherit; color:inherit; }
+  .flag-tile:hover { border-color:#58a6ff; }
+  .flag-tile img { width:100%; aspect-ratio:1/1; object-fit:contain; object-position:center; display:block; background:#000; }
+  .flag-tile-meta { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:4px 7px; font-size:11px; color:var(--mut); }
+  .flag-tile-comment { font-size:13px; line-height:1; }
+  #flagsDetailStage { width:100%; max-width:640px; margin:0 auto; }
+  #flagsDetailCanvas { width:100%; height:auto; max-width:640px; }
+  #fd-comment { width:100%; min-height:80px; font:inherit; font-size:13px; background:#0d1117; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:8px; resize:vertical; box-sizing:border-box; }
 </style>
 </head>
 <body>
@@ -81,6 +91,7 @@
   <div class="tabs">
     <div class="tab active" data-tab="fixtures">Fixtures</div>
     <div class="tab" data-tab="live">Live camera</div>
+    <div class="tab" data-tab="flags">Flags</div>
   </div>
   <div class="readout" id="hdrReadout"></div>
 </header>
@@ -158,6 +169,52 @@
           <span><i class="swatch" style="background:var(--cyn)"></i>stable (tracked, smoothed)</span>
           <span><i class="swatch" style="background:var(--cyn);opacity:.35"></i>pending (not yet stable)</span>
           <span>reticle off / Stability off = raw window.detect() output, for A/B comparison</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FLAGS TAB -->
+  <section id="tab-flags" class="hidden">
+    <div id="flagsGridView">
+      <div class="controls">
+        <button id="flagsRefresh">Refresh</button>
+        <span class="readout" id="flagsStatus">—</span>
+      </div>
+      <div id="flagsGridItems" class="flags-grid-items"></div>
+    </div>
+    <div id="flagsDetailView" class="hidden">
+      <div class="controls">
+        <button id="flagsBack">◀ Back</button>
+        <span class="readout err" id="flagsDetailStatus"></span>
+      </div>
+      <div class="row">
+        <div>
+          <div class="stage" id="flagsDetailStage">
+            <canvas id="flagsDetailCanvas" width="320" height="240"></canvas>
+          </div>
+          <div class="legend readout" style="margin-top:8px">
+            <span><i class="swatch" style="background:var(--cyn)"></i>detectorQuads (dashed)</span>
+            <span><i class="swatch" style="background:var(--cyn)"></i>tracker.stable (solid)</span>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Flag detail</h2>
+          <div class="kv"><span>id</span><span id="fd-id">—</span></div>
+          <div class="kv"><span>uploaded</span><span id="fd-uploaded">—</span></div>
+          <div class="kv"><span>engine</span><span id="fd-engine">—</span></div>
+          <div class="kv"><span>dims</span><span id="fd-dims">—</span></div>
+          <div class="kv"><span>reticle</span><span id="fd-reticle">—</span></div>
+          <div class="kv"><span>stability</span><span id="fd-stability">—</span></div>
+          <div class="kv"><span>detector quads</span><span id="fd-quads">—</span></div>
+          <div class="kv"><span>tracker stable</span><span id="fd-stable">—</span></div>
+          <div style="margin-top:10px">
+            <textarea id="fd-comment" rows="4" placeholder="Add a note for the fix bench…"></textarea>
+            <div class="controls" style="margin-top:6px">
+              <button id="fd-save">Save comment</button>
+              <span class="flag-status" id="fd-save-status"></span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -5555,6 +5612,176 @@ function flagCurrentFrame(){
 
 document.getElementById('flagBtn').onclick = flagCurrentFrame;
 
+/* ---------- Flags tab (browse + annotate flagged frames) ----------
+ * GET /api/dev/scan-flags lists {id, files, size, uploadedAt, comment} newest
+ * first (comment is null until POST .../:id/comment has been called once).
+ * Grid tap -> detail: PNG + sidecar JSON fetched by id, the sidecar's
+ * detectorQuads and tracker.stable drawn with the SAME drawQuad/
+ * drawStyledQuad/STABLE_STYLE the Fixtures and Live tabs already use, so the
+ * overlay styling is identical everywhere in the harness.
+ */
+const FLAGS_LIST_URL = '/api/dev/scan-flags';
+let flagsLoaded = false;   // true once the list has been fetched at least once this session
+let flagsCache = [];       // last-fetched list, newest first, mutated in place when a comment saves
+let flagsDetailId = null;  // id currently shown in the detail view, or null
+
+function timeAgo(iso){
+  const ms = Date.now() - new Date(iso).getTime();
+  if(!isFinite(ms) || ms < 0) return '—';
+  const s = Math.floor(ms/1000);
+  if(s < 60) return s+'s ago';
+  const m = Math.floor(s/60);
+  if(m < 60) return m+'m ago';
+  const h = Math.floor(m/60);
+  if(h < 24) return h+'h ago';
+  return Math.floor(h/24)+'d ago';
+}
+
+function renderFlagsGrid(){
+  const grid = document.getElementById('flagsGridItems');
+  grid.textContent = '';
+  for(const f of flagsCache){
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'flag-tile';
+    const img = document.createElement('img');
+    img.src = FLAGS_LIST_URL + '/' + f.id + '.png';
+    img.loading = 'lazy';
+    img.alt = 'flag ' + f.id;
+    tile.appendChild(img);
+    const meta = document.createElement('div');
+    meta.className = 'flag-tile-meta';
+    const timeSpan = document.createElement('span');
+    timeSpan.textContent = timeAgo(f.uploadedAt);
+    meta.appendChild(timeSpan);
+    if(f.comment){
+      const c = document.createElement('span');
+      c.className = 'flag-tile-comment';
+      c.title = 'has a comment';
+      c.textContent = '\u{1F4AC}'; // speech balloon
+      meta.appendChild(c);
+    }
+    tile.appendChild(meta);
+    tile.onclick = ()=>openFlagDetail(f.id);
+    grid.appendChild(tile);
+  }
+}
+
+async function loadFlags(){
+  const statusEl = document.getElementById('flagsStatus');
+  statusEl.textContent = 'loading…';
+  try{
+    const res = await fetch(FLAGS_LIST_URL, {credentials:'include'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    flagsCache = Array.isArray(data.flags) ? data.flags : [];
+    flagsLoaded = true;
+    renderFlagsGrid();
+    statusEl.textContent = flagsCache.length + ' flag' + (flagsCache.length===1?'':'s');
+  }catch(e){
+    statusEl.textContent = 'failed to load: ' + String((e && e.message) || e);
+  }
+}
+// On first open only (task item 1) -- switching back to the Flags tab later
+// in the same session does not re-fetch on its own; the Refresh button does.
+function loadFlagsIfNeeded(){
+  if(!flagsLoaded) loadFlags();
+}
+document.getElementById('flagsRefresh').onclick = loadFlags;
+
+function showFlagsView(view){
+  document.getElementById('flagsGridView').classList.toggle('hidden', view!=='grid');
+  document.getElementById('flagsDetailView').classList.toggle('hidden', view!=='detail');
+}
+document.getElementById('flagsBack').onclick = ()=>showFlagsView('grid');
+
+// Classic Image()+object-URL decode (not createImageBitmap) for the widest
+// possible browser floor, matching the rest of this harness's conservative
+// API choices.
+function decodeImageBlob(blob){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = ()=>{ URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('flag image failed to decode')); };
+    img.src = url;
+  });
+}
+
+async function drawFlagDetail(pngBlob, meta){
+  const img = await decodeImageBlob(pngBlob);
+  const canvas = document.getElementById('flagsDetailCanvas');
+  const ctx = canvas.getContext('2d');
+  const w = (meta.dims && meta.dims.width) || img.naturalWidth;
+  const h = (meta.dims && meta.dims.height) || img.naturalHeight;
+  canvas.width = w; canvas.height = h;
+  ctx.drawImage(img, 0, 0, w, h);
+  const quads = Array.isArray(meta.detectorQuads) ? meta.detectorQuads : [];
+  for(const q of quads){ if(q && q.length>=4) drawQuad(ctx, q, '#39d0d8', [4,3]); }
+  const stable = (meta.tracker && Array.isArray(meta.tracker.stable)) ? meta.tracker.stable : [];
+  for(const s of stable){ if(s && s.quad) drawStyledQuad(ctx, s.quad, STABLE_STYLE); }
+}
+
+async function openFlagDetail(id){
+  flagsDetailId = id;
+  showFlagsView('detail');
+  const statusEl = document.getElementById('flagsDetailStatus');
+  statusEl.textContent = 'loading…';
+  const saveStatusEl = document.getElementById('fd-save-status');
+  saveStatusEl.className = 'flag-status';
+  saveStatusEl.textContent = '';
+  saveStatusEl.onclick = null;
+  const flag = flagsCache.find(f=>f.id===id);
+  document.getElementById('fd-comment').value = (flag && flag.comment) || '';
+  try{
+    const [pngBlob, meta] = await Promise.all([
+      fetch(FLAGS_LIST_URL+'/'+id+'.png', {credentials:'include'}).then((r)=>{ if(!r.ok) throw new Error('HTTP '+r.status+' (png)'); return r.blob(); }),
+      fetch(FLAGS_LIST_URL+'/'+id+'.json', {credentials:'include'}).then((r)=>{ if(!r.ok) throw new Error('HTTP '+r.status+' (json)'); return r.json(); }),
+    ]);
+    await drawFlagDetail(pngBlob, meta);
+    document.getElementById('fd-id').textContent = String(id);
+    document.getElementById('fd-uploaded').textContent = flag ? new Date(flag.uploadedAt).toLocaleString() : '—';
+    document.getElementById('fd-engine').textContent = meta.engine || '—';
+    document.getElementById('fd-dims').textContent = meta.dims ? (meta.dims.width+'x'+meta.dims.height) : '—';
+    document.getElementById('fd-reticle').textContent = meta.toggles ? String(!!meta.toggles.reticleOn) : '—';
+    document.getElementById('fd-stability').textContent = meta.toggles ? String(!!meta.toggles.stabilityOn) : '—';
+    document.getElementById('fd-quads').textContent = Array.isArray(meta.detectorQuads) ? meta.detectorQuads.length : '—';
+    document.getElementById('fd-stable').textContent = (meta.tracker && Array.isArray(meta.tracker.stable)) ? meta.tracker.stable.length : '—';
+    statusEl.textContent = '';
+  }catch(e){
+    statusEl.textContent = 'failed to load: ' + String((e && e.message) || e);
+  }
+}
+
+function saveFlagComment(){
+  const id = flagsDetailId;
+  if(id==null) return;
+  const statusEl = document.getElementById('fd-save-status');
+  const comment = document.getElementById('fd-comment').value;
+  statusEl.className = 'flag-status uploading';
+  statusEl.textContent = 'saving…';
+  statusEl.onclick = null;
+  fetch(FLAGS_LIST_URL+'/'+id+'/comment', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({comment}),
+  })
+    .then((res)=>{
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      statusEl.className = 'flag-status saved';
+      statusEl.textContent = 'saved ✓';
+      const f = flagsCache.find((x)=>x.id===id);
+      if(f){ f.comment = comment || null; renderFlagsGrid(); } // so the grid's 💬 marker is current when Back is tapped
+    })
+    .catch(()=>{
+      statusEl.className = 'flag-status failed';
+      statusEl.textContent = 'failed ✗ — tap to retry';
+      statusEl.onclick = saveFlagComment;
+    });
+}
+document.getElementById('fd-save').onclick = saveFlagComment;
+
 /* ---------- tabs ---------- */
 document.querySelectorAll('.tab').forEach(t=>{
   t.onclick=()=>{
@@ -5563,7 +5790,19 @@ document.querySelectorAll('.tab').forEach(t=>{
     const which=t.dataset.tab;
     document.getElementById('tab-fixtures').classList.toggle('hidden',which!=='fixtures');
     document.getElementById('tab-live').classList.toggle('hidden',which!=='live');
-    if(which!=='live'){ if(camRAF)cancelAnimationFrame(camRAF); }
+    document.getElementById('tab-flags').classList.toggle('hidden',which!=='flags');
+    if(which!=='live'){
+      // Leaving Live (to Fixtures OR Flags) pauses the detect/render loop --
+      // rAF callbacks keep firing even while a tab's section is display:none,
+      // so this is what actually stops burning camera/CPU on a hidden pane.
+      if(camRAF){ cancelAnimationFrame(camRAF); camRAF=null; }
+    } else if(camStream && !camRAF){
+      // Returning to Live: the camera session (camStream/liveVideo) was never
+      // stopped, only its render loop was paused above -- resume that loop
+      // rather than requiring Stop+Start again.
+      camLoop();
+    }
+    if(which==='flags') loadFlagsIfNeeded();
   };
 });
 </script>
