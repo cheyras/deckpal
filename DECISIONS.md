@@ -15085,7 +15085,8 @@ would have produced documents describing a comparison with the compared thing
 removed, which is worse than either keeping or deleting them.
 
 Deleting three documents left section pointers dangling in `SCHEMA.md`,
-`DECK-FORMATS.md`, six code comments, and migrations `003` and `013` (checksummed
+`DECK-FORMATS.md`, `ARCHITECTURE.md`'s document map (row replaced with the
+tombstone), three code comments, and migrations `003` and `013` (checksummed
 and immutable per B4 — they could not have been edited even if it were
 desirable). `research/REMOVED-RESEARCH.md` is the tombstone: it names what went,
 why, and says to read the surviving pointers as dated provenance marks rather than
