@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { makePool } from '@deckpal/db';
+import { makePool } from '../workspace-db.js';
 import type pg from 'pg';
 import { ALGO, hashPath, hashToBytes } from './phash.js';
 

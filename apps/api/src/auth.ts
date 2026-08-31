@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { defaultUserId, pool } from './db.js';
-import { looksLikeApiToken, resolveToken, touchToken } from '@deckpal/db';
+import { looksLikeApiToken, resolveToken, touchToken } from './workspace-db.js';
 import { makeResolveIdentity, makeResolveOptionalIdentity } from './identity.js';
 
 /**
