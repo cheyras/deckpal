@@ -888,39 +888,68 @@ decksRouter.get(
 );
 
 // ── POST /decks/import — PTCGL or Mass Entry text → new deck ───────────────────
+async function resolveImportBody(body: Record<string, unknown>) {
+  const text = typeof body.text === 'string' ? body.text : '';
+  if (!text.trim()) throw badRequest('text is required');
+  if (text.length > 100_000) throw badRequest('decklist text too large');
+  const source = oneOf(body.source, ['ptcgl', 'massentry'] as const, 'ptcgl');
+  const format = parseFormat(body.formatCode ?? body.format);
+  let glcType = parseGlcType(body.glcType);
+  if (format === 'glc' && !glcType) glcType = glcTypes()[0] ?? null;
+
+  let parsed: ParsedDeck;
+  if (source === 'massentry') {
+    const me = parseMassEntry(text);
+    const lines: ParsedLine[] = me.lines.map((line) => ({
+      quantity: line.quantity, name: line.name, setCode: null, number: null,
+      print: null, section: 'pokemon', raw: line.raw,
+    }));
+    parsed = { lines, headers: [], trailerCount: null, warnings: me.warnings };
+  } else {
+    parsed = parsePtcgl(text.replace(/\r\n?/g, '\n'));
+  }
+  const resolved = await resolveDeck(dbHandle(), parsed, format, glcType);
+  return { source, format, glcType, parsed, resolved };
+}
+
+decksRouter.post(
+  '/import/preview',
+  asyncHandler(async (req, res) => {
+    const preview = await resolveImportBody(req.body ?? {});
+    const warnings = preview.resolved.importWarnings ?? [];
+    const unresolved = warnings.filter((warning) => warning.code === 'UNRESOLVED_CARD');
+    const total = preview.parsed.lines.reduce((sum, line) => sum + line.quantity, 0);
+    res.json({
+      source: preview.source,
+      format: preview.format,
+      total,
+      resolved: preview.resolved.entries.map((entry) => ({
+        cardId: entry.card.tcgdexId,
+        name: entry.card.name,
+        number: entry.card.localId,
+        setId: entry.card.setTcgdexId,
+        quantity: entry.quantity,
+        resolution: entry.resolution,
+      })),
+      unresolved: unresolved.map((warning) => warning.message),
+      warnings: warnings.filter((warning) => warning.code !== 'UNRESOLVED_CARD'),
+      variantNote: 'PTCG Live text has no printing information. Imported cards use their primary printing.',
+    });
+  }),
+);
+
 decksRouter.post(
   '/import',
   asyncHandler(async (req, res) => {
     const body = req.body ?? {};
-    const text = typeof body.text === 'string' ? body.text : '';
-    if (!text.trim()) throw badRequest('text is required');
-    if (text.length > 20000) throw badRequest('decklist text too large');
-    const source = oneOf(body.source, ['ptcgl', 'massentry'] as const, 'ptcgl');
+    const imported = await resolveImportBody(body);
+    const { source, format, glcType, resolved } = imported;
     // `source` was already claimed by the decklist syntax above, so writer
     // attribution rides as `writeSource` on this one endpoint (everywhere else
     // it is plain `source`).
     const writeSource = parseSource(body.writeSource);
-    const format = parseFormat(body.formatCode ?? body.format);
-    let glcType = parseGlcType(body.glcType);
-    if (format === 'glc' && !glcType) glcType = glcTypes()[0] ?? null;
     const name = parseName(body.name, false) || 'Imported Deck';
     const userId = currentUserId(req);
-
-    // Parse to a ParsedDeck the resolver understands. Mass Entry's set codes are a
-    // THIRD namespace (TCGplayer abbrevs) the engine can't map, so we resolve those
-    // lines by name only (setCode null) — §1.9.
-    let parsed: ParsedDeck;
-    if (source === 'massentry') {
-      const me = parseMassEntry(text);
-      const lines: ParsedLine[] = me.lines.map((l) => ({
-        quantity: l.quantity, name: l.name, setCode: null, number: null, print: null, section: 'pokemon', raw: l.raw,
-      }));
-      parsed = { lines, headers: [], trailerCount: null, warnings: me.warnings };
-    } else {
-      parsed = parsePtcgl(text);
-    }
-
-    const resolved = await resolveDeck(dbHandle(), parsed, format, glcType);
 
     // Aggregate resolved entries by catalogue card id (same print on two lines sums).
     const byCard = new Map<number, number>();

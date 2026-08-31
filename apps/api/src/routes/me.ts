@@ -4,6 +4,7 @@ import { isDeckeEntitled } from '../decke/entitlement.js';
 import { cardImages, q, q1, SUPABASE_MODE, withTx } from '../db.js';
 import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
+import { familyContext } from '../family/access.js';
 
 /**
  * GET /me — the caller's own account identity. Currently just `username`
@@ -73,7 +74,14 @@ meRouter.get(
     // `designEditor` is retained for the existing /design gate. `owner` is the
     // same answer under the name that actually describes it, and is what new
     // owner-only surfaces should use.
-    res.json({ username: row.username, designEditor: owner, owner, decke: isDeckeEntitled(userId) });
+    res.json({
+      username: row.username,
+      userId,
+      designEditor: owner,
+      owner,
+      decke: isDeckeEntitled(userId),
+      family: await familyContext(userId),
+    });
   }),
 );
 

@@ -449,6 +449,15 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
     if (!data) return
     try { await navigator.clipboard.writeText(data.text); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { /* clipboard unavailable */ }
   }
+  const download = () => {
+    if (!data) return
+    const url = URL.createObjectURL(new Blob([data.text], { type: 'text/plain;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'pokemon-tcg-live-deck.txt'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
   return (
     <Modal title="Export to PTCG Live" onClose={onClose} wide>
       <div className="flex flex-col gap-[12px]">
@@ -472,9 +481,10 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
           </div>
         )}
         <div className="flex justify-end gap-[10px]">
+          <Button variant="secondary" onClick={download} disabled={!data}><Icon name="download" size={16} /> Download .txt</Button>
           <Button variant="secondary" onClick={onClose}>Close</Button>
           <Button onClick={copy} disabled={!data}>
-            <Icon name={copied ? 'check' : 'copy'} size={16} /> {copied ? 'Copied!' : 'Copy to Clipboard'}
+            <Icon name={copied ? 'check' : 'copy'} size={16} /> {copied ? 'Copied!' : 'Copy for Pokémon TCG Live'}
           </Button>
         </div>
       </div>

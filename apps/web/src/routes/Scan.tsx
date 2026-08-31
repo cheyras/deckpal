@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CARD_ASPECT_RATIO } from '../lib/cardGeometry'
 import { Link, useSearch, useNavigate } from '@tanstack/react-router'
-import { api, type ScanMatch, type ScanResponse } from '../lib/api'
+import { api, type FamilyAiQuota, type ScanMatch, type ScanResponse } from '../lib/api'
 import {
   chooseVariant,
   emptyRip,
@@ -47,6 +47,7 @@ const CAPTURE_MARGIN = 1.14
 // card" with no error anywhere (issue #20). One blip is still silent; three in a
 // row is a fact the user deserves.
 const FRAME_FAIL_LIMIT = 3
+const AI_OFFER_AFTER_EMPTY_FRAMES = 5
 
 // Upload normalisation. Two hard limits meet here: the hosted API rejects a
 // request body over 4.5 MB before our handler ever sees it, and an iPhone's photo
@@ -286,6 +287,9 @@ export function Scan() {
   const [scanning, setScanning] = useState(false) // an upload/file scan is in flight
   const [result, setResult] = useState<ScanResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [aiQuota, setAiQuota] = useState<FamilyAiQuota | null>(null)
+  const [aiConsent, setAiConsent] = useState(false)
+  const [aiScanning, setAiScanning] = useState(false)
 
   const [camState, setCamState] = useState<CamState>('init')
   const [hint, setHint] = useState('Point the camera at a card')
@@ -298,6 +302,8 @@ export function Scan() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const busyRef = useRef(false) // single in-flight frame scan
   const frameFailRef = useRef(0) // consecutive failed frame scans
+  const emptyFrameRef = useRef(0)
+  const aiCandidateRef = useRef<Blob | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const stableRef = useRef<{ cardId: string; count: number }>({ cardId: '', count: 0 })
   const pausedRef = useRef(false) // freeze the loop while a result is shown
@@ -411,6 +417,7 @@ export function Scan() {
       }
 
       if (top) {
+        emptyFrameRef.current = 0
         const s = stableRef.current
         s.count = s.cardId === top.cardId ? s.count + 1 : 1
         s.cardId = top.cardId
@@ -426,7 +433,16 @@ export function Scan() {
         }
       } else {
         stableRef.current = { cardId: '', count: 0 }
-        setHint('Point the camera at a card')
+        emptyFrameRef.current += 1
+        if (emptyFrameRef.current >= AI_OFFER_AFTER_EMPTY_FRAMES) {
+          aiCandidateRef.current = blob
+          pausedRef.current = true
+          if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null }
+          setHint('No free match found')
+          setResult(res)
+        } else {
+          setHint('Point the camera at a card')
+        }
       }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
@@ -467,6 +483,7 @@ export function Scan() {
       pausedRef.current = false
       stableRef.current = { cardId: '', count: 0 }
       frameFailRef.current = 0
+      emptyFrameRef.current = 0
       setHint('Point the camera at a card')
       if (tickRef.current) clearInterval(tickRef.current)
       tickRef.current = setInterval(() => void scanFrame(), FRAME_MS)
@@ -493,8 +510,12 @@ export function Scan() {
     setResult(null)
     setPreview(null)
     setError(null)
+    setAiConsent(false)
+    setAiQuota(null)
+    aiCandidateRef.current = null
     stableRef.current = { cardId: '', count: 0 }
     frameFailRef.current = 0
+    emptyFrameRef.current = 0
     pausedRef.current = false
     if (camState === 'live') {
       setHint('Point the camera at a card')
@@ -515,6 +536,7 @@ export function Scan() {
     reader.readAsDataURL(file)
     try {
       const { bytes, type } = await toScanBytes(file)
+      aiCandidateRef.current = new Blob([bytes], { type })
       const res = await api.scan(bytes, type, 5, 'low')
       setResult(res)
     } catch (e) {
@@ -523,6 +545,34 @@ export function Scan() {
       setScanning(false)
     }
   }, [])
+
+  useEffect(() => {
+    if (!result || result.matched || !aiCandidateRef.current) return
+    const controller = new AbortController()
+    void api.familyAiQuota(controller.signal)
+      .then(setAiQuota)
+      .catch(() => setAiQuota(null))
+    return () => controller.abort()
+  }, [result])
+
+  const runAiScan = useCallback(async () => {
+    const image = aiCandidateRef.current
+    if (!image || !aiConsent || aiScanning) return
+    setAiScanning(true)
+    setError(null)
+    try {
+      const response = await api.scanWithAi(image)
+      setResult(response)
+      setAiQuota((quota) => quota ? { ...quota, used: quota.used + 1, remaining: response.quota.remaining } : quota)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'AI scan failed')
+    } finally {
+      // The browser keeps no reusable image after the paid attempt completes.
+      aiCandidateRef.current = null
+      setAiConsent(false)
+      setAiScanning(false)
+    }
+  }, [aiConsent, aiScanning])
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -785,14 +835,14 @@ export function Scan() {
       )}
 
       {/* status while an upload scan runs */}
-      {scanning && (
+      {(scanning || aiScanning) && (
         <div className="mt-[24px] flex items-center justify-center gap-[12px] py-[24px] text-text-muted">
           <Spinner inline size={28} className="text-action-primary" />
-          <span className="text-[14px]">Scanning…</span>
+          <span className="text-[14px]">{aiScanning ? 'Mengenal pasti dengan AI…' : 'Scanning…'}</span>
         </div>
       )}
 
-      {error && !scanning && (
+      {error && !scanning && !aiScanning && (
         <div className="mt-[24px] flex items-center gap-[10px] rounded-xl border border-border-default bg-surface-secondary p-[16px] text-[14px] text-error">
           <Icon name="alert" size={18} /> Couldn’t scan that image: {error}
         </div>
@@ -828,6 +878,38 @@ export function Scan() {
                 Couldn’t confidently identify this card. Fill the frame with the card, straight-on and glare-free.
                 {result!.matches.length > 0 && ' The closest guesses are below — treat them with caution.'}
               </div>
+              {aiCandidateRef.current && (
+                <div className="mt-[8px] w-full max-w-[500px] rounded-[14px] border border-border-default bg-surface-primary p-[14px] text-left">
+                  <p className="text-[14px] font-bold text-text-primary">Cuba pengecaman AI</p>
+                  <p className="mt-[4px] text-[12px] leading-[18px] text-text-muted">
+                    Ini menggunakan 1 kuota AI. Gambar dihantar sementara melalui Netlify AI Gateway kepada Claude dan tidak disimpan oleh DeckPal.
+                  </p>
+                  <p className="mt-[6px] text-[12px] font-semibold text-text-secondary">
+                    {aiQuota
+                      ? aiQuota.enabled
+                        ? `${aiQuota.remaining} daripada ${aiQuota.limit + aiQuota.bonusRemaining} imbasan masih ada hari ini.`
+                        : 'Pengecaman AI dimatikan oleh admin.'
+                      : 'Memeriksa kuota…'}
+                  </p>
+                  <label className="mt-[10px] flex items-start gap-[8px] text-[12px] text-text-secondary">
+                    <input
+                      type="checkbox"
+                      checked={aiConsent}
+                      onChange={(event) => setAiConsent(event.target.checked)}
+                      className="mt-[2px]"
+                    />
+                    Saya setuju gambar kad ini dihantar untuk satu pengecaman AI.
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!aiConsent || !aiQuota?.enabled || aiQuota.remaining <= 0 || aiScanning}
+                    onClick={() => void runAiScan()}
+                    className="mt-[11px] h-[40px] w-full rounded-full bg-action-primary px-[16px] text-[13px] font-bold text-action-primary-text disabled:opacity-50"
+                  >
+                    {aiScanning ? 'Sedang mengenal pasti…' : 'Gunakan 1 imbasan AI'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

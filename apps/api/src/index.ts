@@ -35,6 +35,12 @@ import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
 import { oauthRouter } from './routes/oauth.js';
 import { mountOAuthServer } from './oauthServer.js';
+import { familyOwnerGateStatus } from './family/access.js';
+import { familyRouter } from './routes/family.js';
+import { supabaseAdminStatus } from './family/supabaseAdmin.js';
+import { familyAiGateStatus, familyAiRouter } from './routes/familyAi.js';
+import { familyPricesRouter } from './routes/familyPrices.js';
+import { familyImportRouter } from './routes/familyImport.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -302,6 +308,9 @@ export function createApp(): express.Express {
         // owner-only surface is closed to everyone, which is a deployment
         // mistake that is otherwise invisible from outside. See AGENTS.md B11.
         ownerGate: ownerGateStatus(),
+        familyOwnerGate: familyOwnerGateStatus(),
+        familyInvitations: supabaseAdminStatus(),
+        familyAi: familyAiGateStatus(),
         // Whether Deck-E's brain has a Gateway credential — never which one,
         // and never any part of its value. `unset` means POST /api/chat 503s
         // for everybody, which is otherwise invisible from outside. B11 again.
@@ -426,6 +435,10 @@ export function createApp(): express.Express {
   api.use(resolveIdentity);
 
   api.use('/me', meRouter);
+  api.use('/family', familyRouter);
+  api.use('/family', familyAiRouter);
+  api.use('/family', familyPricesRouter);
+  api.use('/family', familyImportRouter);
 
   // Deck-E's transcript history. Mounted under `/decke` so the feature's routes
   // are findable as a group, and gated inside the router rather than here —

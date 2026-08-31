@@ -15018,3 +15018,61 @@ variant-scoped on camera is the regulation mark.)
   new NOT NULL, so migration 051 and the API deploy must land in the same
   step, after a backup and a scratch-copy dry run — this is the one item the
   maintainer signs off on before the migration runs.
+
+## 2026-08-30 — DeckPal Family uses Netlify and Supabase
+
+**Decided by:** family administrator
+
+**Decision:** Preserve DeckPal's Express, React and Postgres architecture while
+deploying the private family fork on Netlify and Supabase. A single modern
+Netlify Function adapts the existing Express application; the Vite PWA remains
+static. TCGdex remains the catalogue source. Pokemon TCG Live exchange is
+limited to deck-list text import and export, with no Pokemon account login or
+sync.
+
+**Implications:** The AGPL-3.0-only licence, upstream attribution and
+corresponding-source access remain intact. Secrets live only in Netlify and
+Supabase configuration. The `/api/*` rewrite must precede the SPA fallback.
+Family authorization is enforced by Supabase JWTs and RLS, not by hidden UI.
+The local GitHub fork and production deployment are completed only after the
+owner connects those services.
+
+## 2026-08-31 — Paid card recognition is consented, metered fallback
+
+**Decision:** Keep DeckPal's local perceptual-hash scan as the first attempt.
+After it cannot find a confident match, offer an explicit one-image Claude
+fallback through Netlify AI Gateway. Use the supported low-cost
+`claude-haiku-4-5-20251001` model, default to five successful calls per active
+member per Malaysia day, and let administrators change global/member limits or
+disable the feature.
+
+**Implications:** No scan image is persisted. Quota is reserved atomically
+before provider use and failed calls do not consume a member's allowance.
+Administrators can review counts, tokens, and estimated cost without seeing the
+submitted photograph. Changing models requires rechecking Netlify's supported
+model list and updating the cost calculation.
+
+## 2026-08-31 — Family manual prices are moderated observations
+
+**Decision:** Family-sourced prices never replace or blend into automatic
+market data. Any active member can submit an exact-printing observation with
+currency, condition, source, and date; only an active family admin can publish
+or reject it.
+
+**Implications:** Approved replacement observations supersede rather than
+delete history. Every price displayed to the family keeps its source, condition,
+observed date, approval state, and age label. The database moderation function
+binds its actor argument to the verified JWT subject before checking the admin
+role, so direct Supabase RPC calls cannot impersonate a known administrator.
+
+## 2026-08-31 — Admin collection import preserves one condition per printing
+
+**Decided by:** family administrator
+
+**Decision:** Import quantity and condition together into the existing admin
+collection row. Reject an import that gives the same physical printing more
+than one condition instead of silently combining incompatible rows.
+
+**Implications:** JSON/CSV previews remain idempotent and do not store the
+uploaded source text. DeckPal's existing one-row-per-user-and-printing model is
+preserved; users must choose one condition before importing a conflicted row.

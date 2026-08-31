@@ -23,6 +23,12 @@ onlyBuiltDependencies: []
 ignoredBuiltDependencies:
   - esbuild
 
+# pnpm 11 expresses the same explicit denial through allowBuilds. Keeping both
+# keys preserves the existing pnpm 10 contract while letting newer runners
+# install without an interactive approval prompt.
+allowBuilds:
+  esbuild: false
+
 # Install the musl builds too, even though Vercel runs glibc. This is
 # load-bearing, and it is the opposite of what it looks like it should be.
 #

@@ -70,3 +70,8 @@ test('deltas that cancel out still produce an op, so the item is accounted for',
   assert.equal(ops.length, 1);
   assert.equal(ops[0]!.delta, 0);
 });
+
+test('an imported absolute quantity keeps its card condition', () => {
+  const { ops } = foldItems([{ variantId: 7, quantity: 3, condition: 'LP' }]);
+  assert.equal(ops[0]!.condition, 'LP');
+});
