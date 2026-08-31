@@ -69,6 +69,10 @@
   .seam { background:#1c0d0d; border:1px solid #6f1212; }
   .hidden { display:none !important; }
   .err { color:#f85149; }
+  /* Informational, not an error: the Fixtures-tab note about Fused's known
+     synthetic-fixture quirk (item 4). Amber like the flag-status/seg accents,
+     not red -- this is expected behavior, not something gone wrong. */
+  .note { font-size:12px; color:#ffd479; background:#3a2a05; border:1px solid #9e6a03; border-radius:6px; padding:6px 10px; margin-top:8px; max-width:640px; }
 </style>
 </head>
 <body>
@@ -101,6 +105,7 @@
           <span><i class="swatch" style="background:var(--grn)"></i>ground truth</span>
           <span><i class="swatch" style="background:var(--cyn)"></i>window.detect()</span>
         </div>
+        <div class="note hidden" id="fusedFixtureNote">Fused is tuned for real camera frames — its size/aspect gates score these synthetic, aspect-stretched fixtures near zero by design. This is expected, not broken; switch to Hybrid or OpenCV to validate against the fixture kit, or use the Live tab to see Fused work.</div>
       </div>
       <div class="panel">
         <h2>Frame info</h2>
@@ -129,14 +134,15 @@
           <button id="camStart">Start camera</button>
           <button id="camStop">Stop</button>
           <button id="flagBtn" class="flag-btn" title="Flag frame — saves the raw frame + quads for the fix bench.">Flag frame</button>
-          <div class="seg" role="group" aria-label="Detection engine" title="Engine: the bespoke hybrid detector, or real OpenCV (WASM, ~13 MB, loaded on first use)">
-            <button type="button" id="engineHybrid" class="seg-btn active">Hybrid</button>
+          <div class="seg" role="group" aria-label="Detection engine" title="Engine: Fused (OpenCV proposes, bespoke refines -- default), the bespoke hybrid detector alone, or real OpenCV alone. OpenCV and Fused share one lazily-loaded ~13 MB WASM runtime, fetched on first use of either.">
+            <button type="button" id="engineFused" class="seg-btn active">Fused</button>
+            <button type="button" id="engineHybrid" class="seg-btn">Hybrid</button>
             <button type="button" id="engineOpenCv" class="seg-btn">OpenCV</button>
           </div>
           <label class="toggle"><input type="checkbox" id="toggleReticle" checked> Reticle</label>
           <label class="toggle"><input type="checkbox" id="toggleStability" checked> Stability</label>
-          <span class="readout">detect: <b id="liveMs">—</b> ms</span>
-          <span class="readout">fps: <b id="liveFps">—</b></span>
+          <span class="readout">detect: <b id="liveMs">—</b> ms @ <b id="liveHz">—</b>/s</span>
+          <span class="readout">render fps: <b id="liveFps">—</b></span>
           <span class="readout">dims: <b id="liveDims">—</b></span>
           <span class="readout">stable: <b id="liveStable">—</b></span>
           <span class="readout">pending: <b id="livePending">—</b></span>
@@ -3316,6 +3322,1646 @@ window.createTracker = createTracker;
     });
   };
   global.createOpenCvDetector.isLoaded = function () { return !!cv; };
+  global.createOpenCvDetector.getCv = function () { return cv; };
+
+/* =========================================================================
+ * FUSED DETECTOR — inlined from p2-work/fused/detector-fused.mjs (OpenCV
+ * PROPOSES, the bespoke hybrid machinery REFINES and ARBITRATES; see that
+ * file's own header comment, preserved verbatim below, for the full
+ * pipeline). Adapted for inlining the same way opencv-engine.js was:
+ *
+ *   - The original's top-level-await CV acquisition (Node createRequire vs.
+ *     browser globalThis.cv) is Node/ESM-module-only and illegal in a
+ *     classic <script>. Replaced below with a lazy createFusedDetector()
+ *     factory that awaits the SAME shared opencv.js loader the OpenCV
+ *     engine uses (window.createOpenCvDetector()) and reads the resolved
+ *     module back via window.createOpenCvDetector.getCv() -- so opencv.js
+ *     is fetched at most once no matter which engine (or both) needs it.
+ *   - The whole body is wrapped in its own IIFE (detector-fused.mjs, as
+ *     shipped, is a flat module -- unlike opencv-engine.js, which already
+ *     self-wraps) so its CFG/ENV/helpers/run() cannot collide with the
+ *     DETECTOR block's own top-level names, even though all three now
+ *     share this one classic <script>.
+ *   - export default function detect(...) / export function NAME(...) lose
+ *     just their export keyword -- illegal outside a module -- otherwise
+ *     byte-identical to detector-fused.mjs.
+ *
+ * Public API this defines: window.createFusedDetector() -> Promise<detect>,
+ * window.createFusedDetector.isLoaded() -> boolean. Does not fetch opencv.js
+ * itself.
+ * ========================================================================= */
+
+(function (global) {
+  'use strict';
+  let cv = null; // populated by createFusedDetector() below, from the shared opencv.js loader
+
+// `process` is UNDECLARED in a browser, not merely undefined, so `process?.env`
+// still throws. typeof is the only safe probe. (Same guard both parents use.)
+const ENV = (typeof process !== 'undefined' && process && process.env) ? process.env : {};
+const n = (k, d) => (ENV[k] !== undefined && ENV[k] !== '' && Number.isFinite(+ENV[k]) ? +ENV[k] : d);
+const s = (k, d) => (ENV[k] !== undefined && ENV[k] !== '' ? ENV[k] : d);
+
+const CFG = {
+  // ======================= generation (OpenCV parent) =======================
+  GAIN_LEVELS:   s('F_LEVELS', '0.35,0.6,1.0,1.3'),   // squares.cpp threshold loop
+  CLOSE_LEVELS:  s('F_CLOSELV', '3,5'),
+  CHANNELS:      n('F_CHAN', 1),        // 1 = also run the R,G,B planes
+  BLUR_K:        n('F_BLURK', 5),
+  CANNY_SIGMA:   n('F_SIGMA', 0.33),
+  CANNY_MIN_LO:  n('F_CLO', 10),
+  CANNY_MIN_SPAN:n('F_CSPAN', 30),
+  EPS_LO:        n('F_EPSLO', 0.02),
+  EPS_HI:        n('F_EPSHI', 0.10),
+  EPS_STEPS:     n('F_EPSN', 10),
+  // Candidate-stage geometry. DELIBERATELY LOOSER than either parent's output
+  // gates: this stage may propose a fragment, because the outward search's whole
+  // job is to grow a fragment into the silhouette it was cut out of. The size
+  // policy that decides what may be EMITTED lives at the output (OUT_MIN_FRAC).
+  GEN_MIN_FRAC:  n('F_GENMINF', 0.015), // of frame area
+  GEN_MAX_FRAC:  n('F_GENMAXF', 0.52),
+  GEN_MIN_SIDE:  n('F_GENSIDE', 15),
+  GEN_FILL_MIN:  n('F_GENFILL', 0.80),  // quad area / minAreaRect area
+  GEN_SUP_MEAN:  n('F_GENSUPM', 0.55),  // cheap Canny-union support, loose
+  GEN_SUP_MIN:   n('F_GENSUPN', 0.25),
+
+  // ============================ front-end / evidence ========================
+  // (verbatim mechanism from detector-hybrid-v3; thresholds re-seated below)
+  EDGE_T:     n('F_ET', 210),      // ceiling on the candidate-relative ridge bar
+  EDGE_REL:   n('F_EREL', 0.52),   // fraction of the candidate's OWN ridge median
+  EDGE_FLOOR: n('F_EFLOOR', 100),
+  ORIENT_T:   n('F_OT', 0.68),     // |cos| between gradient and side normal
+  BAND:       n('F_BAND', 2),
+  SUP_SAMPLES:n('F_SS', 21),
+  MIN_SIDE_SAMPLES: n('F_MSS', 6),
+  MIN_JUDGED: n('F_MJ', 3),
+  MIN_TOTAL_SAMPLES: n('F_MTS', 40),
+
+  // ============================== screening =================================
+  PRE_BAND:  n('F_PBAND', 3.5),
+  PRE_MIN:   n('F_PREMIN', 0.60),
+  PRE_KEEP:  n('F_PREKEEP', 22),   // candidates that get the outward search
+  DEDUP_PX:  n('F_DEDUP', 4),
+  VAR_KEEP:  n('F_VARKEEP', 110),  // variants that get full refine+verify
+
+  // ========================== outward search (new) ==========================
+  // The divider-lock undershoots: the true card edge is OUTSIDE the found quad.
+  // A card's ART WINDOW sits ~6-12% inside the border, but a lock on the
+  // artwork/text divider undershoots by 30-70% of the card, so a single fixed
+  // inflation ratio cannot cover both. The profile below probes EVERY outward
+  // offset and keeps the ones where real oriented edge evidence lives, so the
+  // scales come from the image, not from a ratio table.
+  OUT_MAX_FRAC:  n('F_OUTMAXF', 1.15),  // of the quad's own extent perp. to the side
+  OUT_MAX_PX:    n('F_OUTMAXPX', 120),
+  OUT_MIN_OFF:   n('F_OUTMINOFF', 3),   // below this it is refinement's job
+  OUT_STEP:      n('F_OUTSTEP', 2),     // profile resolution, px
+  OUT_SAMPLES:   n('F_OUTSAMP', 11),    // samples along the (translated) side
+  OUT_MIN_SAMPLES: n('F_OUTMINS', 6),
+  OUT_BAND:      n('F_OUTBAND', 1.5),
+  OUT_SPREAD:    n('F_OUTSPR', 0.045),  // band growth per px walked
+  OUT_T_REL:     n('F_OUTTREL', 0.62),  // the outer edge is FAINTER than the printed
+  OUT_T_FLOOR:   n('F_OUTTFL', 0.75),   // line we are standing on -- that is why
+                                        // the quad undershot in the first place
+  OUT_SUP_MIN:   n('F_OUTSUP', 0.58),   // a peak must be this well supported
+  OUT_PEAK_NMS:  n('F_OUTNMS', 5),      // px separation between kept peaks
+  OUT_PEAKS_PER_SIDE: n('F_OUTPPS', 3),
+
+  // ---- expandToOuter (v3): uniform small offset, the inner-border-ring case --
+  EXPAND: n('F_EXPAND', 1),
+  EXPAND_MAX_FRAC: n('F_EXPMAX', 0.16),
+
+  // ---- extendPastCorners (v3): corner-continuation, works when the true edge
+  //      has NO ridge of its own (occluded) but the adjacent sides keep running -
+  EXTEND:     n('F_EXT', 1),
+  EXT_BAND:   n('F_EXTBAND', 2),
+  EXT_MIN_PX: n('F_EXTMIN', 7),
+  EXT_MAX_PX: n('F_EXTMAX', 120),
+  EXT_STOP:   n('F_EXTSTOP', 16),
+  EXT_MAX_FRAC: n('F_EXTFRAC', 1.15),
+  EXT_FRAC:   n('F_EXTSUP', 0.70),
+  EXT_SPREAD: n('F_EXTSPR', 0.05),
+  EXT_T_REL:  n('F_EXTTREL', 0.62),
+  EXT_T_FLOOR:n('F_EXTTFL', 0.75),
+  EXT_ITERS:  n('F_EXTIT', 3),
+  CONT_REF:   n('F_CONTREF', 0.25),
+  // v3 gated at 0.30, calibrated on 320x240 kit frames. Measured on the 25
+  // hand-labelled field cards the TRUE silhouettes score 0.00 (median), 0.283
+  // (p96) and one outlier at 1.535 (a wood-table edge running along the card);
+  // the false quads both parents emit on the distractor frames score 0.80,
+  // 3.44, 3.50. 0.60 sits in that gap and keeps 24 of 25 true cards.
+  CONT_MAX:   n('F_CONTMAX', 0.60),
+
+  // ============================== refinement ================================
+  REF_PASSES: n('F_RP', 2),
+  REF_SAMPLES:n('F_RS', 17),
+  REF_HALF1:  n('F_RH1', 6),
+  REF_HALF2:  n('F_RH2', 3),
+  REF_MINPEAK:n('F_RMP', 85),
+  REF_MAXMOVE:n('F_RMM', 14),
+
+  // ====================== geometry gates (re-seated) ========================
+  // v3 used ABSOLUTE pixel area bounds (MIN_AREA 1300 / MAX_AREA 25500) tuned on
+  // 320x240 fixtures. On the 276x276 field frames a presented card occupies
+  // 24.6%-40.2% of the frame (measured over all 25 hand-labelled cards), i.e.
+  // 18720-30607 px -- so MAX_AREA=25500 REJECTS 8 of the 25 true cards before a
+  // single feature is computed, and MAX_AREA_FRAC=0.40 in the OpenCV parent
+  // rejects the largest two. Both bounds are frame fractions here, which is the
+  // only form that survives the 276x276 -> 480x360 working-resolution change
+  // the harness is making.
+  MIN_AREA_FRAC: n('F_MINAF', 0.015),
+  MAX_AREA_FRAC: n('F_MAXAF', 0.52),
+  OUT_MARGIN: n('F_OUTM', 130),
+  ASP_RATIO_MAX: n('F_ASPMAX', 3.0),   // max(sidepair)/min(sidepair), candidates
+  OPP_SIM:    n('F_OPP', 0.62),        // GT min 0.738
+  CORNER_MIN: n('F_CORNMIN', 62),      // GT min 76.0
+  MIN_VIS:    n('F_MINVIS', 0.80),
+
+  // ==================== card signature (re-seated) ==========================
+  // MEASURED, and this is the central finding of the fused round: on real
+  // frames the false quads are STRONGER than the true cards on every edge and
+  // contrast feature. Over the 5 distractor frames vs the 25 labelled cards --
+  //   supMin   true 0.190..0.905 (med 0.714)  |  false 0.810..1.000 (med 0.905)
+  //   supMean  true 0.508..0.968 (med 0.841)  |  false 0.857..1.000
+  //   strMean  true 0.109..0.488 (med 0.345)  |  false 0.327..0.738 (med 0.684)
+  //   bmean    true 26.9..111    (med 74.9)   |  false 88.0..142
+  //   score    true 0.297..0.842 (med 0.594)  |  false 0.543..0.809 (med 0.677)
+  // A crisp printed cardboard box on a kitchen counter genuinely has better
+  // edges than a glossy card in a toploader in someone's hand. Every one of
+  // these gates therefore costs true cards FASTER than it buys precision, which
+  // is exactly why v3 sat at 50% on-card / 80% false. They are re-seated below
+  // the true-card floor and demoted to SCORE terms; precision now comes from
+  // three features that DO point the right way (OUT_MIN_FRAC, DETAIL_MIN,
+  // CONT_MAX) -- see notes-fused.md §3.
+  SUP_MIN:   n('F_SUPMIN', 0.18),   // GT min 0.190
+  SUP_MEAN:  n('F_SUPMEAN', 0.50),  // GT min 0.508
+  STR_MIN:   n('F_STRMIN', 0.10),   // GT min 0.109
+  BC_MIN:    n('F_BCMIN', 12),      // GT min 13.4
+  BC_MEAN:   n('F_BCMEAN', 25),     // GT min 26.9
+  RING_T:    n('F_RINGT', 150),
+  RING_REL:  n('F_RINGREL', 0.38),
+  RING_FLOOR:n('F_RINGFLOOR', 80),
+  RING_BAND: n('F_RINGBAND', 2),
+  // A card carries a concentric printed border a few percent inside its
+  // outline; innerRing scans insets 4%..18% for an oriented edge on all four
+  // sides. Measured: 24 of the 25 labelled cards score 0.500..1.000 with only
+  // the dim stacked-sleeve frame at the bottom, while the quads the pipeline
+  // lands on the smoothie box measure 0.477 and 0.523. 0.58 keeps 24/25 (it
+  // costs flag-1788148738359, a dim two-cards-in-one-sleeve frame that no
+  // configuration lands anyway) and removes both smoothie-box framings.
+  RING_MIN:  n('F_RINGMIN', 0.58),  // GT: 24/25 above this; min 0.500
+  UNIF_SCALE:n('F_UNIFS', 55),
+  DETAIL_GRID: n('F_DGRID', 7),
+  // The one signature gate that separates the RIGHT way, and v3 had it disabled
+  // at 0.0 because the synthetic kit's cards have flat interiors so it could
+  // never be calibrated there. A trading card's face is dense printed artwork,
+  // a name bar, type icons and body text. Measured: true cards 0.245..0.755
+  // (median 0.531); the two quads both parents put on the child's tablet in a
+  // rubber case measure 0.082 and 0.082 -- a screen that is switched off is a
+  // black void with no interior structure at all. 0.20 sits in a 3x gap.
+  DETAIL_MIN:n('F_DMIN', 0.20),
+  // A trading card's rim is ONE uniform colour all the way round (the yellow /
+  // blue / black border). Measured: the 25 labelled cards run 0.361..1.000; the
+  // quads the detector lands on the laminated calendar, the muffin-mix box and
+  // the tablet case measure 0.306, 0.000 and 0.222 -- those objects have printed
+  // graphics running right to the edge, or a rim that changes colour along its
+  // length. v3 carried this feature and left the gate disabled at 0.0 because
+  // the synthetic kit's flat cards could not calibrate it.
+  UNIF_MIN:  n('F_UNIFMIN', 0.32),  // GT min 0.361
+  OUTER_MAX: n('F_OUTERMAX', 1.0),  // retired as a gate (v3 §1 class D); score only
+  RIMC_MIN:  n('F_RIMC', 5),        // GT min 7.35 (v3 used 22 -> rejects 2 cards)
+  RIMC_SCALE:n('F_RIMCS', 90),
+  SIG_RING:  n('F_SIGRING', 0.42),
+  SIG_UNIF:  n('F_SIGUNIF', 0.28),
+  SIG_RIMC:  n('F_SIGRIMC', 0.30),
+  OUTER_SCAN_FRAC: n('F_OSF', 0.22),
+  OUTER_SCAN_MAX:  n('F_OSM', 26),
+  SCORE_MIN: n('F_SMIN', 0.30),     // GT min 0.297
+  SCORE_MIN2:n('F_SMIN2', 0.62),    // bar for a SECOND, separate card
+
+  // ============================== output ====================================
+  NMS_IOU:      n('F_IOU', 0.30),
+  CONTAIN_FRAC: n('F_CONT', 0.72),
+  CONTAIN_AREA: n('F_CONTA', 0.60),
+  // Concentric arbitration. Among candidates that sit on the same object, take
+  // the OUTERMOST one that still verifies, not the best-scoring one: an inner
+  // lock sits on the card's own printed border and therefore outscores the true
+  // silhouette (v3 measured 0.867 vs 0.658; the field-flag numbers above say
+  // the same thing across the whole set). Score is only used to stop a runaway
+  // extension that has reached the hand or a neighbouring object.
+  OUTER_SLACK:  n('F_OUTSLACK', 0.05),  // how far below the cluster best an outer quad may score
+  OUTER_GROW:   n('F_OUTGROW', 1.04),   // must be this much bigger to count as "outer"
+  // Consensus. Within a concentric family the score is nearly FLAT across quads
+  // that differ by 10px of corner position (measured on flag-1788148810704:
+  // scores 0.748/0.734/0.733/0.724 for errors 14.8/5.8/14.5/6.0 at the same
+  // area), so score alone cannot pick the best member and any pick is a
+  // coin-flip that will land differently on the next frame of a burst.
+  // Averaging the corners of the members that agree with the pick is both more
+  // accurate (independent jitter cancels) and the main source of frame-to-frame
+  // STABILITY: a near-identical frame perturbs individual members but barely
+  // moves their mean.
+  CONSENSUS:     n('F_CONS', 1),
+  CONSENSUS_IOU: n('F_CONSIOU', 0.70),  // must be the same object at the same scale
+  CONSENSUS_TOL: n('F_CONSTOL', 0.15),  // score slack for joining the consensus
+  CONSENSUS_K:   n('F_CONSK', 12),
+  CONSENSUS_MEDIAN: n('F_CONSMED', 1),  // 1 = per-corner median, 0 = mean
+  // Output-size policy. Every one of the 25 hand-labelled cards fills at least
+  // 24.6% of the frame -- a card someone is presenting to a scanner is close to
+  // the lens by construction. The false quads both parents emit on the
+  // distractor scenes measure 0.058..0.282 (median 0.145). 0.22 sits 10% below
+  // the true-card floor and removes 7 of those 10 false quads at zero cost to
+  // any labelled card. This is a DEPLOYMENT policy (how much of the preview the
+  // reticle expects a card to fill), stated as a frame fraction so it survives a
+  // resolution change, not a detector constant -- see notes-fused.md §5.
+  OUT_MIN_FRAC: n('F_OUTMINF', 0.09),
+  // A 63:88 card is 1.397:1. Projected side-pair ratio measured over the 25
+  // labelled cards: 1.21..1.94. A quad that projects to nearly square is not a
+  // card at a plausible presentation angle.
+  OUT_RATIO_MIN: n('F_ORATMIN', 1.12),
+  OUT_RATIO_MAX: n('F_ORATMAX', 2.30),
+  // How many of the generator's ~32 independent operating points (colour plane
+  // x Canny gain x morphology kernel) must have found this rectangle. Unlike a
+  // raw candidate count this is bounded and resolution-independent, so it
+  // transfers between the 276x276 field frames and the 320x240 original set.
+  // MEASURED AND DISABLED. Counting DISTINCT operating points saturates: both a
+  // card and a cardboard box are found by a similar number of them once the
+  // pre-screen has kept only PRE_KEEP seeds, so any threshold that removes a
+  // false positive removes true cards first (at OPS_MIN=4 the flag set already
+  // loses two cards, at 8 it loses nine). Kept, documented and off -- the raw
+  // corroboration COUNT below is what actually separates. See notes-fused.md 6.
+  OPS_MIN:        n('F_OPSMIN', 0),
+  GROUP_MIN:      n('F_GRPMIN', 6),
+  GROUP_FRAC_MIN: n('F_GRPFRAC', 0),    // share of the pool; measured non-separating, off
+  MAX_OUT:      n('F_MAXOUT', 2),
+  FINAL_REFINE: n('F_FINREF', 1),
+};
+
+const PI = Math.PI;
+
+// ===========================================================================
+// SECTION 1 -- geometry helpers.  Ported verbatim from detector-hybrid-v3.mjs.
+// ===========================================================================
+function polyArea(q) {
+  let a = 0;
+  for (let i = 0; i < q.length; i++) { const j = (i + 1) % q.length; a += q[i][0] * q[j][1] - q[j][0] * q[i][1]; }
+  return Math.abs(a) / 2;
+}
+function isConvex(q) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+    const cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cr) < 1e-6) continue;
+    const sg = cr > 0 ? 1 : -1;
+    if (sign === 0) sign = sg; else if (sg !== sign) return false;
+  }
+  return sign !== 0;
+}
+// Strict: no coincident corners, no collinear triple, one consistent winding.
+// This is the predicate validity-check.mjs asserts, so nothing malformed leaves.
+function isStrictlyConvex(q) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+    const ux = b[0] - a[0], uy = b[1] - a[1];
+    const vx = c[0] - b[0], vy = c[1] - b[1];
+    const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+    if (lu < 1e-6 || lv < 1e-6) return false;
+    const cr = (ux * vy - uy * vx) / (lu * lv);
+    if (Math.abs(cr) < 1e-3) return false;
+    const sg = cr > 0 ? 1 : -1;
+    if (sign === 0) sign = sg; else if (sg !== sign) return false;
+  }
+  return sign !== 0;
+}
+// Repair-by-reordering, then strict validity. A "bowtie" produced by refinement
+// crossing two side lines is usually just a corner PERMUTATION of a good quad.
+function orderQuad(q) {
+  if (!q || q.length !== 4) return null;
+  for (const p of q) if (!isFinite(p[0]) || !isFinite(p[1])) return null;
+  let cx = 0, cy = 0;
+  for (const p of q) { cx += p[0]; cy += p[1]; }
+  cx /= 4; cy /= 4;
+  const idx = [0, 1, 2, 3].sort(
+    (i, j) => Math.atan2(q[i][1] - cy, q[i][0] - cx) - Math.atan2(q[j][1] - cy, q[j][0] - cx)
+  );
+  const out = idx.map((i) => [q[i][0], q[i][1]]);
+  for (let i = 0; i < 4; i++) {
+    const a = out[i], b = out[(i + 1) % 4];
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1) return null;
+  }
+  return isStrictlyConvex(out) ? out : null;
+}
+function sidesOf(q) {
+  const r = [];
+  for (let i = 0; i < 4; i++) { const a = q[i], b = q[(i + 1) % 4]; r.push(Math.hypot(b[0] - a[0], b[1] - a[1])); }
+  return r;
+}
+function centroid(q) { let x = 0, y = 0; for (const p of q) { x += p[0]; y += p[1]; } return [x / 4, y / 4]; }
+function sidePairRatio(q) {
+  const t = sidesOf(q);
+  const a = (t[0] + t[2]) / 2, b = (t[1] + t[3]) / 2;
+  if (a < 1e-9 || b < 1e-9) return Infinity;
+  return Math.max(a, b) / Math.min(a, b);
+}
+function clipPoly(poly, clip) {
+  let out = poly;
+  const nc = clip.length;
+  let a2 = 0;
+  for (let i = 0; i < nc; i++) { const j = (i + 1) % nc; a2 += clip[i][0] * clip[j][1] - clip[j][0] * clip[i][1]; }
+  const ccw = a2 > 0 ? 1 : -1;
+  for (let e = 0; e < nc && out.length; e++) {
+    const A = clip[e], B = clip[(e + 1) % nc];
+    const ex = B[0] - A[0], ey = B[1] - A[1];
+    const side = (p) => ccw * (ex * (p[1] - A[1]) - ey * (p[0] - A[0]));
+    const next = [];
+    for (let i = 0; i < out.length; i++) {
+      const cur = out[i], prev = out[(i - 1 + out.length) % out.length];
+      const sc = side(cur), sp = side(prev);
+      if (sc >= 0) {
+        if (sp < 0) { const t = sp / (sp - sc); next.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]); }
+        next.push(cur);
+      } else if (sp >= 0) {
+        const t = sp / (sp - sc);
+        next.push([prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]);
+      }
+    }
+    out = next;
+  }
+  return out;
+}
+function polyIoU(a, b) {
+  const inter = clipPoly(a.map((p) => [p[0], p[1]]), b);
+  if (inter.length < 3) return 0;
+  const ia = polyArea(inter);
+  const u = polyArea(a) + polyArea(b) - ia;
+  return u > 0 ? ia / u : 0;
+}
+// fraction of `a` that lies inside `b`
+function containedFrac(a, b) {
+  const inter = clipPoly(a.map((p) => [p[0], p[1]]), b);
+  if (inter.length < 3) return 0;
+  return polyArea(inter) / Math.max(1e-9, polyArea(a));
+}
+function frameRect(W, H) { return [[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]]; }
+function lineFromPts(p1, p2) {
+  let a = p2[1] - p1[1], b = p1[0] - p2[0];
+  const nm = Math.hypot(a, b) || 1;
+  a /= nm; b /= nm;
+  return [a, b, a * p1[0] + b * p1[1]];
+}
+function lineIntersect(l1, l2) {
+  const det = l1[0] * l2[1] - l2[0] * l1[1];
+  if (Math.abs(det) < 1e-9) return null;
+  return [(l1[2] * l2[1] - l2[2] * l1[1]) / det, (l1[0] * l2[2] - l2[0] * l1[2]) / det];
+}
+function fitLineTLS(pts) {
+  const N = pts.length;
+  let mx = 0, my = 0;
+  for (const p of pts) { mx += p[0]; my += p[1]; }
+  mx /= N; my /= N;
+  let sxx = 0, sxy = 0, syy = 0;
+  for (const p of pts) { const dx = p[0] - mx, dy = p[1] - my; sxx += dx * dx; sxy += dx * dy; syy += dy * dy; }
+  const tr = sxx + syy, det = sxx * syy - sxy * sxy;
+  const lam = (tr - Math.sqrt(Math.max(0, tr * tr - 4 * det))) / 2;
+  let a = sxy, b = lam - sxx;
+  if (Math.abs(a) < 1e-9 && Math.abs(b) < 1e-9) { a = sxx <= syy ? 1 : 0; b = sxx <= syy ? 0 : 1; }
+  const nm = Math.hypot(a, b) || 1;
+  a /= nm; b /= nm;
+  return [a, b, a * mx + b * my];
+}
+function bl(C, u, v) {
+  const ax = C[0][0] + (C[1][0] - C[0][0]) * u, ay = C[0][1] + (C[1][1] - C[0][1]) * u;
+  const bx = C[3][0] + (C[2][0] - C[3][0]) * u, by = C[3][1] + (C[2][1] - C[3][1]) * u;
+  return [ax + (bx - ax) * v, ay + (by - ay) * v];
+}
+function insetQuad(q, f) { return [bl(q, f, f), bl(q, 1 - f, f), bl(q, 1 - f, 1 - f), bl(q, f, 1 - f)]; }
+// Outward unit normal of side i (points away from the quad's centroid).
+function outNormal(quad, i, ctr) {
+  const a = quad[i], b = quad[(i + 1) % 4];
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const L = Math.hypot(dx, dy) || 1;
+  let nx = -dy / L, ny = dx / L;
+  const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+  if ((mx + nx - ctr[0]) ** 2 + (my + ny - ctr[1]) ** 2 < (mx - ctr[0]) ** 2 + (my - ctr[1]) ** 2) { nx = -nx; ny = -ny; }
+  return { ux: dx / L, uy: dy / L, nx, ny, L, dx, dy };
+}
+
+// ===========================================================================
+// SECTION 2 -- bespoke front end.  Ported verbatim from detector-hybrid-v3.mjs.
+// Colour-Sobel magnitude over R/G/B (sees chroma borders grayscale misses) plus
+// the gradient ORIENTATION of the dominant channel. Orientation is what
+// separates "this side lies on an edge" from "this side crosses texture", and
+// every stage below keys off it.
+// ===========================================================================
+function frontEnd(W, H, data) {
+  const N = W * H;
+  const mag = new Float32Array(N);
+  const gxo = new Float32Array(N), gyo = new Float32Array(N);
+  const rowW = W * 4;
+  let maxMag = 0;
+  for (let y = 1; y < H - 1; y++) {
+    let p = (y * W + 1) * 4;
+    const row = y * W;
+    for (let x = 1; x < W - 1; x++, p += 4) {
+      let gx2 = 0, gy2 = 0, bestE = -1, bgx = 0, bgy = 0;
+      for (let c = 0; c < 3; c++) {
+        const i = p + c;
+        const tl = data[i - rowW - 4], tc = data[i - rowW], tr = data[i - rowW + 4];
+        const ml = data[i - 4], mr = data[i + 4];
+        const bl2 = data[i + rowW - 4], bc = data[i + rowW], br = data[i + rowW + 4];
+        const gx = tr + 2 * mr + br - tl - 2 * ml - bl2;
+        const gy = bl2 + 2 * bc + br - tl - 2 * tc - tr;
+        gx2 += gx * gx; gy2 += gy * gy;
+        const e = gx * gx + gy * gy;
+        if (e > bestE) { bestE = e; bgx = gx; bgy = gy; }
+      }
+      const m = Math.sqrt(gx2 + gy2);
+      const i2 = row + x;
+      mag[i2] = m;
+      const nm = Math.sqrt(bestE) || 1;
+      gxo[i2] = bgx / nm; gyo[i2] = bgy / nm;
+      if (m > maxMag) maxMag = m;
+    }
+  }
+  return { mag, gxo, gyo, maxMag };
+}
+function sampleMagBilinear(mag, W, H, x, y) {
+  if (x < 0) x = 0; else if (x > W - 1) x = W - 1;
+  if (y < 0) y = 0; else if (y > H - 1) y = H - 1;
+  const x0 = x | 0, y0 = y | 0;
+  const x1 = x0 + 1 < W ? x0 + 1 : x0, y1 = y0 + 1 < H ? y0 + 1 : y0;
+  const fx = x - x0, fy = y - y0;
+  const a = mag[y0 * W + x0], b = mag[y0 * W + x1];
+  const c = mag[y1 * W + x0], d = mag[y1 * W + x1];
+  const t = a + (b - a) * fx, u = c + (d - c) * fx;
+  return t + (u - t) * fy;
+}
+
+// ===========================================================================
+// SECTION 3 -- oriented edge evidence.  From detector-hybrid-v3.mjs.
+// ===========================================================================
+// Module-level scratch: sideRidges runs thousands of times per frame and must
+// not allocate. The detector is synchronous and non-reentrant.
+const SCRATCH_K = 64;
+const RIDGE_PEAKS = [new Float32Array(SCRATCH_K), new Float32Array(SCRATCH_K), new Float32Array(SCRATCH_K), new Float32Array(SCRATCH_K)];
+const RIDGE_CNT = new Int32Array(4);
+const RIDGE_POS = new Float32Array(SCRATCH_K * 4);
+
+function sideRidges(quad, F, W, H, band, K) {
+  const { mag, gxo, gyo } = F;
+  const OT = CFG.ORIENT_T;
+  const peaks = RIDGE_PEAKS, cnt = RIDGE_CNT;
+  if (K > SCRATCH_K) K = SCRATCH_K;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const Ln = Math.hypot(dx, dy) || 1;
+    const nx = -dy / Ln, ny = dx / Ln;
+    let tot = 0;
+    for (let sI = 0; sI < K; sI++) {
+      const t = 0.06 + (0.88 * sI) / (K - 1);
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      let best = 0;
+      for (let o = -band; o <= band; o += 1) {
+        const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+        if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+        const idx = yi * W + xi;
+        const m = mag[idx];
+        if (m <= best) continue;
+        if (Math.abs(gxo[idx] * nx + gyo[idx] * ny) < OT) continue;
+        best = m;
+      }
+      peaks[i][tot++] = best;
+    }
+    cnt[i] = tot;
+  }
+  return { peaks, cnt };
+}
+// The ridge bar a candidate's OWN evidence justifies: scale-free, so it
+// reproduces a crisp-frame threshold exactly and follows a soft frame down.
+function ridgeThreshold(peaks, cnt, ceil, rel, floor) {
+  const pos = RIDGE_POS;
+  let np = 0;
+  for (let i = 0; i < 4; i++) for (let sI = 0; sI < cnt[i]; sI++) if (peaks[i][sI] > 0) pos[np++] = peaks[i][sI];
+  if (np < 8) return ceil;
+  const view = pos.subarray(0, np);
+  view.sort();
+  const med = view[np >> 1];
+  const t = rel * med;
+  return t > ceil ? ceil : (t < floor ? floor : t);
+}
+function sideSupport(quad, F, W, H, band, K) {
+  const { peaks, cnt } = sideRidges(quad, F, W, H, band, K);
+  const T = ridgeThreshold(peaks, cnt, CFG.EDGE_T, CFG.EDGE_REL, CFG.EDGE_FLOOR);
+  const sup = new Array(4), str = new Array(4);
+  for (let i = 0; i < 4; i++) {
+    const tot = cnt[i];
+    let hit = 0, sSum = 0;
+    for (let sI = 0; sI < tot; sI++) { const v = peaks[i][sI]; sSum += v > 900 ? 900 : v; if (v > T) hit++; }
+    sup[i] = tot ? hit / tot : -1;
+    str[i] = tot ? sSum / tot / 900 : 0;
+  }
+  return { sup, cnt, str, edgeT: T };
+}
+function boundaryContrast(quad, data, W, H) {
+  const bcs = [];
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const Ln = Math.hypot(dx, dy) || 1;
+    const nx = -dy / Ln, ny = dx / Ln;
+    let acc = 0, cnt = 0;
+    for (let k = 1; k < 14; k++) {
+      const t = k / 14;
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      const ix = Math.round(px + nx * 3.5), iy = Math.round(py + ny * 3.5);
+      const ox = Math.round(px - nx * 3.5), oy = Math.round(py - ny * 3.5);
+      if (ix < 1 || iy < 1 || ix > W - 2 || iy > H - 2) continue;
+      if (ox < 1 || oy < 1 || ox > W - 2 || oy > H - 2) continue;
+      const ii = (iy * W + ix) * 4, oi = (oy * W + ox) * 4;
+      acc += Math.hypot(data[ii] - data[oi], data[ii + 1] - data[oi + 1], data[ii + 2] - data[oi + 2]);
+      cnt++;
+    }
+    bcs.push(cnt ? acc / cnt : -1);
+  }
+  return bcs;
+}
+function innerRing(quad, F, W, H, ringT) {
+  const { mag, gxo, gyo } = F;
+  const RB = CFG.RING_BAND;
+  let best = 0;
+  for (const f of [0.04, 0.055, 0.07, 0.09, 0.12, 0.15, 0.18]) {
+    const r = insetQuad(quad, f);
+    let hit = 0, tot = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = r[i], b = r[(i + 1) % 4];
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const Ln = Math.hypot(dx, dy) || 1;
+      const nx = -dy / Ln, ny = dx / Ln;
+      for (let sI = 0; sI < 11; sI++) {
+        const t = 0.08 + (0.84 * sI) / 10;
+        const px = a[0] + dx * t, py = a[1] + dy * t;
+        if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+        tot++;
+        for (let o = -RB; o <= RB; o++) {
+          const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+          if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+          const idx = yi * W + xi;
+          if (mag[idx] > ringT && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > 0.6) { hit++; break; }
+        }
+      }
+    }
+    if (tot >= 20) { const d = hit / tot; if (d > best) best = d; }
+  }
+  return best;
+}
+function outerParallel(quad, F, W, H, edgeT) {
+  const { mag, gxo, gyo } = F;
+  const ctr = centroid(quad);
+  const res = [];
+  const scan = Math.min(CFG.OUTER_SCAN_MAX, Math.max(9, CFG.OUTER_SCAN_FRAC * Math.sqrt(polyArea(quad))));
+  for (let i = 0; i < 4; i++) {
+    const { nx, ny, dx, dy } = outNormal(quad, i, ctr);
+    const a = quad[i];
+    let hit = 0, tot = 0;
+    for (let sI = 0; sI < 11; sI++) {
+      const t = 0.15 + (0.7 * sI) / 10;
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      tot++;
+      for (let o = 3; o <= scan; o++) {
+        const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+        if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+        const idx = yi * W + xi;
+        if (mag[idx] > edgeT && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) { hit++; break; }
+      }
+    }
+    res.push(tot >= 5 ? hit / tot : 0);
+  }
+  return res;
+}
+// A trading card's interior is PRINTED: artwork, name bar, type icons, body
+// text. A switched-off tablet screen, a microwave door or a flat panel is not.
+function innerDetail(quad, F, W, H, ringT) {
+  const { mag } = F;
+  const G = CFG.DETAIL_GRID;
+  let hit = 0, tot = 0;
+  for (let a = 0; a < G; a++) {
+    const u = 0.18 + (0.64 * a) / (G - 1);
+    for (let b = 0; b < G; b++) {
+      const v = 0.18 + (0.64 * b) / (G - 1);
+      const p = bl(quad, u, v);
+      const xi = Math.round(p[0]), yi = Math.round(p[1]);
+      if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+      tot++;
+      if (mag[yi * W + xi] > ringT) hit++;
+    }
+  }
+  return tot >= 12 ? hit / tot : 0.5;
+}
+function borderUniformity(quad, data, W, H) {
+  const rim = insetQuad(quad, 0.035);
+  const inner = insetQuad(quad, 0.16);
+  const cols = [], icols = [];
+  for (let i = 0; i < 4; i++) {
+    const a = rim[i], b = rim[(i + 1) % 4];
+    const ia = inner[i], ib = inner[(i + 1) % 4];
+    for (let sI = 0; sI < 9; sI++) {
+      const t = 0.1 + (0.8 * sI) / 8;
+      const px = Math.round(a[0] + (b[0] - a[0]) * t), py = Math.round(a[1] + (b[1] - a[1]) * t);
+      if (px >= 0 && py >= 0 && px < W && py < H) { const o = (py * W + px) * 4; cols.push([data[o], data[o + 1], data[o + 2]]); }
+      const qx = Math.round(ia[0] + (ib[0] - ia[0]) * t), qy = Math.round(ia[1] + (ib[1] - ia[1]) * t);
+      if (qx >= 0 && qy >= 0 && qx < W && qy < H) { const o = (qy * W + qx) * 4; icols.push([data[o], data[o + 1], data[o + 2]]); }
+    }
+  }
+  if (cols.length < 12 || icols.length < 12) return [0.5, 0];
+  const med = (arr) => [0, 1, 2].map((k) => { const v = arr.map((p) => p[k]).sort((a, b) => a - b); return v[v.length >> 1]; });
+  const mc = med(cols), mi = med(icols);
+  let inl = 0;
+  for (const c of cols) if (Math.hypot(c[0] - mc[0], c[1] - mc[1], c[2] - mc[2]) < CFG.UNIF_SCALE) inl++;
+  return [inl / cols.length, Math.hypot(mc[0] - mi[0], mc[1] - mi[1], mc[2] - mi[2])];
+}
+
+// ===========================================================================
+// SECTION 4 -- sub-pixel refinement.  From detector-hybrid-v3.mjs.
+// Per-side gradient-ridge walk with parabolic sub-pixel peak fit, TLS line fit
+// with residual outlier rejection, then adjacent-line intersection. This is
+// where corner error goes from ~10px to ~1px, and it is the single most
+// valuable thing the bespoke parent has.
+// ===========================================================================
+function refineQuad(quad, F, W, H, half) {
+  const { mag, gxo, gyo } = F;
+  const lines = [];
+  const K = CFG.REF_SAMPLES;
+  for (let i = 0; i < 4; i++) {
+    const c0 = quad[i], c1 = quad[(i + 1) % 4];
+    const dx = c1[0] - c0[0], dy = c1[1] - c0[1];
+    const Ln = Math.hypot(dx, dy);
+    if (Ln < 8) { lines.push(lineFromPts(c0, c1)); continue; }
+    const nx = -dy / Ln, ny = dx / Ln;
+    const pts = [];
+    for (let sI = 0; sI < K; sI++) {
+      const t = 0.12 + (0.76 * sI) / (K - 1);
+      const px = c0[0] + dx * t, py = c0[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      let bv = -1, bo = 0;
+      for (let o = -half; o <= half; o += 0.5) {
+        const qx = px + nx * o, qy = py + ny * o;
+        if (qx < 1 || qy < 1 || qx > W - 2 || qy > H - 2) continue;
+        const idx = Math.round(qy) * W + Math.round(qx);
+        if (Math.abs(gxo[idx] * nx + gyo[idx] * ny) < CFG.ORIENT_T) continue;
+        const v = sampleMagBilinear(mag, W, H, qx, qy);
+        if (v > bv) { bv = v; bo = o; }
+      }
+      if (bv < CFG.REF_MINPEAK) continue;
+      const vm = sampleMagBilinear(mag, W, H, px + nx * (bo - 0.6), py + ny * (bo - 0.6));
+      const vp = sampleMagBilinear(mag, W, H, px + nx * (bo + 0.6), py + ny * (bo + 0.6));
+      const dn = vm - 2 * bv + vp;
+      let o = bo;
+      if (Math.abs(dn) > 1e-6) { const corr = (0.6 * (vm - vp)) / (2 * dn); if (Math.abs(corr) <= 0.6) o = bo + corr; }
+      pts.push([px + nx * o, py + ny * o]);
+    }
+    if (pts.length < 4) { lines.push(lineFromPts(c0, c1)); continue; }
+    let ln = fitLineTLS(pts);
+    const keep = [];
+    for (const p of pts) if (Math.abs(ln[0] * p[0] + ln[1] * p[1] - ln[2]) < 1.6) keep.push(p);
+    if (keep.length >= 4 && keep.length < pts.length) ln = fitLineTLS(keep);
+    lines.push(ln);
+  }
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const p = lineIntersect(lines[i], lines[(i + 3) % 4]);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1]) ||
+        Math.hypot(p[0] - quad[i][0], p[1] - quad[i][1]) > CFG.REF_MAXMOVE) out.push([quad[i][0], quad[i][1]]);
+    else out.push(p);
+  }
+  return out;
+}
+function refinePasses(q, F, W, H) {
+  let cur = q;
+  for (let p = 0; p < CFG.REF_PASSES; p++) {
+    cur = orderQuad(refineQuad(cur, F, W, H, p === 0 ? CFG.REF_HALF1 : CFG.REF_HALF2));
+    if (!cur) return null;
+  }
+  return cur;
+}
+
+// ===========================================================================
+// SECTION 5 -- THE OUTWARD SEARCH.
+// ===========================================================================
+// Three complementary mechanisms, because the undershoot has three different
+// physical causes and no single probe covers them:
+//
+//   (a) expandToOuter  [v3, verbatim] -- all four sides move out by ONE small
+//       common offset. This is the inner-border-ring case: the quad locked onto
+//       the printed border a few percent inside the silhouette. Cheap, and it
+//       needs the outward edge to already exist as a ridge on 3+ sides.
+//
+//   (b) sideOutwardProfile [new] -- the divider-lock case, which is the
+//       dominant real-frame failure and which (a) structurally cannot reach:
+//       the undershoot is 30-70% of the card and it is ASYMMETRIC (one edge sits
+//       on the artwork/text divider, the other three are right). For each side
+//       independently, sweep every outward offset and record how much oriented
+//       edge evidence a side translated that far out would have. Peaks in that
+//       1-D profile ARE the candidate outward positions. The scales come from
+//       the image; no ratio table is consulted. Combinations are then bounded
+//       (see outwardVariants) so the search stays linear-ish, not 3^4.
+//
+//   (c) extendPastCorners [v3, verbatim] -- the occluded-edge case, where the
+//       true edge has no ridge of its own for (b) to find, but the two ADJACENT
+//       sides are demonstrably still running past the quad's own corners. That
+//       continuation is evidence a truncated quad cannot hide, and it doubles
+//       as the crop-ness score used for gating.
+// ---------------------------------------------------------------------------
+
+// (a) uniform outward snap -- verbatim from detector-hybrid-v3.mjs
+function expandToOuter(quad, F, W, H) {
+  const { mag, gxo, gyo } = F;
+  const r0 = sideRidges(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  const edgeT = ridgeThreshold(r0.peaks, r0.cnt, CFG.EDGE_T, CFG.EDGE_REL, CFG.EDGE_FLOOR);
+  const ctr = centroid(quad);
+  const base = [], sgn = [], off = [];
+  let good = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const { nx, ny, dx, dy } = outNormal(quad, i, ctr);
+    const ln = lineFromPts(a, b);
+    base.push(ln);
+    sgn.push(ln[0] * nx + ln[1] * ny >= 0 ? 1 : -1);
+    const found = [];
+    for (let sI = 0; sI < 11; sI++) {
+      const t = 0.15 + (0.7 * sI) / 10;
+      const px = a[0] + dx * t, py = a[1] + dy * t;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      let bv = 0, bo = 0;
+      for (let o = 2.5; o <= 14; o += 0.5) {
+        const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+        if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+        const idx = yi * W + xi;
+        if (mag[idx] > bv && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) { bv = mag[idx]; bo = o; }
+      }
+      if (bv > edgeT) found.push(bo);
+    }
+    if (found.length >= 6) {
+      found.sort((x, y) => x - y);
+      const med = found[found.length >> 1];
+      if (found.filter((v) => Math.abs(v - med) < 2).length / found.length > 0.6) { off.push(med); good++; continue; }
+    }
+    off.push(null);
+  }
+  if (good < 3) return null;
+  const known = off.filter((v) => v !== null).sort((a, b) => a - b);
+  const medOff = known[known.length >> 1];
+  if (medOff > CFG.EXPAND_MAX_FRAC * Math.sqrt(polyArea(quad))) return null;
+  const lines = base.map((ln, i) => [ln[0], ln[1], ln[2] + (off[i] === null ? medOff : off[i]) * sgn[i]]);
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const p = lineIntersect(lines[i], lines[(i + 3) % 4]);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1])) return null;
+    out.push(p);
+  }
+  return out;
+}
+
+// (b) per-side outward edge-evidence profile.
+//
+// Returns, for one side, the list of outward offsets at which a translated copy
+// of that side would sit on real oriented edge evidence -- i.e. every scale at
+// which "the card might actually end here" is supported by pixels.
+//
+// The bar is deliberately LOWER than the quad's own ridge bar (OUT_T_REL). That
+// is not a fudge: the reason a quad undershoots in the first place is that the
+// printed divider it locked onto is a STRONGER line than the card's outer edge
+// against a hand or a wooden table. Re-using the quad's own median as the bar
+// would guarantee the search finds nothing. Selectivity comes from the
+// orientation gate, from requiring a sustained fraction along the whole side,
+// and from full verification of whatever the search proposes.
+function sideOutwardPeaks(quad, i, F, W, H, contT) {
+  const { mag, gxo, gyo } = F;
+  const ctr = centroid(quad);
+  const { nx, ny, dx, dy } = outNormal(quad, i, ctr);
+  const a = quad[i];
+  // How far out it is worth looking: the quad's own extent perpendicular to this
+  // side. A quad that is HALF a card must be able to reach a full card, so the
+  // budget is a little over 1x its own depth -- but no further, because beyond
+  // that we are proposing an object with no relationship to the candidate.
+  const S = outNormal(quad, i, ctr);
+  const pa = quad[(i + 3) % 4];
+  const depth = Math.abs((pa[0] - a[0]) * S.nx + (pa[1] - a[1]) * S.ny);
+  const maxOut = Math.min(CFG.OUT_MAX_PX, CFG.OUT_MAX_FRAC * depth);
+  if (maxOut < CFG.OUT_MIN_OFF + CFG.OUT_STEP) return [];
+  const K = CFG.OUT_SAMPLES;
+  const offs = [], sups = [];
+  for (let o = CFG.OUT_MIN_OFF; o <= maxOut; o += CFG.OUT_STEP) {
+    const band = CFG.OUT_BAND + CFG.OUT_SPREAD * o;
+    let hit = 0, tot = 0;
+    for (let k = 0; k < K; k++) {
+      const t = 0.12 + (0.76 * k) / (K - 1);
+      const px = a[0] + dx * t + nx * o, py = a[1] + dy * t + ny * o;
+      if (px < 2 || py < 2 || px > W - 3 || py > H - 3) continue;
+      tot++;
+      let found = false;
+      for (let d = -band; d <= band && !found; d += 1) {
+        const xi = Math.round(px + nx * d), yi = Math.round(py + ny * d);
+        if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+        const idx = yi * W + xi;
+        if (mag[idx] > contT && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) found = true;
+      }
+      if (found) hit++;
+    }
+    offs.push(o);
+    sups.push(tot >= CFG.OUT_MIN_SAMPLES ? hit / tot : -1);
+  }
+  // Local maxima above the bar, non-max-suppressed so two adjacent profile
+  // samples on the same physical edge do not both become proposals.
+  const peaks = [];
+  for (let k = 0; k < offs.length; k++) {
+    const v = sups[k];
+    if (v < CFG.OUT_SUP_MIN) continue;
+    if (k > 0 && sups[k - 1] > v) continue;
+    if (k + 1 < offs.length && sups[k + 1] > v) continue;
+    peaks.push({ off: offs[k], sup: v });
+  }
+  // Deterministic: strongest first, and ties broken by the SMALLER offset so the
+  // ordering can never depend on float-comparison accidents.
+  peaks.sort((p, q) => (q.sup - p.sup) || (p.off - q.off));
+  const kept = [];
+  for (const p of peaks) {
+    let near = false;
+    for (const k of kept) if (Math.abs(k.off - p.off) < CFG.OUT_PEAK_NMS) { near = true; break; }
+    if (!near) kept.push(p);
+    if (kept.length >= CFG.OUT_PEAKS_PER_SIDE) break;
+  }
+  kept.sort((p, q) => p.off - q.off);          // by distance, deterministic
+  return kept;
+}
+
+// Translate side i of `quad` outward by `off` and re-intersect. Moving a side
+// as a LINE (rather than dragging two corners) is what keeps the quad a
+// quadrilateral and lets the two neighbouring sides extend to meet it.
+function offsetSides(quad, offs) {
+  const ctr = centroid(quad);
+  const lines = [];
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const { nx, ny } = outNormal(quad, i, ctr);
+    const ln = lineFromPts(a, b);
+    const sgn = ln[0] * nx + ln[1] * ny >= 0 ? 1 : -1;
+    lines.push([ln[0], ln[1], ln[2] + (offs[i] || 0) * sgn]);
+  }
+  const out = [];
+  for (let i = 0; i < 4; i++) {
+    const p = lineIntersect(lines[i], lines[(i + 3) % 4]);
+    if (!p || !isFinite(p[0]) || !isFinite(p[1])) return null;
+    out.push(p);
+  }
+  return orderQuad(out);
+}
+
+// Bounded combination policy over the four per-side peak lists.
+// 4 sides x up to 3 peaks is 4^4 = 256 combinations if taken naively; the ones
+// below are the ones that correspond to a physical story:
+//   * single-side  -- one edge locked onto an internal line, three were right
+//                     (the artwork/text divider case, by far the most common)
+//   * pairs        -- two edges wrong (a quad on the art window's top and bottom)
+//   * all-nearest  -- the inner border ring, every side a few px in
+//   * all-outermost-- the whole quad is the art window and the card is outside it
+//   * all-strongest-- best-evidence combination
+function outwardVariants(quad, F, W, H, emit) {
+  const r0 = sideRidges(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  const edgeT = ridgeThreshold(r0.peaks, r0.cnt, CFG.EDGE_T, CFG.EDGE_REL, CFG.EDGE_FLOOR);
+  const contT = Math.max(CFG.EDGE_FLOOR * CFG.OUT_T_FLOOR, edgeT * CFG.OUT_T_REL);
+  const P = [];
+  for (let i = 0; i < 4; i++) P.push(sideOutwardPeaks(quad, i, F, W, H, contT));
+  const push = (offs) => { const q = offsetSides(quad, offs); if (q) emit(q); };
+
+  // singles
+  for (let i = 0; i < 4; i++) {
+    for (let k = 0; k < P[i].length; k++) { const o = [0, 0, 0, 0]; o[i] = P[i][k].off; push(o); }
+  }
+  // pairs, each side at its NEAREST supported peak (the common "two edges of an
+  // interior panel" case) and at its OUTERMOST (a panel nested two levels in)
+  for (let i = 0; i < 4; i++) {
+    for (let j = i + 1; j < 4; j++) {
+      if (!P[i].length || !P[j].length) continue;
+      const near = [0, 0, 0, 0]; near[i] = P[i][0].off; near[j] = P[j][0].off; push(near);
+      const far = [0, 0, 0, 0]; far[i] = P[i][P[i].length - 1].off; far[j] = P[j][P[j].length - 1].off;
+      if (far[i] !== near[i] || far[j] !== near[j]) push(far);
+    }
+  }
+  // all-sides combinations
+  const anyPeak = P.some((p) => p.length);
+  if (anyPeak) {
+    push(P.map((p) => (p.length ? p[0].off : 0)));                                  // nearest
+    push(P.map((p) => (p.length ? p[p.length - 1].off : 0)));                       // outermost
+    push(P.map((p) => {                                                             // strongest
+      if (!p.length) return 0;
+      let b = p[0];
+      for (const c of p) if (c.sup > b.sup || (c.sup === b.sup && c.off < b.off)) b = c;
+      return b.off;
+    }));
+  }
+}
+
+// (c) corner-continuation -- verbatim from detector-hybrid-v3.mjs. Also returns
+// the crop-ness score (max continuation distance, px) used by the gate.
+function extendPastCorners(quad, F, W, H, out) {
+  const { mag, gxo, gyo } = F;
+  const r0 = sideRidges(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  const edgeT = ridgeThreshold(r0.peaks, r0.cnt, CFG.EDGE_T, CFG.EDGE_REL, CFG.EDGE_FLOOR);
+  const ctr = centroid(quad);
+  const EB = CFG.EXT_BAND;
+  let maxCont = 0;
+  const contT = Math.max(CFG.EDGE_FLOOR * CFG.EXT_T_FLOOR, edgeT * CFG.EXT_T_REL);
+  const ridgeAt = (px, py, nx, ny, sd) => {
+    const band = EB + CFG.EXT_SPREAD * sd;
+    for (let o = -band; o <= band; o += 1) {
+      const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+      if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+      const idx = yi * W + xi;
+      if (mag[idx] > contT && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) return true;
+    }
+    return false;
+  };
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    const pa = quad[(i + 3) % 4], pb = quad[(i + 2) % 4];
+    const A = outNormal([pa, a, b, pb], 0, ctr);        // side pa->a
+    const B = outNormal([pb, b, a, pa], 0, ctr);        // side pb->b
+    const S = outNormal(quad, i, ctr);
+    const depth = Math.abs((pa[0] - a[0]) * S.nx + (pa[1] - a[1]) * S.ny);
+    const maxS = Math.min(CFG.EXT_MAX_PX, CFG.EXT_MAX_FRAC * depth);
+    if (maxS < CFG.EXT_MIN_PX) continue;
+    // Cumulative (not per-step) support: a ridge sampled on the integer grid
+    // registers on roughly every other step, so a per-step conjunction of two
+    // such sequences almost never holds and the walk dies at s=0.
+    let cA = 0, cB = 0, bestS = 0, run = 0;
+    for (let sd = 1; sd <= maxS; sd += 1) {
+      const okA = ridgeAt(a[0] + A.ux * sd, a[1] + A.uy * sd, A.nx, A.ny, sd);
+      const okB = ridgeAt(b[0] + B.ux * sd, b[1] + B.uy * sd, B.nx, B.ny, sd);
+      if (okA) cA++;
+      if (okB) cB++;
+      if (sd >= CFG.EXT_MIN_PX && cA / sd >= CFG.EXT_FRAC && cB / sd >= CFG.EXT_FRAC) bestS = sd;
+      run = (okA || okB) ? 0 : run + 1;
+      if (run >= CFG.EXT_STOP) break;
+    }
+    if (bestS < CFG.EXT_MIN_PX) continue;
+    if (bestS > maxCont) maxCont = bestS;
+    if (out) {
+      const q = quad.map((p) => [p[0], p[1]]);
+      q[i] = [a[0] + A.ux * bestS, a[1] + A.uy * bestS];
+      q[(i + 1) % 4] = [b[0] + B.ux * bestS, b[1] + B.uy * bestS];
+      const oq = orderQuad(q);
+      if (oq) out.push(oq);
+    }
+  }
+  return maxCont;
+}
+
+// ===========================================================================
+// SECTION 6 -- verification.  Feature set from detector-hybrid-v3.mjs, gates
+// re-seated against the field-flag ground truth (see the CFG notes above).
+// ===========================================================================
+function geomOk(quad, W, H) {
+  if (!isConvex(quad)) return null;
+  const frameArea = W * H;
+  for (const p of quad) {
+    if (!isFinite(p[0]) || !isFinite(p[1])) return null;
+    if (p[0] < -CFG.OUT_MARGIN || p[1] < -CFG.OUT_MARGIN || p[0] > W + CFG.OUT_MARGIN || p[1] > H + CFG.OUT_MARGIN) return null;
+  }
+  const area = polyArea(quad);
+  if (area < CFG.MIN_AREA_FRAC * frameArea || area > CFG.MAX_AREA_FRAC * frameArea) return null;
+  const t = sidesOf(quad);
+  const o1 = Math.min(t[0], t[2]) / Math.max(t[0], t[2]);
+  const o2 = Math.min(t[1], t[3]) / Math.max(t[1], t[3]);
+  if (Math.min(o1, o2) < CFG.OPP_SIM) return null;
+  const ratio = sidePairRatio(quad);
+  if (!(ratio <= CFG.ASP_RATIO_MAX)) return null;
+  let minAng = 180;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[(i + 3) % 4], b = quad[i], c = quad[(i + 1) % 4];
+    const ux = a[0] - b[0], uy = a[1] - b[1], vx = c[0] - b[0], vy = c[1] - b[1];
+    const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+    if (lu < 1e-6 || lv < 1e-6) return null;
+    const ang = Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv)))) * 180 / PI;
+    if (ang < minAng) minAng = ang;
+  }
+  if (minAng < CFG.CORNER_MIN) return null;
+  const inter = clipPoly(quad.map((p) => [p[0], p[1]]), frameRect(W, H));
+  const vis = inter.length < 3 ? 0 : polyArea(inter) / area;
+  if (vis < CFG.MIN_VIS) return null;
+  return { area, areaFrac: area / frameArea, ratio, opp: Math.min(o1, o2), vis, minAng };
+}
+
+function features(quad, F, data, W, H) {
+  const g = geomOk(quad, W, H);
+  if (!g) return null;
+  const { sup, cnt, str, edgeT } = sideSupport(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  let judged = 0, tot = 0, strSum = 0;
+  const js = [];
+  for (let i = 0; i < 4; i++) {
+    tot += cnt[i];
+    if (cnt[i] >= CFG.MIN_SIDE_SAMPLES) { judged++; strSum += str[i]; js.push(sup[i]); }
+  }
+  if (judged < CFG.MIN_JUDGED || tot < CFG.MIN_TOTAL_SAMPLES) return null;
+  js.sort((a, b) => a - b);
+  // second-worst side: one side may be occluded, in shadow, or the same colour
+  // as the background (a hand-held card routinely has one dead side).
+  const supMin = js[Math.min(1, js.length - 1)];
+  const nBest = Math.min(3, js.length);
+  let bSum = 0;
+  for (let k = 0; k < nBest; k++) bSum += js[js.length - 1 - k];
+  const supMean = bSum / nBest;
+  const strMean = strSum / judged;
+  const bcs = boundaryContrast(quad, data, W, H);
+  let bmin = 1e9, bsum = 0, bn = 0;
+  for (const b of bcs) if (b >= 0) { if (b < bmin) bmin = b; bsum += b; bn++; }
+  if (bn < 3) return null;
+  const bmean = bsum / bn;
+  const ringT = Math.max(CFG.RING_FLOOR, Math.min(CFG.RING_T, (CFG.RING_REL / CFG.EDGE_REL) * edgeT));
+  const ring = innerRing(quad, F, W, H, ringT);
+  const detail = innerDetail(quad, F, W, H, ringT);
+  const [unif, rimContrast] = borderUniformity(quad, data, W, H);
+  const op = outerParallel(quad, F, W, H, edgeT).sort((a, b) => a - b);
+  const outer = (op[0] + op[1] + op[2]) / 3;
+  return { ...g, supMin, supMean, strMean, bmin, bmean, ring, detail, unif, rimContrast, outer, edgeT, ringT };
+}
+
+function scoreOf(f) {
+  const edge = 0.5 * f.supMin + 0.5 * f.supMean;
+  const strength = Math.min(1, f.strMean / 0.42);
+  const contrast = Math.min(1, f.bmean / 130) * 0.6 + Math.min(1, f.bmin / 70) * 0.4;
+  const rimc = Math.min(1, f.rimContrast / CFG.RIMC_SCALE);
+  const sig = CFG.SIG_RING * f.ring + CFG.SIG_UNIF * f.unif + CFG.SIG_RIMC * rimc;
+  const clear = 1 - Math.min(1, f.outer / 0.75);
+  // `detail` joins the score (as well as being a gate): it is the one signature
+  // that measured higher on true cards than on the false-positive objects.
+  const printed = Math.min(1, f.detail / 0.55);
+  return 0.20 * edge + 0.10 * strength + 0.14 * contrast + 0.24 * sig + 0.18 * clear + 0.14 * printed;
+}
+
+function verify(quad, F, data, W, H) {
+  const f = features(quad, F, data, W, H);
+  if (!f) return null;
+  if (f.supMin < CFG.SUP_MIN || f.supMean < CFG.SUP_MEAN) return null;
+  if (f.strMean < CFG.STR_MIN) return null;
+  if (f.bmin < CFG.BC_MIN || f.bmean < CFG.BC_MEAN) return null;
+  if (f.ring < CFG.RING_MIN) return null;
+  if (f.rimContrast < CFG.RIMC_MIN) return null;
+  if (f.detail < CFG.DETAIL_MIN) return null;
+  if (f.unif < CFG.UNIF_MIN) return null;
+  if (f.outer > CFG.OUTER_MAX) return null;
+  const score = scoreOf(f);
+  if (score < CFG.SCORE_MIN) return null;
+  return { quad, score, ...f };
+}
+
+// ===========================================================================
+// SECTION 7 -- OpenCV candidate generation (the squares.cpp structure, from
+// detector-opencv.mjs). Kept whole: every threshold level, every colour plane,
+// every close kernel, the full approxPolyDP epsilon sweep. What changes is what
+// happens AFTER: this stage's own accuracy gates are loosened right down,
+// because its job here is recall, and the bespoke stages judge.
+// ===========================================================================
+function medianOf8U(mat) {
+  const d = mat.data, N = d.length;
+  if (N === 0) return 0;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < N; i++) hist[d[i]]++;
+  const half = N >> 1;
+  let acc = 0;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > half) return v; }
+  return 255;
+}
+function cannySupport(q, edgeData, W, H) {
+  const per = [];
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4];
+    let hit = 0, seen = 0;
+    for (let k = 0; k < 20; k++) {
+      const t = (k + 0.5) / 20;
+      const x = Math.round(a[0] + (b[0] - a[0]) * t), y = Math.round(a[1] + (b[1] - a[1]) * t);
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      seen++;
+      let found = false;
+      for (let dy = -2; dy <= 2 && !found; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= H) continue;
+        const row = yy * W;
+        for (let dx = -2; dx <= 2; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= W) continue;
+          if (edgeData[row + xx]) { found = true; break; }
+        }
+      }
+      if (found) hit++;
+    }
+    per.push(seen > 0 ? hit / seen : 0);
+  }
+  return { mean: (per[0] + per[1] + per[2] + per[3]) / 4, min: Math.min(per[0], per[1], per[2], per[3]) };
+}
+
+function cvCandidates(W, H, data, trash) {
+  const push = (m) => { trash.push(m); return m; };
+  const frameArea = W * H;
+  const src = push(cv.matFromImageData({ width: W, height: H, data }));
+  const gray = push(new cv.Mat());
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  const bk = (CFG.BLUR_K | 0) % 2 === 1 ? (CFG.BLUR_K | 0) : (CFG.BLUR_K | 0) + 1;
+  const blur = push(new cv.Mat());
+  cv.GaussianBlur(gray, blur, new cv.Size(bk, bk), 0, 0, cv.BORDER_DEFAULT);
+
+  const med = medianOf8U(blur);
+  const levels = String(CFG.GAIN_LEVELS).split(',').map(Number).filter((x) => Number.isFinite(x) && x > 0);
+  const planes = [blur];
+  if (CFG.CHANNELS) {
+    const chans = push(new cv.MatVector());
+    cv.split(src, chans);
+    for (let c = 0; c < 3 && c < chans.size(); c++) {
+      const ch = push(chans.get(c));
+      const cb = push(new cv.Mat());
+      cv.GaussianBlur(ch, cb, new cv.Size(bk, bk), 0, 0, cv.BORDER_DEFAULT);
+      planes.push(cb);
+    }
+  }
+  const closeSizes = String(CFG.CLOSE_LEVELS).split(',').map(Number)
+    .filter((x) => Number.isFinite(x) && x >= 1).map((k) => ((k | 0) % 2 === 1 ? k | 0 : (k | 0) + 1));
+  const closeKerns = closeSizes.map((k) => push(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(k, k))));
+
+  // Each (colour plane x Canny gain x morphology kernel) triple is one
+  // INDEPENDENT OPERATING POINT of the squares.cpp ensemble. Its index is
+  // carried on every quad it produces, so a later stage can ask how many
+  // operating points agreed on a rectangle -- a resolution-independent measure
+  // of how real that rectangle is. Bit i of a quad's `ops` mask = operating
+  // point i found it. Capped at 31 so the mask stays a safe int32 bitfield.
+  const maps = [];
+  const support = push(cv.Mat.zeros(H, W, cv.CV_8UC1));
+  let opIdx = 0;
+  for (const plane of planes) {
+    const pmed = plane === blur ? med : medianOf8U(plane);
+    for (const g of levels) {
+      let lo = Math.max(CFG.CANNY_MIN_LO, g * (1 - CFG.CANNY_SIGMA) * pmed);
+      let hi = Math.min(255, g * (1 + CFG.CANNY_SIGMA) * pmed);
+      if (hi - lo < CFG.CANNY_MIN_SPAN) hi = Math.min(255, lo + CFG.CANNY_MIN_SPAN);
+      if (hi <= lo) { lo = 50; hi = 150; }
+      const e = push(new cv.Mat());
+      cv.Canny(plane, e, lo, hi, 3, false);
+      cv.bitwise_or(support, e, support);
+      for (const kern of closeKerns) {
+        const closed = push(new cv.Mat());
+        cv.morphologyEx(e, closed, cv.MORPH_CLOSE, kern, new cv.Point(-1, -1), 1,
+          cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
+        maps.push({ mat: closed, op: Math.min(30, opIdx++) });
+      }
+    }
+  }
+  const edgeData = support.data;
+
+  const minA = CFG.GEN_MIN_FRAC * frameArea, maxA = CFG.GEN_MAX_FRAC * frameArea;
+  const nEps = Math.max(1, CFG.EPS_STEPS | 0);
+  const cands = [];
+  for (const { mat: emap, op } of maps) {
+    const opBit = 1 << op;
+    const contours = push(new cv.MatVector());
+    const hierarchy = push(new cv.Mat());
+    cv.findContours(emap, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+      try {
+        if (cnt.rows < 4) continue;
+        const hull = new cv.Mat();
+        const approx = new cv.Mat();
+        try {
+          // NOTE (inherited from the parent, and load-bearing): do NOT pre-filter
+          // on contourArea(cnt). findContours on a Canny EDGE map traces each
+          // edge as a thin out-and-back ribbon, so a large card's own outline can
+          // have a contourArea near zero. The convex HULL's area is the
+          // meaningful quantity.
+          cv.convexHull(cnt, hull, false, true);
+          if (hull.rows < 4) continue;
+          if (cv.contourArea(hull, false) < minA * 0.5) continue;
+          const peri = cv.arcLength(hull, true);
+          if (peri < 4 * CFG.GEN_MIN_SIDE) continue;
+          for (let sI = 0; sI < nEps; sI++) {
+            const frac = nEps === 1 ? CFG.EPS_LO : CFG.EPS_LO + ((CFG.EPS_HI - CFG.EPS_LO) * sI) / (nEps - 1);
+            cv.approxPolyDP(hull, approx, frac * peri, true);
+            if (approx.rows < 4) break;
+            if (approx.rows !== 4) continue;
+            const d = approx.data32S;
+            const quad = [[d[0], d[1]], [d[2], d[3]], [d[4], d[5]], [d[6], d[7]]];
+            if (!isStrictlyConvex(quad)) continue;
+            const area = polyArea(quad);
+            if (area < minA || area > maxA) continue;
+            const sides = sidesOf(quad);
+            if (Math.min(sides[0], sides[1], sides[2], sides[3]) < CFG.GEN_MIN_SIDE) continue;
+            const rect = cv.minAreaRect(approx);
+            const rectArea = Math.max(1e-6, rect.size.width * rect.size.height);
+            if (area / rectArea < CFG.GEN_FILL_MIN) continue;
+            const sup = cannySupport(quad, edgeData, W, H);
+            if (sup.mean < CFG.GEN_SUP_MEAN || sup.min < CFG.GEN_SUP_MIN) continue;
+            cands.push({ quad, ops: opBit });
+          }
+        } finally { hull.delete(); approx.delete(); }
+      } finally { cnt.delete(); }
+    }
+  }
+  return cands;
+}
+function popcount(x) { x = x - ((x >> 1) & 0x55555555); x = (x & 0x33333333) + ((x >> 2) & 0x33333333); x = (x + (x >> 4)) & 0x0F0F0F0F; return (x * 0x01010101) >> 24; }
+
+// ===========================================================================
+// SECTION 8 -- deterministic ordering.
+// ===========================================================================
+// Ranking must not depend on float-comparison accidents between two candidates
+// that are, for practical purposes, tied: two near-identical frames in a burst
+// must produce the same answer. Scores are therefore compared at 1e-3
+// resolution and every remaining tie is broken on GEOMETRY -- area, then
+// centroid, then the corner list -- which is a total order on distinct quads
+// and is identical for identical pixels.
+function quadKey(q) {
+  let k = '';
+  for (let i = 0; i < 4; i++) k += Math.round(q[i][0] * 16) + ',' + Math.round(q[i][1] * 16) + ';';
+  return k;
+}
+function cmpGeom(a, b) {
+  if (a.area !== b.area) return b.area - a.area;
+  const ca = centroid(a.quad), cb = centroid(b.quad);
+  if (ca[0] !== cb[0]) return ca[0] - cb[0];
+  if (ca[1] !== cb[1]) return ca[1] - cb[1];
+  const ka = quadKey(a.quad), kb = quadKey(b.quad);
+  return ka < kb ? -1 : (ka > kb ? 1 : 0);
+}
+// Consistent corner order (angular about the centroid, starting at the corner
+// nearest the bounding box's top-left) so quads from different pipeline passes
+// can be averaged corner-for-corner. From the OpenCV parent.
+function canonicalCorners(q) {
+  const c = centroid(q);
+  const byAngle = q.slice().sort((a, b) => (Math.atan2(a[1] - c[1], a[0] - c[0]) - Math.atan2(b[1] - c[1], b[0] - c[0])));
+  let si = 0, sv = Infinity;
+  for (let i = 0; i < 4; i++) { const v = byAngle[i][0] + byAngle[i][1]; if (v < sv) { sv = v; si = i; } }
+  return [0, 1, 2, 3].map((i) => byAngle[(si + i) % 4]);
+}
+function cmpScore(a, b) {
+  const sa = Math.round(a.score * 1000), sb = Math.round(b.score * 1000);
+  if (sa !== sb) return sb - sa;
+  return cmpGeom(a, b);
+}
+// "outermost wins": area first, score only as the tie-break.
+function cmpOuter(a, b) {
+  const aa = Math.round(a.area), ab = Math.round(b.area);
+  if (aa !== ab) return ab - aa;
+  return cmpScore(a, b);
+}
+
+// ===========================================================================
+// SECTION 9 -- main
+// ===========================================================================
+let LAST_ERROR = null;
+function lastError() { return LAST_ERROR; }
+function setParams(o) { Object.assign(CFG, o); }
+function getParams() { return { ...CFG }; }
+
+function detect(frame) { return run(frame, null); }
+// Development introspection only (never used on the bench path): returns the
+// candidate set at each stage so a diagnostic can ask "was the right quad ever
+// in the pool, and which stage lost it?".
+function __stages(frame) { const st = {}; run(frame, st); return st; }
+
+function run(frame, ST) {
+  if (!frame) return [];
+  const W = frame.width | 0, H = frame.height | 0;
+  const data = frame.data;
+  if (W <= 0 || H <= 0) return [];
+  if (!data || data.length < W * H * 4) return [];
+  if (W < 16 || H < 16) return [];
+
+  const trash = [];
+  try {
+    // ---- 1. generation: OpenCV proposes -----------------------------------
+    const rawQuads = cvCandidates(W, H, data, trash);
+    if (!rawQuads.length) return [];
+
+    // ---- 2. bespoke front end --------------------------------------------
+    const F = frontEnd(W, H, data);
+
+    // ---- 3. coarse dedupe + oriented-support pre-screen -------------------
+    // The pooled epsilon/level/plane sweep puts a whole family of near-identical
+    // quads on the same structure. Collapsing them on a coarse centroid/size
+    // grid BEFORE the per-candidate work is free accuracy-wise (refinement pulls
+    // any member of a cell onto the same edge) and is most of the run time back.
+    // Collapsing duplicates UNIONS their operating-point masks: two members of
+    // the same grid cell really are the same rectangle found twice, which is
+    // exactly the agreement the mask is meant to record.
+    const seen = new Map();
+    const uniq = [];
+    for (const c0 of rawQuads) {
+      const q = c0.quad;
+      const c = centroid(q), sz = Math.sqrt(polyArea(q));
+      const key = ((c[0] / CFG.DEDUP_PX) | 0) + ':' + ((c[1] / CFG.DEDUP_PX) | 0) + ':' + ((sz / CFG.DEDUP_PX) | 0);
+      const hit = seen.get(key);
+      if (hit !== undefined) { uniq[hit].ops |= c0.ops; continue; }
+      seen.set(key, uniq.length);
+      uniq.push({ quad: q, ops: c0.ops });
+    }
+    const screened = [];
+    for (const u of uniq) {
+      const g = geomOk(u.quad, W, H);
+      if (!g) continue;
+      const { sup, cnt } = sideSupport(u.quad, F, W, H, CFG.PRE_BAND, 11);
+      const js = [];
+      for (let i = 0; i < 4; i++) if (cnt[i] >= 4) js.push(sup[i]);
+      if (js.length < 3) continue;
+      js.sort((a, b) => b - a);
+      const pre = (js[0] + js[1] + js[2]) / 3;
+      if (pre < CFG.PRE_MIN) continue;
+      screened.push({ quad: u.quad, ops: u.ops, pre, area: g.area });
+    }
+    if (!screened.length) return [];
+    screened.sort((a, b) => (Math.round(b.pre * 1000) - Math.round(a.pre * 1000)) || cmpGeom(a, b));
+    const seeds = screened.slice(0, CFG.PRE_KEEP);
+
+    // ---- 4. outward search ------------------------------------------------
+    // Every seed keeps its own geometry AND contributes outward proposals. The
+    // union is what gets refined; nothing is discarded on the strength of the
+    // seed alone, because the seed is exactly the thing suspected of being an
+    // undershoot.
+    const proposals = [];
+    const pseen = new Map();
+    let curOps = 0;
+    const addProp = (q) => {
+      if (!q) return;
+      const c = centroid(q), sz = Math.sqrt(polyArea(q));
+      const key = ((c[0] / 3) | 0) + ':' + ((c[1] / 3) | 0) + ':' + ((sz / 3) | 0);
+      const hit = pseen.get(key);
+      // A proposal derived from a seed INHERITS that seed's operating-point
+      // mask: the outward variants are re-derivations of the same rectangle
+      // from the same evidence, and two different seeds proposing the same
+      // outward quad is genuine independent agreement worth recording.
+      if (hit !== undefined) { proposals[hit].ops |= curOps; return; }
+      pseen.set(key, proposals.length);
+      proposals.push({ quad: q, ops: curOps });
+    };
+    for (const sd of seeds) {
+      curOps = sd.ops;
+      addProp(sd.quad);
+      outwardVariants(sd.quad, F, W, H, addProp);
+      if (CFG.EXPAND) { const e = expandToOuter(sd.quad, F, W, H); if (e) addProp(orderQuad(e)); }
+      if (CFG.EXTEND) { const ex = []; extendPastCorners(sd.quad, F, W, H, ex); for (const q of ex) addProp(q); }
+    }
+
+    // Bound the refine+verify work: keep the proposals with the best cheap
+    // oriented support, largest first among equals (the outward preference is
+    // applied here too, so a big proposal is never dropped in favour of the
+    // small seed it came from).
+    const ranked = [];
+    for (const p of proposals) {
+      const g = geomOk(p.quad, W, H);
+      if (!g) continue;
+      const { sup, cnt } = sideSupport(p.quad, F, W, H, CFG.PRE_BAND, 11);
+      const js = [];
+      for (let i = 0; i < 4; i++) if (cnt[i] >= 4) js.push(sup[i]);
+      if (js.length < 3) continue;
+      js.sort((a, b) => b - a);
+      const pre = (js[0] + js[1] + js[2]) / 3;
+      if (pre < CFG.PRE_MIN) continue;
+      ranked.push({ quad: p.quad, ops: p.ops, pre, area: g.area });
+    }
+    ranked.sort((a, b) => (Math.round(b.pre * 1000) - Math.round(a.pre * 1000)) || cmpGeom(a, b));
+    const toRefine = ranked.slice(0, CFG.VAR_KEEP);
+
+    // ---- 5. refine -> verify ---------------------------------------------
+    let verified = [];
+    const vseen = new Map();
+    for (const c of toRefine) {
+      const q = refinePasses(c.quad, F, W, H);
+      if (!q) continue;
+      const k = quadKey(q);
+      const hit = vseen.get(k);
+      if (hit !== undefined) { hit.ops |= c.ops; continue; }
+      const v = verify(q, F, data, W, H);
+      if (v) { v.ops = c.ops; vseen.set(k, v); verified.push(v); }
+    }
+    if (!verified.length) return [];
+
+    // ---- 6. truncation recovery + continuation gate -----------------------
+    // A verified quad whose two adjacent sides are still running as ridges past
+    // its own corners is a crop of a bigger object, not the object. Grow it to
+    // where those ridges stop and let the grown version SUPERSEDE its source --
+    // competing is not enough, because an inner lock sits on the card's printed
+    // border and therefore outscores the true silhouette.
+    {
+      const pool2 = [];
+      for (const v of verified) {
+        let cur = v, norm = 0;
+        for (let it = 0; it <= CFG.EXT_ITERS; it++) {
+          const props = [];
+          const contPx = extendPastCorners(cur.quad, F, W, H, props);
+          norm = contPx / Math.max(1, CFG.CONT_REF * Math.sqrt(cur.area));
+          if (norm <= CFG.CONT_MAX) break;                 // repair only, never a
+          if (!props.length || it === CFG.EXT_ITERS) break; // general enlargement
+          let best = null;
+          for (const p of props) {
+            const q = refinePasses(p, F, W, H);
+            if (!q) continue;
+            const ve = verify(q, F, data, W, H);
+            if (!ve || ve.area <= cur.area * 1.04) continue;
+            if (!best || cmpScore(ve, best) < 0) best = ve;
+          }
+          if (!best) break;
+          best.ops = cur.ops;          // the grown quad inherits its source's votes
+          cur = best;
+        }
+        cur.contin = norm;
+        pool2.push(cur);
+      }
+      if (ST) ST.grown = pool2.map((v) => ({ q: v.quad, score: v.score, area: v.area, contin: v.contin }));
+      verified = pool2.filter((v) => v.contin <= CFG.CONT_MAX);
+      if (!verified.length) return [];
+    }
+
+    // ---- 7. concentric arbitration: PREFER THE OUTERMOST -------------------
+    // Group everything that sits on the same object, then hand the group to its
+    // largest member that still verifies and is not scoring far below the
+    // group's best. This is the step that fixes the undershoot: the inner lock
+    // and the silhouette both verified, and score alone would pick the inner one
+    // every time (it sits on the card's own printed border, so its ring/rim/
+    // contrast signature is the stronger of the two).
+    // The OUTPUT POLICY is applied HERE, before arbitration, not only at the
+    // end. A group member that could never be emitted must not be allowed to
+    // win its group: measured on c0053, the outward search produced the correct
+    // silhouette (4.8px) AND a 30.6px over-extension at ratio 2.71; the
+    // over-extension won the group on size and was then rejected at the output,
+    // turning a hit into a MISS. Filtering first makes the arbitration choose
+    // among quads that are actually emittable.
+    //
+    // The truncation-recovery chain above still reasons about sub-policy
+    // fragments -- that is why this filter sits after it, exactly as v3's
+    // MIN_OUT_FRAC sits after its extension chain.
+    verified = verified.filter((v) => v.areaFrac >= CFG.OUT_MIN_FRAC &&
+                                      v.ratio >= CFG.OUT_RATIO_MIN && v.ratio <= CFG.OUT_RATIO_MAX);
+    if (!verified.length) return [];
+    verified.sort(cmpOuter);            // largest first, deterministic
+    const groups = [];
+    for (const v of verified) {
+      let home = null;
+      for (const g of groups) {
+        if (polyIoU(v.quad, g.head.quad) > CFG.NMS_IOU ||
+            containedFrac(v.quad, g.head.quad) > CFG.CONTAIN_FRAC ||
+            containedFrac(g.head.quad, v.quad) > CFG.CONTAIN_FRAC) { home = g; break; }
+      }
+      if (home) home.members.push(v); else groups.push({ head: v, members: [v] });
+    }
+    const chosen = [];
+    for (const g of groups) {
+      let best = g.members[0];
+      for (const m of g.members) if (cmpScore(m, best) < 0) best = m;
+      // members are already area-descending; take the first that is genuinely
+      // outer and within the score slack of the group's best.
+      let pick = best;
+      for (const m of g.members) {
+        if (m.area < best.area * CFG.OUTER_GROW) break;
+        if (m.score >= best.score - CFG.OUTER_SLACK) { pick = m; break; }
+      }
+      // Consensus: average the corners of every member that is the same object
+      // at the same scale (high IoU with the pick) and scores within tolerance.
+      // Independent per-pass corner jitter cancels; a systematic offset does not
+      // move. Re-verified before it is allowed to replace the pick.
+      if (CFG.CONSENSUS) {
+        const agree = [];
+        const byScore = g.members.slice().sort(cmpScore);
+        for (const m of byScore) {
+          if (m.score < pick.score - CFG.CONSENSUS_TOL) continue;
+          if (m !== pick && polyIoU(m.quad, pick.quad) < CFG.CONSENSUS_IOU) continue;
+          agree.push(m);
+          if (agree.length >= CFG.CONSENSUS_K) break;
+        }
+        if (agree.length > 1) {
+          const canon = agree.map((m) => canonicalCorners(m.quad));
+          // Per-corner MEDIAN, not mean: the agreeing set usually contains one
+          // or two members whose refinement caught a neighbouring ridge, and a
+          // mean lets a single such outlier drag the corner several px. The
+          // median ignores it and is just as stable frame to frame.
+          const pickC = (i, k) => { const v = canon.map((q) => q[i][k]).sort((a, b) => a - b); return CFG.CONSENSUS_MEDIAN ? (v.length % 2 ? v[v.length >> 1] : (v[(v.length >> 1) - 1] + v[v.length >> 1]) / 2) : v.reduce((a, b) => a + b, 0) / v.length; };
+          const avg = [0, 1, 2, 3].map((i) => [pickC(i, 0), pickC(i, 1)]);
+          const oq = orderQuad(avg);
+          if (oq) { const ve = verify(oq, F, data, W, H); if (ve) { ve.contin = pick.contin; pick = ve; } }
+        }
+        pick.nAgree = agree.length;
+      }
+      // How many INDEPENDENT operating points of the generator (threshold gain,
+      // colour plane, close kernel, approxPolyDP epsilon) landed on this same
+      // rectangle, and how many outward proposals then re-derived it. The
+      // squares.cpp ensemble is a vote: a real card border is found from many
+      // operating points at once because it is a real high-contrast closed
+      // contour under all of them; a rectangle that exists only under one
+      // threshold is a coincidence of that threshold.
+      pick.groupN = g.members.length;
+      pick.groupFrac = g.members.length / verified.length;
+      let opsUnion = 0;
+      for (const m of g.members) opsUnion |= (m.ops || 0);
+      pick.nOps = popcount(opsUnion);
+      chosen.push(pick);
+    }
+    if (ST) {
+      ST.proposals = proposals.map((p) => p.quad);
+      ST.refinedN = toRefine.length;
+      ST.chosen = chosen.map((v) => ({ ...v, q: v.quad }));
+      ST.groups = groups.map((g) => g.members.map((m) => ({ ...m, q: m.quad })));
+    }
+
+    // ---- 8. containment sweep + output-size policy ------------------------
+    let pool = chosen;
+    if (pool.length > 1) {
+      const next = [];
+      for (let i = 0; i < pool.length; i++) {
+        let inside = false;
+        for (let j = 0; j < pool.length && !inside; j++) {
+          if (i === j) continue;
+          if (pool[i].area > CFG.CONTAIN_AREA * pool[j].area) continue;
+          if (containedFrac(pool[i].quad, pool[j].quad) > CFG.CONTAIN_FRAC) inside = true;
+        }
+        if (!inside) next.push(pool[i]);
+      }
+      if (next.length) pool = next;
+    }
+    const frameArea = W * H;
+    // ---- ENSEMBLE-AGREEMENT gate ------------------------------------------
+    // The generator is an ENSEMBLE, not one detector: four Canny gain levels x
+    // four colour planes x two morphology kernels x ten approxPolyDP epsilons,
+    // and then the outward search re-derives each seed from its own edge
+    // evidence. How many of those independent operating points land on the SAME
+    // rectangle is a measurement of how real that rectangle is -- a card border
+    // is a genuine closed high-contrast contour under nearly all of them, while
+    // a rectangle that only exists under one threshold is a coincidence of that
+    // threshold.
+    //
+    // Measured on the flag set (group size of the emitted quad):
+    //   true cards      34, 48, 50, 50, 56, 62, 63, 64, 65, 65, 75, 76, 77
+    //   false positives  1,  1,  2, 11, 12, 25, 44
+    // Everything the parents put on the smoothie box, the muffin-mix/fruit
+    // basket and the tablet case is in the single digits or low twenties. The
+    // laminated calendar poster at 44 is the one distractor that genuinely IS a
+    // repeatable bordered rectangle, and it survives -- see notes-fused.md §6.
+    //
+    // Both an absolute count and a share of the verified pool are applied: the
+    // count is what the evidence directly measures, the share keeps the test
+    // meaningful if the pool size changes with resolution or with VAR_KEEP.
+    pool = pool.filter((v) => (v.nOps || 0) >= CFG.OPS_MIN &&
+                              (v.groupN || 0) >= CFG.GROUP_MIN && (v.groupFrac || 0) >= CFG.GROUP_FRAC_MIN);
+    if (!pool.length) return [];
+
+    // ---- 9. NMS + output validity gate ------------------------------------
+    pool.sort(cmpScore);
+    const out = [];
+    for (const cand of pool) {
+      let dup = false;
+      for (const o of out) {
+        if (polyIoU(cand.quad, o.quad) > CFG.NMS_IOU || containedFrac(cand.quad, o.quad) > CFG.CONTAIN_FRAC) { dup = true; break; }
+      }
+      if (dup) continue;
+      if (out.length && cand.score < CFG.SCORE_MIN2) continue;   // bar for a 2nd card
+      out.push(cand);
+      if (out.length >= CFG.MAX_OUT) break;
+    }
+
+    const outQuads = [];
+    for (const c of out) {
+      let q = null;
+      if (CFG.FINAL_REFINE) {
+        const r = orderQuad(refineQuad(c.quad, F, W, H, 2));
+        if (r && geomOk(r, W, H) && polyArea(r) >= CFG.OUT_MIN_FRAC * frameArea) q = r;
+      }
+      if (!q) q = orderQuad(c.quad);
+      if (!q) continue;
+      outQuads.push(q.map((p) => [p[0], p[1]]));
+    }
+    if (ST) ST.out = outQuads;
+    return outQuads;
+  } catch (err) {
+    LAST_ERROR = err;
+    return [];
+  } finally {
+    for (const m of trash) {
+      try { if (m && typeof m.delete === 'function' && !m.isDeleted?.()) m.delete(); } catch { /* already freed */ }
+    }
+  }
+}
+
+
+  global.createFusedDetector = function createFusedDetector() {
+    return global.createOpenCvDetector().then(function () {
+      cv = global.createOpenCvDetector.getCv();
+      if (!cv) throw new Error('createFusedDetector: opencv.js loaded but cv is not available');
+      var fn = function (frame) { return detect(frame); };
+      fn.setParams = setParams;
+      fn.getParams = getParams;
+      fn.lastError = lastError;
+      return fn;
+    });
+  };
+  global.createFusedDetector.isLoaded = function () { return !!cv; };
+})(typeof globalThis !== 'undefined' ? globalThis : self);
+
 })(typeof globalThis !== 'undefined' ? globalThis : self);
 
 
@@ -3336,57 +4982,100 @@ window.createTracker = createTracker;
  * choice cannot auto-download on page load even though the Fixtures tab
  * paints immediately -- only actually starting the live camera can.
  * ========================================================================= */
-let activeEngine = 'hybrid';      // 'hybrid' | 'opencv' -- what the owner has selected
-let lastUsedEngine = 'hybrid';    // what the last currentDetect() call actually ran
-let opencvDetectFn = null;        // set once createOpenCvDetector() resolves
-let opencvLoadPromise = null;     // in-flight loader, shared across every caller
+let activeEngine = 'fused';        // 'fused' | 'hybrid' | 'opencv' -- what the owner has selected; fused is the default for a fresh visitor
+let lastUsedEngine = 'hybrid';     // what the last currentDetect() call actually ran
+let opencvDetectFn = null;         // set once createOpenCvDetector() resolves
+let opencvLoadPromise = null;      // in-flight opencv.js loader, shared across every caller (both OpenCV and Fused)
+let fusedDetectFn = null;          // set once createFusedDetector() resolves
+let fusedLoadPromise = null;       // in-flight loader; internally awaits the SAME opencv.js load as opencvLoadPromise
 
+const engineFusedBtn = document.getElementById('engineFused');
 const engineHybridBtn = document.getElementById('engineHybrid');
 const engineOpenCvBtn = document.getElementById('engineOpenCv');
+const fusedFixtureNoteEl = document.getElementById('fusedFixtureNote');
 
 function persistEngineChoice(name) {
   try { localStorage.setItem('scanHarnessEngine', name); } catch (e) { /* private mode, quota, etc -- fine to lose */ }
 }
 
-function setEngineButtonsUI(loading) {
+function setEngineButtonsUI(loadingFused, loadingOpenCv) {
+  engineFusedBtn.classList.toggle('active', activeEngine === 'fused');
   engineHybridBtn.classList.toggle('active', activeEngine === 'hybrid');
   engineOpenCvBtn.classList.toggle('active', activeEngine === 'opencv');
-  engineOpenCvBtn.disabled = !!loading;
-  engineOpenCvBtn.textContent = loading ? 'OpenCV (loading…)' : 'OpenCV';
+  engineFusedBtn.disabled = !!loadingFused;
+  engineFusedBtn.textContent = loadingFused ? 'Fused (loading…)' : 'Fused';
+  engineOpenCvBtn.disabled = !!loadingOpenCv;
+  engineOpenCvBtn.textContent = loadingOpenCv ? 'OpenCV (loading…)' : 'OpenCV';
+  // Item 4: fused's size/aspect gates are calibrated for real camera frames;
+  // the synthetic, aspect-stretched fixture kit scores it near zero by
+  // design. Say so on the Fixtures tab instead of it just looking broken.
+  fusedFixtureNoteEl.classList.toggle('hidden', activeEngine !== 'fused');
 }
 
 // Idempotent: safe to call every camLoop tick. Only the FIRST call while
-// nothing is loaded/loading actually starts the 13.3 MB fetch.
+// nothing is loaded/loading actually starts the 13.3 MB fetch. Shared by
+// BOTH ensureOpenCvLoading (below) and window.createFusedDetector's own
+// internals (see the FUSED DETECTOR block) -- opencv.js is fetched at most
+// once per page no matter which engine, or both, ends up needing it.
 function ensureOpenCvLoading() {
   if (opencvDetectFn || opencvLoadPromise) return opencvLoadPromise;
-  setEngineButtonsUI(true);
+  setEngineButtonsUI(activeEngine === 'fused', true);
   opencvLoadPromise = window.createOpenCvDetector().then(
     function (fn) {
       opencvDetectFn = fn;
       document.getElementById('liveErr').textContent = '';
-      setEngineButtonsUI(false);
+      setEngineButtonsUI(activeEngine === 'fused', false);
       return fn;
     },
     function (err) {
       opencvLoadPromise = null; // allow retry on the next selection/tick
-      activeEngine = 'hybrid';  // fall back rather than silently doing nothing
-      persistEngineChoice('hybrid');
+      if (activeEngine === 'opencv') { activeEngine = 'hybrid'; persistEngineChoice('hybrid'); } // fall back rather than silently doing nothing
       document.getElementById('liveErr').textContent =
         'OpenCV engine failed to load: ' + String((err && err.message) || err);
-      setEngineButtonsUI(false);
+      setEngineButtonsUI(false, false);
       throw err;
     }
   );
   return opencvLoadPromise;
 }
 
+// Same idempotency contract as ensureOpenCvLoading. createFusedDetector()
+// itself calls window.createOpenCvDetector() internally (see the FUSED
+// DETECTOR block above), so this transitively shares the same in-flight
+// opencv.js fetch -- it does not start a second one.
+function ensureFusedLoading() {
+  if (fusedDetectFn || fusedLoadPromise) return fusedLoadPromise;
+  setEngineButtonsUI(true, activeEngine === 'opencv');
+  fusedLoadPromise = window.createFusedDetector().then(
+    function (fn) {
+      fusedDetectFn = fn;
+      document.getElementById('liveErr').textContent = '';
+      setEngineButtonsUI(false, activeEngine === 'opencv');
+      return fn;
+    },
+    function (err) {
+      fusedLoadPromise = null; // allow retry on the next selection/tick
+      if (activeEngine === 'fused') { activeEngine = 'hybrid'; persistEngineChoice('hybrid'); } // fall back rather than silently doing nothing
+      document.getElementById('liveErr').textContent =
+        'Fused engine failed to load: ' + String((err && err.message) || err);
+      setEngineButtonsUI(false, false);
+      throw err;
+    }
+  );
+  return fusedLoadPromise;
+}
+
 // The one choke point. Synchronous, matching detect()'s existing contract --
-// while OpenCV is selected but not yet loaded, this frame runs on hybrid and
-// the load proceeds in the background; later frames pick up OpenCV once it
-// resolves. lastUsedEngine always reflects what ACTUALLY ran this call, not
-// merely what is selected, so a flagged frame during that load window is
-// honestly labelled "hybrid".
+// while an engine is selected but not yet loaded, this frame runs on hybrid
+// and the load proceeds in the background; later frames pick up the selected
+// engine once it resolves. lastUsedEngine always reflects what ACTUALLY ran
+// this call, not merely what is selected, so a flagged frame during that
+// load window is honestly labelled "hybrid".
 function currentDetect(frame) {
+  if (activeEngine === 'fused' && fusedDetectFn) {
+    lastUsedEngine = 'fused';
+    return fusedDetectFn(frame);
+  }
   if (activeEngine === 'opencv' && opencvDetectFn) {
     lastUsedEngine = 'opencv';
     return opencvDetectFn(frame);
@@ -3395,26 +5084,34 @@ function currentDetect(frame) {
   return window.detect(frame);
 }
 
+engineFusedBtn.onclick = function () {
+  activeEngine = 'fused';
+  persistEngineChoice('fused');
+  setEngineButtonsUI(!fusedDetectFn, false);
+  document.getElementById('liveErr').textContent = '';
+  if (!fusedDetectFn) ensureFusedLoading().catch(function () { /* surfaced via liveErr already */ });
+};
 engineHybridBtn.onclick = function () {
   activeEngine = 'hybrid';
   persistEngineChoice('hybrid');
-  setEngineButtonsUI(!!opencvLoadPromise && !opencvDetectFn);
+  setEngineButtonsUI(!!fusedLoadPromise && !fusedDetectFn, !!opencvLoadPromise && !opencvDetectFn);
   document.getElementById('liveErr').textContent = '';
 };
 engineOpenCvBtn.onclick = function () {
   activeEngine = 'opencv';
   persistEngineChoice('opencv');
-  setEngineButtonsUI(!opencvDetectFn);
+  setEngineButtonsUI(false, !opencvDetectFn);
   if (!opencvDetectFn) ensureOpenCvLoading().catch(function () { /* surfaced via liveErr already */ });
 };
 
 // Restore last choice -- STATE and the control's appearance only. Never
-// downloads here; see the block comment above.
+// downloads here; see the block comment above. No saved choice (a fresh
+// visitor) leaves activeEngine at its 'fused' default.
 (function restoreEngineChoice() {
   let saved = null;
   try { saved = localStorage.getItem('scanHarnessEngine'); } catch (e) { /* private mode, etc */ }
-  if (saved === 'opencv' || saved === 'hybrid') activeEngine = saved;
-  setEngineButtonsUI(false);
+  if (saved === 'fused' || saved === 'opencv' || saved === 'hybrid') activeEngine = saved;
+  setEngineButtonsUI(false, false);
 })();
 
 
@@ -3509,13 +5206,22 @@ let camStream=null, camRAF=null, liveFpsBuf=[], liveLast=0;
 
 // Native-aspect capture (field test 2: a phone held portrait was force-fit
 // into a hardcoded 320x240 landscape buffer -- "set up horizontal and looks
-// like ass"). The camera is asked for ~640 on its long edge without forcing
-// an aspect ratio, and the actual negotiated videoWidth/videoHeight (portrait
-// OR landscape, whatever the device/orientation produced) drives a working
-// buffer sized to the SAME aspect, capped at the detector's tuned ~320x240
-// pixel budget so absolute-pixel gates (MIN_AREA, EDGE_T, ...) still see the
-// scale they were calibrated against.
-const WORK_PIXEL_BUDGET = 320 * 240; // 76800
+// like ass"). The camera is asked for a generous, 4:3-biased ceiling without
+// forcing an exact aspect ratio (see the getUserMedia call in camStart below
+// for why THAT number changed too), and the actual negotiated
+// videoWidth/videoHeight (portrait OR landscape, whatever the device/
+// orientation produced) drives a working buffer sized to the SAME aspect,
+// capped at a pixel budget so absolute-pixel gates (MIN_AREA, EDGE_T, ...)
+// see a consistent scale regardless of what the camera actually negotiated.
+//
+// Raised from 320x240 (76,800px) to 480x360-equivalent (172,800px): the
+// owner's 30 flagged frames showed a 276x276 working buffer (see camStart)
+// was so small a card's own printed art-divider became ambiguous against its
+// physical border -- the dominant failure in that batch, not a detector logic
+// bug. This is real-time cost the tracker (below) is specifically built to
+// absorb: see the decimation policy in camLoop, which is what keeps a bigger
+// working frame from costing frame rate 1:1.
+const WORK_PIXEL_BUDGET = 480 * 360; // 172800
 function computeWorkingDims(vw, vh){
   const aspect = vw / vh;
   let w = Math.round(Math.sqrt(WORK_PIXEL_BUDGET * aspect));
@@ -3588,34 +5294,75 @@ let reticleOn = true, stabilityOn = true;
 function makeTracker(){ return createTracker({ frameW:workW||320, frameH:workH||240, reticle: reticleOn ? undefined : null }); }
 let tracker = makeTracker();
 
-// Evidence capture ("Flag frame"). `lastFrame` is overwritten every camLoop
-// tick with the CLEAN pre-overlay buffer: `img` below is the exact ImageData
-// getImageData() produced for this tick, before drawReticle/drawStyledQuad/
-// drawQuad paint over the live canvas -- ImageData is a detached snapshot,
-// not a live view, so holding a reference to `img.data` here is already a
-// safe copy of that tick's pixels; nothing later touches this array.
+// Evidence capture ("Flag frame"). `lastFrame` is overwritten on every DETECT
+// tick (see camLoop's decimation below -- never a skip tick) with the CLEAN
+// pre-overlay buffer: `img` below is the exact ImageData getImageData()
+// produced for that tick, before drawReticle/drawStyledQuad/drawQuad paint
+// over the live canvas -- ImageData is a detached snapshot, not a live view,
+// so holding a reference to `img.data` here is already a safe copy of that
+// tick's pixels; nothing later touches this array.
 let lastFrame = null, flagCount = 0;
+
+// Detection decimation. The working frame grew from a 76,800px budget to
+// 172,800px (see WORK_PIXEL_BUDGET above) to fix card-vs-art-divider
+// ambiguity, and re-running an expensive detect() call every single render
+// tick at that scale is real cost with no benefit: the tracker only needs a
+// handful of fresh detections per second to look smooth (it coasts the rest
+// via its existing dropout-grace tolerance, unchanged below). detect() is
+// only ever invoked on a DETECT tick -- tracker.update() likewise -- so its
+// stableFrames/graceFrames counters count DETECT ticks, not render ticks;
+// that was already implicitly true before decimation (update() was already
+// the only thing that advanced them) and remains true now that DETECT ticks
+// are a strict subset of render ticks.
+//
+// Policy: time-based, not a fixed render-tick counter. Simpler (one
+// comparison, no counter variable) AND self-adaptive: detect() is
+// synchronous, so a slow call already blocks the render loop for its own
+// duration regardless of this check; the DECIMATE_MS floor only matters for
+// a FAST detector (e.g. hybrid at ~15ms, which could otherwise run every
+// tick at 30-60fps for no benefit) and gets automatically satisfied without
+// any extra waiting once a single detect() call already costs more than it.
+const DECIMATE_MS = 120; // ceiling on detect() cadence (~8/s)
+let lastDetectAt = 0;                    // performance.now() at the start of the last DETECT tick
+let lastDetectMs = NaN;                  // duration of that last actual detect() call
+let detectLast = 0, detectFpsBuf = [];   // rolling buffer of DETECT-tick-to-DETECT-tick intervals
+let lastStable = [], lastPending = [];   // tracker output as of the last detect tick; redrawn on skip ticks
+let lastRawQuads = [];                   // raw detector output as of the last detect tick (Stability off)
+
+function resetDecimationState(){
+  lastDetectAt = 0; lastDetectMs = NaN; detectLast = 0; detectFpsBuf = [];
+  lastStable = []; lastPending = []; lastRawQuads = [];
+}
 
 document.getElementById('toggleReticle').onchange=(e)=>{
   reticleOn = e.target.checked;
   tracker = makeTracker(); // gate participation changed -> start the tracker clean
+  resetDecimationState();  // the old tracker's stable/pending quads no longer mean anything
 };
 document.getElementById('toggleStability').onchange=(e)=>{
   stabilityOn = e.target.checked;
   tracker.reset(); // avoid stale tracks resurfacing instantly if toggled back on later
+  resetDecimationState();
 };
 
 document.getElementById('camStart').onclick=async()=>{
   try{
-    // Rear camera, ideal ~640 on each axis, NO forced aspect ratio -- the UA
-    // negotiates whatever the device's camera/orientation actually produces
-    // (portrait held vertically, landscape held sideways, either is fine).
-    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:640}, height:{ideal:640}},audio:false});
+    // Rear camera, 4:3-BIASED ideal (1280x960) rather than a square ideal.
+    // The owner's flagged-frame batch showed the previous {ideal:640,
+    // ideal:640} request had negotiated a genuinely SQUARE 276x276 stream on
+    // their phone -- an equal width/height "ideal" is itself a strong hint
+    // toward a square resolution, and the UA took it. width/height are still
+    // both `ideal` (never `exact`/`min`), so the UA is free to negotiate down
+    // (or to a different aspect entirely) on hardware that cannot offer this;
+    // computeWorkingDims above reads back whatever real videoWidth/
+    // videoHeight resulted and works from that, not from what was asked for.
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:960}},audio:false});
     liveVideo.srcObject=camStream; await liveVideo.play();
     lastVideoW=0; lastVideoH=0; workW=0; workH=0; // force a fresh dims computation for this session
     document.getElementById('liveDims').textContent='—';
     updateDimsIfChanged(); // videoWidth/videoHeight are usually already populated once play() resolves
     tracker.reset();
+    resetDecimationState();
     camLoop();
     document.getElementById('liveErr').textContent='';
   }catch(e){document.getElementById('liveErr').textContent=String(e&&e.message||e);}
@@ -3632,51 +5379,73 @@ function camLoop(){
                           // resize/orientationchange don't fire (or the track dims are stable
                           // but the device rotated, which some browsers don't renegotiate)
   if(!workW || !workH){ camRAF=requestAnimationFrame(camLoop); return; } // metadata not ready yet
-  liveCtx.drawImage(liveVideo,0,0,workW,workH);
-  let ms=NaN, stableN=0, pendingN=0;
+  liveCtx.drawImage(liveVideo,0,0,workW,workH); // every tick, for a smooth live preview regardless of decimation
+  let stableN=0, pendingN=0;
   try{
-    // "First live use" for a restored/selected OpenCV choice: idempotent, so
-    // calling it every tick is cheap, and it is what actually starts the
-    // 13.3 MB fetch the moment live detection needs it (never merely from
-    // page load or from the Fixtures tab -- see the ENGINE INDIRECTION block).
-    if(activeEngine==='opencv') ensureOpenCvLoading().catch(()=>{}); // surfaced via liveErr already
-    const img=liveCtx.getImageData(0,0,workW,workH);
-    const t0=performance.now();
-    const quads=currentDetect({width:workW,height:workH,data:img.data})||[];
-    ms=performance.now()-t0;
+    const shouldDetect = (performance.now() - lastDetectAt) >= DECIMATE_MS;
+
+    if(shouldDetect){
+      // "First live use" for a restored/selected Fused or OpenCV choice:
+      // idempotent, so calling it every DETECT tick is cheap, and it is what
+      // actually starts the 13.3 MB fetch the moment live detection needs it
+      // (never merely from page load or from the Fixtures tab -- see ENGINE
+      // INDIRECTION). Fused's own loader transitively shares the same
+      // opencv.js fetch as OpenCV's, so this never double-downloads.
+      if(activeEngine==='fused') ensureFusedLoading().catch(()=>{}); // surfaced via liveErr already
+      else if(activeEngine==='opencv') ensureOpenCvLoading().catch(()=>{}); // surfaced via liveErr already
+      const img=liveCtx.getImageData(0,0,workW,workH);
+      const t0=performance.now();
+      const quads=currentDetect({width:workW,height:workH,data:img.data})||[];
+      lastDetectMs=performance.now()-t0;
+      lastDetectAt=t0;
+      if(detectLast){const dt=t0-detectLast;if(dt>0){detectFpsBuf.push(1000/dt);if(detectFpsBuf.length>20)detectFpsBuf.shift();}}
+      detectLast=t0;
+
+      if(stabilityOn){
+        const {stable, pending} = tracker.update(quads, performance.now());
+        lastStable = stable; lastPending = pending;
+      } else {
+        // Stability off: raw detector output, unfiltered and unsmoothed, for
+        // A/B comparison against the tracked view during field test 2.
+        lastRawQuads = quads;
+      }
+
+      // Snapshot this DETECT tick for "Flag frame". `img` was read BEFORE any
+      // overlay drawing, so it is exactly the clean {width,height,data}
+      // buffer currentDetect() itself was given -- and because this only
+      // happens on a detect tick, the captured pixels and the captured
+      // quads/stable/pending are always mutually consistent (never pixels
+      // from one tick paired with detections from an earlier one). `engine`
+      // is lastUsedEngine, not activeEngine: honestly records which engine
+      // ACTUALLY produced `quads` this tick, even if OpenCV was selected but
+      // still mid-load.
+      lastFrame = {
+        width: workW, height: workH, data: img.data,
+        quads, stable: stabilityOn ? lastStable : [], pending: stabilityOn ? lastPending : [],
+        frameTMs: t0, reticleOn, stabilityOn, engine: lastUsedEngine,
+      };
+    }
+    // else: skip tick. No getImageData, no currentDetect, no tracker.update --
+    // just redraw whatever the last DETECT tick produced, below, so the
+    // preview keeps moving smoothly at render-tick rate even while detection
+    // itself runs at the slower, decimated rate.
 
     const ret = tracker.getReticle();
-    let frameStable = [], framePending = [];
-
     if(stabilityOn){
-      const {stable, pending} = tracker.update(quads, performance.now());
-      stableN = stable.length; pendingN = pending.length;
-      frameStable = stable; framePending = pending;
+      stableN = lastStable.length; pendingN = lastPending.length;
       if(reticleOn && ret) drawReticle(liveCtx, ret, stableN>0);
-      for(const p of pending) drawStyledQuad(liveCtx, p.quad, PENDING_STYLE);
-      for(const s of stable) drawStyledQuad(liveCtx, s.quad, STABLE_STYLE);
+      for(const p of lastPending) drawStyledQuad(liveCtx, p.quad, PENDING_STYLE);
+      for(const s of lastStable) drawStyledQuad(liveCtx, s.quad, STABLE_STYLE);
     } else {
-      // Stability off: raw detector output, unfiltered and unsmoothed, for
-      // A/B comparison against the tracked view during field test 2.
       if(reticleOn && ret) drawReticle(liveCtx, ret, false);
-      for(const q of quads){ if(q&&q.length>=4) drawQuad(liveCtx,q,'#39d0d8',[4,3]); }
+      for(const q of lastRawQuads){ if(q&&q.length>=4) drawQuad(liveCtx,q,'#39d0d8',[4,3]); }
     }
-
-    // Snapshot this tick for "Flag frame". `img` was read BEFORE any of the
-    // overlay drawing above, so it is exactly the clean {width,height,data}
-    // buffer currentDetect() itself was given. `engine` is lastUsedEngine,
-    // not activeEngine: honestly records which engine ACTUALLY produced
-    // `quads` this tick, even if OpenCV was selected but still mid-load.
-    lastFrame = {
-      width: workW, height: workH, data: img.data,
-      quads, stable: frameStable, pending: framePending,
-      frameTMs: t0, reticleOn, stabilityOn, engine: lastUsedEngine,
-    };
   }catch(e){document.getElementById('liveErr').textContent=String(e&&e.message||e);}
   const now=performance.now();
   if(liveLast){const dt=now-liveLast;if(dt>0){liveFpsBuf.push(1000/dt);if(liveFpsBuf.length>30)liveFpsBuf.shift();}}
   liveLast=now;
-  document.getElementById('liveMs').textContent=isFinite(ms)?ms.toFixed(2):'—';
+  document.getElementById('liveMs').textContent=isFinite(lastDetectMs)?lastDetectMs.toFixed(2):'—';
+  document.getElementById('liveHz').textContent=detectFpsBuf.length?(detectFpsBuf.reduce((a,b)=>a+b,0)/detectFpsBuf.length).toFixed(1):'—';
   document.getElementById('liveFps').textContent=liveFpsBuf.length?(liveFpsBuf.reduce((a,b)=>a+b,0)/liveFpsBuf.length).toFixed(1):'—';
   document.getElementById('liveStable').textContent = stabilityOn ? stableN : '—';
   document.getElementById('livePending').textContent = stabilityOn ? pendingN : '—';
@@ -3759,7 +5528,7 @@ function flagCurrentFrame(){
     toggles: { reticleOn: rOn, stabilityOn: sOn },
     detectorQuads: quads,
     tracker: { stable, pending },
-    engine: eng, // 'hybrid' | 'opencv' -- which engine actually produced detectorQuads this tick
+    engine: eng, // 'fused' | 'hybrid' | 'opencv' -- which engine actually produced detectorQuads this tick
   };
 
   off.toBlob((blob)=>{
