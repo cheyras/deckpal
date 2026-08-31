@@ -8,6 +8,12 @@ const rootPackage = JSON.parse(
 
 assert.match(config, /publish\s*=\s*["']apps\/web\/dist["']/)
 assert.match(config, /directory\s*=\s*["']netlify\/functions["']/)
+assert.match(config, /node scripts\/prepare-netlify-data\.mjs/)
+assert.match(
+  config,
+  /included_files\s*=\s*\[[^\]]*["']netlify\/functions\/data\/\*\*["'][^\]]*\]/,
+  'deck format JSON must be copied into the function archive',
+)
 assert.match(config, /NODE_VERSION\s*=\s*["']20["']/)
 assert.match(
   config,
