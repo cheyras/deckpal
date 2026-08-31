@@ -1,5 +1,6 @@
 // Typed search params for the set page. Filter/sort/goal/view/ownership state
-// lives in the URL (a deliberate divergence from pkmn.gg — wiki: Frontend-Research §A.5).
+// lives in the URL, deliberately, so a filtered view is shareable and survives a
+// reload (wiki: Frontend-Research §A.5).
 // Defaults are stripped so the canonical URL stays clean.
 
 import { pick, type SortDir, type ViewMode, type Ownership } from './searchParams'

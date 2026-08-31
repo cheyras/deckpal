@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-// The segmented Trainer-Level ring (pkmn.gg captures §13): CARDS_PER_LEVEL=10 arcs,
+// The segmented Trainer-Level ring: CARDS_PER_LEVEL=10 arcs,
 // gold for the cards already held toward the next level (`intoLevel`), dark for
 // the remainder. A subtle white cap marks the current position. Center holds the
 // avatar; the level badge sits at the lower edge. Purely presentational — the

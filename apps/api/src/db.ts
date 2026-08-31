@@ -236,7 +236,7 @@ interface ProgressDbRow {
  * return them shaped for the API. Must be called on a transaction client so the
  * recompute is atomic with the collection write that triggered it.
  *
- * Semantics (SCHEMA §5.3 / §9.2, pkmn.gg captures §4/§8/§11):
+ * Semantics (SCHEMA §5.3 / §9.2):
  *   • complete    — card fraction: a card counts owned if ANY variant qty ≥ 1.
  *   • master      — (card, standard-variant) pair fraction over master_required_variant
  *                   (standard-tier pairs + is_primary fallback for cards with no standard).
@@ -404,8 +404,8 @@ export function cardImages(serieTcgdexId: string, setTcgdexId: string, localId: 
 
 // ── TCGplayer buy URL ────────────────────────────────────────────────────────
 // Prefer the stored tcgplayer_url (present on tcgcsv-sourced variants); otherwise
-// compose from product_id + printing, matching the shape pkmn.gg links to
-// (ROUTE-MAP §1.11). Returns null when we have no TCGplayer mapping at all.
+// compose from product_id + printing, matching TCGplayer's own product-page URL
+// shape. Returns null when we have no TCGplayer mapping at all.
 
 export function tcgplayerUrl(
   storedUrl: string | null,

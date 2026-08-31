@@ -32,7 +32,7 @@ export function OwnershipStrip({
   return (
     <div className="flex flex-wrap items-center gap-[12px]">
       <OwnershipButtons items={owns} activeKey={search.own} onSelect={(key) => patch({ own: key as Ownership })} />
-      {/* goal star switcher (pkmn.gg captures §8) */}
+      {/* goal star switcher — cycles Complete → Master → Grandmaster */}
       <button
         onClick={() => {
           const next = goals[(goals.indexOf(search.goal) + 1) % goals.length]

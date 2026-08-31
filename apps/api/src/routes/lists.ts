@@ -18,8 +18,8 @@ export const listsRouter: Router = Router();
  *                      stored references; OWNERSHIP is read through from the
  *                      collection at read time and never stored on the list, so the
  *                      progress cluster (owned/total, copies) auto-syncs with the
- *                      collection live. This mirrors pkmn.gg's Dynamic List
- *                      (BEHAVIOR-SPEC §6.2 [D] A9).
+ *                      collection live. Read-through ownership is the whole point
+ *                      of the type: a dynamic list cannot go stale.
  *
  *                      Since migration 050 a dynamic list MAY instead carry a saved
  *                      query (`card_list.rule`, the addMissing spec + exclusions —

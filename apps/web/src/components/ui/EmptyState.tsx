@@ -5,8 +5,8 @@ import { Icon, type IconName } from '../Icon'
  * Empty-state placeholder — icon + title + optional body + optional CTA,
  * centered in a dashed-border container.
  *
- * The documented-but-previously-unbuilt `EmptyStateMessage` from
- * BEHAVIOR-SPEC (§12, quoting pkmn.gg's primitives-showcase).
+ * The `EmptyStateMessage` primitive the design system specifies (UI-SPEC §12),
+ * documented for a long time before anything actually rendered it.
  *
  * The `dashed` variant (default) matches the dashed-border pattern used at
  * DecksIndex "No Decks Yet" and ListDetail "This list is empty". Pass
