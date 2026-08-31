@@ -936,10 +936,14 @@ code requires all three, so roll the code back first.
 
 ## DeckPal Family on Netlify
 
-Netlify builds the React PWA into `apps/web/dist` and bundles
-`netlify/functions/api.mts` as the same-origin `/api/*` backend. Configure the
-following in the Netlify environment-variable UI with Functions scope; never
-put their values in `netlify.toml` or a committed `.env` file.
+Netlify builds the React PWA into `apps/web/dist` and bundles three functions:
+`netlify/functions/api.mts` (the same-origin `/api/*` backend),
+`netlify/functions/scan-ai.mts` (`/api/scan/ai`), and
+`netlify/functions/images.mts` (`/deckpal/images/*` — card art and set imagery,
+lazily filled into the `card-art` Storage bucket). `netlify.toml` carries the
+three matching rewrites, all ahead of the SPA fallback. Configure the following
+in the Netlify environment-variable UI with Functions scope; never put their
+values in `netlify.toml` or a committed `.env` file.
 
 Connect the Netlify site to the GitHub repository and let Netlify perform the
 production build. This is especially important when the development machine is
@@ -969,6 +973,12 @@ stores token counts plus a cost estimate in `ai_scan_event`, never the image.
 At the current published rate used by the application, the estimate is US$1/M
 input tokens and US$5/M output tokens. Confirm current pricing in the Netlify
 dashboard before production because provider prices can change.
+
+Create the Storage bucket before the first deploy: a **public** bucket named
+`card-art` (see "Set up the Storage bucket" above). The `images` function fills
+it lazily — for cards it derives the upstream TCGdex URL, so an empty bucket and
+an empty `image_asset` manifest are both fine — but the bucket itself must
+exist, or every card renders the placeholder WebP.
 
 Apply migrations 052 through 057 after backing up the Supabase project. They
 add family membership/RLS, AI metering, and moderated family prices. The family

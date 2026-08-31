@@ -8,13 +8,19 @@ globalThis.Netlify = {
   },
 }
 
-const module = await import('../netlify/functions/api.mts')
+for (const name of ['api', 'images', 'scan-ai']) {
+  const module = await import(`../netlify/functions/${name}.mts`)
 
-assert.equal(typeof module.default, 'function', 'API default export must be callable')
-assert.equal(
-  Object.hasOwn(module, 'handler'),
-  false,
-  'modern Netlify Functions must not expose a named legacy handler',
-)
+  assert.equal(
+    typeof module.default,
+    'function',
+    `${name} default export must be callable`,
+  )
+  assert.equal(
+    Object.hasOwn(module, 'handler'),
+    false,
+    `${name}: modern Netlify Functions must not expose a named legacy handler`,
+  )
+}
 
-console.log('Netlify API function loaded successfully')
+console.log('Netlify functions loaded successfully')

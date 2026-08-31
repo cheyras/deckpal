@@ -24,6 +24,15 @@
   status = 200
   force = true
 
+# Card art and set imagery. Must sit ahead of the SPA fallback below, or every
+# <img> resolves to index.html. The function lazily fills the card-art Storage
+# bucket and 302s to the CDN.
+[[redirects]]
+  from = "/deckpal/images/*"
+  to = "/.netlify/functions/images/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

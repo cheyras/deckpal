@@ -39,10 +39,19 @@ for (const packageName of ['helmet', 'pdfkit']) {
 }
 
 const apiRewrite = config.indexOf('from = "/api/*"')
+const imageRewrite = config.indexOf('from = "/deckpal/images/*"')
 const spaRewrite = config.indexOf('from = "/*"')
 assert.ok(apiRewrite >= 0, 'API rewrite is required')
+assert.ok(
+  imageRewrite >= 0,
+  'card-art rewrite is required, or every <img> resolves to index.html',
+)
 assert.ok(spaRewrite >= 0, 'SPA fallback is required')
 assert.ok(apiRewrite < spaRewrite, 'API rewrite must appear before the SPA fallback')
+assert.ok(
+  imageRewrite < spaRewrite,
+  'card-art rewrite must appear before the SPA fallback',
+)
 
 const forbiddenAssignments = [
   /^\s*DATABASE_URL\s*=/m,
