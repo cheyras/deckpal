@@ -5,6 +5,12 @@ const config = await readFile(new URL('../netlify.toml', import.meta.url), 'utf8
 
 assert.match(config, /publish\s*=\s*["']apps\/web\/dist["']/)
 assert.match(config, /directory\s*=\s*["']netlify\/functions["']/)
+assert.match(config, /NODE_VERSION\s*=\s*["']20["']/)
+assert.match(
+  config,
+  /PNPM_VERSION\s*=\s*["']10\.30\.3["']/,
+  'Node 20 builds must use the pinned pnpm 10 release; pnpm 11 requires Node 22',
+)
 
 const apiRewrite = config.indexOf('from = "/api/*"')
 const spaRewrite = config.indexOf('from = "/*"')
