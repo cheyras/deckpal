@@ -15,7 +15,9 @@ function sourceFiles(directory: string): string[] {
 
 test('Netlify API runtime uses a relative workspace bridge instead of a pnpm symlink', () => {
   const offenders = sourceFiles(apiSource)
-    .filter((path) => /from\s+['"]@deckpal\/db['"]/.test(readFileSync(path, 'utf8')))
+    .filter((path) =>
+      /from\s+['"]@deckpal\/(?:db|storage)['"]/.test(readFileSync(path, 'utf8')),
+    )
     .map((path) => relative(apiSource, path))
 
   assert.deepEqual(

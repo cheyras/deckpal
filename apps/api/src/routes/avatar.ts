@@ -15,7 +15,7 @@ import {
   newAvatarKey,
   putAvatarObject,
   sniffContentType,
-} from '@deckpal/storage';
+} from '../workspace-storage.js';
 
 /**
  * Profile photos — `/avatar` (issue #14, migration 029).

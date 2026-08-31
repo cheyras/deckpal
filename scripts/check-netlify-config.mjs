@@ -24,6 +24,13 @@ assert.equal(
   'string',
   'external Netlify module sharp must be a root runtime dependency',
 )
+for (const packageName of ['helmet', 'pdfkit']) {
+  assert.equal(
+    typeof rootPackage.dependencies?.[packageName],
+    'string',
+    `Netlify API runtime package ${packageName} must be a root dependency`,
+  )
+}
 
 const apiRewrite = config.indexOf('from = "/api/*"')
 const spaRewrite = config.indexOf('from = "/*"')
