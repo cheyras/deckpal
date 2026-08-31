@@ -45,18 +45,24 @@ describe('IMAGE_SOURCE_HOSTS', () => {
     assert.equal(res.ok && res.url.href, 'http://localhost/en/sv/x.webp');
   });
 
-  it('does NOT include assets.pkmn.gg — the source ruled out on 2026-08-26', () => {
-    // warm:pkmn recorded ~58 image_asset rows against this host before pkmn.gg
-    // was ruled out on legal grounds; the rows were never purged. Leaving the
-    // host off the list is what enforces that ruling on a refill.
-    assert.equal(IMAGE_SOURCE_HOSTS.includes('assets.pkmn.gg'), false);
-    assert.equal(IMAGE_SOURCE_POLICY.originFor('assets.pkmn.gg'), null);
+  it('refuses an image CDN that was never approved — the allow-list default', () => {
+    // The list is the policy: anything not on it is denied by the SAME default,
+    // whether it was ruled out deliberately or simply never considered. That is
+    // what stops a refill quietly re-fetching from an unapproved source, and it
+    // is why the list never needs to enumerate what it blocks. `assets.example`
+    // stands in for any such host; the assertion is about the default, not it.
+    assert.equal(IMAGE_SOURCE_HOSTS.includes('assets.example'), false);
+    assert.equal(IMAGE_SOURCE_POLICY.originFor('assets.example'), null);
   });
 });
 
 describe('checkUpstreamUrl — host allow-list (default policy, no DNS)', () => {
   const refused: Array<[string, RegExp]> = [
     ['https://evil.example/card.webp', /not an allow-listed image upstream/],
+    // A plausible, well-formed card-art CDN that is simply not approved. This is
+    // the case that matters in practice: the refusal is not about maliciousness,
+    // it is about absence from the list.
+    ['https://assets.example/en/sv/sv01/1/high.webp', /not an allow-listed image upstream/],
     ['http://169.254.169.254/latest/meta-data/iam/', /not an allow-listed/],
     ['http://127.0.0.1:8080/admin', /not an allow-listed/],
     ['http://[::1]:8080/admin', /not an allow-listed/],

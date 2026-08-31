@@ -15,8 +15,7 @@ where it was measured.
 | `research/SCHEMA.md` | Tables, DDL, indexes |
 | `research/DECK-FORMATS.md` | Legality rules, PTCGL grammar, format data sources |
 | [Dex Data (wiki)](https://github.com/cheyras/deckpal/wiki/Dex-Data) | Species mapping, sprites, capture semantics |
-| `research/BEHAVIOR-SPEC.md` | Product behavior -- the three goals, variants, lists |
-| `research/ROUTE-MAP.md` | URL structure / IA |
+| `research/REMOVED-RESEARCH.md` | Tombstone for the retired reference-capture specs (product behavior, URL structure) -- removed 2026-08-31 |
 | [UI Spec (wiki)](https://github.com/cheyras/deckpal/wiki/UI-Spec) | Design tokens, components, layout |
 | [Frontend Research (wiki)](https://github.com/cheyras/deckpal/wiki/Frontend-Research) | Frontend stack + performance plan |
 | [Prior Art (wiki)](https://github.com/cheyras/deckpal/wiki/Prior-Art) | What to borrow, what to avoid, license posture |

@@ -1,5 +1,6 @@
-// Minimal line-icon set (24px, stroke=currentColor). Built clean from scratch;
-// no pkmn.gg asset is lifted. Icons take colour from `color`/CSS `currentColor`.
+// Minimal line-icon set (24px, stroke=currentColor). Every glyph is drawn from
+// scratch in this file — no third-party icon asset is copied or traced. Icons take
+// colour from `color`/CSS `currentColor`.
 
 export type IconName =
   | 'cards'

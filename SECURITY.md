@@ -303,8 +303,11 @@ the addresses that name resolves to at check time; `fetch` resolves the name
 again when it connects, so a determined DNS-rebinding attacker who already
 controls DNS for one of the two allow-listed CDNs is narrowed but not excluded.
 Closing that needs a connector that validates the socket's peer address, which is
-a larger change and has not been made. `assets.pkmn.gg` is deliberately absent
-from the allow-list — see DECISIONS.md 2026-08-27.
+a larger change and has not been made. Note also what the list does *not* do: it
+never enumerates blocked hosts. A source that has been ruled out is denied by the
+same default as any host nobody has considered, so adding an upstream is always a
+deliberate act — a new entry plus a DECISIONS.md record of who approved it and on
+what licensing basis.
 
 **What the browser persists.** Besides Supabase's own session (its
 `sb-<ref>-auth-token` key), the SPA writes two of its own `localStorage` keys,

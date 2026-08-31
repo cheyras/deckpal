@@ -244,14 +244,14 @@ category tree) for these eras is unnecessary given the 90–100 % TCGCSV coverag
 
 ## E. Other direction — `1999-2000-copyright` (secondary)
 
-`SCHEMA.md` §5.4.2 flags 150 TCGdex `1999-2000-copyright` rows that pkmn.gg appears **not** to
+`SCHEMA.md` §5.4.2 flags 150 TCGdex `1999-2000-copyright` rows that the reference tracker appears **not** to
 render, which would *inflate* Base-era Grandmaster denominators. **Not directly fetched** (Base
 groups were outside the affected-era budget), so this is inference, marked as such:
 
 TCGplayer's printing vocabulary for Base-era groups is known to be `1st Edition` / `Unlimited` /
 `Holofoil` / `Reverse Holofoil` — there is **no `subTypeName` distinguishing a "1999–2000
 copyright" print run**. TCGplayer does not trade it as a separate SKU. That is consistent with
-pkmn.gg collapsing it and supports **not counting `1999-2000-copyright` as its own
+The reference tracker collapsing it and supports **not counting `1999-2000-copyright` as its own
 Master/Grandmaster variant**. **Confidence: low — this needs one fetched Base-set (`base1`,
 groupId in `set.thirdParty.tcgplayer`) `prices` payload to confirm the subtype list before acting.**
 Recommend that as a one-request follow-up.

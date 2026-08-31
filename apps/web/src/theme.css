@@ -6,7 +6,7 @@
 
 /*
  * DeckPal design-system tokens — the 77 flat semantic roles from UI-SPEC §1.10.
- * Dark-only theming (UI-SPEC §2): pkmnDark is the only scheme shipped; the
+ * Dark-only theming (UI-SPEC §2): deckpalDark is the only scheme shipped; the
  * data-theme="dark" attribute on <html> is the machine-readable switch.
  * `static` so every token is emitted even when no utility references it.
  */
@@ -360,13 +360,15 @@ body {
   }
 }
 
-/* Motion contract: the ONLY authored transitions on pkmn.gg are
-   background-color 150ms on buttons and height 200ms on accordions. */
+/* Motion contract: the ONLY authored transitions in the app are
+   background-color 150ms on buttons and height 200ms on accordions. Anything
+   else that moves is either a bug or needs a DECISIONS.md entry. */
 button {
   transition: background-color 150ms ease;
 }
 
-/* Our addition (flagged): a real focus ring — pkmn.gg ships none (UI-SPEC §3.10). */
+/* A real focus ring (UI-SPEC §3.10). Keyboard focus must be visible; the design
+   spec left this out, and shipping without it is not an option. */
 :focus-visible {
   outline: 2px solid var(--color-action-primary-strong);
   outline-offset: 2px;

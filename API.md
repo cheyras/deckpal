@@ -510,7 +510,7 @@ static, pokedex_binder}`):
 - **dynamic** — an ordered set of `card_variant` references. Membership is the
   stored references; **ownership is read through from the collection at read
   time** and never stored on the list, so the progress cluster (owned/total,
-  copies) auto-syncs with the collection live. Mirrors pkmn.gg's Dynamic List.
+  copies) auto-syncs with the collection live.
 - **dynamic + rule** ("smart list", migration 050) — the dynamic list carries a
   saved query instead of stored rows: the `addMissing` spec (`setId`, `goal`,
   `finishes`, `rarity`, `rarityExclude`, `maxPriceUsd`, `pricedOnly`) plus

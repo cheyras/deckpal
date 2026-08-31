@@ -240,7 +240,7 @@ const profileRoute = createRoute({
   component: Profile,
 })
 
-// pkmn.gg's canonical profile URL is /u/{name}; alias /u/me → the same surface.
+// The canonical profile URL is /u/{name}; alias /u/me → the same surface.
 const profileAliasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/u/me',
