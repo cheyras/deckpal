@@ -136,3 +136,6 @@ apps/web/public/models/decke/decke.min.glb
 # compare against. Recoverable from git history either way (DECISIONS.md
 # 2026-08-24); this is just convenience.
 apps/web/public/models/decke/decke.orig.glb
+
+# Removed from history 2026-08-31 (Project Holo 2a): DeckPal-UI screenshots containing third-party card art.
+research/frontend-shots/
