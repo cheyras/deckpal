@@ -941,6 +941,12 @@ Netlify builds the React PWA into `apps/web/dist` and bundles
 following in the Netlify environment-variable UI with Functions scope; never
 put their values in `netlify.toml` or a committed `.env` file.
 
+Connect the Netlify site to the GitHub repository and let Netlify perform the
+production build. This is especially important when the development machine is
+Windows: a local CLI deploy can preserve pnpm workspace links as absolute
+Windows paths, which do not exist in Netlify's Linux function runtime. Git-based
+builds create and package those dependencies in the target environment.
+
 | Name | Exposure | Purpose |
 |---|---|---|
 | `DATABASE_URL` | Server secret | Supabase pooled Postgres connection |

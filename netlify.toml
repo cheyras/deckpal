@@ -1,15 +1,16 @@
 [build]
-  command = "pnpm build && pnpm --filter deckpal-web build"
+  command = "pnpm build && node scripts/prepare-netlify-data.mjs && pnpm --filter deckpal-web build"
   publish = "apps/web/dist"
 
 [build.environment]
   NODE_VERSION = "20"
-  PNPM_VERSION = "11"
+  PNPM_VERSION = "10.30.3"
 
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
   external_node_modules = ["express", "sharp"]
+  included_files = ["netlify/functions/data/**"]
 
 [[redirects]]
   from = "/api/scan/ai"

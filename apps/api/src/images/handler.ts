@@ -18,7 +18,7 @@ import {
   isSetImageFallbackUrl,
   SET_IMAGE_FALLBACK_POLICY,
   type ParsedImage,
-} from '@deckpal/storage';
+} from '../workspace-storage.js';
 
 /**
  * The cloud image tier: `/deckpal/images/*` on Vercel.
