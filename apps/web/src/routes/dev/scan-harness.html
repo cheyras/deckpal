@@ -24,6 +24,13 @@
   .readout b { color:var(--txt); }
   .toggle { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--mut); cursor:pointer; user-select:none; }
   .toggle input { cursor:pointer; }
+  /* Live tab only: responsive camera preview. The old fixed 640x480 inline
+     style (still used, unchanged, by the Fixtures tab's synthetic 320x240
+     canvas) is what overflowed a phone's right edge in field test 1 -- this
+     scopes a fluid, aspect-preserving, centered layout to #tab-live alone. */
+  .live-col { flex: 0 1 100%; min-width: 0; max-width: 640px; margin: 0 auto; }
+  #liveStage { width: 100%; }
+  #liveCanvas { width: 100%; height: auto; max-width: 640px; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:240px; }
   .panel h2 { font-size:13px; margin:0 0 8px; }
   .kv { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
@@ -87,9 +94,9 @@
   <!-- LIVE CAMERA TAB -->
   <section id="tab-live" class="hidden">
     <div class="row">
-      <div>
-        <div class="stage">
-          <canvas id="liveCanvas" width="320" height="240" style="width:640px;height:480px"></canvas>
+      <div class="live-col">
+        <div class="stage" id="liveStage">
+          <canvas id="liveCanvas" width="320" height="240"></canvas>
         </div>
         <div class="controls">
           <button id="camStart">Start camera</button>
@@ -98,6 +105,7 @@
           <label class="toggle"><input type="checkbox" id="toggleStability" checked> Stability</label>
           <span class="readout">detect: <b id="liveMs">—</b> ms</span>
           <span class="readout">fps: <b id="liveFps">—</b></span>
+          <span class="readout">dims: <b id="liveDims">—</b></span>
           <span class="readout">stable: <b id="liveStable">—</b></span>
           <span class="readout">pending: <b id="livePending">—</b></span>
           <span class="readout err" id="liveErr"></span>
@@ -2167,6 +2175,42 @@ const liveVideo=document.createElement('video');
 liveVideo.muted=true; liveVideo.playsInline=true;
 let camStream=null, camRAF=null, liveFpsBuf=[], liveLast=0;
 
+// Native-aspect capture (field test 2: a phone held portrait was force-fit
+// into a hardcoded 320x240 landscape buffer -- "set up horizontal and looks
+// like ass"). The camera is asked for ~640 on its long edge without forcing
+// an aspect ratio, and the actual negotiated videoWidth/videoHeight (portrait
+// OR landscape, whatever the device/orientation produced) drives a working
+// buffer sized to the SAME aspect, capped at the detector's tuned ~320x240
+// pixel budget so absolute-pixel gates (MIN_AREA, EDGE_T, ...) still see the
+// scale they were calibrated against.
+const WORK_PIXEL_BUDGET = 320 * 240; // 76800
+function computeWorkingDims(vw, vh){
+  const aspect = vw / vh;
+  let w = Math.round(Math.sqrt(WORK_PIXEL_BUDGET * aspect));
+  let h = Math.round(WORK_PIXEL_BUDGET / w);
+  w = Math.max(2, w - (w % 2)); // even dims (cheap, conventional for video/canvas work buffers)
+  h = Math.max(2, h - (h % 2));
+  return { w, h };
+}
+let lastVideoW=0, lastVideoH=0, workW=0, workH=0;
+// Cheap per-frame check (also the resize/orientationchange handler below) --
+// catches a device rotation whether or not the browser actually renegotiates
+// the camera track's own dims on rotation, and catches a fresh camStart too.
+function updateDimsIfChanged(){
+  const vw=liveVideo.videoWidth, vh=liveVideo.videoHeight;
+  if(!vw || !vh) return false;
+  if(vw===lastVideoW && vh===lastVideoH) return false;
+  lastVideoW=vw; lastVideoH=vh;
+  const d=computeWorkingDims(vw, vh);
+  workW=d.w; workH=d.h;
+  liveCanvas.width=workW; liveCanvas.height=workH; // backing store; CSS (width:100%;height:auto) rescales display
+  tracker=makeTracker(); // frameW/frameH (and its contain-fit reticle) must match the real dims
+  document.getElementById('liveDims').textContent = workW+'x'+workH;
+  return true;
+}
+window.addEventListener('resize', updateDimsIfChanged);
+window.addEventListener('orientationchange', updateDimsIfChanged);
+
 // stable: solid, full-alpha, thicker. pending: faint thin outline (visually
 // secondary). Reticle-excluded quads get nothing drawn at all — the tracker
 // already dropped them before they became a track of either kind.
@@ -2209,7 +2253,7 @@ function drawReticle(ctx, rect, locked){
 }
 
 let reticleOn = true, stabilityOn = true;
-function makeTracker(){ return createTracker({ frameW:320, frameH:240, reticle: reticleOn ? undefined : null }); }
+function makeTracker(){ return createTracker({ frameW:workW||320, frameH:workH||240, reticle: reticleOn ? undefined : null }); }
 let tracker = makeTracker();
 
 document.getElementById('toggleReticle').onchange=(e)=>{
@@ -2223,8 +2267,14 @@ document.getElementById('toggleStability').onchange=(e)=>{
 
 document.getElementById('camStart').onclick=async()=>{
   try{
-    camStream=await navigator.mediaDevices.getUserMedia({video:{width:320,height:240,facingMode:{ideal:'environment'}},audio:false});
+    // Rear camera, ideal ~640 on each axis, NO forced aspect ratio -- the UA
+    // negotiates whatever the device's camera/orientation actually produces
+    // (portrait held vertically, landscape held sideways, either is fine).
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:640}, height:{ideal:640}},audio:false});
     liveVideo.srcObject=camStream; await liveVideo.play();
+    lastVideoW=0; lastVideoH=0; workW=0; workH=0; // force a fresh dims computation for this session
+    document.getElementById('liveDims').textContent='—';
+    updateDimsIfChanged(); // videoWidth/videoHeight are usually already populated once play() resolves
     tracker.reset();
     camLoop();
     document.getElementById('liveErr').textContent='';
@@ -2233,15 +2283,21 @@ document.getElementById('camStart').onclick=async()=>{
 document.getElementById('camStop').onclick=()=>{
   if(camRAF)cancelAnimationFrame(camRAF); camRAF=null;
   if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;}
+  lastVideoW=0; lastVideoH=0; workW=0; workH=0;
+  document.getElementById('liveDims').textContent='—';
 };
 function camLoop(){
   if(!camStream){return;}
-  liveCtx.drawImage(liveVideo,0,0,320,240);
+  updateDimsIfChanged(); // cheap per-frame check: catches orientation changes even when
+                          // resize/orientationchange don't fire (or the track dims are stable
+                          // but the device rotated, which some browsers don't renegotiate)
+  if(!workW || !workH){ camRAF=requestAnimationFrame(camLoop); return; } // metadata not ready yet
+  liveCtx.drawImage(liveVideo,0,0,workW,workH);
   let ms=NaN, stableN=0, pendingN=0;
   try{
-    const img=liveCtx.getImageData(0,0,320,240);
+    const img=liveCtx.getImageData(0,0,workW,workH);
     const t0=performance.now();
-    const quads=window.detect({width:320,height:240,data:img.data})||[];
+    const quads=window.detect({width:workW,height:workH,data:img.data})||[];
     ms=performance.now()-t0;
 
     const ret = tracker.getReticle();
