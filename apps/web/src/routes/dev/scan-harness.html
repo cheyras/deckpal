@@ -31,6 +31,16 @@
   .live-col { flex: 0 1 100%; min-width: 0; max-width: 640px; margin: 0 auto; }
   #liveStage { width: 100%; }
   #liveCanvas { width: 100%; height: auto; max-width: 640px; }
+  /* Evidence capture: a deliberately loud button (amber, not the panel's
+     default grey) so it reads as a distinct, important action next to
+     Start/Stop -- the owner needs to be able to find it fast, one-handed. */
+  .flag-btn { background:#3a2a05; border-color:#9e6a03; color:#ffd479; font-weight:600; }
+  .flag-btn:hover { border-color:#ffb703; }
+  .flag-strip { display:flex; align-items:center; gap:10px; margin-top:10px; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  .flag-strip img { width:56px; height:auto; max-height:80px; border-radius:4px; border:1px solid var(--line); image-rendering:pixelated; display:block; flex-shrink:0; }
+  .flag-strip .flag-meta { font-size:12px; color:var(--mut); line-height:1.5; }
+  .flag-strip .flag-meta b { color:var(--txt); }
+  .flag-badge { margin-left:auto; background:#9e6a03; color:#1a1300; font-weight:700; font-size:12px; border-radius:999px; padding:2px 9px; min-width:20px; text-align:center; flex-shrink:0; }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:240px; }
   .panel h2 { font-size:13px; margin:0 0 8px; }
   .kv { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
@@ -101,6 +111,7 @@
         <div class="controls">
           <button id="camStart">Start camera</button>
           <button id="camStop">Stop</button>
+          <button id="flagBtn" class="flag-btn" title="Flag frame — saves the raw frame + quads for the fix bench.">Flag frame</button>
           <label class="toggle"><input type="checkbox" id="toggleReticle" checked> Reticle</label>
           <label class="toggle"><input type="checkbox" id="toggleStability" checked> Stability</label>
           <span class="readout">detect: <b id="liveMs">—</b> ms</span>
@@ -109,6 +120,11 @@
           <span class="readout">stable: <b id="liveStable">—</b></span>
           <span class="readout">pending: <b id="livePending">—</b></span>
           <span class="readout err" id="liveErr"></span>
+        </div>
+        <div class="flag-strip hidden" id="flagStrip">
+          <img id="flagThumb" alt="thumbnail of the last flagged frame" />
+          <div class="flag-meta">Last flag: <b id="flagMeta">—</b></div>
+          <span class="flag-badge" id="flagCount" title="flags registered this session">0</span>
         </div>
         <div class="legend readout" style="margin-top:8px">
           <span><i class="swatch" style="background:var(--cyn)"></i>stable (tracked, smoothed)</span>
@@ -257,9 +273,51 @@ function makeScenes(seed){
 // module). Every helper function, every CFG constant, and the whole pipeline
 // (front end -> contour lane + line lane -> pre-screen -> refine -> outward snap ->
 // verify -> NMS -> final refine) is otherwise byte-identical to detector-hybrid.mjs.
-// detector-hybrid-v2.mjs
+// detector-hybrid-v3.mjs
 // Hybrid trading-card quad detector. Pure, dependency-free ESM. Reads pixels only:
 // no imports, no file access, no globals, no mutation of the input buffer.
+//
+// ===========================================================================
+// v3 CHANGES (see notes-v3.md). Driven by hand-labelled corner ground truth for
+// the field fixtures, which for the first time made the owner's actual
+// complaint measurable: v2 emitted a quad on 7 of 8 real cards but the quad was
+// on the CARD only twice -- the other five sat on a portion of it (inner border
+// ring, art window, a vertical strip) or on an unrelated region.
+//
+//   1. PAR_TOL2 0.12 -> 0.36 (generation). Opposite sides of a card CONVERGE
+//      under perspective by up to 0.35 rad; the pairing step demanded 0.12, so
+//      on six of eight fixtures the card's own two short sides were sitting in
+//      the Hough pool, correctly localised, and were never paired with each
+//      other. The assembler could then only build quads from whatever else was
+//      near-parallel -- which favours small interior structures. This is the
+//      mechanism behind "locks onto a portion of the card".
+//
+//   2. CORNER_MIN 0 -> 55 degrees (geometry). Pays for (1): the extra pairings
+//      are mostly sheared parallelograms. Real cards measure 68-85 degrees,
+//      the junk 26-41.
+//
+//   3. supMean over the BEST THREE sides, not all four (verification). A
+//      hand-held card routinely has one side with NO gradient evidence (c0038's
+//      left side measures exactly 0.000), which caps a four-side mean at 0.75
+//      and made such a card structurally unverifiable against a 0.78 gate.
+//
+//   4. SCORE_MIN2 no longer `break`s the NMS loop (output). It is the bar for
+//      opening a SECOND output slot, but v2 applied it as a loop break, so the
+//      first accepted quad ended the pass and the container-preference branch
+//      below it never executed on any real frame -- not once.
+//
+//   5. TRUNCATION RECOVERY + CONTINUATION GATE (new, and the direct answer to
+//      the failure). A quad drawn on part of a card has a property the real
+//      silhouette does not: its two adjacent sides are STILL RUNNING as ridges
+//      past its own corners. Every verified quad is walked outward from its
+//      corners; if its boundary keeps going it is grown to where that boundary
+//      actually stops, and whatever survives is gated on the remaining
+//      continuation. Measured on ground truth, true silhouettes score 0.00 on
+//      that statistic and cropped quads 2.00-5.87.
+//
+//   6. MIN_OUT_FRAC (new). A quad smaller than 3.4% of the frame is never the
+//      card a user is presenting to a scanner. Applied at the OUTPUT only, so
+//      the recovery chain in (5) may still grow a small fragment into a card.
 //
 // v2 CHANGES (see notes-v2.md). Driven by real iPad camera frames, on which v1
 // found nothing on 7 of 8 clean card presentations:
@@ -370,7 +428,14 @@ const n = (k, d) => (ENV[k] !== undefined ? +ENV[k] : d);
 const CFG = {
   // ---- generation: contour lane ----
   USE_CONTOUR: n('H_UC', 1),
-  CANNY_PCT_HI: n('H_CPH', 0.982),   // adaptive strong-edge percentile
+  // v3: 0.982 -> 0.95. The contour lane's loose pass exists to close a card
+  // border broken by glare or low contrast, but at 0.982 the percentile lands
+  // above CANNY_CEIL on a real frame, both passes clamp, and a card whose SHORT
+  // sides are softer than the frame's background texture fragments into two
+  // disconnected arcs (measured on c0079: top arc and bottom arc as separate
+  // components, neither spanning the card). At 0.95 the loose pass runs low
+  // enough to admit the short sides and the silhouette becomes ONE component.
+  CANNY_PCT_HI: n('H_CPH', 0.95),   // adaptive strong-edge percentile
   CANNY_FLOOR: n('H_CF', 130),       // absolute floor for the strong threshold
   CANNY_CEIL: n('H_CC', 420),        // absolute cap (a huge-contrast frame must not blind us)
   CANNY_LO_FRAC: n('H_CLF', 0.42),   // weak threshold as a fraction of the strong one
@@ -404,7 +469,29 @@ const CFG = {
   // tolerance is uniform -- which means it has to be stated, and stated at the
   // physically right value: opposite sides of a card under real perspective
   // converge by well under 0.2 rad at the obliquities a scan is usable at.
-  PAR_TOL2: n('H_PAR2', 0.12),
+  // v3: 0.12 -> 0.36. This was the dominant generation defect.
+  //
+  // PAR_TOL2 is the largest angle by which two lines may differ and still be
+  // paired as "opposite sides of the same rectangle". Under a real perspective
+  // camera the opposite sides of a card CONVERGE toward a vanishing point, and
+  // the closer/more oblique the card the more they converge. Projecting the
+  // hand-labelled ground-truth quads into Hough space and folding the angles
+  // gives the actual convergence of each card's two short sides:
+  //
+  //     c0070 0.012   c0049 0.105   c0038 0.134   c0051 0.294
+  //     c0079 0.304   c0053 0.310   c0047 0.346   (c0103 long pair 0.233)
+  //
+  // At 0.12 the correct pair was NEVER FORMED on six of the eight fixtures --
+  // the two lines were both sitting in the Hough pool, correctly localised, and
+  // the pairing step discarded the combination. With no correct pair available
+  // the assembler could only build quads out of whatever else was near-parallel,
+  // which favours small interior structures (a name bar and an art-window edge
+  // span less of the card, so they converge less) and background rectangles.
+  // That is the mechanism behind "locks onto a PORTION of the card".
+  //
+  // 0.36 covers every measured card with margin. It is a large widening, and it
+  // is paid for by CORNER_MIN below -- see the note there.
+  PAR_TOL2: n('H_PAR2', 0.36),
   PERP_LO: n('H_PLO', 1.00),
   PERP_HI: n('H_PHI', 2.14),
   PERP_SPAN: n('H_PSPAN', 1),   // orientation-bucket half-window for the perpendicular cross
@@ -417,7 +504,25 @@ const CFG = {
   ASP_LO: n('H_ASPLO', 0.28),
   ASP_HI: n('H_ASPHI', 3.4),
   OPP_SIM: n('H_OPP', 0.55),
-  CORNER_MIN: n('H_CORNMIN', 0),   // smallest allowed interior corner angle, degrees
+  // v3: 0 (disabled) -> 55 degrees. This is what pays for PAR_TOL2 above.
+  //
+  // Widening the parallel tolerance lets many more line pairs cross, and most of
+  // the new combinations are two unrelated background lines against two others,
+  // which produce STRONGLY SHEARED parallelograms. Measured minimum interior
+  // angle: every hand-labelled real card sits at 68.4..85.1 degrees, while the
+  // junk quads the widening admits sit at 31.8 (the photo frame in c0091), 34.9
+  // (bare wood, c0003) and 40.5. On the synthetic kit only ONE of 62 cards falls
+  // below 55 degrees, so the gate costs essentially nothing there either.
+  //
+  // v2 left this disabled because the fixtures were non-aspect-preserving
+  // stretched and the only apparent counter-example was a 33-degree corner
+  // read off c0103 by eye. The hand-labelled ground truth puts c0103's true
+  // minimum corner at 40.5 degrees, and c0103 is independently unreachable
+  // (its area is 1050px, below MIN_AREA), so it is not a counter-example to a
+  // 55-degree bar. See notes-v3.md: this is the top candidate for live
+  // recalibration, since deployment frames are not stretched at all and should
+  // support a value nearer 60.
+  CORNER_MIN: n('H_CORNMIN', 55),   // smallest allowed interior corner angle, degrees
   // v2: 0.34 -> 0.80. The loose value was there for the synthetic kit's cards that
   // hang off the frame edge; measured, it buys no kit detections (rate identical
   // at 0.80) and only false positives (kit FP 7 -> 6), while on real frames it was
@@ -440,8 +545,14 @@ const CFG = {
   MIN_SIDE_SAMPLES: n('H_MSS', 6),
   MIN_JUDGED: n('H_MJ', 3),
   MIN_TOTAL_SAMPLES: n('H_MTS', 44),
-  SUP_MIN: n('H_SUPMIN', 0.60),  // second-worst side support
-  SUP_MEAN: n('H_SUPMEAN', 0.78),
+  // v3: 0.60 -> 0.55. Measured: c0079's correct quad (3.5px from ground truth,
+  // passing every other gate with margin -- score 0.771, ring 0.591, rimC 66.9)
+  // was rejected on supMin 0.571 alone.
+  SUP_MIN: n('H_SUPMIN', 0.55),  // second-worst side support
+  // v3: now the mean of the BEST THREE judged sides (was all four). See the
+  // long note in features(). Re-seated for the new statistic, which runs
+  // systematically higher: real cards measure 0.762..0.968 on it.
+  SUP_MEAN: n('H_SUPMEAN', 0.85),
   STR_MIN: n('H_STRMIN', 0.20),  // absolute ridge strength floor (0..1), guards the relative rule
   // ---- pre-refine screening ----
   PRE_BAND: n('H_PBAND', 3.5),
@@ -462,11 +573,12 @@ const CFG = {
   RING_REL: n('H_RINGREL', 0.38),
   RING_FLOOR: n('H_RINGFLOOR', 80),
   RING_BAND: n('H_RINGBAND', 2), // perpendicular tolerance when hunting the ring
-  RING_MIN: n('H_RINGMIN', 0.45),
+  RING_MIN: n('H_RINGMIN', 0.52),   // v3: 0.45 -> 0.52 (kit false positives sit at 0.48-0.57)
   UNIF_SCALE: n('H_UNIFS', 55),
   DETAIL_GRID: n('H_DGRID', 7),
   DETAIL_MIN: n('H_DMIN', 0.0),   // interior printed-detail fraction
-  RIMC_MIN: n('H_RIMC', 14),     // rim-to-interior colour contrast: a card has a printed border
+  RIMC_MIN: n('H_RIMC', 22),     // v3: 14 -> 22. Real field cards measure 28.9-99.2; the surviving
+                                 // background false positives sit at 8-21.
   RIMC_SCALE: n('H_RIMCS', 90),
   SIG_RING: n('H_SIGRING', 0.42),
   SIG_UNIF: n('H_SIGUNIF', 0.28),
@@ -483,10 +595,47 @@ const CFG = {
   CONTAIN_AREA: n('H_CONTA', 0.60),  // ...but only when it is also this much smaller
   CONTAIN_VERIFIED: n('H_CONTV', 1), // sweep containment against every verified quad, not just outputs
   OUTER_PREF: n('H_OUTPREF', 0.12),  // score slack for preferring the outer of two concentric quads
+  // v3: 0.90 -> 2.0, i.e. DISABLED (>1 can never be satisfied), the same way
+  // OUTER_MAX=1.0 disables the outer-parallel gate.
+  //
+  // This branch was dead code in v2 (SCORE_MIN2's `break` meant it never ran).
+  // Once the `break` was fixed it did fire -- and measured NET HARMFUL, because
+  // the continuation gate now removes cropped quads at the source, so every
+  // survivor is already a plausible silhouette and "prefer whichever is bigger"
+  // just promotes slight over-extensions: c0049 went 5.1px -> 14.6px when a
+  // 15.8k-px extension displaced the correct 14.6k-px quad it contained.
+  // Preferring the container is the right instinct only when the incumbent is
+  // known to be a crop, and that is now measured directly rather than guessed
+  // at from relative size. Kept, documented and off.
+  OUTER_CONT: n('H_OUTCONT', 2.0),  // how much of the incumbent must lie inside the challenger
   FINAL_REFINE: n('H_FINREF', 1),
   EXPAND: n('H_EXPAND', 1),
   EXPAND_MAX_FRAC: n('H_EXPMAX', 0.14),
+  // ---- truncation recovery (v3): "the boundary continues past this corner" ----
+  EXTEND: n('H_EXT', 1),
+  EXT_BAND: n('H_EXTBAND', 2),      // perpendicular tolerance when following an adjacent side
+  EXT_MIN_PX: n('H_EXTMIN', 7),     // shorter than this is refinement's job, not extension's
+  EXT_MAX_PX: n('H_EXTMAX', 120),
+  EXT_STOP: n('H_EXTSTOP', 16),     // abandon the walk after this unbroken run of nothing
+  EXT_MAX_FRAC: n('H_EXTFRAC', 1.0), // never more than double the quad in one direction
+  // Cumulative fraction of the walk that must be supported. This is the knob
+  // that separates "my own edge keeps going" from "a DIFFERENT edge happens to
+  // lie along my extrapolated direction" -- a neighbouring card in a multi-card
+  // scene, a table edge behind the hand. A real continuation is contiguous from
+  // the corner outward; a coincidental one has the inter-object gap in it.
+  // Measured over field ground truth / field truncated quads / all 62 kit cards:
+  //   0.45 -> field TP max 0.37, field FP min 2.00, but 18/62 KIT cards rejected
+  //   0.70 -> field TP max 0.00, field FP min 1.09,      2/62 kit cards rejected
+  //   0.85 -> field TP max 0.00, but two field FPs collapse to 0.00 (blind)
+  EXT_FRAC: n('H_EXTSUP', 0.70),
+  EXT_SPREAD: n('H_EXTSPR', 0.05),  // band growth per px walked (extrapolation drift)
+  EXT_T_REL: n('H_EXTTREL', 0.62),  // continuation bar, as a fraction of the quad's own ridge bar
+  EXT_T_FLOOR: n('H_EXTTFL', 0.75), // ...never below this multiple of EDGE_FLOOR
+  EXT_ITERS: n('H_EXTIT', 3),       // a quad may be truncated on more than one side
+  CONT_REF: n('H_CONTREF', 0.25),   // continuation is "full" at this fraction of sqrt(area)
+  CONT_MAX: n('H_CONTMAX', 0.3),    // reject a quad whose boundary still runs past its corners
   MAX_OUT: n('H_MAXOUT', 2),
+  MIN_OUT_FRAC: n('H_MINOUTF', 0.034), // emitted quad must cover this fraction of the frame
   SCORE_MIN: n('H_SMIN', 0.58),
   SCORE_MIN2: n('H_SMIN2', 0.85),    // bar for the 2nd and later quad in a frame
 };
@@ -1472,6 +1621,124 @@ function expandToOuter(quad, F, W, H) {
   return out;
 }
 
+// A quad drawn on a PORTION of a card -- the art window, the name-bar strip, the
+// inner border ring, or simply the card truncated where one edge is occluded or
+// low-contrast -- has a property the true silhouette does not: THE BOUNDARY
+// CONTINUES PAST ITS OWN CORNERS. If a quad's top and bottom edges are still
+// running as oriented ridges 30px to the left of its left side, then its left
+// side is not where the object ends, and the quad is a crop of something bigger.
+//
+// This is the direct test for the dominant real-world failure, and it is
+// strictly stronger than the two mechanisms already here:
+//   * `outerParallel` asks "is there a parallel edge outside this side?", which
+//     on a hand-held card fires on the hand, the toploader and a neighbouring
+//     card just as readily as on the card's own border -- measured, it does not
+//     separate (true silhouettes score 0.09..0.61, inner locks 0.15..0.42).
+//   * `expandToOuter` moves ALL FOUR sides out by one small common offset, so it
+//     can only jump an inner border ring. It cannot recover a side that is 35px
+//     in, and it needs the outward edge to already exist as a ridge.
+// Here, the evidence is the CONTINUATION of the two adjacent sides, which are
+// exactly the sides already known to be strong.
+//
+// Pushes an extended quad per side that demonstrably continues, and returns the
+// largest continuation distance found in pixels (0 = this quad's boundary stops
+// at its own corners on all four sides, i.e. it really is a silhouette).
+function extendPastCorners(quad, F, W, H, out) {
+  const { mag, gxo, gyo } = F;
+  const r0 = sideRidges(quad, F, W, H, CFG.BAND, CFG.SUP_SAMPLES);
+  const edgeT = ridgeThreshold(r0.peaks, r0.cnt, CFG.EDGE_T, CFG.EDGE_REL, CFG.EDGE_FLOOR);
+  const ctr = centroid(quad);
+  const EB = CFG.EXT_BAND;
+  let maxCont = 0;
+
+  // The continuation is searched at a LOWER bar than the quad's own sides. That
+  // is not a fudge: the reason a card gets truncated in the first place is that
+  // the evidence out there is weaker than the evidence the quad is standing on,
+  // so re-using the quad's own (high) median ridge as the bar would guarantee
+  // the walk stops immediately. Selectivity comes from the orientation gate and
+  // from the sustained-support rule below, not from the magnitude alone.
+  const contT = Math.max(CFG.EDGE_FLOOR * CFG.EXT_T_FLOOR, edgeT * CFG.EXT_T_REL);
+  // Is there an oriented ridge at p, with `nx,ny` the expected edge normal?
+  // The band grows with distance: the side's fitted direction was estimated over
+  // the quad's own span, so extrapolating it 40px further accumulates angular
+  // error, and a real card edge is not perfectly straight under perspective.
+  const ridgeAt = (px, py, nx, ny, s) => {
+    const band = EB + CFG.EXT_SPREAD * s;
+    // 1px steps, not 0.5: the samples are rounded to the integer grid anyway, so
+    // a half-pixel step re-tests the same pixel about half the time. Worth
+    // ~2ms/frame. Not quite free -- it leaves the field results identical and
+    // moves kit false positives 9 -> 10 -- but 2ms of headroom against a 25ms
+    // budget is worth more than one synthetic false positive.
+    for (let o = -band; o <= band; o += 1) {
+      const xi = Math.round(px + nx * o), yi = Math.round(py + ny * o);
+      if (xi < 1 || yi < 1 || xi > W - 2 || yi > H - 2) continue;
+      const idx = yi * W + xi;
+      if (mag[idx] > contT && Math.abs(gxo[idx] * nx + gyo[idx] * ny) > CFG.ORIENT_T) return true;
+    }
+    return false;
+  };
+  // Unit direction and outward normal of the side from p to q.
+  const sideDir = (p, q) => {
+    const dx = q[0] - p[0], dy = q[1] - p[1];
+    const L = Math.hypot(dx, dy) || 1;
+    let nx = -dy / L, ny = dx / L;
+    const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+    if ((mx + nx - ctr[0]) ** 2 + (my + ny - ctr[1]) ** 2 < (mx - ctr[0]) ** 2 + (my - ctr[1]) ** 2) { nx = -nx; ny = -ny; }
+    return { ux: dx / L, uy: dy / L, nx, ny, L };
+  };
+
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i], b = quad[(i + 1) % 4];
+    // The two sides adjacent to side i, oriented so that walking forward leaves
+    // the quad through side i's corners.
+    const pa = quad[(i + 3) % 4], pb = quad[(i + 2) % 4];
+    const A = sideDir(pa, a);   // runs INTO corner a; continuing means going further along +u
+    const B = sideDir(pb, b);
+    // How far it is worth looking: the quad's own extent perpendicular to side i,
+    // i.e. we will not more than roughly double the card in this direction.
+    const S = sideDir(a, b);
+    const depth = Math.abs((pa[0] - a[0]) * S.nx + (pa[1] - a[1]) * S.ny);
+    const maxS = Math.min(CFG.EXT_MAX_PX, CFG.EXT_MAX_FRAC * depth);
+    if (maxS < CFG.EXT_MIN_PX) continue;
+
+    // Walk both adjacent sides outward together, then take the FURTHEST distance
+    // at which both are still sustained.
+    //
+    // Requiring both ridges to be present at each individual step is far too
+    // brittle: a ridge sampled on the integer pixel grid registers on roughly
+    // every other step (measured: a perfectly good continuation traces
+    // `.B.B.B.B.B.B`), so a per-step conjunction of two such sequences almost
+    // never holds and the walk dies at s=0. What matters is the CUMULATIVE
+    // fraction supported out to distance s -- that is stable against grid
+    // aliasing, glare spots and a finger crossing the edge, and it still falls
+    // away sharply once the real edge ends, which is what stops the walk in the
+    // right place.
+    let cA = 0, cB = 0, bestS = 0, run = 0;
+    for (let s = 1; s <= maxS; s += 1) {
+      const okA = ridgeAt(a[0] + A.ux * s, a[1] + A.uy * s, A.nx, A.ny, s);
+      const okB = ridgeAt(b[0] + B.ux * s, b[1] + B.uy * s, B.nx, B.ny, s);
+      if (okA) cA++;
+      if (okB) cB++;
+      if (s >= CFG.EXT_MIN_PX && cA / s >= CFG.EXT_FRAC && cB / s >= CFG.EXT_FRAC) bestS = s;
+      // Once both ridges have been absent for a long unbroken run the object has
+      // ended; walking the rest of the budget cannot raise the cumulative
+      // fraction back over EXT_FRAC in any useful way, and `bestS` is already
+      // recorded. Pure speed, no behaviour change on either bench.
+      run = (okA || okB) ? 0 : run + 1;
+      if (run >= CFG.EXT_STOP) break;
+    }
+    if (bestS < CFG.EXT_MIN_PX) continue;
+    if (bestS > maxCont) maxCont = bestS;
+
+    const q = quad.map((p) => [p[0], p[1]]);
+    q[i] = [a[0] + A.ux * bestS, a[1] + A.uy * bestS];
+    q[(i + 1) % 4] = [b[0] + B.ux * bestS, b[1] + B.uy * bestS];
+    const oq = orderQuad(q);
+    if (oq) out.push(oq);
+  }
+  return maxCont;
+}
+
 // ---------------------------------------------------------------------------
 // verification (post-refine)
 // ---------------------------------------------------------------------------
@@ -1525,7 +1792,27 @@ function features(quad, F, data, W, H) {
   // one side may be occluded, in shadow or the same colour as the background:
   // judge on the second-worst side, but let the mean punish a wholly missing one.
   const sMin = js[Math.min(1, js.length - 1)];
-  const supMean = sSum / judged, strMean = strSum / judged;
+  // v3: the mean is taken over the BEST THREE judged sides, not all four.
+  //
+  // Measured on the hand-labelled field set: a hand-held card routinely has one
+  // side with NO usable gradient evidence at all -- c0038's left side scores
+  // exactly 0.000 (str 0.054), because that is where the fingers grip and the
+  // card meets a same-luminance background. A four-side mean has a ceiling of
+  // 0.75 when one side is dead, so the old `supMean >= 0.78` gate made such a
+  // card STRUCTURALLY unverifiable: its true silhouette could never pass, and a
+  // slightly-inner quad that happened to catch a finger edge won instead. That
+  // is the "locks onto a portion of the card" failure, produced by the gate
+  // rather than by the scorer.
+  //
+  // Dropping the single worst side is what every other side statistic here
+  // already does -- supMin is the second-worst, `outer` averages the three
+  // lowest, and the pre-screen ranks on its own best three -- so the four-side
+  // mean was the odd one out. The threshold is re-seated for the new statistic.
+  const nBest = Math.min(3, js.length);
+  let bSum = 0;
+  for (let k = 0; k < nBest; k++) bSum += js[js.length - 1 - k];
+  const supMean = bSum / nBest;
+  const strMean = strSum / judged;
   const bcs = boundaryContrast(quad, data, W, H);
   let bmin = 1e9, bsum = 0, bn = 0;
   for (const b of bcs) if (b >= 0) { if (b < bmin) bmin = b; bsum += b; bn++; }
@@ -1582,6 +1869,19 @@ window.detect = function detect(input) { return run(input, null); };
 
 // Development introspection only. Returns the candidate set at each stage.
 function __stages(input) { const st = {}; run(input, st); return st; }
+// Development introspection only. Truncation-recovery proposals for a quad.
+function __extend(quad, { width, height, data }) {
+  const W = width | 0, H = height | 0;
+  const F = frontEnd(W, H, data);
+  const out = [];
+  const maxCont = extendPastCorners(quad.map((p) => [p[0], p[1]]), F, W, H, out);
+  out.maxCont = maxCont;
+  return Object.assign(out.map((q) => {
+    const r = orderQuad(refineQuad(q, F, W, H, CFG.REF_HALF2));
+    const v = r ? verify(r, F, data, W, H) : null;
+    return { raw: q, refined: r, verified: !!v, score: v ? v.score : null, area: polyArea(q), feat: r ? features(r, F, data, W, H) : null };
+  }), { maxCont });
+}
 // Development introspection only. Feature vector for an arbitrary quad.
 function __features(quad, { width, height, data }) {
   const W = width | 0, H = height | 0;
@@ -1674,7 +1974,7 @@ function run({ width, height, data }, stages) {
   }
 
   // ---- refine -> verify ----
-  const verified = [];
+  let verified = [];
   const refined = [];
   for (const c of coarse) {
     let q = c.q;
@@ -1703,6 +2003,81 @@ function run({ width, height, data }, stages) {
       }
     }
   }
+  // ---- truncation recovery -------------------------------------------------
+  // A verified quad whose two adjacent sides are still running as ridges past
+  // its own corners is a crop of a bigger object, not the object. Grow it to
+  // where those ridges actually stop, and -- if the grown version verifies --
+  // let it SUPERSEDE its source rather than merely compete with it. Competing
+  // is not enough: an inner lock sits on the card's printed border, so it
+  // scores HIGHER than the true silhouette (measured on c0038: 0.867 for a quad
+  // 22px in, against 0.658 for the ground truth), and any score-ordered contest
+  // hands the frame to the wrong quad. The extension is not an opinion about
+  // which quad looks better, it is evidence that the first one ended early.
+  // Each verified quad is walked outward from its own corners. If its boundary
+  // keeps going it is grown to where that boundary actually stops, repeatedly,
+  // and the grown version REPLACES it -- an inner lock must not stay in the pool
+  // competing on a signature it earns precisely BECAUSE it sits on the card's
+  // printed interior (measured on c0038: the quad 22px inside the card scores
+  // 0.867 against the true silhouette's 0.658, so no score-ordered contest can
+  // ever pick the right one). Whatever survives is then GATED on its remaining
+  // continuation.
+  //
+  // Measured separation of that final statistic, normalised by CONT_REF *
+  // sqrt(area): true hand-labelled silhouettes 0.00, 0.00, 0.00, 0.00, 0.00,
+  // 0.00, 0.37; quads on a portion of a card or on background structure 2.00,
+  // 3.31, 3.49, 4.55, 5.87. A gate at 1.0 sits in a 5x gap.
+  if (CFG.EXTEND && verified.length) {
+    const pool2 = [];
+    for (const v of verified) {
+      let cur = v, norm = 0;
+      for (let it = 0; it <= CFG.EXT_ITERS; it++) {
+        const props = [];
+        const contPx = extendPastCorners(cur.quad, F, W, H, props);
+        norm = contPx / Math.max(1, CFG.CONT_REF * Math.sqrt(cur.area));
+        // Growth is a REPAIR for a quad that has failed the gate, never a
+        // general-purpose enlargement. Measured: applying it to every verified
+        // quad wrecks the frames that were already right (c0047 7.0 -> 39.5,
+        // c0049 5.1 -> 24.1), because a quad whose boundary genuinely stops at
+        // its corners has nothing to gain and everything to lose from one
+        // runaway side reaching a neighbouring card or the hand. A quad that
+        // already passes the gate is left exactly as it is.
+        if (norm <= CFG.CONT_MAX) break;
+        if (!props.length || it === CFG.EXT_ITERS) break;
+        let best = null;
+        for (const p of props) {
+          const q = orderQuad(refineQuad(p, F, W, H, CFG.REF_HALF2));
+          if (!q) continue;
+          const ve = verify(q, F, data, W, H);
+          if (!ve || ve.area <= cur.area * 1.04) continue;
+          // Growth is a recovery step, not a race to the biggest rectangle:
+          // taking the largest verified extension lets one runaway side swallow
+          // a neighbouring card or the hand. Take the best-scoring one.
+          if (!best || ve.score > best.score) best = ve;
+        }
+        if (!best) break;
+        best.src = (cur.src || '') + 'e';
+        cur = best;
+      }
+      // `norm` always describes `cur` as it stands at the break.
+      cur.contin = norm;
+      pool2.push(cur);
+    }
+    verified = pool2.filter((v) => v.contin <= CFG.CONT_MAX);
+    if (!verified.length) {
+      if (stages) {
+        stages.raw = raw.map((c) => ({ q: c.q, src: c.src }));
+        stages.nRawC = raw.filter((c) => c.src === 'c').length;
+        stages.nRawL = raw.length - stages.nRawC;
+        stages.nScreened = screened.length;
+        stages.coarse = coarse.map((c) => c.q);
+        stages.refined = refined;
+        stages.verified = [];
+        stages.out = [];
+      }
+      return [];
+    }
+  }
+
   if (stages) {
     stages.raw = raw.map((c) => ({ q: c.q, src: c.src }));
     stages.nRawC = raw.filter((c) => c.src === 'c').length;
@@ -1754,11 +2129,32 @@ function run({ width, height, data }, stages) {
     if (!pool.length) pool = verified;
   }
 
+  // ---- output-size policy ---------------------------------------------------
+  // A card the user is deliberately presenting to a scanner fills a real part of
+  // the preview; the hand-labelled field cards occupy 3.4%-26% of the frame. A
+  // 2500px quad on a 320x240 preview is 3% of it and is never the card someone
+  // is lining up -- on the kit those quads are 30-98px away from any real card.
+  //
+  // This is applied at the OUTPUT, not in geomOk, and that distinction is load
+  // bearing. The truncation-recovery chain reaches c0070's card by growing a
+  // 1.6k-px fragment through three verified intermediates into a 9.7k-px
+  // silhouette, so a floor inside geomOk removes the seed and the card with it
+  // (measured: MIN_AREA 2600 turns c0070 from a 13.6px hit into a miss). The
+  // detector may reason about fragments internally; it just may not emit one.
+  // Expressed as a fraction of frame area so it survives a resolution change.
+  const minOut = CFG.MIN_OUT_FRAC * W * H;
+  if (minOut > 0) {
+    // A hard floor, with no "unless nothing else survives" fallback: emitting a
+    // quad known to be too small to be the presented card is worse than
+    // emitting nothing, and the next frame is 30ms away.
+    pool = pool.filter((v) => v.area >= minOut);
+    if (!pool.length) { if (stages) stages.out = []; return []; }
+  }
+
   // ---- NMS: keep the best-scoring member of each overlapping cluster ----
   pool.sort((a, b) => b.score - a.score || b.area - a.area);
   const out = [];
   for (const cand of pool) {
-    if (out.length && cand.score < CFG.SCORE_MIN2) break;
     let dup = false, replace = -1;
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
@@ -1771,12 +2167,37 @@ function run({ width, height, data }, stages) {
       // Same object. A card's inner border edge and its silhouette are only a few
       // percent apart and score almost identically; the silhouette is the answer,
       // so let a barely-lower-scoring quad that CONTAINS the incumbent take over.
-      if (ia / o.area > 0.9 && cand.area > o.area * 1.04 && cand.score > o.score - CFG.OUTER_PREF) replace = i;
+      //
+      // v3: this is the "an inner quad and its containing silhouette both
+      // verified, and the inner one won" case, and it is the single most common
+      // way a real frame ships a quad on PART of the card. Two changes:
+      //   * `ia / o.area` is how much of the incumbent lies inside the
+      //     challenger. A silhouette does not perfectly contain the inner quad
+      //     it was grown from -- refinement moves both -- so 0.90 was too strict
+      //     for real geometry; measured containment of a true silhouette over
+      //     its own inner lock runs 0.86..0.99. OUTER_CONT states it.
+      //   * the score slack is widened, because the inner quad is SYSTEMATICALLY
+      //     favoured by the scorer: it sits on the card's printed border, so its
+      //     ring/rim/uniformity signature is stronger than the silhouette's,
+      //     which sits on the toploader edge against background.
+      if (ia / o.area > CFG.OUTER_CONT && cand.area > o.area * 1.04 && cand.score > o.score - CFG.OUTER_PREF) replace = i;
       dup = true;
       break;
     }
+    // v3: SCORE_MIN2 is the bar for OPENING A NEW OUTPUT SLOT -- "is this a
+    // second, separate card?" -- so it must be tested only when the candidate
+    // does not overlap anything already emitted. v2 applied it as a `break` on
+    // the candidate loop, which also terminated the suppression/replacement
+    // pass: measured on every real fixture, the FIRST accepted quad was
+    // followed immediately by a sub-SCORE_MIN2 candidate, so the loop exited
+    // and the container-preference branch above never executed even once. The
+    // true silhouette of c0047 (score 0.686, 9.2px from ground truth) was
+    // sitting in the pool, one comparison away from replacing a half-card quad.
     if (replace >= 0) out[replace] = cand;
-    else if (!dup) out.push(cand);
+    else if (!dup) {
+      if (out.length && cand.score < CFG.SCORE_MIN2) continue;
+      out.push(cand);
+    }
     if (out.length >= CFG.MAX_OUT * 2) break;
   }
   // Score order alone is not enough: a strip of a card's own face (its outer edge
@@ -2256,6 +2677,14 @@ let reticleOn = true, stabilityOn = true;
 function makeTracker(){ return createTracker({ frameW:workW||320, frameH:workH||240, reticle: reticleOn ? undefined : null }); }
 let tracker = makeTracker();
 
+// Evidence capture ("Flag frame"). `lastFrame` is overwritten every camLoop
+// tick with the CLEAN pre-overlay buffer: `img` below is the exact ImageData
+// getImageData() produced for this tick, before drawReticle/drawStyledQuad/
+// drawQuad paint over the live canvas -- ImageData is a detached snapshot,
+// not a live view, so holding a reference to `img.data` here is already a
+// safe copy of that tick's pixels; nothing later touches this array.
+let lastFrame = null, flagCount = 0;
+
 document.getElementById('toggleReticle').onchange=(e)=>{
   reticleOn = e.target.checked;
   tracker = makeTracker(); // gate participation changed -> start the tracker clean
@@ -2301,10 +2730,12 @@ function camLoop(){
     ms=performance.now()-t0;
 
     const ret = tracker.getReticle();
+    let frameStable = [], framePending = [];
 
     if(stabilityOn){
       const {stable, pending} = tracker.update(quads, performance.now());
       stableN = stable.length; pendingN = pending.length;
+      frameStable = stable; framePending = pending;
       if(reticleOn && ret) drawReticle(liveCtx, ret, stableN>0);
       for(const p of pending) drawStyledQuad(liveCtx, p.quad, PENDING_STYLE);
       for(const s of stable) drawStyledQuad(liveCtx, s.quad, STABLE_STYLE);
@@ -2314,6 +2745,15 @@ function camLoop(){
       if(reticleOn && ret) drawReticle(liveCtx, ret, false);
       for(const q of quads){ if(q&&q.length>=4) drawQuad(liveCtx,q,'#39d0d8',[4,3]); }
     }
+
+    // Snapshot this tick for "Flag frame". `img` was read BEFORE any of the
+    // overlay drawing above, so it is exactly the clean {width,height,data}
+    // buffer window.detect() itself was given.
+    lastFrame = {
+      width: workW, height: workH, data: img.data,
+      quads, stable: frameStable, pending: framePending,
+      frameTMs: t0, reticleOn, stabilityOn,
+    };
   }catch(e){document.getElementById('liveErr').textContent=String(e&&e.message||e);}
   const now=performance.now();
   if(liveLast){const dt=now-liveLast;if(dt>0){liveFpsBuf.push(1000/dt);if(liveFpsBuf.length>30)liveFpsBuf.shift();}}
@@ -2324,6 +2764,71 @@ function camLoop(){
   document.getElementById('livePending').textContent = stabilityOn ? pendingN : '—';
   camRAF=requestAnimationFrame(camLoop);
 }
+
+/* ---------- Flag frame (evidence capture for the fix bench) ----------
+ * Bundles the last clean captured frame (see camLoop above) as a PNG of the
+ * raw pixel buffer plus a JSON sidecar with every piece of detection state:
+ * detector's raw quads, tracker's stable/pending quads, dims, timestamps,
+ * and the reticle/stability toggle states.
+ */
+function downloadBlob(blob, filename){
+  // Temporary <a download> + object URL, appended/clicked/removed -- this is
+  // the pattern that reliably triggers a save on mobile Safari from a normal
+  // https page (a bare `window.open`/programmatic-fetch download does not).
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000); // give the browser's save flow time to read it
+}
+
+function flagCurrentFrame(){
+  if(!lastFrame){
+    document.getElementById('liveErr').textContent = 'Flag frame: no frame captured yet -- start the camera first.';
+    return;
+  }
+  const { width, height, data, quads, stable, pending, frameTMs, reticleOn: rOn, stabilityOn: sOn } = lastFrame;
+  const epochMs = Date.now();
+  const base = 'flag-' + epochMs;
+
+  // Raw (pre-overlay) buffer -> offscreen canvas -> PNG blob.
+  const off = document.createElement('canvas');
+  off.width = width; off.height = height;
+  const offCtx = off.getContext('2d');
+  offCtx.putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0);
+
+  const payload = {
+    epochMs,
+    frameTMs,
+    width, height,
+    reticleOn: rOn,
+    stabilityOn: sOn,
+    detectorQuads: quads,
+    tracker: { stable, pending },
+    pngFile: base + '.png',
+  };
+
+  off.toBlob((blob)=>{
+    if(!blob){
+      document.getElementById('liveErr').textContent = 'Flag frame: PNG export failed.';
+      return;
+    }
+    downloadBlob(blob, base + '.png');
+    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'}), base + '.json');
+
+    flagCount++;
+    document.getElementById('flagCount').textContent = flagCount;
+    document.getElementById('flagStrip').classList.remove('hidden');
+    document.getElementById('flagThumb').src = off.toDataURL('image/png');
+    document.getElementById('flagMeta').textContent =
+      base + '.png — ' + width + 'x' + height + ' — ' + quads.length + ' raw quad(s), ' +
+      stable.length + ' stable, ' + pending.length + ' pending';
+  }, 'image/png');
+}
+
+document.getElementById('flagBtn').onclick = flagCurrentFrame;
 
 /* ---------- tabs ---------- */
 document.querySelectorAll('.tab').forEach(t=>{
