@@ -161,7 +161,7 @@ export function Profile() {
 
   return (
     <div>
-      {/* Banner — 3 card-art panels (pkmn.gg captures §14.1) */}
+      {/* Banner — 3 card-art panels */}
       <div className="relative h-[180px] w-full overflow-hidden bg-surface-secondary">
         <div className="absolute inset-0 grid grid-cols-3">
           {[0, 1, 2].map((i) => (

@@ -6,7 +6,7 @@ import { CardLink } from './CardLink'
 import { variantMeta } from '../lib/variantStyle'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
-// Binder view (UI-SPEC §3.25, pkmn.gg captures §15.3).
+// Binder view (UI-SPEC §3.25).
 //
 // A real, paged binder. Pockets are laid out per the selected layout tab
 // (9 / 12 / 4 / 16 per page). An owned card renders at full brightness; an

@@ -69,7 +69,7 @@ each candidate on:
 
 | Game | Catalog + images | Prices |
 |---|---|---|
-| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog + art; pokemontcg.io for art TCGdex lacks (pkmn.gg and TCGplayer images are **ruled out** — `research/CARD-ART-SOURCES.md`) | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
+| **Pokémon** (reference) | TCGdex (compiled JSON) for catalog + art; pokemontcg.io for art TCGdex lacks. Other sources have been evaluated and **ruled out** — the approved ladder is `research/CARD-ART-SOURCES.md`, and it is the only list to source from | TCGCSV (TCGplayer mirror), Cardmarket via TCGdex |
 | **Magic: The Gathering** | **Scryfall** bulk data — catalog + images + prices in one, excellent IDs, CC0-ish data | Scryfall (USD/EUR/tix) |
 | **Yu-Gi-Oh!** | YGOPRODeck API (bulk cardinfo + images) | YGOPRODeck price fields |
 | **Lorcana / One Piece / Digimon** | community APIs / datasets (e.g. lorcana-api, an OP TCG API) — vet coverage carefully | often none; may be TCGplayer-derived |
@@ -180,9 +180,11 @@ most of them.
    `assets.tcgdex.net/<lang>/<serie>/<set>/<localId>/high.webp`). On a 404/miss, fall back to a
    secondary — **and check the source is an approved one first.** For Pokémon that is
    pokemontcg.io (`images.pokemontcg.io/<setId>/<number>_hires.png`, 600×825+, free and
-   unauthenticated); pkmn.gg and TCGplayer images are both **ruled out**, for the reasons in
-   `research/CARD-ART-SOURCES.md`. A new game's fallback needs the same licensing check
-   before you fetch anything — that note is the worked example of what "checked" means.
+   unauthenticated). Everything not on that list is **ruled out**, including sources that
+   look convenient — `research/CARD-ART-SOURCES.md` is the evaluation and the ruling, and
+   TCGplayer images are the worked example of a rejection (their terms forbid automated
+   collection outside the API and bar redistribution to end users). A new game's fallback
+   needs the same licensing check before you fetch anything.
 3. **Two resolutions.** `high` (detail view) and `low` (grid + the scanner). WebP.
 4. **Validate every download** — content-type + magic bytes (RIFF/WEBP), reject tiny/placeholder
    bodies (`< ~800 B`); then hand the bytes to `putAsset`, which does the temp-file +

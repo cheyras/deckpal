@@ -50,16 +50,24 @@ import { lookup } from 'node:dns/promises';
  *  - `raw.githubusercontent.com` — Pokédex species sprites, pinned to
  *                                `SPRITES_SHA` (`paths.ts`).
  *
- * DELIBERATELY ABSENT: `assets.pkmn.gg`. `warm:pkmn` recorded ~58 `image_asset`
- * rows against that host in 2026-08 (DECISIONS.md 2026-08-10) before pkmn.gg was
- * ruled out as a source on legal grounds on 2026-08-26 —
- * `apps/images/src/warmFromPkmn.ts` is retired and says it "must not be
- * reintroduced as a fallback". Those rows were never purged, so leaving the host
- * out of this list is what actually ENFORCES that ruling: their bytes are already
- * in the bucket and still serve as a `HIT`, but a future refill would answer the
- * placeholder with `host 'assets.pkmn.gg' is not an allow-listed image upstream`
- * instead of silently re-fetching from a source the owner rejected. If that is
- * ever reversed, it is one case arm below plus a DECISIONS.md entry.
+ * THIS LIST IS THE POLICY, and its shortness is the point. An allow-list never
+ * enumerates what it blocks — it enumerates what has been *approved*, and every
+ * other host on the internet is refused by the same single default. So a source
+ * the owner has ruled out needs no entry, no exception and no name here: it is
+ * already denied, by the same code path and with the same message as any host
+ * nobody has ever considered.
+ *
+ * That default is what makes the ruling durable rather than advisory. Bytes an
+ * unapproved source contributed in the past may still be in the bucket and still
+ * serve as a `HIT`; what this list guarantees is that a *refill* can never
+ * silently go back and fetch more. It answers with the placeholder and
+ * `host '<x>' is not an allow-listed image upstream` instead.
+ *
+ * Approving a new source is therefore a deliberate act: add the host above,
+ * with the same one-line justification the two entries carry, plus a
+ * DECISIONS.md entry recording who approved it and on what licensing basis.
+ * The approved fallback ladder for card art lives in
+ * `research/CARD-ART-SOURCES.md`; read it before adding anything.
  */
 export const IMAGE_SOURCE_HOSTS: readonly string[] = [
   'assets.tcgdex.net',

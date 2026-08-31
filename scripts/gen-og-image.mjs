@@ -62,7 +62,7 @@ if (!cssFile) {
  * actually sees rather than the unstyled fallback.
  */
 const html = `<!doctype html>
-<html lang="en" class="pkmnDark" data-theme="dark" data-skin="premium" data-topbar="cover">
+<html lang="en" class="deckpalDark" data-theme="dark" data-skin="premium" data-topbar="cover">
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="/assets/${cssFile}">

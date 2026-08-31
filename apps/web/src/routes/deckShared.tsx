@@ -8,8 +8,8 @@ export const FORMAT_META: Record<DeckFormat, { label: string; short: string; blu
   unlimited: { label: 'Unlimited', short: 'Unlimited', blurb: 'Every US-released card, no ban list.' },
 }
 
-// pkmn.gg shows an orange "Not Legal" pill (DECK-FORMATS §5.6 / BEHAVIOR-SPEC §8.4)
-// and a green legal state. Now uses --color-warning from the token system.
+// Deck legality renders as a pill: orange "Not Legal", green when legal
+// (DECK-FORMATS §5.6). Uses --color-warning from the token system.
 
 export function LegalBadge({ legal, onClick, big }: { legal: boolean; onClick?: () => void; big?: boolean }) {
   const cls = big ? 'px-[14px] py-[7px] text-[14px]' : 'px-[10px] py-[3px] text-[12px]'

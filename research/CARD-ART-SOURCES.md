@@ -16,6 +16,17 @@ owner's requirement is that *every* card have art. The owner has also **ruled
 pkmn.gg out entirely, on legal grounds**, which retires `warm:pkmn`
 (`apps/images/src/warmFromPkmn.ts`) as the answer here and for future gaps.
 
+> **Update, 2026-08-31.** That ruling has now been carried through the codebase:
+> the warmer and its npm script are deleted, the upstream allow-list denies the
+> host by simply not listing it, and the name has been removed everywhere else it
+> appeared. **This paragraph deliberately keeps it.** A policy that names what was
+> evaluated and rejected is auditable; one that only says "use the approved list"
+> invites a future agent to re-evaluate the same source and reach the same dead
+> end. Treat this, and §2.3's TCGplayer rejection, as the two worked examples of
+> what a licensing check has to conclude before any bytes are fetched. The image
+> re-sourcing itself — the ~1,912 out-of-policy `image_asset` rows — is tracked
+> separately; see `card-art-residue.json` and DECISIONS.md 2026-08-31.
+
 ## Evidence tags
 
 | Tag | Meaning |

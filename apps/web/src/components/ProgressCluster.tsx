@@ -4,7 +4,7 @@ import { GOAL_SHORT_LABEL } from '../routes/setSearch'
 import { setLevelLabel } from '../lib/format'
 import { ProgressBar } from './ui/Progress'
 
-// The progress cluster (UI-SPEC §3.6, pkmn.gg captures §8/§10) — ONE bar,
+// The progress cluster (UI-SPEC §3.6) — ONE bar,
 // configured to whichever goal is currently selected via the `goal` prop
 // (GitHub #30). This used to render two bars (Complete always on top, plus a
 // thinner Master/Grandmaster bar below) — see DECISIONS.md 2026-08-11 for the
@@ -37,8 +37,8 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
   const current = progress[goal]
   const accent = GOAL_COLOR[goal]
   // LVL stays keyed to Complete-Set pct no matter which goal is on screen —
-  // it's an account-level "trainer level" reading (verified against
-  // pkmn.gg, see lib/format.ts), not a per-goal stat, so it doesn't retarget
+  // it's an account-level "trainer level" reading (setLevelLabel in
+  // lib/format.ts), not a per-goal stat, so it doesn't retarget
   // with the bar below it.
   const lvl = setLevelLabel(progress.complete.pct)
 
