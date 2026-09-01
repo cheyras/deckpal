@@ -47,6 +47,7 @@
   #videoWrap { position: relative; width: 100%; aspect-ratio: 4/3; background: #000;
     border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
   video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   #prepCanvas { display: none; }
   .controls { display: flex; gap: 10px; align-items: center; }
   button {
@@ -55,7 +56,14 @@
   }
   #startBtn { background: var(--ok); color: #04210f; }
   #stopBtn { background: var(--bad); color: #2a0000; }
+  #flagBtn { background: #ff2fe0; color: #2a0026; width: 100%; }
   button:disabled { opacity: 0.35; cursor: default; }
+  .flag-status { font-size: 0.75rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+    display: inline-block; margin-top: 8px; background: var(--panel-2); color: var(--dim); }
+  .flag-status.uploading { color: var(--accent); }
+  .flag-status.saved { color: var(--ok); }
+  .flag-status.failed { color: var(--bad); cursor: pointer; }
+  #uploadStatus { font-size: 0.72rem; color: var(--dim); text-align: center; margin-top: 6px; }
   #countdown {
     font-variant-numeric: tabular-nums; font-size: 1.6rem; font-weight: 700;
     text-align: center; min-width: 84px;
@@ -95,9 +103,10 @@
 <div id="crashBanner" class="banner" hidden></div>
 
 <div class="panel">
-  <h2>Camera preview</h2>
+  <h2>Camera preview — magenta quad is the model's live corner prediction</h2>
   <div id="videoWrap">
     <video id="preview" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
   </div>
   <canvas id="prepCanvas" width="256" height="256"></canvas>
 </div>
@@ -108,6 +117,12 @@
     <button id="stopBtn" disabled>Stop</button>
     <div id="countdown">20:00</div>
   </div>
+  <div id="uploadStatus">session sync: idle</div>
+</div>
+
+<div class="panel">
+  <button id="flagBtn" disabled>Flag this frame</button>
+  <div id="flagStatus" class="flag-status">not flagged yet</div>
 </div>
 
 <div class="panel">
@@ -225,6 +240,19 @@
 // The mobilenetv2 desktop/browser verification numbers are kept in the
 // final report as a secondary data point since they were already measured,
 // but the LC050 numbers are the ones that matter for the Phase 0b gate.
+//
+// REMOTE OBSERVABILITY: this page uploads to POST /api/dev/scan-flags (the
+// SAME endpoint scan-harness.html's "Flag frame" already uses -- no API
+// changes). Three upload shapes, distinguished by meta.type, all sharing one
+// `session` id (Date.now() at Start): 'probe-start'/'probe-end' (one-shot,
+// fire-and-forget, at the run's edges), 'probe-snapshot' (silent, every 10s,
+// a small JPEG + live telemetry + the model's latest points/has_obj -- retried
+// every tick on failure, never disturbs the run), and 'probe-flag' (the big
+// button, a full-res PNG, visible saved/failed status chip, mirrors
+// scan-harness.html's flagCurrentFrame exactly). The magenta quad drawn over
+// the preview is the model's own live corner prediction, decoded from the
+// same `points`/`has_obj` outputs the uploads carry -- this turns the 20-
+// minute endurance session into a live visual model test for free.
 // ---------------------------------------------------------------------------
 
 import ort from './ort.wasm.min.mjs';
@@ -236,14 +264,30 @@ const MODEL_INPUT_DIMS = [1, 3, 256, 256];
 const IMAGENET_MEAN = [0.485, 0.456, 0.406];
 const IMAGENET_STD = [0.229, 0.224, 0.225];
 
+// Remote observability — reuses the EXISTING scan-harness flag endpoint, no API
+// changes. Same origin, same auth story (session cookie/JWT rides along via
+// credentials:'include'), same request shape ({png, meta}) as
+// apps/web/src/routes/dev/scan-harness.html's flagCurrentFrame/uploadFlag. The
+// server always stores the bytes as `<id>.png` regardless of actual codec, so
+// every meta payload below carries an explicit `imgCodec` field noting what was
+// really sent ('jpeg' for the periodic/edge snapshots, 'png' for flags).
+const FLAG_UPLOAD_URL = '/api/dev/scan-flags';
+const SNAPSHOT_INTERVAL_MS = 10000;
+const SNAPSHOT_LONG_SIDE = 320;
+const RECENT_MS_CAP = 200; // ring buffer size for the live median-inference-ms figure
+
 const $ = (id) => document.getElementById(id);
 const els = {
   crashBanner: $('crashBanner'),
   video: $('preview'),
+  overlay: $('overlay'),
   prepCanvas: $('prepCanvas'),
   startBtn: $('startBtn'),
   stopBtn: $('stopBtn'),
   countdown: $('countdown'),
+  uploadStatus: $('uploadStatus'),
+  flagBtn: $('flagBtn'),
+  flagStatus: $('flagStatus'),
   stCurrent: $('stCurrent'),
   stRolling: $('stRolling'),
   stCumulative: $('stCumulative'),
@@ -451,6 +495,21 @@ let lastCheckpointSec = -1;
 let uiTimer = null;
 let checkpointTimer = null;
 let countdownTimer = null;
+let snapshotTimer = null;
+
+// Remote observability state
+let uploadSessionId = null; // Date.now() at Start -- the `session` field on every upload this run
+let lastPoints = null;      // [x0,y0,x1,y1,x2,y2,x3,y3], normalized 0-1 in MODEL space, from the
+                             // most recently completed inference (confirmed empirically: LC050's
+                             // `points` output is normalized, not absolute pixels -- values stayed
+                             // in ~[0,1] across several synthetic test inputs)
+let lastHasObj = null;      // scalar 0-1 objectness/confidence from the same inference
+const recentInferenceMs = []; // ring buffer (cap RECENT_MS_CAP) of per-inference ms, for a live median
+let snapshotSeq = 0;
+let snapshotConsecutiveFails = 0;
+let snapshotsPaused = false;
+let snapshotsSentCount = 0;
+let flagBusy = false;
 
 function elapsedSec() {
   return (performance.now() - runStartTs) / 1000;
@@ -475,6 +534,247 @@ function rollingRate60() {
 function cumulativeRate() {
   const e = elapsedSec();
   return e > 0 ? totalCount / e : 0;
+}
+
+// Shared by finalize() (whole-run summary) and the live upload telemetry below,
+// so the two can never silently disagree about how median/p5/degradation are
+// computed. `uptoSec` is the elapsed-seconds horizon to compute over -- the
+// full run length at finalize time, or "so far" mid-run for a live snapshot.
+function computeRateStats(uptoSec) {
+  const rateSamples = secondBuckets.slice(0, Math.max(1, uptoSec));
+  const sorted = [...rateSamples].sort((a, b) => a - b);
+  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const p5 = sorted.length ? sorted[Math.floor(sorted.length * 0.05)] : 0;
+  const firstMin = rateSamples.slice(0, 60);
+  const lastMin = rateSamples.slice(Math.max(0, rateSamples.length - 60));
+  const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+  const firstMinAvg = avg(firstMin);
+  const lastMinAvg = avg(lastMin);
+  const degradationPct = firstMinAvg > 0 ? ((firstMinAvg - lastMinAvg) / firstMinAvg) * 100 : 0;
+  return { median, p5, firstMinAvg, lastMinAvg, degradationPct };
+}
+
+function liveMedianMs() {
+  if (!recentInferenceMs.length) return null;
+  const s = [...recentInferenceMs].sort((a, b) => a - b);
+  return Number(s[Math.floor(s.length / 2)].toFixed(2));
+}
+
+function liveTelemetryForMeta() {
+  const stats = computeRateStats(Math.floor(elapsedSec()));
+  return {
+    nowRate: Number(currentRate().toFixed(2)),
+    rate1min: Number(rollingRate60().toFixed(2)),
+    cumRate: Number(cumulativeRate().toFixed(2)),
+    count: totalCount,
+    medianMs: liveMedianMs(),
+    degradationPct: Number(stats.degradationPct.toFixed(1)),
+  };
+}
+
+// --- Live model-output overlay: draw the predicted quad + has_obj over the preview ---
+//
+// lastPoints is 4 (x,y) pairs normalized [0,1] in MODEL space (256x256 input).
+// frameToTensor() builds that input by stretching the ENTIRE video frame
+// (0,0,video.videoWidth,video.videoHeight implied source) into a MODEL_HW x
+// MODEL_HW square -- a non-uniform stretch, but because it stretches the FULL
+// frame on both axes, a normalized fraction in model space (nx,ny in [0,1]) is
+// numerically identical to the normalized fraction in VIDEO-native space. No
+// separate "undo the stretch" step is needed -- only object-fit:cover's mapping
+// from the video's native pixel space to the displayed CSS box remains, which
+// is the standard cover inverse: uniform-scale-then-center-crop.
+const overlayCtx = els.overlay.getContext('2d');
+function drawOverlay() {
+  const wrap = els.video.parentElement; // #videoWrap
+  const dispW = wrap.clientWidth, dispH = wrap.clientHeight;
+  if (!dispW || !dispH) return;
+  if (els.overlay.width !== dispW) els.overlay.width = dispW;
+  if (els.overlay.height !== dispH) els.overlay.height = dispH;
+  overlayCtx.clearRect(0, 0, dispW, dispH);
+  if (!running || !lastPoints) return;
+  const vW = els.video.videoWidth, vH = els.video.videoHeight;
+  if (!vW || !vH) return;
+
+  const scale = Math.max(dispW / vW, dispH / vH); // object-fit: cover
+  const renderedW = vW * scale, renderedH = vH * scale;
+  const offsetX = (dispW - renderedW) / 2;
+  const offsetY = (dispH - renderedH) / 2;
+  const toScreen = (nx, ny) => [nx * renderedW + offsetX, ny * renderedH + offsetY];
+
+  overlayCtx.lineWidth = 3;
+  overlayCtx.strokeStyle = '#ff2fe0';
+  overlayCtx.fillStyle = '#ff2fe0';
+  overlayCtx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = toScreen(lastPoints[i * 2], lastPoints[i * 2 + 1]);
+    if (i === 0) overlayCtx.moveTo(x, y); else overlayCtx.lineTo(x, y);
+  }
+  overlayCtx.closePath();
+  overlayCtx.stroke();
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = toScreen(lastPoints[i * 2], lastPoints[i * 2 + 1]);
+    overlayCtx.beginPath();
+    overlayCtx.arc(x, y, 4, 0, Math.PI * 2);
+    overlayCtx.fill();
+  }
+  overlayCtx.font = '600 13px -apple-system, BlinkMacSystemFont, sans-serif';
+  overlayCtx.fillStyle = '#fff';
+  overlayCtx.strokeStyle = 'rgba(0,0,0,.7)';
+  overlayCtx.lineWidth = 3;
+  const label = `has_obj: ${lastHasObj !== null ? lastHasObj.toFixed(2) : '–'}`;
+  overlayCtx.strokeText(label, 8, 18);
+  overlayCtx.fillText(label, 8, 18);
+}
+
+// --- Remote observability: session snapshots + edge events + flag upload ---
+// Reuses /api/dev/scan-flags EXACTLY as apps/web/src/routes/dev/scan-harness.html
+// does (same URL, same credentials:'include', same {png, meta} JSON body). No
+// API changes.
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = String(reader.result || '');
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    reader.onerror = () => reject(reader.error || new Error('FileReader failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function postFlag(png, meta) {
+  return fetch(FLAG_UPLOAD_URL, {
+    method: 'POST',
+    credentials: 'include', // same-origin session cookie/JWT, same as the harness
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ png, meta }),
+  }).then((res) => {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json(); // { ok: true, id: <epochMs> }
+  });
+}
+
+// ~320px-long-side JPEG q0.7 -- cheap, well under the server's 3MB combined cap.
+function captureDownscaledJpegBase64(longSide) {
+  return new Promise((resolve, reject) => {
+    const vW = els.video.videoWidth, vH = els.video.videoHeight;
+    if (!vW || !vH) { reject(new Error('no video frame yet')); return; }
+    const scale = longSide / Math.max(vW, vH);
+    const outW = Math.max(1, Math.round(vW * scale));
+    const outH = Math.max(1, Math.round(vH * scale));
+    const off = document.createElement('canvas');
+    off.width = outW; off.height = outH;
+    off.getContext('2d').drawImage(els.video, 0, 0, outW, outH);
+    off.toBlob((blob) => {
+      if (!blob) { reject(new Error('toBlob (jpeg) failed')); return; }
+      blobToBase64(blob).then(resolve, reject);
+    }, 'image/jpeg', 0.7);
+  });
+}
+
+// Full native-resolution PNG of the current working frame, for the Flag button.
+function captureFullResPngBase64() {
+  return new Promise((resolve, reject) => {
+    const vW = els.video.videoWidth, vH = els.video.videoHeight;
+    if (!vW || !vH) { reject(new Error('no video frame yet')); return; }
+    const off = document.createElement('canvas');
+    off.width = vW; off.height = vH;
+    off.getContext('2d').drawImage(els.video, 0, 0, vW, vH);
+    off.toBlob((blob) => {
+      if (!blob) { reject(new Error('toBlob (png) failed')); return; }
+      blobToBase64(blob).then(resolve, reject);
+    }, 'image/png');
+  });
+}
+
+// probe-start / probe-end: one-shot, best-effort, never blocks Start/Stop on
+// the network. Fire-and-forget from the caller's point of view.
+async function uploadEdgeEvent(type, extraMeta) {
+  try {
+    const img = await captureDownscaledJpegBase64(SNAPSHOT_LONG_SIDE);
+    const meta = { type, session: uploadSessionId, imgCodec: 'jpeg', ...extraMeta };
+    const result = await postFlag(img, meta);
+    log(`${type} uploaded (#${result.id})`);
+  } catch (err) {
+    log(`${type} upload failed (non-fatal): ${err && err.message ? err.message : err}`, 'warn');
+  }
+}
+
+function setUploadStatusUI(text) {
+  if (els.uploadStatus) els.uploadStatus.textContent = text;
+}
+
+// Periodic (every SNAPSHOT_INTERVAL_MS) session snapshot. Silent: failures never
+// disturb the run, always retried at the next tick. After 2 consecutive
+// failures we label the state "paused (offline?)" for the owner's benefit, but
+// we keep attempting on the normal cadence regardless -- that IS the resume
+// mechanism, since only an attempt can ever succeed and clear the streak. So
+// "paused" here is an honest status label, not a different code path.
+async function uploadSessionSnapshot() {
+  try {
+    const img = await captureDownscaledJpegBase64(SNAPSHOT_LONG_SIDE);
+    const meta = {
+      type: 'probe-snapshot',
+      session: uploadSessionId,
+      seq: snapshotSeq++,
+      elapsed: Math.round(elapsedSec()),
+      telemetry: liveTelemetryForMeta(),
+      model: { points: lastPoints, hasObj: lastHasObj },
+      dims: { width: els.video.videoWidth, height: els.video.videoHeight },
+      ua: navigator.userAgent,
+      imgCodec: 'jpeg',
+    };
+    const result = await postFlag(img, meta);
+    if (snapshotsPaused) log('session snapshot uploads: resumed after a successful upload', 'warn');
+    snapshotsPaused = false;
+    snapshotConsecutiveFails = 0;
+    snapshotsSentCount++;
+    setUploadStatusUI(`session sync: active · ${snapshotsSentCount} sent (#${result.id})`);
+  } catch (err) {
+    snapshotConsecutiveFails++;
+    if (snapshotConsecutiveFails >= 2 && !snapshotsPaused) {
+      snapshotsPaused = true;
+      log('session snapshot uploads: 2 consecutive failures, treating as offline -- still retrying silently every 10s', 'warn');
+    }
+    setUploadStatusUI(`session sync: ${snapshotsPaused ? 'paused (offline?)' : 'retry next tick'} · ${snapshotsSentCount} sent`);
+  }
+}
+
+// --- Flag button: full-res PNG upload with a visible status chip, mirroring
+// scan-harness.html's flagCurrentFrame/uploadFlag pattern exactly. ---
+function setFlagStatus(state, text, onClick) {
+  const el = els.flagStatus;
+  el.className = 'flag-status ' + state;
+  el.textContent = text;
+  el.onclick = onClick || null;
+}
+
+async function flagCurrentFrame() {
+  if (!running || flagBusy) return;
+  flagBusy = true;
+  setFlagStatus('uploading', 'uploading…');
+  try {
+    const png = await captureFullResPngBase64();
+    const meta = {
+      type: 'probe-flag',
+      session: uploadSessionId,
+      elapsed: Math.round(elapsedSec()),
+      telemetry: liveTelemetryForMeta(),
+      // From the most recently COMPLETED inference. The loop is continuous and
+      // not synchronized to this click, so this is the nearest available
+      // reading, not guaranteed to be this exact frame's own model output.
+      model: { points: lastPoints, hasObj: lastHasObj },
+      dims: { width: els.video.videoWidth, height: els.video.videoHeight },
+      imgCodec: 'png',
+    };
+    const result = await postFlag(png, meta);
+    setFlagStatus('saved', 'saved ✓ #' + result.id);
+  } catch (err) {
+    setFlagStatus('failed', 'failed ✗ — tap to retry', () => flagCurrentFrame());
+  } finally {
+    flagBusy = false;
+  }
 }
 
 function drawSparkline() {
@@ -526,6 +826,7 @@ function refreshTelemetryUI() {
     els.stHeap.textContent = 'n/a';
   }
   drawSparkline();
+  drawOverlay();
 }
 
 function writeCheckpoint(extra) {
@@ -545,21 +846,15 @@ function finalize(reason) {
   clearInterval(uiTimer); uiTimer = null;
   clearInterval(checkpointTimer); checkpointTimer = null;
   clearInterval(countdownTimer); countdownTimer = null;
+  clearInterval(snapshotTimer); snapshotTimer = null;
   els.startBtn.disabled = false;
   els.stopBtn.disabled = true;
+  els.flagBtn.disabled = true;
+  overlayCtx.clearRect(0, 0, els.overlay.width, els.overlay.height);
 
   const e = elapsedSec();
   const secondsElapsed = Math.floor(e);
-  const rateSamples = secondBuckets.slice(0, Math.max(1, secondsElapsed));
-  const sorted = [...rateSamples].sort((a, b) => a - b);
-  const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
-  const p5 = sorted.length ? sorted[Math.floor(sorted.length * 0.05)] : 0;
-  const firstMin = rateSamples.slice(0, 60);
-  const lastMin = rateSamples.slice(Math.max(0, rateSamples.length - 60));
-  const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-  const firstMinAvg = avg(firstMin);
-  const lastMinAvg = avg(lastMin);
-  const degradation = firstMinAvg > 0 ? ((firstMinAvg - lastMinAvg) / firstMinAvg) * 100 : 0;
+  const { median, p5, firstMinAvg, lastMinAvg, degradationPct } = computeRateStats(secondsElapsed);
   const gatePass = median >= 12;
 
   const summary = {
@@ -570,10 +865,22 @@ function finalize(reason) {
     p5Rate: Number(p5.toFixed(2)),
     firstMinuteAvgRate: Number(firstMinAvg.toFixed(2)),
     lastMinuteAvgRate: Number(lastMinAvg.toFixed(2)),
-    degradationPct: Number(degradation.toFixed(1)),
+    degradationPct: Number(degradationPct.toFixed(1)),
     gatePass,
     priorRunCrashed,
   };
+
+  uploadEdgeEvent('probe-end', {
+    summary: {
+      medianRate: summary.medianRate,
+      p5Rate: summary.p5Rate,
+      degradationPct: summary.degradationPct,
+      totalCount: summary.totalCount,
+      elapsed: summary.elapsedSec,
+      crashDetected: false, // finalize() only ever runs on a clean stop -- a true
+                             // crash never reaches this function, by construction
+    },
+  });
 
   writeState({
     cleanStop: true,
@@ -605,13 +912,19 @@ async function inferenceLoop() {
     try {
       const tensor = frameToTensor();
       const t0 = performance.now();
-      await sess.run({ [inputName]: tensor });
+      const results = await sess.run({ [inputName]: tensor });
       const dtMs = performance.now() - t0;
       const e = elapsedSec();
       totalCount++;
       const bucket = Math.floor(e);
       if (bucket < secondBuckets.length) secondBuckets[bucket] = (secondBuckets[bucket] || 0) + 1;
-      void dtMs; // per-inference ms available if needed; rate is derived from bucket counts
+      recentInferenceMs.push(dtMs);
+      if (recentInferenceMs.length > RECENT_MS_CAP) recentInferenceMs.shift();
+      // Array.from(): a Tensor's `.data` is a Float32Array, and Float32Array
+      // fails Array.isArray -- JSON.stringify would serialize it as a
+      // {"0":...,"1":...} object, not a [...] array, if left un-converted.
+      if (results.points && results.points.data) lastPoints = Array.from(results.points.data);
+      if (results.has_obj && results.has_obj.data) lastHasObj = results.has_obj.data[0];
     } catch (err) {
       log(`inference error: ${err && err.message ? err.message : err}`, 'err');
       // Do not spin hot on a persistent error.
@@ -627,6 +940,15 @@ async function startRun() {
   totalCount = 0;
   secondBuckets = new Array(RUN_SECONDS + 5).fill(0);
   lastCheckpointSec = -1;
+  lastPoints = null;
+  lastHasObj = null;
+  recentInferenceMs.length = 0;
+  snapshotSeq = 0;
+  snapshotConsecutiveFails = 0;
+  snapshotsPaused = false;
+  snapshotsSentCount = 0;
+  setFlagStatus('idle', 'not flagged yet');
+  setUploadStatusUI('session sync: starting…');
 
   try {
     await ensureCamera();
@@ -638,9 +960,11 @@ async function startRun() {
   }
   inputName = session.inputNames[0];
 
+  uploadSessionId = Date.now();
   running = true;
   runStartTs = performance.now();
   els.stopBtn.disabled = false;
+  els.flagBtn.disabled = false;
 
   uiTimer = setInterval(refreshTelemetryUI, 250);
   checkpointTimer = setInterval(() => writeCheckpoint(), 5000);
@@ -649,9 +973,19 @@ async function startRun() {
       finalize('timer-complete');
     }
   }, 500);
+  snapshotTimer = setInterval(() => uploadSessionSnapshot(), SNAPSHOT_INTERVAL_MS);
 
   writeCheckpoint(); // t=0 checkpoint
   log('Run started. 20:00 countdown begun.');
+  uploadEdgeEvent('probe-start', {
+    ua: navigator.userAgent,
+    hw: {
+      deviceMemory: navigator.deviceMemory ?? null,
+      hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+      simd: simdSupported,
+      threads: sessionThreadsActual,
+    },
+  });
   inferenceLoop();
 }
 
@@ -675,6 +1009,7 @@ document.addEventListener('visibilitychange', () => {
 
 els.startBtn.addEventListener('click', () => startRun());
 els.stopBtn.addEventListener('click', () => stopRun());
+els.flagBtn.addEventListener('click', () => flagCurrentFrame());
 
 log('Probe loaded. ONNX Runtime Web import pending session creation on Start.');
 </script>
