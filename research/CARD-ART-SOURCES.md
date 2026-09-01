@@ -290,4 +290,74 @@ out, no approved source supplies art below our `high` slot, so neither the
 
 ---
 
-_Last updated by Claude Opus 5 on behalf of @cheyras — 2026-08-26_
+## 8. 2026-08-31 update — §7 decided, and executed (Project Holo 2c-part-2)
+
+**Decided by:** the owner, 2026-08-31. **§7 decision 1: pokemontcg.io is
+approved** as the card-art fallback source. **§7 decision 2: accepted** — the
+remaining no-approved-source residue is documented rather than chased further
+(the Bulbagarden crosswalk in §2.4 stays unresolved and uncommissioned), and
+the owner separately approved deleting the objects that fall out of that
+residue with no approved source to attribute them to.
+
+**Execution summary:**
+
+- **The dump** (`tools/card-art/dump-affected.sql`) measured **1,912** affected
+  `image_asset` rows — 1,854 with `source_url IS NULL` plus 58 still pointing at
+  the retired host — across **914** distinct cards.
+- **The crosswalk** (`tools/card-art/build-crosswalk.mts`, output
+  `tools/card-art/crosswalk.json`, gitignored/regenerable — see §6's method and
+  `research/card-art-residue.json`'s `rederivations` entry) mapped **173 of 218**
+  sets between TCGdex and pokemontcg.io, recovering all **120** `swsh-TG` cards
+  along the way.
+- **The pipeline** (`tools/card-art/resource-assets.mts`) re-sourced **1,417**
+  assets from `images.pokemontcg.io`, re-encoded to webp (83.27 MB total), and
+  uploaded them through the shipped `storage:backfill --prefix images --force`
+  choke point — B1's provenance contract, not a side-door write. **0 upload
+  failures**; 46 flagged undersized against the target slot. The remaining
+  **495** rows had no approved source: 230 set-unmapped, 103 persistent upstream
+  404s, 84 orphan rows, 78 refused at the per-number level (ambiguous or
+  name-mismatched — see `research/card-art-unavailable.json`'s `reasons` map).
+- **Provenance** was then written back: `out/apply-source-urls.sql` attributed
+  all 1,417 re-sourced rows to their `images.pokemontcg.io` URL; the final
+  SELECT confirmed exactly 495 rows still unattributed — matching the delete set
+  precisely.
+- **Deletion.** The owner-approved 495 objects were removed — 493 through the
+  shipped `deleteObject`, and **2 by direct storage API call**, noted here as a
+  finding rather than something fixed today: the card's `localId` is literally
+  `!` (Unown `!` in `exu`, the same pair §1 already flagged as unrepresentable
+  by the `SEGMENT` allow-list in `packages/storage/src/paths.ts`), and the
+  shipped key sanitizer refuses that character. `out/apply-unavailable.sql`
+  then deleted the corresponding 495 manifest rows in one
+  `BEGIN`/`DELETE`/`COMMIT`.
+- **Verification, all clean:** rows without an approved source = 0; rows on an
+  unapproved host = 0; any `image_asset.source_url` pointing at pokemontcg.io
+  outside the approved set = 0 unexpected; orphan `image_object` rows = 0;
+  etag spot-check 10/10 matched (no CDN staleness between upload and read-back).
+- **Published:** [`research/card-art-unavailable.json`](card-art-unavailable.json)
+  (copied from `tools/card-art/out/`) is now the live no-art list — **952 cards**:
+  the 495 just deleted plus the 485-card residue this same execution rederived
+  (see below) that never had art to begin with.
+- **Residue rederived.** Re-running the 2026-08-26 no-source measurement through
+  the new crosswalk (`tools/card-art/rederive-residue.mts`) moves it from 504 to
+  **485** — coverage rose from 88 to 107, almost entirely `cel25cc`, whose
+  pokemontcg.io numbering needed the `_A`/`_B` suffix handling the original ad
+  hoc probe didn't have. Full detail: `research/card-art-residue.json`'s
+  `rederivations` entry (the original 2026-08-26 measurement and per-card list
+  are kept verbatim alongside it).
+
+**Outstanding — named, not done here:**
+
+1. **`storage:backfill --reconcile`** has not been run. 60 objects uploaded
+   during this pipeline lack their `image_object` per-tier row, so
+   `manifest:check` will report DRIFT until it runs. On the manager to run.
+2. **Open decision:** whether to add `images.pokemontcg.io` to
+   `IMAGE_SOURCE_HOSTS` in `packages/storage/src/upstream.ts` so future
+   re-sourced assets self-heal through the normal warm path instead of needing
+   another one-off pipeline. Not decided — put to the owner.
+3. **Visual in-app spot check** of the re-sourced art has not been done.
+
+See `DECISIONS.md` 2026-08-31 for the compact version of this same story.
+
+---
+
+_Last updated by Claude Fable 5 on behalf of @cheyras — 2026-08-31_

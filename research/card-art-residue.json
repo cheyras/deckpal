@@ -1,6 +1,18 @@
 {
   "generated": "2026-08-26",
   "note": "Cards with no card art in the object store and no APPROVED source. See research/CARD-ART-SOURCES.md. tcgplayerHeight is recorded for the record only; TCGplayer is not an approved source (its terms prohibit automated collection outside the API, and new API access is not granted).",
+  "rederivations": [
+    {
+      "date": "2026-08-31",
+      "by": "tools/card-art/rederive-residue.mts",
+      "measurement": "crosswalk (tools/card-art/crosswalk.json, built from TCGdex+pokemontcg.io by tools/card-art/build-crosswalk.mts), not the ad hoc pokemontcg.io set-list probe the 2026-08-26 figures below used",
+      "missingCards": 592,
+      "withoutApprovedSource": 485,
+      "withApprovedSource": 107,
+      "delta": "-19 vs. the 2026-08-26 withoutApprovedSource of 504 (that measurement's 88-card coverage rose to 107 under the crosswalk). Almost all of the swing is cel25cc: its pokemontcg.io numbering uses an '_A'/'_B' suffix scheme the 2026-08-26 probe did not decode, which the crosswalk resolves per-card instead of guessing.",
+      "note": "This is a re-measurement of the same no-art population using a more capable mapping, run as part of Project Holo 2c-part-2 execution (see DECISIONS.md 2026-08-31). It supersedes the 504 figure for coverage-planning purposes but the 2026-08-26 record below (including its full per-card list) is kept verbatim as the original measurement -- see research/CARD-ART-SOURCES.md's 2026-08-31 update section for the full story, and research/card-art-unavailable.json for the executed, post-resourcing published no-art list (952 cards -- a different, larger population: this file's residue plus orphan/never-sourced rows the 2c-part-2 dump additionally surfaced)."
+    }
+  ],
   "catalogCards": 21066,
   "missingCards": 592,
   "withoutApprovedSource": 504,

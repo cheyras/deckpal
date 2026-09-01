@@ -139,3 +139,22 @@ apps/web/public/models/decke/decke.orig.glb
 
 # Removed from history 2026-08-31 (Project Holo 2a): DeckPal-UI screenshots containing third-party card art.
 research/frontend-shots/
+
+# ── Project Holo 2c-part-2 scratch (card-art re-sourcing pipeline) ──────────
+# .raw/ and stage/ are working directories for downloaded/re-encoded bytes;
+# out/ and out-sample/ hold generated SQL/plan/report artifacts from pipeline
+# runs. affected.json (2.3 MB) and crosswalk.json (6.3 MB) are regenerable
+# dumps -- the durable record is the tracked tools/card-art/*.mts and *.sql
+# scripts plus research/card-art-unavailable.json. See DECISIONS.md 2026-08-31.
+tools/card-art/.raw/
+tools/card-art/stage/
+tools/card-art/out/
+tools/card-art/out-sample/
+tools/card-art/affected.json
+tools/card-art/crosswalk.json
+
+# tools/frame-survey/ (Project Holo 4a, not committed yet): assets.json and
+# out/ will be generated pipeline output when that work lands -- pre-ignored
+# on the same reasoning as above so a future run isn't swept in by accident.
+tools/frame-survey/assets.json
+tools/frame-survey/out/
