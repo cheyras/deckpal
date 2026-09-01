@@ -47,7 +47,14 @@ describe('the crosswalk is fetchable under its own policy', () => {
   it('the default policy is left untouched by this feature', async () => {
     const a = await checkUpstreamUrl('https://assets.tcgdex.net/en/sv/sv1/logo.webp', IMAGE_SOURCE_POLICY);
     assert.equal(a.ok, true, 'card art must still fetch under the default policy');
-    const b = await checkUpstreamUrl('https://images.pokemontcg.io/svp/symbol.png', IMAGE_SOURCE_POLICY);
-    assert.equal(b.ok, false, 'the DEFAULT policy must not have been widened');
+    // Until 2026-08-31 this asserted the opposite: the fallback table was the
+    // ONLY route to images.pokemontcg.io, so the default policy refusing the
+    // host proved this feature had not widened it. The owner then approved the
+    // host generally (DECISIONS.md 2026-08-31, card-art re-sourcing), so the
+    // default policy accepts it now — by that decision, not by this feature.
+    // What this test still guards is table membership staying exact-URL.
+    const b = await checkUpstreamUrl('https://images.pokemontcg.io/anything-else.png', IMAGE_SOURCE_POLICY);
+    assert.equal(b.ok, true, 'the host is now generally approved (2026-08-31)');
+    assert.equal(isSetImageFallbackUrl('https://images.pokemontcg.io/anything-else.png'), false);
   });
 });

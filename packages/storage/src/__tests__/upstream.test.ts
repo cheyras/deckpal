@@ -24,9 +24,10 @@ const localhostPolicy = (allowPrivateAddresses: boolean): UpstreamPolicy => ({
 });
 
 describe('IMAGE_SOURCE_HOSTS', () => {
-  it('is exactly the two upstreams the code can derive a URL for', () => {
+  it('is exactly the three upstreams the code can derive a URL for', () => {
     assert.deepEqual([...IMAGE_SOURCE_HOSTS].sort(), [
       'assets.tcgdex.net',
+      'images.pokemontcg.io',
       'raw.githubusercontent.com',
     ]);
     for (const host of IMAGE_SOURCE_HOSTS) {

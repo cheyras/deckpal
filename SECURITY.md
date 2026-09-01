@@ -262,7 +262,8 @@ Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
   fetcher, because this code runs in the image function (which holds
   `SUPABASE_SERVICE_ROLE_KEY`) and, on success, republishes the bytes to the
   PUBLIC `card-art` bucket at a derivable path. It now enforces an explicit
-  upstream allow-list — `assets.tcgdex.net` and `raw.githubusercontent.com`,
+  upstream allow-list — `assets.tcgdex.net`, `raw.githubusercontent.com` and
+  `images.pokemontcg.io` (approved card-art fallback, 2026-08-31),
   the only two hosts any code path can derive — with `redirect: 'manual'` and the
   host re-checked on **every hop**, plus a resolved-address check that refuses
   loopback, RFC1918, CGNAT and link-local answers (`169.254.169.254` included).

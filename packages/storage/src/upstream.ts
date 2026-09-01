@@ -49,6 +49,12 @@ import { lookup } from 'node:dns/promises';
  *                                from TCGdex's own compiled JSON).
  *  - `raw.githubusercontent.com` — Pokédex species sprites, pinned to
  *                                `SPRITES_SHA` (`paths.ts`).
+ *  - `images.pokemontcg.io`    — the approved card-art fallback
+ *                                (`research/CARD-ART-SOURCES.md` §7, owner
+ *                                decision 2026-08-31); ~1,417 re-sourced assets
+ *                                record it as `source_url`, and this entry is
+ *                                what lets a lost copy of one of them refill
+ *                                instead of degrading to the placeholder.
  *
  * THIS LIST IS THE POLICY, and its shortness is the point. An allow-list never
  * enumerates what it blocks — it enumerates what has been *approved*, and every
@@ -72,6 +78,7 @@ import { lookup } from 'node:dns/promises';
 export const IMAGE_SOURCE_HOSTS: readonly string[] = [
   'assets.tcgdex.net',
   'raw.githubusercontent.com',
+  'images.pokemontcg.io',
 ];
 
 export interface UpstreamPolicy {
@@ -100,6 +107,8 @@ export const IMAGE_SOURCE_POLICY: UpstreamPolicy = {
         return 'https://assets.tcgdex.net';
       case 'raw.githubusercontent.com':
         return 'https://raw.githubusercontent.com';
+      case 'images.pokemontcg.io':
+        return 'https://images.pokemontcg.io';
       default:
         return null;
     }
