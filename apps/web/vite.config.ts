@@ -165,6 +165,20 @@ export default defineConfig(async ({ command }) => {
           //                  a dev-only route whose heavy payload must be fetched
           //                  only by whoever actually clicks into it, not by every
           //                  visitor's service worker on first load.
+          //   scan-assets/** ~19 MB — the SHIPPING scanner engine's runtime:
+          //                  DocAligner LC050 (lc050.onnx, 4.9 MB) plus the
+          //                  onnxruntime-web wasm-only bundle it runs on
+          //                  (ort.wasm.min.mjs + ort-wasm-simd-threaded.mjs +
+          //                  the 14 MB ort-wasm-simd-threaded.wasm). Unlike
+          //                  dev-assets this is NOT dev-only — but it is still
+          //                  route-lazy: src/scan/engine/model.ts fetches it on
+          //                  the first ready() call from the scan route, never
+          //                  at page load. Precaching it would push 19 MB into
+          //                  every visitor's cache on first load, including the
+          //                  visitors who never open the scanner. DECISIONS.md
+          //                  2026-09-02 ("a pretrained corner model replaces
+          //                  classical CV") states this exclusion as a shipping
+          //                  condition of the model.
           //   Measured from `pnpm --filter deckpal-web build` on 2026-08-22
           //   rather than estimated, and DELIBERATELY APPROXIMATE: it drifts
           //   with every dependency bump, and a precise figure written down in
@@ -182,7 +196,7 @@ export default defineConfig(async ({ command }) => {
           // into EVERY visitor's cache on first load, for a route exactly one
           // account can open. The route is lazy, so with them the cost is paid
           // only by whoever actually opens it.
-          globIgnores: ['models/**', 'assets/Decke-*.js', 'dev-assets/**'],
+          globIgnores: ['models/**', 'assets/Decke-*.js', 'dev-assets/**', 'scan-assets/**'],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         // Leave this off. Turning it on would put the service worker in front of

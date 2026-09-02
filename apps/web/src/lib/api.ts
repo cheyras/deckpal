@@ -1210,6 +1210,14 @@ export const api = {
       signal,
     })
   },
+  // The scanner's evidence channel — a captured frame + its detection state,
+  // for the fix bench. Same endpoint `/dev/scan-harness`'s `uploadFlag()`
+  // posts to (that page is a same-origin srcdoc iframe using a cookie
+  // instead, since it has no access to this module's bearer token); the
+  // owner-gated route decides visibility, this is just the typed call.
+  scanFlag: (png: string, meta: Record<string, unknown>) =>
+    send<{ id: string }>('POST', '/dev/scan-flags', { png, meta }),
+
   // PDF export URLs (streamed by the API; open in a new tab).
   deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
   listPdfUrl: (id: string) => `${BASE}/lists/${encodeURIComponent(id)}/pdf`,
