@@ -46,9 +46,19 @@
   }
   #videoWrap { position: relative; width: 100%; aspect-ratio: 4/3; background: #000;
     border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
-  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* object-fit: contain (never cover) -- the wrap's aspect-ratio is reset to the
+     real stream's aspect once known (see ensureCamera), so this is belt-and-
+     suspenders: even if that JS step is skipped or races, contain guarantees
+     the model's full field of view is always visible, letterboxed, never
+     cropped. Zero hidden pixels is a hard requirement, not a nicety -- see
+     TRIAGE.md session1: a cropped preview is what made a correct-looking
+     tensor's already-known-good quad read as "not even a square" on screen. */
+  video { width: 100%; height: 100%; object-fit: contain; display: block; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   #prepCanvas { display: none; }
+  .obj-state { text-align: center; font-size: 0.78rem; font-weight: 700; margin-top: 8px;
+    color: var(--dim); }
+  .obj-state.detected { color: var(--ok); }
   .controls { display: flex; gap: 10px; align-items: center; }
   button {
     font: inherit; font-weight: 700; font-size: 1rem; border: none; border-radius: 10px;
@@ -108,6 +118,7 @@
     <video id="preview" autoplay playsinline muted></video>
     <canvas id="overlay"></canvas>
   </div>
+  <div id="objState" class="obj-state"></div>
   <canvas id="prepCanvas" width="256" height="256"></canvas>
 </div>
 
@@ -246,13 +257,17 @@
 // changes). Three upload shapes, distinguished by meta.type, all sharing one
 // `session` id (Date.now() at Start): 'probe-start'/'probe-end' (one-shot,
 // fire-and-forget, at the run's edges), 'probe-snapshot' (silent, every 10s,
-// a small JPEG + live telemetry + the model's latest points/has_obj -- retried
+// a small JPEG + live telemetry + the model's latest gated output -- retried
 // every tick on failure, never disturbs the run), and 'probe-flag' (the big
 // button, a full-res PNG, visible saved/failed status chip, mirrors
 // scan-harness.html's flagCurrentFrame exactly). The magenta quad drawn over
 // the preview is the model's own live corner prediction, decoded from the
 // same `points`/`has_obj` outputs the uploads carry -- this turns the 20-
 // minute endurance session into a live visual model test for free.
+// meta.model (points+hasObj) is gated on has_obj > HAS_OBJ_GATE (0.5, per
+// DocAligner's own presence-head convention) and sent as null below it --
+// the raw hasObj number is never lost, it always rides in telemetry.hasObj
+// regardless of the gate. See TRIAGE.md session1 for why this gate exists.
 // ---------------------------------------------------------------------------
 
 import ort from './ort.wasm.min.mjs';
@@ -261,8 +276,10 @@ const STORAGE_KEY = 'deckpal_phase0b_probe_v1';
 const RUN_SECONDS = 20 * 60;
 const MODEL_URL = './lc050.onnx';
 const MODEL_INPUT_DIMS = [1, 3, 256, 256];
-const IMAGENET_MEAN = [0.485, 0.456, 0.406];
-const IMAGENET_STD = [0.229, 0.224, 0.225];
+// DocAligner's own presence-head convention (run_docaligner.py:249): a
+// detection is only trusted above 0.5. Gates the overlay draw AND the
+// uploaded meta.model -- see TRIAGE.md session1 §"Gate the overlay".
+const HAS_OBJ_GATE = 0.5;
 
 // Remote observability — reuses the EXISTING scan-harness flag endpoint, no API
 // changes. Same origin, same auth story (session cookie/JWT rides along via
@@ -281,6 +298,7 @@ const els = {
   crashBanner: $('crashBanner'),
   video: $('preview'),
   overlay: $('overlay'),
+  objState: $('objState'),
   prepCanvas: $('prepCanvas'),
   startBtn: $('startBtn'),
   stopBtn: $('stopBtn'),
@@ -447,17 +465,37 @@ async function ensureCamera() {
   await els.video.play().catch(() => {});
   const track = stream.getVideoTracks()[0];
   const settings = track.getSettings ? track.getSettings() : {};
+  // Match the wrap's box to the REAL stream aspect (not the 4/3 we requested --
+  // phones commonly hand back portrait, e.g. 480x640). Purely cosmetic (shrinks
+  // the letterbox bars): object-fit:contain above already guarantees zero
+  // hidden pixels regardless of whether this succeeds.
+  if (settings.width && settings.height) {
+    els.video.parentElement.style.aspectRatio = `${settings.width} / ${settings.height}`;
+  }
   log(`Camera ready: ${settings.width || '?'}x${settings.height || '?'} facingMode=${settings.facingMode || '?'}`);
   return stream;
 }
 
 // --- Frame prep: video -> model-input-sized canvas -> NCHW float32 tensor ---
 //
-// Preprocessing (0-1 scale + ImageNet mean/std normalize) is a reasonable stand-in
-// for whatever DocAligner's own training pipeline does; it is NOT verified against
-// DocAligner's actual preprocessing, and that's fine — this probe only measures
-// throughput/stability, and never interprets the `points`/`has_obj` outputs, so
-// exact numerical correctness of the output is irrelevant to what's being gated.
+// THIS PREPROCESSING IS LOAD-BEARING and must match DocAligner's own pipeline
+// exactly, byte for byte -- it is NOT a free-form stand-in. (It used to be: an
+// earlier version of this file normalized RGB with ImageNet mean/std, on the
+// theory that this probe only measures throughput/stability and never
+// interprets the outputs. That stopped being true the moment this file grew
+// the live overlay and the flag/snapshot uploads below, which DO interpret
+// `points`/`has_obj` -- and the disclaimer was never revisited. The mismatched
+// tensor didn't just look a little off: it saturated `has_obj` to ~1.0 on
+// every frame and produced incoherent quads, which read on-device as "the
+// model is awful" when the model was never actually being fed. Forensic
+// writeup: p2-work/phase0b/session1/TRIAGE.md.)
+//
+// The authoritative reference is phase0a/run_docaligner.py:174 (`/255` only,
+// NO mean/std normalization) with BGR channel order per run_docaligner.py:17-18
+// ("capybara.imread defaults to color_base=\"BGR\" and the infer preprocess does
+// no channel swap"). Canvas ImageData is always RGBA, so channel 0/1/2 below
+// are R/G/B in that order -- the swap to BGR is the `o+2`/`o+1`/`o` read order,
+// not a re-labeling.
 //
 // IMPORTANT (verified against a live browser run, not just read from docs): with
 // `ort.env.wasm.proxy = true`, ORT transfers each Tensor's backing ArrayBuffer to
@@ -476,9 +514,9 @@ function frameToTensor() {
   const out = new Float32Array(3 * size);
   for (let i = 0; i < size; i++) {
     const o = i * 4;
-    out[i] = (data[o] / 255 - IMAGENET_MEAN[0]) / IMAGENET_STD[0];
-    out[size + i] = (data[o + 1] / 255 - IMAGENET_MEAN[1]) / IMAGENET_STD[1];
-    out[2 * size + i] = (data[o + 2] / 255 - IMAGENET_MEAN[2]) / IMAGENET_STD[2];
+    out[i] = data[o + 2] / 255;            // B -> ch0
+    out[size + i] = data[o + 1] / 255;      // G -> ch1
+    out[2 * size + i] = data[o] / 255;      // R -> ch2
   }
   return new ort.Tensor('float32', out, MODEL_INPUT_DIMS);
 }
@@ -569,7 +607,18 @@ function liveTelemetryForMeta() {
     count: totalCount,
     medianMs: liveMedianMs(),
     degradationPct: Number(stats.degradationPct.toFixed(1)),
+    hasObj: lastHasObj, // raw, UNGATED -- always recorded here even when meta.model is
+                         // suppressed below the HAS_OBJ_GATE threshold
   };
+}
+
+// meta.model is gated on has_obj > 0.5 (DocAligner's own presence-head
+// convention): below the gate the points are not trustworthy corner
+// predictions, so we send null rather than a misleading quad. The raw hasObj
+// value is NOT lost -- it's always in telemetry.hasObj above, gate or no gate.
+function gatedModelOutput() {
+  if (lastHasObj === null || lastHasObj <= HAS_OBJ_GATE) return null;
+  return { points: lastPoints, hasObj: lastHasObj };
 }
 
 // --- Live model-output overlay: draw the predicted quad + has_obj over the preview ---
@@ -580,22 +629,41 @@ function liveTelemetryForMeta() {
 // MODEL_HW square -- a non-uniform stretch, but because it stretches the FULL
 // frame on both axes, a normalized fraction in model space (nx,ny in [0,1]) is
 // numerically identical to the normalized fraction in VIDEO-native space. No
-// separate "undo the stretch" step is needed -- only object-fit:cover's mapping
-// from the video's native pixel space to the displayed CSS box remains, which
-// is the standard cover inverse: uniform-scale-then-center-crop.
+// separate "undo the stretch" step is needed -- only object-fit:contain's
+// mapping from the video's native pixel space to the displayed CSS box
+// remains: uniform-scale-then-center, letterboxed (Math.min, not Math.max --
+// contain never crops, cover would hide up to 44% of what the model sees on a
+// portrait stream in a landscape box; see TRIAGE.md session1 §4).
 const overlayCtx = els.overlay.getContext('2d');
+function updateObjStateUI() {
+  if (!running) { els.objState.textContent = ''; els.objState.className = 'obj-state'; return; }
+  if (lastHasObj === null) {
+    els.objState.textContent = 'has_obj: – (no inference yet)';
+    els.objState.className = 'obj-state';
+    return;
+  }
+  if (lastHasObj > HAS_OBJ_GATE) {
+    els.objState.textContent = `card detected · has_obj ${lastHasObj.toFixed(2)}`;
+    els.objState.className = 'obj-state detected';
+  } else {
+    els.objState.textContent = `no card · has_obj ${lastHasObj.toFixed(2)}`;
+    els.objState.className = 'obj-state';
+  }
+}
 function drawOverlay() {
   const wrap = els.video.parentElement; // #videoWrap
   const dispW = wrap.clientWidth, dispH = wrap.clientHeight;
+  updateObjStateUI();
   if (!dispW || !dispH) return;
   if (els.overlay.width !== dispW) els.overlay.width = dispW;
   if (els.overlay.height !== dispH) els.overlay.height = dispH;
   overlayCtx.clearRect(0, 0, dispW, dispH);
-  if (!running || !lastPoints) return;
+  const confident = running && lastHasObj !== null && lastHasObj > HAS_OBJ_GATE;
+  if (!confident || !lastPoints) return; // draw NOTHING below the gate -- "no card" state lives in #objState
   const vW = els.video.videoWidth, vH = els.video.videoHeight;
   if (!vW || !vH) return;
 
-  const scale = Math.max(dispW / vW, dispH / vH); // object-fit: cover
+  const scale = Math.min(dispW / vW, dispH / vH); // object-fit: contain -- never crop
   const renderedW = vW * scale, renderedH = vH * scale;
   const offsetX = (dispW - renderedW) / 2;
   const offsetY = (dispH - renderedH) / 2;
@@ -621,7 +689,7 @@ function drawOverlay() {
   overlayCtx.fillStyle = '#fff';
   overlayCtx.strokeStyle = 'rgba(0,0,0,.7)';
   overlayCtx.lineWidth = 3;
-  const label = `has_obj: ${lastHasObj !== null ? lastHasObj.toFixed(2) : '–'}`;
+  const label = `has_obj: ${lastHasObj.toFixed(2)}`;
   overlayCtx.strokeText(label, 8, 18);
   overlayCtx.fillText(label, 8, 18);
 }
@@ -720,7 +788,7 @@ async function uploadSessionSnapshot() {
       seq: snapshotSeq++,
       elapsed: Math.round(elapsedSec()),
       telemetry: liveTelemetryForMeta(),
-      model: { points: lastPoints, hasObj: lastHasObj },
+      model: gatedModelOutput(), // null below HAS_OBJ_GATE; telemetry.hasObj above still carries the raw value
       dims: { width: els.video.videoWidth, height: els.video.videoHeight },
       ua: navigator.userAgent,
       imgCodec: 'jpeg',
@@ -764,7 +832,8 @@ async function flagCurrentFrame() {
       // From the most recently COMPLETED inference. The loop is continuous and
       // not synchronized to this click, so this is the nearest available
       // reading, not guaranteed to be this exact frame's own model output.
-      model: { points: lastPoints, hasObj: lastHasObj },
+      // null below HAS_OBJ_GATE; telemetry.hasObj above still carries the raw value.
+      model: gatedModelOutput(),
       dims: { width: els.video.videoWidth, height: els.video.videoHeight },
       imgCodec: 'png',
     };
