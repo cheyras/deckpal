@@ -9,23 +9,20 @@
 // TRIAGE.md. The authoritative reference is phase0a/run_docaligner.py:174
 // (`/255` only, NO mean/std) with BGR channel order (run_docaligner.py:17-18).
 //
-// TWO deliberate differences from the probe (dev-assets/probe/probe.html),
-// both required by DECISIONS.md 2026-09-02:
+// ONE deliberate difference from the probe (dev-assets/probe/probe.html):
+// LETTERBOX, not stretch. Phase 0a §7.1 measured +6.5 pp for LC050 (68.9 ->
+// 75.4) from aspect-preserving letterbox versus the prescribed stretch. The
+// probe used the stretch, and its overlay mapping relied on "a normalized
+// fraction in model space is numerically identical to the normalized fraction
+// in video space" (probe.html:626-636). That reasoning holds ONLY for a
+// full-frame stretch and is void here: the mapping back is an explicit
+// transform, which is what LetterboxTransform is and why every consumer takes
+// one.
 //
-//   1. RETICLE CROP. The probe fed the whole frame. We crop to the reticle
-//      first. PHASE0-CLOSEOUT §3.4 item 2: "the reticle crop is not cosmetic —
-//      it is the fix for 6 of 14 failures" (4 multi-instance unions + 2
-//      adjacent-object merges are deleted by construction, because the
-//      competing object is no longer in the model's input at all).
-//
-//   2. LETTERBOX, not stretch. Phase 0a §7.1 measured +6.5 pp for LC050
-//      (68.9 -> 75.4) from aspect-preserving letterbox versus the prescribed
-//      stretch. The probe used the stretch, and its overlay mapping relied on
-//      "a normalized fraction in model space is numerically identical to the
-//      normalized fraction in video space" (probe.html:626-636). That
-//      reasoning holds ONLY for a full-frame stretch and is now void: the
-//      mapping back is an explicit transform, which is what
-//      LetterboxTransform is and why every consumer takes one.
+// THE RECT IS THE CALLER'S BUSINESS, and this module has no opinion about it.
+// It was briefly the reticle; index.ts INFERENCE_RECT documents why it is the
+// whole frame again, with the measurement. Everything below works for any rect,
+// which is what made that reversal a one-line change rather than a rewrite.
 //
 // The whole module is pure and DOM-free except drawLetterbox(), which is the
 // one canvas call the browser path needs.
@@ -45,7 +42,7 @@ export const PAD_VALUE = 128
  *  model px = norm * size; crop px = (model px - pad) / scale; frame px =
  *  crop px + crop origin. */
 export interface LetterboxTransform {
-  /** The reticle crop in FRAME pixels (integer-aligned, clamped to the frame). */
+  /** The inference rect in FRAME pixels (integer-aligned, clamped to the frame). */
   crop: Rect
   /** Model input side (square). */
   size: number
@@ -62,19 +59,20 @@ function clampInt(v: number, lo: number, hi: number): number {
 }
 
 /**
- * Geometry only — no pixels touched. `reticle` is in FRACTIONS of the frame
- * (the shape EngineState.reticle carries); the returned crop is in frame px.
+ * Geometry only — no pixels touched. `rect` is in FRACTIONS of the frame (the
+ * shape EngineState.reticle carries, and the shape index.ts INFERENCE_RECT is);
+ * the returned crop is in frame px.
  */
 export function computeLetterbox(
   frameW: number,
   frameH: number,
-  reticle: Rect,
+  rect: Rect,
   size = MODEL_SIZE,
 ): LetterboxTransform {
-  const x = clampInt(reticle.x * frameW, 0, Math.max(0, frameW - 1))
-  const y = clampInt(reticle.y * frameH, 0, Math.max(0, frameH - 1))
-  const w = Math.max(1, Math.min(clampInt(reticle.w * frameW, 1, frameW), frameW - x))
-  const h = Math.max(1, Math.min(clampInt(reticle.h * frameH, 1, frameH), frameH - y))
+  const x = clampInt(rect.x * frameW, 0, Math.max(0, frameW - 1))
+  const y = clampInt(rect.y * frameH, 0, Math.max(0, frameH - 1))
+  const w = Math.max(1, Math.min(clampInt(rect.w * frameW, 1, frameW), frameW - x))
+  const h = Math.max(1, Math.min(clampInt(rect.h * frameH, 1, frameH), frameH - y))
   const scale = Math.min(size / w, size / h)
   return {
     crop: { x, y, w, h },
@@ -180,7 +178,7 @@ export function rgbaToBGRPlanar(img: ImageDataLike): Float32Array {
 }
 
 /**
- * Browser path: paint the reticle crop, letterboxed, into a size x size 2D
+ * Browser path: paint the inference rect, letterboxed, into a size x size 2D
  * context. Fills the whole canvas with mid-gray first so the bars carry
  * PAD_VALUE, then draws the crop into the inner box the transform describes.
  */

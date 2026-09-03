@@ -1,14 +1,14 @@
 // createScanEngine — the whole pipeline, wired.
 //
 //   video frame
-//     -> reticle crop + letterbox to 256 BGR/255      (preprocess.ts)
+//     -> letterbox to 256 BGR/255                     (preprocess.ts)
 //     -> LC050, WASM, in ORT's proxy worker           (model.ts)
 //     -> hysteresis on the presence head              (gate.ts)
 //     -> sub-pixel refinement at working resolution   (refine.ts)
 //     -> tracking, capped smoothing, bounded coasting (tracker.ts)
 //     -> EngineState to the UI                        (contract.ts)
-//     -> on capture: homography from the FULL-RES frame to a 63:88 JPEG
-//                                                     (rectify.ts)
+//     -> on capture: the quad widened by CAPTURE_MARGIN, then a homography
+//        from the FULL-RES frame to a 63:88 JPEG      (rectify.ts)
 //
 // TWO CLOCKS, DELIBERATELY. The rAF loop runs at display rate and does almost
 // nothing; a DETECT TICK happens only when cadenceMs has elapsed AND the
@@ -68,6 +68,63 @@ export const DEFAULT_LOCK_TICKS = 3
  *  quantise at ~3.8 frame px, i.e. the size of the error being fixed. */
 export const REFINE_LONG_SIDE = 512
 
+/**
+ * The rect INFERENCE runs on, as fractions of the frame. It is the whole frame,
+ * and the reticle is a POST-filter — which reverses the reticle-crop half of
+ * DECISIONS.md 2026-09-02, on measurement.
+ *
+ * WHAT THE CROP WAS FOR. PHASE0-CLOSEOUT §3.4 item 2 credited the reticle crop
+ * with deleting 6 of 14 failures by construction (4 multi-instance unions, 2
+ * adjacent-object merges): a competing object outside the reticle cannot be
+ * unioned into the quad if it is not in the model's input.
+ *
+ * WHAT IT ACTUALLY COST. LC050 is a zero-training DocAligner checkpoint, and
+ * DocAligner is trained on documents photographed WITH MARGIN. The reticle is
+ * 72% of frame width and the card is most of it, so cropping to the reticle
+ * hands the model an input the card fills edge to edge — and it stops returning
+ * the card's outer boundary and starts returning an interior rectangle: the
+ * illustration window, or the text panel. Not a subtle bias, a different
+ * rectangle. Measured over the 19 hand-labelled frames of phase 0b session 2
+ * (__tests__/diag-run.ts), mean corner error in frame px and the predicted
+ * quad's linear scale against ground truth:
+ *
+ *   inference input        median   p90    max   mean   scale   on-card <=12px
+ *   reticle crop (was)      22.2   92.0   92.4   32.3   0.886       7/19
+ *   reticle x1.15           13.8   97.3  103.0   25.7   0.928       8/19
+ *   reticle x1.30           12.8   57.1   68.2   19.9   0.971       9/19
+ *   FULL FRAME (is)         11.6   49.9   58.8   18.0   0.985      11/19
+ *   full frame, stretched   9.1    73.6   74.5   19.7   0.964      13/19
+ *
+ * Monotone in the margin, and the shrink is the tell: a scale of 0.886 is the
+ * model reporting a box ~11% too small on every axis, which is the interior
+ * lock, which is the owner's "basically never gets the outer edge". It is also
+ * why the captures came back corner-pin deformed: an art window is landscape, so
+ * rectify.orderQuadForCard dutifully rotated it 90 degrees into portrait.
+ *
+ * The presence head agrees: has_obj >= the 0.80 acquire threshold on 67/87
+ * frames full-frame versus 58/87 stretched — and the crop's apparent 70/87 is
+ * worthless, because it is confidently reporting the wrong rectangle.
+ *
+ * THE TRADE, STATED PLAINLY. The crop deleted unions by construction; the
+ * post-filter can only REJECT them. tracker.passesReticle requires the quad's
+ * centroid inside the reticle and 65% of its area with it, and a quad that has
+ * unioned in an object outside the reticle fails that by a wide margin — so the
+ * safety is kept and the cost is recall: those frames now draw nothing for a
+ * tick instead of drawing a wrong quad. That is the same failure direction
+ * gate.ts already chose for a miss, and it is worth 14 px of mean corner error.
+ *
+ * Note the reticle is unchanged as the AIMING GUIDE: EngineState.reticle still
+ * reports defaultReticle, the UI still draws it, and the user still lines the
+ * card up with it. Only what the model is shown has changed.
+ */
+export const INFERENCE_RECT: Rect = { x: 0, y: 0, w: 1, h: 1 }
+
+/** The transform the engine feeds the model for a frame of this size. Exported
+ *  so the offline harness measures the SHIPPING decision instead of a copy. */
+export function inferenceTransform(frameW: number, frameH: number): LetterboxTransform {
+  return computeLetterbox(frameW, frameH, INFERENCE_RECT)
+}
+
 function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = w
@@ -125,8 +182,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     return prepCtx
   }
 
-  /** Grab the pixels the refiner will read: the reticle crop at up to
-   *  REFINE_LONG_SIDE.
+  /** Grab the pixels the refiner will read: the inference rect at up to
+   *  REFINE_LONG_SIDE. It is the SAME rect the model was shown, so every quad
+   *  the model can return is inside these pixels — which was not true while
+   *  inference was cropped to the reticle and the quad was not.
    *
    *  THIS RUNS BEFORE THE INFERENCE AWAIT, ON PURPOSE. The refiner must see
    *  the SAME frame the model saw. PHASE0-CLOSEOUT §2.0 measured what happens
@@ -194,8 +253,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     const ctx = prepContext()
     if (!ctx || !session) return
 
+    // The reticle is the aiming guide and the tracker's post-filter; the model
+    // sees the whole frame. See INFERENCE_RECT for why those are two rects.
     const rect = reticleFor(frameW, frameH)
-    const t = computeLetterbox(frameW, frameH, rect)
+    const t = inferenceTransform(frameW, frameH)
     drawLetterbox(ctx, v, t)
     const input = rgbaToBGRPlanar(ctx.getImageData(0, 0, t.size, t.size))
     // Same frame, read now — see grabWork's comment.
@@ -334,6 +395,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       }
       fullCtx.drawImage(v, 0, 0)
       const frame: ImageDataLike = fullCtx.getImageData(0, 0, full.width, full.height)
+      // rectifyToJpeg widens the quad by rectify.CAPTURE_MARGIN before warping:
+      // the server trims background and cannot restore card. The quad REPORTED
+      // back is still the detection, not the widened capture rect — the UI draws
+      // what the engine found, and telemetry records what it claimed.
       const blob = await rectifyToJpeg(frame, track.quad)
       if (!blob) throw new Error('scan engine: quad could not be rectified')
       return { blob, quad: track.quad, trackId }

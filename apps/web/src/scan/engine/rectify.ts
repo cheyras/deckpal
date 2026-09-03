@@ -15,7 +15,7 @@
 // whose aspect is slightly off is corrected instead of clipped.
 
 import type { Quad } from './contract'
-import { CARD_ASPECT_W_OVER_H, orderQuad, type ImageDataLike, type Point } from './geometry'
+import { CARD_ASPECT_W_OVER_H, centroid, cloneQuad, orderQuad, type ImageDataLike, type Point } from './geometry'
 
 /** ~480 px wide, per the scan contract; the height follows from 63:88. */
 export const CARD_RECT_WIDTH = 480
@@ -24,6 +24,106 @@ export const CARD_RECT_HEIGHT = Math.round(CARD_RECT_WIDTH / CARD_ASPECT_W_OVER_
 /** JPEG quality for the POSTed capture. */
 export const CAPTURE_QUALITY = 0.85
 export const CAPTURE_MIME = 'image/jpeg'
+
+/**
+ * CAPTURE MARGIN — background deliberately included beyond the detected quad,
+ * per side, as a fraction of the card's own width and height. 0.05 here is the
+ * same idea the ORIGINAL scanner shipped as `CAPTURE_MARGIN = 1.14` (a total
+ * dimension multiplier; this is the per-side half of one, so 0.05 === 1.10).
+ *
+ * WHY A CAPTURE IS DELIBERATELY LOOSE. The two errors are not symmetric. The
+ * identify stage is a perceptual hash over a server-side pipeline that TRIMS
+ * background before hashing — so a sliver of table around the card costs
+ * essentially nothing — but nothing downstream can restore a strip of card that
+ * was never in the JPEG. The old scanner measured exactly that asymmetry:
+ * exact-guide crop of an overflowing card ~81% top-1, margin + server trim
+ * ~98% (routes/Scan.tsx before the engine rewrite). Background is cheap; a
+ * missing name/HP header is fatal.
+ *
+ * WHY IT IS BACK. The engine's own detection is good — blind visual
+ * verification over the 61 real-card frames of phase 0b session 2 put 95% of
+ * quads on the card — but the residual failure is ONE-SIDED: 13 of the 17
+ * near-miss frames lose the card's TOP STRIP (the Stage badge, the name, the
+ * HP) while the bottom survives (engine-diag/BLIND-VERIFICATION.md). The bias
+ * is in LC050's own output, not in the refiner: rotation-neutral, the model's
+ * raw quad cuts into the card's top edge on 16 of the 19 labelled frames
+ * (median 1.3% of a card height) and into the left edge on 12 (median 1.9%),
+ * while bottom and right are unbiased.
+ *
+ * Measured over those 19 hand-labelled frames (__tests__/diag-run.ts
+ * --margin-sweep). `full card` counts captures holding 99.9% or more of the
+ * labelled card; `top border` counts captures whose own top edge clears the
+ * card's; `header band` counts captures holding 99% of the card's top fifth —
+ * the strip with the badge, the name and the HP; `background` is the share of
+ * the JPEG that is not card.
+ *
+ *   margin   full card   top border   header band   mean coverage   background
+ *     0%       0/19         3/19          0/19          0.912          5.7%
+ *     3%       8/19        14/19         11/19          0.956         11.7%
+ *     4%      10/19        16/19         11/19          0.963         14.2%
+ *     5%      11/19        16/19         13/19          0.969         16.7%
+ *     6%      11/19        16/19         14/19          0.974         19.1%
+ *     7%      11/19        16/19         14/19          0.978         21.5%
+ *
+ * 5% is the smallest margin at which whole-card containment saturates (11/19,
+ * unchanged at 6% and 7%), with top-border recovery already saturated since 4%.
+ * It is preferred over 4% for headroom as much as for the two extra header
+ * bands: at 4% the last top border it rescues (F050's) clears the card by 0.4%
+ * of a card height — three pixels of a 670 px capture, inside the
+ * hand-labelling's own slop — where at 5% every rescued border clears by more
+ * than 1%. 6% buys one further header band for another 2.4 points of
+ * background and 7% buys nothing at all. Confirmed by eye over all 16 near-miss
+ * captures (--sheets): at 3% several headers still sit flush against the crop
+ * edge; at 5% every one of the 16 is complete and clear of it.
+ *
+ * The three frames a margin never rescues are the ones it is not for: F079 (an
+ * interior lock, 28% of the card still outside at 5%), F070 and F061 (quads
+ * that miss the top by 7-11% of a card height). A margin widens a capture; it
+ * cannot move one onto a different object.
+ *
+ * ONE CAVEAT ON THE NUMBERS, IN THE CONSERVATIVE DIRECTION. On sleeved frames
+ * the hand labels trace the SLEEVE, not the card (the 8-30 px rim ambiguity
+ * DECISIONS.md 2026-09-02 logged as an accepted residual), so a coverage below
+ * 1.0 there can mean "missing sleeve rim" rather than "missing card". F070 and
+ * F061 score 0.90 and 0.93 at 5% and yet their captures show the whole card,
+ * badge and borders included. The table therefore UNDER-states the recovery;
+ * nothing in it over-states it.
+ *
+ * The expansion is UNIFORM even though the bias is not, because a directional
+ * correction would bake this corpus's camera angles into the product — and the
+ * left edge, which no one notices because that strip is plain border, is
+ * measurably worse than the top.
+ */
+export const CAPTURE_MARGIN = 0.05
+
+/**
+ * Scale a quad about its own centroid so each side sits `margin` card-dimensions
+ * further out — the capture margin, applied in FRAME space before the warp.
+ *
+ * Scaling about the centroid keeps the shape projectively honest: the expanded
+ * quad is still the image of a rectangle under the same homography (a card
+ * 10% larger, coplanar with the real one), so the rectified output is still a
+ * fronto-parallel view and not a distortion. Expanding each side along its own
+ * normal instead would not be.
+ *
+ * The result may leave the frame. That is deliberate and handled downstream:
+ * rectifyImageData's sampler clamps at the border, so an off-frame margin
+ * comes back as a smear of the frame's own edge pixels rather than as black —
+ * background-like, which is what the server's trim expects. Clamping the
+ * corners here instead would bend the quad off its rectangle and reintroduce
+ * the keystone this function is careful to preserve.
+ */
+export function expandQuad(quad: Quad, margin: number = CAPTURE_MARGIN): Quad {
+  if (!(margin > 0)) return cloneQuad(quad)
+  const k = 1 + 2 * margin
+  const [cx, cy] = centroid(quad)
+  return [
+    [cx + (quad[0][0] - cx) * k, cy + (quad[0][1] - cy) * k],
+    [cx + (quad[1][0] - cx) * k, cy + (quad[1][1] - cy) * k],
+    [cx + (quad[2][0] - cx) * k, cy + (quad[2][1] - cy) * k],
+    [cx + (quad[3][0] - cx) * k, cy + (quad[3][1] - cy) * k],
+  ]
+}
 
 /** Row-major 3x3, h[8] normalised to 1. */
 export type Mat3 = [number, number, number, number, number, number, number, number, number]
@@ -192,6 +292,12 @@ export function rectifyImageData(
 /**
  * Browser path: rectify, then encode. Returns the JPEG the scan endpoint takes
  * as a raw body (`api.scan(await blob.arrayBuffer(), blob.type)`).
+ *
+ * THIS is where the capture margin is applied — the one place a JPEG is made
+ * for the server. rectifyImageData stays the exact warp of the quad it is
+ * given, so the unit tests, the ground-truth rectifications and any future
+ * "show me this quad" caller are unaffected; only the thing that goes over the
+ * wire is loosened. Pass `margin: 0` for an exact-quad crop.
  */
 export async function rectifyToJpeg(
   src: ImageDataLike,
@@ -199,8 +305,9 @@ export async function rectifyToJpeg(
   quality = CAPTURE_QUALITY,
   outW = CARD_RECT_WIDTH,
   outH = CARD_RECT_HEIGHT,
+  margin = CAPTURE_MARGIN,
 ): Promise<Blob | null> {
-  const out = rectifyImageData(src, quad, outW, outH)
+  const out = rectifyImageData(src, expandQuad(quad, margin), outW, outH)
   if (!out) return null
   const image = new ImageData(out.data, out.width, out.height)
   if (typeof OffscreenCanvas !== 'undefined') {

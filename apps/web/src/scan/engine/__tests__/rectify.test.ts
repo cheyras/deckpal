@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import type { Quad } from '../contract'
-import { CARD_ASPECT_W_OVER_H, type ImageDataLike } from '../geometry'
+import { CARD_ASPECT_W_OVER_H, centroid, polyArea, polyIoU, type ImageDataLike } from '../geometry'
 import {
   applyHomography,
+  CAPTURE_MARGIN,
   CARD_RECT_HEIGHT,
   CARD_RECT_WIDTH,
+  expandQuad,
   orderQuadForCard,
   rectifyImageData,
   solveHomography,
@@ -159,6 +161,83 @@ describe('orderQuadForCard', () => {
       ]),
       null,
     )
+  })
+})
+
+describe('expandQuad — the capture margin', () => {
+  const CARD: Quad = [
+    [100, 200],
+    [200, 200],
+    [200, 340],
+    [100, 340],
+  ]
+
+  it('is a real margin, not a decoration', () => {
+    // The whole point of the constant is that captures are LOOSE. A zero or
+    // negative default would silently restore the exact-crop behaviour that
+    // measured 81% top-1 against the margin's 98%.
+    assert.ok(CAPTURE_MARGIN > 0.02, `CAPTURE_MARGIN ${CAPTURE_MARGIN} is too small to matter`)
+    assert.ok(CAPTURE_MARGIN < 0.15, `CAPTURE_MARGIN ${CAPTURE_MARGIN} would drown the card in background`)
+  })
+
+  it('adds exactly `margin` of each dimension on each side', () => {
+    const out = expandQuad(CARD, 0.05)
+    const xs = out.map((p) => p[0])
+    const ys = out.map((p) => p[1])
+    // 100 wide, 140 tall -> 5 px and 7 px beyond each edge.
+    assert.ok(near(Math.min(...xs), 95, 1e-9), `left ${Math.min(...xs)}`)
+    assert.ok(near(Math.max(...xs), 205, 1e-9), `right ${Math.max(...xs)}`)
+    assert.ok(near(Math.min(...ys), 193, 1e-9), `top ${Math.min(...ys)}`)
+    assert.ok(near(Math.max(...ys), 347, 1e-9), `bottom ${Math.max(...ys)}`)
+  })
+
+  it('keeps the centroid, so the capture is still centred on the card', () => {
+    const before = centroid(CARD)
+    const after = centroid(expandQuad(CARD, 0.07))
+    assert.ok(near(after[0], before[0], 1e-9))
+    assert.ok(near(after[1], before[1], 1e-9))
+  })
+
+  it('contains the original quad — the guarantee the margin exists to make', () => {
+    const tilted: Quad = [
+      [120, 190],
+      [230, 215],
+      [212, 350],
+      [98, 331],
+    ]
+    for (const q of [CARD, tilted]) {
+      const out = expandQuad(q, CAPTURE_MARGIN)
+      assert.ok(polyIoU(q, out) > 0.7, 'the expansion must still be mostly the card')
+      // Every original corner strictly inside the expanded quad === no card lost.
+      assert.ok(
+        Math.abs(polyIoU(q, out) - polyArea(q) / polyArea(out)) < 1e-9,
+        'the original quad is not fully contained in the expanded one',
+      )
+    }
+  })
+
+  it('preserves shape: the expansion is a scale, not a per-side push', () => {
+    // A keystone must stay a keystone, or the rectified capture is a distortion
+    // of a distortion. Side-length RATIOS are the invariant of a similarity.
+    const keystone: Quad = [
+      [140, 200],
+      [220, 200],
+      [250, 330],
+      [110, 330],
+    ]
+    const out = expandQuad(keystone, 0.06)
+    const side = (q: Quad, i: number) => Math.hypot(q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1])
+    for (let i = 0; i < 4; i++) {
+      assert.ok(near(side(out, i) / side(keystone, i), 1.12, 1e-9), `side ${i} scaled by ${side(out, i) / side(keystone, i)}`)
+    }
+  })
+
+  it('is the identity at margin 0, and returns a copy rather than the input', () => {
+    const out = expandQuad(CARD, 0)
+    assert.deepEqual(out, CARD)
+    assert.notEqual(out, CARD)
+    out[0][0] = -1
+    assert.equal(CARD[0][0], 100, 'expandQuad handed back the caller its own array')
   })
 })
 

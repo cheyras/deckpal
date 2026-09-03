@@ -30,10 +30,57 @@
 // that wants to move further than `maxMove` keeps its input position. So the
 // refiner degrades to "return what you were given", never to "invent".
 //
-// CALIBRATION. The constants below are v3's, measured on ~320 px-wide working
-// frames. `maxMove` and `minPeak` are the two that are scale-dependent (a
-// 14 px leash is generous at 320 px wide and tight at 1280); the engine passes
-// its own working scale rather than assuming.
+// CALIBRATION, AND THE ONE CONSTANT THAT DOES NOT TRANSFER. The constants below
+// are v3's, measured on ~320 px-wide working frames, and all of them survive the
+// move to capture resolution EXCEPT the leash.
+//
+// `maxMove` is not a property of the image, it is a property of the ERROR. The
+// leash must be shorter than the distance from the true edge to the nearest
+// CONFUSING edge, or the refiner is not polishing, it is choosing. On the
+// frames this product actually sees — a card in a penny sleeve — there are two
+// confusers within a dozen pixels of every true edge: the sleeve rim just
+// outside it, and the card's own printed border just inside it. v3's 14 px was
+// safe only because at a 320 px working width those confusers were sub-pixel and
+// invisible; at capture resolution they are separate ridges, and a 14 px leash
+// is a licence to jump onto one.
+//
+// Measured, over the 19 hand-labelled frames of phase 0b session 2, replaying
+// every stored model quad through this refiner (__tests__/diag-run.ts
+// --refine-sweep), mean corner error in frame px:
+//
+//   leash      no refine   maxMove=2   maxMove=4   maxMove=6   maxMove=14
+//   result       18.02       17.99       17.73       18.11       18.57
+//
+// i.e. the shipped 14 px leash was NET NEGATIVE — worse than not refining at
+// all — and the whole grid is monotone in the leash on either side of 4. So the
+// leash is 4, and the refiner is back to what its own docstring promises: it
+// moves a corner that is already within a few pixels of an edge onto that edge,
+// and cannot reach far enough to find a different edge to like better.
+//
+// IS THE 4 px LEASH DIRECTIONAL? NO — asked and answered, because it was the
+// obvious suspect for the top-edge under-crop that blind verification found
+// afterwards (13 of 17 near-miss captures lose the card's name/HP header;
+// rectify.CAPTURE_MARGIN). If the refiner were preferring the printed inner
+// border over the true edge it would show up as a systematic INWARD pull, and
+// worst at the top, where a card's header row is a strong parallel ridge a few
+// pixels below the boundary. Measured per side over the 19 hand-labelled
+// frames, in the card's own coordinates, raw -> refined, positive = pulled
+// inward (__tests__/diag-run.ts --margin-sweep):
+//
+//   side     median      mean    pulled in
+//   top       0.00%    -0.17%      6/19
+//   right    +0.15%    +0.10%     10/19
+//   bottom    0.00%    -0.08%      8/19
+//   left     -0.07%    -0.19%      4/19
+//
+// The top edge moves outward on average (-0.5 px on the frame) and is pulled
+// inward on fewer frames than any side but the left. The leash is exonerated:
+// the under-crop is already in LC050's raw quad, which cuts into the card's top
+// on 16 of 19 frames before the refiner touches it. That is a property of a
+// zero-training checkpoint, not of this file, and it is fixed downstream by
+// widening the CAPTURE rather than by lengthening this leash — a longer leash
+// would re-open the confuser problem measured above to buy a bias correction
+// the capture margin makes for free.
 
 import type { Quad } from './contract'
 import {
@@ -67,7 +114,8 @@ export interface RefineOptions {
   half?: number
   /** A ridge weaker than this is not evidence. v3: 90. */
   minPeak?: number
-  /** A corner refusing to move further than this stays put. v3: 14. */
+  /** A corner wanting to move further than this stays put. Sized to the error
+   *  being polished, NOT to the working image — see the header. */
   maxMove?: number
   /** |cos| between the gradient and the side normal. v3: 0.68. */
   orientT?: number
@@ -77,7 +125,9 @@ export const REFINE_DEFAULTS = {
   samples: 17,
   half: 3,
   minPeak: 90,
-  maxMove: 14,
+  // 4, not v3's 14: the leash is the distance to the nearest confusing edge,
+  // and on a sleeved card that is single digits. See the header's measurement.
+  maxMove: 4,
   orientT: 0.68,
 } as const
 

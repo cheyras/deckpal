@@ -2,9 +2,14 @@
 // rectified captures) and the scan UI (reticle, incoming stack, verify feed).
 // Decided 2026-09-02 (DECISIONS.md: "a pretrained corner model replaces
 // classical CV"): detection is DocAligner LC050 (WASM, letterboxed BGR/255,
-// reticle-cropped input, hysteresis presence gate), polished by the classical
-// sub-pixel refiner, displayed through a tracker that must never draw
-// anything worse than the model's own output.
+// hysteresis presence gate), polished by the classical sub-pixel refiner,
+// displayed through a tracker that must never draw anything worse than the
+// model's own output.
+//
+// That decision also cropped inference to the reticle; measurement over phase
+// 0b's live frames reversed it (index.ts INFERENCE_RECT). The reticle survives
+// as the aiming guide and as the tracker's post-filter, which is all this
+// boundary ever promised of it.
 
 export type Quad = [[number, number], [number, number], [number, number], [number, number]]
 
@@ -27,7 +32,9 @@ export interface TrackedQuad {
 
 export interface EngineState {
   frame: EngineFrame
-  /** Reticle rect as fractions of the frame; the engine crops inference to it. */
+  /** Reticle rect as fractions of the frame: what the user aims at, and the
+   *  rect a tracked quad must sit inside to be shown. NOT the inference input —
+   *  the model sees the whole frame (index.ts INFERENCE_RECT). */
   reticle: { x: number; y: number; w: number; h: number }
   /** Presence-head value for the latest inference (raw, ungated). */
   hasObj: number

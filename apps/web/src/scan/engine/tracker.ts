@@ -55,8 +55,10 @@ import {
 
 export interface TrackerOptions {
   /** Gate rect in FRAME PIXELS (not fractions), or null to disable the gate.
-   *  The engine already crops inference to the reticle, so this is a second
-   *  line of defence against a quad the model extrapolated outside it. */
+   *  THE reticle filter, not a second one: the model is shown the whole frame
+   *  (index.ts INFERENCE_RECT), so this is where a quad that has wandered off
+   *  the card the user is presenting — or unioned in a neighbouring one — is
+   *  stopped. Rejecting costs a tick; drawing it costs the user's trust. */
   reticle?: Rect | null
   /** How much of a quad's own area must lie inside the reticle. 0.65 keeps the
    *  gate loose — "mostly aligning it, but not so dang exact" — rather than a
