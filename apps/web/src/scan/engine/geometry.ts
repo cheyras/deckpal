@@ -262,6 +262,48 @@ export function quadAspectRatio(q: Quad): number {
   return hi > 0 ? lo / hi : 0
 }
 
+/**
+ * THE STRADDLE TEST: how nearly the quad's opposite sides are equal, as the
+ * WORSE of the two opposite-side ratios (1.0 = a perfect parallelogram).
+ *
+ * WHAT IT CATCHES, AND WHY CONVEXITY CANNOT. The 2026-09-04 e2e drive found 5 of
+ * 13 captures were one convex quad thrown across TWO STACKED CARDS — the
+ * detector finding a plausible rectangle spanning a card and its neighbour.
+ * Every one passed `isConvexQuad`, so the bowtie gate is no help: a straddle is
+ * a perfectly good quadrilateral, just not of one card.
+ *
+ * What a straddle is NOT is a parallelogram. A real card under perspective
+ * keystones gently — opposite sides stay within a few percent — while a quad
+ * stretched across two offset cards has one pair grossly unequal. Measured on
+ * the drive's 13 captures, hand-judged, taking the WORSE of the two pairs:
+ *
+ *   class     n   worse opposite-side ratio
+ *   GOOD      6   0.858 - 0.988
+ *   PARTIAL   2   0.784 - 0.817
+ *   BAD       5   0.506 - 0.659      <- every straddle
+ *
+ * No overlap: 0.659 to 0.784 is empty.
+ *
+ * THE WORSE OF BOTH PAIRS, NOT ONE OF THEM. Scoring only the second pair (sides
+ * 1-2 and 3-0) separates these particular captures more widely — 0.882 to 0.659
+ * — but that pair is whichever two edges the MODEL's corner winding happened to
+ * put there, not the card's left and right. On the same 13 captures the first
+ * pair alone does not separate the classes at all (usable from 0.784, straddles
+ * up to 0.824), so a straddle oriented the other way would pass a one-pair test.
+ * Taking the minimum is index- and orientation-independent, which is worth the
+ * narrower band. See DEFAULT_LOCK_PARALLEL_MIN.
+ */
+export function oppositeSideRatio(q: Quad): number {
+  const side = (i: number) => Math.hypot(q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1])
+  const pair = (a: number, b: number) => {
+    const lo = Math.min(a, b)
+    const hi = Math.max(a, b)
+    return hi > 0 ? lo / hi : 0
+  }
+  // Both opposite pairs; the worse governs, since a straddle can skew either.
+  return Math.min(pair(side(0), side(2)), pair(side(1), side(3)))
+}
+
 /** Largest per-corner Euclidean distance between two corner-aligned quads. */
 export function maxCornerDelta(a: Quad, b: Quad): number {
   let m = 0

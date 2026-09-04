@@ -38,15 +38,22 @@ import { CAPTURE_MARGIN, expandQuad, rectifyImageData } from '../rectify'
 import {
   centroid,
   insideFraction,
+  oppositeSideRatio,
   polyArea,
   quadAspectRatio,
-  reticleWithin,
-  visibleRect,
   type ImageDataLike,
   type Rect,
 } from '../geometry'
-import { createLockPolicy, DEFAULT_LOCK_ASPECT_TOL, inferenceTransform, REFINE_LONG_SIDE } from '../index'
-import { modelPointsToQuad } from '../preprocess'
+import {
+  CANONICAL_SIZE,
+  DEFAULT_CARD_ASPECT,
+  modelPointsToCanonicalQuad,
+  PIPELINE_VERSION,
+  reticleForAspect,
+  squareCrop,
+} from '../frame'
+import { createLockPolicy, DEFAULT_LOCK_ASPECT_TOL, DEFAULT_LOCK_PARALLEL_MIN } from '../index'
+import { MODEL_SIZE } from '../preprocess'
 import { gradientField, refineQuadChecked } from '../refine'
 import { createTracker } from '../tracker'
 import {
@@ -131,14 +138,36 @@ async function scaledFile(f: FlagFrame, scale: number, dir: string): Promise<{ f
   return { file: out, w, h }
 }
 
+/**
+ * PIPELINE VERSION 3 preprocessing, offline.
+ *
+ * The corpus is a VERSION-2 dataset — 480x640 frames from the letterboxed
+ * full-frame era. Replaying it against the shipping spec means putting each
+ * frame through the SAME centre-square crop the engine now applies to a camera
+ * stream and treating the result as the canonical frame. `frame.squareCrop` is
+ * the engine's own function, so this measures the shipping decision rather than
+ * an approximation of it, and every quad below is in canonical coordinates.
+ */
+async function squareInput(file: string, w: number, h: number, out: number): Promise<ImageDataLike> {
+  const S = await sharp()
+  const c = squareCrop(w, h)
+  const buf = await S(file)
+    .extract({ left: c.x, top: c.y, width: c.size, height: c.size })
+    .resize({ width: out, height: out, fit: 'fill', kernel: 'lanczos3' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer()
+  return { width: out, height: out, data: new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.length) }
+}
+
 async function detect(frames: FlagFrame[], scale: number): Promise<Detection[]> {
   const dir = path.join(SESSION2, '.scaled')
   if (scale !== 1) fs.mkdirSync(dir, { recursive: true })
   const prepared: Array<{ f: FlagFrame; file: string; w: number; h: number; tensor: Float32Array }> = []
   for (const f of frames) {
     const { file, w, h } = await scaledFile(f, scale, dir)
-    const t = inferenceTransform(w, h)
-    prepared.push({ f, file, w, h, tensor: toTensor(await engineInput(file, t)) })
+    // PIPELINE VERSION 3: a plain resize of the CENTRE SQUARE, no letterbox.
+    prepared.push({ f, file, w, h, tensor: toTensor(await squareInput(file, w, h, MODEL_SIZE)) })
   }
   const outs = runModel(prepared.map((p) => p.tensor))
 
@@ -159,11 +188,12 @@ async function detect(frames: FlagFrame[], scale: number): Promise<Detection[]> 
     if (GATE_OPEN) gate.update(1) // latch it open, as a just-scanned card would
     let quad: Quad | null = null
     if (gate.update(hasObj)) {
-      const t = inferenceTransform(w, h)
-      const raw = modelPointsToQuad(t, points)
+      // Model fractions ARE canonical fractions now, and the working image IS
+      // the canonical frame — so the refiner needs no coordinate change at all.
+      const raw = modelPointsToCanonicalQuad(points)
       if (raw) {
-        const work = await workImageFull(file, w, h, REFINE_LONG_SIDE)
-        quad = refineLocal(work, raw, t.crop) ?? raw
+        const work = await squareInput(file, w, h, CANONICAL_SIZE)
+        quad = refineQuadChecked(raw, gradientField(work)) ?? raw
       }
     }
     dets.push({ frame: f, w, h, quad, hasObj, aspect: quad ? quadAspectRatio(quad) : 0 })
@@ -177,9 +207,9 @@ async function detect(frames: FlagFrame[], scale: number): Promise<Detection[]> 
 
 interface Config {
   label: string
-  /** Camera box in CSS px, or null for the old whole-frame reticle. */
-  box: { width: number; height: number } | null
   aspectTol: number
+  /** Straddle gate; 0 disables. */
+  parallelMin: number
 }
 
 function jitterQuad(q: Quad, px: number, tick: number): Quad {
@@ -193,15 +223,16 @@ function jitterQuad(q: Quad, px: number, tick: number): Quad {
 }
 
 function locksUnder(d: Detection, cfg: Config, ticks: number, jitter: number): boolean {
-  const vis = visibleRect(d.w, d.h, cfg.box?.width, cfg.box?.height)
-  const reticle = reticleWithin(d.w, d.h, vis)
+  // The reticle is a CONSTANT of the canonical square now — no viewport input.
+  const reticle = reticleForAspect()
+  const N = CANONICAL_SIZE
   const tracker = createTracker()
-  tracker.setReticle({ x: reticle.x * d.w, y: reticle.y * d.h, w: reticle.w * d.w, h: reticle.h * d.h })
-  const policy = createLockPolicy({ lockAspectTol: cfg.aspectTol })
+  tracker.setReticle({ x: reticle.x * N, y: reticle.y * N, w: reticle.w * N, h: reticle.h * N })
+  const policy = createLockPolicy({ lockAspectTol: cfg.aspectTol, lockParallelMin: cfg.parallelMin })
   for (let t = 0; t < ticks; t++) {
     const quads: Quad[] = d.quad ? [jitterQuad(d.quad, jitter, t)] : []
     const { stable } = tracker.update(quads)
-    if (policy.update(stable as TrackedQuad[], reticle, d.w, d.h)) return true
+    if (policy.update(stable as TrackedQuad[], reticle, N, N)) return true
   }
   return false
 }
@@ -222,15 +253,18 @@ const GATE_OPEN = arg('gate', 'cold') === 'open'
  *  is attributable to a specific rule instead of merely counted. */
 function lossReason(d: Detection, cfg: Config): string {
   if (!d.quad) return 'no quad'
-  const vis = visibleRect(d.w, d.h, cfg.box?.width, cfg.box?.height)
-  const reticle = reticleWithin(d.w, d.h, vis)
-  const px: Rect = { x: reticle.x * d.w, y: reticle.y * d.h, w: reticle.w * d.w, h: reticle.h * d.h }
-  const shaped = cfg.aspectTol <= 0 || (d.aspect >= 0.7159 * (1 - cfg.aspectTol) && d.aspect <= 0.7159 * (1 + cfg.aspectTol))
+  const reticle = reticleForAspect()
+  const N = CANONICAL_SIZE
+  const px: Rect = { x: reticle.x * N, y: reticle.y * N, w: reticle.w * N, h: reticle.h * N }
+  const A = DEFAULT_CARD_ASPECT
+  const shaped = cfg.aspectTol <= 0 || (d.aspect >= A * (1 - cfg.aspectTol) && d.aspect <= A * (1 + cfg.aspectTol))
+  const par = oppositeSideRatio(d.quad)
   const inside = insideFraction(d.quad, px)
   const cen = centroid(d.quad)
   const centred = cen[0] >= px.x && cen[0] <= px.x + px.w && cen[1] >= px.y && cen[1] <= px.y + px.h
   const why: string[] = []
   if (!shaped) why.push(`aspect ${d.aspect.toFixed(3)}`)
+  if (cfg.parallelMin > 0 && par < cfg.parallelMin) why.push(`straddle ratio ${par.toFixed(3)}`)
   if (!centred) why.push('centroid outside reticle')
   if (inside < 0.65) why.push(`only ${(inside * 100).toFixed(0)}% inside reticle`)
   return why.join(' + ') || 'unknown'
@@ -244,20 +278,25 @@ async function main(): Promise<void> {
   const ticks = Number(arg('ticks', '10'))
   const jitter = Number(arg('jitter', '0'))
   const scale = Number(arg('scale', '1'))
-  const boxArg = arg('box', '428x324')
-  const [bw, bh] = boxArg.split('x').map(Number)
 
   const labels = cardLabels()
   const frames = listFlagFrames()
   console.log(`corpus: ${frames.length} frames  |  ticks/frame: ${ticks}  jitter: ${jitter}px  scale: ${scale}x`)
   const dets = await detect(frames, scale)
-  console.log(`frame size: ${dets[0].w}x${dets[0].h}   camera box for viewport configs: ${bw}x${bh} CSS\n`)
+  console.log(
+    `source frames ${dets[0].w}x${dets[0].h} -> canonical square ${CANONICAL_SIZE}x${CANONICAL_SIZE}` +
+      `  (pipeline v${PIPELINE_VERSION})\n`,
+  )
 
   const configs: Config[] = [
-    { label: 'A  SHIPPED (whole-frame reticle, no aspect prior)', box: null, aspectTol: 0 },
-    { label: `B  + aspect prior only (tol ${DEFAULT_LOCK_ASPECT_TOL})`, box: null, aspectTol: DEFAULT_LOCK_ASPECT_TOL },
-    { label: 'C  + viewport reticle only', box: { width: bw, height: bh }, aspectTol: 0 },
-    { label: 'D  BOTH (shipping fix)', box: { width: bw, height: bh }, aspectTol: DEFAULT_LOCK_ASPECT_TOL },
+    { label: 'A  no lock priors at all', aspectTol: 0, parallelMin: 0 },
+    { label: `B  + aspect prior (tol ${DEFAULT_LOCK_ASPECT_TOL})`, aspectTol: DEFAULT_LOCK_ASPECT_TOL, parallelMin: 0 },
+    { label: `C  + straddle gate (min ${DEFAULT_LOCK_PARALLEL_MIN})`, aspectTol: 0, parallelMin: DEFAULT_LOCK_PARALLEL_MIN },
+    {
+      label: 'D  BOTH (shipping)',
+      aspectTol: DEFAULT_LOCK_ASPECT_TOL,
+      parallelMin: DEFAULT_LOCK_PARALLEL_MIN,
+    },
   ]
 
   const noCard = dets.filter((d) => labels.get(d.frame.name) === false)
@@ -291,16 +330,27 @@ async function main(): Promise<void> {
   console.log(`card locks LOST to the fix       : ${lostCards.length}`)
   for (const d of lostCards) console.log(`    ${d.frame.name}  ${lossReason(d, configs[3])}`)
 
-  console.log('\n--- aspect-tolerance sweep (viewport reticle held ON) ---')
+  console.log('\n--- aspect-tolerance sweep (straddle gate held at its default) ---')
   console.log(pad('tol', 10) + pad('admits', 20) + pad('clutter locks', 18) + 'card locks')
   console.log('-'.repeat(66))
-  for (const tol of [0, 0.1, 0.15, 0.2, 0.25, 0.28, 0.3, 0.35, 0.4]) {
-    const c: Config = { label: `tol ${tol}`, box: { width: bw, height: bh }, aspectTol: tol }
+  for (const tol of [0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4]) {
+    const c: Config = { label: `tol ${tol}`, aspectTol: tol, parallelMin: DEFAULT_LOCK_PARALLEL_MIN }
     const bad = noCard.filter((d) => locksUnder(d, c, ticks, jitter)).length
     const good = card.filter((d) => locksUnder(d, c, ticks, jitter)).length
-    const lo = tol > 0 ? (0.7159 * (1 - tol)).toFixed(3) : '—'
-    const hi = tol > 0 ? (0.7159 * (1 + tol)).toFixed(3) : '—'
+    const A = DEFAULT_CARD_ASPECT
+    const lo = tol > 0 ? (A * (1 - tol)).toFixed(3) : '—'
+    const hi = tol > 0 ? (A * (1 + tol)).toFixed(3) : '—'
     console.log(pad(String(tol), 10) + pad(tol > 0 ? `${lo}..${hi}` : 'everything', 20) + pad(`${bad}/${noCard.length}`, 18) + `${good}/${card.length}`)
+  }
+
+  console.log('\n--- STRADDLE-GATE sweep (aspect prior held at its default) ---')
+  console.log(pad('minRatio', 12) + pad('clutter locks', 18) + 'card locks')
+  console.log('-'.repeat(50))
+  for (const p of [0, 0.7, 0.8, 0.85, 0.9, 0.95]) {
+    const c: Config = { label: `par ${p}`, aspectTol: DEFAULT_LOCK_ASPECT_TOL, parallelMin: p }
+    const bad = noCard.filter((d) => locksUnder(d, c, ticks, jitter)).length
+    const good = card.filter((d) => locksUnder(d, c, ticks, jitter)).length
+    console.log(pad(p === 0 ? 'off' : String(p), 12) + pad(`${bad}/${noCard.length}`, 18) + `${good}/${card.length}`)
   }
 
   // --- symptom A: what does a clutter lock actually RECTIFY into? -----------
@@ -310,16 +360,19 @@ async function main(): Promise<void> {
   const dump = process.argv.includes('--dump')
   const dumpDir = path.join(SESSION2, 'engine-diag', 'clutter-captures')
   if (dump) fs.mkdirSync(dumpDir, { recursive: true })
-  console.log('\n--- symptom A: coverage of the CAPTURE a clutter lock produces ---')
-  console.log(pad('frame', 10) + pad('quad aspect', 14) + pad('capture covers', 18) + 'of the whole frame')
-  console.log('-'.repeat(62))
+  console.log('\n--- coverage of the CAPTURE a clutter lock produces ---')
+  console.log(pad('frame', 10) + pad('quad aspect', 14) + pad('capture covers', 18) + 'of the canonical square')
+  console.log('-'.repeat(66))
   for (const d of base.bad) {
     if (!d.quad) continue
     const expanded = expandQuad(d.quad, CAPTURE_MARGIN)
-    const cov = polyArea(expanded) / (d.w * d.h)
-    console.log(pad(d.frame.name, 10) + pad(d.aspect.toFixed(3), 14) + pad(`${(cov * 100).toFixed(1)}%`, 18) + `${d.w}x${d.h}`)
+    const cov = polyArea(expanded) / (CANONICAL_SIZE * CANONICAL_SIZE)
+    console.log(
+      pad(d.frame.name, 10) + pad(d.aspect.toFixed(3), 14) + pad(`${(cov * 100).toFixed(1)}%`, 18) + `${CANONICAL_SIZE}²`,
+    )
     if (dump) {
-      const src = await loadRGBA(d.frame.png, d.w, d.h)
+      // Warp from the canonical square, which is what the engine now holds.
+      const src = await squareInput(d.frame.png, d.w, d.h, CANONICAL_SIZE)
       const out = rectifyImageData(src, expanded)
       if (out) await writePNG(out, path.join(dumpDir, `${d.frame.name}.png`))
     }

@@ -114,8 +114,14 @@ describe('orderQuadForCard', () => {
     assert.ok(Math.abs(CARD_RECT_WIDTH / CARD_RECT_HEIGHT - CARD_ASPECT_W_OVER_H) < 0.001)
   })
 
-  it('puts a short side first, so a card held sideways rectifies portrait', () => {
-    // A landscape-presented card: 200 wide, 140 tall.
+  it('puts the TOP edge first, whatever its projected length', () => {
+    // REPLACES "puts a short side first, so a card held sideways rectifies
+    // portrait". That rule WAS the 90-degree bug the 2026-09-04 e2e drive found:
+    // a card tilted away from the camera projects LANDSCAPE, so its shorter
+    // projected side is the card's 88 mm HEIGHT, and putting the short side
+    // first mapped that onto the output's width — turning every hand-held
+    // capture a quarter turn (13/13 on the drive's own recorded quads). The rule
+    // now is plain TL,TR,BR,BL by position; see orderQuadForCard for the trade.
     const landscape: Quad = [
       [10, 10],
       [210, 10],
@@ -124,9 +130,10 @@ describe('orderQuadForCard', () => {
     ]
     const o = orderQuadForCard(landscape)
     assert.ok(o)
-    const s01 = Math.hypot(o[1][0] - o[0][0], o[1][1] - o[0][1])
-    const s12 = Math.hypot(o[2][0] - o[1][0], o[2][1] - o[1][1])
-    assert.ok(s01 < s12, `first side ${s01} must be the short one (${s12})`)
+    assert.deepEqual(o[0], [10, 10], 'corner 0 is the top-left')
+    assert.deepEqual(o[1], [210, 10], 'corner 1 is the top-right — the TOP edge comes first')
+    assert.deepEqual(o[2], [210, 150], 'corner 2 is the bottom-right')
+    assert.deepEqual(o[3], [10, 150], 'corner 3 is the bottom-left')
   })
 
   it('is winding-agnostic: a counter-clockwise quad comes back the same as clockwise', () => {

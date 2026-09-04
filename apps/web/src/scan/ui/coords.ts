@@ -9,6 +9,21 @@
 // the previous Scan.tsx, which solved the identical "video pixels → CSS
 // pixels under cover" problem for a single fixed rect.
 
+/**
+ * The CANONICAL mapping: one scale factor from canonical-frame pixels to CSS
+ * pixels inside a SQUARE camera box.
+ *
+ * This replaces the `object-fit: cover` math below for the live overlay. Under
+ * the 2026-09-04 working-frame invariant the engine's frame IS the stream's
+ * centre square, and CameraStage renders a square box showing exactly that
+ * square — so there is no crop to undo, and no way for the box's shape to change
+ * what the overlay means. The cover helpers survive for callers still mapping
+ * against a non-square source.
+ */
+export function canonicalToCss(boxSide: number, canonicalSize: number): { scale: number } {
+  return { scale: canonicalSize > 0 ? boxSide / canonicalSize : 1 }
+}
+
 export interface CoverMap {
   scale: number
   originX: number

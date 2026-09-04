@@ -80,12 +80,19 @@ export function CameraStage({
   const live = camState === 'live'
 
   return (
-    // Sized by the PARENT flex container (Scan.tsx gives the camera block a
-    // flex-grow ratio against the bin, not a fixed pixel height) — the fixed
-    // single-viewport screen has to fit whatever room an actual phone has,
-    // not assume one number works on every device. The ResizeObserver above
-    // measures whatever this resolves to, same as before.
-    <div ref={boxRef} data-scan-camera-view className="relative min-h-0 flex-1 overflow-hidden bg-black">
+    // A SQUARE box, because the engine's canonical frame is the stream's centre
+    // square (scan/engine/frame.ts). Showing exactly that square means the
+    // overlay maps by one scale factor, and — the point of the 2026-09-04
+    // ruling — the box's size can no longer influence anything detection does:
+    // `object-fit: cover` on a square box crops the stream to its centre square,
+    // which IS the canonical frame. It still shrinks to whatever room the phone
+    // has; only its ASPECT is now fixed.
+    <div
+      ref={boxRef}
+      data-scan-camera-view
+      className="relative mx-auto aspect-square min-h-0 w-full max-w-full shrink overflow-hidden bg-black"
+      style={{ maxHeight: '100%' }}
+    >
       <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
       <div ref={flashRef} className="pointer-events-none absolute inset-0 z-40 bg-white opacity-0" />
       {live && <QuadOverlay state={engineState} box={box} />}

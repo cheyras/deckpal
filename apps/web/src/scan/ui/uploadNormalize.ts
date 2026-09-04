@@ -14,8 +14,10 @@ const DIRECT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const DIRECT_MAX_BYTES = 3 * 1024 * 1024
 const NORMALIZED_EDGE = 1400
 
-/** Decode a picked file to something drawable, honouring EXIF orientation. */
-async function decodeForCanvas(file: File): Promise<CanvasImageSource & { width: number; height: number }> {
+/** Decode a picked file to something drawable, honouring EXIF orientation.
+ *  Exported for scan/labeler/**, which needs the same EXIF-aware decode for
+ *  its upload path — reused rather than a second copy. */
+export async function decodeForCanvas(file: File): Promise<CanvasImageSource & { width: number; height: number }> {
   if (typeof createImageBitmap === 'function') {
     try {
       return await createImageBitmap(file, { imageOrientation: 'from-image' })

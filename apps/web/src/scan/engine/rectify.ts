@@ -17,9 +17,18 @@
 import type { Quad } from './contract'
 import { CARD_ASPECT_W_OVER_H, centroid, cloneQuad, orderQuad, type ImageDataLike, type Point } from './geometry'
 
-/** ~480 px wide, per the scan contract; the height follows from 63:88. */
+/** ~480 px wide, per the scan contract; the height follows from the GAME's
+ *  aspect. Pokémon's 63:88 gives 670. */
 export const CARD_RECT_WIDTH = 480
 export const CARD_RECT_HEIGHT = Math.round(CARD_RECT_WIDTH / CARD_ASPECT_W_OVER_H) // 670
+
+/** The rectified output's size for a given game aspect — the per-game half of
+ *  the frame spec (frame.ts holds the universal half). The 480 px width is
+ *  fixed; the height is whatever that game's cards actually are, so a warp never
+ *  squashes one TCG's cards into another's proportions. */
+export function cardRectSize(cardAspect: number = CARD_ASPECT_W_OVER_H): { width: number; height: number } {
+  return { width: CARD_RECT_WIDTH, height: Math.round(CARD_RECT_WIDTH / cardAspect) }
+}
 
 /** JPEG quality for the POSTed capture. */
 export const CAPTURE_QUALITY = 0.85
@@ -190,14 +199,44 @@ export function applyHomography(H: Mat3, x: number, y: number): Point {
  * Put the quad's corners in the order the rectified canvas expects:
  * [top-left, top-right, bottom-right, bottom-left] of the CARD.
  *
- * A quad carries no "which way is up" of its own, so this is decided by shape
- * and position, in three steps:
+ * ── THE 90-DEGREE BUG THIS REPLACES (e2e drive, 2026-09-04) ────────────────
+ *
+ * The previous version rotated the corner order so that side 0->1 was one of the
+ * two SHORTER PROJECTED SIDES, reasoning that a card's short side is its 63 mm
+ * width and so belongs on the output's width. That reasoning holds only for a
+ * card photographed square-on. It INVERTS under the foreshortening every
+ * hand-held frame has: tilt a card away from the camera and its 88 mm height
+ * projects shorter than its 63 mm width, so the "short projected side" becomes
+ * the card's HEIGHT and the warp turns the card a quarter turn.
+ *
+ * Not a corner case — the failure was total. Over the 13 captures the e2e drive
+ * harvested from the deployed build, the old rule put side 0 on a NON-TOP edge
+ * 13/13 times, and an independent pixel bake-off against the app's own
+ * `rectifiedPng` ranked rot90CCW first on all 13 (mean abs diff 35.2, against
+ * 55.5 / 56.6 / 57.0 for the other orders). Ten of those quads were projected
+ * LANDSCAPE (aspect 1.11-2.87) while the cards in the raw frames were plainly
+ * upright — exactly the inversion above.
+ *
+ * ── THE RULE NOW ───────────────────────────────────────────────────────────
+ *
  *   1. repair + order the corners cyclically (the OUTPUT VALIDITY GATE),
  *   2. wind them clockwise in image coordinates (y down),
- *   3. rotate so the first side is one of the two SHORT sides — the card's
- *      63 mm width — which is what makes a card presented in landscape come
- *      out portrait rather than squashed; of the two rotations that satisfy
- *      that, take the one whose first corner is highest in the frame.
+ *   3. start at the corner nearest the frame's top-left, so side 0->1 is the
+ *      quad's TOP edge whatever its projected length.
+ *
+ * i.e. plain TL, TR, BR, BL by POSITION — which the drive verified directly by
+ * re-warping its own recorded quads that way and getting upright, square-on,
+ * document-scanner output on all 13.
+ *
+ * WHAT THIS GIVES UP, STATED PLAINLY. A card presented genuinely sideways (the
+ * user turns it 90 degrees in frame) now rectifies sideways rather than being
+ * rotated upright. That is the honest trade: geometry alone cannot separate a
+ * sideways card from a foreshortened upright one — both are landscape quads —
+ * and the old rule effectively guessed "sideways" for every tilted card, which
+ * is the common case. Guessing "upright" is right far more often, and the
+ * identify stage's counter-rotation probes span only +/-12 degrees
+ * (apps/api/src/scan/phash.ts), so nothing downstream could rescue a 90-degree
+ * error anyway.
  *
  * The residual 180 deg ambiguity (a card presented upside-down rectifies
  * upside-down) is not resolvable from geometry, and is left to the identify
@@ -214,17 +253,14 @@ export function orderQuadForCard(quad: Quad): Quad | null {
     a2 += p[0] * n[1] - n[0] * p[1]
   }
   const cw: Quad = a2 >= 0 ? q : [q[0], q[3], q[2], q[1]]
-  const side = (i: number) => Math.hypot(cw[(i + 1) % 4][0] - cw[i][0], cw[(i + 1) % 4][1] - cw[i][1])
-  const meanA = (side(0) + side(2)) / 2 // sides 0-1 and 2-3
-  const meanB = (side(1) + side(3)) / 2 // sides 1-2 and 3-0
-  // Rotations whose FIRST side is a short side.
-  const starts = meanA <= meanB ? [0, 2] : [1, 3]
-  const pick = starts.reduce((best, s) => {
-    const b = cw[best]
-    const c = cw[s]
-    if (c[1] < b[1] || (c[1] === b[1] && c[0] < b[0])) return s
-    return best
-  }, starts[0])
+  // Top-left by POSITION: smallest x+y. `cw` is already a clockwise cycle, so
+  // starting there makes 0->1 the top edge, 1->2 the right, and so on.
+  let pick = 0
+  for (let i = 1; i < 4; i++) {
+    const s = cw[i][0] + cw[i][1]
+    const b = cw[pick][0] + cw[pick][1]
+    if (s < b || (s === b && cw[i][1] < cw[pick][1])) pick = i
+  }
   return [cw[pick % 4], cw[(pick + 1) % 4], cw[(pick + 2) % 4], cw[(pick + 3) % 4]]
 }
 

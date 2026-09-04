@@ -43,10 +43,33 @@ export interface TrackedQuad {
 }
 
 export interface EngineState {
+  /**
+   * THE CANONICAL FRAME — always CANONICAL_SIZE square (frame.ts). Every quad in
+   * this state, and the reticle, are in these coordinates.
+   *
+   * ── THE WORKING-FRAME INVARIANT (owner ruling, 2026-09-04) ────────────────
+   *
+   * A display change — the photo window's height, the card list growing, the
+   * device rotating — must NEVER change what detection sees. The canonical frame
+   * is therefore a PURE FUNCTION OF THE CAMERA STREAM: the centre square of the
+   * sensor image at one fixed resolution, with no layout, CSS, camera-box or
+   * viewport input anywhere in its derivation.
+   *
+   * The dependency runs one way only: the DISPLAY reads the canonical frame and
+   * shows whatever window of it it likes. The canonical frame never reads the
+   * display. `__tests__/frame-invariant.test.ts` enforces both halves — the
+   * dimensions depend only on stream dimensions, and the frame-derivation
+   * modules may not import from the UI layer at all.
+   */
   frame: EngineFrame
-  /** Reticle rect as fractions of the frame: what the user aims at, and the
-   *  rect a tracked quad must sit inside to be shown. NOT the inference input —
-   *  the model sees the whole frame (index.ts INFERENCE_RECT). */
+  /** The camera stream's own dimensions, recorded so a consumer can map a
+   *  canonical quad back to sensor pixels (frame.canonicalQuadToStream). NOT an
+   *  input to anything above — see the invariant on `frame`. */
+  stream: EngineFrame
+  /** Reticle rect as fractions of the CANONICAL frame: what the user aims at,
+   *  and the rect a tracked quad must sit inside to be shown. A constant — a
+   *  fixed top/bottom margin with the width set by this game's card aspect
+   *  (frame.reticleForAspect). */
   reticle: { x: number; y: number; w: number; h: number }
   /** Presence-head value for the latest inference (raw, ungated). */
   hasObj: number
@@ -76,21 +99,16 @@ export interface ScanEngine {
   stop(): void
   /** Subscribe to per-detect-tick state. Returns unsubscribe. */
   onState(cb: (s: EngineState) => void): () => void
-  /** Rectify the given track's current quad from the live frame. */
-  capture(trackId: number): Promise<CaptureResult>
   /**
-   * Tell the engine the CSS size of the box the video is rendered into, so the
-   * reticle can be fitted inside the part of the frame the user can actually
-   * see rather than inside the whole frame.
+   * Rectify the given track's quad from the frame it was MEASURED on (not the
+   * live video — see index.ts's capA/capB), warping at full sensor resolution.
    *
-   * Not optional in spirit: without it the reticle is computed against the full
-   * frame while the UI renders that frame with `object-fit: cover`, and on a
-   * portrait stream in a landscape box the reticle's top and bottom edges land
-   * off-screen — which also silently widens the tracker's gate to 1.33x the
-   * visible height (geometry.visibleRect). Pass null to go back to whole-frame
-   * behaviour (the offline harness does).
+   * NOTE there is deliberately no `setViewport` here any more. The reticle used
+   * to be derived from the rendered camera box; under the working-frame
+   * invariant on `EngineState.frame` it is a constant of the canonical square,
+   * so the engine has no interest in the display's dimensions at all.
    */
-  setViewport(box: { width: number; height: number } | null): void
+  capture(trackId: number): Promise<CaptureResult>
 }
 
 export interface EngineOptions {
@@ -102,6 +120,20 @@ export interface EngineOptions {
   cadenceMs?: number
   /** Consecutive ticks before a stable track can lock (default 3). */
   lockTicks?: number
+  /** Minimum opposite-side ratio for a lock — the straddle gate (default 0.85,
+   *  index.DEFAULT_LOCK_PARALLEL_MIN). 0 disables it. */
+  lockParallelMin?: number
+  /**
+   * THE PER-GAME PARAMETER: this card game's width/height (Pokémon 63:88 =
+   * 0.71591, the default).
+   *
+   * Everything else in the frame spec is universal — the canonical square and
+   * the standardized top/bottom margin (frame.ts) — because those must feel the
+   * same in every game. The aspect is what differs, so it is threaded rather
+   * than hardcoded: it sets the reticle's WIDTH, the rectified output's shape,
+   * and the lock policy's aspect prior. A new TCG supplies this one number.
+   */
+  cardAspect?: number
   /**
    * How far a locked candidate's aspect may sit from a card's own 63:88 before
    * it is refused as a capture candidate, as a RATIO either way (default 0.28,

@@ -544,6 +544,41 @@ const scanHarnessRoute = createRoute({
   component: ScanHarnessRoute,
 })
 
+/**
+ * `/dev/quad-labeler` — human-verified quad labeling: capture (or upload) a
+ * frame, seed a quad from the shipping detector, correct it by hand (pinch
+ * zoom, corner loupe, keyboard nudge), and save it as ground truth for
+ * training/evaluating the next detector iteration. Same owner gate as every
+ * other /dev route; the component (and the engine chunk it lazy-loads on
+ * first use) ships only to whoever opens it.
+ */
+const LazyQuadLabeler = lazyRoute(() => import('./routes/dev/QuadLabeler'))
+const QuadLabelerRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">Loading…</div>
+    }
+  >
+    <LazyQuadLabeler />
+  </Suspense>
+)
+const quadLabelerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dev/quad-labeler',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.owner) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: QuadLabelerRoute,
+})
+
 const routeTree = rootRoute.addChildren([
   ...coreRoutes,
   designRoute,
@@ -551,6 +586,7 @@ const routeTree = rootRoute.addChildren([
   deckeCompareRoute,
   chatUiRoute,
   scanHarnessRoute,
+  quadLabelerRoute,
 ])
 
 const router = createRouter({

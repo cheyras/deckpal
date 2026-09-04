@@ -10,7 +10,7 @@
 // perspective, gating detection rather than cropping capture.
 import { useMemo } from 'react'
 import type { EngineState, TrackedQuad } from '../engine/contract'
-import { coverMap, framePointToCss, reticleToCss } from './coords'
+import { canonicalToCss } from './coords'
 
 export function QuadOverlay({
   state,
@@ -20,17 +20,26 @@ export function QuadOverlay({
   /** The rendered video box's own CSS size — the SVG fills it 1:1. */
   box: { width: number; height: number }
 }) {
+  // THE DISPLAY READS THE CANONICAL FRAME, NEVER THE REVERSE (contract.ts's
+  // working-frame invariant). The engine's frame is a square and CameraStage
+  // renders a square box showing exactly that square, so this is one scale
+  // factor — there is no object-fit: cover crop left to reason about, which is
+  // what used to let a layout change alter the aiming target.
   const map = useMemo(() => {
-    if (!state || !box.width || !box.height) return null
-    return coverMap(box.width, box.height, state.frame.width, state.frame.height)
+    if (!state || !box.width || !box.height || !state.frame.width) return null
+    return canonicalToCss(Math.min(box.width, box.height), state.frame.width)
   }, [state, box.width, box.height])
 
   if (!state || !map) return null
 
-  const toPoints = (q: TrackedQuad['quad']) =>
-    q.map(([x, y]) => framePointToCss(map, x, y).join(',')).join(' ')
+  const toPoints = (q: TrackedQuad['quad']) => q.map(([x, y]) => [x * map.scale, y * map.scale].join(',')).join(' ')
 
-  const r = reticleToCss(map, state.reticle, state.frame.width, state.frame.height)
+  const r = {
+    x: state.reticle.x * state.frame.width * map.scale,
+    y: state.reticle.y * state.frame.height * map.scale,
+    w: state.reticle.w * state.frame.width * map.scale,
+    h: state.reticle.h * state.frame.height * map.scale,
+  }
 
   return (
     <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">

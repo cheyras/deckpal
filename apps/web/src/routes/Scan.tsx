@@ -26,6 +26,19 @@ import { toScanBytes } from '../scan/ui/uploadNormalize'
 import { coverMap, framePointToCss, quadPose } from '../scan/ui/coords'
 import { bump, DURATION, flyArc, rectRelativeTo } from '../scan/ui/motion'
 import type { FeedEntry, FeedVariant, StackItem } from '../scan/ui/types'
+import type { Quad } from '../scan/engine/contract'
+import { polyIoU } from '../scan/engine/geometry'
+
+/**
+ * How long one place stays "already captured", and how much overlap counts as
+ * the same place. 2.5 s comfortably covers the drive's observed duplicate gaps
+ * (0.2 s and 0.3 s) plus a full identify round trip, while staying short enough
+ * that deliberately re-presenting the same card is not fought. 0.5 IoU is well
+ * below the near-identical overlap a re-detection of one stationary card
+ * produces, and well above the overlap of two adjacent cards in a stack.
+ */
+const CAPTURE_REFRACTORY_MS = 2_500
+const CAPTURE_REFRACTORY_IOU = 0.5
 
 // The scanner (production rebuild — see roadmap/plans/card-scanner-redesign,
 // PLAN.md D1-D6 — plus the owner's post-field-test UX round, 2026-09-03).
@@ -107,7 +120,6 @@ export function Scan() {
     error: engineError,
     state: engineState,
     capture,
-    setViewport,
   } = useScanEngine(videoRef, engineActive)
 
   // Mirrored into a ref so the capture pipeline can attach the gate state that
@@ -132,6 +144,37 @@ export function Scan() {
   }, [feed])
 
   const refractoryRef = useRef(new Set<number>())
+
+  /**
+   * THE SPATIAL REFRACTORY — duplicate captures, e2e drive 2026-09-04.
+   *
+   * The drive got 13 captures from 3 physical cards, with two pairs firing 0.2 s
+   * and 0.3 s apart. Every capture opened a NEW TRACK ID (1, 2, 8, 11, 13, 16,
+   * 17, 18, 19, 25, 30, 33, 34), so the by-track-id refractory above never saw a
+   * repeat to suppress: the tracker was not holding identity across one
+   * continuous presentation, and a refractory keyed on identity is worthless the
+   * moment identity churns.
+   *
+   * Fixing association to never churn is not achievable — an occlusion, a
+   * missed tick past the grace window, or a large jump legitimately ends a
+   * track, and tightening that trades these duplicates for lost captures. So the
+   * suppression is moved to a layer that does not depend on identity at all:
+   * WHERE and WHEN. A capture whose quad overlaps a recent capture's quad is the
+   * same card being re-presented, whatever the tracker calls it.
+   *
+   * Cheap to be wrong in the safe direction: a genuinely different card put down
+   * in the same spot within the window is refused for a couple of seconds, and
+   * the reader's manual Capture button overrides it immediately.
+   */
+  const recentCapturesRef = useRef<Array<{ quad: Quad; at: number }>>([])
+  const recentlyCapturedHere = useCallback((quad: Quad): boolean => {
+    const now = Date.now()
+    recentCapturesRef.current = recentCapturesRef.current.filter((c) => now - c.at < CAPTURE_REFRACTORY_MS)
+    return recentCapturesRef.current.some((c) => polyIoU(c.quad, quad) >= CAPTURE_REFRACTORY_IOU)
+  }, [])
+  const noteCapture = useCallback((quad: Quad) => {
+    recentCapturesRef.current.push({ quad, at: Date.now() })
+  }, [])
   const captureBusyRef = useRef(false)
   const stackNodesRef = useRef(new Map<string, HTMLDivElement>())
   const feedThumbNodesRef = useRef(new Map<string, HTMLDivElement>())
@@ -403,6 +446,10 @@ export function Scan() {
         // difference between one lost capture and a scanner that is dead until
         // the page is reloaded.
         const result = await withTimeout(capture(trackId), CAPTURE_TIMEOUT_MS, 'capture')
+        // Record WHERE this capture happened before the slow half of the
+        // pipeline runs, so a second lock arriving 200 ms later on a fresh track
+        // id is already suppressed by the time it asks.
+        noteCapture(result.quad)
         await withTimeout(handleCaptured(result, trigger), CAPTURE_TIMEOUT_MS, 'capture')
       } catch (e) {
         // The track vanished, the engine refused, or something ran past its
@@ -418,7 +465,7 @@ export function Scan() {
         captureBusyRef.current = false
       }
     },
-    [capture, handleCaptured],
+    [capture, handleCaptured, noteCapture],
   )
 
   // ── auto-capture: a persisted lock, refractory until the track departs
@@ -456,14 +503,19 @@ export function Scan() {
         wouldCapture: !refractoryRef.current.has(locked.id) && !captureBusyRef.current,
       })
     }
-    if (locked && !refractoryRef.current.has(locked.id) && !captureBusyRef.current) {
+    if (
+      locked &&
+      !refractoryRef.current.has(locked.id) &&
+      !captureBusyRef.current &&
+      !recentlyCapturedHere(locked.quad)
+    ) {
       refractoryRef.current.add(locked.id)
       void runCapture(locked.id, 'auto')
     }
     if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     else setHint('Point the camera at a card')
-  }, [engineState, step, runCapture, binExpanded])
+  }, [engineState, step, runCapture, binExpanded, recentlyCapturedHere])
 
   const manualCapture = useCallback(() => {
     if (!engineState || captureBusyRef.current) {
@@ -714,21 +766,13 @@ export function Scan() {
                       onReportCamera={() => void reportCamera()}
                       flashSignal={flashSignal}
                       onBoxChange={(b) => {
+                        // Recorded for the capture-flight courier's start pose
+                        // ONLY, and deliberately NOT reported to the engine:
+                        // under EngineState.frame's working-frame invariant the
+                        // canonical frame and reticle are a pure function of the
+                        // camera stream, so nothing measured from this box may
+                        // reach detection.
                         cameraBoxRef.current = b
-                        // The engine needs this to fit the reticle inside what
-                        // `object-fit: cover` actually shows — without it the
-                        // reticle is computed against the whole frame and, on a
-                        // portrait stream in this landscape box, its top and
-                        // bottom edges land off-screen while the tracker's gate
-                        // silently covers 1.33x the visible height.
-                        //
-                        // A 0x0 MEASUREMENT IS NOT A NEW VIEWPORT. Expanding the
-                        // bin puts `display:none` on this subtree, and a hidden
-                        // element reports 0x0 — clearing the viewport on that
-                        // would hand the engine back the whole-frame reticle,
-                        // i.e. re-introduce the very bug this call fixes, at the
-                        // one moment nobody is looking at the camera to notice.
-                        if (b.width > 0 && b.height > 0) setViewport(b)
                       }}
                     />
                     <div className="flex h-[44px] shrink-0 items-center gap-[8px] overflow-x-auto border-b border-divider-subtle bg-surface-secondary px-[12px]">

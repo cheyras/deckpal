@@ -43,26 +43,27 @@ import type {
 } from './contract'
 import { createPresenceGate, DEFAULT_ACQUIRE, DEFAULT_HOLD } from './gate'
 import {
-  CARD_ASPECT_W_OVER_H,
   centroid,
+  oppositeSideRatio,
   pointInRect,
   quadAspectRatio,
-  reticleWithin,
-  visibleRect,
   type ImageDataLike,
   type Rect,
 } from './geometry'
-import { loadModel, type ModelSession } from './model'
 import {
-  computeLetterbox,
-  drawLetterbox,
-  modelPointsToQuad,
-  rgbaToBGRPlanar,
-  MODEL_SIZE,
-  type LetterboxTransform,
-} from './preprocess'
+  canonicalFrame,
+  canonicalQuadToCrop,
+  CANONICAL_SIZE,
+  DEFAULT_CARD_ASPECT,
+  modelPointsToCanonicalQuad,
+  reticleForAspect,
+  squareCrop,
+  type SquareCrop,
+} from './frame'
+import { loadModel, type ModelSession } from './model'
+import { computeLetterbox, rgbaToBGRPlanar, MODEL_SIZE, type LetterboxTransform } from './preprocess'
 import { gradientField, refineQuadChecked } from './refine'
-import { rectifyToJpeg } from './rectify'
+import { cardRectSize, CAPTURE_QUALITY, rectifyToJpeg } from './rectify'
 import { createTracker } from './tracker'
 
 /** Detect-tick floor. ~8 Hz: fast enough that a tracked quad reads as
@@ -92,35 +93,56 @@ export const DEFAULT_LOCK_TICKS = 3
  * still works on it, and only the AUTOMATIC fire is withheld. That is the same
  * failure direction gate.ts chose — refuse to act, never refuse to show.
  *
- * SIZED BY THE SWEEP, mid-session gate (`clutter-lock.ts --gate open`), which is
- * the state the owner's failure happens in — a card was just scanned, so the
- * presence latch is open and stays open on anything over `hold`:
+ * SIZED ON REAL PRODUCT CAPTURES, not on the corpus — and the difference
+ * matters. An earlier pass tuned this to 0.15 against the phase-0b corpus. The
+ * 2026-09-04 e2e drive then recorded 13 captures the SHIPPED product actually
+ * made, hand-judged, and their short/long ratios say 0.15 was far too tight:
  *
- *   tol     admits          clutter locks   card locks
- *   0 (was)  everything        15/26           56/61
- *   0.10     0.644..0.787       2/26           48/61
- *   0.15     0.609..0.823       4/26           53/61   <- shipped
- *   0.20     0.573..0.859       6/26           53/61
- *   0.25     0.537..0.895       7/26           54/61
- *   0.28     0.515..0.916       9/26           55/61
+ *   drive captures   short/long ratio
+ *   6 GOOD           0.694 - 0.901
+ *   2 PARTIAL        (both inside that range)
+ *   5 BAD            0.348 - 0.532
  *
- * 0.15 DOMINATES 0.20 outright — same 53 card locks, two fewer clutter locks —
- * so anything looser than 0.15 is paying for nothing until 0.25. 0.10 buys two
- * more clutter rejections for five card locks, which is the wrong trade: the
- * quad is still drawn and the manual Capture button still fires, so a refused
- * auto-capture costs the user one tap, while a false one costs them a junk row
- * to hunt down in a feed of fourteen.
+ * 0.15 admits only 0.609-0.823, which would have REFUSED three of the six good
+ * captures — every one of them a card held at a modest tilt. 0.28 admits
+ * 0.515-0.916: all 8 usable captures kept, 4 of the 5 bad ones refused on aspect
+ * alone, and the fifth (0.532) taken by the straddle gate.
+ *
+ * WHY THE CORPUS MISLED. It is a version-2 dataset, framed for a 3:4 portrait
+ * view. Replaying it through the canonical CENTRE SQUARE clips cards that sat
+ * near the top or bottom of those frames, and a clipped card measures more
+ * square than it is — which pushed a dozen corpus cards into the 0.83-0.94 band
+ * and made a tight prior look cheap. On a device the user aims inside the square
+ * they can see, so that clipping does not occur. Real captures win.
+ *
+ * The corpus sweep at this setting (mid-session gate, straddle gate on) is
+ * 9/26 clutter locks against ~55/61 card locks, versus 14/26 and 60/61 with no
+ * priors at all.
  */
-export const DEFAULT_LOCK_ASPECT_TOL = 0.15
-/** Long side of the working image the refiner reads. The reticle crop is drawn
- *  into this, so on a 1280x960 stream one working pixel is ~1.5 frame px and
- *  the refiner's sub-pixel output is worth ~0.5 frame px — a real improvement
- *  on the model's measured 3-8 px. Refining on the 256 letterbox instead would
- *  quantise at ~3.8 frame px, i.e. the size of the error being fixed. */
+export const DEFAULT_LOCK_ASPECT_TOL = 0.28
+
+/**
+ * Minimum opposite-side ratio for a lock — THE STRADDLE GATE. See
+ * `isSingleCardShaped` for the sizing and geometry.oppositeSideRatio for what it
+ * measures and why convexity cannot substitute for it.
+ */
+export const DEFAULT_LOCK_PARALLEL_MIN = 0.72
+/**
+ * PIPELINE VERSION 2 CONSTANTS — kept only so the offline harness can replay the
+ * phase-0b corpus, which was collected under the letterboxed full-frame spec.
+ * The live pipeline is version 3 (frame.ts): a square canonical frame whose
+ * working image is CANONICAL_SIZE and whose model input is a plain resize.
+ * Nothing in the hot path reads these any more.
+ */
 export const REFINE_LONG_SIDE = 512
 
 /**
- * The rect INFERENCE runs on, as fractions of the frame. It is the whole frame,
+ * VERSION 2. The rect INFERENCE ran on, as fractions of the frame — the whole
+ * frame, with the reticle as a POST-filter. Superseded by the canonical square;
+ * retained for the offline harness and for the reasoning below, which is still
+ * why inference is not cropped to the reticle.
+ *
+ * It is the whole frame,
  * and the reticle is a POST-filter — which reverses the reticle-crop half of
  * DECISIONS.md 2026-09-02, on measurement.
  *
@@ -178,11 +200,50 @@ export function inferenceTransform(frameW: number, frameH: number): LetterboxTra
 
 /** Is this quad's short/long ratio within `tol` of a card's 63:88?
  *  See DEFAULT_LOCK_ASPECT_TOL for why a LOCK needs this and a DRAW does not. */
-export function isCardShaped(quad: Quad, tol: number = DEFAULT_LOCK_ASPECT_TOL): boolean {
+export function isCardShaped(
+  quad: Quad,
+  tol: number = DEFAULT_LOCK_ASPECT_TOL,
+  cardAspect: number = DEFAULT_CARD_ASPECT,
+): boolean {
   if (!(tol > 0)) return true
   const r = quadAspectRatio(quad)
   if (!(r > 0)) return false
-  return r >= CARD_ASPECT_W_OVER_H * (1 - tol) && r <= CARD_ASPECT_W_OVER_H * (1 + tol)
+  return r >= cardAspect * (1 - tol) && r <= cardAspect * (1 + tol)
+}
+
+/**
+ * THE STRADDLE GATE: refuse to auto-capture a quad whose opposite sides are too
+ * unequal to be one card under perspective.
+ *
+ * 0.72 is the midpoint of the empty band the 2026-09-04 e2e drive measured
+ * between usable captures (worst 0.784) and every straddle (best 0.659) — see
+ * geometry.oppositeSideRatio.
+ *
+ * WHY NOT THE 0.85 THE E2E REPORT PROPOSED. That number came from `parLR`, which
+ * is ONE of the two opposite-side pairs — sides 1-2 and 3-0 as the model happened
+ * to emit the corners. On the drive's 13 captures that pair separated beautifully
+ * (usable 0.882-0.995, straddles 0.506-0.659), but the separation is an artifact
+ * of corner INDEXING, not a geometric property: the raw quad's winding comes from
+ * the model, so "the second pair" is not reliably the left and right edges, and a
+ * straddle across a horizontally-stacked pair of cards would skew the OTHER pair
+ * and slip straight through. Measured on the same 13 captures, the top/bottom
+ * pair alone does NOT separate the classes at all (usable from 0.784, straddles
+ * up to 0.824).
+ *
+ * So the shipped metric is the WORSE of both pairs, which is orientation- and
+ * index-independent, and the price is a narrower band: 0.659 to 0.784 rather than
+ * 0.659 to 0.882. 0.72 sits in the middle of it, 0.061 above the worst straddle
+ * and 0.064 below the worst usable capture. Still rejects 5/5 straddles and keeps
+ * 8/8 usable captures; it is simply honest about having less headroom than a
+ * metric that only worked because of how these particular quads were wound.
+ *
+ * Like the aspect prior this gates the LOCK only: a straddling quad is still
+ * tracked, still drawn, and still capturable by hand. What it stops is the
+ * product deciding by itself that two cards are one.
+ */
+export function isSingleCardShaped(quad: Quad, minRatio: number = DEFAULT_LOCK_PARALLEL_MIN): boolean {
+  if (!(minRatio > 0)) return true
+  return oppositeSideRatio(quad) >= minRatio
 }
 
 export interface LockPolicy {
@@ -205,9 +266,13 @@ export interface LockPolicy {
  * flickers in and out of card-shape is precisely the clutter this exists to
  * refuse.
  */
-export function createLockPolicy(opts: { lockTicks?: number; lockAspectTol?: number } = {}): LockPolicy {
+export function createLockPolicy(
+  opts: { lockTicks?: number; lockAspectTol?: number; lockParallelMin?: number; cardAspect?: number } = {},
+): LockPolicy {
   const lockTicks = opts.lockTicks ?? DEFAULT_LOCK_TICKS
   const tol = opts.lockAspectTol ?? DEFAULT_LOCK_ASPECT_TOL
+  const parMin = opts.lockParallelMin ?? DEFAULT_LOCK_PARALLEL_MIN
+  const aspect = opts.cardAspect ?? DEFAULT_CARD_ASPECT
   const lockCounts = new Map<number, number>()
   return {
     update(stable, rect, frameW, frameH) {
@@ -216,7 +281,11 @@ export function createLockPolicy(opts: { lockTicks?: number; lockAspectTol?: num
       let locked: TrackedQuad | null = null
       for (const t of stable) {
         alive.add(t.id)
-        const centred = !t.coasting && pointInRect(centroid(t.quad), px) && isCardShaped(t.quad, tol)
+        const centred =
+          !t.coasting &&
+          pointInRect(centroid(t.quad), px) &&
+          isCardShaped(t.quad, tol, aspect) &&
+          isSingleCardShaped(t.quad, parMin)
         const n = centred ? (lockCounts.get(t.id) ?? 0) + 1 : 0
         lockCounts.set(t.id, n)
         // Oldest qualifying track wins, so two cards in the reticle resolve to
@@ -243,6 +312,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   const cadenceMs = opts.cadenceMs ?? DEFAULT_CADENCE_MS
   const lockTicks = opts.lockTicks ?? DEFAULT_LOCK_TICKS
   const lockAspectTol = opts.lockAspectTol ?? DEFAULT_LOCK_ASPECT_TOL
+  const lockParallelMin = opts.lockParallelMin ?? DEFAULT_LOCK_PARALLEL_MIN
+  /** THE PER-GAME PARAMETER. Everything else in the frame spec is universal;
+   *  this is the one number a new TCG supplies. */
+  const cardAspect = opts.cardAspect ?? DEFAULT_CARD_ASPECT
 
   const gate = createPresenceGate(opts.acquire ?? DEFAULT_ACQUIRE, opts.hold ?? DEFAULT_HOLD)
   const tracker = createTracker()
@@ -258,7 +331,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   let lastTickStart = 0
   let hz = 0
   let lastState: EngineState | null = null
-  const lockPolicy = createLockPolicy({ lockTicks, lockAspectTol })
+  const lockPolicy = createLockPolicy({ lockTicks, lockAspectTol, lockParallelMin, cardAspect })
 
   // Canvases are created once and resized in place — allocating a canvas per
   // tick is how you get a GC pause in the middle of a camera preview.
@@ -297,28 +370,32 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   /** The buffer belonging to `lastState`; null until the first tick emits. */
   let capRead: HTMLCanvasElement | null = null
 
-  let reticle: Rect = { x: 0.14, y: 0.04, w: 0.72, h: 0.92 }
-  let reticleW = 0
-  let reticleH = 0
-  let reticleBoxW = 0
-  let reticleBoxH = 0
-  /** The camera box's CSS size, or null when the caller has not said. */
-  let viewport: { width: number; height: number } | null = null
+  /**
+   * THE RETICLE, as fractions of the canonical square.
+   *
+   * A CONSTANT now, not a function of the frame or of anything the UI does. The
+   * square is the same on every device, so the reticle inside it is too: a fixed
+   * top/bottom margin (frame.RETICLE_MARGIN_FRAC, universal) with the width
+   * following from this game's card aspect. Nothing here can be influenced by
+   * the camera box's size — which is the whole point of the 2026-09-04 ruling.
+   */
+  const reticle: Rect = reticleForAspect(cardAspect)
 
-  /** The reticle, fitted inside the part of the frame `object-fit: cover`
-   *  actually shows — see geometry.visibleRect for what this fixes. Memoised on
-   *  (frame, box) because it is recomputed every detect tick. */
-  function reticleFor(frameW: number, frameH: number): Rect {
-    const bw = viewport?.width ?? 0
-    const bh = viewport?.height ?? 0
-    if (frameW !== reticleW || frameH !== reticleH || bw !== reticleBoxW || bh !== reticleBoxH) {
-      reticle = reticleWithin(frameW, frameH, visibleRect(frameW, frameH, bw, bh))
-      reticleW = frameW
-      reticleH = frameH
-      reticleBoxW = bw
-      reticleBoxH = bh
+  /**
+   * The stream's centre-square crop for the CURRENT stream size, memoised.
+   * `capture()` needs it to map canonical coordinates back to the full-res
+   * buffer, and it is a pure function of the stream's own dimensions.
+   */
+  let crop: SquareCrop = { x: 0, y: 0, size: 0 }
+  let cropForW = 0
+  let cropForH = 0
+  function cropFor(streamW: number, streamH: number): SquareCrop {
+    if (streamW !== cropForW || streamH !== cropForH) {
+      crop = squareCrop(streamW, streamH)
+      cropForW = streamW
+      cropForH = streamH
     }
-    return reticle
+    return crop
   }
 
   function prepContext(): CanvasRenderingContext2D | null {
@@ -327,6 +404,18 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       prepCtx = prep.getContext('2d', { willReadFrequently: true })
     }
     return prepCtx
+  }
+
+  /** The model's input: the stream's centre square, resized to MODEL_SIZE.
+   *
+   *  NO LETTERBOX. The old pipeline padded a non-square frame into a square
+   *  tensor and then had to undo the padding to map points back; a square source
+   *  makes that a plain resize, so a model fraction IS a canonical fraction and
+   *  the inverse mapping disappears entirely (frame.modelPointsToCanonicalQuad).
+   *  preprocess.ts keeps its letterbox utilities for the paths where a non-square
+   *  input still exists — uploads — which now centre-square first. */
+  function drawModelInput(ctx: CanvasRenderingContext2D, src: CanvasImageSource, c: SquareCrop): void {
+    ctx.drawImage(src, c.x, c.y, c.size, c.size, 0, 0, MODEL_SIZE, MODEL_SIZE)
   }
 
   /** Grab the pixels the refiner will read: the inference rect at up to
@@ -341,38 +430,37 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
    *  which is the entire size of the error the refiner exists to remove. So
    *  both reads happen back to back, and the ~17 ms inference sits after them
    *  rather than between them. */
-  function grabWork(src: CanvasImageSource, t: LetterboxTransform): ImageDataLike | null {
-    const { crop } = t
-    const s = Math.min(1, REFINE_LONG_SIDE / Math.max(crop.w, crop.h))
-    const rw = Math.max(16, Math.round(crop.w * s))
-    const rh = Math.max(16, Math.round(crop.h * s))
+  function grabWork(src: CanvasImageSource, c: SquareCrop): ImageDataLike | null {
     if (!workCtx || !work) {
-      work = makeCanvas(rw, rh)
+      work = makeCanvas(CANONICAL_SIZE, CANONICAL_SIZE)
       workCtx = work.getContext('2d', { willReadFrequently: true })
     }
     if (!workCtx || !work) return null
-    if (work.width !== rw || work.height !== rh) {
-      work.width = rw
-      work.height = rh
+    if (work.width !== CANONICAL_SIZE || work.height !== CANONICAL_SIZE) {
+      work.width = CANONICAL_SIZE
+      work.height = CANONICAL_SIZE
     }
-    workCtx.drawImage(src, crop.x, crop.y, crop.w, crop.h, 0, 0, rw, rh)
-    return workCtx.getImageData(0, 0, rw, rh)
+    workCtx.drawImage(src, c.x, c.y, c.size, c.size, 0, 0, CANONICAL_SIZE, CANONICAL_SIZE)
+    return workCtx.getImageData(0, 0, CANONICAL_SIZE, CANONICAL_SIZE)
   }
 
-  /** Grab the FULL-RESOLUTION frame this tick is about to reason about, into the
-   *  write buffer. Only a GPU blit here — the expensive `getImageData` is
-   *  deferred to `capture()`, which usually never happens for a given tick. */
-  function grabCaptureFrame(src: CanvasImageSource, w: number, h: number): void {
-    if (!capA) capA = makeCanvas(w, h)
-    if (!capB) capB = makeCanvas(w, h)
+  /** Grab the FULL-RESOLUTION CENTRE SQUARE this tick is about to reason about,
+   *  into the write buffer. Only a GPU blit here — the expensive `getImageData`
+   *  is deferred to `capture()`, which usually never happens for a given tick.
+   *
+   *  The buffer holds the CROP, not the whole stream, so `capture()` warps in
+   *  crop coordinates and the canonical->crop mapping is a single scale. */
+  function grabCaptureFrame(src: CanvasImageSource, c: SquareCrop): void {
+    if (!capA) capA = makeCanvas(c.size, c.size)
+    if (!capB) capB = makeCanvas(c.size, c.size)
     if (!capWrite) capWrite = capA
-    if (capWrite.width !== w || capWrite.height !== h) {
-      capWrite.width = w
-      capWrite.height = h
+    if (capWrite.width !== c.size || capWrite.height !== c.size) {
+      capWrite.width = c.size
+      capWrite.height = c.size
     }
     const ctx = capWrite.getContext('2d', { willReadFrequently: true })
     if (!ctx) return
-    ctx.drawImage(src, 0, 0)
+    ctx.drawImage(src, c.x, c.y, c.size, c.size, 0, 0, c.size, c.size)
   }
 
   /** Publish the frame this tick grabbed, and point the writer at the other
@@ -383,28 +471,11 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     capWrite = capWrite === capA ? capB : capA
   }
 
-  /** Refine the model's quad against those pixels. Returns null when
-   *  refinement produced a malformed quad — the caller then keeps the model's
-   *  own output, which is the tracker's whole law. */
-  function refine(img: ImageDataLike, quad: Quad, t: LetterboxTransform): Quad | null {
-    const { crop } = t
-    const sx = img.width / crop.w
-    const sy = img.height / crop.h
-    const F = gradientField(img)
-    const local: Quad = [
-      [(quad[0][0] - crop.x) * sx, (quad[0][1] - crop.y) * sy],
-      [(quad[1][0] - crop.x) * sx, (quad[1][1] - crop.y) * sy],
-      [(quad[2][0] - crop.x) * sx, (quad[2][1] - crop.y) * sy],
-      [(quad[3][0] - crop.x) * sx, (quad[3][1] - crop.y) * sy],
-    ]
-    const r = refineQuadChecked(local, F)
-    if (!r) return null
-    return [
-      [r[0][0] / sx + crop.x, r[0][1] / sy + crop.y],
-      [r[1][0] / sx + crop.x, r[1][1] / sy + crop.y],
-      [r[2][0] / sx + crop.x, r[2][1] / sy + crop.y],
-      [r[3][0] / sx + crop.x, r[3][1] / sy + crop.y],
-    ]
+  /** Refine the model's quad against the working pixels. The working image IS
+   *  the canonical frame, so there is no coordinate change at all here any more
+   *  — quad in, quad out, both canonical. */
+  function refine(img: ImageDataLike, quad: Quad): Quad | null {
+    return refineQuadChecked(quad, gradientField(img))
   }
 
   function emit(state: EngineState) {
@@ -419,38 +490,40 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   }
 
   async function tick(v: HTMLVideoElement, now: number): Promise<void> {
-    const frameW = v.videoWidth
-    const frameH = v.videoHeight
     const ctx = prepContext()
     if (!ctx || !session) return
 
-    // The reticle is the aiming guide and the tracker's post-filter; the model
-    // sees the whole frame. See INFERENCE_RECT for why those are two rects.
-    const rect = reticleFor(frameW, frameH)
-    const t = inferenceTransform(frameW, frameH)
-    drawLetterbox(ctx, v, t)
-    const input = rgbaToBGRPlanar(ctx.getImageData(0, 0, t.size, t.size))
-    // Same frame, read now — see grabWork's comment. All THREE reads of the
-    // video happen here, back to back, before the inference await: the model's
-    // input, the refiner's working image, and the full-resolution frame any
-    // capture of this tick will be warped from.
-    const workImg = grabWork(v, t)
-    grabCaptureFrame(v, frameW, frameH)
+    // THE CANONICAL FRAME: the stream's centre square, at CANONICAL_SIZE. Note
+    // what is NOT consulted here — no camera box, no viewport, no layout. See
+    // frame.ts for the ruling this enforces.
+    const c = cropFor(v.videoWidth, v.videoHeight)
+    if (!c.size) return
+    const rect = reticle
+
+    // A plain resize of the square, not a letterbox.
+    drawModelInput(ctx, v, c)
+    const input = rgbaToBGRPlanar(ctx.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE))
+    // All THREE reads of the video happen here, back to back, before the
+    // inference await: the model's input, the refiner's working image, and the
+    // full-resolution square any capture of this tick will be warped from.
+    const workImg = grabWork(v, c)
+    grabCaptureFrame(v, c)
 
     const { points, hasObj } = await session.run(input)
 
     const quads: Quad[] = []
     if (gate.update(hasObj)) {
-      const raw = modelPointsToQuad(t, points)
-      if (raw) quads.push((workImg && refine(workImg, raw, t)) ?? raw)
+      // A model fraction IS a canonical fraction — no letterbox padding to undo.
+      const raw = modelPointsToCanonicalQuad(points)
+      if (raw) quads.push((workImg && refine(workImg, raw)) ?? raw)
     }
 
-    // The reticle gate works in frame pixels; EngineState reports fractions.
+    // The reticle gate works in canonical pixels; EngineState reports fractions.
     tracker.setReticle({
-      x: rect.x * frameW,
-      y: rect.y * frameH,
-      w: rect.w * frameW,
-      h: rect.h * frameH,
+      x: rect.x * CANONICAL_SIZE,
+      y: rect.y * CANONICAL_SIZE,
+      w: rect.w * CANONICAL_SIZE,
+      h: rect.h * CANONICAL_SIZE,
     })
     const { stable, pending, jitter } = tracker.update(quads)
 
@@ -466,12 +539,16 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     // `capture()` relies on them being one.
     commitCaptureFrame()
     emit({
-      frame: { width: frameW, height: frameH },
+      // The CANONICAL frame, not the stream's. Every quad, the reticle and the
+      // capture mapping are in these coordinates; `stream` records what they
+      // came from so a consumer can map back (frame.canonicalQuadToStream).
+      frame: canonicalFrame(v.videoWidth, v.videoHeight),
+      stream: { width: v.videoWidth, height: v.videoHeight },
       reticle: { ...rect },
       hasObj,
       stable,
       pending,
-      locked: lockPolicy.update(stable, rect, frameW, frameH),
+      locked: lockPolicy.update(stable, rect, CANONICAL_SIZE, CANONICAL_SIZE),
       perf: { detectMs, hz, jitterPx: jitter.displayedPx },
     })
   }
@@ -530,10 +607,6 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       capWrite = capA
     },
 
-    setViewport(box: { width: number; height: number } | null): void {
-      viewport = box && box.width > 0 && box.height > 0 ? { width: box.width, height: box.height } : null
-    },
-
     onState(cb: (s: EngineState) => void): () => void {
       listeners.add(cb)
       return () => {
@@ -555,6 +628,11 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       const srcCtx = src.getContext('2d', { willReadFrequently: true })
       if (!srcCtx) throw new Error('scan engine: no 2d context')
       const frame: ImageDataLike = srcCtx.getImageData(0, 0, src.width, src.height)
+      // The retained buffer is the FULL-RESOLUTION centre square; the quad is in
+      // canonical (416) coordinates. One scale factor bridges them, and the warp
+      // then runs at sensor resolution rather than at detection resolution —
+      // which is the whole reason the buffer is kept at full size.
+      const toCrop = { x: 0, y: 0, size: src.width }
       // THE OBSERVATION, NOT THE DISPLAY POSE. `track.quad` is the tracker's EMA
       // — deliberately lagged, and a blend of several ticks, so it matches no
       // single frame. `track.raw` is what the detector actually measured on THIS
@@ -564,9 +642,17 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       const quad = track.raw ?? track.quad
       // rectifyToJpeg widens the quad by rectify.CAPTURE_MARGIN before warping:
       // the server trims background and cannot restore card. The quad REPORTED
-      // back is still the detection, not the widened capture rect — the UI draws
-      // what the engine found, and telemetry records what it claimed.
-      const blob = await rectifyToJpeg(frame, quad)
+      // back is the CANONICAL detection — the UI draws in canonical coordinates
+      // and telemetry records what the engine claimed — while the WARP runs in
+      // full-resolution crop coordinates.
+      const out = cardRectSize(cardAspect)
+      const blob = await rectifyToJpeg(
+        frame,
+        canonicalQuadToCrop(quad, toCrop),
+        CAPTURE_QUALITY,
+        out.width,
+        out.height,
+      )
       if (!blob) throw new Error('scan engine: quad could not be rectified')
       return { blob, quad, trackId }
     },
