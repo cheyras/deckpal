@@ -105,6 +105,19 @@ function parseArgs(argv: string[]): Args {
   return a
 }
 
+/**
+ * The slice of `pg.Pool` this job uses.
+ *
+ * Structural rather than imported: `tools/` is not a workspace package, so it
+ * has no `@types/pg` of its own, and this script is run with tsx rather than
+ * compiled. Naming the two methods it actually calls is also a smaller promise
+ * than the whole client, and it is what a future reader has to read.
+ */
+interface QueryablePool {
+  query<T = Record<string, unknown>>(text: string, params?: unknown[]): Promise<{ rows: T[] }>
+  end(): Promise<void>
+}
+
 interface Target {
   card_id: string
   serie: string
@@ -120,7 +133,7 @@ function cardPath(t: Target, quality: string): string {
   return join(CACHE_ROOT, 'images', LANG, t.serie, t.set, `${t.local_id}.${quality}.webp`)
 }
 
-async function fetchTargets(pool: import('pg').Pool, args: Args, stamp: string): Promise<Target[]> {
+async function fetchTargets(pool: QueryablePool, args: Args, stamp: string): Promise<Target[]> {
   const params: unknown[] = []
   let sql = `
     SELECT c.id::text AS card_id, ser.tcgdex_id AS serie, cs.tcgdex_id AS set, c.local_id
@@ -193,7 +206,7 @@ interface Row {
 }
 
 async function flush(
-  pool: import('pg').Pool,
+  pool: QueryablePool,
   quality: string,
   stamp: string,
   batch: Row[],

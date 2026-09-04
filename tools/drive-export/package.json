@@ -1,0 +1,22 @@
+{
+  "name": "@deckpal/drive-export",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "export": "node --import tsx export.mts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test __tests__/*.test.ts"
+  },
+  "dependencies": {
+    "@deckpal/db": "workspace:*",
+    "googleapis": "^178.0.0",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
+  }
+}

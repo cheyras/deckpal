@@ -100,6 +100,12 @@ CLAUDE.local.md
 .qa-account
 .owner-temp-password
 
+# The Google service-account key for tools/drive-export. Its path comes from
+# DRIVE_EXPORT_CREDENTIALS; this is the default that tool names in its own
+# error message, so it is the path somebody will actually create. A
+# service-account key is a live private key, not a config file.
+.drive-export-credentials.json
+
 # ── supabase CLI scratch (link state, not portable) ───────────────────────
 supabase/.temp/
 
