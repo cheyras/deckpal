@@ -28,6 +28,18 @@ export interface TrackedQuad {
    *  must render coasting tracks visually distinct (they are a prediction,
    *  not an observation) — the tracker never coasts past its grace. */
   coasting: boolean
+  /**
+   * The LATEST RAW OBSERVATION for this track — the refined quad the detector
+   * actually measured on the most recent tick that matched it — or null while
+   * coasting, when by definition there was no observation.
+   *
+   * `quad` above is the DISPLAY pose: an EMA across several ticks, deliberately
+   * lagged for the eye's benefit, and therefore a blend corresponding to no
+   * single frame. That is right for drawing and wrong for warping. `capture()`
+   * pairs THIS with the frame the same tick read, so the homography is solved
+   * between two things that describe one instant.
+   */
+  raw: Quad | null
 }
 
 export interface EngineState {

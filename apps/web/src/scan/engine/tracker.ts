@@ -280,6 +280,9 @@ export function createTracker(opts: TrackerOptions = {}): Tracker {
         quad: cloneQuad(t.smoothed),
         age: t.age,
         coasting: t.coasting,
+        // The observation, not the blend — see TrackedQuad.raw. Null while
+        // coasting: a coasting tick is a prediction and has no measurement.
+        raw: t.coasting || !t.lastRaw ? null : cloneQuad(t.lastRaw),
       }
       if (t.status === 'stable') stable.push(entry)
       else pending.push(entry)

@@ -6,6 +6,7 @@
 // carries the app's real auth and survives the cloud/self-host base-path
 // split; see `scripts/check-api-base.mjs`'s header for why that matters.
 import { api } from '../../lib/api'
+import { postEvent, recorderSuspended } from './eventPost'
 
 /** Re-encode any image blob through a canvas so the upload is always a real
  *  PNG regardless of the source type — a capture is a JPEG; the sidecar
@@ -74,25 +75,11 @@ const LOCK_EVENT_MIN_GAP_MS = 2_000
 
 let lastLockEventAt = 0
 
-/**
- * THE RECORDER'S OWN GATE. `/dev/scan-flags` is already owner-only server-side
- * (apps/api/src/dev/scanFlags.ts `isOwner`), so a non-owner's post would be
- * refused anyway — but "refused" still means encoding a PNG and making a
- * request per capture on someone else's phone and data plan. So the client asks
- * once, caches the answer for the tab, and stays silent unless it is the owner.
- *
- * Fails CLOSED: any error answering the question means no recording.
- */
-let ownerCheck: Promise<boolean> | null = null
-function isRecordingEnabled(): Promise<boolean> {
-  if (!ownerCheck) {
-    ownerCheck = api
-      .me()
-      .then((m) => m.owner === true)
-      .catch(() => false)
-  }
-  return ownerCheck
-}
+// The posting POLICY — the owner-gate removal and the backoff that replaced it
+// — lives in ./eventPost so it can be unit-tested without dragging `lib/api`
+// (and its `import.meta.env` read) into a node process. Re-exported here so
+// callers still have one import for the recorder.
+export { MAX_CONSECUTIVE_FAILURES, postEvent, recorderSuspended, __setFlagPoster } from './eventPost'
 
 async function downscaledPngBase64(source: CanvasImageSource, w: number, h: number, longSide: number): Promise<string | null> {
   if (!w || !h) return null
@@ -138,7 +125,9 @@ export interface CaptureEventInput {
  */
 export async function recordCaptureEvent(input: CaptureEventInput): Promise<void> {
   try {
-    if (!(await isRecordingEnabled())) return
+    // No pre-flight permission check — see MAX_CONSECUTIVE_FAILURES. The only
+    // thing consulted before doing work is our own backoff.
+    if (recorderSuspended()) return
     const v = input.video
     if (!v || !v.videoWidth || !v.videoHeight) return
     const framePng = await downscaledPngBase64(v, v.videoWidth, v.videoHeight, EVENT_FRAME_LONG_SIDE)
@@ -153,7 +142,7 @@ export async function recordCaptureEvent(input: CaptureEventInput): Promise<void
         rectifiedPng = null
       }
     }
-    await api.scanFlag(framePng, {
+    await postEvent(framePng, {
       type: 'capture-event',
       epochMs: Date.now(),
       source: 'scan-capture-event',
@@ -179,12 +168,12 @@ export async function recordLockEvent(video: HTMLVideoElement | null, detail: Re
   if (now - lastLockEventAt < LOCK_EVENT_MIN_GAP_MS) return
   lastLockEventAt = now
   try {
-    if (!(await isRecordingEnabled())) return
+    if (recorderSuspended()) return
     const v = video
     if (!v || !v.videoWidth || !v.videoHeight) return
     const png = await downscaledPngBase64(v, v.videoWidth, v.videoHeight, EVENT_FRAME_LONG_SIDE)
     if (!png) return
-    await api.scanFlag(png, {
+    await postEvent(png, {
       type: 'lock-event',
       epochMs: now,
       source: 'scan-lock-event',

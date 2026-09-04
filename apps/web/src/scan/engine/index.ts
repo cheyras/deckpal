@@ -266,8 +266,36 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   let prepCtx: CanvasRenderingContext2D | null = null
   let work: HTMLCanvasElement | null = null
   let workCtx: CanvasRenderingContext2D | null = null
-  let full: HTMLCanvasElement | null = null
-  let fullCtx: CanvasRenderingContext2D | null = null
+
+  /**
+   * THE CAPTURE FRAME, DOUBLE-BUFFERED — the fix for capture-time incoherence.
+   *
+   * `capture()` used to call `drawImage(video)` itself, warping whatever the
+   * camera showed AT CAPTURE TIME with a quad measured on a frame from an
+   * earlier instant. Those instants are far apart: the tick reads its pixels
+   * BEFORE the inference await, detect ticks are >=120 ms apart, and the UI then
+   * needs a React state commit plus an effect before it calls capture(). The
+   * phone moves in that window, so a quad that looked perfect on screen still
+   * warped a card that was no longer there — background on one side, a clipped
+   * edge on the other, and a perceptual hash taken over the difference.
+   *
+   * So the full-resolution frame is now grabbed at TICK START, back to back with
+   * the model's own input and the refiner's working image (grabWork's comment
+   * explains why those two are adjacent; this is the third read of the same
+   * instant). Two buffers, because a tick that has STARTED but not yet emitted
+   * must not overwrite the frame belonging to the state the UI is currently
+   * acting on: the writer is swapped in only at emit, so `capRead` and
+   * `lastState` always come from the same tick.
+   *
+   * Cost is one extra full-res canvas; `full`/`fullCtx` are gone, since nothing
+   * reads the live video at capture time any more.
+   */
+  let capA: HTMLCanvasElement | null = null
+  let capB: HTMLCanvasElement | null = null
+  /** The buffer the NEXT tick draws into. */
+  let capWrite: HTMLCanvasElement | null = null
+  /** The buffer belonging to `lastState`; null until the first tick emits. */
+  let capRead: HTMLCanvasElement | null = null
 
   let reticle: Rect = { x: 0.14, y: 0.04, w: 0.72, h: 0.92 }
   let reticleW = 0
@@ -331,6 +359,30 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     return workCtx.getImageData(0, 0, rw, rh)
   }
 
+  /** Grab the FULL-RESOLUTION frame this tick is about to reason about, into the
+   *  write buffer. Only a GPU blit here — the expensive `getImageData` is
+   *  deferred to `capture()`, which usually never happens for a given tick. */
+  function grabCaptureFrame(src: CanvasImageSource, w: number, h: number): void {
+    if (!capA) capA = makeCanvas(w, h)
+    if (!capB) capB = makeCanvas(w, h)
+    if (!capWrite) capWrite = capA
+    if (capWrite.width !== w || capWrite.height !== h) {
+      capWrite.width = w
+      capWrite.height = h
+    }
+    const ctx = capWrite.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return
+    ctx.drawImage(src, 0, 0)
+  }
+
+  /** Publish the frame this tick grabbed, and point the writer at the other
+   *  buffer. Called at emit, so `capRead` and `lastState` are always paired. */
+  function commitCaptureFrame(): void {
+    if (!capWrite) return
+    capRead = capWrite
+    capWrite = capWrite === capA ? capB : capA
+  }
+
   /** Refine the model's quad against those pixels. Returns null when
    *  refinement produced a malformed quad — the caller then keeps the model's
    *  own output, which is the tracker's whole law. */
@@ -378,8 +430,12 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     const t = inferenceTransform(frameW, frameH)
     drawLetterbox(ctx, v, t)
     const input = rgbaToBGRPlanar(ctx.getImageData(0, 0, t.size, t.size))
-    // Same frame, read now — see grabWork's comment.
+    // Same frame, read now — see grabWork's comment. All THREE reads of the
+    // video happen here, back to back, before the inference await: the model's
+    // input, the refiner's working image, and the full-resolution frame any
+    // capture of this tick will be warped from.
     const workImg = grabWork(v, t)
+    grabCaptureFrame(v, frameW, frameH)
 
     const { points, hasObj } = await session.run(input)
 
@@ -406,6 +462,9 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     }
     lastTickStart = now
 
+    // Publish this tick's frame and its state together — they are a pair, and
+    // `capture()` relies on them being one.
+    commitCaptureFrame()
     emit({
       frame: { width: frameW, height: frameH },
       reticle: { ...rect },
@@ -465,6 +524,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       lockPolicy.reset()
       hz = 0
       lastState = null
+      // The retained frame belongs to a state that no longer exists; keeping it
+      // would let a capture after a restart warp a stale scene.
+      capRead = null
+      capWrite = capA
     },
 
     setViewport(box: { width: number; height: number } | null): void {
@@ -479,31 +542,33 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     },
 
     async capture(trackId: number): Promise<CaptureResult> {
-      const v = video
-      if (!v || !v.videoWidth || !v.videoHeight) throw new Error('scan engine: no live frame to capture')
       const track =
         lastState?.stable.find((t) => t.id === trackId) ?? lastState?.pending.find((t) => t.id === trackId)
       if (!track) throw new Error(`scan engine: no track ${trackId}`)
-      // The CURRENT frame, at full sensor resolution — not the 512 working
-      // image the detector saw. The quad is already in frame pixels.
-      if (!fullCtx || !full) {
-        full = makeCanvas(v.videoWidth, v.videoHeight)
-        fullCtx = full.getContext('2d', { willReadFrequently: true })
-      }
-      if (!fullCtx || !full) throw new Error('scan engine: no 2d context')
-      if (full.width !== v.videoWidth || full.height !== v.videoHeight) {
-        full.width = v.videoWidth
-        full.height = v.videoHeight
-      }
-      fullCtx.drawImage(v, 0, 0)
-      const frame: ImageDataLike = fullCtx.getImageData(0, 0, full.width, full.height)
+      // THE FRAME THIS TRACK WAS MEASURED ON — not the live video. See the
+      // capA/capB declaration for why reading the camera here was wrong: the
+      // quad below describes an instant tens of milliseconds in the past, and
+      // warping newer pixels with it puts the card's edge somewhere the
+      // homography does not expect.
+      const src = capRead
+      if (!src || !src.width || !src.height) throw new Error('scan engine: no frame to capture')
+      const srcCtx = src.getContext('2d', { willReadFrequently: true })
+      if (!srcCtx) throw new Error('scan engine: no 2d context')
+      const frame: ImageDataLike = srcCtx.getImageData(0, 0, src.width, src.height)
+      // THE OBSERVATION, NOT THE DISPLAY POSE. `track.quad` is the tracker's EMA
+      // — deliberately lagged, and a blend of several ticks, so it matches no
+      // single frame. `track.raw` is what the detector actually measured on THIS
+      // frame. A coasting track has no observation, and falls back to the
+      // smoothed pose: that is the best available, and auto-capture never takes
+      // this path because a coasting track cannot lock.
+      const quad = track.raw ?? track.quad
       // rectifyToJpeg widens the quad by rectify.CAPTURE_MARGIN before warping:
       // the server trims background and cannot restore card. The quad REPORTED
       // back is still the detection, not the widened capture rect — the UI draws
       // what the engine found, and telemetry records what it claimed.
-      const blob = await rectifyToJpeg(frame, track.quad)
+      const blob = await rectifyToJpeg(frame, quad)
       if (!blob) throw new Error('scan engine: quad could not be rectified')
-      return { blob, quad: track.quad, trackId }
+      return { blob, quad, trackId }
     },
   }
 }
