@@ -16,6 +16,7 @@ import type { Quad } from '../contract'
 import { polyIoU } from '../geometry'
 import { isCardShaped, isSingleCardShaped, DEFAULT_LOCK_MIN_SATURATION } from '../index'
 import { judgeTie, gateScanResponse, TIE_MARGIN } from '../../ui/tieGate'
+import { createCapturedRegions } from '../../ui/regions'
 import type { ScanMatch, ScanResponse } from '../../../lib/api'
 
 const DRIVE = 'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/e2e-drive/'
@@ -48,36 +49,19 @@ const locks = (rs: Record<string, unknown>[]) =>
 // 1. Duplicates — presence, not a timer
 // ---------------------------------------------------------------------------
 
-/** Scan.tsx's captured-region policy, reproduced exactly. */
-function makeRegions(departMs: number, followIoU = 0.5, suppressIoU = 0.5) {
-  let regions: Array<{ quad: Quad; lastSeen: number }> = []
+/** THE SHIPPING POLICY, not a copy of it. This used to be a hand-reproduction of
+ *  the logic inlined in Scan.tsx, which is evidence only for as long as nobody
+ *  edits one of the two; it now drives `scan/ui/regions.ts` directly. */
+function makeRegions(departMs: number) {
+  const R = createCapturedRegions({ departureMs: departMs })
   return {
     tick(now: number, tracks: readonly Quad[]) {
-      for (const r of regions) {
-        let best: Quad | null = null
-        let bestIoU = followIoU
-        for (const q of tracks) {
-          const iou = polyIoU(r.quad, q)
-          if (iou >= bestIoU) {
-            bestIoU = iou
-            best = q
-          }
-        }
-        if (best) {
-          r.quad = best
-          r.lastSeen = now
-        }
-      }
-      regions = regions.filter((r) => now - r.lastSeen < departMs)
+      R.tick(now, tracks.map((quad) => ({ quad })))
     },
-    suppressed(quad: Quad): boolean {
-      return regions.some((r) => polyIoU(r.quad, quad) >= suppressIoU)
-    },
-    note(quad: Quad, now: number) {
-      regions.push({ quad, lastSeen: now })
-    },
+    suppressed: (quad: Quad) => R.suppressed(quad),
+    note: (quad: Quad, now: number) => R.note(quad, now),
     get count() {
-      return regions.length
+      return R.count
     },
   }
 }
@@ -345,7 +329,11 @@ describe('e2e round 2 — a tied top-1 may not present as confident', () => {
     assert.equal(judgeTie(m).rival, null)
   })
 
-  it('the margin is exactly "tied or one apart is not enough"', () => {
+  it('the rule is a strict "at least TIE_MARGIN ahead", with the boundary on the right side', () => {
+    // Round 2 fences the RULE; the VALUE is round 3's, and is fenced against
+    // round 3's own margin distribution in e2e-round3-regressions.test.ts.
+    // Round 2's own requirement is only that a tie and a one-unit lead are
+    // refused, which every margin >= 2 satisfies.
     const at = (d2: number) =>
       judgeTie(
         matchesFrom([
@@ -353,10 +341,13 @@ describe('e2e round 2 — a tied top-1 may not present as confident', () => {
           { name: 'B', set: 's', num: '2', d: d2 },
         ]),
       ).confident
-    assert.equal(TIE_MARGIN, 2)
+    assert.ok(TIE_MARGIN >= 2, `round 2's finding requires a margin of at least 2, got ${TIE_MARGIN}`)
     assert.equal(at(7), false, 'a tie is not confident')
     assert.equal(at(8), false, 'one apart is not confident')
-    assert.equal(at(9), true, 'two apart is confident')
+    // Exactly at the threshold is confident; one short of it is not. The
+    // boundary is inclusive, wherever the constant sits.
+    assert.equal(at(7 + TIE_MARGIN), true, 'exactly TIE_MARGIN ahead is confident')
+    assert.equal(at(7 + TIE_MARGIN - 1), false, 'one short of TIE_MARGIN is not')
   })
 
   it('an empty or unmatched response passes through untouched', () => {

@@ -79,6 +79,28 @@ export interface EngineState {
   /** A stable, non-coasting track centered in the reticle for >= lockTicks:
    *  the capture candidate. Null otherwise. */
   locked: TrackedQuad | null
+  /**
+   * THE CARD SIGNATURE for the track this state is about — `locked` when there
+   * is one, otherwise the oldest stable track — or null when nothing is being
+   * measured. Mean colour saturation inside the quad: the statistic
+   * `index.DEFAULT_LOCK_MIN_SATURATION` gates on (`refine.quadMeanSaturation`).
+   *
+   * REPORTED SO A REAL DEVICE CAN LOCATE THE THRESHOLD, which is round 3's
+   * loudest open risk. 0.13 has been shown exactly one clutter scene and no
+   * low-saturation card: no silver- or black-bordered card, no grayscale
+   * full-art, no card under glare, no card in a matte sleeve. It fails CLOSED —
+   * a real card below 0.13 never locks and simply cannot be auto-scanned — and
+   * nothing in three rounds measures how close a real card gets to it.
+   * Recording the value turns that from an argument into a histogram.
+   *
+   * It is deliberately the value for the track the engine is REPORTING ON, not
+   * only for locked ones. A card that fails the gate never locks, so a
+   * lock-only signal could never see the failure it exists to detect. The
+   * reader can still take that card with the manual Capture button, and the
+   * capture-event then carries the signature of the card that would not lock —
+   * which is the one measurement path to "a real card sitting below 0.13".
+   */
+  saturation: number | null
   perf: { detectMs: number; hz: number; jitterPx: number }
 }
 

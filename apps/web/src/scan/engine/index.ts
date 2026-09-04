@@ -633,6 +633,22 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     }
     lastTickStart = now
 
+    const locked = lockPolicy.update(stable, rect, CANONICAL_SIZE, CANONICAL_SIZE, (id) =>
+      saturations.get(id),
+    )
+
+    /** The track this state is ABOUT: the lock if there is one, else the oldest
+     *  stable track. Same "top track" rule the tracker's jitter readout uses, so
+     *  the two numbers describe the same object. See EngineState.saturation for
+     *  why an unlocked track's signature is the interesting one. */
+    function focusTrack(): TrackedQuad | null {
+      if (locked) return locked
+      let top: TrackedQuad | null = null
+      for (const t of stable) if (!top || t.age > top.age) top = t
+      return top
+    }
+    const focus = focusTrack()
+
     // Publish this tick's frame and its state together — they are a pair, and
     // `capture()` relies on them being one.
     commitCaptureFrame()
@@ -646,7 +662,8 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       hasObj,
       stable,
       pending,
-      locked: lockPolicy.update(stable, rect, CANONICAL_SIZE, CANONICAL_SIZE, (id) => saturations.get(id)),
+      locked,
+      saturation: focus ? (saturations.get(focus.id) ?? null) : null,
       perf: { detectMs, hz, jitterPx: jitter.displayedPx },
     })
   }

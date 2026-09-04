@@ -43,17 +43,59 @@ import type { ScanMatch, ScanResponse } from '../../lib/api'
 /**
  * How much better than the runner-up a top hit must be to claim confidence.
  *
- * 2 means "a tie, or a one-unit lead, is not enough". Sized directly on the
- * drive's own 19 confident results: EVERY one of them had a different-card rival
- * within 1 (9/9 in the card run, 2/2 in the clutter run), and 5 of those 6 the
- * product committed to were the wrong card. A margin of 2 downgrades all of them
- * to "pick one below", which is the honest answer for that footage.
+ * ── 2 WAS SIZED ON ROUND 2 AND ROUND 3 SHIPPED IT AND MEASURED IT ───────────
  *
- * It is deliberately not larger. On a visually distinct card the nearest
+ * 2 was sized on round 2's own 19 confident results: every one of them had a
+ * different-card rival within 1, so a margin of 2 downgraded all of them. It
+ * did most of its job — round 3 demoted 7 of the 11 server-confident results,
+ * and removed EVERY wrong commit from the clutter run, where round 2 had filed a
+ * blue Water Energy as Lightning Energy at 88% twice.
+ *
+ * It under-fired on the residue, and the residue is the whole point of the gate.
+ * Round 3 committed three captures of an orange Basic Fighting Energy to the
+ * batch as OTHER cards, behind green 88-89% confidence bars and with no prompt:
+ * Grass Energy `sve` #009, and Psychic Energy `swsh12.5` #156 at quantity 2.
+ * Three of nine captures committed, three of three wrong.
+ *
+ * ── WHY 3, AND WHY IT IS EXACTLY THE RIGHT NOTCH ────────────────────────────
+ *
+ * The survivors did not clear the bar comfortably. They cleared it BY EXACTLY 2,
+ * with nothing else in the run between. Round 3's probe re-POSTed all nine
+ * harvested crops to the live index (`harvest-r3run1/analysis/scan-results.json`)
+ * and the margin distribution to the best DIFFERENT-cardId rival is:
+ *
+ *   margin 0   1 capture   (already unmatched by the server's own threshold)
+ *   margin 1   6 captures  (demoted by the shipped gate — correctly)
+ *   margin 2   2 captures  (SURVIVED the shipped gate, and BOTH are the wrong card)
+ *   margin >=3 0 captures
+ *
+ * There is no capture in the run with a margin of 3 or more, so raising the bar
+ * to 3 costs this footage NOTHING — it demotes exactly the two survivors and
+ * nothing else. That is the rare case where the fence and the evidence coincide:
+ * the empty band sits between 2 and 3, and the threshold goes in it.
+ *
+ * ── THE TRADE, NAMED ────────────────────────────────────────────────────────
+ *
+ * A higher margin sends more TRUE matches to "needs attention". That is the
+ * right direction for this product and it is a judgement, not a measurement:
+ * needs-attention is a good experience here — round 3 confirmed the picker
+ * renders card art, name, set, number and a confidence for each of the top five,
+ * with the correct card present and one tap away — and a wrong card behind an
+ * 88% bar goes into the collection unnoticed. Round 1's rotated crops matched
+ * nothing and the reader was simply asked every time; that was WORSE at finding
+ * cards and BETTER at not lying, and the lying is the part that costs trust.
+ *
+ * It is deliberately not larger than 3. On a visually distinct card the nearest
  * different card sits many units away, so this never fires — it only speaks up
- * where the index genuinely cannot separate two candidates.
+ * where the index genuinely cannot separate two candidates, which on Basic
+ * Energy cards it cannot, because a dHash reads the frame and the layout those
+ * cards share exactly.
+ *
+ * WHAT WOULD MOVE IT AGAIN: real-camera footage of visually distinct cards. All
+ * three rounds are one Basic Energy through a doubly-compressed screen
+ * recording, and the margin distribution above is a property of that corpus.
  */
-export const TIE_MARGIN = 2
+export const TIE_MARGIN = 3
 
 /** Two matches are the same card when they share a cardId. Name/set/number are
  *  NOT used: two printings of one card are legitimately distinct answers, and

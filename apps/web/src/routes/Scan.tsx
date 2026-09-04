@@ -27,18 +27,8 @@ import { coverMap, framePointToCss, quadPose } from '../scan/ui/coords'
 import { bump, DURATION, flyArc, rectRelativeTo } from '../scan/ui/motion'
 import type { FeedEntry, FeedVariant, StackItem } from '../scan/ui/types'
 import type { Quad } from '../scan/engine/contract'
-import { polyIoU } from '../scan/engine/geometry'
-
-/**
- * How long one place stays "already captured", and how much overlap counts as
- * the same place. 2.5 s comfortably covers the drive's observed duplicate gaps
- * (0.2 s and 0.3 s) plus a full identify round trip, while staying short enough
- * that deliberately re-presenting the same card is not fought. 0.5 IoU is well
- * below the near-identical overlap a re-detection of one stationary card
- * produces, and well above the overlap of two adjacent cards in a stack.
- */
-const CAPTURE_REFRACTORY_MS = 2_500
-const CAPTURE_REFRACTORY_IOU = 0.5
+import { gateScanResponse } from '../scan/ui/tieGate'
+import { createCapturedRegions, type CapturedRegions } from '../scan/ui/regions'
 
 // The scanner (production rebuild — see roadmap/plans/card-scanner-redesign,
 // PLAN.md D1-D6 — plus the owner's post-field-test UX round, 2026-09-03).
@@ -68,6 +58,13 @@ let uidSeq = 0
 function makeId(prefix: string): string {
   uidSeq += 1
   return `${prefix}-${Date.now()}-${uidSeq}`
+}
+
+/** Telemetry rounding. A raw float64 costs ~18 bytes in the JSON meta and says
+ *  nothing the third decimal does not — the saturation gate's own margins are
+ *  0.018 and 0.019 wide. */
+function round3(n: number | null | undefined): number | null {
+  return typeof n === 'number' && Number.isFinite(n) ? Math.round(n * 1000) / 1000 : null
 }
 
 /** Two rAFs: the first fires once the browser is ready to paint the frame
@@ -146,35 +143,32 @@ export function Scan() {
   const refractoryRef = useRef(new Set<number>())
 
   /**
-   * THE SPATIAL REFRACTORY — duplicate captures, e2e drive 2026-09-04.
-   *
-   * The drive got 13 captures from 3 physical cards, with two pairs firing 0.2 s
-   * and 0.3 s apart. Every capture opened a NEW TRACK ID (1, 2, 8, 11, 13, 16,
-   * 17, 18, 19, 25, 30, 33, 34), so the by-track-id refractory above never saw a
-   * repeat to suppress: the tracker was not holding identity across one
-   * continuous presentation, and a refractory keyed on identity is worthless the
-   * moment identity churns.
-   *
-   * Fixing association to never churn is not achievable — an occlusion, a
-   * missed tick past the grace window, or a large jump legitimately ends a
-   * track, and tightening that trades these duplicates for lost captures. So the
-   * suppression is moved to a layer that does not depend on identity at all:
-   * WHERE and WHEN. A capture whose quad overlaps a recent capture's quad is the
-   * same card being re-presented, whatever the tracker calls it.
-   *
-   * Cheap to be wrong in the safe direction: a genuinely different card put down
-   * in the same spot within the window is refused for a couple of seconds, and
-   * the reader's manual Capture button overrides it immediately.
+   * THE CAPTURED-REGION REFRACTORY — duplicate captures. The policy, its
+   * constants and the evidence that sized them live in `scan/ui/regions.ts`,
+   * so the regression replay drives the SHIPPING object rather than a copy of
+   * it. This route only feeds it ticks and asks it questions.
    */
-  const recentCapturesRef = useRef<Array<{ quad: Quad; at: number }>>([])
-  const recentlyCapturedHere = useCallback((quad: Quad): boolean => {
-    const now = Date.now()
-    recentCapturesRef.current = recentCapturesRef.current.filter((c) => now - c.at < CAPTURE_REFRACTORY_MS)
-    return recentCapturesRef.current.some((c) => polyIoU(c.quad, quad) >= CAPTURE_REFRACTORY_IOU)
-  }, [])
-  const noteCapture = useCallback((quad: Quad) => {
-    recentCapturesRef.current.push({ quad, at: Date.now() })
-  }, [])
+  const regionsRef = useRef<CapturedRegions | null>(null)
+  // Lazily, and exactly once. `useRef(createCapturedRegions())` would re-run the
+  // factory on EVERY render and throw the result away, and this component
+  // re-renders on every detect tick.
+  regionsRef.current ??= createCapturedRegions()
+  const regions = regionsRef.current
+
+  const ageRegions = useCallback(
+    (tracks: readonly { quad: Quad }[]) => {
+      regions.tick(Date.now(), tracks)
+    },
+    [regions],
+  )
+
+  const alreadyCapturedHere = useCallback((quad: Quad): boolean => regions.suppressed(quad), [regions])
+  const noteCapture = useCallback(
+    (quad: Quad) => {
+      regions.note(quad, Date.now())
+    },
+    [regions],
+  )
   const captureBusyRef = useRef(false)
   const stackNodesRef = useRef(new Map<string, HTMLDivElement>())
   const feedThumbNodesRef = useRef(new Map<string, HTMLDivElement>())
@@ -272,7 +266,14 @@ export function Scan() {
    *  bump on an existing one by cardId. Pure state; the caller is
    *  responsible for any flight animation around it. */
   const applyIdentifyResult = useCallback(
-    (res: ScanResponse | null, stackItem: StackItem) => {
+    (rawRes: ScanResponse | null, stackItem: StackItem) => {
+      // THE TIE GATE (scan/ui/tieGate.ts). A top hit that is not clearly ahead
+      // of a DIFFERENT card may not present as identified — it lands as "needs
+      // attention" with its full top-5 intact for the reader to pick from. The
+      // 2026-09-04 drive filed six rows at 86-91% confidence and got one right,
+      // and every one of its confident results was tied within 1 of a different
+      // card. Withholding the claim never withholds the evidence.
+      const res = gateScanResponse(rawRes)
       const top = res?.matched ? res.matches[0] : undefined
       setFeed((prev) => {
         const existing = top ? prev.find((e) => e.cardId === top.cardId) : undefined
@@ -355,6 +356,14 @@ export function Scan() {
           })(),
           step,
           perf: engineStateRef.current?.perf ?? null,
+          // THE ONE PATH THAT CAN MEASURE A CARD BELOW THE CLUTTER GATE. A card
+          // whose signature sits under DEFAULT_LOCK_MIN_SATURATION never locks,
+          // so it produces no lock-event and is invisible to that channel — but
+          // the reader can still take it with the manual Capture button, and
+          // this is that capture's record. A `trigger: 'manual'` event with a
+          // low `saturation` is exactly the evidence round 3 §9.7 says nobody
+          // has: a real card the 0.13 threshold refuses.
+          saturation: round3(engineStateRef.current?.saturation),
         },
       })
       const stackItem: StackItem = { id: makeId('cap'), trackId: result.trackId, previewUrl, blob: result.blob, capturedAt: Date.now() }
@@ -484,6 +493,12 @@ export function Scan() {
     for (const id of refractoryRef.current) {
       if (!presentIds.has(id)) refractoryRef.current.delete(id)
     }
+    // ONCE PER DETECT TICK, and this is what makes the presence signal dense
+    // enough to be the refractory's clock: every remembered capture region is
+    // refreshed against what is on screen right now, and retired only when
+    // nothing has overlapped it for REGION_DEPARTURE_MS. Pending tracks count —
+    // a card that briefly drops below the stability bar has not departed.
+    ageRegions([...engineState.stable, ...engineState.pending])
     const locked = engineState.locked
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
@@ -501,13 +516,36 @@ export function Scan() {
         cameraBox: cameraBoxRef.current,
         perf: engineState.perf,
         wouldCapture: !refractoryRef.current.has(locked.id) && !captureBusyRef.current,
+        // So the NEXT drive can measure the refractory instead of inferring it:
+        // how many regions are live, and whether this lock was one of them.
+        regionCount: regions.count,
+        suppressedByRegion: alreadyCapturedHere(locked.quad),
+        // ── REGION GRACE EXPIRY, round 4's instrument ────────────────────────
+        // Round 3 could see THAT a lock was free (`suppressedByRegion: false`)
+        // but not WHY, and the why turned out to be the whole finding: the
+        // region had expired during a multi-second detector dropout. These two
+        // integers say it directly instead of making the next reader
+        // reconstruct it from gaps between event timestamps — which is what
+        // round 3 had to do, at a 2 s recorder throttle that blurs everything
+        // shorter than that. `regionsExpired` is cumulative for the page;
+        // `sinceRegionExpiryMs` is null until the first expiry, so "this free
+        // lock came 40 ms after a region retired" is one subtraction away.
+        regionsExpired: regions.expired,
+        sinceRegionExpiryMs: regions.msSinceExpiry(Date.now()),
+        // The clutter gate's own input, for the track this lock is about. See
+        // EngineState.saturation: 0.13 has never been shown a low-saturation
+        // card, and this is how a real device tells us where real cards sit.
+        // Rounded — three decimals is far finer than the gate's own margins
+        // (0.018 above the mail, 0.019 below the least colourful card) and
+        // keeps the payload a handful of bytes.
+        saturation: round3(engineState.saturation),
       })
     }
     if (
       locked &&
       !refractoryRef.current.has(locked.id) &&
       !captureBusyRef.current &&
-      !recentlyCapturedHere(locked.quad)
+      !alreadyCapturedHere(locked.quad)
     ) {
       refractoryRef.current.add(locked.id)
       void runCapture(locked.id, 'auto')
@@ -515,7 +553,7 @@ export function Scan() {
     if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     else setHint('Point the camera at a card')
-  }, [engineState, step, runCapture, binExpanded, recentlyCapturedHere])
+  }, [engineState, step, runCapture, binExpanded, ageRegions, alreadyCapturedHere, regions])
 
   const manualCapture = useCallback(() => {
     if (!engineState || captureBusyRef.current) {
