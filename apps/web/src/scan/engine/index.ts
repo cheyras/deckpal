@@ -46,6 +46,7 @@ import {
   centroid,
   oppositeSideRatio,
   pointInRect,
+  polyIoU,
   quadAspectRatio,
   type ImageDataLike,
   type Rect,
@@ -62,7 +63,7 @@ import {
 } from './frame'
 import { loadModel, type ModelSession } from './model'
 import { computeLetterbox, rgbaToBGRPlanar, MODEL_SIZE, type LetterboxTransform } from './preprocess'
-import { gradientField, refineQuadChecked } from './refine'
+import { gradientField, quadMeanSaturation, refineQuadChecked } from './refine'
 import { cardRectSize, CAPTURE_QUALITY, rectifyToJpeg } from './rectify'
 import { createTracker } from './tracker'
 
@@ -127,6 +128,44 @@ export const DEFAULT_LOCK_ASPECT_TOL = 0.28
  * measures and why convexity cannot substitute for it.
  */
 export const DEFAULT_LOCK_PARALLEL_MIN = 0.72
+
+/**
+ * Minimum mean colour saturation inside a locked quad — a WHITE-PAPER REJECTOR.
+ *
+ * ── WHAT IT ACTUALLY IS, NAMED HONESTLY ────────────────────────────────────
+ *
+ * It is NOT a card detector, and the measurements say so plainly. Over the
+ * phase-0b corpus, run through the shipping pipeline, the two classes overlap
+ * almost completely on this statistic:
+ *
+ *   corpus CARD frames      min 0.149  p10 0.227  median 0.375  max 0.730
+ *   corpus NO-CARD frames   min 0.159  p10 0.162  median 0.302  max 0.571
+ *
+ * Household clutter is colourful, so saturation cannot separate a card from a
+ * cereal box and this gate removes essentially no corpus clutter.
+ *
+ * What it does separate is PRINTED MAIL, and that is the specific regression it
+ * exists for. The 2026-09-04 drive auto-captured a postal envelope twice, and
+ * ink on white paper sits far below everything else measured:
+ *
+ *   drive MAIL (2)          0.108 - 0.112
+ *   drive card captures(30) 0.356 - 0.499
+ *   corpus cards (61)       0.149 and up
+ *
+ * 0.13 refuses both envelopes and keeps EVERY card in both datasets. The margins
+ * are thin and symmetric — 0.018 above the mail, 0.019 below the least colourful
+ * card (F069) — and that is the honest width of the gap, not a comfortable one.
+ *
+ * WHY NOT 0.16, WHICH LOOKED BETTER. It rejected one more corpus clutter frame,
+ * but given the classes overlap that rejection is noise rather than signal, and
+ * it cost a real card (F069 at 0.149). Buying a coin-flip with a card is the
+ * wrong trade when the card is still drawn, still tracked, and one tap away from
+ * a manual capture.
+ *
+ * Set to 0 to disable. See `refine.quadMeanSaturation` for the measurement.
+ */
+export const DEFAULT_LOCK_MIN_SATURATION = 0.13
+
 /**
  * PIPELINE VERSION 2 CONSTANTS — kept only so the offline harness can replay the
  * phase-0b corpus, which was collected under the letterboxed full-frame spec.
@@ -247,9 +286,22 @@ export function isSingleCardShaped(quad: Quad, minRatio: number = DEFAULT_LOCK_P
 }
 
 export interface LockPolicy {
-  /** Feed ONE detect tick's stable tracks plus the reticle in FRAME FRACTIONS.
-   *  Returns the capture candidate, or null. */
-  update(stable: readonly TrackedQuad[], reticle: Rect, frameW: number, frameH: number): TrackedQuad | null
+  /**
+   * Feed ONE detect tick's stable tracks plus the reticle in FRAME FRACTIONS.
+   * Returns the capture candidate, or null.
+   *
+   * `saturationOf` supplies the card signature for a track when one has been
+   * measured. It is optional and FAILS OPEN — a track with no measurement is
+   * judged on geometry alone, because a missing signal must never be able to
+   * stop the scanner working.
+   */
+  update(
+    stable: readonly TrackedQuad[],
+    reticle: Rect,
+    frameW: number,
+    frameH: number,
+    saturationOf?: (trackId: number) => number | undefined,
+  ): TrackedQuad | null
   reset(): void
 }
 
@@ -267,25 +319,36 @@ export interface LockPolicy {
  * refuse.
  */
 export function createLockPolicy(
-  opts: { lockTicks?: number; lockAspectTol?: number; lockParallelMin?: number; cardAspect?: number } = {},
+  opts: {
+    lockTicks?: number
+    lockAspectTol?: number
+    lockParallelMin?: number
+    cardAspect?: number
+    minSaturation?: number
+  } = {},
 ): LockPolicy {
   const lockTicks = opts.lockTicks ?? DEFAULT_LOCK_TICKS
   const tol = opts.lockAspectTol ?? DEFAULT_LOCK_ASPECT_TOL
   const parMin = opts.lockParallelMin ?? DEFAULT_LOCK_PARALLEL_MIN
   const aspect = opts.cardAspect ?? DEFAULT_CARD_ASPECT
+  const minSat = opts.minSaturation ?? DEFAULT_LOCK_MIN_SATURATION
   const lockCounts = new Map<number, number>()
   return {
-    update(stable, rect, frameW, frameH) {
+    update(stable, rect, frameW, frameH, saturationOf) {
       const px: Rect = { x: rect.x * frameW, y: rect.y * frameH, w: rect.w * frameW, h: rect.h * frameH }
       const alive = new Set<number>()
       let locked: TrackedQuad | null = null
       for (const t of stable) {
         alive.add(t.id)
+        // FAILS OPEN: an unmeasured track is judged on geometry alone.
+        const sat = saturationOf?.(t.id)
+        const colourful = !(minSat > 0) || sat === undefined || sat >= minSat
         const centred =
           !t.coasting &&
           pointInRect(centroid(t.quad), px) &&
           isCardShaped(t.quad, tol, aspect) &&
-          isSingleCardShaped(t.quad, parMin)
+          isSingleCardShaped(t.quad, parMin) &&
+          colourful
         const n = centred ? (lockCounts.get(t.id) ?? 0) + 1 : 0
         lockCounts.set(t.id, n)
         // Oldest qualifying track wins, so two cards in the reticle resolve to
@@ -331,7 +394,15 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   let lastTickStart = 0
   let hz = 0
   let lastState: EngineState | null = null
-  const lockPolicy = createLockPolicy({ lockTicks, lockAspectTol, lockParallelMin, cardAspect })
+  const lockPolicy = createLockPolicy({
+    lockTicks,
+    lockAspectTol,
+    lockParallelMin,
+    cardAspect,
+    minSaturation: opts.minSaturation,
+  })
+  /** Latest card signature per track id — see DEFAULT_LOCK_MIN_SATURATION. */
+  const saturations = new Map<number, number>()
 
   // Canvases are created once and resized in place — allocating a canvas per
   // tick is how you get a GC pause in the middle of a camera preview.
@@ -512,10 +583,18 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     const { points, hasObj } = await session.run(input)
 
     const quads: Quad[] = []
+    /** This tick's card signature for the detected quad, if there was one. */
+    let tickSaturation: number | null = null
     if (gate.update(hasObj)) {
       // A model fraction IS a canonical fraction — no letterbox padding to undo.
       const raw = modelPointsToCanonicalQuad(points)
-      if (raw) quads.push((workImg && refine(workImg, raw)) ?? raw)
+      if (raw) {
+        const q = (workImg && refine(workImg, raw)) ?? raw
+        quads.push(q)
+        // Measured on the working image, which IS the canonical frame — so the
+        // quad needs no transform. Cheap: a 24x24 sample grid, not a full scan.
+        if (workImg) tickSaturation = quadMeanSaturation(workImg, q)
+      }
     }
 
     // The reticle gate works in canonical pixels; EngineState reports fractions.
@@ -526,6 +605,25 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       h: rect.h * CANONICAL_SIZE,
     })
     const { stable, pending, jitter } = tracker.update(quads)
+
+    // Attach this tick's signature to whichever track the tracker associated the
+    // detection with — by overlap, since the tracker owns the association and
+    // does not report it. Values persist across coasting ticks (no new
+    // measurement) and are dropped with the track.
+    if (tickSaturation !== null && quads.length) {
+      let best: TrackedQuad | null = null
+      let bestIoU = 0.3
+      for (const t of [...stable, ...pending]) {
+        const iou = polyIoU(t.quad, quads[0])
+        if (iou > bestIoU) {
+          bestIoU = iou
+          best = t
+        }
+      }
+      if (best) saturations.set(best.id, tickSaturation)
+    }
+    const liveIds = new Set([...stable, ...pending].map((t) => t.id))
+    for (const id of [...saturations.keys()]) if (!liveIds.has(id)) saturations.delete(id)
 
     const detectMs = performance.now() - now
     if (lastTickStart) {
@@ -548,7 +646,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       hasObj,
       stable,
       pending,
-      locked: lockPolicy.update(stable, rect, CANONICAL_SIZE, CANONICAL_SIZE),
+      locked: lockPolicy.update(stable, rect, CANONICAL_SIZE, CANONICAL_SIZE, (id) => saturations.get(id)),
       perf: { detectMs, hz, jitterPx: jitter.displayedPx },
     })
   }

@@ -135,6 +135,82 @@ export const REFINE_DEFAULTS = {
 export const REFINE_PASS_HALVES = [6, 3] as const
 
 /**
+ * THE CARD SIGNATURE: mean colour saturation inside a quad.
+ *
+ * ── WHY GEOMETRY WAS NOT ENOUGH (e2e drive round 2, 2026-09-04) ────────────
+ *
+ * The drive auto-captured a POSTAL ENVELOPE twice. Its quad measured 0.764 and
+ * 0.712 short/long — squarely inside the band real hand-held cards occupy
+ * (0.694-0.901) — and its opposite-side ratios were 0.944 and 0.961, CLEANER
+ * than several genuine card captures. Neither the aspect prior nor the straddle
+ * gate could have rejected it, and no tightening of either would: a flat,
+ * well-lit, sharp-cornered rectangle of card proportions is what a shipping
+ * label IS. Geometry alone cannot tell mail from a card.
+ *
+ * Colour can — but only against PAPER, and it is important to say which. Over
+ * the phase-0b corpus run through the shipping pipeline, cards and household
+ * clutter overlap on this statistic almost completely:
+ *
+ *   corpus CARD frames      min 0.149  p10 0.227  median 0.375  max 0.730
+ *   corpus NO-CARD frames   min 0.159  p10 0.162  median 0.302  max 0.571
+ *
+ * So this is NOT a card detector and must never be described as one. Clutter is
+ * colourful; a cereal box scores like a card because it is like a card.
+ *
+ * What it does separate is ink on white paper, which is what the regression was:
+ *
+ *   drive MAIL (2)           0.108 - 0.112
+ *   drive card captures (30) 0.356 - 0.499
+ *   corpus cards (61)        0.149 and up
+ *
+ * ── THE HONEST LIMITS, STATED UP FRONT ─────────────────────────────────────
+ *
+ * The negative class is TWO SAMPLES, both the same envelope on the same clip,
+ * and the shipped threshold clears them by 0.018 while clearing the least
+ * colourful known card by 0.019. That is a real gap, not a comfortable one. A
+ * genuinely monochrome card and a brightly-printed envelope are each outside
+ * everything that has been measured, and either would defeat it.
+ *
+ * The corpus is what stopped this shipping at 0.22, which looked free on the
+ * drive's vividly-coloured Basic Energy cards (floor 0.356) and would have
+ * refused four corpus cards.
+ */
+export function quadMeanSaturation(img: ImageDataLike, quad: Quad, inset = 0.1, grid = 24): number {
+  const W = img.width
+  const H = img.height
+  const d = img.data
+  let sum = 0
+  let n = 0
+  // Bilinear sweep across the quad, skipping an inset border so the measurement
+  // is of the card's FACE and not of the table just outside a loose corner.
+  const lo = inset
+  const hi = 1 - inset
+  const step = grid > 1 ? (hi - lo) / (grid - 1) : 0
+  for (let i = 0; i < grid; i++) {
+    const v = lo + step * i
+    for (let j = 0; j < grid; j++) {
+      const u = lo + step * j
+      const topX = quad[0][0] + (quad[1][0] - quad[0][0]) * u
+      const topY = quad[0][1] + (quad[1][1] - quad[0][1]) * u
+      const botX = quad[3][0] + (quad[2][0] - quad[3][0]) * u
+      const botY = quad[3][1] + (quad[2][1] - quad[3][1]) * u
+      const x = Math.round(topX + (botX - topX) * v)
+      const y = Math.round(topY + (botY - topY) * v)
+      if (x < 0 || y < 0 || x >= W || y >= H) continue
+      const o = (y * W + x) * 4
+      const r = d[o]
+      const g = d[o + 1]
+      const b = d[o + 2]
+      const mx = Math.max(r, g, b)
+      const mn = Math.min(r, g, b)
+      sum += mx > 0 ? (mx - mn) / mx : 0
+      n++
+    }
+  }
+  return n > 0 ? sum / n : 0
+}
+
+/**
  * Sobel front end. Ported from detector-hybrid-v3.mjs `frontEnd`.
  *
  * `mag` is the L2 norm of the per-channel Sobel responses summed in quadrature

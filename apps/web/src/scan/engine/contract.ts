@@ -120,9 +120,14 @@ export interface EngineOptions {
   cadenceMs?: number
   /** Consecutive ticks before a stable track can lock (default 3). */
   lockTicks?: number
-  /** Minimum opposite-side ratio for a lock — the straddle gate (default 0.85,
+  /** Minimum opposite-side ratio for a lock — the straddle gate (default 0.72,
    *  index.DEFAULT_LOCK_PARALLEL_MIN). 0 disables it. */
   lockParallelMin?: number
+  /** Minimum mean colour saturation inside a locked quad — THE CARD SIGNATURE
+   *  (default 0.16, index.DEFAULT_LOCK_MIN_SATURATION). The one non-geometric
+   *  lock gate, and it exists because a postal envelope is genuinely
+   *  card-shaped and card-proportioned. 0 disables it. */
+  minSaturation?: number
   /**
    * THE PER-GAME PARAMETER: this card game's width/height (Pokémon 63:88 =
    * 0.71591, the default).

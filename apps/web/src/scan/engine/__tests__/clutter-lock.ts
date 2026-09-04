@@ -52,9 +52,14 @@ import {
   reticleForAspect,
   squareCrop,
 } from '../frame'
-import { createLockPolicy, DEFAULT_LOCK_ASPECT_TOL, DEFAULT_LOCK_PARALLEL_MIN } from '../index'
+import {
+  createLockPolicy,
+  DEFAULT_LOCK_ASPECT_TOL,
+  DEFAULT_LOCK_MIN_SATURATION,
+  DEFAULT_LOCK_PARALLEL_MIN,
+} from '../index'
 import { MODEL_SIZE } from '../preprocess'
-import { gradientField, refineQuadChecked } from '../refine'
+import { gradientField, quadMeanSaturation, refineQuadChecked } from '../refine'
 import { createTracker } from '../tracker'
 import {
   engineInput,
@@ -101,6 +106,8 @@ interface Detection {
   quad: Quad | null
   hasObj: number
   aspect: number
+  /** Mean colour saturation inside the quad — the card signature. */
+  saturation: number
 }
 
 /** index.ts `refine()`, offline: the same gradient-field refinement over the
@@ -187,6 +194,7 @@ async function detect(frames: FlagFrame[], scale: number): Promise<Detection[]> 
     const gate = createPresenceGate()
     if (GATE_OPEN) gate.update(1) // latch it open, as a just-scanned card would
     let quad: Quad | null = null
+    let sat = 0
     if (gate.update(hasObj)) {
       // Model fractions ARE canonical fractions now, and the working image IS
       // the canonical frame — so the refiner needs no coordinate change at all.
@@ -194,9 +202,10 @@ async function detect(frames: FlagFrame[], scale: number): Promise<Detection[]> 
       if (raw) {
         const work = await squareInput(file, w, h, CANONICAL_SIZE)
         quad = refineQuadChecked(raw, gradientField(work)) ?? raw
+        sat = quadMeanSaturation(work, quad)
       }
     }
-    dets.push({ frame: f, w, h, quad, hasObj, aspect: quad ? quadAspectRatio(quad) : 0 })
+    dets.push({ frame: f, w, h, quad, hasObj, aspect: quad ? quadAspectRatio(quad) : 0, saturation: sat })
   }
   return dets
 }
@@ -210,6 +219,8 @@ interface Config {
   aspectTol: number
   /** Straddle gate; 0 disables. */
   parallelMin: number
+  /** Card-signature gate (mean saturation); 0 disables. */
+  minSat: number
 }
 
 function jitterQuad(q: Quad, px: number, tick: number): Quad {
@@ -228,11 +239,17 @@ function locksUnder(d: Detection, cfg: Config, ticks: number, jitter: number): b
   const N = CANONICAL_SIZE
   const tracker = createTracker()
   tracker.setReticle({ x: reticle.x * N, y: reticle.y * N, w: reticle.w * N, h: reticle.h * N })
-  const policy = createLockPolicy({ lockAspectTol: cfg.aspectTol, lockParallelMin: cfg.parallelMin })
+  const policy = createLockPolicy({
+    lockAspectTol: cfg.aspectTol,
+    lockParallelMin: cfg.parallelMin,
+    minSaturation: cfg.minSat,
+  })
+  // One frame, one detection, so every track shares this frame's signature.
+  const satOf = () => d.saturation
   for (let t = 0; t < ticks; t++) {
     const quads: Quad[] = d.quad ? [jitterQuad(d.quad, jitter, t)] : []
     const { stable } = tracker.update(quads)
-    if (policy.update(stable as TrackedQuad[], reticle, N, N)) return true
+    if (policy.update(stable as TrackedQuad[], reticle, N, N, satOf)) return true
   }
   return false
 }
@@ -289,13 +306,15 @@ async function main(): Promise<void> {
   )
 
   const configs: Config[] = [
-    { label: 'A  no lock priors at all', aspectTol: 0, parallelMin: 0 },
-    { label: `B  + aspect prior (tol ${DEFAULT_LOCK_ASPECT_TOL})`, aspectTol: DEFAULT_LOCK_ASPECT_TOL, parallelMin: 0 },
-    { label: `C  + straddle gate (min ${DEFAULT_LOCK_PARALLEL_MIN})`, aspectTol: 0, parallelMin: DEFAULT_LOCK_PARALLEL_MIN },
+    { label: 'A  no lock priors at all', aspectTol: 0, parallelMin: 0, minSat: 0 },
+    { label: `B  + aspect prior (tol ${DEFAULT_LOCK_ASPECT_TOL})`, aspectTol: DEFAULT_LOCK_ASPECT_TOL, parallelMin: 0, minSat: 0 },
+    { label: `C  + straddle gate (min ${DEFAULT_LOCK_PARALLEL_MIN})`, aspectTol: 0, parallelMin: DEFAULT_LOCK_PARALLEL_MIN, minSat: 0 },
+    { label: `D  + card signature (sat ${DEFAULT_LOCK_MIN_SATURATION})`, aspectTol: 0, parallelMin: 0, minSat: DEFAULT_LOCK_MIN_SATURATION },
     {
-      label: 'D  BOTH (shipping)',
+      label: 'E  ALL THREE (shipping)',
       aspectTol: DEFAULT_LOCK_ASPECT_TOL,
       parallelMin: DEFAULT_LOCK_PARALLEL_MIN,
+      minSat: DEFAULT_LOCK_MIN_SATURATION,
     },
   ]
 
@@ -322,19 +341,19 @@ async function main(): Promise<void> {
   }
 
   const base = results.get(configs[0].label)!
-  const fixed = results.get(configs[3].label)!
+  const fixed = results.get(configs[configs.length-1].label)!
   console.log(`\nclutter locks removed by the fix : ${base.bad.length - fixed.bad.length}` +
     `  (${base.bad.map((d) => d.frame.name).filter((n) => !fixed.bad.some((f) => f.frame.name === n)).join(', ') || 'none'})`)
   console.log(`clutter locks REMAINING          : ${fixed.bad.map((d) => d.frame.name).join(', ') || 'none'}`)
   const lostCards = base.good.filter((g) => !fixed.good.some((f) => f.frame.name === g.frame.name))
   console.log(`card locks LOST to the fix       : ${lostCards.length}`)
-  for (const d of lostCards) console.log(`    ${d.frame.name}  ${lossReason(d, configs[3])}`)
+  for (const d of lostCards) console.log(`    ${d.frame.name}  ${lossReason(d, configs[configs.length-1])}`)
 
   console.log('\n--- aspect-tolerance sweep (straddle gate held at its default) ---')
   console.log(pad('tol', 10) + pad('admits', 20) + pad('clutter locks', 18) + 'card locks')
   console.log('-'.repeat(66))
   for (const tol of [0, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4]) {
-    const c: Config = { label: `tol ${tol}`, aspectTol: tol, parallelMin: DEFAULT_LOCK_PARALLEL_MIN }
+    const c: Config = { label: `tol ${tol}`, aspectTol: tol, parallelMin: DEFAULT_LOCK_PARALLEL_MIN, minSat: DEFAULT_LOCK_MIN_SATURATION }
     const bad = noCard.filter((d) => locksUnder(d, c, ticks, jitter)).length
     const good = card.filter((d) => locksUnder(d, c, ticks, jitter)).length
     const A = DEFAULT_CARD_ASPECT
@@ -347,7 +366,7 @@ async function main(): Promise<void> {
   console.log(pad('minRatio', 12) + pad('clutter locks', 18) + 'card locks')
   console.log('-'.repeat(50))
   for (const p of [0, 0.7, 0.8, 0.85, 0.9, 0.95]) {
-    const c: Config = { label: `par ${p}`, aspectTol: DEFAULT_LOCK_ASPECT_TOL, parallelMin: p }
+    const c: Config = { label: `par ${p}`, aspectTol: DEFAULT_LOCK_ASPECT_TOL, parallelMin: p, minSat: DEFAULT_LOCK_MIN_SATURATION }
     const bad = noCard.filter((d) => locksUnder(d, c, ticks, jitter)).length
     const good = card.filter((d) => locksUnder(d, c, ticks, jitter)).length
     console.log(pad(p === 0 ? 'off' : String(p), 12) + pad(`${bad}/${noCard.length}`, 18) + `${good}/${card.length}`)
@@ -387,6 +406,14 @@ async function main(): Promise<void> {
     return `min ${s[0].toFixed(3)}  p10 ${at(0.1).toFixed(3)}  median ${at(0.5).toFixed(3)}  p90 ${at(0.9).toFixed(3)}  max ${s[s.length - 1].toFixed(3)}`
   }
   console.log(`card frames   : ${fmt(card.filter((d) => d.quad).map((d) => d.aspect))}`)
+  console.log('\n--- CARD SIGNATURE: mean saturation of the detected quad ---')
+  console.log(`card frames   : ${fmt(card.filter((d) => d.quad).map((d) => d.saturation))}`)
+  console.log(`no-card frames: ${fmt(noCard.filter((d) => d.quad).map((d) => d.saturation))}`)
+  const lowCards = card
+    .filter((d) => d.quad && d.saturation < DEFAULT_LOCK_MIN_SATURATION)
+    .map((d) => `${d.frame.name} ${d.saturation.toFixed(3)}`)
+  console.log(`cards BELOW the ${DEFAULT_LOCK_MIN_SATURATION} gate: ${lowCards.join(', ') || 'none'}`)
+  console.log(`(the drive's two postal-envelope captures measured 0.108 and 0.112)`)
   console.log(`no-card frames: ${fmt(noCard.filter((d) => d.quad).map((d) => d.aspect))}`)
 }
 
