@@ -20,6 +20,12 @@ export interface FeedVariant {
   isPrimary: boolean
   kind: string
   tier: string | null
+  /** Already-owned count for THIS printing, straight off `api.card()`
+   *  (`Variant.quantity` — "absent for an anonymous read", 0 otherwise). No
+   *  separate ownership call exists: `loadVariants` already fetches this per
+   *  entry as a capture lands, so swipe-review's "resulting total" reads it
+   *  for free instead of a batch/lazy call of its own. */
+  ownedQuantity: number
 }
 
 /** A capture sitting in the incoming stack, waiting on `/scan`'s answer. */
@@ -75,4 +81,11 @@ export interface FeedEntry {
    *  stepper also changes) to know when to play the duplicate-merge bump —
    *  a user's own +/- tap must never replay it. */
   mergeTick: number
+  /** The reader has explicitly confirmed this row — by swiping right in
+   *  swipe-review, or (implicitly) by correcting it there. Surfaced as a
+   *  badge in the list view too, so the two review modes tell one story
+   *  instead of two disagreeing ones. Never set outside swipe-review; the
+   *  list view's stepper/correct/report affordances intentionally leave it
+   *  alone — editing a row there does not, by itself, mean "reviewed". */
+  verified: boolean
 }

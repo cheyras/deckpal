@@ -85,8 +85,13 @@ export function FeedEntryCard({
     <div
       ref={rootRef}
       data-entry-state={entry.matched ? 'identified' : 'needs-attention'}
+      data-verified={entry.verified || undefined}
       className={`relative flex gap-[10px] rounded-xl border p-[10px] ${
-        entry.matched ? 'border-border-default bg-surface-secondary' : 'border-warning/50 bg-surface-secondary'
+        entry.verified
+          ? 'border-change-positive/50 bg-surface-secondary'
+          : entry.matched
+            ? 'border-border-default bg-surface-secondary'
+            : 'border-warning/50 bg-surface-secondary'
       }`}
     >
       <button
@@ -100,7 +105,7 @@ export function FeedEntryCard({
 
       <div
         ref={(el) => registerThumbNode(entry.id, el)}
-        className="w-[60px] shrink-0 cursor-pointer overflow-hidden rounded-md shadow-panel"
+        className="relative w-[60px] shrink-0 cursor-pointer overflow-hidden rounded-md shadow-panel"
         onClick={() => entry.cardId && onOpenDetail(entry.cardId)}
       >
         {entry.matched && entry.images ? (
@@ -112,6 +117,14 @@ export function FeedEntryCard({
             className="block w-full"
             style={{ aspectRatio: '63 / 88', objectFit: 'cover' }}
           />
+        )}
+        {entry.verified && (
+          <span
+            className="absolute bottom-[3px] right-[3px] flex h-[16px] w-[16px] items-center justify-center rounded-full bg-change-positive text-surface-primary shadow-panel"
+            title="Confirmed in swipe review"
+          >
+            <Icon name="check" size={10} strokeWidth={3} />
+          </span>
         )}
       </div>
 

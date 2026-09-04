@@ -5,6 +5,7 @@
 // `key={entry.id}` — the reveal of a genuinely NEW row lives in
 // FeedEntryCard's own mount effect, not here, so this only ever moves rows
 // that already existed).
+import type { ReactNode } from 'react'
 import { useLayoutEffect, useRef } from 'react'
 import type { ScanMatch } from '../../lib/api'
 import { DURATION, EASE, flipReflow } from './motion'
@@ -13,6 +14,8 @@ import { FeedEntryCard } from './FeedEntryCard'
 
 export function VerifyFeed({
   entries,
+  title = 'Cards',
+  headerExtra,
   onQuantityChange,
   onVariantChange,
   onCorrect,
@@ -22,6 +25,12 @@ export function VerifyFeed({
   registerThumbNode,
 }: {
   entries: FeedEntry[]
+  /** "Cards" in Step 1's collapsed bin, "Verify" as the Step-2 screen title —
+   *  same list, framed by whichever step is showing it. */
+  title?: string
+  /** The bin's expand/collapse control (Step 1) — kept a caller-supplied slot
+   *  so this component stays ignorant of the two-step flow above it. */
+  headerExtra?: ReactNode
   onQuantityChange: (id: string, quantity: number) => void
   onVariantChange: (id: string, variantId: number) => void
   onCorrect: (id: string, match: ScanMatch) => void
@@ -51,12 +60,15 @@ export function VerifyFeed({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="sticky top-0 z-[5] flex items-center justify-between gap-[10px] bg-gradient-to-b from-surface-primary to-transparent px-[14px] pb-[10px] pt-[12px] backdrop-blur-[6px]">
-        <span className="text-[13px] font-extrabold uppercase tracking-wide text-text-primary">Verify</span>
-        <span className="inline-flex h-[26px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[10px] text-[11px] font-bold text-text-body">
-          <b className="text-[13px] text-action-primary-strong">{totalCards}</b> card{totalCards === 1 ? '' : 's'}
-          <span className="text-icon-muted">·</span>
-          <b className="text-[13px] text-action-primary-strong">{entries.length}</b> unique
-        </span>
+        <span className="text-[13px] font-extrabold uppercase tracking-wide text-text-primary">{title}</span>
+        <div className="flex items-center gap-[8px]">
+          <span className="inline-flex h-[26px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[10px] text-[11px] font-bold text-text-body">
+            <b className="text-[13px] text-action-primary-strong">{totalCards}</b> card{totalCards === 1 ? '' : 's'}
+            <span className="text-icon-muted">·</span>
+            <b className="text-[13px] text-action-primary-strong">{entries.length}</b> unique
+          </span>
+          {headerExtra}
+        </div>
       </div>
 
       {entries.length === 0 ? (

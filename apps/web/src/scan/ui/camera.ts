@@ -1,14 +1,22 @@
-// Camera permission flow — REUSED (logic unchanged, lifted into a hook) from
-// the previous Scan.tsx's `camState` machine and `startCamera`/`stopStream`.
-// Deliberately separate from the scan ENGINE (useScanEngine.ts): getting a
-// MediaStream and finding cards in it are different failure domains — a
-// denied permission has nothing to do with the engine, and this hook knows
-// nothing about tracking or capture.
+// Camera permission flow — REUSED (logic unchanged) from the previous
+// Scan.tsx's `camState` machine and `startCamera`/`stopStream`, now DRIVEN BY
+// an `active` flag rather than mount/unmount alone. The two-step flow
+// (Scan.tsx) needs to fully stop and release the camera when the reader taps
+// "Verify" — not just stop *drawing* it — and resume it on the way back, all
+// without the route itself remounting. Mirrors `useScanEngine.ts`'s shape
+// (`active` in, lifecycle out) on purpose: the two hooks sit side by side in
+// Scan.tsx and answer the same question about two different pieces of
+// hardware/state.
+//
+// Deliberately separate from the scan ENGINE: getting a MediaStream and
+// finding cards in it are different failure domains — a denied permission has
+// nothing to do with the engine, and this hook knows nothing about tracking
+// or capture.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type CamState = 'init' | 'requesting' | 'live' | 'denied' | 'unavailable' | 'error'
 
-export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
+export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>, active: boolean) {
   const [camState, setCamState] = useState<CamState>('init')
   const [error, setError] = useState<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -55,15 +63,24 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // `active` is the whole lifecycle now — true acquires the stream (also on
+  // first mount, since Scan.tsx starts on Step 1), false releases it, exactly
+  // as unmounting used to. A genuine unmount still tears down via the same
+  // cleanup, so leaving the route mid-stream behaves exactly as before.
   useEffect(() => {
     cancelledRef.current = false
-    void start()
+    if (active) {
+      void start()
+    } else {
+      stop()
+      setCamState('init')
+    }
     return () => {
       cancelledRef.current = true
       stop()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [active])
 
   return { camState, error, start, stop, supportsCamera }
 }

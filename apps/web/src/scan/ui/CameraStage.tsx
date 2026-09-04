@@ -80,7 +80,12 @@ export function CameraStage({
   const live = camState === 'live'
 
   return (
-    <div ref={boxRef} data-scan-camera-view className="relative h-[420px] shrink-0 overflow-hidden bg-black">
+    // Sized by the PARENT flex container (Scan.tsx gives the camera block a
+    // flex-grow ratio against the bin, not a fixed pixel height) — the fixed
+    // single-viewport screen has to fit whatever room an actual phone has,
+    // not assume one number works on every device. The ResizeObserver above
+    // measures whatever this resolves to, same as before.
+    <div ref={boxRef} data-scan-camera-view className="relative min-h-0 flex-1 overflow-hidden bg-black">
       <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
       <div ref={flashRef} className="pointer-events-none absolute inset-0 z-40 bg-white opacity-0" />
       {live && <QuadOverlay state={engineState} box={box} />}

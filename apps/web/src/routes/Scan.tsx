@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
-import { Content } from '../components/ui'
 import { Icon } from '../components/Icon'
 import { CardSheet } from './CardDetail'
 import type { CaptureResult } from '../scan/engine/contract'
@@ -9,8 +8,10 @@ import { useCamera } from '../scan/ui/camera'
 import { useScanEngine } from '../scan/ui/useScanEngine'
 import { CameraStage } from '../scan/ui/CameraStage'
 import { VerifyFeed } from '../scan/ui/VerifyFeed'
-import { CommitBar } from '../scan/ui/CommitBar'
+import { PrimaryActionBar } from '../scan/ui/PrimaryActionBar'
 import { UploadFallback } from '../scan/ui/UploadFallback'
+import { SwipeReview } from '../scan/ui/SwipeReview'
+import { HelpModal } from '../scan/ui/HelpModal'
 import { commitFeed } from '../scan/ui/commit'
 import { uploadScanFlag } from '../scan/ui/flags'
 import { toScanBytes } from '../scan/ui/uploadNormalize'
@@ -19,13 +20,28 @@ import { bump, DURATION, flyArc, rectRelativeTo } from '../scan/ui/motion'
 import type { FeedEntry, FeedVariant, StackItem } from '../scan/ui/types'
 
 // The scanner (production rebuild — see roadmap/plans/card-scanner-redesign,
-// PLAN.md D1-D6). Camera view on top, a loose reticle gates detection
-// (FIELD-TEST-1.md's central request — forgiving on rotation/perspective,
-// refusing everything outside it), a locked card auto-captures a rectified
-// snapshot into the incoming stack, identify swaps it into a reviewable
-// verify feed (quantity, printing, "wrong card?" correction, duplicates
-// merged), and one batch commit writes the whole feed to the collection.
-// Replaces BOTH the old single-card guide-box mode and rip mode.
+// PLAN.md D1-D6 — plus the owner's post-field-test UX round, 2026-09-03).
+//
+// A SINGLE-VIEWPORT APP SCREEN, not a scrolling page: this component owns a
+// `position: fixed` region sized against AppShell's own published
+// `--app-header-h`/`--app-sidebar-w` custom properties (theme.css / the
+// inline <style> AppShell.tsx writes), so it fills exactly the space below
+// the persistent nav without adding a second layout system. AppShell's
+// header/sidebar stay — `isChromelessPathname` was deliberately NOT touched,
+// because that mechanism also controls which routes skip AuthGuard
+// (lib/landingRoute.ts), and /scan writing to the collection must stay
+// behind sign-in. See scan/ui/camera.ts and useScanEngine.ts for the other
+// half of "no page scroll": both hooks are driven by an explicit `active`
+// flag now (not just mount/unmount), which is what lets Step 2 fully stop
+// and release the camera without unmounting the route.
+//
+// TWO STEPS. Step 1 (Scan): camera live, captures accumulate in the bin
+// below it (collapsible to a strip or expanded full-screen without touching
+// the camera). Step 2 (Verify): the camera is torn down entirely and the
+// list — or the card-by-card swipe review — takes the whole screen, ending
+// in the one batched collection write.
+type Step = 'scan' | 'verify'
+type ReviewMode = 'list' | 'swipe'
 
 let uidSeq = 0
 function makeId(prefix: string): string {
@@ -41,9 +57,28 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 }
 
+/** No "help"/"question" glyph exists in the shared `Icon` set (checked
+ *  components/Icon.tsx's `IconName` union) — authored locally rather than
+ *  widening a shared file this task doesn't own for one badge. */
+function HelpIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9.25" />
+      <path d="M9.3 9.3a2.7 2.7 0 1 1 3.6 2.55c-.7.28-.9.66-.9 1.4v.3" />
+      <circle cx="12" cy="17" r="0.15" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 export function Scan() {
   const search = useSearch({ from: '/scan' })
   const navigate = useNavigate({ from: '/scan' })
+
+  // ── two-step flow + review chrome ────────────────────────────────────────
+  const [step, setStep] = useState<Step>('scan')
+  const [binExpanded, setBinExpanded] = useState(false)
+  const [reviewMode, setReviewMode] = useState<ReviewMode>('list')
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const stageWrapRef = useRef<HTMLDivElement>(null)
@@ -51,8 +86,12 @@ export function Scan() {
   const cameraBoxRef = useRef({ width: 0, height: 0 })
   const frameSizeRef = useRef({ width: 0, height: 0 })
 
-  const { camState, supportsCamera, start: retryCamera } = useCamera(videoRef)
-  const engineActive = camState === 'live'
+  // Camera + engine are both driven by whether Step 1 is showing — "Verify"
+  // COMPLETELY dismisses the camera (stream stopped, hardware released), not
+  // just hides its UI; going back resumes it. `camState==='live'` further
+  // gates the engine so it never spins up against a stream that failed.
+  const { camState, supportsCamera, start: retryCamera } = useCamera(videoRef, step === 'scan')
+  const engineActive = step === 'scan' && camState === 'live'
   const {
     status: engineStatus,
     error: engineError,
@@ -111,6 +150,9 @@ export function Scan() {
         isPrimary: v.isPrimary,
         kind: v.kind,
         tier: v.tier,
+        // Straight off the same call — swipe-review's "resulting total"
+        // reads this with no second (batch or per-entry) ownership request.
+        ownedQuantity: v.quantity ?? 0,
       }))
       setFeed((prev) =>
         prev.map((e) => {
@@ -198,6 +240,7 @@ export function Scan() {
               alternates: res?.matches ?? [],
               capturedAt: Date.now(),
               mergeTick: 0,
+              verified: false,
             }
           : {
               id: makeId('unmatched'),
@@ -218,6 +261,7 @@ export function Scan() {
               alternates: res?.matches ?? [],
               capturedAt: Date.now(),
               mergeTick: 0,
+              verified: false,
             }
         return [entry, ...prev]
       })
@@ -313,9 +357,9 @@ export function Scan() {
 
   // ── auto-capture: a persisted lock, refractory until the track departs
   //    and returns (ripSession.ts's departure-then-return precedent, applied
-  //    to track ids instead of card ids). ──
+  //    to track ids instead of card ids). Only runs in Step 1. ──
   useEffect(() => {
-    if (!engineState) return
+    if (!engineState || step !== 'scan') return
     const presentIds = new Set(engineState.stable.map((q) => q.id))
     for (const id of refractoryRef.current) {
       if (!presentIds.has(id)) refractoryRef.current.delete(id)
@@ -328,7 +372,7 @@ export function Scan() {
     if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     else setHint('Point the camera at a card')
-  }, [engineState, runCapture])
+  }, [engineState, step, runCapture])
 
   const manualCapture = useCallback(() => {
     if (!engineState || captureBusyRef.current) {
@@ -401,8 +445,14 @@ export function Scan() {
     setFeed((prev) => prev.filter((e) => e.id !== id))
   }, [])
 
+  /**
+   * `markVerified` is true only when the correction came out of swipe-review
+   * (an explicit resolution the reader just made there) — the list view's
+   * own "wrong card?" popover leaves it false, matching `FeedEntry.verified`'s
+   * contract: "verified" means confirmed BY SWIPE, not merely edited.
+   */
   const correctEntry = useCallback(
-    (id: string, match: ScanMatch) => {
+    (id: string, match: ScanMatch, markVerified = false) => {
       setFeed((prev) => {
         const current = prev.find((e) => e.id === id)
         if (!current) return prev
@@ -413,7 +463,11 @@ export function Scan() {
         const target = prev.find((e) => e.cardId === match.cardId && e.id !== id)
         if (target) {
           return prev
-            .map((e) => (e.id === target.id ? { ...e, quantity: e.quantity + current.quantity, mergeTick: e.mergeTick + 1 } : e))
+            .map((e) =>
+              e.id === target.id
+                ? { ...e, quantity: e.quantity + current.quantity, mergeTick: e.mergeTick + 1, verified: e.verified || markVerified }
+                : e,
+            )
             .filter((e) => e.id !== id)
         }
         return prev.map((e) =>
@@ -432,6 +486,7 @@ export function Scan() {
                 distance: match.distance,
                 variantId: null,
                 variants: [],
+                verified: markVerified,
               }
             : e,
         )
@@ -440,6 +495,10 @@ export function Scan() {
     },
     [loadVariants],
   )
+
+  const confirmEntry = useCallback((id: string) => {
+    setFeed((prev) => prev.map((e) => (e.id === id ? { ...e, verified: true } : e)))
+  }, [])
 
   const handleUploadFile = useCallback(
     async (file: File) => {
@@ -475,6 +534,9 @@ export function Scan() {
             : `Added ${result.applied} card${result.applied === 1 ? '' : 's'} to your collection.`,
         )
       }
+      // Nothing left to review — head back to a fresh scan rather than
+      // leaving the reader stranded on an empty Verify screen.
+      if (unresolvedIds.size === 0) setStep('scan')
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'that did not save')
     } finally {
@@ -489,90 +551,202 @@ export function Scan() {
     [navigate],
   )
 
+  const goToVerify = useCallback(() => {
+    setReviewMode('list')
+    setStep('verify')
+  }, [])
+  const backToScan = useCallback(() => {
+    setStep('scan')
+    setBinExpanded(false)
+  }, [])
+
+  const totalQuantity = feed.reduce((n, e) => n + e.quantity, 0)
   const commitCount = feed.reduce((n, e) => n + (e.cardId ? e.quantity : 0), 0)
+  // Only a hard 'unavailable' (no getUserMedia at all) falls back to upload.
+  // 'denied' still renders CameraStage — its own overlay offers "Try camera
+  // again", which is the more useful next step than jumping straight to a
+  // file picker for a permission the reader might simply re-grant.
   const showCamera = supportsCamera && camState !== 'unavailable'
 
   return (
-    <Content cap={1000}>
-      <div className="mb-[8px] flex items-center gap-[10px]">
-        <span className="flex h-[40px] w-[40px] items-center justify-center rounded-lg bg-action-primary text-action-primary-text">
-          <Icon name="camera" size={22} />
-        </span>
-        <h1 className="text-[28px] font-bold leading-[34px] text-text-primary">Scan cards</h1>
+    // Fixed against AppShell's own published offsets — see the file header
+    // for why this, not `isChromelessPathname`. `overflow-hidden` here is
+    // the outer half of "no page scroll"; every scrollable region below is
+    // its own, explicit `overflow-y-auto` (VerifyFeed's list; nothing else).
+    <div
+      className="fixed bottom-0 right-0 flex flex-col overflow-hidden bg-surface-primary"
+      style={{ top: 'var(--app-header-h, 64px)', left: 'var(--app-sidebar-w, 0px)' }}
+    >
+      {/* ── minimal title bar: icon + name + help ── */}
+      <div className="flex h-[46px] shrink-0 items-center gap-[8px] border-b border-divider-subtle bg-surface-secondary px-[14px]">
+        <Icon name="camera" size={18} className="text-action-primary" />
+        <span className="text-[14px] font-bold text-text-primary">Scan</span>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          aria-label="How scanning works"
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-full text-icon-default hover:bg-surface-tertiary hover:text-icon-hover"
+        >
+          <HelpIcon size={18} />
+        </button>
       </div>
-      <p className="mb-[16px] max-w-[560px] text-[14px] leading-[21px] text-text-muted">
-        Line cards up in the frame — they capture on their own the moment they hold steady, and each one lands below to
-        verify before it joins your collection.
-      </p>
 
-      <div
-        ref={stageWrapRef}
-        className="relative mx-auto flex w-full max-w-[440px] flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-primary"
-        style={{ height: 'min(80vh, 760px)' }}
-      >
-        {showCamera ? (
+      <div ref={stageWrapRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        {step === 'scan' ? (
           <>
-            <CameraStage
-              videoRef={videoRef}
-              camState={camState}
-              engineState={engineState}
-              engineError={engineError}
-              hint={hint}
-              stackItems={stack}
-              onStackNodeRef={(id, el) => {
-                if (el) stackNodesRef.current.set(id, el)
-                else stackNodesRef.current.delete(id)
-              }}
-              onRetry={() => void retryCamera()}
-              onReportCamera={() => void reportCamera()}
-              flashSignal={flashSignal}
-              onBoxChange={(b) => {
-                cameraBoxRef.current = b
-              }}
-            />
-            <div className="flex h-[48px] shrink-0 items-center gap-[8px] overflow-x-auto border-b border-divider-subtle bg-surface-secondary px-[12px]">
-              <button
-                type="button"
-                onClick={manualCapture}
-                className="flex h-[32px] shrink-0 items-center gap-[6px] rounded-full bg-action-primary px-[14px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
-              >
-                <Icon name="plus" size={14} /> Capture
-              </button>
-              <span className="text-[12px] text-text-muted">
-                {engineStatus === 'loading' && 'Loading the scanner…'}
-                {engineStatus === 'error' && (engineError ?? 'The scanner could not start.')}
-                {engineStatus === 'ready' && !engineState && 'Warming up…'}
-              </span>
+            {
+              // `hidden`, never unmounted. The stream (useCamera's
+              // `streamRef`) lives independently of this DOM subtree, but
+              // the <video>'s `srcObject` binding does not survive its own
+              // element being destroyed and recreated — unmounting
+              // CameraStage here would leave a fresh, blank <video> the
+              // moment the bin collapses again, with the camera hardware
+              // still running behind it. CSS-hiding keeps the element (and
+              // the binding) alive across every expand/collapse.
+            }
+            <div className={`flex min-h-[180px] flex-[3] flex-col overflow-hidden ${binExpanded ? 'hidden' : ''}`}>
+                {showCamera ? (
+                  <>
+                    <CameraStage
+                      videoRef={videoRef}
+                      camState={camState}
+                      engineState={engineState}
+                      engineError={engineError}
+                      hint={hint}
+                      stackItems={stack}
+                      onStackNodeRef={(id, el) => {
+                        if (el) stackNodesRef.current.set(id, el)
+                        else stackNodesRef.current.delete(id)
+                      }}
+                      onRetry={() => void retryCamera()}
+                      onReportCamera={() => void reportCamera()}
+                      flashSignal={flashSignal}
+                      onBoxChange={(b) => {
+                        cameraBoxRef.current = b
+                      }}
+                    />
+                    <div className="flex h-[44px] shrink-0 items-center gap-[8px] overflow-x-auto border-b border-divider-subtle bg-surface-secondary px-[12px]">
+                      <button
+                        type="button"
+                        onClick={manualCapture}
+                        className="flex h-[30px] shrink-0 items-center gap-[6px] rounded-full bg-action-primary px-[14px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+                      >
+                        <Icon name="plus" size={14} /> Capture
+                      </button>
+                      <span className="truncate text-[12px] text-text-muted">
+                        {engineStatus === 'loading' && 'Loading the scanner…'}
+                        {engineStatus === 'error' && (engineError ?? 'The scanner could not start.')}
+                        {engineStatus === 'ready' && !engineState && 'Warming up…'}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="min-h-0 flex-1 overflow-y-auto p-[14px]">
+                    <UploadFallback
+                      unavailableReason={
+                        camState === 'denied'
+                          ? 'Camera access was blocked.'
+                          : 'Live camera isn’t available here (it needs a secure https connection and a rear camera).'
+                      }
+                      onFile={handleUploadFile}
+                    />
+                  </div>
+                )}
             </div>
+
+            <div
+              className={
+                binExpanded
+                  ? 'flex min-h-0 flex-1 flex-col overflow-hidden'
+                  : 'flex min-h-[140px] flex-[2] flex-col overflow-hidden border-t border-divider-subtle'
+              }
+            >
+              <VerifyFeed
+                entries={feed}
+                title="Cards"
+                headerExtra={
+                  <button
+                    type="button"
+                    onClick={() => setBinExpanded((v) => !v)}
+                    aria-label={binExpanded ? 'Collapse the card list' : 'Expand the card list to full screen'}
+                    className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:text-icon-hover"
+                  >
+                    <Icon name="chevron-down" size={14} className={binExpanded ? '' : 'rotate-180'} />
+                  </button>
+                }
+                onQuantityChange={changeQuantity}
+                onVariantChange={changeVariant}
+                onCorrect={(id, match) => correctEntry(id, match)}
+                onRemove={removeEntry}
+                onReport={reportEntry}
+                onOpenDetail={openDetail}
+                registerThumbNode={(id, el) => {
+                  if (el) feedThumbNodesRef.current.set(id, el)
+                  else feedThumbNodesRef.current.delete(id)
+                }}
+              />
+            </div>
+
+            <PrimaryActionBar label={`Verify (${totalQuantity})`} icon="check" count={totalQuantity} onClick={goToVerify} />
           </>
         ) : (
-          <div className="p-[14px]">
-            <UploadFallback
-              unavailableReason={
-                camState === 'denied'
-                  ? 'Camera access was blocked.'
-                  : 'Live camera isn’t available here (it needs a secure https connection and a rear camera).'
-              }
-              onFile={handleUploadFile}
-            />
-          </div>
+          <>
+            <div className="flex h-[46px] shrink-0 items-center gap-[10px] border-b border-divider-subtle bg-surface-secondary px-[10px]">
+              <button
+                type="button"
+                onClick={backToScan}
+                className="flex h-[32px] items-center gap-[4px] rounded-full px-[10px] text-[13px] font-semibold text-text-body hover:bg-surface-tertiary hover:text-text-primary"
+              >
+                <Icon name="chevron-left" size={16} /> Scan more
+              </button>
+              <div className="flex-1" />
+              <div className="inline-flex h-[32px] items-center rounded-full bg-surface-primary p-[3px]">
+                {(['list', 'swipe'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setReviewMode(m)}
+                    className={`h-[26px] rounded-full px-[12px] text-[12px] font-bold capitalize ${
+                      reviewMode === m ? 'bg-surface-tertiary text-text-primary' : 'text-text-muted hover:text-text-body'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {reviewMode === 'list' ? (
+              <VerifyFeed
+                entries={feed}
+                title="Verify"
+                onQuantityChange={changeQuantity}
+                onVariantChange={changeVariant}
+                onCorrect={(id, match) => correctEntry(id, match)}
+                onRemove={removeEntry}
+                onReport={reportEntry}
+                onOpenDetail={openDetail}
+                registerThumbNode={(id, el) => {
+                  if (el) feedThumbNodesRef.current.set(id, el)
+                  else feedThumbNodesRef.current.delete(id)
+                }}
+              />
+            ) : (
+              <SwipeReview
+                entries={feed}
+                onQuantityChange={changeQuantity}
+                onVariantChange={changeVariant}
+                onConfirm={confirmEntry}
+                onCorrect={(id, match) => correctEntry(id, match, true)}
+                onSkip={() => {}}
+                onOpenDetail={openDetail}
+              />
+            )}
+
+            <PrimaryActionBar label={`Add ${commitCount} card${commitCount === 1 ? '' : 's'}`} icon="plus" count={commitCount} busy={committing} onClick={() => void handleCommit()} />
+          </>
         )}
-
-        <VerifyFeed
-          entries={feed}
-          onQuantityChange={changeQuantity}
-          onVariantChange={changeVariant}
-          onCorrect={correctEntry}
-          onRemove={removeEntry}
-          onReport={reportEntry}
-          onOpenDetail={openDetail}
-          registerThumbNode={(id, el) => {
-            if (el) feedThumbNodesRef.current.set(id, el)
-            else feedThumbNodesRef.current.delete(id)
-          }}
-        />
-
-        <CommitBar count={commitCount} committing={committing} onCommit={() => void handleCommit()} />
 
         {/* shared flight overlay — couriers live here, siblings of the
             camera view so they are never clipped by its overflow:hidden */}
@@ -585,17 +759,19 @@ export function Scan() {
             </div>
           </div>
         )}
+
+        {notice && (
+          <div className="absolute inset-x-[14px] bottom-[14px] z-[60] flex items-center gap-[8px] rounded-xl border border-border-default bg-surface-secondary p-[10px] text-[13px] text-text-muted shadow-elevated">
+            <Icon name="alert" size={15} />
+            <span className="flex-1">{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="text-text-muted hover:text-text-primary">
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
-      {notice && (
-        <div className="mx-auto mt-[12px] flex max-w-[440px] items-center gap-[8px] rounded-xl border border-border-default bg-surface-secondary p-[10px] text-[13px] text-text-muted">
-          <Icon name="alert" size={15} />
-          <span className="flex-1">{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="text-text-muted hover:text-text-primary">
-            <Icon name="close" size={14} />
-          </button>
-        </div>
-      )}
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
 
       {search.card && (
         <CardSheet
@@ -605,6 +781,6 @@ export function Scan() {
           }
         />
       )}
-    </Content>
+    </div>
   )
 }

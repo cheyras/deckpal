@@ -19,6 +19,14 @@
 // animation library. A CSS `transition` is used only for discrete STATE
 // recolors (a quad's stroke going cyan → green on lock), which is what the
 // prototype itself does too (`.quad-inner { transition: border-color }`).
+import { prefersReducedMotion } from '../../lib/reducedMotion'
+
+// Re-exported rather than each caller importing two modules: every file in
+// this directory already reaches for `./motion` for its easings/durations,
+// and `lib/reducedMotion.ts` is the app-layer's one canonical probe (Sheet,
+// Landing, GridView) — this used to be a second, private copy of the exact
+// same check, which is the kind of duplication that quietly drifts.
+export { prefersReducedMotion }
 
 export const EASE = {
   /** Transit: capture → stack, stack → feed. */
@@ -43,10 +51,6 @@ export const DURATION = {
   dupFly: 300,
   dupBump: 200,
 } as const
-
-export function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
 
 /** `el`'s rect expressed relative to `origin` (both from getBoundingClientRect). */
 export function rectRelativeTo(el: Element, origin: Element) {
@@ -173,6 +177,56 @@ export function staggerReveal(container: HTMLElement, selector: string) {
     })
     anim.finished.then(() => anim.cancel()).catch(() => {})
   })
+}
+
+// ── Swipe-review gesture motion ─────────────────────────────────────────────
+// The drag itself is NEVER React state — `SwipeReview.tsx` writes `transform`
+// straight to the card's style during `pointermove` (a re-render per pixel of
+// drag is exactly the jank the "refs, not a library" rule exists to avoid).
+// These two calls are the only WAAPI this needs: relax back to centre when a
+// drag doesn't cross the decision threshold, or finish the gesture by flying
+// the card off screen (also reachable from the confirm/reject BUTTONS, which
+// call `flingOut` directly with no drag at all — same finish, same feel).
+
+/** Card didn't cross the swipe threshold — ease back to (0,0), a slight
+ *  overshoot (`--snap`) so it reads as physical, not merely undone. */
+export function springBack(el: HTMLElement, duration = 320): Promise<void> {
+  const from = el.style.transform || 'none' // the drag's current position — captured BEFORE it is cleared
+  if (prefersReducedMotion()) {
+    el.style.transform = ''
+    return Promise.resolve()
+  }
+  const anim = el.animate([{ transform: from }, { transform: 'none' }], {
+    duration,
+    easing: EASE.snap,
+    fill: 'backwards',
+  })
+  return anim.finished
+    .then(() => {
+      anim.cancel()
+      el.style.transform = '' // the animation's own fill already reverted the visual; this just stops fighting future drags
+    })
+    .catch(() => {
+      el.style.transform = ''
+    })
+}
+
+/** Send the card off in `dir` (-1 left/reject, 1 right/confirm) and resolve
+ *  once it's clear of the viewport. Reduced motion: a quick fade in place —
+ *  the DECISION still needs a moment to register before the next card swaps
+ *  in, just not a physical throw. */
+export function flingOut(el: HTMLElement, dir: -1 | 1, viewportW: number): Promise<void> {
+  if (prefersReducedMotion()) {
+    const anim = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, easing: 'ease-out', fill: 'forwards' })
+    return anim.finished.then(() => anim.cancel()).catch(() => {})
+  }
+  const dx = dir * (viewportW * 0.9 + 200)
+  const rot = dir * 24
+  const anim = el.animate(
+    [{ transform: el.style.transform || 'none', opacity: 1 }, { transform: `translate(${dx}px, -10px) rotate(${rot}deg)`, opacity: 0 }],
+    { duration: 260, easing: EASE.swift, fill: 'forwards' },
+  )
+  return anim.finished.then(() => anim.cancel()).catch(() => {})
 }
 
 /** The entry's own open reveal: `scaleY` from the top, plus opacity. */
