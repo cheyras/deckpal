@@ -219,6 +219,24 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DECKE_DEEP_BUDGET_MS` | `210000` (default) | Wall-clock ceiling for ONE deep-tier sub-agent (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Must stay comfortably under `api/chat.mjs`'s `maxDuration` (300 s) — the gap is not slack, it is the time needed to write the partial answer out, let the conversational model comment on it, and close the stream properly. A sub-agent that hits this returns **what it has so far, labelled incomplete**, rather than being killed: it streams for exactly that reason, since a call that is simply killed produced nothing and was billed anyway. |
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_MESSAGE` | set by Vercel | **Not set by hand — but the feature that reads them can be switched off by accident.** Deck-E's transcript history stamps every turn with the build that served it, so *"did this get worse, and when"* is a query rather than a guess. The PR number is parsed from the squash-merge subject (`Title (#78)`) and the sha is the commit. Both arrive as ordinary runtime environment variables **only while the project's "Automatically expose System Environment Variables" setting is ON** (Vercel → Project → Settings → Environment Variables). Turn it off and every new turn records `buildPr: null, buildSha: null` — silently, and indistinguishably from a run of preview deploys, which is the failure this row exists to make findable. Nothing else depends on them; the history keeps working and simply stops being correlatable. Verified live: a turn recorded on a preview came back stamped with the deploying commit. |
 | `DECKE_CREDITS_ENABLED` | unset (default) | **Switches Deck-E from the daily two-counter meter to a single credit balance.** Unset or anything other than the exact string `true` keeps `decke_usage` (migration 039) and changes nothing. Set to `true` and every turn and every deep call spends from `decke_credit_balance` (migrations 041/042) instead, with a HARD STOP at zero — the owner's call: *"I can use him while I have credits. If I'm out, I can't use him."* **Do not set this before granting balances.** 041 creates every balance at `0`, so switching it on first makes Deck-E unavailable to every account at once, the owner's included. The order is: run the migrations, grant balances, then set the flag. 039's tables are left in place so the flag is reversible. Prices live in `apps/api/src/decke/credits.ts`, derived from measured per-call cost via `CREDIT_USD` — the retail price of a top-up is a separate decision and is not encoded anywhere yet. |
+| `SCAN_EMBED_MATCH` | unset (default) | **Switches on the scanner's embedding matcher, `POST /api/scan/embed`.** Unset — or anything other than the exact string `true` — and the route answers **404**, which is the honest answer: this deployment does not have that endpoint. The dHash path (`POST /api/scan`) is untouched either way, so merging the feature changes nothing about the running product until this is set. **Two things must be true before setting it, and neither is checked from the API**: migration 048 applied (which needs `pgvector`, see below), and `tools/embed-catalog` run for the current stamp. Both fail as an error on the first scan rather than at boot, because a serverless function has no boot to check them in — so turn it on in **Preview first**, run one real scan, then Production. `GET /health` reports `scanEmbed: "on" \| "off"`, and the API logs one line at boot when it is on. |
+| `EMBED_MODEL_PATH` | `.cache/models/<EMBED_MODEL_ID>.onnx` (default) | Read only by `tools/embed-catalog`, never by the API or the web app. Where the exported ONNX checkpoint lives on the machine running the catalogue embed. The job **refuses to run** if the file is absent rather than falling back to another checkpoint: a catalogue embedded with the wrong model is worse than an empty one, because it looks finished. `tools/embed-catalog/README.md` has the export snippet. |
+
+#### `pgvector` is a prerequisite of migration 048
+
+The scanner's embedding index (`card_embedding`) is a `vector(384)` column, so
+the database needs the `vector` extension **before** `pnpm migrate` reaches 048.
+
+- **Supabase** — already available; the migration's `CREATE EXTENSION` succeeds
+  with nothing to do first.
+- **Self-host** — one package: `apt install postgresql-<major>-pgvector` (or the
+  equivalent for your distribution), then re-run the migration.
+
+048 checks `pg_available_extensions` first and raises a message naming the
+package and this section, rather than letting Postgres answer "could not open
+extension control file" — which is accurate and useless to anyone who has not
+met it before. The check costs one row read and turns a support question into a
+one-line fix.
 
 ### Static asset caching (`vercel.json` → `headers`)
 

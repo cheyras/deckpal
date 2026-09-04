@@ -17,15 +17,17 @@
     "prove:deck": "node --import tsx src/deck/prove.ts",
     "scan:index": "node --import tsx src/scan/index.ts",
     "test:images": "node --import tsx --test src/images/__tests__/*.test.ts",
-    "test:pure": "node --import tsx --test src/__tests__/massentry.test.ts src/__tests__/mutations.test.ts src/__tests__/batch-fold.test.ts src/__tests__/soft-delete.test.ts src/__tests__/fingerprint-fold.test.ts src/__tests__/tokens.test.ts src/__tests__/bugs.test.ts",
+    "test:pure": "node --import tsx --test src/__tests__/massentry.test.ts src/__tests__/mutations.test.ts src/__tests__/batch-fold.test.ts src/__tests__/soft-delete.test.ts src/__tests__/fingerprint-fold.test.ts src/__tests__/tokens.test.ts src/__tests__/bugs.test.ts src/scan/__tests__/embedMatch.test.ts",
     "test:decke": "node --import tsx --test src/decke/__tests__/*.test.ts",
     "test:export": "node --import tsx --test src/export/__tests__/*.test.ts",
-    "fingerprint:index": "node --import tsx src/deck/indexFingerprints.ts"
+    "fingerprint:index": "node --import tsx src/deck/indexFingerprints.ts",
+    "test:scan": "node --import tsx --test src/scan/__tests__/*.test.ts"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.52",
     "@deckpal/agent-tools": "workspace:*",
     "@deckpal/db": "workspace:*",
+    "@deckpal/matching": "workspace:*",
     "@deckpal/storage": "workspace:*",
     "ai": "7.0.66",
     "express": "^5.0.0",

@@ -30,6 +30,7 @@ import { meRouter } from './routes/me.js';
 import { deckeHistoryRouter } from './routes/deckeHistory.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
+import { scanEmbedGate, scanEmbedWarning } from './scan/embedGate.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
 import { bugsRouter } from './routes/bugs.js';
 import { tokensRouter } from './routes/tokens.js';
@@ -78,6 +79,14 @@ export function createApp(): express.Express {
   // separately so the louder message cannot hide the quieter one.
   const approvalWarning = deckeApprovalWarning();
   if (approvalWarning) console.warn(approvalWarning);
+
+  // And the inverse case: a feature that has just been switched ON, whose other
+  // half (migration 048 applied, the catalogue embedded) lives outside this
+  // process and cannot be checked from here. Silent when off, because "nobody
+  // has turned this on yet" is not the failure B11 exists for, and warning
+  // about it every boot would train the reader to skim the line that matters.
+  const embedWarning = scanEmbedWarning();
+  if (embedWarning) console.warn(embedWarning);
 
   // ── AND WHETHER THE MODELS WE ARE CONFIGURED TO CALL ACTUALLY EXIST ──────
   //
@@ -310,6 +319,11 @@ export function createApp(): express.Express {
         // Whether a crafted client could forge a write approval. B11: a
         // security control that is off must be visible from outside.
         deckeApprovals: deckeApprovalSigning(),
+        // Whether POST /api/scan/embed exists on this deployment. `off` is the
+        // default and a normal state, not a fault — but it is the difference
+        // between "the new matcher is wrong" and "the new matcher is not on",
+        // which is otherwise a guess from the outside.
+        scanEmbed: scanEmbedGate(),
         // WHO may use Deck-E, and how much of him — never the ids themselves,
         // because /health is unauthenticated and a list of user UUIDs is
         // exactly the sort of thing that should not be readable from it. A

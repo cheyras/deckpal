@@ -1,7 +1,9 @@
 import { Router, raw, type RequestHandler } from 'express';
 import { cardImages, q } from '../db.js';
-import { ApiError, asyncHandler, badRequest, clampInt, oneOf, toBuffer } from '../http.js';
+import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
+import { scanEmbedGate } from './embedGate.js';
+import { CURRENT_STAMP, buildResponse, parseEmbedding, pgNeighbours } from './embedMatch.js';
 
 /**
  * Offline card scanner (Phase 8) — image → card matcher.
@@ -228,5 +230,65 @@ scanRouter.post(
       indexSize,
       matches,
     });
+  }),
+);
+
+/**
+ * POST /deckpal/api/scan/embed — the embedding matcher.
+ *
+ *   Body (JSON): { stamp: string, embedding: number[], k?: number }
+ *   Response 200: { stamp, indexSize, identity, variant, matches: [...] }
+ *
+ * Behind `SCAN_EMBED_MATCH=true` and 404 otherwise, so merging this changes
+ * nothing about the running product until an operator turns it on (see
+ * ./embedGate.ts for why the switch exists and what else has to be true).
+ *
+ * 404 rather than 503 when the gate is closed: an unset feature flag means this
+ * deployment does not have this endpoint, which is exactly what 404 says. 503
+ * would promise it is coming back.
+ *
+ * The response deliberately carries no `matched` boolean and no single
+ * `confidence` — see ./embedMatch.ts.
+ */
+scanRouter.post(
+  '/embed',
+  asyncHandler(async (req, res) => {
+    if (scanEmbedGate() === 'off') throw notFound('the embedding matcher is not enabled on this deployment');
+
+    const body = (req.body ?? {}) as { stamp?: unknown; embedding?: unknown; k?: unknown };
+    // The stamp is checked BEFORE the vector, and it is checked for equality
+    // rather than compatibility. A client on an older bundle is not "close
+    // enough" — its vectors live in a different space, and comparing them
+    // would return a confident wrong answer rather than an error.
+    if (typeof body.stamp !== 'string' || body.stamp !== CURRENT_STAMP) {
+      throw badRequest(
+        `this deployment matches against '${CURRENT_STAMP}'; the request carried ` +
+          `'${typeof body.stamp === 'string' ? body.stamp : '(none)'}'. Reload the app to pick up the current model.`,
+      );
+    }
+    let embedding;
+    try {
+      embedding = parseEmbedding(body.embedding);
+    } catch (e) {
+      throw badRequest((e as Error).message);
+    }
+    const k = clampInt(body.k, 5, 1, 25);
+
+    const { indexSize, rows } = await pgNeighbours(embedding, CURRENT_STAMP, k);
+    if (indexSize === 0) {
+      // Same shape as the hash path's empty-index answer, and for the same
+      // reason: "nothing is indexed" and "nothing matched" are different facts
+      // and must not arrive looking identical.
+      res.json({
+        stamp: CURRENT_STAMP,
+        indexSize: 0,
+        identity: { level: 'none', cardId: null, similarity: 0, margin: null, modelId: CURRENT_STAMP },
+        variant: { level: 'unknown', reason: 'no-variant-model', requiresUserChoice: false },
+        matches: [],
+        note: `no embeddings indexed for ${CURRENT_STAMP} yet — run tools/embed-catalog`,
+      });
+      return;
+    }
+    res.json(buildResponse(CURRENT_STAMP, indexSize, rows));
   }),
 );
