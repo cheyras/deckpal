@@ -898,6 +898,50 @@ within the confidence threshold (9 — re-measured over 389 degraded scans, so
 hashes are indexed yet the response is `matched: false` with a `note` to run the
 scan indexer.
 
+### POST /deckpal/api/scan/embed
+
+The embedding matcher. **404 unless `SCAN_EMBED_MATCH=true`** — an unset flag
+means this deployment does not have this endpoint, and `GET /health` reports
+`scanEmbed`.
+
+The model runs on the device, so the body is the VECTOR, not an image:
+
+```json
+{ "stamp": "e1:vitamin-small-datacomp1b", "embedding": [0.031, -0.118, ...], "k": 5 }
+```
+
+`stamp` must equal the deployment's exactly (400 otherwise, naming both) —
+vectors from another spec version or checkpoint live in a different space, and
+comparing them would return a confident wrong answer rather than an error.
+`embedding` must be 384 finite components and already L2-normalised; an
+un-normalised vector is refused rather than repaired.
+
+```json
+{ "stamp": "e1:vitamin-small-datacomp1b", "indexSize": 23546,
+  "identity": { "level": "confident", "cardId": "me04-024", "similarity": 0.9114,
+                "margin": 0.215, "modelId": "vitamin-small-datacomp1b" },
+  "variant":  { "level": "unknown", "reason": "no-variant-model",
+                "requiresUserChoice": true },
+  "matches": [ { "cardId": "me04-024", "name": "Avalugg", "number": "024",
+                 "setId": "me04", "setName": "Chaos Rising", "rarity": null,
+                 "seriesId": "me", "images": { "low": "...", "high": "..." },
+                 "similarity": 0.9114, "variantCount": 3 } ] }
+```
+
+**There is no `matched` and no `confidence`,** deliberately. Identity and
+variant carry separate verdicts and are never blended (owner ruling,
+2026-09-04); a client asking "is this settled" reads
+`identity.level === 'confident' && !variant.requiresUserChoice`, which is two
+decisions because there are two. `identity.level` is `confident` / `uncertain` /
+`none`; `none` still reports the similarity it rejected, and still returns the
+candidates, because declining to claim is not refusing to show the work.
+`variant.level` is `unknown` in every response this build can produce — nothing
+here measures a printing — and `requiresUserChoice` is what the verify UI must
+branch on.
+
+When nothing is embedded yet the response is `indexSize: 0` with a `note` to run
+`tools/embed-catalog`.
+
 ---
 
 ## Bugs — in-app bug reporter
