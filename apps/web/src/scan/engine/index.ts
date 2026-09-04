@@ -42,7 +42,16 @@ import type {
   TrackedQuad,
 } from './contract'
 import { createPresenceGate, DEFAULT_ACQUIRE, DEFAULT_HOLD } from './gate'
-import { centroid, defaultReticle, pointInRect, type ImageDataLike, type Rect } from './geometry'
+import {
+  CARD_ASPECT_W_OVER_H,
+  centroid,
+  pointInRect,
+  quadAspectRatio,
+  reticleWithin,
+  visibleRect,
+  type ImageDataLike,
+  type Rect,
+} from './geometry'
 import { loadModel, type ModelSession } from './model'
 import {
   computeLetterbox,
@@ -61,6 +70,48 @@ import { createTracker } from './tracker'
 export const DEFAULT_CADENCE_MS = 120
 /** Consecutive ticks a stable track must sit centred before it can be captured. */
 export const DEFAULT_LOCK_TICKS = 3
+
+/**
+ * How far a locked candidate's short/long side ratio may sit from a card's own
+ * 63:88 (0.7159), as a ratio either way. 0.15 admits 0.609..0.823.
+ *
+ * WHY A LOCK NEEDS AN ASPECT PRIOR AT ALL. LC050 is a document-corner model and
+ * a cluttered table is full of documents: BLIND-VERIFICATION.md judged the
+ * engine drawing a confident quad on 24 of 26 no-card frames, including "a
+ * confident tight lock on the laptop" (F020). Nothing between the model and
+ * `capture()` had ever asked whether the thing it found was CARD-SHAPED — the
+ * presence head asks "is there an object", the reticle asks "is it aimed at",
+ * and neither asks "is it 63:88".
+ *
+ * WHY IT IS DELIBERATELY LOOSE. A card at a raking angle is genuinely not 63:88
+ * on screen — foreshortening compresses one axis — and the corpus's own tilted
+ * frames are exactly the ones a tight prior would refuse.
+ *
+ * AND IT ONLY GATES THE LOCK. A quad failing it is still tracked and still
+ * drawn: the user keeps seeing what the engine sees, the manual Capture button
+ * still works on it, and only the AUTOMATIC fire is withheld. That is the same
+ * failure direction gate.ts chose — refuse to act, never refuse to show.
+ *
+ * SIZED BY THE SWEEP, mid-session gate (`clutter-lock.ts --gate open`), which is
+ * the state the owner's failure happens in — a card was just scanned, so the
+ * presence latch is open and stays open on anything over `hold`:
+ *
+ *   tol     admits          clutter locks   card locks
+ *   0 (was)  everything        15/26           56/61
+ *   0.10     0.644..0.787       2/26           48/61
+ *   0.15     0.609..0.823       4/26           53/61   <- shipped
+ *   0.20     0.573..0.859       6/26           53/61
+ *   0.25     0.537..0.895       7/26           54/61
+ *   0.28     0.515..0.916       9/26           55/61
+ *
+ * 0.15 DOMINATES 0.20 outright — same 53 card locks, two fewer clutter locks —
+ * so anything looser than 0.15 is paying for nothing until 0.25. 0.10 buys two
+ * more clutter rejections for five card locks, which is the wrong trade: the
+ * quad is still drawn and the manual Capture button still fires, so a refused
+ * auto-capture costs the user one tap, while a false one costs them a junk row
+ * to hunt down in a feed of fourteen.
+ */
+export const DEFAULT_LOCK_ASPECT_TOL = 0.15
 /** Long side of the working image the refiner reads. The reticle crop is drawn
  *  into this, so on a 1280x960 stream one working pixel is ~1.5 frame px and
  *  the refiner's sub-pixel output is worth ~0.5 frame px — a real improvement
@@ -125,6 +176,62 @@ export function inferenceTransform(frameW: number, frameH: number): LetterboxTra
   return computeLetterbox(frameW, frameH, INFERENCE_RECT)
 }
 
+/** Is this quad's short/long ratio within `tol` of a card's 63:88?
+ *  See DEFAULT_LOCK_ASPECT_TOL for why a LOCK needs this and a DRAW does not. */
+export function isCardShaped(quad: Quad, tol: number = DEFAULT_LOCK_ASPECT_TOL): boolean {
+  if (!(tol > 0)) return true
+  const r = quadAspectRatio(quad)
+  if (!(r > 0)) return false
+  return r >= CARD_ASPECT_W_OVER_H * (1 - tol) && r <= CARD_ASPECT_W_OVER_H * (1 + tol)
+}
+
+export interface LockPolicy {
+  /** Feed ONE detect tick's stable tracks plus the reticle in FRAME FRACTIONS.
+   *  Returns the capture candidate, or null. */
+  update(stable: readonly TrackedQuad[], reticle: Rect, frameW: number, frameH: number): TrackedQuad | null
+  reset(): void
+}
+
+/**
+ * THE AUTO-CAPTURE POLICY, as a pure object so the offline harness measures the
+ * SHIPPING decision rather than a re-implementation of it — the same reason
+ * `inferenceTransform` is exported. `__tests__/clutter-lock.ts` drives this
+ * exact function over the phase-0b corpus; if the policy below changes, that
+ * measurement changes with it and cannot silently go stale.
+ *
+ * A track locks when, for `lockTicks` CONSECUTIVE ticks, it is stable, not
+ * coasting, centred in the reticle, and card-shaped. Any tick that fails resets
+ * the counter to zero: the dwell must be uninterrupted, because a thing that
+ * flickers in and out of card-shape is precisely the clutter this exists to
+ * refuse.
+ */
+export function createLockPolicy(opts: { lockTicks?: number; lockAspectTol?: number } = {}): LockPolicy {
+  const lockTicks = opts.lockTicks ?? DEFAULT_LOCK_TICKS
+  const tol = opts.lockAspectTol ?? DEFAULT_LOCK_ASPECT_TOL
+  const lockCounts = new Map<number, number>()
+  return {
+    update(stable, rect, frameW, frameH) {
+      const px: Rect = { x: rect.x * frameW, y: rect.y * frameH, w: rect.w * frameW, h: rect.h * frameH }
+      const alive = new Set<number>()
+      let locked: TrackedQuad | null = null
+      for (const t of stable) {
+        alive.add(t.id)
+        const centred = !t.coasting && pointInRect(centroid(t.quad), px) && isCardShaped(t.quad, tol)
+        const n = centred ? (lockCounts.get(t.id) ?? 0) + 1 : 0
+        lockCounts.set(t.id, n)
+        // Oldest qualifying track wins, so two cards in the reticle resolve to
+        // the one the user has been holding there — not to list order.
+        if (n >= lockTicks && (!locked || t.age > locked.age)) locked = t
+      }
+      for (const id of [...lockCounts.keys()]) if (!alive.has(id)) lockCounts.delete(id)
+      return locked
+    },
+    reset() {
+      lockCounts.clear()
+    },
+  }
+}
+
 function makeCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = w
@@ -135,6 +242,7 @@ function makeCanvas(w: number, h: number): HTMLCanvasElement {
 export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): ScanEngine => {
   const cadenceMs = opts.cadenceMs ?? DEFAULT_CADENCE_MS
   const lockTicks = opts.lockTicks ?? DEFAULT_LOCK_TICKS
+  const lockAspectTol = opts.lockAspectTol ?? DEFAULT_LOCK_ASPECT_TOL
 
   const gate = createPresenceGate(opts.acquire ?? DEFAULT_ACQUIRE, opts.hold ?? DEFAULT_HOLD)
   const tracker = createTracker()
@@ -150,7 +258,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   let lastTickStart = 0
   let hz = 0
   let lastState: EngineState | null = null
-  const lockCounts = new Map<number, number>()
+  const lockPolicy = createLockPolicy({ lockTicks, lockAspectTol })
 
   // Canvases are created once and resized in place — allocating a canvas per
   // tick is how you get a GC pause in the middle of a camera preview.
@@ -164,12 +272,23 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   let reticle: Rect = { x: 0.14, y: 0.04, w: 0.72, h: 0.92 }
   let reticleW = 0
   let reticleH = 0
+  let reticleBoxW = 0
+  let reticleBoxH = 0
+  /** The camera box's CSS size, or null when the caller has not said. */
+  let viewport: { width: number; height: number } | null = null
 
+  /** The reticle, fitted inside the part of the frame `object-fit: cover`
+   *  actually shows — see geometry.visibleRect for what this fixes. Memoised on
+   *  (frame, box) because it is recomputed every detect tick. */
   function reticleFor(frameW: number, frameH: number): Rect {
-    if (frameW !== reticleW || frameH !== reticleH) {
-      reticle = defaultReticle(frameW, frameH)
+    const bw = viewport?.width ?? 0
+    const bh = viewport?.height ?? 0
+    if (frameW !== reticleW || frameH !== reticleH || bw !== reticleBoxW || bh !== reticleBoxH) {
+      reticle = reticleWithin(frameW, frameH, visibleRect(frameW, frameH, bw, bh))
       reticleW = frameW
       reticleH = frameH
+      reticleBoxW = bw
+      reticleBoxH = bh
     }
     return reticle
   }
@@ -293,30 +412,9 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       hasObj,
       stable,
       pending,
-      locked: lockedOf(stable, rect, frameW, frameH),
+      locked: lockPolicy.update(stable, rect, frameW, frameH),
       perf: { detectMs, hz, jitterPx: jitter.displayedPx },
     })
-  }
-
-  /** A stable, non-coasting track whose centroid has sat inside the reticle for
-   *  lockTicks consecutive ticks. The centroid test is what stops a card the
-   *  user has set down at the edge of the frame — still tracked, still
-   *  stable — from being treated as an offer to scan. */
-  function lockedOf(stable: TrackedQuad[], rect: Rect, frameW: number, frameH: number): TrackedQuad | null {
-    const px: Rect = { x: rect.x * frameW, y: rect.y * frameH, w: rect.w * frameW, h: rect.h * frameH }
-    const alive = new Set<number>()
-    let locked: TrackedQuad | null = null
-    for (const t of stable) {
-      alive.add(t.id)
-      const centred = !t.coasting && pointInRect(centroid(t.quad), px)
-      const n = centred ? (lockCounts.get(t.id) ?? 0) + 1 : 0
-      lockCounts.set(t.id, n)
-      // Oldest qualifying track wins, so two cards in the reticle resolve to
-      // the one the user has been holding there — not to list order.
-      if (n >= lockTicks && (!locked || t.age > locked.age)) locked = t
-    }
-    for (const id of [...lockCounts.keys()]) if (!alive.has(id)) lockCounts.delete(id)
-    return locked
   }
 
   function loop() {
@@ -364,9 +462,13 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       video = null
       tracker.reset()
       gate.reset()
-      lockCounts.clear()
+      lockPolicy.reset()
       hz = 0
       lastState = null
+    },
+
+    setViewport(box: { width: number; height: number } | null): void {
+      viewport = box && box.width > 0 && box.height > 0 ? { width: box.width, height: box.height } : null
     },
 
     onState(cb: (s: EngineState) => void): () => void {

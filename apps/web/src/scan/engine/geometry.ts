@@ -244,6 +244,24 @@ export function meanCornerDelta(a: Quad, b: Quad): number {
   return s / 4
 }
 
+/**
+ * A quad's SHORT-over-LONG side ratio — directly comparable to
+ * CARD_ASPECT_W_OVER_H (0.7159) with no knowledge of which way up the quad is.
+ *
+ * Opposite sides are averaged rather than taken individually so a keystoned
+ * card (near side longer than far side, which every hand-held frame has) reads
+ * as its own aspect rather than as the more extreme of its two edges. Returns 0
+ * for a degenerate quad, which every caller must treat as "fails any tolerance".
+ */
+export function quadAspectRatio(q: Quad): number {
+  const side = (i: number) => Math.hypot(q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1])
+  const a = (side(0) + side(2)) / 2
+  const b = (side(1) + side(3)) / 2
+  const lo = Math.min(a, b)
+  const hi = Math.max(a, b)
+  return hi > 0 ? lo / hi : 0
+}
+
 /** Largest per-corner Euclidean distance between two corner-aligned quads. */
 export function maxCornerDelta(a: Quad, b: Quad): number {
   let m = 0
@@ -269,6 +287,57 @@ export function defaultReticle(frameW: number, frameH: number, maxWFrac = 0.72, 
   const wPx = Math.min(wFromWidthCap, wFromHeightCap)
   const hPx = wPx / CARD_ASPECT_W_OVER_H
   return { x: (1 - wPx / frameW) / 2, y: (1 - hPx / frameH) / 2, w: wPx / frameW, h: hPx / frameH }
+}
+
+/**
+ * The part of the frame the user can actually SEE, in frame pixels, when the
+ * video is rendered into a `boxW`x`boxH` element with `object-fit: cover`.
+ *
+ * WHY THIS EXISTS (the 2026-09-03 field-test bug). `defaultReticle` fits a
+ * 63:88 box inside the FRAME. The product renders the frame into a camera box
+ * that is a different aspect and lets `object-fit: cover` crop the overflow —
+ * and on a portrait phone stream in a landscape camera box, cover throws away
+ * the top and bottom of the frame. Measured against the owner's build (frame
+ * portrait, box 428x324 CSS): the reticle landed at CSS y -53..377 in a 324-tall
+ * box, i.e. BOTH its horizontal edges off-screen, so it drew as two full-height
+ * dashed verticals and stopped reading as a target at all.
+ *
+ * Worse than cosmetic: `tracker.passesReticle` gates on that same rect, so the
+ * gate covered 1.33x MORE rows than the user could see — every visible row was
+ * inside it, plus a tall invisible band above and below. Vertical gating became
+ * a no-op and off-screen clutter could be tracked, locked and auto-captured.
+ *
+ * The fix is to fit the reticle inside THIS rect instead of inside the frame.
+ * A `null`/degenerate box means "no viewport information" and yields the whole
+ * frame, which is exactly the old behaviour — offline harnesses and unit tests
+ * that never set a viewport are unaffected.
+ */
+export function visibleRect(frameW: number, frameH: number, boxW?: number | null, boxH?: number | null): Rect {
+  if (!frameW || !frameH) return { x: 0, y: 0, w: 0, h: 0 }
+  if (!boxW || !boxH || boxW <= 0 || boxH <= 0) return { x: 0, y: 0, w: frameW, h: frameH }
+  // object-fit: cover — one scale, centred, the larger of the two ratios.
+  const scale = Math.max(boxW / frameW, boxH / frameH)
+  const w = Math.min(frameW, boxW / scale)
+  const h = Math.min(frameH, boxH / scale)
+  return { x: (frameW - w) / 2, y: (frameH - h) / 2, w, h }
+}
+
+/**
+ * `defaultReticle`'s 63:88 contain-fit, performed inside `vis` (frame pixels)
+ * and reported back as FRACTIONS OF THE FRAME — which is what
+ * `EngineState.reticle` has always been, so every existing consumer
+ * (QuadOverlay, coords.reticleToCss, the tracker's gate) keeps working
+ * unchanged and simply receives a rect that is now fully on screen.
+ */
+export function reticleWithin(frameW: number, frameH: number, vis: Rect, maxWFrac = 0.72, maxHFrac = 0.92): Rect {
+  if (!frameW || !frameH || !vis.w || !vis.h) return defaultReticle(frameW || 1, frameH || 1, maxWFrac, maxHFrac)
+  const local = defaultReticle(vis.w, vis.h, maxWFrac, maxHFrac)
+  return {
+    x: (vis.x + local.x * vis.w) / frameW,
+    y: (vis.y + local.y * vis.h) / frameH,
+    w: (local.w * vis.w) / frameW,
+    h: (local.h * vis.h) / frameH,
+  }
 }
 
 // ---------------------------------------------------------------------------

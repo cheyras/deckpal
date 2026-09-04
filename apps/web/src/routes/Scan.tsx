@@ -13,7 +13,15 @@ import { UploadFallback } from '../scan/ui/UploadFallback'
 import { SwipeReview } from '../scan/ui/SwipeReview'
 import { HelpModal } from '../scan/ui/HelpModal'
 import { commitFeed } from '../scan/ui/commit'
-import { uploadScanFlag } from '../scan/ui/flags'
+import { uploadScanFlag, recordCaptureEvent, recordLockEvent } from '../scan/ui/flags'
+import {
+  CAPTURE_TIMEOUT_MS,
+  deadlineSignal,
+  IDENTIFY_TIMEOUT_MS,
+  nextFrameSafe,
+  settleWithin,
+  withTimeout,
+} from '../scan/ui/deadline'
 import { toScanBytes } from '../scan/ui/uploadNormalize'
 import { coverMap, framePointToCss, quadPose } from '../scan/ui/coords'
 import { bump, DURATION, flyArc, rectRelativeTo } from '../scan/ui/motion'
@@ -52,10 +60,12 @@ function makeId(prefix: string): string {
 /** Two rAFs: the first fires once the browser is ready to paint the frame
  *  React just committed for; the second confirms that paint actually
  *  happened, so a caller reading layout right after this is measuring the
- *  real, current DOM rather than a state that hasn't been committed yet. */
-function nextFrame(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-}
+ *  real, current DOM rather than a state that hasn't been committed yet.
+ *
+ *  Now via `nextFrameSafe`, which races those rAFs against a timer: rAF does
+ *  not fire in a backgrounded tab, and a phone screen locking mid-capture used
+ *  to park this await forever — see scan/ui/deadline.ts. */
+const nextFrame = nextFrameSafe
 
 /** No "help"/"question" glyph exists in the shared `Icon` set (checked
  *  components/Icon.tsx's `IconName` union) — authored locally rather than
@@ -97,9 +107,15 @@ export function Scan() {
     error: engineError,
     state: engineState,
     capture,
+    setViewport,
   } = useScanEngine(videoRef, engineActive)
 
+  // Mirrored into a ref so the capture pipeline can attach the gate state that
+  // produced a capture without taking `engineState` (which changes every detect
+  // tick, ~8x/s) as a dependency and rebuilding the whole callback chain.
+  const engineStateRef = useRef(engineState)
   useEffect(() => {
+    engineStateRef.current = engineState
     if (engineState) frameSizeRef.current = engineState.frame
   }, [engineState])
 
@@ -273,20 +289,55 @@ export function Scan() {
 
   /** The full capture → stack → identify → feed pipeline for one engine capture. */
   const handleCaptured = useCallback(
-    async (result: CaptureResult) => {
+    async (result: CaptureResult, trigger: 'auto' | 'manual') => {
       const previewUrl = trackUrl(URL.createObjectURL(result.blob))
+      // THE ACCEPTANCE RECORD (scan/ui/flags.ts). Fire-and-forget, owner-only,
+      // and deliberately taken BEFORE any await that could change the scene:
+      // the frame recorded here is the one this quad was measured against.
+      void recordCaptureEvent({
+        video: videoRef.current,
+        rectified: result.blob,
+        detail: {
+          trigger,
+          quad: result.quad,
+          trackId: result.trackId,
+          hasObj: engineStateRef.current?.hasObj ?? null,
+          reticle: engineStateRef.current?.reticle ?? null,
+          cameraBox: cameraBoxRef.current,
+          track: (() => {
+            const t =
+              engineStateRef.current?.stable.find((s) => s.id === result.trackId) ??
+              engineStateRef.current?.pending.find((s) => s.id === result.trackId)
+            return t ? { age: t.age, coasting: t.coasting } : null
+          })(),
+          step,
+          perf: engineStateRef.current?.perf ?? null,
+        },
+      })
       const stackItem: StackItem = { id: makeId('cap'), trackId: result.trackId, previewUrl, blob: result.blob, capturedAt: Date.now() }
       setStack((prev) => [stackItem, ...prev])
 
       // Identify runs CONCURRENTLY with the fly-to-stack visual — the
       // network round trip overlaps travel time instead of waiting behind a
       // fixed simulated delay, so the reader sees the real latency, not more.
+      // A DEADLINE, NOT AN OPTIMISATION. `api.scan` sets no timeout of its own
+      // (lib/api.ts `request`), so before this an identify that never came back
+      // parked the await below forever — and with it `captureBusyRef`, which is
+      // the "Got it — hold on…" wedge. Both an abort signal (so the socket is
+      // released) and a `withTimeout` (so the AWAIT ends even if the abort is
+      // ignored): the ref must clear on every path, not on the polite ones.
       const identifyPromise: Promise<ScanResponse | null> = (async () => {
+        const { signal, done } = deadlineSignal(IDENTIFY_TIMEOUT_MS)
         try {
           const bytes = await result.blob.arrayBuffer()
-          return await api.scan(bytes, 'image/jpeg', 5, 'low')
+          return await withTimeout(api.scan(bytes, 'image/jpeg', 5, 'low', signal), IDENTIFY_TIMEOUT_MS, 'identify')
         } catch {
+          // A failed or timed-out identify is NOT a failed capture: the JPEG is
+          // good and the row still lands, as "Unidentified card" for the reader
+          // to resolve. Losing the capture too would be the worse outcome.
           return null
+        } finally {
+          done()
         }
       })()
 
@@ -308,8 +359,10 @@ export function Scan() {
           const [cx, cy] = framePointToCss(map, pose.cx, pose.cy)
           from = { cx, cy, rotDeg: pose.rotDeg, width: pose.width * map.scale, height: pose.height * map.scale }
         }
-        await flyToTarget(previewUrl, from, stackEl)
-        await bump(stackEl, 1.04, DURATION.settle)
+        // Animations are awaited but never allowed to block: `anim.finished`
+        // is also suspended while the document is hidden.
+        await settleWithin(flyToTarget(previewUrl, from, stackEl), 2000)
+        await settleWithin(bump(stackEl, 1.04, DURATION.settle), 1000)
       }
 
       const res = await identifyPromise
@@ -324,30 +377,43 @@ export function Scan() {
       const thumbEl = entryId ? feedThumbNodesRef.current.get(entryId) : undefined
       if (thumbEl && wrap) {
         const fromRect = rectRelativeTo(stackEl ?? thumbEl, wrap)
-        await flyToTarget(
-          previewUrl,
-          { cx: fromRect.cx, cy: fromRect.cy, width: fromRect.width || 54, height: fromRect.height || 75 },
-          thumbEl,
+        await settleWithin(
+          flyToTarget(
+            previewUrl,
+            { cx: fromRect.cx, cy: fromRect.cy, width: fromRect.width || 54, height: fromRect.height || 75 },
+            thumbEl,
+          ),
+          2000,
         )
       }
       setStack((prev) => prev.filter((s) => s.id !== stackItem.id))
     },
-    [applyIdentifyResult, flyToTarget, trackUrl],
+    [applyIdentifyResult, flyToTarget, trackUrl, step],
   )
 
   const runCapture = useCallback(
-    async (trackId: number) => {
+    async (trackId: number, trigger: 'auto' | 'manual' = 'auto') => {
       captureBusyRef.current = true
       setFlashSignal((n) => n + 1)
       try {
-        const result = await capture(trackId)
-        await handleCaptured(result)
+        // ONE BACKSTOP OVER THE WHOLE PIPELINE. Every await inside now has its
+        // own deadline, but this is the guarantee that does not depend on
+        // having found them all: whatever happens in there, this call settles,
+        // and the `finally` below runs. `captureBusyRef` staying true is the
+        // difference between one lost capture and a scanner that is dead until
+        // the page is reloaded.
+        const result = await withTimeout(capture(trackId), CAPTURE_TIMEOUT_MS, 'capture')
+        await withTimeout(handleCaptured(result, trigger), CAPTURE_TIMEOUT_MS, 'capture')
       } catch (e) {
-        // The track vanished, or the engine refused — release the refractory
-        // hold so the SAME presence can retry rather than being silently
-        // ignored for the rest of its dwell.
+        // The track vanished, the engine refused, or something ran past its
+        // deadline — release the refractory hold so the SAME presence can retry
+        // rather than being silently ignored for the rest of its dwell.
         refractoryRef.current.delete(trackId)
         setNotice(e instanceof Error ? e.message : 'that capture did not go through')
+        // Put the reader back in a scanning state explicitly. Without this the
+        // hint keeps whatever "Got it — hold on…" it was showing when the
+        // capture died, which reads as a hang even though the engine is fine.
+        setHint('Point the camera at a card')
       } finally {
         captureBusyRef.current = false
       }
@@ -359,20 +425,45 @@ export function Scan() {
   //    and returns (ripSession.ts's departure-then-return precedent, applied
   //    to track ids instead of card ids). Only runs in Step 1. ──
   useEffect(() => {
-    if (!engineState || step !== 'scan') return
+    // `binExpanded` hides the camera without stopping it (the stream and the
+    // engine deliberately survive an expand/collapse — see the CameraStage
+    // comment). Auto-capture must NOT survive it: the reader is looking at
+    // their card list, cannot see the preview, cannot aim it, and every frame
+    // the engine locks onto while they do is by definition something they never
+    // pointed at. Manual Capture is unreachable here too, so this suspends
+    // automatic firing only, and collapsing the bin resumes it.
+    if (!engineState || step !== 'scan' || binExpanded) return
     const presentIds = new Set(engineState.stable.map((q) => q.id))
     for (const id of refractoryRef.current) {
       if (!presentIds.has(id)) refractoryRef.current.delete(id)
     }
     const locked = engineState.locked
+    if (locked) {
+      // Every lock, not just the ones that become captures — a lock the
+      // refractory set swallows is still the engine saying "I would fire at
+      // this", and those are exactly the ones no capture record would show.
+      // Throttled to 1 per 2s inside the recorder.
+      void recordLockEvent(videoRef.current, {
+        quad: locked.quad,
+        trackId: locked.id,
+        age: locked.age,
+        coasting: locked.coasting,
+        hasObj: engineState.hasObj,
+        reticle: engineState.reticle,
+        frame: engineState.frame,
+        cameraBox: cameraBoxRef.current,
+        perf: engineState.perf,
+        wouldCapture: !refractoryRef.current.has(locked.id) && !captureBusyRef.current,
+      })
+    }
     if (locked && !refractoryRef.current.has(locked.id) && !captureBusyRef.current) {
       refractoryRef.current.add(locked.id)
-      void runCapture(locked.id)
+      void runCapture(locked.id, 'auto')
     }
     if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     else setHint('Point the camera at a card')
-  }, [engineState, step, runCapture])
+  }, [engineState, step, runCapture, binExpanded])
 
   const manualCapture = useCallback(() => {
     if (!engineState || captureBusyRef.current) {
@@ -385,7 +476,7 @@ export function Scan() {
       return
     }
     refractoryRef.current.add(candidate.id)
-    void runCapture(candidate.id)
+    void runCapture(candidate.id, 'manual')
   }, [engineState, runCapture])
 
   const reportEntry = useCallback(async (entry: FeedEntry) => {
@@ -624,6 +715,20 @@ export function Scan() {
                       flashSignal={flashSignal}
                       onBoxChange={(b) => {
                         cameraBoxRef.current = b
+                        // The engine needs this to fit the reticle inside what
+                        // `object-fit: cover` actually shows — without it the
+                        // reticle is computed against the whole frame and, on a
+                        // portrait stream in this landscape box, its top and
+                        // bottom edges land off-screen while the tracker's gate
+                        // silently covers 1.33x the visible height.
+                        //
+                        // A 0x0 MEASUREMENT IS NOT A NEW VIEWPORT. Expanding the
+                        // bin puts `display:none` on this subtree, and a hidden
+                        // element reports 0x0 — clearing the viewport on that
+                        // would hand the engine back the whole-frame reticle,
+                        // i.e. re-introduce the very bug this call fixes, at the
+                        // one moment nobody is looking at the camera to notice.
+                        if (b.width > 0 && b.height > 0) setViewport(b)
                       }}
                     />
                     <div className="flex h-[44px] shrink-0 items-center gap-[8px] overflow-x-auto border-b border-divider-subtle bg-surface-secondary px-[12px]">

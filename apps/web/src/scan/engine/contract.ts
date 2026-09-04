@@ -66,6 +66,19 @@ export interface ScanEngine {
   onState(cb: (s: EngineState) => void): () => void
   /** Rectify the given track's current quad from the live frame. */
   capture(trackId: number): Promise<CaptureResult>
+  /**
+   * Tell the engine the CSS size of the box the video is rendered into, so the
+   * reticle can be fitted inside the part of the frame the user can actually
+   * see rather than inside the whole frame.
+   *
+   * Not optional in spirit: without it the reticle is computed against the full
+   * frame while the UI renders that frame with `object-fit: cover`, and on a
+   * portrait stream in a landscape box the reticle's top and bottom edges land
+   * off-screen — which also silently widens the tracker's gate to 1.33x the
+   * visible height (geometry.visibleRect). Pass null to go back to whole-frame
+   * behaviour (the offline harness does).
+   */
+  setViewport(box: { width: number; height: number } | null): void
 }
 
 export interface EngineOptions {
@@ -77,6 +90,17 @@ export interface EngineOptions {
   cadenceMs?: number
   /** Consecutive ticks before a stable track can lock (default 3). */
   lockTicks?: number
+  /**
+   * How far a locked candidate's aspect may sit from a card's own 63:88 before
+   * it is refused as a capture candidate, as a RATIO either way (default 0.28,
+   * i.e. 0.78x..1.28x of 0.7159 => 0.56..0.92).
+   *
+   * This is a LOCK filter, not a display filter: a quad that fails it is still
+   * tracked and still drawn, so the user sees what the engine found and the
+   * failure mode is "it will not auto-fire at this", never a blank screen. Sized
+   * offline against the phase-0b corpus — see __tests__/clutter-lock.ts.
+   */
+  lockAspectTol?: number
 }
 
 export type CreateScanEngine = (opts?: EngineOptions) => ScanEngine

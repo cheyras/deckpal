@@ -72,8 +72,31 @@ export interface TrackerOptions {
   graceFrames?: number
   /** EMA weight on the new observation. */
   smooth?: number
-  /** Rule 2's cap, in pixels of the tracked (frame) space. */
+  /** Rule 2's cap, in pixels of the tracked (frame) space. Acts as a FLOOR under
+   *  `snapFrac` so a very small quad still gets a usable cap. */
   snapPx?: number
+  /**
+   * Rule 2's cap as a fraction of the tracked quad's own size (sqrt of its
+   * area) — the SCALE-INVARIANT half of the cap, and the one that governs on any
+   * modern stream.
+   *
+   * WHY THIS EXISTS. `snapPx` alone is an ABSOLUTE frame-pixel number, but rule
+   * 2 is a statement about DISPLAY LAG, and how much lag the eye forgives
+   * depends on the card's size on screen, not on the sensor's pixel count. It
+   * was tuned at 480x640, where a card is ~300 px across and 12 px is 4% of it.
+   * Hand the same tracker a 1080x1440 stream and the same PHYSICAL hand motion
+   * now measures 20 frame px per tick against an unchanged 12 px cap, so the
+   * cap is breached constantly and the EMA is bypassed on roughly half of all
+   * ticks — measured 29/58 at 1080x1440 versus 0/58 at 480x640 and 720x960 for
+   * identical motion. Smoothing silently switches itself off as resolution
+   * rises, and the quad shows the model's raw per-tick corner noise: the
+   * owner's "quads all over the place" on the live build.
+   *
+   * 0.04 is 12/sqrt(area) for the 480x640 corpus card the original number was
+   * tuned against, so this reproduces the tuned behaviour at the tuning
+   * resolution exactly and scales it correctly everywhere else.
+   */
+  snapFrac?: number
 }
 
 export interface TrackerJitter {
@@ -110,6 +133,7 @@ export const TRACKER_DEFAULTS = {
   graceFrames: 2,
   smooth: 0.45,
   snapPx: 12,
+  snapFrac: 0.04,
 } as const
 
 interface Track {
@@ -135,6 +159,14 @@ export function createTracker(opts: TrackerOptions = {}): Tracker {
     graceFrames: opts.graceFrames ?? TRACKER_DEFAULTS.graceFrames,
     smooth: opts.smooth ?? TRACKER_DEFAULTS.smooth,
     snapPx: opts.snapPx ?? TRACKER_DEFAULTS.snapPx,
+    snapFrac: opts.snapFrac ?? TRACKER_DEFAULTS.snapFrac,
+  }
+
+  /** Rule 2's cap for one quad: the absolute floor, or a fixed share of the
+   *  quad's own size, whichever is larger. See TrackerOptions.snapFrac. */
+  function snapCapFor(q: Quad): number {
+    if (!(C.snapFrac > 0)) return C.snapPx
+    return Math.max(C.snapPx, C.snapFrac * Math.sqrt(Math.max(0, polyArea(q))))
   }
   let reticle: Rect | null = opts.reticle ?? null
 
@@ -195,7 +227,7 @@ export function createTracker(opts: TrackerOptions = {}): Tracker {
         // RULE 2. The EMA is a comfort, not a claim: the moment it would show
         // a pose more than snapPx from what the model just measured, the
         // measurement wins outright.
-        if (maxCornerDelta(sm, raw) > C.snapPx) {
+        if (maxCornerDelta(sm, raw) > snapCapFor(raw)) {
           t.smoothed = cloneQuad(raw)
           t.snapped = true
         }

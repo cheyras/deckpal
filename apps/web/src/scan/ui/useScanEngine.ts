@@ -16,6 +16,15 @@ export interface UseScanEngine {
   /** Latest per-detect-tick state, or null before the first tick. */
   state: EngineState | null
   capture: (trackId: number) => Promise<CaptureResult>
+  /**
+   * Report the camera box's rendered CSS size, so the engine fits the reticle
+   * inside the part of the frame `object-fit: cover` actually shows.
+   *
+   * Safe to call before the engine exists — the latest value is remembered and
+   * applied the moment it does, which matters because the ResizeObserver that
+   * measures the box fires well before the model has finished loading.
+   */
+  setViewport: (box: { width: number; height: number } | null) => void
 }
 
 export function useScanEngine(videoRef: React.RefObject<HTMLVideoElement | null>, active: boolean): UseScanEngine {
@@ -23,6 +32,7 @@ export function useScanEngine(videoRef: React.RefObject<HTMLVideoElement | null>
   const [error, setError] = useState<string | null>(null)
   const [state, setState] = useState<EngineState | null>(null)
   const engineRef = useRef<ScanEngine | null>(null)
+  const viewportRef = useRef<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
     if (!active) return
@@ -38,6 +48,8 @@ export function useScanEngine(videoRef: React.RefObject<HTMLVideoElement | null>
         if (cancelled) return
         const engine = createScanEngine()
         engineRef.current = engine
+        // Replay whatever the box measured while the model was loading.
+        engine.setViewport(viewportRef.current)
         await engine.ready()
         if (cancelled) return
         const video = videoRef.current
@@ -72,5 +84,10 @@ export function useScanEngine(videoRef: React.RefObject<HTMLVideoElement | null>
     return engine.capture(trackId)
   }, [])
 
-  return { status, error, state, capture }
+  const setViewport = useCallback((box: { width: number; height: number } | null) => {
+    viewportRef.current = box && box.width > 0 && box.height > 0 ? box : null
+    engineRef.current?.setViewport(viewportRef.current)
+  }, [])
+
+  return { status, error, state, capture, setViewport }
 }
