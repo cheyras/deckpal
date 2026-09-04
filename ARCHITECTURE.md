@@ -529,6 +529,57 @@ shelled-out decoder the scanner shipped with is exactly what made the hosted
 scanner match nothing (issue #20). `ALGO` names the pipeline; changing either side
 means bumping it and re-indexing.
 
+### Card scanner — the identity embedding (built, off by default)
+
+The hash above is a good prefilter and a bad identifier. Measured 2026-09-03 on
+19 photographs of real cards rectified from HAND-LABELLED quads — the best crop
+geometry this pipeline can produce — its top-1 was the right card **twice**, and
+its own `matched: true` gate fired four times and named a different card every
+time. 0-for-4 precision. The failure is not crop quality and cannot be tuned
+away: a 64-bit greyscale hash cannot bridge glare, colour cast and sleeve
+reflection to a clean catalogue render.
+
+So identity becomes an **image embedding**, per the owner's 2026-09-04 ruling.
+The shape, and the three places it is enforced rather than intended:
+
+* **One versioned input spec.** `packages/matching` holds it, in TypeScript and
+  in a Python mirror that produces BIT-IDENTICAL tensors, checked by both test
+  suites against one committed golden. The phone, the API and the catalogue job
+  all import it, because a catalogue vector is computed months earlier on a
+  different machine and a cosine between two different resamplers measures the
+  resamplers. The spec does NOT redeclare the detector's `PIPELINE_VERSION` —
+  `apps/web/src/scan/engine/frame.ts` owns that, this formats what it is handed,
+  and a test asserts the number appears nowhere in the module.
+
+* **A stamped index.** `card_embedding` (migration 048) is keyed on
+  `(card_id, quality, stamp)` where the stamp names the spec version and the
+  checkpoint, and the matcher filters on it. This is `card_image_phash.algo`'s
+  rule, extended so two model generations can coexist and a cutover is a change
+  of one string. The HNSW index is partial on the current stamp, because an
+  unfiltered one would pick a neighbour from the wrong generation and let the
+  `WHERE` drop it afterwards — fewer than k rows, with nothing in the plan to
+  say why.
+
+* **Two confidences, never one.** `POST /api/scan/embed` returns an `identity`
+  block and a `variant` block and deliberately nothing that could be mistaken
+  for their average — no `matched`, no `confidence`. Variant has exactly one
+  level today, `unknown`, because nothing in this build measures a printing;
+  what it does compute is whether that unknown blocks the commit, which is the
+  ruling's "no silent default-to-primary" as a field the UI cannot ignore.
+
+The verify flywheel (migration 049) stores **embeddings, not photographs**: 2-3
+frames per confirmed scan, each with its own vector, plus an optional sleeve
+label and the matcher's own claim at the time — which makes "of the scans we
+called confident, how many did the reader change" a continuous measurement
+rather than an afternoon with a spreadsheet. Crop retention is a separate
+opt-in tier whose consent is enforced by a trigger, so a retained image with no
+recorded consent is unrepresentable rather than discouraged.
+
+The whole path is behind `SCAN_EMBED_MATCH`, unset by default, and the hash path
+is untouched. Turning it on additionally requires migration 048 applied and
+`tools/embed-catalog` run — neither of which the API can check, which is why
+`/health` reports `scanEmbed` and the boot log says so.
+
 
 ## 13. Frontend
 

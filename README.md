@@ -72,6 +72,7 @@ pnpm monorepo, deployed on Vercel + Supabase (cloud) or plain Postgres
 | `packages/db` (`@deckpal/db`) | Shared Postgres pool + numbered immutable SQL migrations |
 | `packages/storage` (`@deckpal/storage`) | Shared image path algebra + the provenance choke point used by `apps/images` and the cloud image function |
 | `packages/agent-tools` (`@deckpal/agent-tools`) | The 23 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
+| `packages/matching` (`@deckpal/matching`) | The scanner's card-identity embedding: one versioned input spec shared by the phone, the API and the catalogue job, with bit-exact TypeScript/Python parity |
 
 For the full topology, data flow, and design rationale, see
 [`ARCHITECTURE.md`](ARCHITECTURE.md). The schema of record is
