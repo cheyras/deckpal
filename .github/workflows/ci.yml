@@ -56,6 +56,14 @@ jobs:
       - name: Build @deckpal/agent-tools
         run: pnpm --filter @deckpal/agent-tools build
 
+      # @deckpal/matching holds the scanner's embed input spec, and apps/api and
+      # apps/web both resolve it through its dist/ at RUNTIME — the type side
+      # points at src/, so a missing build typechecks fine and then fails the
+      # test suites with ERR_MODULE_NOT_FOUND. Built here for the same reason as
+      # the three above.
+      - name: Build @deckpal/matching
+        run: pnpm --filter @deckpal/matching build
+
       - name: Typecheck all workspaces
         run: pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
@@ -185,3 +193,27 @@ jobs:
 
       - name: Build images
         run: pnpm --filter deckpal-images build
+
+      # The scanner's embed input spec, and the CROSS-RUNTIME parity contract:
+      # the TypeScript implementation against the committed golden digest that
+      # `packages/matching/python/tests/test_parity.py` also checks. A catalogue
+      # embedded against a drifted spec is not recoverable from the phone side,
+      # so this is the suite that must not be unwired. (The Python half needs an
+      # interpreter and is run by hand; the golden is what ties them.)
+      - name: Embed input spec + TS/Python parity golden (pure, no DB)
+        run: pnpm --filter @deckpal/matching test
+
+      # The scan engine's own suites, including the wiring test that asserts the
+      # capture geometry this app really produces IS the geometry the parity
+      # golden was built from. These existed and were only ever run by hand —
+      # the same way the two rows above this file already describe.
+      - name: Scan engine tests (pure, no DB)
+        run: pnpm --filter deckpal-web test:scan
+
+      # tools/ is not a pnpm workspace, so `--filter` cannot reach it and the
+      # suite would never run. Invoked directly instead. What it guards is the
+      # filename algebra of a tool that writes USER PHOTOGRAPHS to a shared
+      # Drive folder: the allow-list, the round-trip, and 33 hostile inputs that
+      # must not produce a path separator.
+      - name: Drive export naming + metadata guards (pure, no network)
+        run: node --import tsx --test tools/drive-export/__tests__/*.test.ts
