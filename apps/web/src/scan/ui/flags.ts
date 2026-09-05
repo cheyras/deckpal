@@ -7,7 +7,40 @@
 // split; see `scripts/check-api-base.mjs`'s header for why that matters.
 import { api } from '../../lib/api'
 import { PIPELINE_VERSION } from '../engine/frame'
+import { ocrEnabled, readOcrOverride } from '../ocr/flag'
 import { postEvent, recorderSuspended } from './eventPost'
+
+// ---------------------------------------------------------------------------
+// FEATURE FLAGS
+// ---------------------------------------------------------------------------
+//
+// A collision of vocabulary worth naming, because this file now holds two
+// unrelated meanings of the word. Everything BELOW this block is about *scan
+// flags* — the evidence channel, a reader pressing "report" on a bad capture.
+// This one constant is a *feature flag*. They share a filename and nothing else.
+
+/**
+ * THE ON-DEVICE OCR LANE (`scan/ocr/**`) — ON in dev and in Vercel previews,
+ * OFF in production and self-host.
+ *
+ * Read ONCE at module load, so no capture can straddle a change: the lane is
+ * either running for this page or it is not. The rule, its reasoning and its
+ * tests live in `scan/ocr/flag.ts` (a pure predicate, because this module
+ * imports `lib/api.ts` and so cannot be loaded by a plain Node test process —
+ * the same reason `eventPost.ts` was split out of it).
+ *
+ * What it gates is 15.6 MB of lazily-fetched ONNX weights (REPORT.md §5.2) and a
+ * second inference session on a WASM runtime with live iOS crash reports against
+ * it (`engine/model.ts`'s header), running alongside a capture that currently
+ * completes in 0.67 s. None of it has ever been timed in a browser (§8.3). Until
+ * it has, production stays off — and `localStorage['deckpal.ocr'] = '1'` is how
+ * the owner turns it on for the phone that does the timing.
+ */
+export const OCR_ENABLED: boolean = ocrEnabled({
+  dev: !!import.meta.env.DEV,
+  hostname: typeof location === 'undefined' ? '' : location.hostname,
+  override: readOcrOverride(),
+})
 
 /** Re-encode any image blob through a canvas so the upload is always a real
  *  PNG regardless of the source type — a capture is a JPEG; the sidecar

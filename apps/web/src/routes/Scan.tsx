@@ -13,7 +13,10 @@ import { UploadFallback } from '../scan/ui/UploadFallback'
 import { SwipeReview } from '../scan/ui/SwipeReview'
 import { HelpModal } from '../scan/ui/HelpModal'
 import { commitFeed } from '../scan/ui/commit'
-import { uploadScanFlag, recordCaptureEvent, recordLockEvent } from '../scan/ui/flags'
+import { OCR_ENABLED, uploadScanFlag, recordCaptureEvent, recordLockEvent } from '../scan/ui/flags'
+import { narrowedIdentity, OCR_NARROW_TIMEOUT_MS, readCardFields, resolveWithOcr } from '../scan/ui/ocrNarrow'
+import { createOcrStage } from '../scan/ocr/staging'
+import type { OcrRead } from '../scan/ocr/pipeline'
 import {
   CAPTURE_TIMEOUT_MS,
   deadlineSignal,
@@ -189,6 +192,39 @@ export function Scan() {
   }, [feed])
 
   const refractoryRef = useRef(new Set<number>())
+
+  // ── THE ON-DEVICE OCR LANE (scan/ocr/**), STAGED BEHIND THE DETECTOR ──────
+  //
+  // Two separate things live here and they are deliberately not the same thing:
+  //
+  //   ocrStageRef      WHEN the 15.6 MB starts downloading — only once the
+  //                    camera is live and LC050 is ready. `scan/ocr/staging.ts`
+  //                    carries the reasoning and the tests; the short version is
+  //                    that started together the two downloads are one 35 MB
+  //                    wait in which the detector finishes last.
+  //   ocrUnavailable   whether POST /scan/resolve exists on this backend. The
+  //                    API lane ships independently of this one and `pnpm dev`
+  //                    talks to the LIVE backend by default, so "app has the
+  //                    code, server does not" is the ordinary case, not an edge
+  //                    one. First 404 turns the narrowing off for the session;
+  //                    the READ still runs, because the fields are the thing
+  //                    this lane exists to measure and they go into the capture
+  //                    record either way.
+  const ocrStageRef = useRef(
+    createOcrStage(() => {
+      // Swallowed, like `warmOcr`'s own failure: a chunk that will not load
+      // leaves the scanner exactly as it is without this lane, and telling a
+      // reader who never asked for OCR that OCR failed is noise. The next
+      // capture retries — the session cache clears itself on rejection.
+      void import('../scan/ocr')
+        .then((m) => m.warmOcr())
+        .catch(() => {})
+    }),
+  )
+  const ocrUnavailableRef = useRef(false)
+  useEffect(() => {
+    ocrStageRef.current.update({ enabled: OCR_ENABLED, detectorReady: engineStatus === 'ready' })
+  }, [engineStatus])
 
   /**
    * THE CAPTURED-REGION REFRACTORY — duplicate captures. The policy, its
@@ -455,6 +491,20 @@ export function Scan() {
         }
       })()
 
+      // ── OCR, IN PARALLEL, AND NOTHING WAITS FOR IT ─────────────────────────
+      //
+      // Started here so it overlaps the identify round trip and the fly-to-stack
+      // animation, and deliberately NOT awaited anywhere above the feed write:
+      // REPORT.md §6.3 measured the whole capture at 0.67 s and projects this at
+      // 1.8-3.4 s on the owner's iPhone, so an OCR read on the capture path
+      // would cost more than the entire scanner rebuild's latency win.
+      //
+      // The READ only. The narrowing round trip runs behind the identify, once
+      // there are `priorMatches` for it to re-rank — see below.
+      const ocrReadPromise: Promise<OcrRead | null> = OCR_ENABLED
+        ? withTimeout(readCardFields(result.blob), OCR_NARROW_TIMEOUT_MS, 'ocr').catch(() => null)
+        : Promise.resolve(null)
+
       await nextFrame()
       const stackEl = stackNodesRef.current.get(stackItem.id)
       const wrap = stageWrapRef.current
@@ -490,6 +540,46 @@ export function Scan() {
       publishMatcherOutcome(matcherOutcomeFor(res))
       applyIdentifyResult(res, stackItem)
       await nextFrame()
+
+      // ── AND THE NARROWING, DETACHED ───────────────────────────────────────
+      //
+      // `void`, not `await`: the row is already in the feed and the reader is
+      // already reading it. This settles seconds later — or never — and the only
+      // thing it can do is correct a row `narrowedIdentity` judges safe to
+      // correct (a row nobody has touched, on a verdict the endpoint calls
+      // `confident`). Everything else about the capture is finished by now.
+      if (OCR_ENABLED) {
+        void (async () => {
+          try {
+            const read = await ocrReadPromise
+            if (!read || ocrUnavailableRef.current) return
+            const { signal, done } = deadlineSignal(OCR_NARROW_TIMEOUT_MS)
+            let outcome
+            try {
+              outcome = await resolveWithOcr(read, res?.matches ?? [], signal)
+            } finally {
+              done()
+            }
+            // One 404 is enough. The endpoint either exists on this backend or
+            // it does not, and asking again every capture would spend a round
+            // trip per card to learn the same thing.
+            if (outcome.unavailable) {
+              ocrUnavailableRef.current = true
+              return
+            }
+            setFeed((prev) =>
+              prev.map((e) => {
+                if (e.capturePreviewUrl !== previewUrl) return e
+                const identity = narrowedIdentity(e, outcome.resolved)
+                return identity ? { ...e, ...identity } : e
+              }),
+            )
+          } catch {
+            // An enrichment that can break a capture is worse than no
+            // enrichment — the same rule the capture recorder is written under.
+          }
+        })()
+      }
 
       const top = res?.matched ? res.matches[0] : undefined
       const latest = feedRef.current

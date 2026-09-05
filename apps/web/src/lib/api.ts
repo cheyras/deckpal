@@ -292,6 +292,33 @@ export interface ScanResponse {
   note?: string
 }
 
+// ── POST /scan/resolve — the OCR narrowing pass ───────────────────────────────
+// Every field is optional and OMITTED rather than sent as null: the endpoint
+// treats an absent denominator as EVIDENCE (the energy and promo sets print
+// none), so a `denominator: null` on the wire would be asserting something we
+// did not read. See `scan/ocr/fields.ts` for what makes each one believable.
+export interface ScanResolveFields {
+  name?: string
+  number?: string
+  denominator?: string
+  setCode?: string
+}
+/** `distance` and `confidence` are nullable HERE and not on `ScanMatch`: a card
+ *  the ladder resolved by its printed key was never nominated by phash and has
+ *  no distance. Null means "no phash opinion", which is not "distance 64". */
+export interface ScanResolveMatch extends Omit<ScanMatch, 'distance' | 'confidence'> {
+  distance: number | null
+  confidence: number | null
+}
+export interface ScanResolveResponse {
+  matched: boolean
+  /** The ladder is sure. Only then may a caller present this over the phash
+   *  result — see CROSSWALK §7.3 for what each rung is worth. */
+  confident: boolean
+  resolvedBy: 'badge+number' | 'number+denominator' | 'name+number' | 'prior-only'
+  matches: ScanResolveMatch[]
+}
+
 // Response of POST /collection/cards/:cardId/have (tile-level Have/Need toggle).
 export interface HaveMutationResponse {
   cardId: string
@@ -1210,6 +1237,24 @@ export const api = {
       signal,
     })
   },
+  /**
+   * Narrow a scan with what on-device OCR could read off the card.
+   *
+   * Runs AFTER `scan`, never instead of it, and never on the capture path:
+   * the OCR read is projected at 1.8-3.4 s on the owner's iPhone against a
+   * 0.67 s capture, so this is a second, later answer that re-ranks the first
+   * one (bakeoff REPORT.md §6.3).
+   *
+   * `signal` is not optional in practice — `request` sets no timeout of its own,
+   * and this call is fired from a capture that has already completed, so nothing
+   * downstream is holding a deadline over it. Callers pass one.
+   */
+  scanResolve: (
+    fields: ScanResolveFields,
+    priorMatches: readonly { cardId: string; distance: number }[],
+    signal?: AbortSignal,
+  ) => send<ScanResolveResponse>('POST', '/scan/resolve', { fields, priorMatches }, signal),
+
   // The scanner's evidence channel — a captured frame + its detection state,
   // for the fix bench. Same endpoint `/dev/scan-harness`'s `uploadFlag()`
   // posts to (that page is a same-origin srcdoc iframe using a cookie
