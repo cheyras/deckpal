@@ -14582,6 +14582,12 @@ The matcher it replaces accepted 4 and was wrong 4 times.
   "WASM-shippable" is verified rather than assumed. Sizes and int8 costs are in
   `p2-work/embed-spike/onnx-probe.json` — including ViTamin-S's, whose int8
   graph is 4.5x SLOWER than its own fp32 under ORT's CPU kernels.
+* The SHIPPING ARRANGEMENT was measured end to end, not inferred from that
+  table: the real input spec, fp32 vectors for the catalogue and an int8 graph
+  for the query, which are two different functions of the same image. It still
+  returns 10/10 top-1, and the gate's 0.74 clears that pairing's strongest
+  negative (0.7094) by 0.031. The catalogue embed is an eight-minute CPU job for
+  all 23,546 cards, which is what makes a later model change cheap.
 
 **`resnet50_clip.openai` is disqualified by pgvector, not by its score.** HNSW
 and IVFFlat both cap at 2,000 dimensions; its features are 2,048 wide. An
