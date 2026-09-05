@@ -14,8 +14,8 @@
 // says overlap cannot recognise anything: a reader working a stack puts the next
 // card almost exactly where the last one was, so the previous card's region
 // adopts its replacement, refreshes, and never expires. 115 of 134 locks were
-// suppressed, regions ran eleven deep, and the module's stated "at most 12 s"
-// cost was in fact unbounded.
+// suppressed, regions ran eleven deep, and the module's stated "at most one
+// departure window" cost was in fact unbounded.
 //
 // ── 2. WHAT THAT ACTUALLY COST, WHICH IS NOT 76.9 % ─────────────────────────
 //
@@ -26,9 +26,20 @@
 // the harm needs to know which locks were a NEW card, which the telemetry does
 // not record — so it is recovered from the pixels (`analysis/card-identity.mjs`:
 // each event's quad re-rectified through the shipping warp and correlated with
-// its neighbour). Read against that, the ceiling on any region policy is 13 of
-// his 21 manual button presses; the other 8 never locked at all, because they
-// failed the saturation or shape/straddle gates.
+// its neighbour). Read against that, the ceiling on any region policy is 12 of
+// his 21 manual button presses; the other 9 never locked at all, because they
+// failed the saturation or shape/straddle gates — which is exactly what the
+// session report attributes independently (4 below the saturation gate, 5
+// failing shape/straddle). This file used to say 13 and 8; that came from a
+// press metric with an 8 s look-back, and `manualPressesSaved` documents why
+// the look-back had to go.
+//
+// ── 3. THE DROPOUT A PHONE ACTUALLY HAS (added 2026-09-05) ──────────────────
+//
+// REGION_DEPARTURE_MS had been sized on a desktop fake camera that loses a
+// static card for up to 11.37 s. This session measures the same quantity on
+// hardware: four same-card track re-ids at 1.07-2.38 s, and an empty band from
+// there to the next event of any kind. See section 3b.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { describe, it } from 'node:test'
@@ -54,6 +65,12 @@ interface Ev {
   regionCount?: number
   saturation?: number
   cameraBox?: { width: number; height: number }
+  /** ticks this track has been observed for — on a lock-event */
+  age?: number
+  /** ...and on a capture-event, where it is nested */
+  track?: { age: number; coasting: boolean }
+  coasting?: boolean
+  perf?: { hz: number; detectMs: number; jitterPx: number }
 }
 interface Identity {
   method: string
@@ -309,13 +326,32 @@ function replay(P: Policy) {
   return { fired, verdict }
 }
 
-/** How many of the owner's 21 manual presses this policy would have made
- *  unnecessary: an auto-capture of the SAME card, within 8 s before the press. */
+/**
+ * How many of the owner's 21 manual presses this policy would have made
+ * unnecessary: an auto-capture of the SAME card, within LOOK_BACK_MS before it.
+ *
+ * IT USED TO BE 8 s, AND THAT WINDOW WAS CARRYING THE ANSWER. The look-back is
+ * not scale-free: shortening `REGION_DEPARTURE_MS` moves an auto-capture
+ * EARLIER, and one that moves from 5.8 s before the press to 12.0 s before it
+ * drops out of an 8 s window — so the metric scored the shorter window as
+ * having LOST a rescue it had in fact delivered sooner. Three of the four
+ * presses whose verdict changed between the old 12 s constant and the new 5 s
+ * one were exactly that (the fourth was a rescue the shorter window genuinely
+ * gained), and sweeping the look-back from 8 s to 30 s INVERTS the ranking of
+ * the two constants. That is the tell.
+ *
+ * 20 s is 8 s plus the widest departure window this file sweeps, which makes it
+ * the smallest look-back the constant under test cannot push a rescue out of.
+ * The number it produces for the no-region ceiling — 12 of 21 — also reproduces
+ * the session report's independent attribution of the other nine (4 below the
+ * saturation gate, 5 failing shape/straddle), which the 8 s window did not.
+ */
+const LOOK_BACK_MS = 20_000
 function manualPressesSaved(fired: number[]): number {
   let n = 0
   for (const m of MANUALS) {
     const idx = ALL.indexOf(m)
-    if (fired.some((i) => ALL[i].epochMs <= m.epochMs && m.epochMs - ALL[i].epochMs <= 8_000 && simToCapture(i, m) >= 0.6)) n++
+    if (fired.some((i) => ALL[i].epochMs <= m.epochMs && m.epochMs - ALL[i].epochMs <= LOOK_BACK_MS && simToCapture(i, m) >= 0.6)) n++
     else if (idx < 0) throw new Error('unreachable')
   }
   return n
@@ -358,28 +394,34 @@ describe('owner session 1 — THE FIX, replayed on the session that found it', (
     assert.ok(agree / LOCKS.length > 0.75, `replay reproduced ${agree}/${LOCKS.length} recorded suppression flags`)
   })
 
-  it('THE CEILING: a third of the manual presses are not the region policy to fix', { skip }, () => {
-    // With NO region at all, eight of his twenty-one manual presses still had to
+  it('THE CEILING: nine of the manual presses are not the region policy to fix', { skip }, () => {
+    // With NO region at all, nine of his twenty-one manual presses still had to
     // be manual: the card never locked, because it failed the saturation or the
     // shape/straddle gate. Any claim about "fixing auto-capture" is bounded by
     // this number, and the session report attributes the remainder exactly
-    // (4 below the saturation gate, 5 failing shape/straddle).
+    // (4 below the saturation gate, 5 failing shape/straddle) — which is what
+    // the twelve below independently reproduces.
     const ceiling = manualPressesSaved(replay(shipped(1)).fired)
-    assert.ok(ceiling <= 15, `no-region upper bound is ${ceiling} of 21`)
-    assert.ok(ceiling >= 10, `no-region upper bound is ${ceiling} of 21`)
+    assert.ok(ceiling <= 13, `no-region upper bound is ${ceiling} of 21`)
+    assert.ok(ceiling >= 11, `no-region upper bound is ${ceiling} of 21`)
   })
 
-  it('THE FIX: identity-gated follow doubles the automatic captures on this session', { skip }, () => {
+  it('THE FIX: identity-gated follow frees far more of the suppressed locks on this session', { skip }, () => {
     const before = replay(overlapFollowing()).fired
     const after = replay(shipped()).fired
     assert.ok(
-      after.length >= before.length * 1.6,
+      after.length >= before.length * 1.4,
       `auto-captures ${before.length} -> ${after.length}; the identity gate must materially free the suppressed locks`,
     )
     const savedBefore = manualPressesSaved(before)
     const savedAfter = manualPressesSaved(after)
+    // Two, not the three this asserted at the old 12 s departure. The gap
+    // between the two follow rules NARROWS as the window shortens, and it must:
+    // a short window retires an over-adopted region too, so overlap-following
+    // costs less when there is less time for it to be wrong. The finding is the
+    // direction, and the direction is what is fenced.
     assert.ok(
-      savedAfter >= savedBefore + 3,
+      savedAfter >= savedBefore + 2,
       `manual presses made unnecessary ${savedBefore} -> ${savedAfter} of 21`,
     )
     // And the cost, bounded: the extra fires are overwhelmingly NEW cards, not
@@ -407,6 +449,109 @@ describe('owner session 1 — THE FIX, replayed on the session that found it', (
       after.some((i) => i > first && i <= first + 8),
       'the identity-gated policy must capture the replacement card',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 3b. THE DROPOUT A REGION MUST SURVIVE ON A PHONE — the number that sizes
+//     REGION_DEPARTURE_MS, measured here for the first time on real hardware
+// ---------------------------------------------------------------------------
+//
+// REGION_DEPARTURE_MS was 12 s because a desktop fake camera lost a static card
+// for up to 11.37 s at a time (`e2e-round3-regressions.test.ts`). The quantity
+// that actually justifies the constant is: how long can a region's OWN TRACK be
+// gone while the card it holds is still sitting there? Only that stretch runs
+// the departure clock under a present card. This session can answer it, because
+// `card-identity.json` says which consecutive events are the same card by
+// picture and `age`/`hz` say exactly when each track was born.
+
+/** The instant a track came into existence: `epochMs - age / hz`. */
+function trackBirth(e: Ev): number {
+  const age = e.age ?? e.track?.age ?? 0
+  const hz = e.perf?.hz ?? 7.5
+  return e.epochMs - (age / hz) * 1000
+}
+
+describe('owner session 1 — a phone does not lose a card it can see', () => {
+  it('THE MEASUREMENT: same-card track re-ids split into two populations with an empty band', { skip }, () => {
+    // Every consecutive pair that is provably the SAME card and carries a NEW
+    // track id — i.e. the tracker dropped the card and re-acquired it. The gap
+    // is measured from the older event to the moment the NEW track was born,
+    // which is the real unseen stretch and not the recorder's 2 s throttle.
+    const gaps: number[] = []
+    for (let i = 1; i < ALL.length; i++) {
+      const s = simToPrev(i)
+      if (s === null || s < SAME) continue
+      if (ALL[i].trackId === ALL[i - 1].trackId) continue
+      gaps.push((trackBirth(ALL[i]) - ALL[i - 1].epochMs) / 1000)
+    }
+    gaps.sort((a, b) => a - b)
+    assert.equal(gaps.length, 7, `expected 7 same-card re-ids in this session, got ${gaps.length}`)
+
+    // THE EMPTY BAND. Four sit at 1.07-2.38 s and three at 4.12-7.26 s, with
+    // nothing between. The short group is the tracker re-iding a card that
+    // never left. The long group is the card being AWAY, and the session says
+    // so in one number: every track in this session reaches its first lock at
+    // age 5 (0.67 s), so the detector acquires a card essentially the instant
+    // one is present — "no track" on this device means "no card", not "a card
+    // the detector cannot see". Each of the three also has the previous track
+    // dying with no successor for seconds, and two of them skip an intervening
+    // track id entirely (a hand crossing the frame).
+    const short = gaps.filter((g) => g < 3)
+    const long = gaps.filter((g) => g >= 3)
+    assert.equal(short.length, 4, `short group: ${short.map((g) => g.toFixed(2)).join(' ')}`)
+    assert.equal(long.length, 3, `long group: ${long.map((g) => g.toFixed(2)).join(' ')}`)
+    assert.ok(Math.max(...short) <= 2.4, `re-ids top out at ${Math.max(...short).toFixed(2)}s`)
+    assert.ok(Math.min(...long) >= 4.1, `absences start at ${Math.min(...long).toFixed(2)}s`)
+
+    // THE FENCE THIS PUTS UNDER THE CONSTANT. It must outlast the longest gap
+    // with the card provably still there, and it must not be sized on the fake
+    // camera's 11.37 s — see regions.REGION_DEPARTURE_MS for the argument and
+    // `owner-session-2-regressions.test.ts` for the session that priced it.
+    assert.ok(
+      REGION_DEPARTURE_MS > Math.max(...short) * 1000,
+      `the window (${REGION_DEPARTURE_MS} ms) must outlast a real device's track re-id (${Math.max(...short).toFixed(2)} s)`,
+    )
+    assert.ok(
+      REGION_DEPARTURE_MS >= Math.max(...short) * 2000,
+      `and with margin: ${REGION_DEPARTURE_MS} ms is only ${(REGION_DEPARTURE_MS / (Math.max(...short) * 1000)).toFixed(1)}x the longest measured re-id`,
+    )
+  })
+
+  it('the tracker holds a stationary card for as long as it is there', { skip }, () => {
+    // The other half of the same claim: when the card stays, the track stays.
+    // 113 consecutive observed ticks is 15.1 s of unbroken detection on one id,
+    // and nothing in the session is coasting.
+    const maxAge = Math.max(...ALL.map((e) => e.age ?? e.track?.age ?? 0))
+    assert.ok(maxAge >= 100, `longest unbroken track run was ${maxAge} ticks`)
+    assert.equal(LOCKS.filter((l) => l.coasting).length, 0, 'no lock in this session is coasting')
+  })
+
+  it('THE SWEEP: what the departure window buys and costs on 39 minutes of real use', { skip }, () => {
+    // Duplicate fires on this session are 5.8-18.1 s apart — spread across AND
+    // beyond any defensible window — so the count does not fall as the window
+    // widens. It is 2-6 at every value from 3 s to 15 s with no trend, which is
+    // the honest reading: on phone data this constant is not buying duplicate
+    // suppression, it is only deciding how long the NEXT card waits.
+    const table = [3_000, 4_000, 5_000, 6_000, 8_000, 12_000].map((d) => {
+      const f = replay(shipped(d)).fired
+      return { d, fires: f.length, dup: duplicates(f), saved: manualPressesSaved(f) }
+    })
+    for (const r of table) {
+      assert.ok(r.dup <= 6, `departure ${r.d}: ${r.dup} duplicate fires`)
+      assert.ok(r.dup >= 2, `departure ${r.d}: ${r.dup} duplicate fires`)
+    }
+    // Monotone the only way it can be: a shorter window never suppresses more.
+    for (let i = 1; i < table.length; i++) {
+      assert.ok(table[i].fires <= table[i - 1].fires, `auto-fires must not rise as the window widens: ${table.map((r) => r.fires).join(', ')}`)
+    }
+    // And at the shipped value the session gains seven automatic captures over
+    // the 12 s it replaced, for two more duplicates.
+    const at5 = table.find((r) => r.d === 5_000)!
+    const at12 = table.find((r) => r.d === 12_000)!
+    assert.equal(at5.fires - at12.fires, 7, `5 s vs 12 s: ${at12.fires} -> ${at5.fires} auto-captures`)
+    assert.equal(at5.dup - at12.dup, 2, `5 s vs 12 s: ${at12.dup} -> ${at5.dup} duplicate fires`)
+    assert.ok(at5.saved >= at12.saved, `5 s must not rescue fewer presses than 12 s (${at12.saved} -> ${at5.saved})`)
   })
 })
 

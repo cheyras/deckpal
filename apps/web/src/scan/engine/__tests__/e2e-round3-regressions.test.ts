@@ -194,10 +194,30 @@ describe('e2e round 3 — one card, nine captures, and the region was not at fau
     // THE FENCE. The old 900 ms could not survive the SHORTEST of them, let
     // alone the longest — which is precisely why every re-lock read as new.
     assert.ok(min * 1000 > 900, 'the retired-at-900ms window loses the card on every single dropout')
+    // ── AND THIS IS WHERE THE FENCE USED TO SAY `REGION_DEPARTURE_MS > 11.37 s`
+    //
+    // It did, and that assertion sized a product constant on a desktop fake
+    // camera playing a video file. Both of the owner's phone sessions have now
+    // been measured for the same quantity — a stretch with the card still there
+    // and its track gone — and the phone's is 2.38 s, with an empty band from
+    // there to 4.12 s separating a tracker re-id from the reader taking the card
+    // away (`owner-session-2-regressions.test.ts` carries that measurement, and
+    // `regions.REGION_DEPARTURE_MS` carries the argument).
+    //
+    // So this fixture no longer sizes the constant. What it still does is name
+    // the price: the window is now BELOW every dropout in this distribution, so
+    // this run gets one more spurious capture than it did at 12 s (6 -> 7,
+    // asserted below), and a device that ever reproduced this dropout pattern
+    // would get duplicates. The fence is therefore the reverse of the old one —
+    // it fires if somebody makes the constant large enough to cover the fake
+    // camera again without new evidence for it.
     assert.ok(
-      REGION_DEPARTURE_MS > max * 1000,
-      `the departure window (${REGION_DEPARTURE_MS} ms) must outlast the longest measured dropout (${max.toFixed(2)} s)`,
+      REGION_DEPARTURE_MS < max * 1000,
+      `the departure window (${REGION_DEPARTURE_MS} ms) is deliberately shorter than this fake camera's longest dropout (${max.toFixed(2)} s) — if it is raised back over that, the phone evidence in regions.ts has to be answered first`,
     )
+    // ...and not so short that even a phone-scale re-id would break it. 2.38 s
+    // is the longest same-card gap either owner session measured.
+    assert.ok(REGION_DEPARTURE_MS > 2_380, `the window must still outlast a real device's track re-id (${REGION_DEPARTURE_MS} ms)`)
   })
 
   it('the gap distribution has an empty band, so the replay has no tuning knob', {
@@ -241,53 +261,63 @@ describe('e2e round 3 — one card, nine captures, and the region was not at fau
     assert.equal(new Set(caps(R3RUN).map((c) => c.trackId)).size, caps(R3RUN).length)
   })
 
-  it('THE FIX: at the shipped departure window, nine captures become six', {
+  it('THE FIX, AND ITS PRICE: at the shipped departure window, nine captures become seven', {
     skip: haveR3 ? false : 'artifacts unavailable',
   }, () => {
     const before = replay(R3RUN, 900)
     const after = replay(R3RUN, REGION_DEPARTURE_MS)
     assert.equal(before.taken, 9)
-    // FOUR UNTIL 2026-09-04, AND SIX NOW. The widening from 900 ms to 12 s took
-    // this run to four while a region could be refreshed by ANY overlapping
-    // track. The owner's first real session showed that rule adopting 63% of
-    // genuine card changes — a region kept alive by the next card in the stack
-    // never expires, and 115 of his 134 locks were suppressed by regions that
-    // should long since have retired (regions.ts's header). With the follow
-    // gated on track identity, this fixture's churn (above) means no region is
-    // ever refreshed and two of the four suppressions it used to get were
-    // suppressions it had no evidence for. Six is what the clock alone buys
-    // here; the owner session gains four more automatic captures for it.
-    assert.equal(after.taken, 6, `expected 6 captures at ${REGION_DEPARTURE_MS} ms, got ${after.taken}`)
-    assert.equal(after.blocked, 3)
-    assert.ok(after.taken < before.taken - 2, 'still well below the shipped build')
+    // FOUR, THEN SIX, AND SEVEN NOW. The widening from 900 ms to 12 s took this
+    // run to four while a region could be refreshed by ANY overlapping track.
+    // The owner's first real session showed that rule adopting 63% of genuine
+    // card changes — a region kept alive by the next card in the stack never
+    // expires, and 115 of his 134 locks were suppressed by regions that should
+    // long since have retired (regions.ts's header). With the follow gated on
+    // track identity, this fixture's churn (above) means no region is ever
+    // refreshed and two of the four suppressions it used to get were
+    // suppressions it had no evidence for: six.
+    //
+    // The seventh arrives with the 2026-09-05 shortening to 5 s, and it is the
+    // whole cost of that change on this fixture. The dropout it loses is the
+    // 4.67 s one at the short end — a fake-camera number. Both phone sessions
+    // put the same quantity at 2.38 s or absent entirely.
+    assert.equal(after.taken, 7, `expected 7 captures at ${REGION_DEPARTURE_MS} ms, got ${after.taken}`)
+    assert.equal(after.blocked, 2)
+    assert.ok(after.taken < before.taken - 1, 'still below the 900 ms shipped build')
 
-    // WHAT THE SIX ARE. The fixture is a 58 s clip played ~2.15 times, so the
+    // WHAT THE SEVEN ARE. The fixture is a 58 s clip played ~2.15 times, so the
     // card genuinely leaves the frame and re-enters at the start of each pass.
-    // Three of the six sit on those re-entries — one clip length apart, twice
-    // over — and the other three are the residual duplicates.
+    // Three of the seven sit on those re-entries — one clip length apart, twice
+    // over — and the other four are the residual duplicates.
     const t = after.takenAt
     assert.ok(t[0] < 1, `first capture at t=${t[0].toFixed(1)}s`)
     const loopish = t.filter((x) => Math.abs((x % 58) - 0) < 3 || Math.abs((x % 58) - 58) < 3)
     assert.ok(loopish.length >= 3, `expected >=3 captures on a clip boundary, got ${loopish.length} of ${t.join(', ')}`)
-    assert.equal(before.taken - loopish.length, 6, 'the shipped build made six spurious captures')
-    assert.equal(after.taken - loopish.length, 3, 'three spurious captures survive')
+    assert.equal(before.taken - loopish.length, 6, 'the shipped 900 ms build made six spurious captures')
+    assert.equal(after.taken - loopish.length, 4, 'four spurious captures survive')
   })
 
-  it('...and 12 s is not a knife edge: the answer moves by one over a 3x sweep', {
+  it('...and 5 s is not a knife edge: the answer is flat across a 2x sweep around it', {
     skip: haveR3 ? false : 'artifacts unavailable',
   }, () => {
-    // It used to be dead flat from 10 s to 30 s, because an overlap-followed
-    // region on a continuously-present card never reached ANY of those
-    // deadlines. Under the identity gate this fixture's regions live on the
-    // clock alone (see the churn test above), so the constant does move the
-    // answer — by exactly one capture across a 3x range, which is the opposite
-    // of a knife edge and is the property the assertion is really about.
-    const sweep = [10_000, 12_000, 14_000, 20_000, 30_000].map((d) => replay(R3RUN, d).taken)
-    assert.deepEqual(sweep, [6, 6, 6, 5, 5], `departure sweep: ${sweep.join(', ')}`)
-    assert.ok(Math.max(...sweep) - Math.min(...sweep) <= 1, 'a 3x change in the window may not swing the answer')
+    // The property the old version of this test was really about, re-measured
+    // around the new constant. It used to sweep 10-30 s and fence the constant
+    // into [10 s, 30 s] — a range that existed only because this fake camera's
+    // dropouts run to 11.37 s. That fence is gone; the phone measurement in
+    // `regions.REGION_DEPARTURE_MS` replaced the evidence under it, and
+    // `owner-session-2-regressions.test.ts` fences the new one on real-device
+    // data. What is asserted here is only that the shipped value is not
+    // balanced on a cliff of THIS fixture's own making.
+    const sweep = [4_000, 5_000, 6_000, 8_000].map((d) => replay(R3RUN, d).taken)
+    assert.deepEqual(sweep, [7, 7, 7, 7], `departure sweep: ${sweep.join(', ')}`)
+    // The full picture either side, so the shape stays visible in the file:
+    // 900 ms -> 9, 3 s -> 8, 4-8 s -> 7, 10-14 s -> 6, 20-30 s -> 5.
+    assert.equal(replay(R3RUN, 3_000).taken, 8)
+    assert.equal(replay(R3RUN, 12_000).taken, 6)
+    assert.equal(replay(R3RUN, 30_000).taken, 5)
     assert.ok(
-      REGION_DEPARTURE_MS >= 10_000 && REGION_DEPARTURE_MS <= 30_000,
-      `the shipped constant must sit inside the measured sweep, not at its edge (${REGION_DEPARTURE_MS})`,
+      REGION_DEPARTURE_MS >= 4_000 && REGION_DEPARTURE_MS <= 8_000,
+      `the shipped constant must sit on this fixture's plateau, not at its edge (${REGION_DEPARTURE_MS})`,
     )
   })
 
@@ -316,13 +346,17 @@ describe('e2e round 3 — one card, nine captures, and the region was not at fau
     ]
     R.tick(0, [{ id: 1, quad: card(0) }])
     R.note(card(0), 1, 0)
-    // A different card, laid on the same spot 5 s later at high overlap.
+    // A different card, laid on the same spot well inside the window at high
+    // overlap. Half a window is used deliberately: at exactly REGION_DEPARTURE_MS
+    // the region is already gone, and a test that sat on that boundary would
+    // stop testing the cost the moment the constant moved.
     const swapped = card(20)
+    const swapAt = REGION_DEPARTURE_MS / 2
     assert.ok(polyIoU(card(0), swapped) >= REGION_SAME_IOU, 'the swap really is in the same place')
-    R.tick(5_000, [{ id: 2, quad: swapped }])
+    R.tick(swapAt, [{ id: 2, quad: swapped }])
     assert.ok(R.suppressed(swapped), 'THE COST: the fast swap does not auto-capture')
     // ...and it is bounded. Once nothing overlaps for the window, the spot frees.
-    R.tick(5_000 + REGION_DEPARTURE_MS + TICK_MS, [])
+    R.tick(swapAt + REGION_DEPARTURE_MS + TICK_MS, [])
     assert.equal(R.count, 0, 'the region must retire once the card departs')
     assert.ok(!R.suppressed(swapped), 'and the spot is usable again')
   })

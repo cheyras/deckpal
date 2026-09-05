@@ -56,8 +56,8 @@
 // was. The consequence in the session was total — the previous card's region
 // ADOPTED its replacement, refreshed, adopted the one after that, and never
 // expired. 115 of 134 locks were suppressed, regions ran 11 deep, and the
-// "at most 12 s" cost this module priced below became UNBOUNDED for as long as
-// the reader kept feeding the same spot. Nine seconds into the session the very
+// bounded cost this module priced below became UNBOUNDED for as long as the
+// reader kept feeding the same spot. Nine seconds into the session the very
 // first swap (a Shaymin captured, a different card put down in its place) was
 // suppressed for its entire 11-second presentation and never captured at all.
 //
@@ -75,23 +75,37 @@
 // while it is alive the region suppresses by OVERLAP, so a rebirth inside
 // `departureMs` is still refused. The id buys the fix; the timer absorbs the
 // churn. Measured on the same two fixtures (`__tests__/e2e-round3-
-// regressions.test.ts` and `__tests__/owner-session-regressions.test.ts`):
+// regressions.test.ts` and `__tests__/owner-session-regressions.test.ts`), at
+// the SHIPPED constants below:
 //
-//                                   owner session          round-3 card run
+//                                  owner session 1         round-3 card run
 //                            fires  dup  manual presses    captures of ONE card
 //                                        it would have     (shipped build at
-//                                        saved (of 21)      900 ms took 9)
-//   follow on overlap          16    1        4                   4
-//   follow on track identity   31    5        8                   6
-//   no region at all           52   11       10                   9
+//                                        made unnecessary   900 ms took 9)
+//                                        (of 21)
+//   follow on overlap          23    3        8                   6
+//   follow on track identity   33    4       10                   7
+//   no region at all           52   11       12                   9
 //
-// Four more of the owner's manual presses become automatic — of the ten any
-// region policy could ever reach, because the rest fail the saturation or
-// shape/straddle gates and never lock at all — for four more duplicate captures
-// there and two more on round 3's synthetic one-card loop. That is the trade,
+// Two more of the owner's manual presses become automatic — of the twelve any
+// region policy could ever reach, because the other nine fail the saturation or
+// shape/straddle gates and never lock at all — for one more duplicate capture
+// there and one more on round 3's synthetic one-card loop. That is the trade,
 // taken deliberately: a duplicate costs a row in a review feed the reader is
 // already reading, and a suppression costs a card the product silently refused
 // to scan.
+//
+// (Two notes on that table, because it has already been misread once. It moves
+// with `REGION_DEPARTURE_MS` and with `REGION_BRIDGE_MS`, so it is re-measured
+// whenever either changes — before the bridge landed it read 16/1 and 31/5 and
+// 52/11, and at the old 12 s departure the middle row was 26/2. And the press
+// count uses a 20 s look-back, not the 8 s one it started with: 8 s is not
+// scale-free, because shortening the departure window moves an auto-capture
+// EARLIER and so out of the look-back, which then scores a press rescued sooner
+// as a press not rescued at all. 20 s is 8 s plus the widest window these
+// fixtures sweep, i.e. the smallest look-back the constant under test cannot
+// push a rescue out of. On it, the ceiling row reproduces the session report's
+// own attribution exactly: 21 presses, 9 of which never locked.)
 
 import type { Quad } from '../engine/contract'
 import { polyIoU } from '../engine/geometry'
@@ -120,76 +134,130 @@ import { polyIoU } from '../engine/geometry'
  * Three to twelve times the 900 ms window. The region was retired long before
  * the card came back, so each re-acquisition read as a fresh presentation.
  *
- * ── 12 s, AND WHY EXACTLY ───────────────────────────────────────────────────
+ * ── IT WAS 12 s FOR A WHILE, AND THE FAKE CAMERA IS WHY ─────────────────────
  *
- * The constant has to exceed the longest measured lock dropout, which is
- * 11.37 s. 12 s is the smallest round number that does. Replaying round 3's own
- * event timeline at the engine's tick cadence (`__tests__/e2e-round3-
- * regressions.test.ts`, and the replay reproduces the shipped build's 9 captures
- * exactly at 900 ms, which is what makes it a model rather than a guess):
+ * 12 s was the smallest round number above that 11.37 s dropout. It bought
+ * exactly what it was sized to buy on that fixture: round 3's nine captures of
+ * one card became four (three of which are the fixture looping — the clip is
+ * 58 s and the run is 2.15 passes of it — so six spurious captures became one).
+ * The clutter run was untouched at every value from 0.9 s to 30 s, its two
+ * captures being 51 s apart with the object genuinely gone in between.
  *
- *   departure     900 ms -> 9 captures   (the shipped build, reproduced)
- *   departure   3 000 ms -> 7
- *   departure   5 000 ms -> 6
- *   departure  10 000 ms -> 4
- *   departure  12 000 ms -> 4   <- and flat from here to 30 s
+ * Every number in that paragraph comes from a DESKTOP FAKE CAMERA playing a
+ * video file. The note this comment used to end on was that "a future round
+ * with real-camera footage should re-measure both halves before moving either".
+ * Two rounds of real-camera footage have now happened.
  *
- * Four, of which THREE are the fixture looping — the clip is 58 s and the run is
- * 2.15 passes of it, so the card genuinely leaves the frame and re-enters at
- * t≈0, 58 and 116 s, and those are three of the four survivors. One residual
- * duplicate remains, at t≈98.7 s. Six spurious captures become one.
+ * ── THE PHONE DOES NOT HAVE THE PATHOLOGY 12 s WAS SIZED FOR ────────────────
  *
- * The clutter run is untouched at every value from 0.9 s to 30 s: its two
- * captures are 51 s apart with the object genuinely gone in between, so both are
- * still taken. Widening this constant costs that run nothing.
+ * The dropout is the whole justification, so it is the thing to measure. What a
+ * region must survive is a stretch in which its OWN TRACK is gone while the card
+ * is still there — because that is the only way a region's clock runs while the
+ * card it holds sits in the reticle. Measured on both of the owner's sessions
+ * (`__tests__/owner-session-regressions.test.ts`, `owner-session-2-
+ * regressions.test.ts`) against the fake camera:
  *
- * ── THE COST, STATED PLAINLY ────────────────────────────────────────────────
+ *                              same-card gaps a region must survive
+ *   fake cam (round 3)         4.67  4.85  5.20  5.39  8.63  8.86  11.21  11.37 s
+ *                              — eight of them, on ONE card, in 124 s;
+ *                                15 track ids for that one card across 41 locks
+ *   phone, owner session 1     1.07  1.48  1.73  2.38 s   (7 re-ids in 39 min,
+ *                                and the other three are 4.12, 5.46, 7.26 s —
+ *                                ABSENCES, see below)
+ *   phone, owner session 2     none at all: 46 same-track lock gaps, every one
+ *                                2.00-2.40 s, which IS the recorder's own 2 s
+ *                                throttle; 0/81 locks coasting; 35 track ids
+ *                                for 36 presentations, one per card
  *
- * THE FAST-SWAP COST: a DIFFERENT card placed on the same spot within 12 s, at
- * more than REGION_SAME_IOU overlap with where the last one was captured, is
- * SUPPRESSED until the region expires. It will not auto-capture. That is a real
- * regression against a reader who deals cards onto one fixed spot quickly, and
- * it is the price of covering an 11 s detector dropout — the two are the same
- * measurement viewed from opposite ends, and no value of this constant can be
- * generous to both.
+ * The three long session-1 gaps are the card being AWAY, not the detector losing
+ * it, and the phone data says so in one number: every track in both sessions
+ * reaches its first lock at age 5 — 0.67 s, the structural minimum — so the
+ * detector acquires a card essentially the instant one is present. "No track"
+ * on this device therefore means "no card". Their own shape agrees: in each of
+ * the three the previous track had died with no successor for seconds, and the
+ * gap distribution has an EMPTY BAND from 2.38 s to 4.12 s separating the
+ * tracker re-iding a card that stayed from the reader taking one away.
  *
- * THE ESCAPE HATCH IS MANUAL CAPTURE, and it is not a consolation. The region
- * gates the AUTOMATIC fire only: the swapped card is still detected, still
- * tracked, still drawn under the reticle, and the Capture button takes it
+ * So the number this constant must clear on a phone is 2.4 s, not 11.4 s. The
+ * tracker holds a stationary card for as long as it is there: 68 ticks (9.1 s)
+ * unbroken in session 2, 113 ticks (15.1 s) in session 1.
+ *
+ * ── AND THE COST WAS BEING PAID IN FULL (owner session 2, 2026-09-05) ────────
+ *
+ * The fast-swap cost this comment priced below is not a hypothetical. The
+ * owner's second session — 36 captures in 6.2 minutes, `regionCount` peaking at
+ * 3 with the adoption bug genuinely fixed, and the manual Capture button pressed
+ * ZERO times — spent 103.4 s waiting on it. Every unsuppressed capture in that
+ * session fired at 0.67 s, thirteen of thirteen to the hundredth; every one of
+ * the sixteen captures slower than 2.5 s (up to 9.41 s) had a suppressed lock.
+ * Detector acquisition, the saturation gate, the shape gates and the matcher
+ * round trip cost zero seconds between them. One number against another: the
+ * window was 12 s and the owner presented a new card every 7.6 s (track birth to
+ * track birth; 8.5 s capture to capture), so each card waited out its
+ * predecessor.
+ *
+ * ── 5 s, AND WHY EXACTLY ────────────────────────────────────────────────────
+ *
+ * Sweeping session 2's own 81 locks and 36 presentations. The retirement instant
+ * of every region in that session is recoverable exactly — the build recorded
+ * `regionsExpired` and `sinceRegionExpiryMs` on every lock — so this is not a
+ * model of when captures would fire, it is arithmetic on when they did:
+ *
+ *   departure   total wait   median   p90     max     captures > 2.5 s
+ *    12 000 ms    127.5 s    1.93 s   8.19 s  9.41 s        16   <- was shipped
+ *     8 000 ms     59.8 s    0.67 s   4.19 s  5.41 s         9
+ *     6 000 ms     36.2 s    0.67 s   2.19 s  3.41 s         3
+ *     5 000 ms     29.2 s    0.67 s   1.19 s  2.41 s         0   <- shipped
+ *     4 000 ms     25.0 s    0.67 s   0.67 s  1.41 s         0
+ *     3 000 ms     24.0 s    0.67 s   0.67 s  0.68 s         0
+ *
+ * 5 s removes every slow capture and 98.2 s of the 103.4 s of avoidable wait;
+ * below 3 s there is nothing left to win. It is 2.1x the longest same-card gap
+ * either phone session measured (2.38 s) and 0.66x the owner's card cadence,
+ * which is the pair of bounds this constant actually lives between.
+ *
+ * IT COSTS SESSION 2 NOTHING. All 36 presentations capture at every value in the
+ * sweep — a shorter window can never suppress MORE than a longer one, and a
+ * presentation cannot fire twice on one track id because `Scan.tsx` holds a
+ * per-track refractory. The session captured 31 distinct cards, three card backs
+ * and one unreadable crop, with exactly ONE card taken twice: sv10-127, put down
+ * again 5.35 s after its region froze. The 12 s window did not prevent that
+ * duplicate — it suppressed the second presentation for 6.54 s and then let it
+ * through. So the shipped constant bought ZERO duplicate suppression on this
+ * session in exchange for its 103.4 s.
+ *
+ * ── WHAT IT DOES COST, STATED PLAINLY ───────────────────────────────────────
+ *
+ * THE FAKE CAM. Round 3's one-card run goes from 6 captures to 7, and round 2's
+ * from 6 to 7. That is the 4.67 s dropout at the short end of the fake camera's
+ * distribution coming back inside the window. It is a synthetic fixture with a
+ * detector pathology neither phone exhibits, and this is named as the price
+ * rather than argued away.
+ *
+ * OWNER SESSION 1. Replayed under the current follow rule, auto-captures rise
+ * from 26 to 33 and duplicate fires from 2 to 4. Those duplicates are the same
+ * card re-presented 5.8-9.6 s later; the session's duplicate count is 2-6 at
+ * EVERY value from 3 s to 15 s, with no trend, because its same-card refires are
+ * spread across and beyond any defensible window.
+ *
+ * THE FAST-SWAP COST, which is what this constant buys: a DIFFERENT card placed
+ * on the same spot within 5 s, at more than REGION_SAME_IOU overlap with where
+ * the region currently sits, is SUPPRESSED until it expires. It will not
+ * auto-capture. The escape hatch is manual capture and it is not a consolation:
+ * the region gates the AUTOMATIC fire only — the swapped card is still detected,
+ * still tracked, still drawn under the reticle, and the Capture button takes it
  * immediately with `trigger: 'manual'`. Nothing is unreachable; what is lost is
- * "it fires by itself", for at most 12 s, in the one spot a card was just taken
+ * "it fires by itself", for at most 5 s, in the one spot a card was just taken
  * from.
  *
- * Note also that the three genuine re-entries above are taken because the card
- * comes back in a MATERIALLY DIFFERENT POSE (IoU 0.39-0.41 against the stored
- * region), not because 12 s elapsed. Overlap is doing the work; the timer is
- * only the backstop for a card that returns to the same pose. A future round
- * with real-camera footage should re-measure both halves before moving either.
- *
- * ── THAT ROUND HAPPENED (owner session 1) AND THE COST WAS NOT BEING PAID ────
- *
- * Everything above is about how long a DEPARTED card stays remembered, and it
- * still holds. What it assumed — that the region would eventually be left alone
- * long enough to depart — is what the header's follow rule made untrue. Under
- * the identity-gated follow the price quoted above is finally the price paid, so
- * this constant means what it says.
- *
- * A SWEEP OF THIS CONSTANT under the new follow rule, against the owner session
- * (manual presses the policy would have made automatic, of 21; duplicate
- * captures) and round 3's card run (captures of ONE card; the shipped 900 ms
- * build took 9):
- *
- *    10 s  ->  8 rescued,  7 dup,  round-3 6
- *    12 s  ->  8 rescued,  4 dup,  round-3 6      <- shipped
- *    14 s  ->  9 rescued,  3 dup,  round-3 6
- *    15 s  ->  8 rescued,  2 dup,  round-3 6
- *    20 s  ->  7 rescued,  4 dup,  round-3 5
- *
- * 12-15 s is a plateau, and 12 s is already what round 3's dropout measurement
- * demands, so it is deliberately left alone: the FOLLOW RULE is the finding, and
- * re-tuning a constant on top of a changed mechanism would confound the two.
+ * Note also that a region does not usually sit where the card was CAPTURED: it
+ * follows its track, so while the hand lifts the card the region goes with it.
+ * 28 of session 2's 35 subsequent presentations overlap the previous CAPTURE at
+ * >= REGION_SAME_IOU and the shipped build suppressed only 21 of them. Overlap
+ * is doing real work; the timer is the backstop for a card that returns to the
+ * same pose.
  */
-export const REGION_DEPARTURE_MS = 12_000
+export const REGION_DEPARTURE_MS = 5_000
 
 /**
  * THE RE-ANCHOR BRIDGE: how recently a region's card must have been seen for a
@@ -250,8 +318,8 @@ export const REGION_BRIDGE_MS = 1_500
  * comfortably, while a card placed somewhere genuinely else is not: over the
  * owner session's 176 quads, consecutive pairs that are provably the same card
  * sit at IoU 0.79 median (p05 0.48) and provably-different pairs at 0.56 median
- * — which is exactly why this is a fine SUPPRESSION bar (paired with a 12 s
- * clock that bounds it) and was a hopeless IDENTITY test.
+ * — which is exactly why this is a fine SUPPRESSION bar (paired with the
+ * departure clock that bounds it) and was a hopeless IDENTITY test.
  */
 export const REGION_SAME_IOU = 0.5
 

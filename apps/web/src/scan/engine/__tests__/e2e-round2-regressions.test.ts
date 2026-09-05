@@ -124,7 +124,7 @@ describe('e2e round 2 — one card must not become fifteen captures', () => {
     assert.ok(overlapping >= 12, `expected >=12 of 14 consecutive pairs to overlap, got ${overlapping}`)
   })
 
-  it('THE FIX: at the shipped departure window, fifteen captures of one card become six', {
+  it('THE FIX: at the shipped departure window, fifteen captures of one card become nine or fewer', {
     skip: haveR2 ? false : 'artifacts unavailable',
   }, () => {
     // A LOWER BOUND, and deliberately reported as one. The only presence signal
@@ -133,10 +133,31 @@ describe('e2e round 2 — one card must not become fifteen captures', () => {
     // threshold, so the region loses its card and retires when production would
     // not have. Production refreshes from `engineState` every detect tick
     // (~8 Hz), where consecutive quads of one card overlap almost completely.
+    //
+    // AND THE BOUND GOT LOOSER ON 2026-09-05, WHICH IS WORTH SAYING OUT LOUD.
+    // `replay` here ticks the policy ONCE PER RECORDED EVENT, and this run's
+    // events are 2.7-17 s apart. At the old 12 s departure a region survived
+    // several of those gaps; at 5 s it barely survives one, so this model now
+    // retires regions far earlier than production would and reports 9 captures
+    // where the tick-cadence replay of the same footage reports 7. Round 3's
+    // file has that replay and its header explains why event-driven ticking is
+    // the wrong model (`e2e-round3-regressions.test.ts`, "Round 2's replay
+    // ticked the region policy once per RECORDED EVENT. That is a bad model").
+    // The assertion is therefore kept as a bound and not tightened into a
+    // number this model cannot support.
+    //
+    // Either way this fixture pays for the shortening: 6 -> 7 on the honest
+    // replay, 6 -> 9 on this one. It is the desktop fake camera, whose detector
+    // loses a static card for 4.7-11.4 s at a stretch, and neither of the
+    // owner's phone sessions reproduces that — `regions.REGION_DEPARTURE_MS`
+    // carries the measurement that moved the constant anyway.
     const r = replay(R2RUN, REGION_DEPARTURE_MS)
     assert.equal(r.taken + r.blocked, 15, 'all fifteen captures are offered to the policy')
-    assert.ok(r.blocked >= 9, `expected >=9 of 15 suppressed even on the sparse signal, got ${r.blocked}`)
-    assert.ok(r.taken <= 6, `expected <=6 captures from one card, got ${r.taken}`)
+    assert.ok(r.blocked >= 6, `expected >=6 of 15 suppressed even on the sparse signal, got ${r.blocked}`)
+    assert.ok(r.taken <= 9, `expected <=9 captures from one card, got ${r.taken}`)
+    // The one claim this model IS strong enough for: whatever the window, it
+    // must beat the 2.5 s timer the round found useless, which took all 15.
+    assert.ok(r.taken < 15 * 0.7, `the policy must still remove a third of the duplicates, got ${r.taken}/15`)
   })
 
   it('ON THIS FIXTURE the departure clock is doing the work, and that is the honest reading', {
