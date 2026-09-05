@@ -5,6 +5,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { QuadOverlay } from './QuadOverlay'
+import { squareSide } from './coords'
 import { IncomingStack } from './IncomingStack'
 import { DURATION, prefersReducedMotion } from './motion'
 import type { EngineState } from '../engine/contract'
@@ -40,23 +41,56 @@ export function CameraStage({
    *  else on screen). */
   flashSignal: number
   /** Reports this box's rendered CSS size up to Scan.tsx, which needs it (plus
-   *  the engine's own `frame` dimensions) to place the capture-flight
-   *  courier at the captured quad's actual on-screen pose — the same
-   *  object-fit: cover math this component uses for its own overlay, just
-   *  needed one level up for a courier that must fly OUTSIDE this box. */
+   *  the engine's own `frame` and `stream` dimensions) to place the
+   *  capture-flight courier at the captured quad's actual on-screen pose —
+   *  through `coords.canonicalSquareMap`, the SAME call this component's own
+   *  overlay makes, just needed one level up for a courier that must fly
+   *  OUTSIDE this box. They diverged once (the overlay on contain math, the
+   *  courier on cover) and every thumbnail launched ~54 px from the quad that
+   *  had been highlighted; one helper, called twice, is what stops that. */
   onBoxChange?: (box: { width: number; height: number }) => void
 }) {
+  const slotRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const flashRef = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ width: 0, height: 0 })
+  /**
+   * THE SQUARE, SIZED EXPLICITLY — because `aspect-square` did not deliver one.
+   *
+   * The box used to be `aspect-square w-full` with `max-height: 100%`, and it
+   * was never square: in CSS a `max-height` constraint OVERRIDES `aspect-ratio`,
+   * so the width held at `w-full` and the height collapsed to whatever room the
+   * phone had left. Through the whole 2026-09-04 owner session the box measured
+   * 428x319 — 109 px off square — and 926x136 when he turned the phone. Both
+   * this file and `coords.ts` asserted squareness in prose while the layout
+   * quietly refused it.
+   *
+   * So it is measured instead of asserted: an outer SLOT takes whatever space
+   * the flex parent gives it, and the box is `min(slotW, slotH)` on a side. The
+   * slot's own size cannot depend on the box's (it is a flex child with
+   * `min-h-0`), so there is no loop for the ResizeObserver to chase.
+   *
+   * The overlay does NOT depend on this — `QuadOverlay` maps through the stream
+   * under `object-fit: cover` and is correct at any box shape, which is the
+   * lesson of that session. This is about the other half: a square box shows the
+   * whole canonical square, so nothing the engine looks at is off screen and
+   * none of the sensor's square is wasted.
+   */
+  const [side, setSide] = useState(0)
 
   useLayoutEffect(() => {
+    const slot = slotRef.current
     const el = boxRef.current
-    if (!el) return
-    const ro = new ResizeObserver(([entry]) => {
-      const r = entry?.contentRect
-      if (r) setBox({ width: r.width, height: r.height })
+    if (!slot || !el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const r = entry.contentRect
+        if (!r) continue
+        if (entry.target === slot) setSide(squareSide(r.width, r.height))
+        else setBox({ width: r.width, height: r.height })
+      }
     })
+    ro.observe(slot)
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
@@ -80,61 +114,68 @@ export function CameraStage({
   const live = camState === 'live'
 
   return (
-    // A SQUARE box, because the engine's canonical frame is the stream's centre
-    // square (scan/engine/frame.ts). Showing exactly that square means the
-    // overlay maps by one scale factor, and — the point of the 2026-09-04
-    // ruling — the box's size can no longer influence anything detection does:
-    // `object-fit: cover` on a square box crops the stream to its centre square,
-    // which IS the canonical frame. It still shrinks to whatever room the phone
-    // has; only its ASPECT is now fixed.
-    <div
-      ref={boxRef}
-      data-scan-camera-view
-      className="relative mx-auto aspect-square min-h-0 w-full max-w-full shrink overflow-hidden bg-black"
-      style={{ maxHeight: '100%' }}
-    >
-      <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
-      <div ref={flashRef} className="pointer-events-none absolute inset-0 z-40 bg-white opacity-0" />
-      {live && <QuadOverlay state={engineState} box={box} />}
-      {live && <IncomingStack items={stackItems} onNodeRef={onStackNodeRef} />}
+    // The SLOT: whatever space the flex parent has for the camera. It exists
+    // only to be measured — see `side` above — so the square inside it can be
+    // sized from real numbers instead of from an `aspect-square` the layout
+    // overrides.
+    <div ref={slotRef} data-scan-camera-slot className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
+      {/* A SQUARE box, because the engine's canonical frame is the stream's
+          centre square (scan/engine/frame.ts). Showing exactly that square means
+          `object-fit: cover` crops the stream to its centre square — which IS
+          the canonical frame — so the whole of what detection looks at is on
+          screen and none of the sensor's square is thrown away. It still shrinks
+          to whatever room the phone has; only its ASPECT is fixed, and now
+          actually fixed. Before the first measurement it falls back to the old
+          `aspect-square` so there is no zero-sized flash. */}
+      <div
+        ref={boxRef}
+        data-scan-camera-view
+        className={`relative shrink-0 overflow-hidden bg-black ${side ? '' : 'aspect-square w-full'}`}
+        style={side ? { width: side, height: side } : { maxHeight: '100%' }}
+      >
+        <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
+        <div ref={flashRef} className="pointer-events-none absolute inset-0 z-40 bg-white opacity-0" />
+        {live && <QuadOverlay state={engineState} box={box} />}
+        {live && <IncomingStack items={stackItems} onNodeRef={onStackNodeRef} />}
 
-      {live && (
-        <>
-          <div className="pointer-events-none absolute bottom-[14px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/55 px-[14px] py-[6px] text-[13px] font-semibold text-white backdrop-blur">
-            {hint}
+        {live && (
+          <>
+            <div className="pointer-events-none absolute bottom-[14px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/55 px-[14px] py-[6px] text-[13px] font-semibold text-white backdrop-blur">
+              {hint}
+            </div>
+            <button
+              type="button"
+              onClick={onReportCamera}
+              title="Flag this camera moment for review"
+              className="absolute right-[8px] bottom-[8px] z-30 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-black/45 text-white/80 backdrop-blur hover:text-white"
+            >
+              <Icon name="bug" size={15} />
+            </button>
+          </>
+        )}
+
+        {camState === 'requesting' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[14px] text-white">Starting camera…</div>
+        )}
+        {camState === 'denied' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[14px] text-white">
+            <Icon name="camera" size={30} />
+            <div>Camera access was blocked. Allow it in your browser, or upload an image below.</div>
+            <button onClick={onRetry} className="rounded-full bg-white/15 px-[16px] py-[8px] text-[14px] font-bold text-white hover:bg-white/25">
+              Try camera again
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onReportCamera}
-            title="Flag this camera moment for review"
-            className="absolute right-[8px] bottom-[8px] z-30 flex h-[30px] w-[30px] items-center justify-center rounded-full bg-black/45 text-white/80 backdrop-blur hover:text-white"
-          >
-            <Icon name="bug" size={15} />
-          </button>
-        </>
-      )}
-
-      {camState === 'requesting' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-[14px] text-white">Starting camera…</div>
-      )}
-      {camState === 'denied' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[14px] text-white">
-          <Icon name="camera" size={30} />
-          <div>Camera access was blocked. Allow it in your browser, or upload an image below.</div>
-          <button onClick={onRetry} className="rounded-full bg-white/15 px-[16px] py-[8px] text-[14px] font-bold text-white hover:bg-white/25">
-            Try camera again
-          </button>
-        </div>
-      )}
-      {camState === 'error' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[14px] text-white">
-          <Icon name="alert" size={28} />
-          <div>Couldn't start the camera.{engineError ? ` (${engineError})` : ''}</div>
-          <button onClick={onRetry} className="rounded-full bg-white/15 px-[16px] py-[8px] text-[14px] font-bold text-white hover:bg-white/25">
-            Retry
-          </button>
-        </div>
-      )}
+        )}
+        {camState === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-[10px] bg-black/70 p-[20px] text-center text-[14px] text-white">
+            <Icon name="alert" size={28} />
+            <div>Couldn't start the camera.{engineError ? ` (${engineError})` : ''}</div>
+            <button onClick={onRetry} className="rounded-full bg-white/15 px-[16px] py-[8px] text-[14px] font-bold text-white hover:bg-white/25">
+              Retry
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -241,6 +241,41 @@ export function applyHomography(H: Mat3, x: number, y: number): Point {
  * The residual 180 deg ambiguity (a card presented upside-down rectifies
  * upside-down) is not resolvable from geometry, and is left to the identify
  * stage rather than guessed at here.
+ *
+ * ── THE RESIDUAL, MEASURED ON REAL USE (owner session 1, 2026-09-04) ────────
+ *
+ * 39 of the owner's 42 captures came out upright. Three did not — 7.1 %, all
+ * three rotated a quarter turn in the stored image, so the matcher hashed a
+ * sideways card and had no chance. It was investigated against those three
+ * quads and it is NOT a mis-assignment this function can repair. What they have
+ * in common is that the card was presented at a LARGE IN-PLANE ROTATION: the
+ * true top edges point at 92, 108 and 125 degrees, i.e. the cards were lying
+ * sideways or sideways-and-upside-down on the table. Rule 3 above assumes
+ * roughly upright and breaks past 45 degrees, by construction.
+ *
+ * THE OBVIOUS TELL DOES NOT DISCRIMINATE, and this is the measurement that
+ * closes the question. On all three, the chosen top edge is the LONGER of the
+ * quad's two side-pairs — i.e. the warp is putting the card's 88 mm height onto
+ * the output's 63 mm width, which cannot be right for an upright card. Tempting
+ * signature; useless one. EIGHT of the 42 captures carry it, and five of those
+ * eight are upright cards that rectified perfectly:
+ *
+ *   longer pair on the output width   8 / 42
+ *   ...of which actually mis-oriented 3
+ *   ...of which upright and correct   5   (ratios 1.01 - 1.54)
+ *
+ * The five are foreshortened upright cards — the exact phenomenon that made the
+ * pre-2026-09-04 "short projected side is the width" rule wrong on 13 of 13
+ * drive captures. Flipping on this signature trades three broken crops for five,
+ * and re-measured on the same 42 the alternatives fare no better: "start at the
+ * highest EDGE midpoint" is bit-identical to the shipped rule here, and "start
+ * at the highest CORNER" breaks sixteen.
+ *
+ * SO IT IS LEFT ALONE, and the fix belongs downstream: the identify stage probes
+ * only +/-12 degrees (apps/api/src/scan/phash.ts), and probing the four 90-degree
+ * rotations would recover all three at a 4x hash cost on a stage that is already
+ * cheap. Fenced in `__tests__/owner-session-regressions.test.ts` so the count and
+ * the non-discrimination are on the record rather than rediscovered.
  */
 export function orderQuadForCard(quad: Quad): Quad | null {
   const q = orderQuad(quad)

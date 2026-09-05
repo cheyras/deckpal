@@ -6,6 +6,7 @@
 // carries the app's real auth and survives the cloud/self-host base-path
 // split; see `scripts/check-api-base.mjs`'s header for why that matters.
 import { api } from '../../lib/api'
+import { PIPELINE_VERSION } from '../engine/frame'
 import { postEvent, recorderSuspended } from './eventPost'
 
 /** Re-encode any image blob through a canvas so the upload is always a real
@@ -106,6 +107,17 @@ async function downscaledPngBase64(source: CanvasImageSource, w: number, h: numb
   })
 }
 
+/**
+ * How long the recorder will hold a snapshotted capture waiting for its
+ * `outcome` before posting without one.
+ *
+ * Must comfortably exceed `deadline.IDENTIFY_TIMEOUT_MS`, because the outcome it
+ * waits for is that identify's result — but it is a hard local cap all the same:
+ * a caller's promise must never be able to wedge the recorder and lose the
+ * capture record entirely. Late is acceptable; missing is not.
+ */
+const OUTCOME_WAIT_MS = 15_000
+
 export interface CaptureEventInput {
   /** The live <video>, read at capture time — the frame the engine saw. */
   video: HTMLVideoElement | null
@@ -113,6 +125,21 @@ export interface CaptureEventInput {
   rectified: Blob | null
   /** Everything that produced the decision. */
   detail: Record<string, unknown>
+  /**
+   * WHAT THE MATCHER SAID — merged into the record once it answers.
+   *
+   * The 2026-09-04 owner session could not be scored: 42 captures, and matcher
+   * output existed only for the 21 the owner happened to press *report* on, so
+   * every accuracy number the session produced was conditional on having been
+   * reported — measured on the failure population by construction. The unbiased
+   * top-1 rate was simply unmeasurable.
+   *
+   * The frame and the rectified crop are still snapshotted BEFORE this is
+   * awaited, so the scene the record describes is the one the quad was measured
+   * against; only the POST waits. Resolve with null (or never resolve, and eat
+   * the `OUTCOME_WAIT_MS` cap) and the record lands exactly as it did before.
+   */
+  outcome?: Promise<Record<string, unknown> | null>
 }
 
 /**
@@ -142,13 +169,34 @@ export async function recordCaptureEvent(input: CaptureEventInput): Promise<void
         rectifiedPng = null
       }
     }
+    // THE SNAPSHOT IS DONE; only the POST waits. See `CaptureEventInput.outcome`.
+    let outcome: Record<string, unknown> | null = null
+    if (input.outcome) {
+      outcome = await Promise.race([
+        input.outcome.catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), OUTCOME_WAIT_MS)),
+      ])
+    }
     await postEvent(framePng, {
       type: 'capture-event',
       epochMs: Date.now(),
       source: 'scan-capture-event',
-      frame: { width: v.videoWidth, height: v.videoHeight },
+      // UNITS. `frame` is the CANONICAL frame and comes from the caller's engine
+      // state, exactly as the lock recorder's does — it used to be set here from
+      // `v.videoWidth/videoHeight`, which put the sensor's 960x1280 next to a
+      // quad in canonical 416 space in one record, so any reader normalising a
+      // capture quad by its own `frame` got garbage. The sensor dimensions are
+      // still worth having (they are what maps a canonical quad back to sensor
+      // pixels, and what says which way the phone was held), so they are here
+      // under their own name instead of impersonating the frame.
+      stream: { width: v.videoWidth, height: v.videoHeight },
+      // Which frame spec these coordinates are in. `frame.PIPELINE_VERSION`
+      // exists so a recorded quad can be read against the pipeline that produced
+      // it; a record that does not carry it makes the next reader guess.
+      pipelineVersion: PIPELINE_VERSION,
       rectifiedPng,
       ...input.detail,
+      ...(outcome ?? {}),
     })
   } catch {
     // Instrumentation must never take a capture down with it.
@@ -177,7 +225,11 @@ export async function recordLockEvent(video: HTMLVideoElement | null, detail: Re
       type: 'lock-event',
       epochMs: now,
       source: 'scan-lock-event',
-      frame: { width: v.videoWidth, height: v.videoHeight },
+      // `frame` (canonical) arrives in `detail` from the engine state; the
+      // sensor's own dimensions ride along under their own name. Same units
+      // discipline as the capture recorder above.
+      stream: { width: v.videoWidth, height: v.videoHeight },
+      pipelineVersion: PIPELINE_VERSION,
       ...detail,
     })
   } catch {

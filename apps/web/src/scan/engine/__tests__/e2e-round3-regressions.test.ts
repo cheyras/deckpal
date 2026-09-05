@@ -27,7 +27,7 @@ import type { Quad } from '../contract'
 import { polyIoU } from '../geometry'
 import { DEFAULT_CADENCE_MS } from '../index'
 import { TRACKER_DEFAULTS } from '../tracker'
-import { createCapturedRegions, REGION_DEPARTURE_MS, REGION_SAME_IOU } from '../../ui/regions'
+import { createCapturedRegions, REGION_DEPARTURE_MS, REGION_SAME_IOU, type RegionTrack } from '../../ui/regions'
 import { judgeTie, gateScanResponse, TIE_MARGIN } from '../../ui/tieGate'
 import type { ScanMatch, ScanResponse } from '../../../lib/api'
 
@@ -94,21 +94,25 @@ const LOCK_THROTTLE_MS = 2_000
 /** A gap this small is the recorder's throttle, not the card leaving. */
 const CONTINUOUS_MS = 2_750
 
-function presence(rs: Record<string, unknown>[], continuousMs = CONTINUOUS_MS): Array<{ t: number; tracks: Quad[] }> {
+function presence(rs: Record<string, unknown>[], continuousMs = CONTINUOUS_MS): Array<{ t: number; tracks: RegionTrack[] }> {
   const L = locks(rs)
-  const out: Array<{ t: number; tracks: Quad[] }> = []
+  const out: Array<{ t: number; tracks: RegionTrack[] }> = []
   let li = 0
   for (let t = L[0].epochMs; t <= L[L.length - 1].epochMs; t += TICK_MS) {
     while (li + 1 < L.length && L[li + 1].epochMs <= t) li++
     const cur = L[li]
     const nxt = L[li + 1]
     let present = t - cur.epochMs <= LOCK_THROTTLE_MS
-    let q = cur.quad
+    // The TRACK, not just the quad: a region follows the track it was captured
+    // from now (regions.ts), so the reconstruction has to carry the tracker's
+    // own id. Round 3's own churn is the reason that matters here — see the
+    // "one card, fifteen track ids" assertion below.
+    let e = cur
     if (nxt && nxt.epochMs - cur.epochMs <= continuousMs) {
       present = true
-      q = t - cur.epochMs < nxt.epochMs - t ? cur.quad : nxt.quad
+      e = t - cur.epochMs < nxt.epochMs - t ? cur : nxt
     }
-    out.push({ t, tracks: present ? [q] : [] })
+    out.push({ t, tracks: present ? [{ id: e.trackId, quad: e.quad }] : [] })
   }
   return out
 }
@@ -127,11 +131,11 @@ function replay(rs: Record<string, unknown>[], departureMs: number, continuousMs
     if (R.suppressed(e.quad)) blocked++
     else {
       takenAt.push((e.epochMs - t0) / 1000)
-      R.note(e.quad, e.epochMs)
+      R.note(e.quad, e.trackId, e.epochMs)
     }
   }
   for (const tk of ticks) {
-    R.tick(tk.t, tk.tracks.map((quad) => ({ quad })))
+    R.tick(tk.t, tk.tracks)
     while (ci < c.length && c[ci].epochMs <= tk.t + TICK_MS) ask(c[ci++])
   }
   while (ci < c.length) ask(c[ci++])
@@ -218,38 +222,72 @@ describe('e2e round 3 — one card, nine captures, and the region was not at fau
     assert.equal(replay(R3CLUTTER, 900).taken, 2, 'the clutter run: the shipped build took 2')
   })
 
-  it('THE FIX: at the shipped departure window, nine captures become four', {
+  it('THE TRACKER CHURNS ON THIS FIXTURE, which is what the identity gate has to survive', {
+    skip: haveR3 ? false : 'artifacts unavailable',
+  }, () => {
+    // The number that prices everything below. This is ONE physical card, in
+    // frame for essentially the whole clip — and the tracker gives it fifteen
+    // different identities across 41 locks, because it loses the card entirely
+    // during each multi-second detection dropout and re-acquires it as a new
+    // object. A refractory keyed on the track id ALONE would fire on every one
+    // of those rebirths; that is the original refractory, and it is why
+    // `regions.ts` uses the id to decide whether a region's clock is REFRESHED
+    // and never to decide whether a lock is SUPPRESSED.
+    const ids = new Set(locks(R3RUN).map((l) => l.trackId))
+    assert.equal(locks(R3RUN).length, 41)
+    assert.ok(ids.size >= 12, `expected heavy track churn on one card, got ${ids.size} ids`)
+    // Every capture is on a different id, so no region here is ever refreshed:
+    // this fixture exercises the departure clock alone.
+    assert.equal(new Set(caps(R3RUN).map((c) => c.trackId)).size, caps(R3RUN).length)
+  })
+
+  it('THE FIX: at the shipped departure window, nine captures become six', {
     skip: haveR3 ? false : 'artifacts unavailable',
   }, () => {
     const before = replay(R3RUN, 900)
     const after = replay(R3RUN, REGION_DEPARTURE_MS)
     assert.equal(before.taken, 9)
-    assert.equal(after.taken, 4, `expected 4 captures at ${REGION_DEPARTURE_MS} ms, got ${after.taken}`)
-    assert.equal(after.blocked, 5)
+    // FOUR UNTIL 2026-09-04, AND SIX NOW. The widening from 900 ms to 12 s took
+    // this run to four while a region could be refreshed by ANY overlapping
+    // track. The owner's first real session showed that rule adopting 63% of
+    // genuine card changes — a region kept alive by the next card in the stack
+    // never expires, and 115 of his 134 locks were suppressed by regions that
+    // should long since have retired (regions.ts's header). With the follow
+    // gated on track identity, this fixture's churn (above) means no region is
+    // ever refreshed and two of the four suppressions it used to get were
+    // suppressions it had no evidence for. Six is what the clock alone buys
+    // here; the owner session gains four more automatic captures for it.
+    assert.equal(after.taken, 6, `expected 6 captures at ${REGION_DEPARTURE_MS} ms, got ${after.taken}`)
+    assert.equal(after.blocked, 3)
+    assert.ok(after.taken < before.taken - 2, 'still well below the shipped build')
 
-    // WHAT THE FOUR ARE, and this is the part that says the number is close to
-    // right rather than merely smaller. The fixture is a 58 s clip played ~2.15
-    // times, so the card genuinely leaves the frame and re-enters at the start
-    // of each pass. Three of the four survivors sit on those re-entries — one
-    // clip length apart, twice over — and the fourth is the residual duplicate.
+    // WHAT THE SIX ARE. The fixture is a 58 s clip played ~2.15 times, so the
+    // card genuinely leaves the frame and re-enters at the start of each pass.
+    // Three of the six sit on those re-entries — one clip length apart, twice
+    // over — and the other three are the residual duplicates.
     const t = after.takenAt
     assert.ok(t[0] < 1, `first capture at t=${t[0].toFixed(1)}s`)
     const loopish = t.filter((x) => Math.abs((x % 58) - 0) < 3 || Math.abs((x % 58) - 58) < 3)
     assert.ok(loopish.length >= 3, `expected >=3 captures on a clip boundary, got ${loopish.length} of ${t.join(', ')}`)
-    // Six spurious captures become one.
     assert.equal(before.taken - loopish.length, 6, 'the shipped build made six spurious captures')
-    assert.equal(after.taken - loopish.length, 1, 'one spurious capture survives')
+    assert.equal(after.taken - loopish.length, 3, 'three spurious captures survive')
   })
 
-  it('...and the answer is flat from 10 s out, so 12 s is not a knife edge', {
+  it('...and 12 s is not a knife edge: the answer moves by one over a 3x sweep', {
     skip: haveR3 ? false : 'artifacts unavailable',
   }, () => {
-    const plateau = [10_000, 12_000, 14_000, 20_000, 30_000].map((d) => replay(R3RUN, d).taken)
-    assert.equal(new Set(plateau).size, 1, `expected one value across the plateau, got ${plateau.join(', ')}`)
-    assert.equal(plateau[0], 4)
+    // It used to be dead flat from 10 s to 30 s, because an overlap-followed
+    // region on a continuously-present card never reached ANY of those
+    // deadlines. Under the identity gate this fixture's regions live on the
+    // clock alone (see the churn test above), so the constant does move the
+    // answer — by exactly one capture across a 3x range, which is the opposite
+    // of a knife edge and is the property the assertion is really about.
+    const sweep = [10_000, 12_000, 14_000, 20_000, 30_000].map((d) => replay(R3RUN, d).taken)
+    assert.deepEqual(sweep, [6, 6, 6, 5, 5], `departure sweep: ${sweep.join(', ')}`)
+    assert.ok(Math.max(...sweep) - Math.min(...sweep) <= 1, 'a 3x change in the window may not swing the answer')
     assert.ok(
       REGION_DEPARTURE_MS >= 10_000 && REGION_DEPARTURE_MS <= 30_000,
-      `the shipped constant must sit on the plateau, not at its edge (${REGION_DEPARTURE_MS})`,
+      `the shipped constant must sit inside the measured sweep, not at its edge (${REGION_DEPARTURE_MS})`,
     )
   })
 
@@ -276,12 +314,12 @@ describe('e2e round 3 — one card, nine captures, and the region was not at fau
       [280 + dx, 351],
       [100 + dx, 351],
     ]
-    R.tick(0, [{ quad: card(0) }])
-    R.note(card(0), 0)
+    R.tick(0, [{ id: 1, quad: card(0) }])
+    R.note(card(0), 1, 0)
     // A different card, laid on the same spot 5 s later at high overlap.
     const swapped = card(20)
     assert.ok(polyIoU(card(0), swapped) >= REGION_SAME_IOU, 'the swap really is in the same place')
-    R.tick(5_000, [{ quad: swapped }])
+    R.tick(5_000, [{ id: 2, quad: swapped }])
     assert.ok(R.suppressed(swapped), 'THE COST: the fast swap does not auto-capture')
     // ...and it is bounded. Once nothing overlaps for the window, the spot frees.
     R.tick(5_000 + REGION_DEPARTURE_MS + TICK_MS, [])
@@ -297,11 +335,11 @@ describe('e2e round 3 — one card, nine captures, and the region was not at fau
       [x + 180, 351],
       [x, 351],
     ]
-    R.tick(0, [{ quad: at(100) }])
-    R.note(at(100), 0)
+    R.tick(0, [{ id: 1, quad: at(100) }])
+    R.note(at(100), 1, 0)
     const elsewhere = at(600)
     assert.ok(polyIoU(at(100), elsewhere) < REGION_SAME_IOU, 'the second card is genuinely somewhere else')
-    R.tick(200, [{ quad: at(100) }, { quad: elsewhere }])
+    R.tick(200, [{ id: 1, quad: at(100) }, { id: 2, quad: elsewhere }])
     assert.ok(!R.suppressed(elsewhere), 'a card in a fresh spot captures immediately')
   })
 })
@@ -512,9 +550,9 @@ describe('e2e round 3 — the telemetry the device unknowns need', () => {
     ]
     assert.equal(R.expired, 0)
     assert.equal(R.msSinceExpiry(0), null, 'null until something has actually expired')
-    R.tick(0, [{ quad: q }])
-    R.note(q, 0)
-    R.tick(500, [{ quad: q }])
+    R.tick(0, [{ id: 1, quad: q }])
+    R.note(q, 1, 0)
+    R.tick(500, [{ id: 1, quad: q }])
     assert.equal(R.expired, 0, 'a refreshed region has not expired')
     R.tick(2_000, [])
     assert.equal(R.expired, 1, 'the retirement is counted')

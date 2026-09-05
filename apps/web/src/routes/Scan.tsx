@@ -23,12 +23,12 @@ import {
   withTimeout,
 } from '../scan/ui/deadline'
 import { toScanBytes } from '../scan/ui/uploadNormalize'
-import { coverMap, framePointToCss, quadPose } from '../scan/ui/coords'
+import { canonicalSquareMap, framePointToCss, quadPose } from '../scan/ui/coords'
 import { bump, DURATION, flyArc, rectRelativeTo } from '../scan/ui/motion'
 import type { FeedEntry, FeedVariant, StackItem } from '../scan/ui/types'
 import type { Quad } from '../scan/engine/contract'
-import { gateScanResponse } from '../scan/ui/tieGate'
-import { createCapturedRegions, type CapturedRegions } from '../scan/ui/regions'
+import { gateScanResponse, judgeTie } from '../scan/ui/tieGate'
+import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
 
 // The scanner (production rebuild — see roadmap/plans/card-scanner-redesign,
 // PLAN.md D1-D6 — plus the owner's post-field-test UX round, 2026-09-03).
@@ -65,6 +65,47 @@ function makeId(prefix: string): string {
  *  0.018 and 0.019 wide. */
 function round3(n: number | null | undefined): number | null {
   return typeof n === 'number' && Number.isFinite(n) ? Math.round(n * 1000) / 1000 : null
+}
+
+/**
+ * WHAT THE MATCHER SAID, for the capture record — the fix for the one thing the
+ * 2026-09-04 owner session could not measure.
+ *
+ * That session produced 42 captures and matcher output for 21 of them: only the
+ * rows the owner pressed *report* on carried a result, so every accuracy figure
+ * it yielded was conditional on having been reported — i.e. measured on the
+ * failure population by construction, and explicitly not quotable as a
+ * session-wide rate. Reconstructing the rest meant cross-referencing report
+ * flags against a collection whose 28 rows all shared one commit timestamp.
+ * Attaching this to EVERY capture makes the next session self-scoring with no
+ * cross-referencing at all.
+ *
+ * Small on purpose: the top-1's identity and distance, the TIE MARGIN that
+ * decides whether the claim survives `tieGate`, and the distances of the
+ * alternates. Deliberately NOT the full match objects — those carry names, set
+ * names and two image URLs each, five deep, for numbers that add nothing. The
+ * pre-gate `matched` is recorded next to the post-gate one because the gap
+ * between them IS the gate's effect, and 70.8% of that session's results were
+ * exact ties.
+ */
+function matcherOutcomeFor(raw: ScanResponse | null): Record<string, unknown> {
+  if (!raw) return { match: null }
+  const verdict = judgeTie(raw.matches)
+  const top = raw.matches[0]
+  return {
+    match: {
+      matchedRaw: raw.matched,
+      matchedAfterTieGate: gateScanResponse(raw)?.matched ?? false,
+      threshold: raw.threshold,
+      indexSize: raw.indexSize,
+      top: top ? { cardId: top.cardId, setId: top.setId, distance: top.distance, confidence: round3(top.confidence) } : null,
+      // Infinity when every candidate is the same card — JSON would write that
+      // as null, so it is said in words the reader cannot misread as "missing".
+      tieMargin: Number.isFinite(verdict.margin) ? verdict.margin : 'no-rival',
+      rivalCardId: verdict.rival?.cardId ?? null,
+      alternates: raw.matches.slice(1).map((m) => ({ cardId: m.cardId, distance: m.distance })),
+    },
+  }
 }
 
 /** Two rAFs: the first fires once the browser is ready to paint the frame
@@ -105,6 +146,10 @@ export function Scan() {
   const flyLayerRef = useRef<HTMLDivElement>(null)
   const cameraBoxRef = useRef({ width: 0, height: 0 })
   const frameSizeRef = useRef({ width: 0, height: 0 })
+  /** The SENSOR's own dimensions, not the canonical frame's. The capture-flight
+   *  courier needs both to place the thumbnail where the video is actually
+   *  showing the card — see `coords.canonicalSquareMap`. */
+  const streamSizeRef = useRef({ width: 0, height: 0 })
 
   // Camera + engine are both driven by whether Step 1 is showing — "Verify"
   // COMPLETELY dismisses the camera (stream stopped, hardware released), not
@@ -125,7 +170,10 @@ export function Scan() {
   const engineStateRef = useRef(engineState)
   useEffect(() => {
     engineStateRef.current = engineState
-    if (engineState) frameSizeRef.current = engineState.frame
+    if (engineState) {
+      frameSizeRef.current = engineState.frame
+      streamSizeRef.current = engineState.stream
+    }
   }, [engineState])
 
   const [stack, setStack] = useState<StackItem[]>([])
@@ -156,7 +204,7 @@ export function Scan() {
   const regions = regionsRef.current
 
   const ageRegions = useCallback(
-    (tracks: readonly { quad: Quad }[]) => {
+    (tracks: readonly RegionTrack[]) => {
       regions.tick(Date.now(), tracks)
     },
     [regions],
@@ -164,8 +212,8 @@ export function Scan() {
 
   const alreadyCapturedHere = useCallback((quad: Quad): boolean => regions.suppressed(quad), [regions])
   const noteCapture = useCallback(
-    (quad: Quad) => {
-      regions.note(quad, Date.now())
+    (quad: Quad, trackId: number) => {
+      regions.note(quad, trackId, Date.now())
     },
     [regions],
   )
@@ -335,16 +383,30 @@ export function Scan() {
   const handleCaptured = useCallback(
     async (result: CaptureResult, trigger: 'auto' | 'manual') => {
       const previewUrl = trackUrl(URL.createObjectURL(result.blob))
+      // The matcher's verdict, handed to the recorder below as a promise so the
+      // capture record can carry it (scan/ui/flags.ts `CaptureEventInput.outcome`).
+      // The record's frame and crop are snapshotted before this ever settles.
+      let publishMatcherOutcome: (v: Record<string, unknown> | null) => void = () => {}
+      const matcherOutcome = new Promise<Record<string, unknown> | null>((resolve) => {
+        publishMatcherOutcome = resolve
+      })
       // THE ACCEPTANCE RECORD (scan/ui/flags.ts). Fire-and-forget, owner-only,
       // and deliberately taken BEFORE any await that could change the scene:
       // the frame recorded here is the one this quad was measured against.
       void recordCaptureEvent({
         video: videoRef.current,
         rectified: result.blob,
+        outcome: matcherOutcome,
         detail: {
           trigger,
           quad: result.quad,
           trackId: result.trackId,
+          // THE UNITS THIS QUAD IS IN — canonical 416 space, from the engine's
+          // own state, the same field and the same source the lock recorder
+          // uses. The recorder used to fill this in itself from the <video>'s
+          // dimensions, which put 960x1280 beside a canonical quad in one
+          // record; the sensor size is now recorded as `stream` instead.
+          frame: engineStateRef.current?.frame ?? null,
           hasObj: engineStateRef.current?.hasObj ?? null,
           reticle: engineStateRef.current?.reticle ?? null,
           cameraBox: cameraBoxRef.current,
@@ -399,14 +461,19 @@ export function Scan() {
       if (stackEl && wrap) {
         const box = cameraBoxRef.current
         const frame = frameSizeRef.current
+        const stream = streamSizeRef.current
         // Approximate start pose from the captured quad's frame-space pose,
-        // mapped through the same object-fit: cover math the reticle/quad
-        // overlay uses. Falls back to a plausible center-of-frame card size
-        // if the box/frame haven't been measured yet (should not happen in
+        // mapped through THE SAME `canonicalSquareMap` the reticle/quad overlay
+        // uses — and this comment used to say that while the two had silently
+        // diverged, which the 2026-09-04 owner session caught: the overlay was
+        // on contain math and the courier on cover, so every thumbnail launched
+        // ~54 px right of the quad that had just been highlighted. One helper,
+        // one call, both places. Falls back to a plausible center-of-frame card
+        // size if the box/frame haven't been measured yet (should not happen in
         // practice — start() only runs once a video frame exists).
         let from = { cx: box.width / 2, cy: box.height * 0.42, rotDeg: 0, width: 130, height: (130 * 88) / 63 }
         if (box.width && box.height && frame.width && frame.height) {
-          const map = coverMap(box.width, box.height, frame.width, frame.height)
+          const map = canonicalSquareMap(box.width, box.height, stream.width, stream.height, frame.width)
           const pose = quadPose(result.quad)
           const [cx, cy] = framePointToCss(map, pose.cx, pose.cy)
           from = { cx, cy, rotDeg: pose.rotDeg, width: pose.width * map.scale, height: pose.height * map.scale }
@@ -418,6 +485,9 @@ export function Scan() {
       }
 
       const res = await identifyPromise
+      // Hand the verdict to the capture record, which has been holding its
+      // snapshot for it. Before any early return below could skip it.
+      publishMatcherOutcome(matcherOutcomeFor(res))
       applyIdentifyResult(res, stackItem)
       await nextFrame()
 
@@ -455,10 +525,13 @@ export function Scan() {
         // difference between one lost capture and a scanner that is dead until
         // the page is reloaded.
         const result = await withTimeout(capture(trackId), CAPTURE_TIMEOUT_MS, 'capture')
-        // Record WHERE this capture happened before the slow half of the
-        // pipeline runs, so a second lock arriving 200 ms later on a fresh track
-        // id is already suppressed by the time it asks.
-        noteCapture(result.quad)
+        // Record WHERE this capture happened — and WHICH TRACK it was — before
+        // the slow half of the pipeline runs, so a second lock arriving 200 ms
+        // later on a fresh track id is already suppressed by the time it asks.
+        // The track id is the region's identity handle from here on: it is what
+        // decides whether the card is still there, so a region can no longer be
+        // kept alive by the next card put down in the same place (regions.ts).
+        noteCapture(result.quad, result.trackId)
         await withTimeout(handleCaptured(result, trigger), CAPTURE_TIMEOUT_MS, 'capture')
       } catch (e) {
         // The track vanished, the engine refused, or something ran past its

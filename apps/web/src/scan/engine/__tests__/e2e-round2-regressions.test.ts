@@ -16,7 +16,7 @@ import type { Quad } from '../contract'
 import { polyIoU } from '../geometry'
 import { isCardShaped, isSingleCardShaped, DEFAULT_LOCK_MIN_SATURATION } from '../index'
 import { judgeTie, gateScanResponse, TIE_MARGIN } from '../../ui/tieGate'
-import { createCapturedRegions } from '../../ui/regions'
+import { createCapturedRegions, REGION_DEPARTURE_MS } from '../../ui/regions'
 import type { ScanMatch, ScanResponse } from '../../../lib/api'
 
 const DRIVE = 'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/e2e-drive/'
@@ -39,6 +39,7 @@ interface Ev {
   epochMs: number
   quad: Quad
   id: number
+  trackId: number
 }
 const caps = (rs: Record<string, unknown>[]) =>
   (rs.filter((e) => e.type === 'capture-event') as unknown as Ev[]).sort((a, b) => a.epochMs - b.epochMs)
@@ -54,12 +55,18 @@ const locks = (rs: Record<string, unknown>[]) =>
  *  edits one of the two; it now drives `scan/ui/regions.ts` directly. */
 function makeRegions(departMs: number) {
   const R = createCapturedRegions({ departureMs: departMs })
+  // A region follows the TRACK it was captured from now, not anything that
+  // overlaps it — see regions.ts's header, where the owner session measures
+  // overlap adopting 63% of real card changes. The synthetic fixtures below are
+  // all ONE object, so one synthetic id is their faithful model; `replay` passes
+  // each harvested event's real `trackId` instead.
+  const ONE = 1
   return {
-    tick(now: number, tracks: readonly Quad[]) {
-      R.tick(now, tracks.map((quad) => ({ quad })))
+    tick(now: number, tracks: readonly Quad[], ids?: readonly number[]) {
+      R.tick(now, tracks.map((quad, i) => ({ id: ids?.[i] ?? ONE, quad })))
     },
     suppressed: (quad: Quad) => R.suppressed(quad),
-    note: (quad: Quad, now: number) => R.note(quad, now),
+    note: (quad: Quad, now: number, id: number = ONE) => R.note(quad, id, now),
     get count() {
       return R.count
     },
@@ -69,19 +76,19 @@ function makeRegions(departMs: number) {
 /** Replay a harvested run: locks are the presence signal, captures ask to fire. */
 function replay(rs: Record<string, unknown>[], departMs: number) {
   const timeline = [
-    ...locks(rs).map((e) => ({ t: e.epochMs, kind: 'lock' as const, q: e.quad })),
-    ...caps(rs).map((e) => ({ t: e.epochMs, kind: 'cap' as const, q: e.quad })),
+    ...locks(rs).map((e) => ({ t: e.epochMs, kind: 'lock' as const, q: e.quad, id: e.trackId })),
+    ...caps(rs).map((e) => ({ t: e.epochMs, kind: 'cap' as const, q: e.quad, id: e.trackId })),
   ].sort((a, b) => a.t - b.t || (a.kind === 'lock' ? -1 : 1))
   const R = makeRegions(departMs)
   let taken = 0
   let blocked = 0
   for (const e of timeline) {
-    R.tick(e.t, [e.q])
+    R.tick(e.t, [e.q], [e.id])
     if (e.kind !== 'cap') continue
     if (R.suppressed(e.q)) blocked++
     else {
       taken++
-      R.note(e.q, e.t)
+      R.note(e.q, e.t, e.id)
     }
   }
   return { taken, blocked }
@@ -117,7 +124,7 @@ describe('e2e round 2 — one card must not become fifteen captures', () => {
     assert.ok(overlapping >= 12, `expected >=12 of 14 consecutive pairs to overlap, got ${overlapping}`)
   })
 
-  it('THE FIX: a presence-following region suppresses most of the run', {
+  it('THE FIX: at the shipped departure window, fifteen captures of one card become six', {
     skip: haveR2 ? false : 'artifacts unavailable',
   }, () => {
     // A LOWER BOUND, and deliberately reported as one. The only presence signal
@@ -126,19 +133,44 @@ describe('e2e round 2 — one card must not become fifteen captures', () => {
     // threshold, so the region loses its card and retires when production would
     // not have. Production refreshes from `engineState` every detect tick
     // (~8 Hz), where consecutive quads of one card overlap almost completely.
-    const r = replay(R2RUN, 900)
-    assert.ok(r.blocked >= 10, `expected >=10 of 15 suppressed even on the sparse signal, got ${r.blocked}`)
-    assert.ok(r.taken <= 5, `expected <=5 captures from one card, got ${r.taken}`)
+    const r = replay(R2RUN, REGION_DEPARTURE_MS)
+    assert.equal(r.taken + r.blocked, 15, 'all fifteen captures are offered to the policy')
+    assert.ok(r.blocked >= 9, `expected >=9 of 15 suppressed even on the sparse signal, got ${r.blocked}`)
+    assert.ok(r.taken <= 6, `expected <=6 captures from one card, got ${r.taken}`)
   })
 
-  it('...and the result does NOT depend on the departure constant — it is presence, not a timer', {
+  it('ON THIS FIXTURE the departure clock is doing the work, and that is the honest reading', {
     skip: haveR2 ? false : 'artifacts unavailable',
   }, () => {
-    // The tell that this is no longer a window: a 14x change in the timeout
-    // moves nothing. A time-based policy would swing wildly across that range,
-    // which is exactly what the 2.5s window did (it caught zero).
-    const results = [900, 2_500, 5_000, 9_000, 13_000].map((d) => replay(R2RUN, d).taken)
-    assert.equal(new Set(results).size, 1, `taken counts varied with the timeout: ${results.join(', ')}`)
+    // This test used to assert the opposite — "it is presence, not a timer",
+    // because a 14x change in the departure constant moved nothing. That was
+    // true of the OVERLAP-following region, and the owner session
+    // (regions.ts's header) is why overlap-following is gone: overlap adopts
+    // 63% of real card changes, so it cannot be an identity test and a region
+    // that lives on it lives forever.
+    //
+    // A region now follows the TRACK it was captured from, and round 2's own
+    // harvest is the worst case for that: its fifteen captures of ONE physical
+    // card carry fifteen DIFFERENT track ids (2, 3, 5, 7, 9, 15, ...) — the
+    // tracker lost and re-acquired the card between every one of them. Every
+    // region here is therefore anchored to a track that is already dead, is
+    // never refreshed, and retires purely on the clock. So on this fixture the
+    // answer IS a function of the constant, monotonically:
+    //
+    //   depart   0.9 s  2.5 s  5 s  9 s  12 s  20 s  30 s
+    //   taken     15     12     9    8    6     6     5
+    //
+    // That is a real cost of the identity gate and it is stated rather than
+    // hidden. What buys it back is that the tracker churns like this on a
+    // compressed MJPEG fake camera and does NOT on a real device: over the
+    // owner session's 176 quads a card keeps its track id across 93% of
+    // consecutive sightings, which is where the presence half of the policy
+    // does its work.
+    const table = [900, 2_500, 5_000, 9_000, 12_000, 30_000].map((d) => replay(R2RUN, d).taken)
+    assert.deepEqual(table, [15, 12, 9, 8, 6, 5], `departure sweep moved: ${table.join(', ')}`)
+    for (let i = 1; i < table.length; i++) {
+      assert.ok(table[i] <= table[i - 1], 'a longer window must never take MORE captures')
+    }
   })
 
   it('...without suppressing genuinely separate presentations', {
@@ -207,18 +239,31 @@ describe('e2e round 2 — geometry cannot refuse a postal envelope', () => {
     }
   })
 
-  it('the saturation threshold keeps every measured card and refuses both envelopes', () => {
-    // The measured extremes, from refine.quadMeanSaturation's docstring. A fence:
-    // moving the constant into either class must fail here.
-    const LEAST_COLOURFUL_CARD = 0.149 // corpus F069, through the shipping pipeline
-    const MOST_COLOURFUL_MAIL = 0.112
+  it('the mail and real cards OVERLAP on this statistic, so no threshold refuses one and keeps the other', () => {
+    // This test used to assert the gate did both. It did, on the data that
+    // existed: corpus cards bottomed out at 0.149 and the two envelopes topped
+    // out at 0.112, so 0.13 sat in an 0.037-wide gap. The 2026-09-04 owner
+    // session photographed four real cards INSIDE that gap and below it —
+    // 0.079, 0.103, 0.112, 0.126 — and one of them is the envelopes' own value
+    // to three decimals. The gap was an artefact of never having measured a dull
+    // card, and this is the record that it is gone.
+    const LEAST_COLOURFUL_CARD = 0.079 // owner session 1, manual capture, owner-confirmed
+    const MOST_COLOURFUL_MAIL = 0.112 // this drive's envelopes
+    assert.ok(
+      LEAST_COLOURFUL_CARD < MOST_COLOURFUL_MAIL,
+      'if a real card is ever measured above the mail again, a separating threshold exists and this gate can be one',
+    )
+    // So the gate keeps only the claim that survives: an achromatic surface is
+    // not a card. It must stay below every real card ever measured...
     assert.ok(
       DEFAULT_LOCK_MIN_SATURATION < LEAST_COLOURFUL_CARD,
       `threshold ${DEFAULT_LOCK_MIN_SATURATION} would refuse the least colourful measured card (${LEAST_COLOURFUL_CARD})`,
     )
+    // ...and it must NOT be raised back into the overlap on the theory that it
+    // refuses mail, because up there it refuses cards too.
     assert.ok(
-      DEFAULT_LOCK_MIN_SATURATION > MOST_COLOURFUL_MAIL,
-      `threshold ${DEFAULT_LOCK_MIN_SATURATION} would admit the mail (${MOST_COLOURFUL_MAIL})`,
+      DEFAULT_LOCK_MIN_SATURATION < MOST_COLOURFUL_MAIL,
+      `threshold ${DEFAULT_LOCK_MIN_SATURATION} sits inside the card/mail overlap — see index.DEFAULT_LOCK_MIN_SATURATION`,
     )
   })
 

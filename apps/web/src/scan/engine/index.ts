@@ -152,9 +152,9 @@ export const DEFAULT_LOCK_PARALLEL_MIN = 0.72
  *   drive card captures(30) 0.356 - 0.499
  *   corpus cards (61)       0.149 and up
  *
- * 0.13 refuses both envelopes and keeps EVERY card in both datasets. The margins
- * are thin and symmetric — 0.018 above the mail, 0.019 below the least colourful
- * card (F069) — and that is the honest width of the gap, not a comfortable one.
+ * 0.13 refused both envelopes and kept EVERY card in both datasets. The margins
+ * were thin and symmetric — 0.018 above the mail, 0.019 below the least colourful
+ * card (F069) — and that was the honest width of the gap, not a comfortable one.
  *
  * WHY NOT 0.16, WHICH LOOKED BETTER. It rejected one more corpus clutter frame,
  * but given the classes overlap that rejection is noise rather than signal, and
@@ -162,9 +162,59 @@ export const DEFAULT_LOCK_PARALLEL_MIN = 0.72
  * wrong trade when the card is still drawn, still tracked, and one tap away from
  * a manual capture.
  *
+ * ── AND THEN A REAL DEVICE MEASURED THE GAP AWAY (owner session 1, 2026-09-04)
+ *
+ * Every number above comes from one corpus and one drive, and `EngineState.
+ * saturation` exists because none of it had ever seen a real low-saturation card
+ * — no silver border, no black border, no grayscale full-art, no glare, no matte
+ * sleeve. The owner's first real session recorded 176 of them, and four of his
+ * captures sit BELOW the threshold:
+ *
+ *   owner cards refused by 0.13     0.079   0.103   0.112   0.126
+ *   drive MAIL, for comparison               0.108 - 0.112
+ *
+ * Those two rows INTERLEAVE. A real Pokémon card at 0.112 and a postal envelope
+ * at 0.112 are the same number, and a real card at 0.103 is less colourful than
+ * either envelope. The 0.018 margin this gate was sized on does not exist on a
+ * real device; it was an artefact of never having photographed a dull card. No
+ * threshold separates the two classes, so this gate cannot be the mail rejector
+ * it was built to be, at any value.
+ *
+ * All four were MANUAL captures, and they could only ever have been: a card
+ * below the gate never locks, so it emits no lock-event and that channel is the
+ * only one that can see it. The gate blinds the instrument that measures it,
+ * which is a second reason not to leave it high.
+ *
+ * ── 0.06, AND WHY EXACTLY ───────────────────────────────────────────────────
+ *
+ * What survives is a much narrower claim: an ACHROMATIC SURFACE is not a card. A
+ * blank sheet, a lit white screen, a bare table sit far below anything either
+ * dataset contains. So the gate is kept and re-sized to be exactly that, by the
+ * same rule the old value used — one margin below the least colourful REAL card
+ * ever measured. That card is now the owner's 0.079 rather than the corpus's
+ * 0.149, and the old gate's own 0.019 margin below it gives 0.060.
+ *
+ *   session distribution (n=176)   min 0.079   p05 0.135   median 0.318
+ *   events below 0.06              0
+ *   events 0.06 - 0.13             4, every one an owner-confirmed card
+ *
+ * WHAT THIS GIVES UP, STATED PLAINLY: the two postal envelopes come back. They
+ * are card-shaped and card-proportioned (`e2e-round2-regressions.test.ts` proves
+ * geometry cannot refuse them) and at 0.108-0.112 they now clear the gate. The
+ * asymmetry is the whole argument: a false capture is a row in a verify feed the
+ * reader is already reading and deletes with one tap, while a false refusal is
+ * SILENT — the card is never scanned, the reader is told nothing, and the
+ * product simply looks broken. The owner's session is what that looks like from
+ * the inside: half of it driven by the manual button, four of those presses
+ * caused by this constant.
+ *
+ * If mail rejection is wanted back it needs a signal that separates the classes
+ * — text layout, a learned head, an explicit "is this a card?" — not a different
+ * number here.
+ *
  * Set to 0 to disable. See `refine.quadMeanSaturation` for the measurement.
  */
-export const DEFAULT_LOCK_MIN_SATURATION = 0.13
+export const DEFAULT_LOCK_MIN_SATURATION = 0.06
 
 /**
  * PIPELINE VERSION 2 CONSTANTS — kept only so the offline harness can replay the

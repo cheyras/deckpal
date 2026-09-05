@@ -32,11 +32,66 @@
 //
 // PRESENCE is. A card that never left the reticle is the same card, however long
 // it sits there; a card that left and was replaced is a new one, however quickly.
-// So a captured region is remembered, FOLLOWS the card while anything keeps
-// overlapping it, and is retired only once nothing has overlapped it for
-// `departureMs` — a genuine departure, not an elapsed duration. Track ids are
-// never consulted, so the tracker churn that defeated the original refractory is
-// irrelevant.
+// So a captured region is remembered, FOLLOWS the card while it is still there,
+// and is retired only once the card has been gone for `departureMs` — a genuine
+// departure, not an elapsed duration.
+//
+// ── WHAT "STILL THERE" IS ALLOWED TO MEAN (owner session 1, 2026-09-04) ──────
+//
+// It used to mean OVERLAP: a region followed and refreshed against any track
+// overlapping it at >= REGION_SAME_IOU. That is unsound, and the owner's first
+// real session measured exactly how unsound. Over its 176 recorded quads, with
+// each consecutive pair labelled by re-rectifying both frames and correlating
+// the card images (>= 0.75 correlation = provably the same card, < 0.5 =
+// provably a different one):
+//
+//   follow at IoU >=   adopts a REAL CARD CHANGE   keeps a same-card follow
+//        0.3                    88 %                        100 %
+//        0.5  (shipped)         63 %                         93 %
+//        0.7                    15 %                         74 %
+//        0.8                     3 %                         46 %
+//
+// There is no threshold that separates them, because overlap is not identity: a
+// reader working a stack puts the next card almost exactly where the last one
+// was. The consequence in the session was total — the previous card's region
+// ADOPTED its replacement, refreshed, adopted the one after that, and never
+// expired. 115 of 134 locks were suppressed, regions ran 11 deep, and the
+// "at most 12 s" cost this module priced below became UNBOUNDED for as long as
+// the reader kept feeding the same spot. Nine seconds into the session the very
+// first swap (a Shaymin captured, a different card put down in its place) was
+// suppressed for its entire 11-second presentation and never captured at all.
+//
+// So the follow is gated on IDENTITY instead: a region remembers the TRACK it
+// was captured from and follows THAT track, by id, wherever it goes. Any other
+// track — however much it overlaps — neither moves the region nor refreshes it.
+//
+// ── BUT TRACK IDS ARE EXACTLY WHAT DEFEATED THE ORIGINAL REFRACTORY ──────────
+//
+// They are, and that is why the id gates the FOLLOW and not the SUPPRESSION.
+// Round 3 measured the churn: one physical card, continuously in frame, ran
+// through 15 distinct track ids in 41 locks. A refractory keyed on the id alone
+// fires again on every rebirth, which is the 2026-09-04 drive's nine captures of
+// one card. Here the id only decides whether the region's clock is refreshed;
+// while it is alive the region suppresses by OVERLAP, so a rebirth inside
+// `departureMs` is still refused. The id buys the fix; the timer absorbs the
+// churn. Measured on the same two fixtures (`__tests__/e2e-round3-
+// regressions.test.ts` and `__tests__/owner-session-regressions.test.ts`):
+//
+//                                   owner session          round-3 card run
+//                            fires  dup  manual presses    captures of ONE card
+//                                        it would have     (shipped build at
+//                                        saved (of 21)      900 ms took 9)
+//   follow on overlap          16    1        4                   4
+//   follow on track identity   31    5        8                   6
+//   no region at all           52   11       10                   9
+//
+// Four more of the owner's manual presses become automatic — of the ten any
+// region policy could ever reach, because the rest fail the saturation or
+// shape/straddle gates and never lock at all — for four more duplicate captures
+// there and two more on round 3's synthetic one-card loop. That is the trade,
+// taken deliberately: a duplicate costs a row in a review feed the reader is
+// already reading, and a suppression costs a card the product silently refused
+// to scan.
 
 import type { Quad } from '../engine/contract'
 import { polyIoU } from '../engine/geometry'
@@ -110,38 +165,85 @@ import { polyIoU } from '../engine/geometry'
  * region), not because 12 s elapsed. Overlap is doing the work; the timer is
  * only the backstop for a card that returns to the same pose. A future round
  * with real-camera footage should re-measure both halves before moving either.
+ *
+ * ── THAT ROUND HAPPENED (owner session 1) AND THE COST WAS NOT BEING PAID ────
+ *
+ * Everything above is about how long a DEPARTED card stays remembered, and it
+ * still holds. What it assumed — that the region would eventually be left alone
+ * long enough to depart — is what the header's follow rule made untrue. Under
+ * the identity-gated follow the price quoted above is finally the price paid, so
+ * this constant means what it says.
+ *
+ * A SWEEP OF THIS CONSTANT under the new follow rule, against the owner session
+ * (manual presses the policy would have made automatic, of 21; duplicate
+ * captures) and round 3's card run (captures of ONE card; the shipped 900 ms
+ * build took 9):
+ *
+ *    10 s  ->  8 rescued,  7 dup,  round-3 6
+ *    12 s  ->  8 rescued,  4 dup,  round-3 6      <- shipped
+ *    14 s  ->  9 rescued,  3 dup,  round-3 6
+ *    15 s  ->  8 rescued,  2 dup,  round-3 6
+ *    20 s  ->  7 rescued,  4 dup,  round-3 5
+ *
+ * 12-15 s is a plateau, and 12 s is already what round 3's dropout measurement
+ * demands, so it is deliberately left alone: the FOLLOW RULE is the finding, and
+ * re-tuning a constant on top of a changed mechanism would confound the two.
  */
 export const REGION_DEPARTURE_MS = 12_000
 
 /**
- * The single overlap threshold, used for BOTH "this track is the card the region
- * holds, so follow it" and "this lock is that card again, so do not capture it".
- * One number, because they are the same question, and a looser follow threshold
- * is actively dangerous: replaying the drive's clutter run with follow at 0.3
- * let a region JUMP onto the next object that wandered near it and then suppress
- * that object's own first capture. A region must only ever follow something it
- * would also recognise as itself.
+ * THE SUPPRESSION THRESHOLD: "this lock is close enough to a live region to be
+ * the card that region holds, so do not capture it".
  *
- * 0.5 is comfortable at the tick rate this runs at: consecutive quads of one
- * card 120 ms apart overlap almost completely, so following is easy, while two
- * adjacent cards in a stack overlap far less.
+ * It used to answer a second question as well — "this track is the card the
+ * region holds, so follow it" — and the header explains at length why it cannot.
+ * Overlap adopts 63 % of real card changes at 0.5 and there is no value that
+ * separates, so the FOLLOW is gated on track identity now and this number has
+ * one job again.
+ *
+ * 0.5 is right for the job it kept. Consecutive quads of one card 120 ms apart
+ * overlap almost completely, so a re-lock on the card just captured is refused
+ * comfortably, while a card placed somewhere genuinely else is not: over the
+ * owner session's 176 quads, consecutive pairs that are provably the same card
+ * sit at IoU 0.79 median (p05 0.48) and provably-different pairs at 0.56 median
+ * — which is exactly why this is a fine SUPPRESSION bar (paired with a 12 s
+ * clock that bounds it) and was a hopeless IDENTITY test.
  */
 export const REGION_SAME_IOU = 0.5
+
+/** A live track, as `tick` needs it: the tracker's own id plus its quad. The id
+ *  is what makes "the card this region holds is still here" a question with an
+ *  answer — see the header on why overlap could not be that answer. */
+export interface RegionTrack {
+  id: number
+  quad: Quad
+}
 
 export interface CapturedRegions {
   /**
    * Refresh every remembered region against this tick's tracks, then retire the
-   * ones nothing has overlapped for `departureMs`. Call once per ENGINE TICK —
-   * that is what makes the presence signal dense enough to be the clock.
+   * ones whose OWN TRACK has been gone for `departureMs`. Call once per ENGINE
+   * TICK — that is what makes the presence signal dense enough to be the clock.
+   *
+   * A region is refreshed only by the track it was captured from, found by id.
+   * Every other track is ignored here however close it is; a newcomer landing on
+   * the same spot is still SUPPRESSED (that is `suppressed`'s job, and the
+   * region is still alive) but it can no longer keep the region alive, which is
+   * what let one region swallow a whole session.
    *
    * Returns how many regions retired on this tick, so the caller can record
    * expiries as telemetry without reaching inside.
    */
-  tick(now: number, tracks: readonly { quad: Quad }[]): number
+  tick(now: number, tracks: readonly RegionTrack[]): number
   /** Is this quad the card one of the live regions already holds? */
   suppressed(quad: Quad): boolean
-  /** Remember a capture's place. */
-  note(quad: Quad, now: number): void
+  /**
+   * Remember a capture's place AND the track it came from. The track id is what
+   * the region will answer "is my card still here?" with for the rest of its
+   * life; a capture whose track is already gone simply never gets refreshed and
+   * retires on the clock, which is the correct behaviour for it.
+   */
+  note(quad: Quad, trackId: number, now: number): void
   /** Live regions. */
   readonly count: number
   /** Cumulative retirements since `reset()` — the telemetry counter. */
@@ -156,26 +258,23 @@ export function createCapturedRegions(
 ): CapturedRegions {
   const departureMs = opts.departureMs ?? REGION_DEPARTURE_MS
   const sameIoU = opts.sameIoU ?? REGION_SAME_IOU
-  let regions: Array<{ quad: Quad; lastSeen: number }> = []
+  let regions: Array<{ quad: Quad; trackId: number; lastSeen: number }> = []
   let expired = 0
   let lastExpiryAt: number | null = null
 
   return {
     tick(now, tracks) {
       for (const r of regions) {
-        let best: Quad | null = null
-        let bestIoU = sameIoU
-        for (const t of tracks) {
-          const iou = polyIoU(r.quad, t.quad)
-          if (iou >= bestIoU) {
-            bestIoU = iou
-            best = t.quad
-          }
-        }
-        if (best) {
-          // Follow the drift: the card is allowed to wander under the hand
-          // without ever escaping its own region.
-          r.quad = best
+        // BY ID, NOT BY OVERLAP. The region follows the card it was captured
+        // from — wherever the tracker says that card now is, including right
+        // across the frame, because a card that travelled is still that card and
+        // suppression must travel with it. No IoU gate here on purpose: gating
+        // the follow on overlap is what let a region hand itself to the next
+        // card in the stack (header), and gating it on overlap AND id would
+        // additionally lose the card that moves fast under a hand.
+        const mine = tracks.find((t) => t.id === r.trackId)
+        if (mine) {
+          r.quad = mine.quad
           r.lastSeen = now
         }
       }
@@ -191,8 +290,8 @@ export function createCapturedRegions(
     suppressed(quad) {
       return regions.some((r) => polyIoU(r.quad, quad) >= sameIoU)
     },
-    note(quad, now) {
-      regions.push({ quad, lastSeen: now })
+    note(quad, trackId, now) {
+      regions.push({ quad, trackId, lastSeen: now })
     },
     get count() {
       return regions.length

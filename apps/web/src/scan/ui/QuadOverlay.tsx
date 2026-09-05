@@ -10,7 +10,7 @@
 // perspective, gating detection rather than cropping capture.
 import { useMemo } from 'react'
 import type { EngineState, TrackedQuad } from '../engine/contract'
-import { canonicalToCss } from './coords'
+import { canonicalSquareMap, framePointToCss, reticleToCss } from './coords'
 
 export function QuadOverlay({
   state,
@@ -21,25 +21,32 @@ export function QuadOverlay({
   box: { width: number; height: number }
 }) {
   // THE DISPLAY READS THE CANONICAL FRAME, NEVER THE REVERSE (contract.ts's
-  // working-frame invariant). The engine's frame is a square and CameraStage
-  // renders a square box showing exactly that square, so this is one scale
-  // factor — there is no object-fit: cover crop left to reason about, which is
-  // what used to let a layout change alter the aiming target.
+  // working-frame invariant) — but it has to read it through the mapping the
+  // VIDEO is actually using, which is `object-fit: cover` on the whole stream.
+  //
+  // This line used to be `canonicalToCss(Math.min(box.width, box.height), …)`:
+  // `object-fit: CONTAIN` math, with no centring origin, resting on a prose
+  // precondition ("CameraStage renders a square box showing exactly that
+  // square") that the layout never delivered — `aspect-square` loses to
+  // `max-height` in CSS, so the box was 428x319 for the whole of the
+  // 2026-09-04 owner session. It drew his reticle 54.5 px left of centre at
+  // 74.5% size, he aimed by it, and his 176 quads landed 53 px left of where
+  // the engine was looking. The lesson is not "use max instead of min": it is
+  // that an overlay must not assume a shape the layout does not guarantee, so
+  // `canonicalSquareMap` derives the placement from the stream rather than
+  // assuming the box shows the square edge-to-edge. See
+  // `__tests__/overlay-alignment.test.ts`, which asserts this against every one
+  // of that session's recorded quads.
   const map = useMemo(() => {
     if (!state || !box.width || !box.height || !state.frame.width) return null
-    return canonicalToCss(Math.min(box.width, box.height), state.frame.width)
+    return canonicalSquareMap(box.width, box.height, state.stream?.width ?? 0, state.stream?.height ?? 0, state.frame.width)
   }, [state, box.width, box.height])
 
   if (!state || !map) return null
 
-  const toPoints = (q: TrackedQuad['quad']) => q.map(([x, y]) => [x * map.scale, y * map.scale].join(',')).join(' ')
+  const toPoints = (q: TrackedQuad['quad']) => q.map(([x, y]) => framePointToCss(map, x, y).join(',')).join(' ')
 
-  const r = {
-    x: state.reticle.x * state.frame.width * map.scale,
-    y: state.reticle.y * state.frame.height * map.scale,
-    w: state.reticle.w * state.frame.width * map.scale,
-    h: state.reticle.h * state.frame.height * map.scale,
-  }
+  const r = reticleToCss(map, state.reticle, state.frame.width, state.frame.height)
 
   return (
     <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
