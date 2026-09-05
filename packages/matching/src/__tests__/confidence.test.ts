@@ -73,34 +73,36 @@ test('an empty candidate list is `none`, not a crash', () => {
   assert.equal(r.margin, null)
 })
 
-test('the measured corpus replays: 10 true accepts and 9 true rejects', () => {
-  // The 19-frame ground truth, as (top1, top2) pairs taken from the spike's
-  // per-query output for the shipped checkpoint. Nine of them are photographs
-  // of cards with no catalog art at all, so a `confident` verdict on any of
-  // those nine is a false match by construction. This is the whole precision
-  // claim in DECISIONS.md, executed.
+test('the measured corpus replays: 9 true accepts and 9 true rejects', () => {
+  // The 19-frame ground truth against the 6,464-card gallery, as (top1, top2)
+  // pairs taken verbatim from the spike's per-query output for the shipped
+  // checkpoint. Nine of them are photographs of cards with no catalog art at
+  // all, so a `confident` verdict on any of those nine is a false match by
+  // construction — and they are not easy negatives: what they retrieve is
+  // another printing of the SAME Pokémon. This is the precision claim in
+  // DECISIONS.md, executed.
   const trueMatches: [number, number][] = [
-    [0.7659, 0.626],
-    [0.8511, 0.7627],
-    [0.8728, 0.6804],
-    [0.8808, 0.6474],
-    [0.8845, 0.7214],
-    [0.8979, 0.8863], // the one the margin rule declines: two near-identical arts
-    [0.9013, 0.7659],
-    [0.9114, 0.6964],
-    [0.9165, 0.767],
-    [0.9238, 0.6917],
+    [0.6787, 0.668], // declined: the weakest true match, below simMin
+    [0.7759, 0.7477],
+    [0.7773, 0.6723],
+    [0.783, 0.6555],
+    [0.8018, 0.6544],
+    [0.8117, 0.6644],
+    [0.8346, 0.7074],
+    [0.8353, 0.7564],
+    [0.8516, 0.7901],
+    [0.8545, 0.8252],
   ]
   const impossible: [number, number][] = [
-    [0.6379, 0.6294],
-    [0.6499, 0.6448],
-    [0.6976, 0.6782],
-    [0.7045, 0.6833],
-    [0.7071, 0.6861],
-    [0.7284, 0.722],
-    [0.7288, 0.7066],
-    [0.7481, 0.7259],
-    [0.7533, 0.7473],
+    [0.6102, 0.6078],
+    [0.6458, 0.6395],
+    [0.6567, 0.6386],
+    [0.6606, 0.6481],
+    [0.6691, 0.6595],
+    [0.6827, 0.679],
+    [0.6917, 0.6751],
+    [0.6938, 0.6772],
+    [0.7028, 0.6952], // the strongest negative: another Fennekin printing
   ]
   const verdict = ([a, b]: [number, number]) =>
     identityConfidence([
@@ -110,6 +112,10 @@ test('the measured corpus replays: 10 true accepts and 9 true rejects', () => {
 
   const accepted = trueMatches.filter((p) => verdict(p) === 'confident').length
   const falseAccepts = impossible.filter((p) => verdict(p) === 'confident').length
+  // Precision first, and not by a little: a declined true match costs the reader
+  // one tap, while a false accept puts the wrong card in their collection and
+  // tells them it is right. The matcher this replaces said "confident" four
+  // times on this corpus and was wrong four times.
   assert.equal(falseAccepts, 0, 'the gate named a card that is not in the catalog')
   assert.ok(accepted >= 9, `only ${accepted}/10 true matches cleared the gate`)
 })

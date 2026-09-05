@@ -15,9 +15,10 @@
 -- card twice, and its own `matched: true` gate fired four times and was wrong
 -- every time. 0-for-4 on precision (p2-work/phash-on-crops/RESULTS.md,
 -- 2026-09-03). The 2026-09-04 embedding spike put the right card first on
--- 10 of the 10 frames whose card exists in the catalogue at all, with a cosine
--- threshold that also rejected all 9 frames whose card has no catalogue art and
--- therefore CANNOT be matched by anything (p2-work/embed-spike/NOTES.md).
+-- 10 of the 10 frames whose card exists in the catalogue at all, and a
+-- similarity-plus-margin gate that accepted 9 of those 10 while rejecting ALL 9
+-- frames whose card has no catalogue art and therefore cannot be matched by
+-- anything (p2-work/embed-spike/NOTES.md).
 --
 -- 016 stays. A hash is 8 bytes and a `bit_count` is one instruction; it is a
 -- cheap way to shrink a candidate set before the expensive comparison, and it
@@ -58,14 +59,21 @@
 -- compared against; 'high' is left representable rather than assumed away.
 --
 -- ══════════════════════════════════════════════════════════════════════════════
--- vector(384), AND WHY THE INDEX IS PARTIAL
+-- vector(768), AND WHY THE INDEX IS PARTIAL
 -- ══════════════════════════════════════════════════════════════════════════════
 --
--- 384 is the winning checkpoint's feature width (`EMBED_DIM` in
+-- 768 is the winning checkpoint's feature width (`EMBED_DIM` in
 -- packages/matching/src/input-spec.ts, which this number is pinned against by
 -- that package's tests). A checkpoint with a different width is a different
 -- column type and therefore a new migration — which is honest, since it is also
 -- a different vector space and every row would have to be recomputed anyway.
+--
+-- There is a ceiling on that freedom worth recording here rather than
+-- rediscovering: pgvector's HNSW and IVFFlat indexes both cap at 2,000
+-- dimensions. `resnet50_clip.openai` scored competitively in the 2026-09-04
+-- bakeoff and is disqualified by its 2,048-wide features alone — an unindexable
+-- column means a sequential scan over every vector on every scan, which on
+-- serverless is the same mistake contract B5 exists to prevent, in a costume.
 --
 -- Vectors are stored L2-NORMALISED (`l2Normalize` runs before the write), so
 -- cosine distance and inner product agree. `vector_cosine_ops` is still the
@@ -81,7 +89,7 @@
 -- also the moment somebody has to think about the cutover.
 --
 -- 23,546 catalogue rows is small for HNSW; the index is here for the serverless
--- shape rather than the row count. A sequential scan means reading ~36 MB of
+-- shape rather than the row count. A sequential scan means reading ~72 MB of
 -- vectors on a cold function instance, per scan, which is the same mistake the
 -- original in-process hash cache made (contract B5) in a different costume.
 
@@ -104,7 +112,7 @@ CREATE TABLE card_embedding (
   quality     TEXT        NOT NULL,
   -- `e<spec>:<model>` — packages/matching `embedStamp()`. See the header.
   stamp       TEXT        NOT NULL,
-  embedding   vector(384) NOT NULL,
+  embedding   vector(768) NOT NULL,
   computed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (card_id, quality, stamp),
   CONSTRAINT card_embedding_quality_check CHECK (quality IN ('low', 'high')),
@@ -115,9 +123,9 @@ CREATE TABLE card_embedding (
 
 -- THE MATCH QUERY'S INDEX. Partial by stamp — see the header for why an
 -- unfiltered one would be a silent correctness bug rather than a slow one.
-CREATE INDEX card_embedding_hnsw_e1_vitamin
+CREATE INDEX card_embedding_hnsw_e1_clip_b32
   ON card_embedding USING hnsw (embedding vector_cosine_ops)
-  WHERE stamp = 'e1:vitamin-small-datacomp1b' AND quality = 'low';
+  WHERE stamp = 'e1:clip-vit-b32-openai' AND quality = 'low';
 
 -- The embed job's resumability read: "which cards do NOT yet have a vector for
 -- this stamp and quality". Without it that is a scan of the whole table per run,

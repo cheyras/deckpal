@@ -37,7 +37,7 @@ EMBED_SPEC_VERSION = 1
 EMBED_SIZE = 224
 EMBED_MEAN: Tuple[float, float, float] = (0.48145466, 0.4578275, 0.40821073)
 EMBED_STD: Tuple[float, float, float] = (0.26862954, 0.26130258, 0.27577711)
-EMBED_MODEL_ID = "vitamin-small-datacomp1b"
+EMBED_MODEL_ID = "clip-vit-b32-openai"
 
 
 def card_rect(width: int, height: int, margin_frac: float = 0.0):

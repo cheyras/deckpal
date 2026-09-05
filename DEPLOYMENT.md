@@ -227,7 +227,7 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 
 #### `pgvector` is a prerequisite of migration 048
 
-The scanner's embedding index (`card_embedding`) is a `vector(384)` column, so
+The scanner's embedding index (`card_embedding`) is a `vector(768)` column, so
 the database needs the `vector` extension **before** `pnpm migrate` reaches 048.
 
 - **Supabase** — already available; the migration's `CREATE EXTENSION` succeeds

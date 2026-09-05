@@ -907,25 +907,25 @@ means this deployment does not have this endpoint, and `GET /health` reports
 The model runs on the device, so the body is the VECTOR, not an image:
 
 ```json
-{ "stamp": "e1:vitamin-small-datacomp1b", "embedding": [0.031, -0.118, ...], "k": 5 }
+{ "stamp": "e1:clip-vit-b32-openai", "embedding": [0.031, -0.118, ...], "k": 5 }
 ```
 
 `stamp` must equal the deployment's exactly (400 otherwise, naming both) —
 vectors from another spec version or checkpoint live in a different space, and
 comparing them would return a confident wrong answer rather than an error.
-`embedding` must be 384 finite components and already L2-normalised; an
+`embedding` must be 768 finite components and already L2-normalised; an
 un-normalised vector is refused rather than repaired.
 
 ```json
-{ "stamp": "e1:vitamin-small-datacomp1b", "indexSize": 23546,
-  "identity": { "level": "confident", "cardId": "me04-024", "similarity": 0.9114,
-                "margin": 0.215, "modelId": "vitamin-small-datacomp1b" },
+{ "stamp": "e1:clip-vit-b32-openai", "indexSize": 23546,
+  "identity": { "level": "confident", "cardId": "me04-024", "similarity": 0.783,
+                "margin": 0.1275, "modelId": "clip-vit-b32-openai" },
   "variant":  { "level": "unknown", "reason": "no-variant-model",
                 "requiresUserChoice": true },
   "matches": [ { "cardId": "me04-024", "name": "Avalugg", "number": "024",
                  "setId": "me04", "setName": "Chaos Rising", "rarity": null,
                  "seriesId": "me", "images": { "low": "...", "high": "..." },
-                 "similarity": 0.9114, "variantCount": 3 } ] }
+                 "similarity": 0.783, "variantCount": 3 } ] }
 ```
 
 **There is no `matched` and no `confidence`,** deliberately. Identity and

@@ -25,11 +25,11 @@ that is not the stamp it was going to label the rows with.
    pip install timm torch onnx onnxruntime numpy pillow
    python - <<'PY'
    import timm, torch, os
-   name = 'vitamin_small_224.datacomp1b_clip'   # EMBED_MODEL_ID's checkpoint
+   name = 'vit_base_patch32_clip_224.openai'   # EMBED_MODEL_ID's checkpoint
    m = timm.create_model(name, pretrained=True, num_classes=0).eval()
    x = torch.zeros(1, 3, 224, 224)
    os.makedirs('.cache/models', exist_ok=True)
-   torch.onnx.export(m, (x,), '.cache/models/vitamin-small-datacomp1b.onnx',
+   torch.onnx.export(m, (x,), '.cache/models/clip-vit-b32-openai.onnx',
                      input_names=['pixel_values'], output_names=['features'],
                      dynamic_axes={'pixel_values': {0: 'batch'}, 'features': {0: 'batch'}},
                      opset_version=17, do_constant_folding=True)

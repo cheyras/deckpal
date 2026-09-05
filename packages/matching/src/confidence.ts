@@ -30,7 +30,7 @@
 //
 // ── THE TWO SIGNALS, AND WHY BOTH ────────────────────────────────────────────
 //
-// Measured on the 19-frame ground truth against a 2,608-card gallery
+// Measured on the 19-frame ground truth against a 6,464-card gallery
 // (p2-work/embed-spike, 2026-09-04). Nine of those 19 frames are photographs of
 // cards that have NO catalog art in any approved source (`mep-058/059/060`;
 // research/CARD-ART-SOURCES.md, art-sweep/SWEEP.md) — which makes them the best
@@ -38,20 +38,40 @@
 // right answer genuinely is not in the index, so a matcher that names one is
 // demonstrably wrong rather than arguably wrong.
 //
-//   * SIMILARITY separates them outright for the shipped checkpoint: the
-//     weakest true match scores 0.7659 and the strongest wrong-by-necessity
-//     top-1 scores 0.7533. A threshold in that gap admits 10/10 and rejects
-//     9/9.
-//   * MARGIN (top-1 minus top-2) separates them almost as well, and it fails
-//     DIFFERENTLY: a near-identical reprint of the same art depresses the margin
-//     while similarity stays high. That is the one case where two candidates
-//     are both "right" about the picture and the printing is the open question
-//     — which is precisely the state the ruling says must be handed to the
-//     reader rather than resolved by the machine.
+// WHAT THOSE NINE ACTUALLY RETRIEVE IS THE POINT. They are photographs of a
+// Chespin, a Fennekin and a Froakie whose own printings are missing, and the
+// embedding returns OTHER PRINTINGS OF THE SAME POKÉMON — a Chespin photo tops
+// out on `xy1-12` Chespin, a Fennekin on `xy8-25` Fennekin. That is a far
+// better failure than the hash's (which answered "Earthen Vessel"), and for
+// this gate it is a WORSE one, because a near-miss scores high. The gate is
+// calibrated against the hardest available negatives on purpose.
 //
-// Requiring both is therefore not belt-and-braces, it is the two failure modes.
-// The gap between them is what `uncertain` is for: a top candidate worth
-// showing, labelled as not confirmed, which the verify UI must treat as a
+//   * SIMILARITY does most of the work. For the shipped checkpoint the nine
+//     impossible frames top out at 0.7028 and the true matches run
+//     0.6787-0.8545, so a threshold at 0.74 admits nine of ten and rejects all
+//     nine — with ~0.037 of headroom on each side, which is the whole reason
+//     it sits between the two rather than just above the negatives.
+//   * MARGIN (top-1 minus top-2) fails DIFFERENTLY, and that is why it is not
+//     redundant: a near-identical reprint of the same art depresses the margin
+//     while similarity stays high. That is the case where two candidates are
+//     both "right" about the picture and the PRINTING is the open question —
+//     precisely the state the ruling says must be handed to the reader rather
+//     than resolved by the machine. It also independently rejects all nine
+//     negatives here (their margins top out at 0.0181, against 0.02).
+//
+// THE THRESHOLDS ARE SET TO THE MIDPOINT OF THE GAP, NOT TO THE EDGE OF IT.
+// A cut placed 0.0001 above the strongest negative scores perfectly on this
+// sample and is fitted to it. The gap's width is the only thing here that
+// predicts whether the calibration survives the real 23,546-row catalogue, and
+// the 2,608 -> 6,464 expansion showed how fast a narrow one closes: the
+// checkpoint that separated PERFECTLY at 2,608 (`vitamin_small`, weakest true
+// 0.7659 vs strongest impossible 0.7533) stopped separating at 6,464, where its
+// strongest impossible reached 0.8056. This checkpoint's numbers did not move
+// AT ALL between the two galleries, which is why it is the one shipping.
+//
+// Requiring both knobs is therefore not belt-and-braces, it is the two failure
+// modes. The band between them is what `uncertain` is for: a top candidate
+// worth showing, labelled as not confirmed, which the verify UI must treat as a
 // question and not as an answer.
 
 import { EMBED_MODEL_ID } from './input-spec.js'
@@ -76,17 +96,22 @@ export interface EmbedThresholds {
  * shipping a gate calibrated for a different model.
  */
 export const THRESHOLDS: Readonly<Record<string, EmbedThresholds>> = {
-  // Measured 2026-09-04 on the 19-frame corpus. The gap between the weakest
-  // true match (0.7659) and the strongest impossible top-1 (0.7533) is where
-  // simMin sits; marginMin sits above the largest impossible margin (0.0222)
-  // and below the second-smallest true margin (0.0884).
-  'vitamin-small-datacomp1b': { simMin: 0.76, marginMin: 0.05, simFloor: 0.55 },
-  // The fallback checkpoint, same corpus: true matches 0.7015-0.9058,
-  // impossible top-1s 0.5842-0.7512, so its usable gap is much narrower and its
-  // weakest true match sits BELOW the strongest impossible one. It buys a
-  // smaller download with a worse confidence gate, and that trade is the reason
-  // both sets of numbers are written down instead of one.
-  'tinyclip-vit-m32-laion400m': { simMin: 0.755, marginMin: 0.04, simFloor: 0.55 },
+  // SHIPPED. 19-frame corpus, 6,464-card gallery, 2026-09-04.
+  //   true matches      0.6787 .. 0.8545   margins 0.0107 .. 0.1474
+  //   impossible top-1s 0.6102 .. 0.7028   margins 0.0024 .. 0.0181
+  // simMin 0.74 is the midpoint of (0.7028, 0.7759) — the strongest negative
+  // and the weakest true match above it. marginMin 0.02 sits just above every
+  // negative's margin and below every accepted true one. Result: 9 of 10 true
+  // matches accepted, 0 of 9 negatives.
+  'clip-vit-b32-openai': { simMin: 0.74, marginMin: 0.02, simFloor: 0.55 },
+  // The pre-measured smaller alternative, same corpus and gallery: true matches
+  // 0.7015-0.9058, impossible top-1s 0.5842-0.7512, so simMin is the midpoint
+  // of (0.7512, 0.8197) and marginMin of (0.0291, 0.0462). Same 9-of-10 at zero
+  // false accepts, with 0.0685 of similarity headroom against the shipped
+  // checkpoint's 0.0731 — 6% less margin for a 62 MB int8 download instead of
+  // 88 MB. Written down rather than recomputed later, so the device probe can
+  // switch to it on one line plus a migration.
+  'tinyclip-vit-betwixt32-laion400m': { simMin: 0.785, marginMin: 0.035, simFloor: 0.55 },
 }
 
 export type IdentityLevel = 'confident' | 'uncertain' | 'none'

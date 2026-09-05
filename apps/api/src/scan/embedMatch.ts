@@ -18,7 +18,7 @@ import { cardImages, q, type CardImages } from '../db.js'
  * ── WHAT THE CLIENT SENDS, AND WHY IT IS NOT AN IMAGE ────────────────────────
  *
  * The model runs on the phone (owner ruling, 2026-09-04: identity is an
- * on-device embedding). So this endpoint receives a 384-float vector, not a
+ * on-device embedding). So this endpoint receives a 768-float vector, not a
  * JPEG — which is also the privacy shape the flywheel ruling asks for: the
  * server never has to hold the photograph in order to answer.
  *
@@ -96,6 +96,19 @@ export const pgNeighbours: NeighbourSource = async (embedding, stamp, k) => {
   // The LEFT JOINs and the `sz` row exist for the reason they do in
   // `rankMatches`: an unembedded catalogue must come back as "index is empty"
   // rather than as an empty result set that looks like "no card matched".
+  //
+  // 🔴 THE STAMP IS A PARAMETER AND THE INDEX IS PARTIAL ON A LITERAL, which
+  // only works because of how this query is sent. 048's HNSW index carries
+  // `WHERE stamp = 'e1:…' AND quality = 'low'`, and the planner can only use a
+  // partial index when it can PROVE the query's predicate implies the index's —
+  // which `stamp = $2` does not, unless the planner knows what `$2` is. It does
+  // here: node-pg's `query(text, values)` uses an UNNAMED prepared statement,
+  // and PostgreSQL plans those with the supplied values every time (custom
+  // plan). Generic plans, which would lose this, are only reached by a NAMED
+  // prepared statement after five executions. So: do not "optimise" this into
+  // a named/prepared statement without re-checking `EXPLAIN` — the symptom
+  // would be a silent fall back to a sequential scan over every vector, not an
+  // error.
   const sql = `
     WITH sz AS (
       SELECT count(*)::text AS n FROM card_embedding WHERE stamp = $2 AND quality = 'low'

@@ -78,7 +78,7 @@ test('parseEmbedding accepts a well-formed unit vector', () => {
 test('parseEmbedding rejects the wrong width before Postgres has to', () => {
   // A wrong-width array reaches pgvector as a cast error naming neither the
   // field nor the expected size, three layers from the client that sent it.
-  assert.throws(() => parseEmbedding(new Array(128).fill(0)), /must have 384 components, got 128/);
+  assert.throws(() => parseEmbedding(new Array(128).fill(0)), /must have 768 components, got 128/);
   assert.throws(() => parseEmbedding('nope'), /must be an array/);
 });
 

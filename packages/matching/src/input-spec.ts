@@ -114,15 +114,21 @@ export const EMBED_STD: readonly [number, number, number] = [0.26862954, 0.26130
  *  stamp, because a vector from another checkpoint is not comparable even at
  *  the same spec version. Slug, not a file path: the ONNX asset can be renamed
  *  or re-quantised without invalidating a catalog. */
-export const EMBED_MODEL_ID = 'vitamin-small-datacomp1b'
+export const EMBED_MODEL_ID = 'clip-vit-b32-openai'
 
 /** Dimensionality of the produced embedding. Migration 048 declares
- *  `vector(384)` against this number and cites it; `__tests__/confidence.test.ts`
+ *  `vector(768)` against this number and cites it; `__tests__/confidence.test.ts`
  *  is where a change to one without the other stops being quiet. A checkpoint
  *  with a different width is a new column type, a new migration, and a full
  *  re-embed — which is the honest cost, since it is also a different vector
- *  space in which none of the old rows mean anything. */
-export const EMBED_DIM = 384
+ *  space in which none of the old rows mean anything.
+ *
+ *  There is also a hard ceiling worth knowing before a future model is chosen:
+ *  pgvector's HNSW and IVFFlat indexes both cap at 2,000 dimensions. That is
+ *  what disqualified `resnet50_clip.openai` (2,048) from the 2026-09-04
+ *  bakeoff despite a competitive score — an unindexable column means a
+ *  sequential scan over every vector on every scan, on serverless. */
+export const EMBED_DIM = 768
 
 /** A plain RGBA image, in the shape every producer already has: a rectified
  *  card from `rectify.ts`, an `ImageData`, or a decoded catalog webp. */
