@@ -1058,7 +1058,15 @@ export interface BillingState {
    * and the same mode. See apps/api/src/billing/stripe.ts.
    */
   publishableKey: string | null
+  /**
+   * The one-tap amounts, in cents. NOT a constant: which ladder you get is the
+   * $1 experiment's arm, decided server-side and sticky per account
+   * (migration 055). Render what arrives; never hard-code a ladder here, or the
+   * control and the copy can disagree about what was offered.
+   */
   presetsCents: number[]
+  /** Which arm, for support tickets and debugging. Never sent back up. */
+  abVariant: 'with_1' | 'without_1' | null
   minCents: number
   maxCents: number
   support: {
@@ -1477,6 +1485,14 @@ export const api = {
   billingVisit: () => send<BillingState>('POST', '/me/billing/visit'),
   /** Stamp "we asked" -- on dismissal as much as on an answer. */
   ackSupportPrompt: (kind: SupportPromptKind) => send<BillingState>('POST', '/me/billing/prompt-ack', { kind }),
+  /**
+   * The ask was displayed. This is the experiment's denominator -- without it
+   * there is no conversion rate, only a count of people who said yes. Fired
+   * when the modal actually mounts, not when the state is fetched: most loads
+   * show no modal at all.
+   */
+  supportPromptShown: (context: string) =>
+    send<{ recorded: boolean }>('POST', '/me/billing/prompt-shown', { context }),
   /** A SetupIntent for the Payment Element. The secret reaches the browser by design. */
   billingSetupIntent: () =>
     send<{ clientSecret: string; publishableKey: string; mode: string }>('POST', '/me/billing/setup-intent'),
@@ -1485,10 +1501,13 @@ export const api = {
    * where a card was just entered; the server validates it against the customer
    * it resolved from the session before doing anything with it.
    */
-  setSupport: (amountCents: number, setupIntentId?: string) =>
+  setSupport: (amountCents: number, setupIntentId?: string, context?: string) =>
     send<BillingState>('PUT', '/me/billing/subscription', {
       amountCents,
       ...(setupIntentId ? { setupIntentId } : {}),
+      // Where the answer came from, so a $1 rung that works in the welcome flow
+      // and fails in the month-later check-in is visible rather than pooled.
+      ...(context ? { context } : {}),
     }),
   /** Re-read Stripe after an authentication challenge completed in the browser. */
   refreshBilling: () => send<BillingState>('POST', '/me/billing/refresh'),

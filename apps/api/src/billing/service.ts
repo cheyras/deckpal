@@ -173,17 +173,29 @@ export async function pullState(stripe: Stripe, customerId: string): Promise<Str
  * bank collect the strong-authentication challenge NOW — while they are looking
  * at the page and expecting it — instead of failing a renewal in three weeks.
  *
- * `payment_method_types: ['card']` rather than automatic methods. Apple Pay and
- * Google Pay still appear in the Payment Element on devices that have them,
- * because they are card-backed; what is excluded is the long tail of bank-debit
- * and voucher methods, several of which cannot be charged off-session at all
- * and would produce a subscription that silently never renews.
+ * ── WHY `automatic_payment_methods` RATHER THAN `['card']` ───────────────────
+ *
+ * It used to pin `payment_method_types: ['card']`, on the reasoning that Apple
+ * Pay and Google Pay would still show because they are card-backed. That was
+ * wrong, and the owner caught it: pinning the list turns the Payment Element
+ * into a bare card form. Wallets and Link are separate payment method types and
+ * an explicit list excludes them.
+ *
+ * With automatic methods Stripe offers what is (a) enabled on the account,
+ * (b) supported by the device, and (c) — because `usage: 'off_session'` is set
+ * — chargeable again later without the reader present. That third filter is
+ * what makes this safe: the bank-debit and voucher methods that cannot be
+ * charged off-session are excluded by Stripe rather than by us, so a
+ * subscription that silently never renews is unrepresentable.
+ *
+ * Apple Pay additionally needs the domain registered with Stripe. That is a
+ * one-off per domain and is done with the CLI, not from here.
  */
 export function createSetupIntent(stripe: Stripe, customerId: string): Promise<Stripe.SetupIntent> {
   return stripe.setupIntents.create({
     customer: customerId,
     usage: 'off_session',
-    payment_method_types: ['card'],
+    automatic_payment_methods: { enabled: true },
     metadata: { [SUPPORT_METADATA_KEY]: 'true' },
   });
 }
@@ -274,13 +286,69 @@ export async function setSupport(
     expand: ['latest_invoice.confirmation_secret'],
   });
 
-  const invoice = created.latest_invoice;
-  const secret =
-    invoice && typeof invoice !== 'string' ? (invoice.confirmation_secret?.client_secret ?? null) : null;
-  // Only surface the secret when the subscription actually needs it. A paid
-  // first invoice still carries one, and handing it to the client would make
-  // the browser open a confirmation modal for a charge that already succeeded.
-  return { clientSecret: created.status === 'incomplete' ? secret : null };
+  if (created.status !== 'incomplete') return { clientSecret: null };
+  return finishFirstPayment(stripe, created);
+}
+
+/**
+ * Charge the first invoice of a subscription that was created
+ * `default_incomplete`, and say whether the bank wants a word.
+ *
+ * ── THE BUG THIS FUNCTION IS ─────────────────────────────────────────────────
+ *
+ * This used to hand `latest_invoice.confirmation_secret` straight to the
+ * browser whenever the subscription came back `incomplete`, and the client
+ * called `stripe.handleNextAction()` on it. Reported from a real run:
+ *
+ *   handleNextAction: The PaymentIntent supplied is not in the
+ *   requires_action state.
+ *
+ * `default_incomplete` means Stripe finalises the invoice and creates a
+ * PaymentIntent but DOES NOT CONFIRM IT. So the intent sits in
+ * `requires_confirmation`, and `incomplete` means "nobody has tried to pay
+ * this yet" — not "the bank is asking a question". `handleNextAction` only
+ * advances an intent that is already in `requires_action`; on anything else it
+ * refuses, which is exactly what it did.
+ *
+ * Confirming is the server's job here, not the browser's, because the card was
+ * already collected and authenticated by a SetupIntent with `usage:
+ * 'off_session'` — there is a mandate, so the charge can simply be made. Only
+ * when the issuer insists on stepping up anyway does the browser get involved,
+ * and by then the intent really IS in `requires_action` and
+ * `handleNextAction` is the right call.
+ */
+async function finishFirstPayment(stripe: Stripe, sub: Stripe.Subscription): Promise<SetSupportResult> {
+  const invoice = sub.latest_invoice;
+  const secret = invoice && typeof invoice !== 'string' ? (invoice.confirmation_secret?.client_secret ?? null) : null;
+  // A PaymentIntent's client secret is `<intent id>_secret_<opaque>`, so the id
+  // is the part in front. Deriving it here rather than expanding
+  // `latest_invoice.payments.data.payment.payment_intent` keeps this to one
+  // round trip and inside Stripe's four-level expansion limit.
+  const intentId = secret ? secret.split('_secret_')[0] : null;
+  if (!intentId || !intentId.startsWith('pi_')) {
+    // No payable intent (a 100%-discounted or zero-amount first invoice). The
+    // subscription is fine; there is simply nothing to confirm.
+    return { clientSecret: null };
+  }
+
+  try {
+    const current = await stripe.paymentIntents.retrieve(intentId);
+    const confirmed =
+      current.status === 'requires_confirmation' || current.status === 'requires_payment_method'
+        ? await stripe.paymentIntents.confirm(intentId, { off_session: true })
+        : current;
+    // The only state the browser can do anything about.
+    return { clientSecret: confirmed.status === 'requires_action' ? confirmed.client_secret : null };
+  } catch (err) {
+    // An off-session charge that needs the cardholder present comes back as a
+    // card error carrying the intent — that is not a failure, it is the
+    // step-up, and the secret on it is what completes the payment.
+    const intent = (err as { payment_intent?: Stripe.PaymentIntent })?.payment_intent;
+    if (intent?.status === 'requires_action' && intent.client_secret) {
+      return { clientSecret: intent.client_secret };
+    }
+    throw err;
+  }
 }
 
 /**

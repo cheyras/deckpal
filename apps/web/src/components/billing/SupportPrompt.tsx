@@ -116,9 +116,17 @@ export function SupportPrompt() {
         if (!alive) return
         setState(s)
         if (s.available && s.prompt.due) {
-          setKind(s.prompt.due)
+          const due = s.prompt.due
+          setKind(due)
           window.setTimeout(() => {
-            if (alive) setOpen(true)
+            if (!alive) return
+            setOpen(true)
+            // The exposure, recorded when the modal actually MOUNTS rather than
+            // when the state was fetched. Most loads show nothing; counting
+            // those as exposures would put an unknown amount of noise in the
+            // denominator of the $1 experiment. Fire-and-forget: analytics
+            // never blocks the thing being measured.
+            api.supportPromptShown(due).catch(() => { /* not worth a word */ })
           }, SETTLE_MS)
         }
       } catch {

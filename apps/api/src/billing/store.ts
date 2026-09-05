@@ -48,12 +48,70 @@ export interface BillingRow {
   last_visit_at: Date | string | null;
   prompt_last_shown_at: Date | string | null;
   onboarded_at: Date | string | null;
+  /** The $1 experiment's arm (migration 055). NULL = not yet assigned. */
+  ab_presets: 'with_1' | 'without_1' | null;
+}
+
+/**
+ * The preset ladders, and the experiment that chooses between them.
+ *
+ * The owner's question is whether a $1 rung raises revenue or just moves people
+ * down it. Both ladders are defined here, together, so the only difference
+ * between the arms is visible in one place: one rung.
+ *
+ * `$0` is first in both — that is the product, not the experiment, and it is
+ * not what is being tested.
+ */
+export const PRESET_LADDERS = {
+  with_1: [0, 100, 300, 500, 1000, 2500],
+  without_1: [0, 300, 500, 1000, 2500],
+} as const;
+
+/** The ladder for a row. An unassigned account gets the control. */
+export function presetsFor(row: BillingRow): number[] {
+  return [...PRESET_LADDERS[row.ab_presets ?? 'without_1']];
+}
+
+/** What happened to the ask. See migration 055 for why all three are recorded. */
+export type AbEventKind = 'shown' | 'chose' | 'dismissed';
+
+/**
+ * Record one experiment event. Fire-and-forget by design: analytics must never
+ * be the reason a payment fails, so a failure here is logged and swallowed.
+ *
+ * The ARM is not passed — `billing_record_ab_event` reads it from the caller's
+ * own row, so a client cannot label its event with an arm it was not in.
+ */
+export async function recordAbEvent(
+  userId: string,
+  kind: AbEventKind,
+  context: string,
+  amountCents?: number,
+): Promise<void> {
+  try {
+    if (SUPABASE_MODE) {
+      await q(`SELECT billing_record_ab_event($1, $2, $3)`, [kind, context, amountCents ?? null]);
+      return;
+    }
+    const row = await q1<{ ab_presets: string | null }>(
+      `SELECT ab_presets FROM billing_account WHERE user_id = $1`,
+      [userId],
+    );
+    if (!row?.ab_presets) return;
+    await q(
+      `INSERT INTO billing_ab_event (user_id, variant, kind, amount_cents, context)
+       VALUES ($1, $2, $3, $4, left($5, 40))`,
+      [userId, row.ab_presets, kind, amountCents ?? null, context],
+    );
+  } catch (e) {
+    console.warn('[deckpal-api] billing: could not record experiment event —', (e as Error).message);
+  }
 }
 
 const COLS = `user_id, stripe_customer_id, subscription_id, subscription_status, support_cents,
               currency, current_period_end, cancel_at_period_end, card_brand, card_last4,
               card_exp_month, card_exp_year, stripe_synced_at, visit_count, last_visit_at,
-              prompt_last_shown_at, onboarded_at`;
+              prompt_last_shown_at, onboarded_at, ab_presets`;
 
 /** The Stripe-truth half, as `billing_apply_stripe` takes it. Absent key = leave alone. */
 export interface StripePatch {
@@ -96,6 +154,15 @@ export async function touchVisit(userId: string): Promise<BillingRow> {
     throw new Error('billing_touch_visit() returned no row — is migration 054 applied?');
   }
   await ensureRow(userId);
+  // The arm, once and for ever — and OUTSIDE the six-hour branch below, or an
+  // account seen twice in an hour would keep a NULL arm while still being
+  // shown a ladder. Mirrors migration 056.
+  await q(
+    `UPDATE billing_account
+        SET ab_presets = COALESCE(ab_presets, CASE WHEN random() < 0.5 THEN 'with_1' ELSE 'without_1' END)
+      WHERE user_id = $1 AND ab_presets IS NULL`,
+    [userId],
+  );
   await q(
     `UPDATE billing_account
         SET visit_count = visit_count + 1, last_visit_at = now(), updated_at = now()

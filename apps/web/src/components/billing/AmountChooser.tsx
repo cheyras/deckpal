@@ -88,11 +88,16 @@ export function AmountChooser({
         Choose your monthly amount
       </div>
 
-      {/* Six columns from sm up, not five: the five presets plus Custom then sit
-          on ONE row. At five, Custom wrapped alone onto a second row and read as
-          a different KIND of thing from the presets, which is exactly the
-          hierarchy this control is trying not to have. */}
-      <div className="grid grid-cols-3 gap-[8px] sm:grid-cols-6">
+      {/* auto-fit, not a fixed column count. The ladder is 5 or 6 rungs
+          depending on the $1 experiment's arm, so a hard `sm:grid-cols-6`
+          would leave Custom stranded alone on a second row in one arm and not
+          the other — and a control that looks different between arms for a
+          reason that is NOT the thing being tested is a confounded experiment,
+          not just an ugly one. `minmax` keeps three across at 390px. */}
+      <div
+        className="grid gap-[8px]"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))' }}
+      >
         {presetsCents.map((cents) => {
           const selected = !customOpen && valueCents === cents
           return (

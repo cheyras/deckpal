@@ -29,7 +29,7 @@
  * reconstruction of what the server probably did. `onState` hands it upward and
  * the caller's cache is replaced wholesale.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Stripe } from '@stripe/stripe-js'
 import { api, type BillingState, type SupportPromptKind } from '../../lib/api'
 import { formatAmount, formatDate, stripeFor } from '../../lib/billing'
@@ -38,9 +38,44 @@ import { FormAlert } from '../ui/FormAlert'
 import { Icon } from '../Icon'
 import { AmountChooser } from './AmountChooser'
 import { CardForm } from './CardForm'
-import { TrustPoints } from './StripeTrust'
+import { PoweredByStripe, TrustPoints } from './StripeTrust'
 
 export type FlowContext = SupportPromptKind | 'settings'
+
+/**
+ * A failure, put where the person already is.
+ *
+ * ── WHY THIS IS NOT JUST `<FormAlert>` AT THE TOP ────────────────────────────
+ *
+ * It was, and the owner hit the consequence on a real run: a payment failed,
+ * two errors rendered above the amount picker, and *"these appeared out of
+ * sight — I had to scroll up in the modal to see them, so the UX was kind of
+ * confusing, no indicator that it hadn't gone through really."*
+ *
+ * That is the worst possible moment for silence. The sheet's body is its own
+ * scroll container (components/ui/Sheet.tsx), the button is at the bottom, and
+ * anything rendered at the top of a scrolled panel is simply not on screen. So
+ * this does two things a plain alert does not:
+ *
+ *   • it is rendered DIRECTLY ABOVE THE BUTTON that was just pressed, which is
+ *     where the eye already is, and
+ *   • it scrolls itself into view when the message changes, because "directly
+ *     above the button" is still off-screen if the panel is scrolled up.
+ *
+ * `block: 'nearest'` rather than 'center': it should bring the message into the
+ * panel, not yank the whole layout around somebody who could already see it.
+ */
+function FlowError({ children }: { children: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [children])
+  return (
+    <div ref={ref}>
+      <FormAlert kind="error">{children}</FormAlert>
+    </div>
+  )
+}
 
 export interface SupportFlowProps {
   state: BillingState
@@ -85,7 +120,7 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
     setBusy(true)
     setError(null)
     try {
-      let next = await api.setSupport(amount, setupIntentId)
+      let next = await api.setSupport(amount, setupIntentId, context)
       if (next.clientSecret) {
         const stripe = await stripePromise
         if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')
@@ -169,7 +204,7 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
             {formatAmount(amount)} a month, starting today. Enter your card below — it goes straight to Stripe.
           </p>
         )}
-        {error && <FormAlert kind="error">{error}</FormAlert>}
+        {error && <FlowError>{error}</FlowError>}
         <CardForm
           stripePromise={stripePromise}
           mode={state.mode}
@@ -192,8 +227,6 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
 
   return (
     <div>
-      {error && <FormAlert kind="error">{error}</FormAlert>}
-
       <AmountChooser
         presetsCents={state.presetsCents}
         valueCents={amount}
@@ -218,7 +251,24 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
         </p>
       )}
 
-      {context !== 'settings' && <TrustPoints className="mt-[18px]" />}
+      {context !== 'settings' && (
+        <>
+          <TrustPoints className="mt-[18px]" />
+          {/* The mark itself, on the ask — the owner's request, and the right
+              instinct: the three claims above are OURS, and a reader has no
+              reason to take our word for them. Stripe's badge is the part of
+              this block that is somebody else's reputation. */}
+          <div className="mt-[14px] flex items-center justify-center border-t border-divider-subtle pt-[14px]">
+            <PoweredByStripe height={24} />
+          </div>
+        </>
+      )}
+
+      {error && (
+        <div className="mt-[18px]">
+          <FlowError>{error}</FlowError>
+        </div>
+      )}
 
       <div className="mt-[20px] flex flex-col-reverse gap-[8px] sm:flex-row sm:items-center sm:justify-between">
         {onDismiss ? (
@@ -255,8 +305,10 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
         <p className="mt-[12px] text-center text-[12px] text-text-muted">
           {/* The honest version of "we won't nag": we will, monthly, and only
               while the amount is $0. Saying the cadence out loud is what makes
-              the dismissal feel like a decision rather than a deferral. */}
-          If you stay on $0 we&apos;ll check in again in about a month. That is the whole of it.
+              the dismissal feel like a decision rather than a deferral.
+              "That is the whole of it." used to follow — cut on the owner's
+              instruction; it was the sentence protesting too much. */}
+          If you stay on $0 we&apos;ll check in again in about a month.
         </p>
       )}
     </div>

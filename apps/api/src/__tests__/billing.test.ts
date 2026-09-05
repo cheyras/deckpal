@@ -18,6 +18,8 @@ import {
   PAYMENT_ISSUE_INTERVAL_DAYS,
   PROMPT_INTERVAL_DAYS,
   VISIT_THRESHOLD,
+  PRESET_LADDERS,
+  presetsFor,
   promptDue,
   type BillingRow,
 } from '../billing/store.js';
@@ -46,6 +48,7 @@ function row(over: Partial<BillingRow> = {}): BillingRow {
     last_visit_at: null,
     prompt_last_shown_at: null,
     onboarded_at: null,
+    ab_presets: 'without_1',
     ...over,
   };
 }
@@ -169,6 +172,38 @@ describe('promptDue — the backfilled existing account (migration 053)', () => 
     assert.equal(promptDue(backfilled, NOW), 'checkin');
   });
 });
+
+describe('the $1 experiment (migration 055)', () => {
+  test('the two ladders differ by exactly one rung, and it is $1', () => {
+    const withOne = PRESET_LADDERS.with_1
+    const without = PRESET_LADDERS.without_1
+    const extra = withOne.filter((c) => !(without as readonly number[]).includes(c))
+    assert.deepEqual(extra, [100], 'the arms must differ ONLY by the $1 rung, or the experiment measures two things at once')
+    assert.deepEqual([...without], withOne.filter((c) => c !== 100))
+  })
+
+  test('$0 is first in both arms — that is the product, not the experiment', () => {
+    assert.equal(PRESET_LADDERS.with_1[0], 0)
+    assert.equal(PRESET_LADDERS.without_1[0], 0)
+  })
+
+  test('an unassigned account gets the control ladder, never a crash', () => {
+    assert.deepEqual(presetsFor(row({ ab_presets: null })), [...PRESET_LADDERS.without_1])
+  })
+
+  test('each arm gets its own ladder', () => {
+    assert.deepEqual(presetsFor(row({ ab_presets: 'with_1' })), [...PRESET_LADDERS.with_1])
+    assert.deepEqual(presetsFor(row({ ab_presets: 'without_1' })), [...PRESET_LADDERS.without_1])
+  })
+
+  test('every offerable amount survives the server validator', () => {
+    // A ladder rung the API would reject is a button that 400s. $1 is the new
+    // one and is exactly at SUPPORT_MIN_CENTS, which is the edge worth pinning.
+    for (const cents of new Set([...PRESET_LADDERS.with_1, ...PRESET_LADDERS.without_1])) {
+      assert.equal(normalizeAmountCents(cents), cents, `ladder offers ${cents} but the server refuses it`)
+    }
+  })
+})
 
 describe('normalizeAmountCents', () => {
   test('zero is an answer, not a rejection', () => {

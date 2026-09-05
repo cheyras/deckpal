@@ -6,6 +6,11 @@
   "outputDirectory": "apps/web/dist",
   "redirects": [
     {
+      "source": "/.well-known/apple-developer-merchantid-domain-association",
+      "destination": "https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association",
+      "permanent": false
+    },
+    {
       "source": "/:path((?!mcp(?:/|$)|api(?:/|$)|register$|token$|\\.well-known/).*)",
       "has": [
         {

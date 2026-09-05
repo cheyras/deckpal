@@ -39,24 +39,33 @@ import {
   stripeMode,
 } from '../billing/stripe.js';
 import { adoptSetupIntent, createSetupIntent, ensureCustomer, portalSession, pullState, setSupport } from '../billing/service.js';
-import { ackPrompt, applyStripe, promptDue, readRow, touchVisit, type BillingRow } from '../billing/store.js';
+import {
+  ackPrompt,
+  applyStripe,
+  presetsFor,
+  promptDue,
+  readRow,
+  recordAbEvent,
+  touchVisit,
+  type BillingRow,
+} from '../billing/store.js';
 
 export const billingRouter: Router = Router();
 
 /**
- * The amounts offered as one-tap choices, in cents.
+ * The ladder is not a constant any more — it is the account's experiment arm
+ * (`PRESET_LADDERS` in billing/store.ts, migration 055). It still comes from
+ * the SERVER rather than the client, for the same reason it always did: the
+ * copy and the validation must not be able to disagree about what is
+ * offerable, and now also because the arm decides what gets measured.
  *
- * $0 is FIRST and is a preset like any other, not a "no thanks" link tucked
- * under the buttons. That placement is the product: a pay-what-you-want tier
- * where declining is visibly a smaller, greyer, harder-to-find option is not
- * pay-what-you-want, it is a dark pattern with a generous story attached.
- *
- * The rest are the conventional anchors, and $5 is marked as "most common"
- * rather than "recommended" — a description of what people do, not an
- * instruction. The list lives on the server so the copy and the validation can
- * never disagree about what is offerable.
+ * $0 is FIRST in both ladders and is a preset like any other, not a "no thanks"
+ * link tucked under the buttons. That placement is the product, not the
+ * experiment: a pay-what-you-want tier where declining is visibly a smaller,
+ * greyer, harder-to-find option is a dark pattern with a generous story
+ * attached. $5 is marked "most common" rather than "recommended" — a
+ * description of what people do, not an instruction.
  */
-const PRESETS_CENTS = [0, 300, 500, 1000, 2500] as const;
 
 function iso(v: Date | string | null): string | null {
   if (v === null) return null;
@@ -73,7 +82,12 @@ function shape(row: BillingRow, extra: { clientSecret?: string | null } = {}) {
     available: true,
     mode: stripeMode(),
     publishableKey: publishableKey(),
-    presetsCents: [...PRESETS_CENTS],
+    presetsCents: presetsFor(row),
+    // Named so the browser can render it in a debug view and so a support
+    // ticket can say which ladder somebody saw. It is NOT what the experiment
+    // is measured from — that comes off `billing_ab_event`, stamped
+    // server-side.
+    abVariant: row.ab_presets,
     minCents: SUPPORT_MIN_CENTS,
     maxCents: SUPPORT_MAX_CENTS,
     support: {
@@ -110,6 +124,7 @@ const UNAVAILABLE = {
   mode: 'unknown' as const,
   publishableKey: null,
   presetsCents: [] as number[],
+  abVariant: null,
   minCents: SUPPORT_MIN_CENTS,
   maxCents: SUPPORT_MAX_CENTS,
   support: { cents: 0, currency: 'USD', status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false },
@@ -202,7 +217,37 @@ billingRouter.post(
     if (kind !== 'onboarding' && kind !== 'checkin' && kind !== 'payment_issue') {
       throw badRequest("kind must be one of: onboarding|checkin|payment_issue");
     }
+    // Closed without answering. Recorded BEFORE the ack so the two cannot
+    // disagree about whether the ask happened, and awaited rather than fired
+    // and forgotten so the row exists before the client re-reads state.
+    await recordAbEvent(userId, 'dismissed', kind);
     res.json(shape(await ackPrompt(userId, kind === 'onboarding')));
+  }),
+);
+
+/**
+ * The ask was put in front of somebody. This is the experiment's DENOMINATOR:
+ * without it there is no conversion rate, only a count of people who said yes.
+ *
+ * A separate endpoint rather than a flag on `/visit`, because a visit is not an
+ * exposure — most visits show no modal at all, and counting them as exposures
+ * would understate both arms by roughly the same amount and the difference by
+ * an unknown one.
+ *
+ * The arm is read server-side inside `billing_record_ab_event`, so the only
+ * thing the client is trusted with is WHERE the ask appeared.
+ */
+billingRouter.post(
+  '/prompt-shown',
+  asyncHandler(async (req, res) => {
+    const userId = currentUserId(req);
+    if (!billingAvailable()) {
+      res.json({ recorded: false });
+      return;
+    }
+    const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'unknown';
+    await recordAbEvent(userId, 'shown', context);
+    res.json({ recorded: true });
   }),
 );
 
@@ -251,6 +296,11 @@ billingRouter.put(
 
       const { clientSecret } = await setSupport(stripe, customerId, amountCents);
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
+      // The outcome, INCLUDING zero. "They engaged and picked nothing" is a
+      // different result from walking away, and collapsing the two would
+      // flatter every conversion number this experiment produces.
+      const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+      await recordAbEvent(userId, 'chose', context, amountCents);
       // Asking is now settled however this went: they answered the question.
       const acked = await ackPrompt(userId, fresh.onboarded_at === null);
       res.json(shape(acked, { clientSecret }));

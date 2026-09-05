@@ -20,18 +20,59 @@
  *     any moment, and $0 is a preset rather than a hidden link. There is no
  *     minimum term anywhere in this code.
  *
- * ── NO STRIPE LOGO ARTWORK ───────────────────────────────────────────────────
+ * ── THE STRIPE MARK: THE REAL ONE OR NONE ────────────────────────────────────
  *
- * "Powered by Stripe" is set in this app's own type rather than as Stripe's
- * wordmark, and card brands are shown as their names rather than their marks.
+ * The owner asked for the actual "Powered by Stripe" badge rather than the
+ * words set in our own type. Both halves of that are honoured here, and the
+ * second half is the one with teeth: this file will render Stripe's official
+ * artwork from `public/brand/powered-by-stripe.svg`, and if that file is not
+ * there it falls back to the text treatment. It does NOT draw an approximation.
+ *
  * Redrawing a trademarked logo from scratch to avoid shipping the asset is
- * worse than not using it: it is still the mark, only badly. Stripe's brand
- * guidelines explicitly permit the plain-text attribution, which is also what
- * the ENERGY-ICONS-NOTICE convention in this repo would demand of any other
- * third-party mark.
+ * worse than not using it: it is still the mark, only badly, and it is the sort
+ * of thing that ends up in front of a brand lawyer. Same rule the repo already
+ * applies to third-party marks (see components/ENERGY-ICONS-NOTICE.md).
+ *
+ * Card brands stay as names rather than logos for exactly the same reason —
+ * "Visa" is a word, the Visa logo is an asset we do not have a licence to
+ * redraw.
  */
+import { useState } from 'react'
 import { Icon, type IconName } from '../Icon'
 import { brandLabel } from '../../lib/billing'
+
+/** Where the official SVG lives once it has been added. See the header. */
+const STRIPE_MARK = `${import.meta.env.BASE_URL}brand/powered-by-stripe.svg`
+
+/**
+ * Stripe's official "Powered by Stripe" badge.
+ *
+ * `onError` is load-bearing rather than defensive: until the asset is dropped
+ * in, the image 404s and we show the words instead of a broken-image icon. A
+ * missing logo must never be a visible defect on a payment surface — a page
+ * that looks half-built is a page people do not put a card into.
+ */
+export function PoweredByStripe({ height = 26, className = '' }: { height?: number; className?: string }) {
+  const [failed, setFailed] = useState(false)
+
+  if (failed) {
+    return (
+      <span className={`text-[13px] font-semibold tracking-tight text-text-secondary ${className}`}>
+        Powered by <span className="text-text-primary">Stripe</span>
+      </span>
+    )
+  }
+  return (
+    <img
+      src={STRIPE_MARK}
+      alt="Powered by Stripe"
+      height={height}
+      style={{ height, width: 'auto' }}
+      className={className}
+      onError={() => setFailed(true)}
+    />
+  )
+}
 
 /**
  * The line that goes directly under a card field. Small, quiet, and the last
