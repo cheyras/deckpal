@@ -417,6 +417,102 @@ primary variant, exactly as the list bulk-add does) or `null` for an empty
 slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
 shape.
 
+## Billing — the pay-what-you-want tier
+
+Cloud only, and only when Stripe is configured (`billingGate: "configured"` on
+`/health`). Every endpoint answers the same shape; on a deployment with no
+Stripe that shape is `{ "available": false, … }` rather than an error, because
+"is there a billing tier here" is a legitimate question with a legitimate
+negative answer.
+
+**The browser is trusted with exactly one number.** It sends an `amountCents`
+and, once per card, a `setupIntentId`. It never sends a customer id, a
+subscription id, a price, a payment-method id or a status — those are resolved
+server-side from the authenticated user, and the two ids that do arrive are
+validated against this account's Stripe customer before anything is done with
+them. `billing_account` is SELECT-only to `authenticated` (migration 054), so
+the row that holds the customer id is not writable through PostgREST either.
+
+**No card data is stored or transits this API.** The card is typed into
+Stripe's own cross-origin iframe (Payment Element); DeckPal receives a brand,
+four digits and an expiry, which is what these responses carry.
+
+The common shape:
+
+```json
+{ "available": true, "mode": "test", "publishableKey": "pk_test_…",
+  "presetsCents": [0, 300, 500, 1000, 2500], "minCents": 100, "maxCents": 50000,
+  "support": { "cents": 500, "currency": "USD", "status": "active",
+               "currentPeriodEnd": "2026-10-05T12:00:00.000Z",
+               "cancelAtPeriodEnd": false },
+  "card": { "brand": "visa", "last4": "4242", "expMonth": 9, "expYear": 2028 },
+  "prompt": { "due": null } }
+```
+
+`prompt.due` is `onboarding` | `checkin` | `payment_issue` | `null`, decided
+server-side from a row the browser cannot edit (`promptDue()` in
+`apps/api/src/billing/store.ts`). There is no client-side "have I shown this"
+flag: clearing site data must not restart the cadence, and signing in on a
+second device must not re-ask a question already answered.
+
+### GET /deckpal/api/me/billing
+The shape above. Pure read — no visit is counted.
+
+### POST /deckpal/api/me/billing/visit
+The same body, and counts a session. A POST *because* it has a side effect: a
+GET that counts gets fired by anything that prefetches, and this counter decides
+when somebody is asked for money. At most one count per six hours, enforced in
+SQL, so a reload or a second tab is free. The app calls this once per page load.
+
+### POST /deckpal/api/me/billing/prompt-ack
+`{ "kind": "onboarding" | "checkin" | "payment_issue" }` — records that the ask
+was PUT, on dismissal as much as on an answer, which is what makes a "not right
+now" buy the same full month of quiet a "yes" does. Returns the common shape.
+
+### POST /deckpal/api/me/billing/setup-intent
+`{ "clientSecret": "seti_…_secret_…", "publishableKey": "pk_…", "mode": "test" }`
+— a Stripe SetupIntent for the Payment Element, created against this account's
+customer (made on first use). `usage: off_session`, so the bank collects any
+strong-authentication challenge while the reader is looking at the page rather
+than failing a renewal three weeks later.
+
+### PUT /deckpal/api/me/billing/subscription
+`{ "amountCents": 500, "setupIntentId": "seti_…" }` — `setupIntentId` only on
+the leg where a card was just entered. Whole dollars; `0` is valid and means
+"stop", which cancels at the period end rather than immediately (they have paid
+for the month they are in). An amount change uses `proration_behavior: none`, so
+it takes effect on the next billing date and nothing is charged or refunded
+today. Below `minCents`, not a multiple of 100, above `maxCents`, or missing →
+`400` with a message written for a person. A declined card → `400` carrying
+Stripe's own decline copy.
+
+Returns the common shape, plus `clientSecret` when the bank wants the first
+charge authenticated — the subscription exists as `incomplete` and confirming
+that secret in the browser completes it. Ignoring it charges nobody anything;
+Stripe expires the subscription within a day.
+
+### POST /deckpal/api/me/billing/refresh
+Re-reads Stripe and returns the common shape. Called after an authentication
+challenge completed in the browser, where the subscription went from
+`incomplete` to `active` without any request reaching this server.
+
+### POST /deckpal/api/me/billing/portal
+`{ "url": "https://billing.stripe.com/…" }` — a Stripe-hosted billing portal
+session for invoices, receipts and card management. The return URL is built
+server-side and never taken from the request. `400` when there is nothing to
+manage yet, and a `400` naming the missing dashboard configuration when the
+portal has never been set up for the Stripe account.
+
+### POST /api/stripe/webhook
+**Not part of the `/api` router.** Mounted on the bare app ahead of the JSON
+parser, because signature verification hashes the exact bytes Stripe sent, and
+outside the RLS middleware, because a Stripe delivery carries no session.
+Authenticated solely by the `Stripe-Signature` header; `503` when
+`STRIPE_WEBHOOK_SECRET` is unset (never a fallback to trusting the body), `400`
+on a bad signature. Every handler is a full re-sync from Stripe rather than a
+delta, so out-of-order delivery is harmless and a missed event repairs itself on
+the next one; `billing_event` makes a replay a no-op.
+
 ## Collection — mutation & activity log
 
 The only writers against `collection_item`. Each mutation runs in

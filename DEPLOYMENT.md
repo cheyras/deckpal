@@ -221,6 +221,67 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_MESSAGE` | set by Vercel | **Not set by hand — but the feature that reads them can be switched off by accident.** Deck-E's transcript history stamps every turn with the build that served it, so *"did this get worse, and when"* is a query rather than a guess. The PR number is parsed from the squash-merge subject (`Title (#78)`) and the sha is the commit. Both arrive as ordinary runtime environment variables **only while the project's "Automatically expose System Environment Variables" setting is ON** (Vercel → Project → Settings → Environment Variables). Turn it off and every new turn records `buildPr: null, buildSha: null` — silently, and indistinguishably from a run of preview deploys, which is the failure this row exists to make findable. Nothing else depends on them; the history keeps working and simply stops being correlatable. Verified live: a turn recorded on a preview came back stamped with the deploying commit. |
 | `DECKE_CREDITS_ENABLED` | unset (default) | **Switches Deck-E from the daily two-counter meter to a single credit balance.** Unset or anything other than the exact string `true` keeps `decke_usage` (migration 039) and changes nothing. Set to `true` and every turn and every deep call spends from `decke_credit_balance` (migrations 041/042) instead, with a HARD STOP at zero — the owner's call: *"I can use him while I have credits. If I'm out, I can't use him."* **Do not set this before granting balances.** 041 creates every balance at `0`, so switching it on first makes Deck-E unavailable to every account at once, the owner's included. The order is: run the migrations, grant balances, then set the flag. 039's tables are left in place so the flag is reversible. Prices live in `apps/api/src/decke/credits.ts`, derived from measured per-call cost via `CREDIT_USD` — the retail price of a top-up is a separate decision and is not encoded anywhere yet. |
 
+| `STRIPE_SECRET_KEY` | `sk_live_…` / `sk_test_…` | **The pay-what-you-want tier's credential. Unset = the tier is OFF, and safely so.** `GET /me/billing` answers `available: false`, the profile card renders nothing, and the support prompt never appears — a deployment without this is simply a deployment that does not take money, which is a real intended configuration (self-host, previews). What is NOT safe is having this and not the other three: see `STRIPE_WEBHOOK_SECRET`. The API warns on boot and `GET /health` reports `billingGate` as `configured` / `partial` / `unset` / `self-host`, plus `stripeMode` (`test` / `live` / `unknown`, read off the key's PREFIX — never the key). Start with `sk_test_` and a test card (`4242 4242 4242 4242`); the UI shows a "Test mode — no real charge" badge whenever the mode is `test`, so the state is visible on the page rather than only in this table. |
+| `STRIPE_PUBLISHABLE_KEY` | `pk_live_…` / `pk_test_…` | **Public by design** — it identifies the account to Stripe.js and can do nothing on its own. Served to the browser at RUNTIME from `GET /me/billing`, deliberately not baked into the bundle: a build-time publishable key and a runtime secret key are independently settable, and the failure of them disagreeing is a LIVE key in the browser talking to a TEST key on the server, which presents to the reader as "my card was declined for no reason". Serving both halves from the same process makes that unreachable. **Must be from the same Stripe account and the same mode as `STRIPE_SECRET_KEY`.** `VITE_STRIPE_PUBLISHABLE_KEY` is accepted as an alias. |
+| `STRIPE_SUPPORT_PRODUCT_ID` | `prod_…` | **The one Stripe Product every supporter is billed against.** Create it once in the Stripe dashboard (Product catalog → Add product; name it something a cardholder will recognise on a statement, e.g. "DeckPal Support"; no price is needed — the amount is generated per subscription). There is no Price object because there is no price: the amount is inline `price_data` on the subscription item, so each invoice reads "DeckPal Support $5.00/month" and the dashboard still groups every supporter under one product. Unset means billing is off exactly as an unset secret key does. **A test-mode product id is not valid in live mode** — create one in each. |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_…` | **The webhook's ONLY authentication, and the one whose absence is dangerous rather than safe.** `POST /api/stripe/webhook` is public by necessity (Stripe holds no session), so the signature check *is* the access control on the endpoint that decides which accounts are recorded as paying — unset, the route answers `503` and processes nothing rather than trusting the body. That fails safe for the endpoint and UNSAFE for the product: a deployment with a secret key and no webhook secret takes cards and creates subscriptions happily, and then never hears about a renewal, a failure or a cancellation again. `/health` calls that state `partial` and the API warns about it by name on boot. Get the value from Stripe → Developers → Webhooks → add endpoint `https://deckpal.app/api/stripe/webhook`, subscribing to `customer.subscription.*`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `payment_method.*`, `setup_intent.succeeded`, `customer.updated`, `customer.deleted`. **Test and live modes have different signing secrets.** |
+| `PUBLIC_APP_ORIGIN` | unset (default) | Optional. The origin Stripe's billing portal returns the reader to. Unset, the API derives it from the request (`https://deckpal.app`), which is right for every ordinary deployment; set it only behind a proxy that rewrites `Host`. The client never supplies it — a return URL taken from a request body is an open redirect with a Stripe-branded page in front of it. |
+
+### Turning the pay-what-you-want tier on
+
+Nothing in DeckPal is gated on payment — there is no entitlement column and no
+locked feature — so switching this on adds a way to give money and changes
+nothing else. It is off until all four `STRIPE_*` variables above are set.
+
+**Do the whole of this in TEST mode first.** Every step below has a test-mode
+twin, the app shows a "Test mode — no real charge" badge whenever the secret
+key starts `sk_test_`, and `4242 4242 4242 4242` with any future expiry and any
+CVC is a card that works.
+
+```
+1. Stripe dashboard → Product catalog → Add product
+   Name: "DeckPal Support"   (this is what a cardholder sees on a statement)
+   No price needed — the amount is per-subscription inline price_data.
+   → copy the prod_… id into STRIPE_SUPPORT_PRODUCT_ID
+
+2. Developers → API keys
+   → sk_…  into STRIPE_SECRET_KEY
+   → pk_…  into STRIPE_PUBLISHABLE_KEY
+
+3. Developers → Webhooks → Add endpoint
+   URL:    https://deckpal.app/api/stripe/webhook
+   Events: customer.subscription.created / .updated / .deleted / .paused /
+           .resumed, invoice.paid, invoice.payment_failed,
+           invoice.payment_action_required, payment_method.attached /
+           .detached / .updated / .automatically_updated,
+           setup_intent.succeeded, customer.updated, customer.deleted
+   → copy the whsec_… signing secret into STRIPE_WEBHOOK_SECRET
+
+4. Settings → Billing → Customer portal → Save
+   Without this one save, "Open billing portal" on the profile page returns a
+   clear 400 naming the missing configuration rather than a generic failure.
+   Turn ON: update payment method, view invoice history.
+   Turn OFF: "cancel subscription" is fine to leave on, but cancelling in the
+   app is one tap on the $0 preset and never requires leaving it.
+
+5. Apply the migrations (053 + 054) BEFORE the deploy that reads them.
+   054 is @supabase-only and carries the RLS, the three SECURITY DEFINER
+   write functions, and the REVOKEs that undo Supabase's default table grants.
+
+6. Verify from outside, not from the code:
+     curl -s https://deckpal.app/api/health | jq '{billingGate, stripeMode}'
+   → {"billingGate":"configured","stripeMode":"test"}
+   Anything else — especially "partial" — means a variable did not arrive.
+```
+
+**The migration backfills existing accounts on purpose.** 053 seeds every
+`app_user` that already exists at `visit_count = 3` with `onboarded_at` stamped,
+which makes the check-in due on their next visit and makes sure they get the
+check-in copy rather than a welcome flow addressed to somebody who arrived ten
+seconds ago. That is the intended behaviour, it happens the first time these
+migrations run in production, and it is the one part of this that cannot be
+rehearsed in test mode against real accounts.
+
 ### Static asset caching (`vercel.json` → `headers`)
 
 Vercel serves every static file as `public, max-age=0, must-revalidate` by

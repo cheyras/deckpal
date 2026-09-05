@@ -345,6 +345,82 @@ proxy is the sole ingress point.
 4. Set `MCP_ALLOWED_HOSTS` to only the hosts that should reach the MCP server.
 5. Never commit `.env` or other files containing credentials.
 
+## Payments
+
+DeckPal's hosted tier asks each account what it would like to pay per month and
+accepts **$0** as a real answer. Nothing in the product is gated on the number:
+there is no entitlement column and no locked feature, which is worth stating in
+a security document because it means a forged "I am a supporter" claim would buy
+an attacker nothing at all.
+
+### No card data reaches this system, and none could be stored
+
+The card number, expiry and CVC are typed into **Stripe's own cross-origin
+iframe** (the Payment Element, served from `js.stripe.com`). They are entered
+into Stripe's document, not DeckPal's: no React state in this app ever holds a
+digit of a card, no request to this API ever carries one, and there is no column
+in `billing_account` (migration 053) that could hold one. What DeckPal receives
+and caches is the display summary Stripe hands back for a saved instrument —
+brand, last four digits, expiry month and year — and nothing else.
+
+That is what keeps this deployment within PCI SAQ-A. It is a property of the
+code rather than a promise: self-hosting Stripe.js would break the iframe origin
+and is therefore forbidden, not merely discouraged.
+
+### The webhook's signature is its only authentication, and there is no fallback
+
+`POST /api/stripe/webhook` is unauthenticated by necessity — Stripe holds no
+session. The `Stripe-Signature` check is therefore the entire access control on
+the endpoint that decides which accounts are recorded as paying. If
+`STRIPE_WEBHOOK_SECRET` is unset the route answers **503 and processes nothing**;
+it never falls back to trusting the body, which would make "mark yourself a
+supporter" a public endpoint.
+
+The route is mounted on the bare Express app ahead of the JSON parser (the
+signature covers the exact bytes sent) and outside the RLS middleware (a Stripe
+delivery has no identity to resolve).
+
+### The Stripe customer id is a capability, and the database treats it as one
+
+`billing_account.stripe_customer_id` is a pointer into Stripe. If an account
+could write it, it could point its own row at somebody else's customer — the
+row-ownership check would still pass, it is still their own row — and then read
+back that stranger's card summary or start a subscription billed to their card.
+
+Supabase exposes PostgREST to anyone holding the anon key, and the anon key is
+in the SPA bundle by design, so "only the API writes this" is not something the
+API can decide. Migration 054 makes it the database's decision instead:
+
+- **RLS:** `SELECT` on your own row. No INSERT, UPDATE or DELETE policy.
+- **Privileges:** `REVOKE ALL — GRANT SELECT`, because Supabase's bootstrap
+  grants `authenticated` write privileges on new public tables by default. A
+  write then fails loudly with `42501` rather than quietly affecting zero rows,
+  and keeps failing even if a future migration adds a permissive policy.
+- **Writes go through three `SECURITY DEFINER` functions** that derive the row
+  from `auth.uid()` and never from an argument, each writing only the columns
+  its name describes. There is no user id to forge.
+- **Defence in depth in the API:** a stored customer id is only used when the
+  Stripe customer's own `metadata.deckpal_user_id` names this account.
+
+`billing_event` (the webhook's replay ledger) has RLS enabled, no policy, and no
+grant to either role.
+
+### What the browser may send
+
+One number. `amountCents`, plus a `setupIntentId` on the one leg where a card
+was just entered — and that id is verified to belong to this account's customer,
+and to have succeeded, before it is used. Customer ids, subscription ids, prices,
+payment-method ids and statuses are all resolved server-side and never accepted
+from a request.
+
+### Logging
+
+Stripe error objects can carry a payment method and a customer. The API logs the
+error **type** and the Stripe **request id** and nothing else; keys are never
+logged, and `/health` reports only which of four configuration states the
+deployment is in (`configured` / `partial` / `unset` / `self-host`) plus the
+mode read off the key's prefix.
+
 ## Data retention: deleted lists and decks
 
 Since 2026-08-19 (migration 038), deleting a list or a deck is **reversible and

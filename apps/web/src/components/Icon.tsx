@@ -46,6 +46,10 @@ export type IconName =
   | 'mail'
   | 'key'
   | 'kebab'
+  | 'lock'
+  | 'shield-check'
+  | 'credit-card'
+  | 'heart'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -269,6 +273,37 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="12" cy="5" r="1.8" fill="currentColor" stroke="none" />
       <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" />
       <circle cx="12" cy="19" r="1.8" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // ── Billing (2026-09) ─────────────────────────────────────────────────────
+  // Drawn here from scratch like every other glyph in this file: a padlock, a
+  // shield with a tick, a card and a heart. They carry a claim -- "this is
+  // encrypted", "we never see your card" -- so they must sit beside copy that
+  // is actually true, which is why they live in one component
+  // (components/billing/StripeTrust.tsx) rather than being sprinkled around.
+  lock: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7.5a4 4 0 018 0v3" />
+      <circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  'shield-check': (
+    <>
+      <path d="M12 3l7 3v5.5c0 4.3-2.9 8.2-7 9.5-4.1-1.3-7-5.2-7-9.5V6z" />
+      <path d="M9 12l2.2 2.2L15.5 10" />
+    </>
+  ),
+  'credit-card': (
+    <>
+      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+      <path d="M2.5 9.5h19" />
+      <path d="M6 14.5h3.5" />
+    </>
+  ),
+  heart: (
+    <>
+      <path d="M12 20.2l-1.35-1.23C6.4 15.13 3.6 12.6 3.6 9.5A4.4 4.4 0 018 5.1c1.42 0 2.78.66 3.66 1.7l.34.4.34-.4A4.86 4.86 0 0116 5.1a4.4 4.4 0 014.4 4.4c0 3.1-2.8 5.63-7.05 9.47z" />
     </>
   ),
 }

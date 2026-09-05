@@ -1029,6 +1029,57 @@ export interface UserSettings {
   seriesGroupOwned: boolean
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Billing — the pay-what-you-want tier (migration 053; apps/api/src/billing)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Note what this shape does NOT contain: no Stripe customer id, no subscription
+// id, no payment-method id. Those are server-side handles and the browser has
+// no use for them. The card is four digits, a brand and an expiry -- the same
+// display summary Stripe hands back -- and nothing else about an instrument
+// ever reaches this app, because the card itself is typed into Stripe's own
+// iframe and never touches DeckPal's DOM.
+
+/** Which ask is due, if any. `null` is by far the commonest answer. */
+export type SupportPromptKind = 'onboarding' | 'checkin' | 'payment_issue'
+
+export interface BillingState {
+  /**
+   * False on a deployment with no Stripe -- self-host, or a preview build with
+   * no keys. Not an error: the UI renders nothing at all and says nothing.
+   */
+  available: boolean
+  /** `test` shows a badge, so "why did my real card do nothing" has an answer. */
+  mode: 'test' | 'live' | 'unknown'
+  /**
+   * Served at runtime rather than baked in at build time, so the key in the
+   * browser and the key on the server are always from the same Stripe account
+   * and the same mode. See apps/api/src/billing/stripe.ts.
+   */
+  publishableKey: string | null
+  presetsCents: number[]
+  minCents: number
+  maxCents: number
+  support: {
+    cents: number
+    currency: string
+    /** Stripe's own vocabulary, verbatim: active | past_due | canceled | … */
+    status: string | null
+    currentPeriodEnd: string | null
+    cancelAtPeriodEnd: boolean
+  }
+  card: { brand: string | null; last4: string; expMonth: number | null; expYear: number | null } | null
+  prompt: { due: SupportPromptKind | null }
+  /**
+   * Present only on a write, and only when the bank wants the reader to
+   * authenticate the first charge. Confirming it in the browser completes the
+   * subscription; ignoring it leaves an `incomplete` subscription that Stripe
+   * expires within a day, having charged nobody anything.
+   */
+  clientSecret?: string | null
+}
+
 /** One featured card on the profile (user_showcase; slot is 1-based). */
 export interface ShowcaseSlot {
   slot: number
@@ -1416,6 +1467,33 @@ export const api = {
   // localStorage-only `deckpal.showcase.v1`. PUT replaces the whole set; the
   // server resolves each card id to its primary variant.
   showcase: (signal?: AbortSignal) => get<{ showcase: ShowcaseSlot[] }>('/me/showcase', signal),
+
+  // ── Billing ──────────────────────────────────────────────────────────────
+  // `billing()` is the pure read (the profile page). `billingVisit()` is the
+  // same body plus a counted session, which is why it is a POST -- a GET with
+  // a side effect gets fired by anything that prefetches, and the side effect
+  // here decides when somebody is asked for money. Called once per app boot.
+  billing: (signal?: AbortSignal) => get<BillingState>('/me/billing', signal),
+  billingVisit: () => send<BillingState>('POST', '/me/billing/visit'),
+  /** Stamp "we asked" -- on dismissal as much as on an answer. */
+  ackSupportPrompt: (kind: SupportPromptKind) => send<BillingState>('POST', '/me/billing/prompt-ack', { kind }),
+  /** A SetupIntent for the Payment Element. The secret reaches the browser by design. */
+  billingSetupIntent: () =>
+    send<{ clientSecret: string; publishableKey: string; mode: string }>('POST', '/me/billing/setup-intent'),
+  /**
+   * The one number the client chooses. `setupIntentId` is sent only on the leg
+   * where a card was just entered; the server validates it against the customer
+   * it resolved from the session before doing anything with it.
+   */
+  setSupport: (amountCents: number, setupIntentId?: string) =>
+    send<BillingState>('PUT', '/me/billing/subscription', {
+      amountCents,
+      ...(setupIntentId ? { setupIntentId } : {}),
+    }),
+  /** Re-read Stripe after an authentication challenge completed in the browser. */
+  refreshBilling: () => send<BillingState>('POST', '/me/billing/refresh'),
+  /** Stripe's hosted portal: invoices, receipts, the long tail of card management. */
+  billingPortal: () => send<{ url: string }>('POST', '/me/billing/portal'),
   setShowcase: (cards: (string | null)[]) => send<{ showcase: ShowcaseSlot[] }>('PUT', '/me/showcase', { cards }),
 
   // Insights / gamification (Phase 6)

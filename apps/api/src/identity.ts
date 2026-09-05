@@ -108,6 +108,25 @@ export function currentUserId(req: Request): string {
 }
 
 /**
+ * The current user's email address, or `null` when the credential did not carry
+ * one. It lives on this seam for the same reason `currentUserId` does: a route
+ * reaching into `req.user` for it is the exact pattern
+ * `__tests__/identity.test.ts` exists to forbid.
+ *
+ * `null` is ordinary, not exceptional, and callers must treat it that way. A
+ * personal access token resolves to a user id and no email at all (auth.ts),
+ * and a self-host request has no JWT to carry one. The single caller today --
+ * `routes/billing.ts`, filling in a Stripe customer so receipts have somewhere
+ * to go -- passes it through when present and omits the field when it is not.
+ * Nothing may *depend* on it: an email is a convenience here, never an
+ * identity. The identity is the uuid.
+ */
+export function currentUserEmail(req: Request): string | null {
+  const email = req.user?.email;
+  return typeof email === 'string' && email.includes('@') ? email : null;
+}
+
+/**
  * The current user's `app_user.id`, or `null` when the request is **explicitly
  * anonymous**. The one way a *public catalog* route learns who is calling.
  *

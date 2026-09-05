@@ -17,7 +17,9 @@
     "prove:deck": "node --import tsx src/deck/prove.ts",
     "scan:index": "node --import tsx src/scan/index.ts",
     "test:images": "node --import tsx --test src/images/__tests__/*.test.ts",
-    "test:pure": "node --import tsx --test src/__tests__/massentry.test.ts src/__tests__/deck-diff.test.ts src/__tests__/list-rules.test.ts src/__tests__/mutations.test.ts src/__tests__/batch-fold.test.ts src/__tests__/soft-delete.test.ts src/__tests__/fingerprint-fold.test.ts src/__tests__/tokens.test.ts src/__tests__/bugs.test.ts src/__tests__/dbHandle.test.ts",    "test:decke": "node --import tsx --test src/decke/__tests__/*.test.ts",    "test:export": "node --import tsx --test src/export/__tests__/*.test.ts",
+    "test:pure": "node --import tsx --test src/__tests__/massentry.test.ts src/__tests__/deck-diff.test.ts src/__tests__/list-rules.test.ts src/__tests__/mutations.test.ts src/__tests__/batch-fold.test.ts src/__tests__/soft-delete.test.ts src/__tests__/fingerprint-fold.test.ts src/__tests__/tokens.test.ts src/__tests__/bugs.test.ts src/__tests__/dbHandle.test.ts src/__tests__/billing.test.ts",
+    "test:decke": "node --import tsx --test src/decke/__tests__/*.test.ts",
+    "test:export": "node --import tsx --test src/export/__tests__/*.test.ts",
     "fingerprint:index": "node --import tsx src/deck/indexFingerprints.ts"
   },
   "dependencies": {
@@ -31,6 +33,7 @@
     "pdfkit": "^0.19.1",
     "pg": "^8.23.0",
     "sharp": "^0.35.3",
+    "stripe": "^22.6.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
