@@ -74,6 +74,15 @@ function cardPath(t: Target, quality: string): string {
   return join(CACHE_ROOT, 'images', LANG, t.serie, t.set, `${t.local_id}.${quality}.webp`);
 }
 
+/**
+ * Series that never enter the scan index. TCG Pocket is digital-only: none of
+ * its cards can physically be under a camera, yet its clean flat art dominated
+ * nearest-neighbour — the owner's 2026-09-05 session had 5 of 36 top-1s land on
+ * Pocket cards, and its 2,321 rows were purged from production that day
+ * (owner-approved). This fence keeps a rebuild from quietly re-seeding them.
+ */
+const EXCLUDED_SERIES = ['tcgp'];
+
 async function fetchTargets(pool: pg.Pool, args: Args): Promise<Target[]> {
   const params: unknown[] = [];
   let sql = `
@@ -82,6 +91,8 @@ async function fetchTargets(pool: pg.Pool, args: Args): Promise<Target[]> {
       JOIN card_set cs ON cs.id = c.set_id
       JOIN series ser  ON ser.id = cs.series_id`;
   const where: string[] = [];
+  params.push(EXCLUDED_SERIES);
+  where.push(`ser.tcgdex_id <> ALL($${params.length})`);
   if (!args.force) {
     // resumable: only cards without a CURRENT-ALGO hash for this quality
     // (an algo bump re-hashes everything even without --force)
