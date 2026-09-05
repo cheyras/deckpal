@@ -148,6 +148,18 @@ def embed_input_numpy(rgba, width: int, height: int, margin_frac: float = 0.0,
     refuses to run if that check has not passed — a resampler that is 1e-7 off
     is fine for a cosine and is NOT fine to define the spec with, because two
     such implementations can drift in opposite directions.
+
+    THE CONTRACTION IS TWO STEPS ON PURPOSE, and it is the difference between a
+    catalogue embed that finishes over lunch and one that does not finish. The
+    obvious spelling is a single `np.einsum("os,shc,ht->otc", wy, img, wx)`,
+    which is correct and, without `optimize=`, evaluates the whole four-index
+    sum naively: MEASURED AT 21.1 SECONDS per 245x337 image, which is 38 hours
+    for 6,464 of them. Two `tensordot` calls are the same arithmetic with the
+    intermediate materialised, each one a BLAS matrix multiply, and the whole
+    thing lands in single-digit milliseconds.
+
+    Found by running it over a real gallery, not by reading it. The parity
+    test's 61x85 fixture is small enough to hide the difference entirely.
     """
     import numpy as np
 
@@ -160,12 +172,13 @@ def embed_input_numpy(rgba, width: int, height: int, margin_frac: float = 0.0,
     # the reference, associated differently — hence "not the reference".
     wy = _overlap_weights(rh, size)  # (size, rh)
     wx = _overlap_weights(rw, size).T  # (rw, size)
-    acc = np.einsum("os,shc,ht->otc", wy, img, wx)
-    denom = (wy.sum(axis=1)[:, None] * wx.sum(axis=0)[None, :])[:, :, None]
-    mean = np.array(EMBED_MEAN, dtype=np.float64)
-    std = np.array(EMBED_STD, dtype=np.float64)
-    px = ((acc / denom) / 255.0 - mean) / std
-    return np.ascontiguousarray(px.transpose(2, 0, 1), dtype=np.float32)
+    tmp = np.tensordot(wy, img, axes=([1], [0]))  # (size, rw, 3)
+    acc = np.tensordot(tmp, wx, axes=([1], [0]))  # (size, 3, size) = (o, c, t)
+    denom = wy.sum(axis=1)[:, None, None] * wx.sum(axis=0)[None, None, :]
+    mean = np.array(EMBED_MEAN, dtype=np.float64)[None, :, None]
+    std = np.array(EMBED_STD, dtype=np.float64)[None, :, None]
+    px = ((acc / denom) / 255.0 - mean) / std  # still (o, c, t)
+    return np.ascontiguousarray(px.transpose(1, 0, 2), dtype=np.float32)
 
 
 def _overlap_weights(src_len: int, out_len: int):

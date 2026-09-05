@@ -95,6 +95,42 @@ def test_numpy_fast_path_agrees_with_the_reference():
     assert worst < 1e-5, "numpy path drifted from the reference by %g" % worst
 
 
+def test_numpy_fast_path_is_actually_fast():
+    """A correctness test cannot catch this one, and a real run nearly did not.
+
+    The vectorised path was first written as a single four-index `np.einsum`.
+    It is exactly correct, it passes every assertion above, and on a real
+    245x337 catalogue render it took **21.1 seconds per image** — 38 hours for
+    the 6,464-image spike gallery, and rather longer for the 23,546-row
+    catalogue this exists to embed. The parity fixture is 61x85, small enough
+    that the difference did not show.
+
+    So the bound is checked at a REALISTIC size, and it is deliberately loose:
+    the fixed implementation is ~4 ms and this fails at 500, so it cannot flake
+    on a slow or loaded machine and cannot miss a return to the naive
+    contraction.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover
+        return
+    import time
+
+    from deckpal_matching.input_spec import embed_input_numpy
+
+    w, h = 245, 337
+    data = synthetic_rgba(5, w, h)  # a bytearray: numpy reads it as a buffer
+    embed_input_numpy(data, w, h)  # warm any BLAS init out of the measurement
+    t0 = time.perf_counter()
+    embed_input_numpy(data, w, h)
+    ms = (time.perf_counter() - t0) * 1000
+    assert ms < 500, (
+        "embed_input_numpy took %.0f ms for one 245x337 image. The reference "
+        "implementation is ~4 ms; a naive einsum contraction is ~21,000. Check "
+        "that the box filter is still two tensordot calls." % ms
+    )
+
+
 def test_js_math_round_semantics():
     """`round_half_away` must be JavaScript's Math.round, not Python's round.
 
