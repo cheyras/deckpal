@@ -192,6 +192,50 @@ import { polyIoU } from '../engine/geometry'
 export const REGION_DEPARTURE_MS = 12_000
 
 /**
+ * THE RE-ANCHOR BRIDGE: how recently a region's card must have been seen for a
+ * track standing on the region to be treated as that card REBORN rather than a
+ * replacement.
+ *
+ * ── WHY THE IDENTITY FOLLOW NEEDED THIS (e2e round 5, 2026-09-04) ───────────
+ *
+ * The identity gate above fixed adoption and round 5 measured what it broke:
+ * the tracker re-ids a continuously-present card every few seconds (round 3:
+ * fifteen ids on one card), so a region whose own track dies FREEZES — nothing
+ * refreshes it, it expires at `departureMs` with the card still sitting on it,
+ * and the next lock is a duplicate capture. Same clip, same 124 s: round 4
+ * (overlap follow) took 5 captures, round 5 (identity follow) took 10, with
+ * `regionsExpired` 3 -> 9. Two of the duplicates fired 4.3 s and 4.5 s after
+ * the previous capture at quad IoU 0.64 and 0.84 — only a region expiring
+ * under a present card can do that.
+ *
+ * ── WHAT SEPARATES A REBIRTH FROM A SWAP IS TIME, NOT OVERLAP ────────────────
+ *
+ * Overlap cannot tell them apart (the header: 63 % adoption at 0.5, no
+ * threshold separates). But the GAP can: a re-id rebirth is the tracker
+ * dropping and re-acquiring a card that never left — the old track dies after
+ * `graceFrames` (240 ms) of misses and the replacement appears within a tick
+ * or two, so the region has been sighted within well under a second. A
+ * physical swap needs a hand to lift one card and place another: the owner
+ * session's first swap shows a >= 3.6 s sighting gap even at the lock
+ * recorder's coarse granularity. So: a track at >= `sameIoU` on a region whose
+ * card was seen within `bridgeMs` re-anchors the region (new id, refreshed
+ * clock); after `bridgeMs` the region is frozen exactly as before and retires
+ * on the departure clock. Long detector dropouts (4.7-11.4 s on round 3's own
+ * fixture) exceed any defensible bridge on purpose — during them there is no
+ * track to adopt anyway, and a rebirth AFTER one arrives past the bridge and
+ * stays unadopted, which is the conservative side.
+ *
+ * 1 500 ms is ~12 detect ticks: 6x the tracker's own grace, comfortably under
+ * the fastest measured swap. The cost that remains is a swap completed inside
+ * 1.5 s of the old card's last sighting AND placed at >= 0.5 IoU — that card
+ * inherits the region and is suppressed until departure, bounded by
+ * `departureMs`, manual Capture never gated. The owner-session replay
+ * (`__tests__/owner-session-regressions.test.ts`) fences both sides: the
+ * first swap must still capture, and the rescued manual presses must hold.
+ */
+export const REGION_BRIDGE_MS = 1_500
+
+/**
  * THE SUPPRESSION THRESHOLD: "this lock is close enough to a live region to be
  * the card that region holds, so do not capture it".
  *
@@ -225,11 +269,13 @@ export interface CapturedRegions {
    * ones whose OWN TRACK has been gone for `departureMs`. Call once per ENGINE
    * TICK — that is what makes the presence signal dense enough to be the clock.
    *
-   * A region is refreshed only by the track it was captured from, found by id.
-   * Every other track is ignored here however close it is; a newcomer landing on
-   * the same spot is still SUPPRESSED (that is `suppressed`'s job, and the
-   * region is still alive) but it can no longer keep the region alive, which is
-   * what let one region swallow a whole session.
+   * A region is refreshed by the track it was captured from, found by id —
+   * plus one exception: within REGION_BRIDGE_MS of last sighting, a track
+   * standing on the region may re-anchor it (the tracker re-iding a card that
+   * never left). Any other newcomer landing on the same spot is still
+   * SUPPRESSED (that is `suppressed`'s job, and the region is still alive) but
+   * cannot keep the region alive, which is what let one region swallow a whole
+   * session.
    *
    * Returns how many regions retired on this tick, so the caller can record
    * expiries as telemetry without reaching inside.
@@ -254,10 +300,11 @@ export interface CapturedRegions {
 }
 
 export function createCapturedRegions(
-  opts: { departureMs?: number; sameIoU?: number } = {},
+  opts: { departureMs?: number; sameIoU?: number; bridgeMs?: number } = {},
 ): CapturedRegions {
   const departureMs = opts.departureMs ?? REGION_DEPARTURE_MS
   const sameIoU = opts.sameIoU ?? REGION_SAME_IOU
+  const bridgeMs = opts.bridgeMs ?? REGION_BRIDGE_MS
   let regions: Array<{ quad: Quad; trackId: number; lastSeen: number }> = []
   let expired = 0
   let lastExpiryAt: number | null = null
@@ -276,6 +323,26 @@ export function createCapturedRegions(
         if (mine) {
           r.quad = mine.quad
           r.lastSeen = now
+        } else if (now - r.lastSeen <= bridgeMs) {
+          // THE RE-ANCHOR BRIDGE (see REGION_BRIDGE_MS): the region's own track
+          // just died. A track standing on the region this soon after the card
+          // was last seen is the tracker re-iding a card that never left — the
+          // region re-anchors to it. Past the bridge it is a departure or a
+          // swap, and the region freezes as before.
+          let best: RegionTrack | null = null
+          let bestIoU = sameIoU
+          for (const t of tracks) {
+            const iou = polyIoU(t.quad, r.quad)
+            if (iou >= bestIoU) {
+              bestIoU = iou
+              best = t
+            }
+          }
+          if (best) {
+            r.trackId = best.id
+            r.quad = best.quad
+            r.lastSeen = now
+          }
         }
       }
       const before = regions.length

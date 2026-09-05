@@ -166,8 +166,13 @@ describe('e2e round 2 — one card must not become fifteen captures', () => {
     // owner session's 176 quads a card keeps its track id across 93% of
     // consecutive sightings, which is where the presence half of the policy
     // does its work.
+    //
+    // (Round 5's re-anchor bridge shaves exactly one capture off the 0.9 s
+    // column — one within-throttle rebirth now re-anchors a region that used
+    // to expire — and touches nothing from 2.5 s up, where the departure
+    // clock already outlived that churn.)
     const table = [900, 2_500, 5_000, 9_000, 12_000, 30_000].map((d) => replay(R2RUN, d).taken)
-    assert.deepEqual(table, [15, 12, 9, 8, 6, 5], `departure sweep moved: ${table.join(', ')}`)
+    assert.deepEqual(table, [14, 12, 9, 8, 6, 5], `departure sweep moved: ${table.join(', ')}`)
     for (let i = 1; i < table.length; i++) {
       assert.ok(table[i] <= table[i - 1], 'a longer window must never take MORE captures')
     }
