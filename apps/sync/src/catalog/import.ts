@@ -26,6 +26,25 @@ interface RawSet {
   cardCount?: { official?: number; total?: number };
   serie: { id: string; name: string };
   tcgOnline?: string;
+  // The set code PRINTED on the physical card from Scarlet & Violet onward —
+  // 'SVI', 'PBL' — and the scanner's strongest key: (printed code, collector
+  // number) is unique across 20,444 of the 21,068 physical cards in this
+  // catalogue with ZERO collisions (p2-work/ocr/CROSSWALK.md §4). Present on
+  // 188/218 sets, collision-free upstream, and dropped on the floor by this
+  // importer until 2026-09 purely because RawSet had no member for it.
+  //
+  // 🔴 BOTH SPELLINGS ARE READ ON PURPOSE. The REST resource says `abbreviation`
+  // (singular, { official, localized }); the tcgdex/cards-database source .ts
+  // says `abbreviations` (plural, { official, fr, … }). The compiled JSON we
+  // actually consume is `docker cp`'d out of tcgdex/server:edge's generated/en/
+  // (scripts/refresh-catalog.sh) — the server's own REST output, so singular is
+  // the expected shape — but that directory is gitignored and absent on every
+  // machine that has looked, so nobody has confirmed it (CROSSWALK §9 item 3).
+  // Reading both costs one `??` and turns "silently NULL on all 218 sets, and
+  // the scanner quietly loses its best key" into a non-event. Drop the loser
+  // once a real sets.json settles it.
+  abbreviation?: { official?: string; localized?: string };
+  abbreviations?: { official?: string };
   thirdParty?: { tcgplayer?: number; cardmarket?: number };
   logo?: string;
   symbol?: string;
@@ -327,20 +346,33 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
       // card_set
       const slug = slugify(st.name) || st.id;
       const { rows: setBack } = await client.query<{ id: string }>(
+        // `prints_set_code` is NOT in this statement, and must not be: it is a
+        // hand-verified fact about a physical card with no upstream field behind
+        // it (048), so listing it here would let this ON CONFLICT ... DO UPDATE
+        // reset it to the column default on the next weekly sync. `abbreviation`
+        // IS here because it is a pure upstream mirror — the OCR authority is
+        // the vendored apps/api/src/scan/data/printed-set-code.json either way.
         `INSERT INTO card_set
            (series_id, tcgdex_id, slug, name, released_on, card_count_official, card_count_total,
-            ptcgl_code, tcgplayer_group_id, is_promo, logo_url, symbol_url)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ptcgl_code, abbreviation, tcgplayer_group_id, is_promo, logo_url, symbol_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT (series_id, tcgdex_id) DO UPDATE SET
            slug = EXCLUDED.slug, name = EXCLUDED.name, released_on = EXCLUDED.released_on,
            card_count_official = EXCLUDED.card_count_official, card_count_total = EXCLUDED.card_count_total,
-           ptcgl_code = EXCLUDED.ptcgl_code, tcgplayer_group_id = EXCLUDED.tcgplayer_group_id,
+           ptcgl_code = EXCLUDED.ptcgl_code, abbreviation = EXCLUDED.abbreviation,
+           tcgplayer_group_id = EXCLUDED.tcgplayer_group_id,
            is_promo = EXCLUDED.is_promo, logo_url = EXCLUDED.logo_url, symbol_url = EXCLUDED.symbol_url
          RETURNING id`,
         [
           seriesId, st.id, slug, st.name, st.releaseDate ?? null,
           st.cardCount?.official ?? null, st.cardCount?.total ?? null,
-          st.tcgOnline ?? null, st.thirdParty?.tcgplayer ?? null,
+          st.tcgOnline ?? null,
+          // For EN, `localized` is null on all 218 sets — the official
+          // abbreviation IS the English printed code (CROSSWALK §2.3). Other
+          // languages would want `localized ?? official`; this importer only
+          // ever loads CATALOGUE = 'en'.
+          st.abbreviation?.official ?? st.abbreviations?.official ?? null,
+          st.thirdParty?.tcgplayer ?? null,
           /promo/i.test(st.name), st.logo ?? null, st.symbol ?? null,
         ],
       );

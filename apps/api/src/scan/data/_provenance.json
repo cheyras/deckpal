@@ -1,0 +1,15 @@
+{
+  "as_of": "2026-09-05",
+  "note": "Vendored scanner data. Same ruling as ../../deck/data/_provenance.json and 003_catalog.sql line 34: the file is the authority, the DB column is a seed nobody trusts, and a scraper only ever proposes a diff for human review. Here the reason is sharper than usual — 'the physical card prints this code' is a fact about an object, so no upstream field can ever assert it and the only possible authority is a human who looked at a card.",
+  "sources": {
+    "printed-set-code.json": {
+      "derived_from": "roadmap/plans/card-scanner-redesign/p2-work/ocr/CROSSWALK.md §2.5, which built the table from TCGdex Set.abbreviation.official (GET /v2/en/sets/:id, fetched live 2026-09-05) restricted to the sets whose cards actually print a code.",
+      "authority": "THIS FILE. card_set.abbreviation (migration 048) is an upstream mirror the weekly catalog sync overwrites wholesale, and card_set.prints_set_code is a seeded convenience column that does not self-maintain. apps/api/src/scan/printedSetCode.ts cross-checks the two at dev startup and logs divergence; it never lets the DB win.",
+      "not_the_same_as_ptcgl": "ptcgl-set-alias.json is a DIFFERENT NAMESPACE and the two must never be merged. The card says SVP and MEP; the deck list says PR-SV and PR-ME. Crown Zenith's Galarian Gallery is CRZ:GG printed and CRZ-GG in a deck list. API.md describes the deck exporter's `setCode` as 'the expansion code PRINTED on the card', which is true for the SV/ME sets and over-claims for every pre-2023 set that table also answers for (CROSSWALK §2.2, §8.3).",
+      "printed_era_only": "29 rows, because only 29 sets print a code. English Pokémon cards began printing one with Scarlet & Violet on 2023-03-31; the other 189 sets carry a set SYMBOL graphic, which is an image-classification problem and explicitly out of scope for the OCR pass (CROSSWALK §7.4).",
+      "confidence": "HIGH for the 26 rows flagged verified:true — the SV/ME strips were read directly off real scans (sv01-005, sv01-245, sv03-125, sv04.5-091, me05-039, svp-001, svp-500, mep-001, mee-001, sve-017). LOW for the three flagged verified:false (2023sv/MCD23, 2024sv/MCD24, mfb/MFB): no art exists upstream and our CDN serves placeholders, so whether those cards print a code at all is unknown. See the file's own _mcd_mfb_caveat.",
+      "cross_check_source": "pokemontcg.io set.ptcgoCode is an approved source in this repo (research/CARD-ART-SOURCES.md §9) and a reasonable third opinion, but it is NOT blendable: it is the PTCGL namespace for promos (PR-SV vs SVP), it reuses a parent code for sub-sets so it has 8 collisions where TCGdex has 0, and TR/TRR point at opposite sets in the two feeds (CROSSWALK §6.2). Propose a diff; adopt nothing automatically.",
+      "todo": "Grows by roughly four rows a year. A new SV/ME-era set needs: a row here, and the set id added to 048's prints_set_code seed list if any SQL-side filter has come to depend on that column. The dev-startup cross-check names the missing set by id."
+    }
+  }
+}

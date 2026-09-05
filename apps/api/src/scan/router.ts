@@ -2,6 +2,8 @@ import { Router, raw, type RequestHandler } from 'express';
 import { cardImages, q } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
+import { pgCatalogPort } from './catalogPort.js';
+import { resolveCard, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
 
 /**
  * Offline card scanner (Phase 8) — image → card matcher.
@@ -49,7 +51,14 @@ export const scanRouter: Router = Router();
 // rejected, with 10 already letting the plasma frame through. (Beyond junk
 // rejection the threshold can't buy precision: the rare wrong top-1s are
 // near-identical same-art reprints at distance 1–6.)
-const CONFIDENT_MAX = 9;
+//
+// Exported for POST /resolve, which passes it to the ladder rather than
+// re-declaring it: there is one honest threshold for "phash is sure", and it
+// belongs next to the measurement that produced it. /resolve does NOT reuse it
+// as its own confidence bar — a printed-code hit is a different kind of
+// evidence, not a better distance (CROSSWALK §7.4) — it uses it only to ask
+// whether the phash priors are confident enough to argue back.
+export const CONFIDENT_MAX = 9;
 
 // Vercel caps a serverless function's request body at 4.5 MB, and the platform
 // rejects a larger POST before this handler ever runs — so accepting more here
@@ -227,6 +236,165 @@ scanRouter.post(
       threshold: CONFIDENT_MAX,
       indexSize,
       matches,
+    });
+  }),
+);
+
+/**
+ * POST /api/scan/resolve — narrow a scan with what OCR could read off the card.
+ *
+ *   Body (application/json; every field optional):
+ *     {
+ *       "fields": {
+ *         "name":        "Floragato",   // the title line, as read
+ *         "number":      "014",         // the numerator; zero padding is ignored
+ *         "denominator": "198",         // ABSENT IS MEANINGFUL — see below
+ *         "setCode":     "SVIEN"        // the badge, language subscript and all
+ *       },
+ *       "priorMatches": [ { "cardId": "sv01-014", "distance": 3 } ]
+ *     }
+ *
+ *   Response 200:
+ *     {
+ *       "matched":    true,
+ *       "confident":  true,
+ *       "resolvedBy": "badge+number",
+ *       "matches": [ { cardId, name, number, setId, setName, rarity,
+ *                      images:{low,high}, distance, confidence } ]
+ *     }
+ *
+ * `matches` is the same shape as POST /scan's, with one difference that matters
+ * to a caller: `distance` and `confidence` are `number | null` here, not
+ * `number`. They carry the phash evidence, and a card the ladder resolved by
+ * its printed key was never nominated by phash and has none — null says "no
+ * phash opinion", which is not the same as "distance 64".
+ *
+ * `resolvedBy` names the rung that answered (CROSSWALK §7.3):
+ *   'badge+number'       rung 1 — the printed code plus the collector number.
+ *                        20,444 keys, zero collisions; the strongest key there is.
+ *   'number+denominator' rung 3 — 63.4% of these keys are unique. Also the
+ *                        answer when several candidates survive with nothing to
+ *                        separate them, in which case `confident` is false.
+ *   'name+number'        rungs 4 and 5 — the name as a cross-check on a number.
+ *                        99.6% unique with a denominator, 94.3% without. The
+ *                        two share a label because they share a shape; the
+ *                        distinction the caller cares about is `confident`.
+ *   'prior-only'         OCR added no key, only a filter. The answer is the
+ *                        existing phash path's, possibly narrowed to a set or a
+ *                        number, and `confident` is always false.
+ *
+ * `confident` is an IDENTITY claim — this is that card — and never a claim
+ * about the printing. Which variant (reverse holo, first edition, jumbo) stays
+ * a separate unresolved dimension and the two are never blended: a certain
+ * identity must not launder a guess about the printing, and an unknown printing
+ * must not drag down a certain identity.
+ *
+ * Two things a caller should not mistake for errors:
+ *   - A MISSING `denominator` is a signal, not a failed read. The energy sets
+ *     (SVE, MEE) and the promo sets (SVP, MEP) print none at all, and its
+ *     absence is what separates `SVE 017` from `SVI 017`. Send it absent when
+ *     the card printed none; send it absent when OCR could not read one; the
+ *     ladder cannot tell those apart and treats neither as an error.
+ *   - A numerator ABOVE the denominator is normal — `245/198` is a secret rare
+ *     and there are 60 of them in sv01 alone. Nothing here validates one
+ *     against the other.
+ *
+ * Read-only. No auth beyond whatever the mount point applies; it reads catalogue
+ * rows a signed-out visitor can already browse.
+ */
+
+/**
+ * A hostile or buggy client could otherwise post thousands of ids and turn the
+ * hydration query into a catalogue dump. POST /scan itself never returns more
+ * than 25 matches, so 50 is already double any honest caller's output.
+ */
+const MAX_PRIORS = 50;
+
+/** OCR output is short strings. Anything longer is not a card name. */
+const MAX_FIELD_LEN = 128;
+
+function readField(fields: Record<string, unknown>, key: string): string | undefined {
+  const v = fields[key];
+  if (v == null) return undefined;
+  // Numbers are accepted for `number`/`denominator` because a client that has
+  // already parsed them should not have to stringify them back.
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  if (typeof v !== 'string') throw badRequest(`fields.${key} must be a string`);
+  if (v.length > MAX_FIELD_LEN) throw badRequest(`fields.${key} is longer than ${MAX_FIELD_LEN} characters`);
+  return v;
+}
+
+function parseResolveBody(body: unknown): { fields: OcrFields; priorMatches: PriorMatch[] } {
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) {
+    throw badRequest('POST a JSON object: { fields: { name?, number?, denominator?, setCode? }, priorMatches?: [...] }');
+  }
+  const b = body as Record<string, unknown>;
+
+  let fields: OcrFields = {};
+  if (b.fields != null) {
+    if (typeof b.fields !== 'object' || Array.isArray(b.fields)) throw badRequest('`fields` must be an object');
+    const f = b.fields as Record<string, unknown>;
+    fields = {
+      name: readField(f, 'name'),
+      number: readField(f, 'number'),
+      denominator: readField(f, 'denominator'),
+      setCode: readField(f, 'setCode'),
+    };
+  }
+
+  const priorMatches: PriorMatch[] = [];
+  if (b.priorMatches != null) {
+    if (!Array.isArray(b.priorMatches)) throw badRequest('`priorMatches` must be an array');
+    if (b.priorMatches.length > MAX_PRIORS) throw badRequest(`at most ${MAX_PRIORS} priorMatches`);
+    for (const [i, entry] of b.priorMatches.entries()) {
+      if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw badRequest(`priorMatches[${i}] must be { cardId, distance }`);
+      }
+      const p = entry as Record<string, unknown>;
+      if (typeof p.cardId !== 'string' || p.cardId === '' || p.cardId.length > MAX_FIELD_LEN) {
+        throw badRequest(`priorMatches[${i}].cardId must be a non-empty card id`);
+      }
+      // 0..64 because that is the range of a 64-bit Hamming distance. A value
+      // outside it did not come from POST /scan.
+      if (typeof p.distance !== 'number' || !Number.isFinite(p.distance) || p.distance < 0 || p.distance > 64) {
+        throw badRequest(`priorMatches[${i}].distance must be a number from 0 to 64`);
+      }
+      priorMatches.push({ cardId: p.cardId, distance: p.distance });
+    }
+  }
+
+  return { fields, priorMatches };
+}
+
+function shapeResolved(m: RankedCard): Record<string, unknown> {
+  return {
+    cardId: m.cardId,
+    name: m.name,
+    number: m.number,
+    setId: m.setId,
+    setName: m.setName,
+    rarity: m.rarity,
+    images: cardImages(m.seriesId, m.setId, m.number),
+    distance: m.distance,
+    // Same bit-similarity POST /scan reports, and null for the same reason
+    // `distance` is: a card resolved by its printed key has no phash opinion
+    // attached, and inventing 0.0 would read as "maximally dissimilar".
+    confidence: m.distance == null ? null : Math.round((1 - m.distance / 64) * 1000) / 1000,
+  };
+}
+
+scanRouter.post(
+  '/resolve',
+  asyncHandler(async (req, res) => {
+    const { fields, priorMatches } = parseResolveBody(req.body);
+    const outcome = await resolveCard(fields, priorMatches, pgCatalogPort, {
+      phashConfidentMax: CONFIDENT_MAX,
+    });
+    res.json({
+      matched: outcome.matched,
+      confident: outcome.confident,
+      resolvedBy: outcome.resolvedBy,
+      matches: outcome.matches.map(shapeResolved),
     });
   }),
 );

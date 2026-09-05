@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && node -e \"require('fs').cpSync('src/deck/data','dist/deck/data',{recursive:true})\"",
+    "build": "tsc && node -e \"const{cpSync}=require('fs');for(const d of ['deck','scan'])cpSync('src/'+d+'/data','dist/'+d+'/data',{recursive:true})\"",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "test:deck": "node --import tsx --test src/deck/__tests__/*.test.ts",
@@ -17,7 +17,8 @@
     "prove:deck": "node --import tsx src/deck/prove.ts",
     "scan:index": "node --import tsx src/scan/index.ts",
     "test:images": "node --import tsx --test src/images/__tests__/*.test.ts",
-    "test:pure": "node --import tsx --test src/__tests__/massentry.test.ts src/__tests__/mutations.test.ts src/__tests__/batch-fold.test.ts src/__tests__/soft-delete.test.ts src/__tests__/fingerprint-fold.test.ts src/__tests__/tokens.test.ts src/__tests__/bugs.test.ts",
+    "test:scan": "node --import tsx --test src/scan/__tests__/*.test.ts",
+    "test:pure": "node --import tsx --test src/__tests__/massentry.test.ts src/__tests__/mutations.test.ts src/__tests__/batch-fold.test.ts src/__tests__/soft-delete.test.ts src/__tests__/fingerprint-fold.test.ts src/__tests__/tokens.test.ts src/__tests__/bugs.test.ts src/scan/__tests__/printedSetCode.test.ts src/scan/__tests__/resolve.test.ts",
     "test:decke": "node --import tsx --test src/decke/__tests__/*.test.ts",
     "test:export": "node --import tsx --test src/export/__tests__/*.test.ts",
     "fingerprint:index": "node --import tsx src/deck/indexFingerprints.ts"

@@ -30,6 +30,7 @@ import { meRouter } from './routes/me.js';
 import { deckeHistoryRouter } from './routes/deckeHistory.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
+import { warnOnPrintedSetCodeDivergence } from './scan/catalogPort.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
 import { bugsRouter } from './routes/bugs.js';
 import { tokensRouter } from './routes/tokens.js';
@@ -382,7 +383,7 @@ export function createApp(): express.Express {
         '/decks/:id/logs', 'POST /decks/:id/logs', '/decks/:id/logs/:logId',
         'PATCH /decks/:id/logs/:logId', 'DELETE /decks/:id/logs/:logId',
         '/decks/:id/pdf', '/lists/:id/pdf', '/sets/:setId/checklist.pdf',
-        'POST /scan',
+        'POST /scan', 'POST /scan/resolve',
         '/tokens', 'POST /tokens', 'DELETE /tokens/:id',
         '/avatar', 'POST /avatar', 'DELETE /avatar',
         '/oauth/client', 'POST /oauth/authorize/decision',
@@ -509,6 +510,13 @@ if (isMain) {
   const port = Number(process.env.DECKPAL_API_PORT ?? 3700);
   const server = app.listen(port, '127.0.0.1', () => {
     console.log(`deckpal-api listening on 127.0.0.1:${port} (base /deckpal/api)`);
+    // Tell a developer when upstream has shipped a printed-era set the vendored
+    // printed-set-code.json has not been taught about — the scanner would
+    // silently stop reading that expansion's badge. Dev/self-host only (this
+    // block never runs on serverless), one query, log-only, and it cannot
+    // reject the boot: see warnOnPrintedSetCodeDivergence for why the
+    // enforceable half is a unit test instead.
+    if (process.env.NODE_ENV !== 'production') void warnOnPrintedSetCodeDivergence();
   });
   const shutdown = (): void => {
     server.close(() => {

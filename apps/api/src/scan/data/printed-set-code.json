@@ -1,0 +1,63 @@
+{
+  "_comment": "The set code PRINTED in the bottom strip of a physical English card -> TCGdex set id. THE AUTHORITY for the scanner's OCR badge lookup; card_set.abbreviation is an upstream mirror that the weekly catalog sync overwrites, and card_set.ptcgl_code is a DIFFERENT NAMESPACE (the deck list says PR-SV where the card says SVP). Derived from CROSSWALK.md §2.5. Sibling in spirit to ../../deck/data/ptcgl-set-alias.json; see _provenance.json for sourcing.",
+
+  "_printed_from": "2023-03-31 — Scarlet & Violet. NOTHING EARLIER PRINTS A CODE. English cards before that carry a set SYMBOL graphic and no text, which is 16,264 of the 21,068 physical cards in the catalogue (77%). That is why this file has 29 rows and not 188: a badge lookup for a swsh/xy/base card is not a miss, it is a category error.",
+
+  "_denominator_null_means_prints_none": "A null denominator is NOT 'unknown'. Every row here is known. null means the physical card prints NO /nnn at all: the two energy sets (SVE, MEE) and the two promo sets (SVP, MEP). This distinction is the whole reason the file carries denominators rather than reading card_count_official — that column says 24 for SVE and 225 for SVP, neither of which is printed on any card.",
+
+  "_why_the_denominator_is_here": "There are 19 Levenshtein-1 pairs among these 29 codes (SV -> SVE/SVP/SVI, PA -> PAL/PAR/PAF, ME -> MEW/MEE/MEP/MEG, plus CRI/DRI, PBL/PFL, SSP/SVP, PAL/PFL, PAL/PBL, PAR/POR, MCD23/MCD24) and the badge is ~26x12 px carrying four glyphs, the smallest lowest-contrast text on the card — raw recognition tops out at 43% (bakeoff/REPORT.md §4.1). The denominator separates 18 of the 19. NEVER accept an OCR'd code on its own.",
+
+  "_mcd_mfb_caveat": "UNVERIFIED PRINTING — 2023sv (MCD23), 2024sv (MCD24) and mfb (MFB) sit inside the printed era and TCGdex assigns them abbreviations, but TCGdex has no art for any of them and our own CDN serves placeholders (X-Placeholder: 1), so nobody has seen what these cards actually print (CROSSWALK §3.6, §9 item 1). Three risks: (a) they may carry a set SYMBOL like the pre-SV sets and print no code at all; (b) MCD23/MCD24 are FIVE characters, breaking any ^[A-Z]{3}$ badge regex; (c) MCD23/MCD24 are the era's ONLY 1-edit code pair the denominator does not separate — both /15 — so a badge read of either is ambiguous by construction and must fall down the ladder. Each row is flagged verified:false. Needs a real card in hand.",
+
+  "as_of": "2026-09-05",
+  "source": "TCGdex Set.abbreviation.official (GET /v2/en/sets/:id), cross-read against real card scans of sv01-005, sv01-245, sv03-125, sv04.5-091, me05-039, svp-001, svp-500, mep-001, mee-001, sve-017. Denominators are cardCount.official; `max` is cardCount.total, the highest numerator that can appear.",
+
+  "codes": [
+    { "code": "SVE", "setId": "sve", "denominator": null, "max": 24, "kind": "energy", "verified": true,
+      "note": "Prints no denominator, no regulation mark and no name on the strip. 24 local ids across THREE eight-card print cycles (001-008 / 009-016 / 017-024) reusing the same eight names, so sve-001, sve-009 and sve-017 are all 'Grass Energy' — the name line carries ZERO information here and the number is the entire signal. cardCount.official is 24; the card prints nothing." },
+    { "code": "SVP", "setId": "svp", "denominator": null, "max": 226, "kind": "promo", "verified": true,
+      "note": "Prints code + number, no denominator. svp-500 prints NO NUMBER AT ALL — TCGdex's localId '500' is synthetic — so any lookup keyed on a number misses it, and the ABSENCE of a number is itself a signal. SVP alone narrows to 226 candidates, which makes a phash tie-break mandatory for promos, not optional. cardCount.official is 225." },
+    { "code": "SVI", "setId": "sv01", "denominator": 198, "max": 258, "kind": "main", "verified": true,
+      "note": "Only two sets in 202 have an official count of 198 (this and swsh6), which is what makes the worked example 014/198 a two-candidate read rather than a 66-candidate one." },
+    { "code": "PAL", "setId": "sv02", "denominator": 193, "max": 279, "kind": "main", "verified": true },
+    { "code": "MCD23", "setId": "2023sv", "denominator": 15, "max": 15, "kind": "product", "verified": false,
+      "note": "UNVERIFIED — see _mcd_mfb_caveat. 5 chars; collides with MCD24 on /15." },
+    { "code": "OBF", "setId": "sv03", "denominator": 197, "max": 230, "kind": "main", "verified": true },
+    { "code": "MEW", "setId": "sv03.5", "denominator": 165, "max": 207, "kind": "main", "verified": true,
+      "note": "Set name is '151'. Code MEW is 1 edit from MEE and MEP; /165 separates it from both." },
+    { "code": "MFB", "setId": "mfb", "denominator": 48, "max": 34, "kind": "product", "verified": false,
+      "note": "UNVERIFIED — see _mcd_mfb_caveat. `max` is BELOW `denominator` here because 14 of the 48 cards are missing upstream, not because of any printing quirk." },
+    { "code": "PAR", "setId": "sv04", "denominator": 182, "max": 266, "kind": "main", "verified": true,
+      "note": "/182 also belongs to DRI (sv10) — one of only three denominator collisions in the whole printed era." },
+    { "code": "PAF", "setId": "sv04.5", "denominator": 91, "max": 245, "kind": "main", "verified": true,
+      "note": "154 of its 245 cards are secret rares. A validator that rejects a numerator above the denominator is wrong here 63% of the time." },
+    { "code": "TEF", "setId": "sv05", "denominator": 162, "max": 218, "kind": "main", "verified": true },
+    { "code": "TWM", "setId": "sv06", "denominator": 167, "max": 226, "kind": "main", "verified": true },
+    { "code": "SFA", "setId": "sv06.5", "denominator": 64, "max": 99, "kind": "main", "verified": true },
+    { "code": "SCR", "setId": "sv07", "denominator": 142, "max": 175, "kind": "main", "verified": true },
+    { "code": "SSP", "setId": "sv08", "denominator": 191, "max": 252, "kind": "main", "verified": true,
+      "note": "1 edit from SVP, which prints no denominator — the two are separated by whether a /nnn was read at all." },
+    { "code": "MCD24", "setId": "2024sv", "denominator": 15, "max": 15, "kind": "product", "verified": false,
+      "note": "UNVERIFIED — see _mcd_mfb_caveat. 5 chars; collides with MCD23 on /15." },
+    { "code": "PRE", "setId": "sv08.5", "denominator": 131, "max": 180, "kind": "main", "verified": true },
+    { "code": "JTG", "setId": "sv09", "denominator": 159, "max": 190, "kind": "main", "verified": true },
+    { "code": "DRI", "setId": "sv10", "denominator": 182, "max": 244, "kind": "main", "verified": true,
+      "note": "1 edit from CRI; /182 vs /86 separates them. Shares /182 with PAR." },
+    { "code": "WHT", "setId": "sv10.5w", "denominator": 86, "max": 173, "kind": "main", "verified": true,
+      "note": "Shares /86 with BLK and CRI." },
+    { "code": "BLK", "setId": "sv10.5b", "denominator": 86, "max": 172, "kind": "main", "verified": true,
+      "note": "Shares /86 with WHT and CRI." },
+    { "code": "MEE", "setId": "mee", "denominator": null, "max": 8, "kind": "energy", "verified": true,
+      "note": "Prints code + number, no denominator, no regulation mark. cardCount.official is 8." },
+    { "code": "MEP", "setId": "mep", "denominator": null, "max": 89, "kind": "promo", "verified": true,
+      "note": "Prints code + number, no denominator. cardCount.official is 0, which is CORRECT — nothing is printed as a denominator. The 89 cards include the single non-numeric local id in the whole era, mep-Museum." },
+    { "code": "MEG", "setId": "me01", "denominator": 132, "max": 188, "kind": "main", "verified": true },
+    { "code": "PFL", "setId": "me02", "denominator": 94, "max": 130, "kind": "main", "verified": true },
+    { "code": "ASC", "setId": "me02.5", "denominator": 217, "max": 295, "kind": "main", "verified": true },
+    { "code": "POR", "setId": "me03", "denominator": 88, "max": 124, "kind": "main", "verified": true },
+    { "code": "CRI", "setId": "me04", "denominator": 86, "max": 122, "kind": "main", "verified": true,
+      "note": "Shares /86 with WHT and BLK; 1 edit from DRI, which /182 separates." },
+    { "code": "PBL", "setId": "me05", "denominator": 84, "max": 120, "kind": "main", "verified": true,
+      "note": "The only set in the catalogue with 84 official cards, so 039/084 resolves to exactly one card (me05-039, Dhelmise) with no badge at all." }
+  ]
+}
