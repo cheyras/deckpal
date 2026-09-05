@@ -53,7 +53,17 @@ const SETTLE_MS = 1400
 interface Copy {
   title: string
   eyebrow: string
+  /** The claim. Two sentences at most — this is the part people actually read. */
   lead: string
+  /**
+   * The caveat, set quieter and smaller.
+   *
+   * The lead used to be four sentences and carried both, and the important
+   * half — "no feature is locked", "$0 is fine" — was buried in the middle of
+   * a paragraph nobody finishes. Splitting them lets the argument be short
+   * without deleting the reassurance.
+   */
+  aside: string
   dismiss: string
 }
 
@@ -70,10 +80,10 @@ const COPY: Record<SupportPromptKind, Copy> = {
     eyebrow: 'Welcome to DeckPal',
     title: 'Pay what you think it is worth',
     lead:
-      'DeckPal is free and open source, and every part of it works the same whether you pay nothing or pay plenty — '
-      + 'there is no locked feature anywhere in it. What it does cost is real money to run: card images, the daily '
-      + 'price feed, the database. If you would like to cover a bit of that, pick an amount. If not, $0 is a real '
-      + 'answer and the honest one for most people.',
+      'Every part of DeckPal works the same whether you pay nothing or pay plenty — there is no locked feature '
+      + 'anywhere in it. Running it does cost real money, so if you would like to cover a bit of that, pick an '
+      + 'amount.',
+    aside: 'Card images, the daily price feed, the database.',
     dismiss: 'Skip for now',
   },
   checkin: {
@@ -81,18 +91,17 @@ const COPY: Record<SupportPromptKind, Copy> = {
     title: 'Still free. Still worth asking.',
     lead:
       'You have been using DeckPal for a while, which is the nicest thing that can happen to a project like this. '
-      + 'It runs on a handful of servers that cost the same whether one person uses it or a thousand do. If it has '
-      + 'earned a few dollars a month from you, here is where to say so — and if it has not, $0 is still the right '
-      + 'answer and nothing about your account changes.',
+      + 'If it has earned a few dollars a month from you, here is where to say so.',
+    aside: 'And if it has not, $0 is the right answer and nothing about your account changes.',
     dismiss: 'Not right now',
   },
   payment_issue: {
     eyebrow: 'Payment',
     title: 'Your last payment did not go through',
     lead:
-      'Your bank turned down the most recent charge. It is nearly always an expired card or a number that was '
-      + 'replaced, rather than anything to do with your account — nothing has been interrupted, and updating your '
-      + 'card here puts it straight.',
+      'Your bank turned down the most recent charge — nearly always an expired card or a number that was replaced, '
+      + 'rather than anything to do with your account.',
+    aside: 'Nothing has been interrupted. Updating your card here puts it straight.',
     dismiss: 'Later',
   },
 }
@@ -163,11 +172,16 @@ export function SupportPrompt() {
   return (
     <Sheet title={copy.title} onClose={close} size="lg">
       <div>
-        <div className="mb-[6px] flex items-center gap-[7px] text-[12px] font-bold uppercase tracking-wide text-action-primary">
-          <Icon name={kind === 'payment_issue' ? 'credit-card' : 'heart'} size={14} />
+        {/* A pill rather than bare uppercase text. It is the one small piece of
+            chrome in a surface that is otherwise all type, it gives the eye
+            somewhere to land before the paragraph, and it is the treatment
+            every premium upgrade surface converges on. */}
+        <span className="mb-[12px] inline-flex items-center gap-[6px] rounded-full bg-halo-neutral px-[10px] py-[5px] text-[11px] font-bold uppercase tracking-wide text-action-primary">
+          <Icon name={kind === 'payment_issue' ? 'credit-card' : 'heart'} size={13} />
           {copy.eyebrow}
-        </div>
-        <p className="mb-[20px] text-[14px] leading-[1.65] text-text-secondary">{copy.lead}</p>
+        </span>
+        <p className="text-[15px] leading-[1.6] text-text-body">{copy.lead}</p>
+        <p className="mb-[22px] mt-[8px] text-[13px] leading-[1.6] text-text-muted">{copy.aside}</p>
 
         <SupportFlow
           state={state}

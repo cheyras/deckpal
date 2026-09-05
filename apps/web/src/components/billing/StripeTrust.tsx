@@ -99,6 +99,37 @@ export function StripeBadge({ mode = 'unknown' }: { mode?: 'test' | 'live' | 'un
   )
 }
 
+/**
+ * What you can pay with, said before anybody commits to anything.
+ *
+ * Every well-tested donation surface does this — Wikipedia's puts a row of
+ * card brands, PayPal, Apple Pay and Google Pay directly under the amount
+ * grid, above the fold, before you have chosen. The reason is not decoration:
+ * "can I use Apple Pay here or am I about to be made to type sixteen digits on
+ * a phone" is a question people answer by leaving, and answering it costs one
+ * line.
+ *
+ * It is WORDS rather than brand logos, and that is a constraint rather than a
+ * shortcut: Visa, Mastercard and the wallet marks are trademarks with usage
+ * rules and we do not ship their assets (same rule as the Stripe mark above).
+ * The sentence is also more honest than a row of logos would be — which wallets
+ * appear genuinely depends on the device, and a fixed Apple Pay logo shown to
+ * somebody on Android is a promise the page cannot keep.
+ */
+export function AcceptedMethods({ className = '' }: { className?: string }) {
+  return (
+    <p className={`flex items-start gap-[8px] text-[12px] leading-[1.5] text-text-muted ${className}`}>
+      <span className="mt-[1px] shrink-0">
+        <Icon name="credit-card" size={14} />
+      </span>
+      <span>
+        Card, Apple&nbsp;Pay, Google&nbsp;Pay or Link — whichever your device offers. Nothing to enter until the next
+        step.
+      </span>
+    </p>
+  )
+}
+
 const POINTS: { icon: IconName; text: string }[] = [
   { icon: 'shield-check', text: 'Your card goes straight to Stripe. DeckPal never sees or stores the number.' },
   { icon: 'credit-card', text: 'Billed monthly. Receipts come from Stripe, to your email.' },

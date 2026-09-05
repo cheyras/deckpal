@@ -38,7 +38,7 @@ import { FormAlert } from '../ui/FormAlert'
 import { Icon } from '../Icon'
 import { AmountChooser } from './AmountChooser'
 import { CardForm } from './CardForm'
-import { PoweredByStripe, TrustPoints } from './StripeTrust'
+import { AcceptedMethods, PoweredByStripe, TrustPoints } from './StripeTrust'
 
 export type FlowContext = SupportPromptKind | 'settings'
 
@@ -236,6 +236,11 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
         disabled={busy}
       />
 
+      {/* Directly under the grid, and only when an amount has actually been
+          picked — before that it is answering a question nobody has asked yet
+          and it competes with the amounts for attention. */}
+      {amount > 0 && <AcceptedMethods className="mt-[12px]" />}
+
       {amount > 0 && state.support.cents > 0 && amount !== state.support.cents && (
         <p className="mt-[12px] text-[13px] leading-[1.5] text-text-muted">
           {endsOn
@@ -301,7 +306,10 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
         </Button>
       </div>
 
-      {context !== 'settings' && onDismiss && (
+      {/* Only while the current answer IS $0. It was showing under a selected
+          $5 too, where it reads as a threat to keep asking somebody who has
+          just agreed to pay — the opposite of what the line is for. */}
+      {context !== 'settings' && onDismiss && amount === 0 && (
         <p className="mt-[12px] text-center text-[12px] text-text-muted">
           {/* The honest version of "we won't nag": we will, monthly, and only
               while the amount is $0. Saying the cadence out loud is what makes
