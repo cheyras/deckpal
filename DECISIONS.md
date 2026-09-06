@@ -15963,6 +15963,42 @@ else locks and says the payment has not finished settling, which is what the
 server enforces anyway. `chargeOnce`'s `attemptId` is required rather than
 optional, so the minute-bucket fallback cannot be re-armed by a future caller.
 
+### 17. Round fourteen: locks that erred toward stranding
+
+Second consecutive round with no money defect. What it found were guards
+answering a question they had not asked.
+
+Rounds twelve and thirteen made the ambiguous side of `actionError` freeze the
+amount and lock the chooser, on the reasoning that a connection lost after the
+challenge may have left money moving. True — but "not a `card_error`" also
+covers the reader simply CLOSING the bank's window, where nothing was charged
+and the server explicitly allows a new amount (`requires_action` is deliberately
+not in flight). Those readers were locked behind a control only a page reload
+reopens, mid-onboarding. Both branches now retrieve the intent and lock only on
+`processing` or `succeeded`. One extra read, and the guard stops guessing.
+
+The profile's "use a different card" panel ignored the `settled` flag the
+endpoint returns. `retryOpenInvoice` sits behind it and a new card can be
+refused as readily as the old one; the dunning modal checked this and the
+profile panel did not, so somebody replacing a card to clear a failed payment
+saw the panel close and reasonably took that as done.
+
+**Known gap, recorded not fixed.** A first charge that goes to `processing`
+WITHOUT a bank challenge settles minutes later with nobody on the page, so no
+`chose` event is ever recorded for that conversion. The lagging-status case is
+now reported (the client asks again once the subscription catches up), but the
+genuinely-later case needs the webhook to record it — and the webhook knows the
+arm from the row and does not know the prompt context. It is analytics only,
+roughly arm-neutral, and building a webhook-side experiment recorder in the
+fourteenth round of a review loop is exactly what §12 warns against.
+
+Also noted, not editable: 053's header says `prompt_last_shown_at` is stamped
+when the re-ask "has been shown". It is stamped on `/prompt-ack`, i.e. when the
+sheet is closed, so a reader who kills the tab with the modal open is re-asked
+next session — defensible (an unanswered ask was not settled) and described
+correctly in API.md and here. 053 is applied, so B4 forbids correcting the
+header in place; this paragraph is the correction.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

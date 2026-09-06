@@ -241,12 +241,23 @@ export function SupportFlow({
           // flight, and `firstPaymentInFlight` will refuse the retry it would
           // otherwise be inviting — so say the true thing rather than make the
           // server the only guard.
-          if (actionError.type !== 'card_error') setInFlight(true)
+          //
+          // ⚠️ ASK, DO NOT ASSUME. `handleNextAction` returns no intent when it
+          // errors, and "not a card_error" also covers the reader simply
+          // closing the bank's window — an ABANDONED challenge, which the
+          // server explicitly allows a new amount after (`requires_action` is
+          // not in flight). Locking on that stranded them behind a control only
+          // a page reload reopens. One extra read settles it.
+          if (actionError.type !== 'card_error') {
+            const { paymentIntent: after } = await stripe.retrievePaymentIntent(next.clientSecret)
+            lastIntent = after?.status ?? null
+            if (after?.status === 'processing' || after?.status === 'succeeded') setInFlight(true)
+          }
           setError(
             actionError.message ??
               (actionError.type === 'card_error'
                 ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
-                : 'We lost the connection before your bank answered. Reload in a moment — your profile will show the subscription if it went through.'),
+                : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.'),
           )
           // The server state is still worth taking: the subscription exists as
           // `incomplete`, and the profile card should say so rather than show
@@ -301,6 +312,19 @@ export function SupportFlow({
         // a contradiction the reader has to resolve.)
         const declined = lastIntent === 'requires_payment_method' || lastIntent === 'canceled'
         if (!declined) setInFlight(true)
+        // The conversion still has to be reported when the subscription catches
+        // up. The server records only what Stripe agrees is paying, so this is
+        // a no-op while it is not — but for the common case, where the status
+        // is a beat behind the intent, it is the difference between an answer
+        // counted and an answer lost. (A first charge that settles minutes
+        // later with nobody on the page is still uncounted; recording that
+        // needs the webhook, and DECISIONS records it as a known gap rather
+        // than a fix bolted on late.)
+        if (!declined) {
+          void api
+            .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
+            .catch(() => {/* the answer is saved; the analytics row is not worth an error */})
+        }
         setError(
           declined
             ? 'Your bank confirmed it, but the payment did not complete. Nothing has been charged — try again, or use a different card.'
@@ -395,12 +419,19 @@ export function SupportFlow({
           // AND freeze the amount, because the amount is inside the idempotency
           // key — a nudge from $25 to $20 under the words "nothing has been
           // charged" is a second real charge on top of one that landed.
+          //
+          // ⚠️ And for anything that is NOT a settled refusal, ASK the intent
+          // rather than assume the worst: "not a card_error" also covers the
+          // reader closing the bank's window, where nothing was charged and
+          // freezing the amount strands them behind a control only a reload
+          // reopens. Freeze only when the money may actually be moving.
           const settled = actionError.type === 'card_error'
           if (settled) {
             attemptId.current = newAttemptId()
             setFrozenAmount(null)
           } else {
-            setFrozenAmount(onceAmount)
+            const { paymentIntent: after } = await stripe.retrievePaymentIntent(res.clientSecret)
+            if (after?.status === 'processing' || after?.status === 'succeeded') setFrozenAmount(onceAmount)
           }
           setError(
             actionError.message ??

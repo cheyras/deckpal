@@ -185,6 +185,18 @@ export function SupportSettings() {
                   const next = await api.replacePaymentMethod(setupIntentId)
                   setState(next)
                   setPanel('none')
+                  // ⚠️ `settled` IS THE SERVER'S ANSWER TO "did that fix it".
+                  // Behind this endpoint is `retryOpenInvoice`, and a new card
+                  // can be refused as readily as the old one. The dunning modal
+                  // checks this; the profile panel did not, so somebody
+                  // replacing a card to clear a failed payment saw the panel
+                  // close, took that as done, and had only the passive banner
+                  // to tell them otherwise.
+                  setError(
+                    next.settled === false
+                      ? 'The card is saved, but the outstanding payment still did not go through. Your bank may be declining it — try a different card, or contact them.'
+                      : null,
+                  )
                 }}
               />
             )}
