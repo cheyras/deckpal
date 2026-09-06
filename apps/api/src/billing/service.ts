@@ -436,6 +436,20 @@ export interface SetSupportResult {
  *
  * `requires_action` is deliberately not in flight: that IS the abandoned
  * challenge, and blocking on it would break the flow above.
+ *
+ * ⚠️ `succeeded` IS in flight, which reads oddly until you see the race. The
+ * subscription is read first and the intent second. If the reader completes
+ * their bank's challenge in another tab in the gap between those two calls — or
+ * if Stripe's own `incomplete` → `active` transition simply has not landed yet
+ * — this sees an `incomplete` subscription whose first invoice is PAID. Letting
+ * that through cancels a subscription that has already collected a month, and
+ * the replace path has no refund sweep for it: once cancelled it is outside
+ * `LIVE_STATUSES`, so `cancelStraySubscriptions` never sees it again and the
+ * money is silently kept while the new subscription bills a second first month.
+ *
+ * An `incomplete` subscription whose payment has succeeded is mid-transition,
+ * and "give it a minute and reload" is the right answer to every request about
+ * it.
  */
 async function firstPaymentInFlight(stripe: Stripe, sub: Stripe.Subscription): Promise<boolean> {
   try {
@@ -447,7 +461,7 @@ async function firstPaymentInFlight(stripe: Stripe, sub: Stripe.Subscription): P
       typeof payment?.payment_intent === 'string' ? payment.payment_intent : payment?.payment_intent?.id;
     if (!intentId) return false;
     const intent = await stripe.paymentIntents.retrieve(intentId);
-    return intent.status === 'processing';
+    return intent.status === 'processing' || intent.status === 'succeeded';
   } catch {
     // Unreadable is not "in flight". Refusing every amount change because a
     // lookup failed would be its own outage, and the caller is about to talk to

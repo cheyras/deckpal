@@ -115,18 +115,25 @@ function customerIdOf(event: Stripe.Event): string | null {
  * instead of reporting a signature failure it cannot fix.
  */
 function rawBody(body: unknown): Buffer | null {
-  // ⚠️ EMPTY IS LOST, NOT EMPTY. body-parser only skips a request whose body it
-  // believes was already read (`req._body`); a platform layer that consumed the
-  // stream without setting that flag leaves `express.raw()` re-reading an
-  // already-ended stream, and what it hands over is a ZERO-LENGTH BUFFER. That
-  // passes `isBuffer`, fails `constructEvent`, and answers 400 bad_signature —
-  // the misleading answer this whole function exists to stop giving. Stripe
-  // never sends an empty body to a signed webhook, so there is no legitimate
-  // caller to lose.
-  if (Buffer.isBuffer(body)) return body.length > 0 ? body : null;
+  const found = recover(body);
+  // ⚠️ EMPTY IS LOST, NOT EMPTY — and checked once, after the recovery, rather
+  // than inside one branch of it.
+  //
+  // body-parser only skips a request whose body it believes was already read
+  // (`req._body`); a platform layer that consumed the stream without setting
+  // that flag leaves `express.raw()` re-reading an already-ended stream, and
+  // what it hands over is a ZERO-LENGTH body. That passes every shape test,
+  // fails `constructEvent`, and answers 400 bad_signature — the misleading
+  // answer this whole function exists to stop giving. Stripe never sends an
+  // empty body to a signed webhook, so there is no legitimate caller to lose.
+  return found && found.length > 0 ? found : null;
+}
+
+function recover(body: unknown): Buffer | null {
+  if (Buffer.isBuffer(body)) return body;
   if (body instanceof Uint8Array) return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
   if (body instanceof ArrayBuffer) return Buffer.from(body);
-  if (typeof body === 'string' && body.length > 0) return Buffer.from(body, 'utf8');
+  if (typeof body === 'string') return Buffer.from(body, 'utf8');
   return null;
 }
 

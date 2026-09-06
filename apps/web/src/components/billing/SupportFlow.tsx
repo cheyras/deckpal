@@ -265,6 +265,12 @@ export function SupportFlow({
         // SUCCEEDED and the subscription's transition has not reached the
         // immediate re-read yet. Asserting a refusal there is what sends
         // somebody back to the chooser for a second first month.
+        //
+        // So the controls lock here as well. The server refuses the retry
+        // regardless (`firstPaymentInFlight` counts a succeeded first payment
+        // as in flight, precisely for this window), but a live chooser under a
+        // sentence that says "reload in a moment" is an invitation to find out.
+        setInFlight(true)
         setError(
           'Your bank confirmed it, but the subscription has not started yet. Reload in a moment — if it still says this, try again or use a different card.',
         )

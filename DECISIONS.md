@@ -15852,6 +15852,42 @@ was documented as required and implemented as optional, falling back to a coarse
 minute bucket when absent or malformed. That is the protection silently
 downgraded for any caller that is not our own client. It is required now.
 
+### 14. Round eleven: `succeeded` was not on the list
+
+The in-flight guard added in round seven enumerated `processing` and argued
+carefully about why `requires_action` is excluded. It never considered
+`succeeded`, and there is a window where an `incomplete` subscription has one:
+the subscription is read first and its payment intent second, so a reader who
+completes their bank's challenge in another tab in that gap — or Stripe's own
+`incomplete` → `active` transition simply not having landed — presents exactly
+that pair.
+
+Letting it through cancels a subscription that has already collected a month.
+The replace path has no refund sweep for it, either: once cancelled it is
+outside `LIVE_STATUSES`, so `cancelStraySubscriptions` never sees it again, the
+money is silently kept, and the new subscription bills a second first month. An
+`incomplete` subscription whose payment has succeeded is mid-transition, and
+"give it a minute and reload" is the right answer to every request about it.
+
+Round ten's empty-body fix had the same shape at a smaller scale: it landed on
+the Buffer branch and left the Uint8Array and ArrayBuffer ones, so a
+zero-length body in either of those shapes still produced the misleading 400 the
+function exists to prevent. The emptiness test is now after the recovery rather
+than inside one branch of it — which is the general form of the fix this loop
+has needed nine times: put the check where the paths converge.
+
+Three sentences corrected against their code. SECURITY.md said a Stripe error's
+message never reaches the log; it is true of `stripeFailure`, the only funnel
+that can see a decline, and untrue of three writers outside it whose calls are
+reads, cancels and refunds. `store.ts`'s header said the plain-SQL arm lets
+`pnpm dev --local` exercise the prompt scheduling; every billing route gates on
+`billingAvailable()`, which requires SUPABASE_MODE, so those arms are
+unreachable today and are documentation of intent rather than a tested path.
+API.md said every endpoint answers `available: false` rather than an error on a
+Stripe-less deployment; the reads do, and the money routes deliberately refuse
+with a 400 instead, because a page may ask what the tier is but nothing should
+quietly no-op a payment.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

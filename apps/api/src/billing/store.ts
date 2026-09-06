@@ -13,12 +13,15 @@
  * header has the long version.
  *
  * On self-host there is no `authenticated` role, no `auth.uid()` and no billing
- * tier; `q()` runs as the connection's owner. The plain-SQL arm exists so that
- * `pnpm dev --local` against an ordinary Postgres can exercise the prompt
- * scheduling — the half of this feature that has nothing to do with Stripe —
- * without a Supabase project. It is the same semantics written twice, which is
- * a cost worth paying once and not again: if a third caller ever needs these
- * writes, it calls this module.
+ * tier; `q()` runs as the connection's owner, and the plain-SQL arm is what
+ * these functions do there. ⚠️ It is NOT currently reachable through the API:
+ * every billing route gates on `billingAvailable()`, which requires
+ * SUPABASE_MODE, so nothing calls these arms today. (An earlier version of this
+ * header claimed `pnpm dev --local` exercised the prompt scheduling through
+ * them, which it does not.) They are kept because the semantics are the
+ * feature's, not Supabase's, and a self-host tier that ever wants the prompt
+ * without Stripe needs exactly this — but they are unexercised, so treat them
+ * as documentation of intent rather than as a tested path.
  *
  * ── THE WEBHOOK IS NOT ONE OF THEM ───────────────────────────────────────────
  *
