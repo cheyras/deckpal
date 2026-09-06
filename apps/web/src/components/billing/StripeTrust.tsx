@@ -86,7 +86,11 @@ export function StripeBadge({ mode = 'unknown' }: { mode?: 'test' | 'live' | 'un
         Encrypted and handled by Stripe
       </span>
       <span className="hidden h-[10px] w-px bg-divider-subtle sm:block" />
-      <span className="font-semibold tracking-tight">Powered by Stripe</span>
+      {/* The mark, not the words. Setting "Powered by Stripe" in our own type
+          beside the real badge elsewhere on the same surface made this one read
+          as a fallback that had failed to load — which is exactly what the
+          fallback in PoweredByStripe looks like, because it is. */}
+      <PoweredByStripe height={18} />
       {mode === 'test' && (
         // Not decoration: without it, "I paid and nothing happened" has no
         // visible explanation on a deployment pointed at test keys. B11's
