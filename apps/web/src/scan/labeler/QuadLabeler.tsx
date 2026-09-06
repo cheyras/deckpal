@@ -12,9 +12,18 @@ import type { Quad } from '../engine/contract'
 import { CaptureStage } from './CaptureStage'
 import { UploadStage } from './UploadStage'
 import { AnnotationEditor } from './AnnotationEditor'
-import { seedQuad } from './detectSeed'
+import { seedQuad, type SeedResult } from './detectSeed'
 import { saveLabel } from './saveLabel'
-import type { InvalidReason, LabelSource, QuadLabel, SeededFrom, SessionStats } from './types'
+import type { TopLeftIndex } from './orientation'
+import {
+  LABEL_SCHEMA_VERSION,
+  REASON_BY_VALUE,
+  type CardFace,
+  type InvalidReason,
+  type LabelSource,
+  type QuadLabel,
+  type SessionStats,
+} from './types'
 import type { WorkingFrame } from './workingFrame'
 
 type EntryMode = 'capture' | 'upload'
@@ -30,13 +39,17 @@ export function QuadLabeler() {
   const frameSeq = useRef(0)
   const [frameKey, setFrameKey] = useState(0)
   const [source, setSource] = useState<LabelSource>('camera')
-  const [seed, setSeed] = useState<{ corners: Quad; seededFrom: SeededFrom; pipeline: QuadLabel['pipeline'] } | null>(
-    null,
-  )
+  const [seed, setSeed] = useState<SeedResult | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'sent' | 'error'>('idle')
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
-  const [stats, setStats] = useState<SessionStats>({ total: 0, positive: 0, negativeByReason: {} })
+  const [stats, setStats] = useState<SessionStats>({
+    total: 0,
+    positive: 0,
+    negativeByReason: {},
+    reorientedPositives: 0,
+    cardBacks: 0,
+  })
   const messageTimer = useRef<number | null>(null)
 
   const flashMessage = useCallback((status: 'sent' | 'error', text: string) => {
@@ -65,19 +78,17 @@ export function QuadLabeler() {
   const labelBase = useCallback(() => {
     if (!workingFrame || !seed) return null
     return {
+      // Stamped on EVERY row this build writes — the flag that lets the
+      // training harvest mix these with the schema-1 rows already recorded
+      // instead of choosing between them. See types.ts.
+      labelSchema: LABEL_SCHEMA_VERSION,
       dims: { width: workingFrame.canonical.width, height: workingFrame.canonical.height },
       source,
       seededFrom: seed.seededFrom,
       pipeline: seed.pipeline,
       savedAt: new Date().toISOString(),
-    }
+    } satisfies Omit<QuadLabel, 'corners' | 'invalidReason'>
   }, [workingFrame, seed, source])
-
-  const REASON_TEXT: Record<InvalidReason, string> = {
-    no_card: 'no card',
-    multiple_cards: 'multiple cards',
-    too_blurry: 'too blurry',
-  }
 
   const doSave = useCallback(
     async (label: QuadLabel | null) => {
@@ -87,7 +98,14 @@ export function QuadLabeler() {
         await saveLabel(workingFrame.canonical, label)
         setStats((s) =>
           label.corners
-            ? { ...s, total: s.total + 1, positive: s.positive + 1 }
+            ? {
+                ...s,
+                total: s.total + 1,
+                positive: s.positive + 1,
+                reorientedPositives:
+                  s.reorientedPositives + (label.topLeftIndex !== label.seededTopLeftIndex ? 1 : 0),
+                cardBacks: s.cardBacks + (label.face === 'back' ? 1 : 0),
+              }
             : {
                 ...s,
                 total: s.total + 1,
@@ -99,7 +117,11 @@ export function QuadLabeler() {
         )
         flashMessage(
           'sent',
-          label.corners ? 'Saved ✓ — label recorded' : `Saved ✓ — recorded as invalid (${REASON_TEXT[label.invalidReason]})`,
+          label.corners
+            ? label.face === 'back'
+              ? 'Saved ✓ — quad recorded as a card BACK'
+              : 'Saved ✓ — label recorded'
+            : `Saved ✓ — recorded as invalid (${REASON_BY_VALUE[label.invalidReason].label.toLowerCase()})`,
         )
       } catch (e) {
         flashMessage('error', e instanceof Error ? e.message : 'that did not save')
@@ -111,12 +133,12 @@ export function QuadLabeler() {
   )
 
   const savePositive = useCallback(
-    (corners: Quad) => {
+    (corners: Quad, topLeftIndex: TopLeftIndex, face: CardFace) => {
       const base = labelBase()
-      if (!base) return
-      void doSave({ ...base, corners })
+      if (!base || !seed) return
+      void doSave({ ...base, corners, topLeftIndex, seededTopLeftIndex: seed.topLeftIndex, face })
     },
-    [labelBase, doSave],
+    [labelBase, doSave, seed],
   )
 
   const saveInvalid = useCallback(
@@ -137,14 +159,27 @@ export function QuadLabeler() {
         <div className="flex-1" />
         <span
           className="text-[11px] text-white/50"
-          title="Labeled this session — negatives broken out by reason"
+          title="Labeled this session — negatives broken out by reason; 'reoriented' counts positives where the reader moved the top-left anchor off the detector's geometric guess"
         >
           <b className="text-white/80">{stats.total}</b> this session · <b className="text-emerald-300">{stats.positive}</b>{' '}
           positive
+          {stats.cardBacks > 0 && (
+            <>
+              {' · '}
+              <b className="text-violet-300">{stats.cardBacks}</b> back
+            </>
+          )}
+          {stats.reorientedPositives > 0 && (
+            <>
+              {' · '}
+              <b className="text-amber-300">{stats.reorientedPositives}</b> reoriented
+            </>
+          )}
           {(Object.keys(stats.negativeByReason) as InvalidReason[]).map((reason) => (
             <span key={reason}>
               {' · '}
-              <b className="text-red-300">{stats.negativeByReason[reason]}</b> {REASON_TEXT[reason]}
+              <b className="text-red-300">{stats.negativeByReason[reason]}</b>{' '}
+              {REASON_BY_VALUE[reason].label.toLowerCase()}
             </span>
           ))}
         </span>
@@ -180,6 +215,7 @@ export function QuadLabeler() {
             key={frameKey}
             workingFrame={workingFrame}
             initialCorners={seed.corners}
+            initialTopLeftIndex={seed.topLeftIndex}
             seededFrom={seed.seededFrom}
             saving={saving}
             saveStatus={saveStatus}

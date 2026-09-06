@@ -24,6 +24,7 @@ import { loadModel } from '../engine/model'
 import { CANONICAL_SIZE, PIPELINE_VERSION, reticleForAspect } from '../engine/frame'
 import { rectPoly } from '../engine/geometry'
 import type { EngineState, Quad } from '../engine/contract'
+import { seedTopLeftIndex, type TopLeftIndex } from './orientation'
 import type { QuadLabel, SeededFrom } from './types'
 
 /** A centred, card-aspect quad in canonical PIXEL space — the fallback when
@@ -64,8 +65,20 @@ function waitForFirstFrame(video: HTMLVideoElement): Promise<void> {
 export interface SeedResult {
   /** Normalized [0,1] fractions of the canonical square. */
   corners: Quad
+  /**
+   * PRE-ASSIGNED ORIENTATION — which of `corners` the geometric rule thinks is
+   * the card's top-left, so the reader usually only confirms. Deliberately the
+   * SAME rule production runs (`orderQuadForCard` rule 3, reproduced in
+   * orientation.ts): the reader is then contradicting production when they
+   * move it, which is exactly the signal worth recording.
+   */
+  topLeftIndex: TopLeftIndex
   seededFrom: SeededFrom
   pipeline: QuadLabel['pipeline']
+}
+
+function seeded(corners: Quad, seededFrom: SeededFrom, pipeline: QuadLabel['pipeline']): SeedResult {
+  return { corners, topLeftIndex: seedTopLeftIndex(corners), seededFrom, pipeline }
 }
 
 /** Run the shipping detector once against `canonical` and resolve a seed
@@ -80,7 +93,7 @@ export async function seedQuad(canonical: HTMLCanvasElement): Promise<SeedResult
 
   const canCapture = typeof canonical.captureStream === 'function'
   if (!canCapture) {
-    return { corners: normalize(fallbackQuad()), seededFrom: 'default', pipeline: pipelineBase }
+    return seeded(normalize(fallbackQuad()), 'default', pipelineBase)
   }
 
   let stream: MediaStream | null = null
@@ -131,11 +144,9 @@ export async function seedQuad(canonical: HTMLCanvasElement): Promise<SeedResult
     })
 
     engine.stop()
-    return quad
-      ? { corners: normalize(quad), seededFrom: 'detector', pipeline }
-      : { corners: normalize(fallbackQuad()), seededFrom: 'default', pipeline }
+    return quad ? seeded(normalize(quad), 'detector', pipeline) : seeded(normalize(fallbackQuad()), 'default', pipeline)
   } catch {
-    return { corners: normalize(fallbackQuad()), seededFrom: 'default', pipeline: pipelineBase }
+    return seeded(normalize(fallbackQuad()), 'default', pipelineBase)
   } finally {
     stream?.getTracks().forEach((t) => t.stop())
     if (video) video.srcObject = null
