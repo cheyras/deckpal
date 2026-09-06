@@ -140,7 +140,11 @@ export function SupportSettings() {
         )}
       </div>
 
-      {note && (
+      {/* ⚠️ NOT ALONGSIDE THE ERROR. The dunning note reads "updating your card
+          will put it right", and the error directly above it says the card was
+          updated and it did not. Two adjacent sentences contradicting each
+          other is worse than either alone, and the error is the newer fact. */}
+      {note && !error && (
         <p
           className={[
             'mt-[10px] rounded-[10px] px-[12px] py-[9px] text-[13px] leading-[1.5]',

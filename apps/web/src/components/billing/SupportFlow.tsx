@@ -420,18 +420,30 @@ export function SupportFlow({
           // key — a nudge from $25 to $20 under the words "nothing has been
           // charged" is a second real charge on top of one that landed.
           //
-          // ⚠️ And for anything that is NOT a settled refusal, ASK the intent
-          // rather than assume the worst: "not a card_error" also covers the
-          // reader closing the bank's window, where nothing was charged and
-          // freezing the amount strands them behind a control only a reload
-          // reopens. Freeze only when the money may actually be moving.
-          const settled = actionError.type === 'card_error'
+          // ⚠️ And when it is not a `card_error`, ASK THE INTENT rather than
+          // assume either way. That case covers three different things: the
+          // reader closing the bank's window (nothing charged, and freezing the
+          // amount would strand them behind a control only a reload reopens), a
+          // connection lost mid-settlement (money may be moving), and a refusal
+          // that simply did not arrive typed as a card error. The intent knows
+          // which, and ONE answer drives BOTH decisions — freezing and
+          // rotation. Deciding them from different readings is how the retry
+          // loop survived a round: the freeze consulted the intent and the
+          // rotation still went by the error type, so a settled refusal seen
+          // only by the retrieve kept its attempt id and replayed Stripe's
+          // stored `requires_action` for ever.
+          let settled = actionError.type === 'card_error'
+          if (!settled) {
+            const { paymentIntent: after } = await stripe.retrievePaymentIntent(res.clientSecret)
+            const status = after?.status ?? null
+            if (status === 'processing' || status === 'succeeded') setFrozenAmount(onceAmount)
+            // A retrieve that could not answer leaves `settled` false: the id is
+            // kept, which is the side that cannot double-charge.
+            else if (status === 'requires_payment_method' || status === 'canceled') settled = true
+          }
           if (settled) {
             attemptId.current = newAttemptId()
             setFrozenAmount(null)
-          } else {
-            const { paymentIntent: after } = await stripe.retrievePaymentIntent(res.clientSecret)
-            if (after?.status === 'processing' || after?.status === 'succeeded') setFrozenAmount(onceAmount)
           }
           setError(
             actionError.message ??

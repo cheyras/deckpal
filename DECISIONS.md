@@ -15985,7 +15985,10 @@ saw the panel close and reasonably took that as done.
 
 **Known gap, recorded not fixed.** A first charge that goes to `processing`
 WITHOUT a bank challenge settles minutes later with nobody on the page, so no
-`chose` event is ever recorded for that conversion. The lagging-status case is
+`chose` event is ever recorded for that conversion — and the one-off has the
+same hole for the same reason, plus one of its own: the `processing` response
+carries no intent id to the browser, so `/one-time/confirm` could not be called
+for it even if somebody were still there. The lagging-status case is
 now reported (the client asks again once the subscription catches up), but the
 genuinely-later case needs the webhook to record it — and the webhook knows the
 arm from the row and does not know the prompt context. It is analytics only,
@@ -15998,6 +16001,29 @@ sheet is closed, so a reader who kills the tab with the modal open is re-asked
 next session — defensible (an unanswered ask was not settled) and described
 correctly in API.md and here. 053 is applied, so B4 forbids correcting the
 header in place; this paragraph is the correction.
+
+### 18. Round fifteen: two readings of one fact
+
+Third consecutive round with no money defect, and the finding worth keeping is a
+new shape of the old mistake. Round fourteen taught the one-off's ambiguous
+`actionError` branch to ASK the intent instead of assuming — and then used the
+answer for one of the two decisions that branch makes. Freezing consulted the
+intent; ROTATING still went by the error type. So a settled refusal that only
+the retrieve could see kept its attempt id, and the next press replayed Stripe's
+stored `requires_action` for ever: the round-twelve retry loop, surviving on a
+sub-reading of the round-fourteen fix.
+
+One reading now drives both. Where a guard makes two decisions about the same
+fact, the fact is read once.
+
+The profile's card panel showed the new "it still did not go through" alert
+directly above the dunning note that says updating your card will put it right.
+The reader had just updated their card and it had not. The note is suppressed
+while the error is up; the error is the newer fact.
+
+And the known analytics gap in §17 has a one-off half, recorded there: a gift
+that goes to `processing` without a challenge cannot be confirmed later either,
+because the response carries no intent id to the browser.
 
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
