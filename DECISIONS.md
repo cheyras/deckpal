@@ -15888,6 +15888,38 @@ Stripe-less deployment; the reads do, and the money routes deliberately refuse
 with a 400 instead, because a page may ask what the tier is but nothing should
 quietly no-op a payment.
 
+### 15. Round twelve: two dead ends, and a comment that was wrong about its own fix
+
+Nothing that costs money this round. Two ways to strand a reader, and both are
+the familiar shape.
+
+The subscription flow's post-challenge check fires for two OPPOSITE reasons: a
+payment that landed while the subscription's status lags, and a card refused
+after authenticating. Round eleven latched the controls on both, because it read
+the SUBSCRIPTION's status — which cannot tell them apart — leaving a declined
+reader with a disabled chooser and nothing to do but reload, beneath a sentence
+inviting them to try again. Worse, the comment added with that latch said the
+server refuses the retry "regardless", and it does not: `firstPaymentInFlight`
+correctly lets a settled refusal through, which is the whole point of it
+excluding `requires_payment_method`. The latch now follows the INTENT's status,
+which is the thing that actually knows.
+
+And a one-off refused after the bank's challenge arrives as `actionError`, a
+third path a decline can take, and that branch neither rotated the attempt id
+nor thawed the amount. The next press replays Stripe's stored response for the
+same key — the original `requires_action` and a secret for an intent no longer
+in that state — so `handleNextAction` fails on it and every retry loops until
+the sheet is closed and reopened. The 24-hour idempotency replay has now caused
+three separate bugs in this file, each on a different path a decline can arrive
+by; the rule is in one place and stated once: settled refusals rotate the id,
+ambiguity keeps it.
+
+Two counts corrected. SECURITY.md said three writers log a Stripe message
+outside the funnel; there are five, and the signature-verification line is one
+of them. API.md put `/prompt-shown` on the list of endpoints answering the
+common shape; it answers `{ recorded }`, deliberately, as its own entry sixty
+lines later says.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

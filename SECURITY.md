@@ -485,11 +485,14 @@ only one that can see a decline — the API logs the error **type** and the
 Stripe **request id**, and nothing else from them: a decline's message is the
 reader's own copy and does not belong in a server log.
 
-Three writers outside that funnel do log a Stripe message: the webhook's
-processing failure, and the two lines in the duplicate-subscription refund
-sweep. Their calls are reads, cancels and refunds — never a confirm or a
-charge — so the messages are of the "No such customer" kind, and the sweep in
-particular is the one place where a silent failure means money kept by mistake. It DOES log the message of an error that is not Stripe's,
+Writers outside that funnel do log a Stripe message: the webhook's
+processing failure, the webhook's signature-verification failure (the message
+alone, never the body or the signature — it is what tells a wrong secret from a
+replay), and the three lines in the duplicate-subscription refund sweep. Their
+calls are reads, cancels and refunds — never a confirm or a charge, which is
+where a decline can arise — so the messages are of the "No such customer" kind.
+The sweep in particular is the one place where a silent failure means money kept
+by mistake. It DOES log the message of an error that is not Stripe's,
 because the same funnel catches our own throws and reducing "no payment method
 on file for a one-time charge" to `type: unknown` hid the wiring failure it
 exists to expose. Keys are never logged, and `/health` reports only which of four configuration states the

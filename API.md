@@ -420,13 +420,15 @@ shape.
 ## Billing — the pay-what-you-want tier
 
 Cloud only, and only when Stripe is configured (`billingGate: "configured"` on
-`/health`). The READ and bookkeeping endpoints — `GET /me/billing`, `/visit`,
-`/prompt-ack`, `/prompt-shown`, `/refresh` — all answer the same shape, and on
-a deployment with no Stripe that shape is `{ "available": false, … }` rather
-than an error, because "is there a billing tier here" is a legitimate question
-with a legitimate negative answer. The endpoints that would move money say so
-instead: `400 "Billing is not configured on this deployment."` A page can ask
-what the tier is; nothing can quietly no-op a payment.
+`/health`). `GET /me/billing`, `/visit`, `/prompt-ack` and `/refresh` all
+answer the same shape, and on a deployment with no Stripe that shape is
+`{ "available": false, … }` rather than an error, because "is there a billing
+tier here" is a legitimate question with a legitimate negative answer.
+(`/prompt-shown` is the exception on purpose: it records an experiment exposure
+and answers `{ "recorded": true | false }`, which is the whole of what its
+caller needs.) The endpoints that would move money say so instead:
+`400 "Billing is not configured on this deployment."` A page can ask what the
+tier is; nothing can quietly no-op a payment.
 
 **The browser is trusted with exactly one number.** It sends an `amountCents`
 and, once per card, a `setupIntentId`. It never sends a customer id, a

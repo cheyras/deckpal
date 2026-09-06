@@ -212,6 +212,9 @@ export function SupportFlow({
   async function commit(setupIntentId?: string) {
     setBusy(true)
     setError(null)
+    // What the bank's challenge actually ended in. The subscription's own
+    // status lags it, and the two disagree in exactly the window that matters.
+    let lastIntent: string | null = null
     try {
       let next = await api.setSupport(amount, setupIntentId, analyticsContext ?? context)
       if (next.clientSecret) {
@@ -220,6 +223,7 @@ export function SupportFlow({
         const { error: actionError, paymentIntent } = await stripe.handleNextAction({
           clientSecret: next.clientSecret,
         })
+        lastIntent = paymentIntent?.status ?? null
         if (actionError) {
           setError(
             actionError.message
@@ -261,18 +265,21 @@ export function SupportFlow({
       // card can still be declined — and this used to go straight to the
       // thank-you screen on the strength of `handleNextAction` not erroring.
       if (amount > 0 && next.support.status && !PAID_STATUSES.has(next.support.status)) {
-        // Not "nothing has been charged": this also fires when the charge
-        // SUCCEEDED and the subscription's transition has not reached the
-        // immediate re-read yet. Asserting a refusal there is what sends
-        // somebody back to the chooser for a second first month.
-        //
-        // So the controls lock here as well. The server refuses the retry
-        // regardless (`firstPaymentInFlight` counts a succeeded first payment
-        // as in flight, precisely for this window), but a live chooser under a
-        // sentence that says "reload in a moment" is an invitation to find out.
-        setInFlight(true)
+        // ⚠️ THE INTENT DECIDES, NOT THE SUBSCRIPTION'S LAG. This branch fires
+        // for two opposite reasons: money that has landed and a subscription
+        // that has not caught up (`succeeded`/`processing`), and a card that was
+        // refused after authenticating (`requires_payment_method`). Latching on
+        // both — which is what checking only the subscription status did — left
+        // a declined reader with a disabled chooser and nothing to do but
+        // reload, under a sentence inviting them to try again. And the comment
+        // here claimed the server refuses that retry "regardless", which it does
+        // not: `firstPaymentInFlight` correctly lets a settled refusal through.
+        const settling = lastIntent === 'succeeded' || lastIntent === 'processing';
+        if (settling) setInFlight(true)
         setError(
-          'Your bank confirmed it, but the subscription has not started yet. Reload in a moment — if it still says this, try again or use a different card.',
+          settling
+            ? 'Your bank confirmed it, but the subscription has not started yet. Reload in a moment — your profile will show it once it has.'
+            : 'Your bank confirmed it, but the payment did not complete. Nothing has been charged — try again, or use a different card.',
         )
         return
       }
