@@ -50,6 +50,46 @@ import { SupportFlow } from './SupportFlow'
 /** Long enough that the app has painted, short enough not to feel like an ambush. */
 const SETTLE_MS = 1400
 
+/**
+ * ⚠️ TEMPORARY TESTING OVERRIDE — `?prompt=checkin` forces the modal open.
+ *
+ * The prompt is designed to be hard to see twice: the server decides, from a
+ * row the browser cannot edit, and answering it buys a month of quiet. That is
+ * correct behaviour and exactly what makes it untestable — once you have seen
+ * it, you cannot see it again for thirty days.
+ *
+ * So: `?prompt=onboarding`, `?prompt=checkin` or `?prompt=payment_issue` on any
+ * in-app URL forces that variant open on load.
+ *
+ * TWO THINGS KEEP THIS FROM BEING A HOLE:
+ *
+ * 1. **It only works while Stripe is in TEST MODE.** `stripeMode` comes from
+ *    the server, read off the secret key's own prefix, so this switches itself
+ *    off the moment live keys are configured. Nobody can force this prompt at a
+ *    real customer — not because we remembered to remove it, but because it
+ *    stops working.
+ * 2. **Forced exposures are labelled.** Events recorded under a forced prompt
+ *    carry the context `forced-<kind>`, so the $1 experiment can exclude them:
+ *
+ *      SELECT … FROM billing_ab_event WHERE context NOT LIKE 'forced-%'
+ *
+ *    Without that, testing the modal twenty times would put twenty exposures
+ *    into one arm's denominator and quietly ruin the measurement.
+ *
+ * REMOVE THIS before the experiment is read for real. It is three small pieces:
+ * this constant, `forcedKind()`, and the two `forced` references below.
+ */
+const FORCE_PARAM = 'prompt'
+
+function forcedKind(): SupportPromptKind | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get(FORCE_PARAM)
+    return v === 'onboarding' || v === 'checkin' || v === 'payment_issue' ? v : null
+  } catch {
+    return null
+  }
+}
+
 interface Copy {
   title: string
   eyebrow: string
@@ -111,6 +151,7 @@ export function SupportPrompt() {
   const [state, setState] = useState<BillingState | null>(null)
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState<SupportPromptKind | null>(null)
+  const [forced, setForced] = useState(false)
 
   // The boot call. Once per page load, and only for somebody who is signed in.
   useEffect(() => {
@@ -124,9 +165,14 @@ export function SupportPrompt() {
         const s = await api.billingVisit()
         if (!alive) return
         setState(s)
-        if (s.available && s.prompt.due) {
-          const due = s.prompt.due
+        // The override is test-mode-only; see FORCE_PARAM. In live mode
+        // `forced` is always null and this reads exactly as it did before.
+        const forced = s.mode === 'test' ? forcedKind() : null
+        const due = forced ?? s.prompt.due
+        if (s.available && due) {
+          if (forced) console.warn(`[deckpal] support prompt FORCED via ?${FORCE_PARAM}=${forced} (test mode only)`)
           setKind(due)
+          setForced(!!forced)
           window.setTimeout(() => {
             if (!alive) return
             setOpen(true)
@@ -135,7 +181,7 @@ export function SupportPrompt() {
             // those as exposures would put an unknown amount of noise in the
             // denominator of the $1 experiment. Fire-and-forget: analytics
             // never blocks the thing being measured.
-            api.supportPromptShown(due).catch(() => { /* not worth a word */ })
+            api.supportPromptShown(forced ? `forced-${due}` : due).catch(() => { /* not worth a word */ })
           }, SETTLE_MS)
         }
       } catch {
@@ -187,6 +233,7 @@ export function SupportPrompt() {
           state={state}
           onState={setState}
           context={kind}
+          analyticsContext={forced ? `forced-${kind}` : kind}
           onDismiss={close}
           dismissLabel={copy.dismiss}
           onDone={close}

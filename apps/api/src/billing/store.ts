@@ -73,7 +73,29 @@ export function presetsFor(row: BillingRow): number[] {
 }
 
 /** What happened to the ask. See migration 055 for why all three are recorded. */
-export type AbEventKind = 'shown' | 'chose' | 'dismissed';
+export type AbEventKind = 'shown' | 'chose' | 'dismissed'
+
+/**
+ * ⚠️ THE ANALYSIS QUERY NEEDS ONE MORE CLAUSE THAN 055's HEADER SAYS.
+ *
+ * That header was written before the testing override existed, and 055 is
+ * applied so it cannot be edited (contract B4). The override
+ * (`?prompt=checkin`, test mode only — see `SupportPrompt.tsx`) records its
+ * events with a `forced-` context so they can be told apart from real ones.
+ * Reading the experiment without excluding them counts every time somebody
+ * opened the modal on purpose as an exposure, which lands entirely in whichever
+ * arm the tester happens to be in.
+ *
+ *   SELECT variant,
+ *          count(*) FILTER (WHERE kind = 'shown')                      AS shown,
+ *          count(*) FILTER (WHERE kind = 'chose' AND amount_cents > 0) AS paid,
+ *          sum(amount_cents) FILTER (WHERE kind = 'chose')             AS cents
+ *     FROM billing_ab_event
+ *    WHERE context NOT LIKE 'forced-%'          -- <— this line
+ *    GROUP BY variant;
+ */
+export const REAL_EVENTS_ONLY = "context NOT LIKE 'forced-%'"
+;
 
 /**
  * Record one experiment event. Fire-and-forget by design: analytics must never

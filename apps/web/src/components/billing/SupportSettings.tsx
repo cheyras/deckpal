@@ -106,7 +106,7 @@ export function SupportSettings() {
       <div className="flex flex-wrap items-center justify-between gap-[10px]">
         <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Supporting DeckPal</div>
         {state.mode === 'test' && (
-          <span className="rounded-full bg-halo-neutral px-[8px] py-[2px] text-[11px] font-bold uppercase tracking-wide text-warning">
+          <span className="rounded-full border border-warning/40 bg-warning/[0.12] px-[8px] py-[2px] text-[11px] font-bold uppercase tracking-wide text-warning">
             Stripe test mode
           </span>
         )}
@@ -147,7 +147,10 @@ export function SupportSettings() {
             note.tone === 'error'
               ? 'bg-halo-error text-error'
               : note.tone === 'warn'
-                ? 'bg-halo-neutral text-warning'
+                // A wash of the warning colour, not `halo-neutral` — see the
+                // note in StripeTrust. `halo-error` and `halo-neutral` are the
+                // right tokens for their own tones and are left alone.
+                ? 'bg-warning/10 text-warning'
                 : 'bg-halo-neutral text-text-body',
           ].join(' ')}
         >

@@ -81,6 +81,13 @@ export interface SupportFlowProps {
   state: BillingState
   onState: (next: BillingState) => void
   context: FlowContext
+  /**
+   * What the experiment records this exposure as, when that differs from the
+   * copy variant. Only the testing override uses it (`forced-checkin`), so a
+   * forced prompt can be excluded from the $1 experiment's numbers without
+   * changing a word of what the reader sees. Defaults to `context`.
+   */
+  analyticsContext?: string
   /** Called once the flow has finished and the frame may close itself. */
   onDone?: () => void
   /** The dismissal, when the frame has one. Renders as an equal-weight action. */
@@ -88,7 +95,15 @@ export interface SupportFlowProps {
   dismissLabel?: string
 }
 
-export function SupportFlow({ state, onState, context, onDone, onDismiss, dismissLabel = 'Not right now' }: SupportFlowProps) {
+export function SupportFlow({
+  state,
+  onState,
+  context,
+  analyticsContext,
+  onDone,
+  onDismiss,
+  dismissLabel = 'Not right now',
+}: SupportFlowProps) {
   const [amount, setAmount] = useState(state.support.cents)
   const [step, setStep] = useState<'choose' | 'card' | 'done'>(
     // A broken payment is not a question about the amount — it opens straight
@@ -120,7 +135,7 @@ export function SupportFlow({ state, onState, context, onDone, onDismiss, dismis
     setBusy(true)
     setError(null)
     try {
-      let next = await api.setSupport(amount, setupIntentId, context)
+      let next = await api.setSupport(amount, setupIntentId, analyticsContext ?? context)
       if (next.clientSecret) {
         const stripe = await stripePromise
         if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')

@@ -95,7 +95,12 @@ export function StripeBadge({ mode = 'unknown' }: { mode?: 'test' | 'live' | 'un
         // Not decoration: without it, "I paid and nothing happened" has no
         // visible explanation on a deployment pointed at test keys. B11's
         // spirit, on the surface a person is actually looking at.
-        <span className="rounded-full bg-halo-neutral px-[8px] py-[2px] text-[11px] font-bold uppercase tracking-wide text-warning">
+        //
+        // `bg-warning/[0.12]` + `border-warning/40` is the pairing DeckBuilder
+        // and ToolRow already use. It was `bg-halo-neutral`, which is a CYAN
+        // wash — orange on cyan over a warm dark surface came out muddy green,
+        // and nothing else in the app pairs those two.
+        <span className="rounded-full border border-warning/40 bg-warning/[0.12] px-[8px] py-[2px] text-[11px] font-bold uppercase tracking-wide text-warning">
           Test mode — no real charge
         </span>
       )}
