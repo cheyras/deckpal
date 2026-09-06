@@ -259,6 +259,37 @@ export const PAYMENT_ISSUE_INTERVAL_DAYS = 3;
 /** Stripe statuses that mean "the money did not arrive and the reader can fix it". */
 const NEEDS_ATTENTION = new Set(['past_due', 'unpaid', 'incomplete']);
 
+/**
+ * Is this account currently contributing?
+ *
+ * ── THE ONE RULE THIS FILE EXISTS TO GUARANTEE ──────────────────────────────
+ *
+ * A CONTRIBUTOR IS NEVER SHOWN THE CHECK-IN. Not monthly, not annually, not
+ * once more just to be sure. The owner's words, and they are the whole design:
+ *
+ *   *"I don't want to be proactively reminding them that they can cancel."*
+ *
+ * That is not politeness, it is what makes this a subscription rather than a
+ * tip jar. The Stripe subscription renews on its own — monthly `price_data`,
+ * charged off-session against a mandate the SetupIntent collected — so a
+ * contributor never has to do anything to keep contributing. A modal that
+ * turned up every month offering "$0" as one of six equal buttons would
+ * convert that into an opt-IN every month, and would be handing people a
+ * cancel button they had not gone looking for.
+ *
+ * Contributing means an amount on the row AND no pending stop. The two halves
+ * both matter: `support_cents` alone would keep somebody who cancelled last
+ * week out of the cadence for as long as the cache said they paid, and the
+ * pending-stop check alone says nothing about whether they pay at all.
+ *
+ * A broken payment is NOT this function's business — see `promptDue`, which
+ * tests for it first. "Your card expired" is help; it is the one interruption a
+ * contributor should get, and it is not an ask.
+ */
+function isContributing(row: BillingRow): boolean {
+  return row.support_cents > 0 && !row.cancel_at_period_end;
+}
+
 export type PromptKind = 'onboarding' | 'checkin' | 'payment_issue';
 
 function ms(days: number): number {
@@ -296,20 +327,32 @@ function time(v: Date | string | null): number | null {
 export function promptDue(row: BillingRow, now: number = Date.now()): PromptKind | null {
   const lastShown = time(row.prompt_last_shown_at);
 
+  // 1. A broken payment outranks everything, contributor or not. Somebody whose
+  //    card expired is already paying and already trying; showing them "would
+  //    you consider supporting us" instead of "your card needs updating" would
+  //    be both useless and slightly insulting.
   if (row.subscription_status && NEEDS_ATTENTION.has(row.subscription_status)) {
     if (lastShown === null || now - lastShown >= ms(PAYMENT_ISSUE_INTERVAL_DAYS)) return 'payment_issue';
     return null;
   }
 
-  if (row.support_cents > 0 && !row.cancel_at_period_end) return null;
+  // 2. THE GUARANTEE. A contributor is never asked again. See isContributing.
+  if (isContributing(row)) return null;
 
-  // A subscription set to end still bills until it does. Asking before then
-  // would be re-litigating a decision that has not even taken effect yet.
+  // 3. A subscription set to end still bills until it does, so they are still a
+  //    contributor in every sense that matters until then. Asking now would be
+  //    re-litigating a decision that has not taken effect yet.
+  //
+  //    A NULL `current_period_end` means we do not know when it ends, and the
+  //    safe reading of "do not know" is DO NOT ASK. It used to fall through
+  //    here, which made a missing date the one way a cancelling contributor
+  //    could be shown the check-in on their way out.
   if (row.cancel_at_period_end) {
     const endsAt = time(row.current_period_end);
-    if (endsAt !== null && now < endsAt) return null;
+    if (endsAt === null || now < endsAt) return null;
   }
 
+  // 4. Everything below is reached only by an account paying nothing.
   if (row.onboarded_at === null) return 'onboarding';
   if (row.visit_count < VISIT_THRESHOLD) return null;
   if (lastShown === null) return 'checkin';

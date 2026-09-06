@@ -265,14 +265,25 @@ export async function setSupport(
 
   const item = modifiable?.items.data[0];
   if (modifiable && item) {
-    await stripe.subscriptions.update(modifiable.id, {
+    const updated = await stripe.subscriptions.update(modifiable.id, {
       // Undoes a pending "$0" without needing a new subscription — the reason
       // $0 cancels at the period end rather than immediately.
       cancel_at_period_end: false,
       proration_behavior: 'none',
       items: [{ id: item.id, price_data: priceData, quantity: 1 }],
+      expand: ['latest_invoice.confirmation_secret'],
     });
-    return { clientSecret: null };
+    // ⚠️ An `incomplete` subscription has NEVER BEEN PAID, and it is
+    // modifiable, so this branch can be reached for one. Returning success here
+    // would tell somebody "thank you — genuinely" for a charge that never
+    // happened, and record the amount on their account while Stripe quietly
+    // expired the subscription 23 hours later.
+    //
+    // Found by looking at a real one: the owner's first $3 attempt was left
+    // `incomplete` by the handleNextAction bug, and retrying would have taken
+    // this path and reported a payment that did not occur. Both branches now
+    // finish the first payment.
+    return settle(stripe, updated);
   }
 
   const created = await stripe.subscriptions.create({
@@ -286,8 +297,13 @@ export async function setSupport(
     expand: ['latest_invoice.confirmation_secret'],
   });
 
-  if (created.status !== 'incomplete') return { clientSecret: null };
-  return finishFirstPayment(stripe, created);
+  return settle(stripe, created);
+}
+
+/** Pay the first invoice if one is outstanding; otherwise there is nothing to do. */
+function settle(stripe: Stripe, sub: Stripe.Subscription): Promise<SetSupportResult> {
+  if (sub.status !== 'incomplete') return Promise.resolve({ clientSecret: null });
+  return finishFirstPayment(stripe, sub);
 }
 
 /**

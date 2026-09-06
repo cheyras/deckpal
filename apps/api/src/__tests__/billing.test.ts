@@ -131,6 +131,68 @@ describe('promptDue — an account that already pays is left alone', () => {
   });
 });
 
+describe('promptDue — A CONTRIBUTOR IS NEVER ASKED AGAIN', () => {
+  // The owner's requirement, and the one that would be embarrassing to get
+  // wrong: "I don't want to be proactively reminding them that they can
+  // cancel." Every one of these rows is somebody who pays; none of them may
+  // ever produce a 'checkin'.
+  const contributing = {
+    onboarded_at: new Date(NOW - 400 * DAY),
+    visit_count: 9999,
+    support_cents: 500,
+    prompt_last_shown_at: new Date(NOW - 999 * DAY),
+  }
+
+  // Every Stripe status in which money is actually flowing.
+  for (const status of ['active', 'trialing', null]) {
+    test(`status ${String(status)} is never asked, however long it has been`, () => {
+      assert.equal(promptDue(row({ ...contributing, subscription_status: status }), NOW), null)
+    })
+  }
+
+  test('not at any visit count', () => {
+    for (const v of [0, 3, 50, 100000]) {
+      assert.equal(promptDue(row({ ...contributing, subscription_status: 'active', visit_count: v }), NOW), null)
+    }
+  })
+
+  test('not a year later', () => {
+    assert.equal(promptDue(row({ ...contributing, subscription_status: 'active' }), NOW + 365 * DAY), null)
+  })
+
+  test('not at $1 — the smallest contribution counts the same', () => {
+    assert.equal(promptDue(row({ ...contributing, support_cents: 100, subscription_status: 'active' }), NOW), null)
+  })
+
+  test('not while a pending stop has not taken effect yet', () => {
+    const leaving = row({
+      ...contributing,
+      subscription_status: 'active',
+      cancel_at_period_end: true,
+      current_period_end: new Date(NOW + 10 * DAY),
+    })
+    assert.equal(promptDue(leaving, NOW), null)
+  })
+
+  test('not even when we do not know when the pending stop lands', () => {
+    // A missing period end used to fall through to the cadence, which made a
+    // NULL date the one way a cancelling contributor got the check-in on the
+    // way out. "Do not know" now reads as "do not ask".
+    const leaving = row({
+      ...contributing,
+      subscription_status: 'active',
+      cancel_at_period_end: true,
+      current_period_end: null,
+    })
+    assert.equal(promptDue(leaving, NOW), null)
+  })
+
+  test('a broken card IS still surfaced to them — that is help, not an ask', () => {
+    const broken = row({ ...contributing, subscription_status: 'past_due' })
+    assert.equal(promptDue(broken, NOW), 'payment_issue')
+  })
+})
+
 describe('promptDue — a broken payment outranks the ask', () => {
   const base = { onboarded_at: new Date(NOW - 90 * DAY), visit_count: 999, support_cents: 500 };
 
