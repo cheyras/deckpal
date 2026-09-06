@@ -16,6 +16,14 @@
  * write is one batched request rather than one call per row — both reasons
  * apply unchanged to a scan session.
  */
+// THE GATE IN FRONT OF THIS WRITE LIVES IN `identity.ts` (`commitGate`).
+//
+// 2026-09-05 ruling: "batch commit reminds [about unresolved ones]". It is not
+// here because this module imports the API client, and a rule about what the
+// reader must be told before a write should be answerable by a test without one
+// — the same reason `resolvedIdentity` moved out of `ocrNarrow.ts`. It is also
+// genuinely a question about the STACK rather than about the write: the captures
+// it protects are the ones that never reached this list.
 import { api } from '../../lib/api'
 import type { FeedEntry } from './types'
 

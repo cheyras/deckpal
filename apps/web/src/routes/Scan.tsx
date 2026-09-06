@@ -15,12 +15,23 @@ import { HelpModal } from '../scan/ui/HelpModal'
 import { commitFeed } from '../scan/ui/commit'
 import { OCR_ENABLED, uploadScanFlag, recordCaptureEvent, recordLockEvent } from '../scan/ui/flags'
 import { narrowedIdentity, OCR_NARROW_TIMEOUT_MS, readCardFields, resolveWithOcr } from '../scan/ui/ocrNarrow'
+import {
+  commitGate,
+  identityFromMatch,
+  initialIdentity,
+  reduceIdentity,
+  unresolvedCount,
+  type Identity,
+  type IdentityEvent,
+  type IdentityState,
+} from '../scan/ui/identity'
 import { createOcrStage } from '../scan/ocr/staging'
 import type { OcrRead } from '../scan/ocr/pipeline'
 import {
   CAPTURE_TIMEOUT_MS,
   deadlineSignal,
   IDENTIFY_TIMEOUT_MS,
+  IDENTITY_DEADLINE_MS,
   nextFrameSafe,
   settleWithin,
   withTimeout,
@@ -185,11 +196,49 @@ export function Scan() {
   const [hint, setHint] = useState('Point the camera at a card')
   const [notice, setNotice] = useState<string | null>(null)
   const [committing, setCommitting] = useState(false)
+  /** Which needs-you thumbnail has its picker open. */
+  const [picking, setPicking] = useState<string | null>(null)
+  /** The unresolved-scans confirm (commit.ts's `commitGate`), or null. */
+  const [commitConfirm, setCommitConfirm] = useState<string | null>(null)
 
   const feedRef = useRef<FeedEntry[]>(feed)
   useEffect(() => {
     feedRef.current = feed
   }, [feed])
+  const stackRef = useRef<StackItem[]>(stack)
+  useEffect(() => {
+    stackRef.current = stack
+  }, [stack])
+  /** How many thumbnails are waiting on the reader, in a ref because the hint
+   *  is written from the detect-tick effect and adding `stack` to THAT effect's
+   *  dependencies would re-run the region ageing and the auto-capture branch on
+   *  every stack change. The effect fires ~8x/s, so the line is current. */
+  const unresolvedRef = useRef(0)
+  useEffect(() => {
+    unresolvedRef.current = unresolvedCount(stack)
+  }, [stack])
+
+  // ── THE IDENTITY RACE'S BOOKKEEPING ───────────────────────────────────────
+  //
+  // Three ref maps, and the split between them is deliberate.
+  //
+  //   identitiesRef  THE AUTHORITATIVE PHASE, written synchronously. The race
+  //                  dispatches from detached async chains and the reader
+  //                  dispatches from event handlers, and both need to read the
+  //                  CURRENT state to reduce against it — a `stack` snapshot
+  //                  closed over by a callback is one render behind, which is
+  //                  exactly how "the deadline fired after the pick" becomes a
+  //                  card the reader chose being replaced by one they didn't.
+  //   captureDataRef the capture's immutable half (blob, preview URL, track),
+  //                  so a dispatch can land a row without waiting for `stack`
+  //                  to have re-rendered.
+  //   arrivalsRef    resolves once the capture→stack courier has landed. The
+  //                  stack→list flight awaits it, so a very fast identify can
+  //                  never launch the second courier out of a thumbnail the
+  //                  first one has not put on screen yet.
+  const identitiesRef = useRef(new Map<string, IdentityState>())
+  const captureDataRef = useRef(new Map<string, StackItem>())
+  const arrivalsRef = useRef(new Map<string, Promise<void>>())
 
   const refractoryRef = useRef(new Set<number>())
 
@@ -346,42 +395,47 @@ export function Scan() {
     [],
   )
 
-  /** Writes the identify result into the feed — a new row, or a quantity
-   *  bump on an existing one by cardId. Pure state; the caller is
-   *  responsible for any flight animation around it. */
-  const applyIdentifyResult = useCallback(
-    (rawRes: ScanResponse | null, stackItem: StackItem) => {
-      // THE TIE GATE (scan/ui/tieGate.ts). A top hit that is not clearly ahead
-      // of a DIFFERENT card may not present as identified — it lands as "needs
-      // attention" with its full top-5 intact for the reader to pick from. The
-      // 2026-09-04 drive filed six rows at 86-91% confidence and got one right,
-      // and every one of its confident results was tied within 1 of a different
-      // card. Withholding the claim never withholds the evidence.
-      const res = gateScanResponse(rawRes)
-      const top = res?.matched ? res.matches[0] : undefined
+  /**
+   * Writes a settled identity into the feed — a new row, or a quantity bump on
+   * an existing one by cardId. Pure state; the caller owns the flight around it.
+   *
+   * `identity === null` is still reachable, but only from the UPLOAD fallback,
+   * which has no camera, no stack and therefore nowhere for a needs-you
+   * thumbnail to live. On the camera path an unnamed capture no longer lands
+   * here at all — it stays on the stack, which is the whole of the 2026-09-05
+   * ruling.
+   */
+  const addFeedEntry = useCallback(
+    (identity: Identity | null, alternates: ScanMatch[], stackItem: StackItem) => {
       setFeed((prev) => {
-        const existing = top ? prev.find((e) => e.cardId === top.cardId) : undefined
+        const existing = identity ? prev.find((e) => e.cardId === identity.cardId) : undefined
         if (existing) {
           return prev.map((e) => (e.id === existing.id ? { ...e, quantity: e.quantity + 1, mergeTick: e.mergeTick + 1 } : e))
         }
-        const entry: FeedEntry = top
+        const entry: FeedEntry = identity
           ? {
-              id: top.cardId,
-              cardId: top.cardId,
+              id: identity.cardId,
+              cardId: identity.cardId,
               matched: true,
-              name: top.name,
-              setName: top.setName,
-              number: top.number,
-              rarity: top.rarity,
-              images: top.images,
+              name: identity.name,
+              setName: identity.setName,
+              number: identity.number,
+              rarity: identity.rarity,
+              images: identity.images,
               capturePreviewUrl: stackItem.previewUrl,
               captureBlob: stackItem.blob,
-              confidence: top.confidence,
-              distance: top.distance,
+              // `-1`/`0` when the PRINTED-NUMBER ladder named this card: phash
+              // never nominated it, so there is no distance and none is
+              // invented. FeedEntryCard reads the -1 and shows provenance
+              // instead of a meter.
+              confidence: identity.confidence ?? 0,
+              distance: identity.distance ?? -1,
               quantity: 1,
               variantId: null,
               variants: [],
-              alternates: res?.matches ?? [],
+              printingPicked: false,
+              detectingPrinting: false,
+              alternates,
               capturedAt: Date.now(),
               mergeTick: 0,
               verified: false,
@@ -402,17 +456,139 @@ export function Scan() {
               quantity: 1,
               variantId: null,
               variants: [],
-              alternates: res?.matches ?? [],
+              printingPicked: false,
+              detectingPrinting: false,
+              alternates,
               capturedAt: Date.now(),
               mergeTick: 0,
               verified: false,
             }
         return [entry, ...prev]
       })
-      if (top) void loadVariants(top.cardId)
-      setHint(top ? `Got it — ${top.name}` : 'Needs a closer look')
+      if (identity) void loadVariants(identity.cardId)
+      setHint(identity ? `Got it — ${identity.name}` : 'Needs a closer look')
     },
     [loadVariants],
+  )
+
+  /** Take a capture off the camera — landed, or discarded by a retake. The
+   *  object URL is deliberately NOT revoked (see `objectUrlsRef`): a landed row
+   *  still shows it, and a session revokes everything once, on unmount. */
+  const dropStackItem = useCallback((id: string) => {
+    identitiesRef.current.delete(id)
+    captureDataRef.current.delete(id)
+    arrivalsRef.current.delete(id)
+    setPicking((p) => (p === id ? null : p))
+    setStack((prev) => prev.filter((s) => s.id !== id))
+  }, [])
+
+  /**
+   * A capture has been named — the tick, then the courier to the list.
+   *
+   * The order matters and is the ruling's: the thumbnail confirms ON THE CAMERA
+   * (`DURATION.confirmTick`), and only then does it move down. A flight that
+   * starts the instant the answer lands is a card that vanishes from under the
+   * reader's eye with no statement that anything was decided.
+   */
+  const landIdentity = useCallback(
+    async (item: StackItem, st: IdentityState) => {
+      const identity = st.match
+      if (!identity) return
+      // Never fly out of a thumbnail the arrival courier has not delivered yet.
+      await settleWithin(arrivalsRef.current.get(item.id) ?? Promise.resolve(), 3000)
+      await new Promise<void>((r) => window.setTimeout(r, DURATION.confirmTick))
+      addFeedEntry(identity, st.candidates, item)
+      await nextFrame()
+      const wrap = stageWrapRef.current
+      const stackEl = stackNodesRef.current.get(item.id)
+      // A matched row's id IS its cardId (see `addFeedEntry`), including when
+      // this capture merged into a row that was already there.
+      const thumbEl = feedThumbNodesRef.current.get(identity.cardId)
+      if (thumbEl && wrap) {
+        const fromRect = rectRelativeTo(stackEl ?? thumbEl, wrap)
+        await settleWithin(
+          flyToTarget(
+            item.previewUrl,
+            { cx: fromRect.cx, cy: fromRect.cy, width: fromRect.width || 54, height: fromRect.height || 75 },
+            thumbEl,
+          ),
+          2000,
+        )
+      }
+      dropStackItem(item.id)
+    },
+    [addFeedEntry, dropStackItem, flyToTarget],
+  )
+
+  /**
+   * The one way anything reaches the identity machine.
+   *
+   * Reduces against `identitiesRef` (synchronous, current), mirrors the result
+   * into `stack` for rendering, and turns the two terminal phases into the
+   * effects they mean. Everything else — which answer arrived, in what order,
+   * whether the reader got there first — is `identity.ts`'s problem, not this
+   * component's.
+   */
+  const dispatchIdentity = useCallback(
+    (id: string, ev: IdentityEvent) => {
+      const cur = identitiesRef.current.get(id)
+      if (!cur) return
+      const next = reduceIdentity(cur, ev)
+      if (next === cur) return
+      identitiesRef.current.set(id, next)
+      setStack((prev) => prev.map((s) => (s.id === id ? { ...s, identity: next } : s)))
+
+      if (next.phase === 'discarded') {
+        dropStackItem(id)
+        return
+      }
+      if (next.phase === 'confident' && cur.phase !== 'confident') {
+        const item = captureDataRef.current.get(id)
+        if (item) void landIdentity({ ...item, identity: next }, next)
+      }
+      // No hint is set here on purpose. The auto-capture effect rewrites the
+      // hint on every detect tick (~8x/s), so anything announced from a
+      // one-shot callback is gone before it is read; the standing "N need you"
+      // line lives in that effect instead, off `unresolvedRef`.
+    },
+    [dropStackItem, landIdentity],
+  )
+
+  // ── the needs-you affordances ─────────────────────────────────────────────
+  //
+  // `engage` is dispatched with the picker OPEN, not with the pick: from the
+  // moment the reader is looking at the candidates, a late confident answer
+  // stops being allowed to swap the card out from under them (identity.ts).
+  const openPicker = useCallback(
+    (id: string) => {
+      dispatchIdentity(id, { type: 'engage' })
+      // Opens, never toggles. `useDismiss` inside the popover already closes it
+      // on an outside mousedown — and a second tap on the thumbnail IS an
+      // outside mousedown — so a toggle here would fight it and read as a
+      // thumbnail that cannot be closed by tapping it twice.
+      setPicking(id)
+    },
+    [dispatchIdentity],
+  )
+  const pickForStackItem = useCallback(
+    (id: string, match: ScanMatch) => {
+      setPicking(null)
+      dispatchIdentity(id, { type: 'pick', match })
+    },
+    [dispatchIdentity],
+  )
+  const retakeStackItem = useCallback(
+    (id: string) => {
+      // Release the refractory hold on the track this capture came from, so the
+      // same card presenting again is a capture rather than a suppression. The
+      // captured REGION is left alone on purpose: it retires on its own clock
+      // once the card leaves (regions.ts), and a card still lying in frame is
+      // one the reader is about to move anyway — which is what a retake is.
+      const trackId = captureDataRef.current.get(id)?.trackId
+      if (typeof trackId === 'number') refractoryRef.current.delete(trackId)
+      dispatchIdentity(id, { type: 'retake' })
+    },
+    [dispatchIdentity],
   )
 
   /** The full capture → stack → identify → feed pipeline for one engine capture. */
@@ -464,7 +640,26 @@ export function Scan() {
           saturation: round3(engineStateRef.current?.saturation),
         },
       })
-      const stackItem: StackItem = { id: makeId('cap'), trackId: result.trackId, previewUrl, blob: result.blob, capturedAt: Date.now() }
+      const stackItem: StackItem = {
+        id: makeId('cap'),
+        trackId: result.trackId,
+        previewUrl,
+        blob: result.blob,
+        capturedAt: Date.now(),
+        identity: initialIdentity(),
+      }
+      // Synchronously, BEFORE any await: the race below dispatches into these
+      // maps and a `setState` that has not flushed is not somewhere to look a
+      // capture up.
+      identitiesRef.current.set(stackItem.id, stackItem.identity)
+      captureDataRef.current.set(stackItem.id, stackItem)
+      let markArrived: () => void = () => {}
+      arrivalsRef.current.set(
+        stackItem.id,
+        new Promise<void>((r) => {
+          markArrived = r
+        }),
+      )
       setStack((prev) => [stackItem, ...prev])
 
       // Identify runs CONCURRENTLY with the fly-to-stack visual — the
@@ -505,6 +700,87 @@ export function Scan() {
         ? withTimeout(readCardFields(result.blob), OCR_NARROW_TIMEOUT_MS, 'ocr').catch(() => null)
         : Promise.resolve(null)
 
+      // ── THE RACE, AND IT IS DETACHED FROM THE CAPTURE PATH ────────────────
+      //
+      // This is the structural half of the 2026-09-05 ruling. It used to be
+      // straight-line code below the arrival flight: await identify, write the
+      // row, fly to the list — all inside `handleCaptured`, which `runCapture`
+      // awaits while holding `captureBusyRef`. Waiting for a CONFIDENT answer in
+      // that position would have held the busy flag for up to
+      // IDENTITY_DEADLINE_MS and auto-capture with it, which is precisely the
+      // thing the ruling forbids: "never blocks scanning".
+      //
+      // So the capture path now ends at the arrival flight, and everything that
+      // decides what the thumbnail becomes runs out here, dispatching into the
+      // machine. The reader may take the next card the moment the first one has
+      // landed on the stack.
+      const deadlineTimer = window.setTimeout(
+        () => dispatchIdentity(stackItem.id, { type: 'deadline' }),
+        IDENTITY_DEADLINE_MS,
+      )
+      void (async () => {
+        let res: ScanResponse | null = null
+        try {
+          res = await identifyPromise
+          // Hand the verdict to the capture record, which has been holding its
+          // snapshot for it. Before any early return below could skip it.
+          publishMatcherOutcome(matcherOutcomeFor(res))
+          // THE TIE GATE is applied inside the reducer (`identity.ts` calls
+          // `gateScanResponse`), not here, so the one place that decides whether
+          // phash may claim a card is the same place that decides whether the
+          // ladder may. A top hit tied within TIE_MARGIN of a DIFFERENT card
+          // still fills the picker; it just does not get to name the row.
+          dispatchIdentity(stackItem.id, { type: 'phash', res })
+
+          const read = await ocrReadPromise
+          dispatchIdentity(stackItem.id, { type: 'read', read })
+
+          // EVERY PATH BELOW REPORTS THE RESOLVE EVENT EXACTLY ONCE, including
+          // the paths where no call is made at all — OCR off, nothing read, the
+          // endpoint already known missing. `resolved: null` is how the machine
+          // hears "no second answer is coming", and without it a thumbnail that
+          // could flip to needs-you immediately would instead sit spinning until
+          // the deadline for an answer that was never in flight.
+          if (!read || ocrUnavailableRef.current) {
+            dispatchIdentity(stackItem.id, { type: 'resolve', resolved: null })
+            return
+          }
+          const { signal, done } = deadlineSignal(OCR_NARROW_TIMEOUT_MS)
+          let outcome
+          try {
+            outcome = await resolveWithOcr(read, res?.matches ?? [], signal)
+          } finally {
+            done()
+          }
+          // One 404 is enough. The endpoint either exists on this backend or it
+          // does not, and asking again every capture would spend a round trip
+          // per card to learn the same thing.
+          if (outcome.unavailable) ocrUnavailableRef.current = true
+          dispatchIdentity(stackItem.id, { type: 'resolve', resolved: outcome.resolved })
+
+          // AND THE OLD JOB, UNCHANGED: a row that already landed on PHASH's
+          // answer can still be corrected by this. The race consumed the same
+          // verdict a moment ago, but only to name a capture that had NOT been
+          // named; where phash got there first the row exists, the reader may
+          // have touched it, and `narrowedIdentity` is the policy that decides
+          // whether a badge read gets to overrule any of that.
+          setFeed((prev) =>
+            prev.map((e) => {
+              if (e.capturePreviewUrl !== previewUrl) return e
+              const identity = narrowedIdentity(e, outcome.resolved)
+              return identity ? { ...e, ...identity } : e
+            }),
+          )
+        } catch {
+          // An enrichment that can break a capture is worse than no enrichment —
+          // the same rule the capture recorder is written under. But the machine
+          // must still be told, or the pair never completes.
+          dispatchIdentity(stackItem.id, { type: 'resolve', resolved: null })
+        } finally {
+          window.clearTimeout(deadlineTimer)
+        }
+      })()
+
       await nextFrame()
       const stackEl = stackNodesRef.current.get(stackItem.id)
       const wrap = stageWrapRef.current
@@ -533,74 +809,14 @@ export function Scan() {
         await settleWithin(flyToTarget(previewUrl, from, stackEl), 2000)
         await settleWithin(bump(stackEl, 1.04, DURATION.settle), 1000)
       }
-
-      const res = await identifyPromise
-      // Hand the verdict to the capture record, which has been holding its
-      // snapshot for it. Before any early return below could skip it.
-      publishMatcherOutcome(matcherOutcomeFor(res))
-      applyIdentifyResult(res, stackItem)
-      await nextFrame()
-
-      // ── AND THE NARROWING, DETACHED ───────────────────────────────────────
-      //
-      // `void`, not `await`: the row is already in the feed and the reader is
-      // already reading it. This settles seconds later — or never — and the only
-      // thing it can do is correct a row `narrowedIdentity` judges safe to
-      // correct (a row nobody has touched, on a verdict the endpoint calls
-      // `confident`). Everything else about the capture is finished by now.
-      if (OCR_ENABLED) {
-        void (async () => {
-          try {
-            const read = await ocrReadPromise
-            if (!read || ocrUnavailableRef.current) return
-            const { signal, done } = deadlineSignal(OCR_NARROW_TIMEOUT_MS)
-            let outcome
-            try {
-              outcome = await resolveWithOcr(read, res?.matches ?? [], signal)
-            } finally {
-              done()
-            }
-            // One 404 is enough. The endpoint either exists on this backend or
-            // it does not, and asking again every capture would spend a round
-            // trip per card to learn the same thing.
-            if (outcome.unavailable) {
-              ocrUnavailableRef.current = true
-              return
-            }
-            setFeed((prev) =>
-              prev.map((e) => {
-                if (e.capturePreviewUrl !== previewUrl) return e
-                const identity = narrowedIdentity(e, outcome.resolved)
-                return identity ? { ...e, ...identity } : e
-              }),
-            )
-          } catch {
-            // An enrichment that can break a capture is worse than no
-            // enrichment — the same rule the capture recorder is written under.
-          }
-        })()
-      }
-
-      const top = res?.matched ? res.matches[0] : undefined
-      const latest = feedRef.current
-      const entryId = top
-        ? latest.find((e) => e.cardId === top.cardId)?.id
-        : latest.find((e) => e.capturePreviewUrl === previewUrl)?.id
-      const thumbEl = entryId ? feedThumbNodesRef.current.get(entryId) : undefined
-      if (thumbEl && wrap) {
-        const fromRect = rectRelativeTo(stackEl ?? thumbEl, wrap)
-        await settleWithin(
-          flyToTarget(
-            previewUrl,
-            { cx: fromRect.cx, cy: fromRect.cy, width: fromRect.width || 54, height: fromRect.height || 75 },
-            thumbEl,
-          ),
-          2000,
-        )
-      }
-      setStack((prev) => prev.filter((s) => s.id !== stackItem.id))
+      // THE CAPTURE PATH ENDS HERE. The thumbnail is on the stack, the race is
+      // running behind it, and `runCapture`'s `finally` is about to release
+      // `captureBusyRef` — the next card can be scanned now. Whether this one
+      // ever reaches the list is `dispatchIdentity`'s business, not this
+      // function's, and no longer anything the reader has to wait through.
+      markArrived()
     },
-    [applyIdentifyResult, flyToTarget, trackUrl, step],
+    [dispatchIdentity, flyToTarget, trackUrl, step],
   )
 
   const runCapture = useCallback(
@@ -715,6 +931,17 @@ export function Scan() {
     }
     if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
+    // THE STANDING NEEDS-YOU LINE. Only in the idle branch — while the reader is
+    // aiming at something the hint belongs to that card, and interrupting a lock
+    // to mention an older capture would be the scanner talking over itself. But
+    // with nothing in frame there is nothing better to say, and "tap it" is the
+    // only instruction the amber thumbnail does not give by itself.
+    else if (unresolvedRef.current > 0)
+      setHint(
+        unresolvedRef.current === 1
+          ? 'One scan needs you — tap it on the right'
+          : `${unresolvedRef.current} scans need you — tap them on the right`,
+      )
     else setHint('Point the camera at a card')
   }, [engineState, step, runCapture, binExpanded, ageRegions, alreadyCapturedHere, regions])
 
@@ -781,8 +1008,12 @@ export function Scan() {
     setFeed((prev) => prev.flatMap((e) => (e.id !== id ? [e] : quantity <= 0 ? [] : [{ ...e, quantity }])))
   }, [])
 
+  /** The reader naming the printing is what moves the slot out of `needs-pick`
+   *  — `printingPicked`, not `variantId`, because `loadVariants` already sets a
+   *  variantId (the primary) the moment the catalog answers and that is a
+   *  default, not a decision. */
   const changeVariant = useCallback((id: string, variantId: number) => {
-    setFeed((prev) => prev.map((e) => (e.id === id ? { ...e, variantId } : e)))
+    setFeed((prev) => prev.map((e) => (e.id === id ? { ...e, variantId, printingPicked: true } : e)))
   }, [])
 
   const removeEntry = useCallback((id: string) => {
@@ -830,6 +1061,10 @@ export function Scan() {
                 distance: match.distance,
                 variantId: null,
                 variants: [],
+                // A different card has different printings, so the previous
+                // row's pick means nothing here — the slot goes back to
+                // needs-pick once the new card's variants land.
+                printingPicked: false,
                 verified: markVerified,
               }
             : e,
@@ -844,16 +1079,32 @@ export function Scan() {
     setFeed((prev) => prev.map((e) => (e.id === id ? { ...e, verified: true } : e)))
   }, [])
 
+  /**
+   * The upload fallback — no camera, so no stack and nowhere for a needs-you
+   * thumbnail to live. This path therefore keeps the OLD behaviour on purpose:
+   * an unnamed upload lands in the list as a "needs attention" row with its
+   * top-5, which is the same ask in the only place this screen has to make it.
+   * The tie gate still applies; it is applied here rather than in the reducer
+   * because there is no capture in a race to reduce.
+   */
   const handleUploadFile = useCallback(
     async (file: File) => {
       const { bytes, type } = await toScanBytes(file)
-      const res = await api.scan(bytes, type, 5, 'low')
+      const res = gateScanResponse(await api.scan(bytes, type, 5, 'low'))
       const blob = new Blob([bytes], { type })
       const previewUrl = trackUrl(URL.createObjectURL(blob))
-      const stackItem: StackItem = { id: makeId('up'), trackId: -1, previewUrl, blob, capturedAt: Date.now() }
-      applyIdentifyResult(res, stackItem)
+      const stackItem: StackItem = {
+        id: makeId('up'),
+        trackId: -1,
+        previewUrl,
+        blob,
+        capturedAt: Date.now(),
+        identity: initialIdentity(),
+      }
+      const top = res?.matched ? res.matches[0] : undefined
+      addFeedEntry(top ? identityFromMatch(top) : null, res?.matches ?? [], stackItem)
     },
-    [applyIdentifyResult, trackUrl],
+    [addFeedEntry, trackUrl],
   )
 
   const [celebration, setCelebration] = useState<string | null>(null)
@@ -863,7 +1114,8 @@ export function Scan() {
     return () => window.clearTimeout(t)
   }, [celebration])
 
-  const handleCommit = useCallback(async () => {
+  const doCommit = useCallback(async () => {
+    setCommitConfirm(null)
     setCommitting(true)
     try {
       const snapshot = feedRef.current
@@ -887,6 +1139,26 @@ export function Scan() {
       setCommitting(false)
     }
   }, [])
+
+  /**
+   * Pressing Add. Between the press and the write sits `commitGate` — the
+   * 2026-09-05 ruling's "batch commit reminds [about unresolved ones]".
+   *
+   * The captures it is reminding about are NOT in the list: they are needs-you
+   * thumbnails still on the camera, which is exactly why the reminder has to
+   * exist. Committing ends the session and takes them with it, and the list the
+   * reader is looking at does not show them, so without this the drop is
+   * invisible by construction. One acknowledgement, then it proceeds — "yes,
+   * those two were card backs" is a perfectly good answer.
+   */
+  const handleCommit = useCallback(() => {
+    const gate = commitGate(stackRef.current, false)
+    if (!gate.proceed) {
+      setCommitConfirm(gate.prompt)
+      return
+    }
+    void doCommit()
+  }, [doCommit])
 
   const openDetail = useCallback(
     (cardId: string) => {
@@ -959,10 +1231,15 @@ export function Scan() {
                       engineError={engineError}
                       hint={hint}
                       stackItems={stack}
+                      picking={picking}
                       onStackNodeRef={(id, el) => {
                         if (el) stackNodesRef.current.set(id, el)
                         else stackNodesRef.current.delete(id)
                       }}
+                      onNeedsYou={openPicker}
+                      onPick={pickForStackItem}
+                      onRetake={retakeStackItem}
+                      onClosePicker={() => setPicking(null)}
                       onRetry={() => void retryCamera()}
                       onReportCamera={() => void reportCamera()}
                       flashSignal={flashSignal}
@@ -1094,7 +1371,7 @@ export function Scan() {
               />
             )}
 
-            <PrimaryActionBar label={`Add ${commitCount} card${commitCount === 1 ? '' : 's'}`} icon="plus" count={commitCount} busy={committing} onClick={() => void handleCommit()} />
+            <PrimaryActionBar label={`Add ${commitCount} card${commitCount === 1 ? '' : 's'}`} icon="plus" count={commitCount} busy={committing} onClick={handleCommit} />
           </>
         )}
 
@@ -1106,6 +1383,38 @@ export function Scan() {
           <div className="pointer-events-none absolute inset-x-0 top-[10px] z-[60] flex justify-center px-[14px]">
             <div className="pointer-events-auto flex items-center gap-[8px] rounded-full bg-change-positive px-[14px] py-[8px] text-[13px] font-bold text-surface-primary shadow-elevated motion-safe:animate-[sheet-panel-in_220ms_cubic-bezier(0.22,0.61,0.36,1)_both]">
               <Icon name="check-circle" size={16} /> {celebration}
+            </div>
+          </div>
+        )}
+
+        {/* THE UNRESOLVED-SCANS CONFIRM. Deliberately not a `window.confirm`:
+            the answer "go back" has to be able to put the reader somewhere they
+            can act on those captures, and the only place the needs-you
+            thumbnails exist is Step 1. */}
+        {commitConfirm && (
+          <div className="absolute inset-x-[14px] bottom-[14px] z-[61] rounded-xl border border-warning/60 bg-surface-secondary p-[12px] shadow-elevated motion-safe:animate-[sheet-panel-in_180ms_cubic-bezier(0.22,0.61,0.36,1)_both]">
+            <div className="flex items-start gap-[8px]">
+              <Icon name="alert" size={16} className="mt-[2px] shrink-0 text-warning" />
+              <span className="flex-1 text-[13px] font-semibold text-text-primary">{commitConfirm}</span>
+            </div>
+            <div className="mt-[10px] flex gap-[8px]">
+              <button
+                type="button"
+                onClick={() => {
+                  setCommitConfirm(null)
+                  backToScan()
+                }}
+                className="h-[34px] flex-1 rounded-full border border-border-default text-[13px] font-bold text-text-body hover:bg-surface-tertiary"
+              >
+                Go back to them
+              </button>
+              <button
+                type="button"
+                onClick={() => void doCommit()}
+                className="h-[34px] flex-1 rounded-full bg-action-primary text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+              >
+                Commit without them
+              </button>
             </div>
           </div>
         )}

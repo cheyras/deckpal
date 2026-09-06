@@ -46,6 +46,53 @@ export const CAPTURE_TIMEOUT_MS = 25_000
  *  proceeds. A missed frame costs an animation's start pose, never a capture. */
 export const FRAME_TIMEOUT_MS = 500
 
+/**
+ * THE ONE DEADLINE IN THIS FILE THAT IS NOT A RECOVERY DEADLINE.
+ *
+ * Everything above distinguishes "slow" from "never". This one decides when a
+ * thumbnail that is still waiting stops waiting and ASKS THE READER — the
+ * owner's 2026-09-05 flow ruling: "scan thumbnail stays on the side until the
+ * card is resolved confidently by whatever means", and unresolvable identities
+ * "flip to a needs-you state in the stack". A thumbnail that spins forever is
+ * the failure this number prevents, so it is sized to fire just AFTER the slow
+ * branch would have answered, never before it.
+ *
+ * ── HOW 6 s WAS SIZED, FROM THE MEASUREMENTS THAT EXIST ─────────────────────
+ *
+ * Two answers race, and the slower branch is three legs long:
+ *
+ *   phash        ~1-2 s   the identify round trip on the owner's device (see
+ *                         IDENTIFY_TIMEOUT_MS above, same measurement).
+ *   OCR read     1.8-3.4 s  `p2-work/ocr/bakeoff/REPORT.md` §8.3's projection
+ *                         for `paddle-roi-3x` on the owner's iPhone — and that
+ *                         section says in as many words to "treat 1.8-3.4 s as
+ *                         a floor", because it is scaled from LC050 rather than
+ *                         measured on PP-OCRv4.
+ *   /scan/resolve ~1-2 s  a second server call of the same class as identify,
+ *                         and it cannot start until phash has answered (it
+ *                         re-ranks phash's priors — see ocrNarrow.ts).
+ *
+ * So the OCR branch lands at roughly 2.8-5.4 s after the shutter. 6 s clears the
+ * top of that band with a little headroom and nothing more: shorter, and the
+ * scanner would be flipping cards to needs-you that were about to identify
+ * themselves; much longer, and the reader is watching a spinner for a card the
+ * evidence was never going to name.
+ *
+ * TWO THINGS IT IS NOT.
+ *
+ *  * NOT a cancellation. Nothing is aborted here — `OCR_NARROW_TIMEOUT_MS`
+ *    (ocrNarrow.ts, 20 s) is still the one thing that gives up on the work, for
+ *    the reason stated there: a wedged read holds a WASM worker.
+ *  * NOT final. A confident answer that arrives at 7 s still promotes the
+ *    thumbnail and still flies it to the list — unless the reader has already
+ *    opened the picker on it, at which point nothing overrules them. See
+ *    `identity.ts`'s `engaged`.
+ *
+ * WHAT WOULD MOVE IT: a real device timing of the OCR lane. §8.3's number is a
+ * projection, and this deadline is a projection's headroom.
+ */
+export const IDENTITY_DEADLINE_MS = 6_000
+
 export class TimeoutError extends Error {
   constructor(label: string, ms: number) {
     super(`${label} timed out after ${Math.round(ms / 1000)}s`)

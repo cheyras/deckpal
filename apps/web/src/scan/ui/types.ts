@@ -4,6 +4,7 @@
 // directory imports them from there directly, so there is exactly one
 // definition of the engine boundary to keep in step with.
 import type { ScanMatch } from '../../lib/api'
+import type { IdentityState } from './identity'
 
 /**
  * One printing a card can be. The shape is identical to
@@ -28,7 +29,15 @@ export interface FeedVariant {
   ownedQuantity: number
 }
 
-/** A capture sitting in the incoming stack, waiting on `/scan`'s answer. */
+/**
+ * A capture sitting in the incoming stack.
+ *
+ * It used to sit here only for as long as `/scan` took to answer. Under the
+ * 2026-09-05 flow ruling it sits here until the card is NAMED — by phash, by the
+ * printed number, or by the reader — and a capture nothing can name stays here
+ * as a needs-you thumbnail rather than going down to the list as homework. What
+ * it is waiting for, and what it does when the wait ends, is `identity.ts`.
+ */
 export interface StackItem {
   /** Unique per capture — NOT the engine's track id. The same track id is
    *  refused a second capture by the refractory set while it is held, so
@@ -42,6 +51,8 @@ export interface StackItem {
   previewUrl: string
   blob: Blob
   capturedAt: number
+  /** The race this capture is in, and the phase the thumbnail renders from. */
+  identity: IdentityState
 }
 
 /** One row in the verify feed. */
@@ -65,11 +76,23 @@ export interface FeedEntry {
    *  of, and what the per-entry "report" affordance uploads. */
   capturePreviewUrl: string
   captureBlob: Blob
+  /** The PHASH opinion, and only ever that. `distance: -1` means there isn't
+   *  one — an unmatched capture, or a row the printed-number ladder named, which
+   *  phash never nominated. The row renders no match meter at -1 rather than a
+   *  meter reading 0 % of a number that was never measured. */
   confidence: number
   distance: number
   quantity: number
   variantId: number | null
   variants: FeedVariant[]
+  /** The reader chose the printing themselves. Until they have, a row with more
+   *  than one printing sits at `needs-pick` — see `printing.ts` for why that is
+   *  the entry state and not `detecting`. */
+  printingPicked: boolean
+  /** Reserved for the server-side variant pass the 2026-09-05 ruling describes.
+   *  NOTHING SETS THIS TODAY and nothing may until that service is wired: the
+   *  ruling's own words are "no dead spinner shown today". */
+  detectingPrinting: boolean
   /** Top-k matches from the identify call that produced this row, best
    *  first. Feeds the "wrong card? / pick a match" popover; for a "needs
    *  attention" row these are the closest guesses, none confident enough to

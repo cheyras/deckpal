@@ -9,6 +9,7 @@ import { squareSide } from './coords'
 import { IncomingStack } from './IncomingStack'
 import { DURATION, prefersReducedMotion } from './motion'
 import type { EngineState } from '../engine/contract'
+import type { ScanMatch } from '../../lib/api'
 import type { CamState } from './camera'
 import type { StackItem } from './types'
 
@@ -19,7 +20,12 @@ export function CameraStage({
   engineError,
   hint,
   stackItems,
+  picking,
   onStackNodeRef,
+  onNeedsYou,
+  onPick,
+  onRetake,
+  onClosePicker,
   onRetry,
   onReportCamera,
   flashSignal,
@@ -31,7 +37,14 @@ export function CameraStage({
   engineError: string | null
   hint: string
   stackItems: StackItem[]
+  /** Which stack thumbnail has its needs-you picker open. Passed straight
+   *  through — this component owns the camera box, not the identity flow. */
+  picking: string | null
   onStackNodeRef: (id: string, el: HTMLDivElement | null) => void
+  onNeedsYou: (id: string) => void
+  onPick: (id: string, match: ScanMatch) => void
+  onRetake: (id: string) => void
+  onClosePicker: () => void
   onRetry: () => void
   onReportCamera: () => void
   /** Incremented once per capture — pulses a brief white flash across the
@@ -136,7 +149,17 @@ export function CameraStage({
         <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
         <div ref={flashRef} className="pointer-events-none absolute inset-0 z-40 bg-white opacity-0" />
         {live && <QuadOverlay state={engineState} box={box} />}
-        {live && <IncomingStack items={stackItems} onNodeRef={onStackNodeRef} />}
+        {live && (
+          <IncomingStack
+            items={stackItems}
+            picking={picking}
+            onNodeRef={onStackNodeRef}
+            onNeedsYou={onNeedsYou}
+            onPick={onPick}
+            onRetake={onRetake}
+            onClosePicker={onClosePicker}
+          />
+        )}
 
         {live && (
           <>

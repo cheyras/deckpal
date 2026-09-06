@@ -7,10 +7,11 @@ import { CardImage } from '../../components/CardImage'
 import { VariantChip } from '../../components/VariantChip'
 import { RarityMark } from '../../components/RarityMark'
 import { Icon } from '../../components/Icon'
-import { ProgressBar } from '../../components/ui'
+import { ProgressBar, Spinner } from '../../components/ui'
 import { fmtNumber } from '../../lib/format'
 import type { ScanMatch } from '../../lib/api'
 import { bump, DURATION, revealEntry, staggerReveal } from './motion'
+import { printingState } from './printing'
 import type { FeedEntry } from './types'
 import { AlternatesPopover } from './AlternatesPopover'
 
@@ -68,8 +69,15 @@ export function FeedEntryCard({
   }, [entry.mergeTick])
 
   const pct = Math.round(entry.confidence * 100)
-  const hasVariantChoice = entry.variants.length > 1
   const selectedVariant = entry.variants.find((v) => v.variantId === entry.variantId)
+  // THE PRINTING SLOT (printing.ts). Three states, one policy, and the one the
+  // row is in is decided there rather than by a `variants.length > 1` buried in
+  // the JSX — which is where the rule used to live, unnamed and untested.
+  const printing = printingState(entry)
+  // A row the PRINTED-NUMBER ladder named has no phash distance (`-1`), and a
+  // meter reading "0% · dist -1" would be inventing a measurement that was never
+  // taken. It gets a provenance line instead of a bar.
+  const hasPhashOpinion = entry.distance >= 0
 
   const report = async () => {
     setReportState('sending')
@@ -149,16 +157,29 @@ export function FeedEntryCard({
           )}
         </div>
 
-        {/* WHICH PRINTING — shown only when there is a real choice (same
-            reasoning the old rip-mode list carried: a select with one option
-            is furniture that teaches the reader to stop reading the row). */}
-        {entry.matched && hasVariantChoice && (
-          <div className="fe-chips mt-[3px]">
+        {/* WHICH PRINTING — the slot the 2026-09-05 ruling puts on the row:
+            "variant resolve happens there". `detecting` is the state the
+            server-side variant pass will land in and nothing enters it today
+            (printing.ts); `needs-pick` is where every multi-printing row starts,
+            because nothing in the scanner can tell a reverse holo from its
+            normal printing; `resolved` is the chip, and a single printing goes
+            straight there — a select with one option is furniture that teaches
+            the reader to stop reading the row. */}
+        {entry.matched && printing === 'detecting' && (
+          <div
+            data-printing="detecting"
+            className="fe-chips mt-[3px] inline-flex h-[26px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[9px] text-[12px] text-text-muted"
+          >
+            <Spinner inline size={12} /> Detecting printing…
+          </div>
+        )}
+        {entry.matched && printing === 'needs-pick' && (
+          <div data-printing="needs-pick" className="fe-chips mt-[3px] flex items-center gap-[6px]">
             <select
               value={entry.variantId ?? ''}
               aria-label={`Printing of ${entry.name}`}
               onChange={(ev) => onVariantChange(entry.id, Number(ev.target.value))}
-              className="h-[26px] rounded-full border border-border-default bg-surface-primary px-[8px] text-[12px] text-text-body"
+              className="h-[26px] rounded-full border border-warning/60 bg-surface-primary px-[8px] text-[12px] text-text-body"
             >
               {entry.variants.map((v) => (
                 <option key={v.variantId} value={v.variantId}>
@@ -166,10 +187,11 @@ export function FeedEntryCard({
                 </option>
               ))}
             </select>
+            <span className="text-[11px] font-semibold text-warning">pick a printing</span>
           </div>
         )}
-        {entry.matched && !hasVariantChoice && selectedVariant && (
-          <div className="fe-chips mt-[3px]">
+        {entry.matched && printing === 'resolved' && selectedVariant && (
+          <div data-printing="resolved" className="fe-chips mt-[3px]">
             <VariantChip
               variant={{
                 kind: selectedVariant.kind,
@@ -181,7 +203,7 @@ export function FeedEntryCard({
           </div>
         )}
 
-        {entry.matched && (
+        {entry.matched && hasPhashOpinion && (
           <div className="fe-conf mt-[4px]">
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-text-muted">Match</span>
@@ -191,6 +213,9 @@ export function FeedEntryCard({
             </div>
             <ProgressBar pct={pct} height={5} fill={pct >= 95 ? 'var(--color-change-positive)' : 'var(--color-action-brand)'} />
           </div>
+        )}
+        {entry.matched && !hasPhashOpinion && (
+          <div className="fe-conf mt-[4px] text-[11px] text-text-muted">Matched from the printed number</div>
         )}
 
         <div className="fe-row mt-[6px] flex items-center justify-between gap-[8px]">

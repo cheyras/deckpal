@@ -32,6 +32,7 @@
 
 import { ApiError, api, type ScanMatch, type ScanResolveFields, type ScanResolveResponse } from '../../lib/api'
 import type { OcrRead } from '../ocr'
+import { resolvedIdentity } from './identity'
 import type { FeedEntry } from './types'
 
 /** How long the whole narrowing pass may take before it is abandoned. Generous
@@ -141,19 +142,43 @@ export async function resolveWithOcr(
   }
 }
 
+// ── WHERE THE "IS THE LADDER SURE?" TEST WENT, AND WHY ─────────────────────
+//
+// It used to be the first two lines of `narrowedIdentity` below. The 2026-09-05
+// flow ruling gave it a SECOND caller — the identity race, which asks it about a
+// capture that has no feed row yet — and two callers of one judgement must not
+// be able to answer it differently.
+//
+// It now lives in `identity.ts` as `resolvedIdentity`, beside the OTHER half of
+// the same policy (the tie gate's verdict on phash). Not a copy: this file calls
+// that one. It went there rather than staying here because this module also
+// holds the network calls, and a reducer that only wants the judgement should
+// not have to import an API client — which is the concrete form the coupling
+// took the moment `identity.ts` reached for it.
+//
+// What is the same as it ever was: `confident` AND `matched`. The endpoint sets
+// `confident` per CROSSWALK §7.3's rungs, and `matched` is its own claim that
+// there is anything to be confident about. A response asserting one without the
+// other is not one this side gets to interpret.
+
 /**
  * Should this narrowing replace the row's identity, and with what?
  *
  * Pure, so the policy above is a thing that can be read and tested rather than
  * a condition buried in a `setFeed` callback. Returns null to mean "leave the
  * row alone", which is the answer in every case the endpoint is not sure.
+ *
+ * Still reached on the path where PHASH was confident and the row landed on
+ * phash's answer: the narrowing arrives seconds later and may correct it. On the
+ * other path — phash unconfident, the ladder sure — the race has already used
+ * `resolvedIdentity` to name the card before any row existed, so there is
+ * nothing here left to correct.
  */
 export function narrowedIdentity(
   entry: FeedEntry,
   resolved: ScanResolveResponse | null,
 ): Pick<FeedEntry, 'id' | 'cardId' | 'matched' | 'name' | 'setName' | 'number' | 'rarity' | 'images'> | null {
-  if (!resolved?.confident || !resolved.matched) return null
-  const top = resolved.matches[0]
+  const top = resolvedIdentity(resolved)
   if (!top) return null
   if (entry.verified) return null // a human already said yes
   if (entry.quantity !== 1) return null // merged, or the stepper was used

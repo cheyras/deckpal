@@ -50,6 +50,13 @@ export const DURATION = {
   stagger: 60,
   dupFly: 300,
   dupBump: 200,
+  /** NEW, and not from the prototype: how long the confident tick holds on a
+   *  stack thumbnail before the courier launches it at the list. The prototype
+   *  had no such beat because a capture flew unconditionally; the 2026-09-05
+   *  ruling puts a decision in front of the flight, and a decision the reader
+   *  cannot see happen looks like a glitch. Long enough to read as "yes", short
+   *  enough that it never becomes a queue — the flight itself is 320 ms. */
+  confirmTick: 240,
 } as const
 
 /** `el`'s rect expressed relative to `origin` (both from getBoundingClientRect). */
