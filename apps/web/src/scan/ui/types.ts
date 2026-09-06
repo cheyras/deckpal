@@ -30,13 +30,17 @@ export interface FeedVariant {
 }
 
 /**
- * A capture sitting in the incoming stack.
+ * A capture sitting in the incoming stack — and only until its identity
+ * SETTLES, which is not the same as until it is named.
  *
- * It used to sit here only for as long as `/scan` took to answer. Under the
- * 2026-09-05 flow ruling it sits here until the card is NAMED — by phash, by the
- * printed number, or by the reader — and a capture nothing can name stays here
- * as a needs-you thumbnail rather than going down to the list as homework. What
- * it is waiting for, and what it does when the wait ends, is `identity.ts`.
+ * It used to sit here only for as long as `/scan` took to answer; the
+ * 2026-09-05 flow ruling made it wait for a verdict instead, and briefly made
+ * the verdict "needs you" a place to stay. The 2026-09-06 reversal took that
+ * back — "if the resolution is 'needs your input' they should still go down to
+ * the list" — so every capture leaves, and the only question the stack answers
+ * is whether the answer has arrived yet. The stack is transient again and
+ * nothing in it is tappable; what it is waiting for is `identity.ts`, and what
+ * happens when the wait ends is `feed.ts`.
  */
 export interface StackItem {
   /** Unique per capture — NOT the engine's track id. The same track id is
@@ -58,12 +62,13 @@ export interface StackItem {
 /** One row in the verify feed. */
 export interface FeedEntry {
   /** Stable React key and dedupe key. Equals the matched `cardId` once one
-   *  is known; a synthetic id for a still-unmatched "needs attention" row
+   *  is known; a synthetic id for a still-unmatched "needs your input" row
    *  (see `matched` / `cardId`). */
   id: string
   /** Null until a confident match — or the reader's own correction — names
    *  one. A row with `cardId === null` cannot commit; `scan/ui/commit.ts`
-   *  skips it and reports it back as unresolved rather than guessing. */
+   *  skips it and reports it back as unresolved rather than guessing, and it
+   *  is the ONE test for "unresolved" the whole screen uses (`feed.ts`). */
   cardId: string | null
   matched: boolean
   name: string
@@ -72,10 +77,36 @@ export interface FeedEntry {
   rarity: string | null
   images: { low: string; high: string } | null
   /** The reader's own rectified capture. Always present — it is what a
-   *  "needs attention" row shows in place of a catalog image it has none
+   *  "needs your input" row shows in place of a catalog image it has none
    *  of, and what the per-entry "report" affordance uploads. */
   capturePreviewUrl: string
   captureBlob: Blob
+  /**
+   * The capture this row came from, correlating it to its `capture-event`.
+   *
+   * Null on the upload fallback, which has no capture pipeline behind it. On a
+   * merged row it is the FIRST capture's id: the row is now several captures and
+   * the later ones reported their own outcome from the race, so claiming it for
+   * all of them would be worse than naming the one it belongs to.
+   */
+  captureId: string | null
+  /** The engine track this capture came off, so discarding the row can release
+   *  the refractory hold and let the same card be scanned again. -1 on the
+   *  upload path, null once the row is named and the hold no longer matters. */
+  captureTrackId: number | null
+  /**
+   * THE SETTLED RACE, RIDING DOWN WITH THE CAPTURE — and only on a row that is
+   * still asking a question.
+   *
+   * Set when a `needs-you` capture lands (2026-09-06: it lands rather than
+   * parking), cleared the moment the row is resolved. It carries exactly two
+   * things the row cannot reconstruct: what OCR READ, for the hint chip on the
+   * row's picker (`ocrHintLabel`), and enough of the machine's state that the
+   * reader's eventual pick or discard can be posted as this capture's identity
+   * record (`identityRecord`) instead of vanishing. Null on every named row,
+   * which is what `FeedEntryCard` draws the amber marker off.
+   */
+  identity: IdentityState | null
   /** The PHASH opinion, and only ever that. `distance: -1` means there isn't
    *  one — an unmatched capture, or a row the printed-number ladder named, which
    *  phash never nominated. The row renders no match meter at -1 rather than a
@@ -95,9 +126,12 @@ export interface FeedEntry {
   detectingPrinting: boolean
   /** Top-k matches from the identify call that produced this row, best
    *  first. Feeds the "wrong card? / pick a match" popover; for a "needs
-   *  attention" row these are the closest guesses, none confident enough to
+   *  your input" row these are the closest guesses, none confident enough to
    *  auto-select. */
   alternates: ScanMatch[]
+  /** When the SHUTTER fired, not when the row landed — the two are seconds
+   *  apart now that a capture waits for its identity, and `identityRecord`'s
+   *  `msToResolve` is measured from the first. */
   capturedAt: number
   /** Bumped each time a re-presentation merges into this row instead of
    *  creating a new one. FeedEntryCard watches it (not `quantity`, which the

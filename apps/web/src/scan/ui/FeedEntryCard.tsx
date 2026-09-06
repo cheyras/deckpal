@@ -2,6 +2,28 @@
 // confidence meter, quantity stepper, "wrong card? / pick a match" popover,
 // and a small report affordance. Ported from prototype.html's
 // `buildFeedEntry` + `openAlternates`.
+//
+// ── THE NEEDS-INPUT ROW (owner ruling, 2026-09-06) ──────────────────────────
+//
+// "If the resolution is 'needs your input' they should still go down to the
+// list." So a capture nothing could name arrives HERE, not on the camera, and
+// this row is where the question gets asked:
+//
+//   * amber, and marked as a question rather than a card — the reader scanning
+//     the list has to be able to see which rows are still owed an answer without
+//     reading any of them;
+//   * showing the CAPTURE, because the picture is the whole of what the reader
+//     has to work with;
+//   * carrying the same picker the stack used to open — the tie-gated
+//     candidates, the OCR read as a hint chip, and the way out — opened by
+//     tapping the capture itself or the "pick a match" link, in place, without
+//     leaving the list;
+//   * and never a quantity stepper, because a row that is not a card yet cannot
+//     be two of it (`feed.ts`: an unresolved row merges with nothing).
+//
+// Resolving one turns it into an ordinary row through `feed.resolveRow` — the
+// same merge a confident capture of that card would have taken — and the
+// printing slot picks up from there.
 import { useEffect, useRef, useState } from 'react'
 import { CardImage } from '../../components/CardImage'
 import { VariantChip } from '../../components/VariantChip'
@@ -10,6 +32,7 @@ import { Icon } from '../../components/Icon'
 import { ProgressBar, Spinner } from '../../components/ui'
 import { fmtNumber } from '../../lib/format'
 import type { ScanMatch } from '../../lib/api'
+import { ocrHintLabel } from './identity'
 import { bump, DURATION, revealEntry, staggerReveal } from './motion'
 import { printingState } from './printing'
 import type { FeedEntry } from './types'
@@ -21,8 +44,10 @@ export function FeedEntryCard({
   onVariantChange,
   onCorrect,
   onRemove,
+  onDiscard,
   onReport,
   onOpenDetail,
+  onPickerOpenChange,
   registerThumbNode,
 }: {
   entry: FeedEntry
@@ -32,19 +57,55 @@ export function FeedEntryCard({
   onVariantChange: (id: string, variantId: number) => void
   onCorrect: (id: string, match: ScanMatch) => void
   /** Drop the row outright. The quantity stepper reaching 0 does this too for
-   *  a matched row, but an unmatched "needs attention" row has no stepper —
-   *  and, if `/scan` returned zero guesses, no "pick a match" popover either
-   *  — so without an explicit remove it could be un-clearable. */
+   *  a matched row, but an unresolved row has no stepper, so without an
+   *  explicit remove it could be un-clearable. */
   onRemove: (id: string) => void
+  /**
+   * "Discard and retake" from the needs-input row's own picker.
+   *
+   * NOT `onRemove`. Both drop the row; only this one is the reader saying "that
+   * capture was no good, let me scan it again", which also has to release the
+   * engine's refractory hold on the track so the same card presenting again is
+   * a capture rather than a suppression. Falls back to `onRemove` when the
+   * caller has nothing to release (the upload path).
+   */
+  onDiscard?: (entry: FeedEntry) => void
   onReport: (entry: FeedEntry) => Promise<void>
   onOpenDetail: (cardId: string) => void
+  /**
+   * The picker on this row opened or closed.
+   *
+   * Reported up because a late OCR narrowing must not rename a row the reader
+   * is mid-decision on — the rule `identity.ts` used to enforce with `engaged`
+   * while the picker hung off a stack thumbnail. The popover's own open state
+   * stays local; only the fact of it travels.
+   */
+  onPickerOpenChange?: (id: string, open: boolean) => void
   registerThumbNode: (id: string, el: HTMLDivElement | null) => void
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const countRef = useRef<HTMLSpanElement>(null)
   const mountedTick = useRef(entry.mergeTick)
-  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [popoverOpen, setPopoverOpenState] = useState(false)
   const [reportState, setReportState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+
+  const popoverOpenRef = useRef(false)
+  const setPopoverOpen = (open: boolean) => {
+    popoverOpenRef.current = open
+    setPopoverOpenState(open)
+    onPickerOpenChange?.(entry.id, open)
+  }
+  // A resolved row is a DIFFERENT row — `feed.resolveRow` gives it the card's id
+  // and React remounts it — so a picker open at that moment never gets its own
+  // close. Report it from the unmount instead, or the guard upstairs keeps
+  // protecting a row that no longer exists.
+  useEffect(
+    () => () => {
+      if (popoverOpenRef.current) onPickerOpenChange?.(entry.id, false)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
   // The entry's own open reveal — a stable `key={entry.id}` (see VerifyFeed)
   // means this component instance mounts exactly once, when the row is new;
@@ -78,6 +139,10 @@ export function FeedEntryCard({
   // meter reading "0% · dist -1" would be inventing a measurement that was never
   // taken. It gets a provenance line instead of a bar.
   const hasPhashOpinion = entry.distance >= 0
+  // THE ROW IS A QUESTION, not a card. One test, `feed.isUnresolved`'s, so the
+  // amber the reader sees and the row `commit.ts` will skip cannot disagree.
+  const needsInput = !entry.matched
+  const ocrHint = ocrHintLabel(entry.identity?.read ?? null)
 
   const report = async () => {
     setReportState('sending')
@@ -92,14 +157,14 @@ export function FeedEntryCard({
   return (
     <div
       ref={rootRef}
-      data-entry-state={entry.matched ? 'identified' : 'needs-attention'}
+      data-entry-state={needsInput ? 'needs-input' : 'identified'}
       data-verified={entry.verified || undefined}
       className={`relative flex gap-[10px] rounded-xl border p-[10px] ${
         entry.verified
           ? 'border-change-positive/50 bg-surface-secondary'
-          : entry.matched
-            ? 'border-border-default bg-surface-secondary'
-            : 'border-warning/50 bg-surface-secondary'
+          : needsInput
+            ? 'border-warning bg-warning/5'
+            : 'border-border-default bg-surface-secondary'
       }`}
     >
       <button
@@ -111,10 +176,19 @@ export function FeedEntryCard({
         <Icon name="close" size={12} />
       </button>
 
+      {/* THE CAPTURE IS THE TAP TARGET on a needs-input row — "tapping opens the
+          picker in place in the list". On a named row the same square opens the
+          card's detail sheet, which is what it has always done; the two never
+          collide, because a row has an identity or a question, never both. */}
       <div
         ref={(el) => registerThumbNode(entry.id, el)}
-        className="relative w-[60px] shrink-0 cursor-pointer overflow-hidden rounded-md shadow-panel"
-        onClick={() => entry.cardId && onOpenDetail(entry.cardId)}
+        role={needsInput ? 'button' : undefined}
+        tabIndex={needsInput ? 0 : undefined}
+        aria-label={needsInput ? 'Identify this capture, or discard it' : undefined}
+        className={`relative w-[60px] shrink-0 cursor-pointer overflow-hidden rounded-md shadow-panel ${
+          needsInput ? 'ring-2 ring-warning' : ''
+        }`}
+        onClick={() => (needsInput ? setPopoverOpen(!popoverOpen) : entry.cardId && onOpenDetail(entry.cardId))}
       >
         {entry.matched && entry.images ? (
           <CardImage low={entry.images.low} high={entry.images.high} alt={entry.name} radius={6} />
@@ -137,8 +211,17 @@ export function FeedEntryCard({
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="fe-name truncate font-display text-[15px] font-semibold leading-[19px] text-text-primary">
-          {entry.matched ? entry.name : 'Needs attention'}
+        <div className="fe-name flex items-center gap-[6px] truncate font-display text-[15px] font-semibold leading-[19px] text-text-primary">
+          {entry.matched ? (
+            entry.name
+          ) : (
+            <>
+              <span className="inline-flex shrink-0 items-center gap-[3px] rounded-full bg-warning px-[6px] py-[2px] text-[9px] font-extrabold uppercase tracking-wide text-surface-primary">
+                <Icon name="alert" size={9} /> you
+              </span>
+              <span className="truncate">Needs your input</span>
+            </>
+          )}
         </div>
         <div className="fe-set flex items-center gap-[6px] text-[12px] text-text-muted">
           {entry.matched ? (
@@ -153,7 +236,14 @@ export function FeedEntryCard({
               )}
             </>
           ) : (
-            <span>No confident match — pick one below</span>
+            <span className="truncate">
+              {/* WHAT THE SCANNER GOT, in the reader's own terms. The OCR read is
+                  the single most useful thing to hand them here — it is printed
+                  on the card they are holding and they can check it in a second
+                  — so it leads when there is one, quoted as evidence rather
+                  than stated as a finding (`ocrHintLabel`). */}
+              {ocrHint ? `Tap to identify · ${ocrHint}` : 'No confident match — tap to identify'}
+            </span>
           )}
         </div>
 
@@ -220,10 +310,15 @@ export function FeedEntryCard({
 
         <div className="fe-row mt-[6px] flex items-center justify-between gap-[8px]">
           <div className="flex items-center gap-[10px]">
-            {entry.alternates.length > 0 && (
+            {/* A needs-input row ALWAYS offers this, even when `/scan` came back
+                with nothing to offer: the picker is also where "discard and
+                retake" lives, and a capture with no candidates is exactly the
+                one the reader most needs a way out of. A named row only offers
+                it when there is something to swap to. */}
+            {(needsInput || entry.alternates.length > 0) && (
               <button
                 type="button"
-                onClick={() => setPopoverOpen((o) => !o)}
+                onClick={() => setPopoverOpen(!popoverOpen)}
                 className="text-[12px] font-semibold text-link underline decoration-1 underline-offset-2 hover:text-link-hover"
               >
                 {entry.matched ? 'wrong card?' : 'pick a match'}
@@ -275,6 +370,39 @@ export function FeedEntryCard({
             setPopoverOpen(false)
           }}
           onClose={() => setPopoverOpen(false)}
+          // THE SAME PICKER THE STACK USED TO OPEN, in the place the capture now
+          // lives. Same component, same three slots — title, the OCR hint chip,
+          // and the way out — so the ask cannot drift between the two rulings.
+          title={needsInput ? 'Which card is this?' : undefined}
+          hint={
+            needsInput && ocrHint ? (
+              <div className="mx-[6px] mb-[6px] inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[8px] py-[3px] text-[11px] font-semibold text-text-secondary">
+                <Icon name="search" size={11} /> {ocrHint}
+              </div>
+            ) : null
+          }
+          footer={
+            needsInput ? (
+              <div className="mt-[4px] border-t border-divider-subtle pt-[6px]">
+                {entry.alternates.length === 0 && (
+                  <p className="px-[6px] pb-[6px] text-[11px] text-text-muted">
+                    The matcher had no guesses for this one.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPopoverOpen(false)
+                    if (onDiscard) onDiscard(entry)
+                    else onRemove(entry.id)
+                  }}
+                  className="flex w-full items-center justify-center gap-[6px] rounded-lg p-[7px] text-[12px] font-semibold text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
+                >
+                  <Icon name="close" size={12} /> Discard and retake
+                </button>
+              </div>
+            ) : null
+          }
         />
       )}
     </div>

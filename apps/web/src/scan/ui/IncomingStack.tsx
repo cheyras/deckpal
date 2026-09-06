@@ -4,55 +4,49 @@
 // (overlap, not queue), and a freshly-inserted slot gets its own entrance
 // (opacity + translateX/scale), never a FLIP of its own arrival.
 //
-// ── WHAT CHANGED ON 2026-09-05, AND WHY IT IS HERE AND NOT IN THE ROUTE ─────
+// ── WHAT THE STACK IS FOR, AFTER TWO RULINGS ────────────────────────────────
 //
-// The stack used to hold one state: waiting. Every thumbnail was dimmed with a
-// spinner over it and it left the moment `/scan` answered, whatever the answer
-// was. Under the flow ruling it holds three (`identity.ts`):
+// It held ONE state for most of its life: waiting. Every thumbnail was dimmed
+// with a spinner and left the moment `/scan` answered, whatever the answer was.
 //
-//   pending    unchanged — the dim + spinner this file always drew.
+// 2026-09-05 gave it a second job — hold the capture until its identity settles,
+// so nothing flies while the answer is still unknown — and a third that did not
+// survive contact: park the FAILURES here indefinitely, amber and tappable, as
+// "needs-you" thumbnails. The owner used that and ruled against it on
+// 2026-09-06: "I do not like the change where ones that need my input stay in
+// the side. If the resolution is 'needs your input' they should still go down to
+// the list."
+//
+// So the stack is transient again, and it draws three states rather than one:
+//
+//   pending    unchanged — the dim + spinner this file always drew, and the one
+//              state a thumbnail can be in without a verdict.
 //   confident  a tick, held for `DURATION.confirmTick`, then Scan.tsx's courier
-//              takes it to the list. The reader sees the decision happen.
-//   needs-you  it stays. Amber, undimmed (the reader is being asked to look at
-//              the picture, so covering it with a scrim would be perverse), and
-//              tappable — the ruling's "tappable to pick/retake".
+//              takes it to the list.
+//   needs-you  THE TICK'S MIRROR — the same beat, the same duration, amber
+//              instead of green — then the SAME courier, to the same list. The
+//              reader sees the scanner give up in the same place and with the
+//              same rhythm it says yes, and then sees where the question went.
 //
-// The picker is rendered by this file rather than by the thumbnail, as a sibling
-// pinned to the camera box's own right edge. A dropdown hanging off a 54 px
-// thumbnail would be clipped by the camera view's `overflow-hidden` the moment
-// the stack held more than one card, and the reader would be tapping a card they
-// cannot see the options for.
+// NOTHING IN HERE IS TAPPABLE, and that is back to being an invariant rather
+// than an exception. The picker moved to the row (`FeedEntryCard`), which is
+// where the capture now is by the time anyone can act on it, and a thumbnail
+// that cannot be tapped cannot swallow a tap meant for the camera behind it.
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui'
-import type { ScanMatch } from '../../lib/api'
-import { AlternatesPopover } from './AlternatesPopover'
-import { ocrHintLabel } from './identity'
 import { DURATION, EASE, flipReflow, prefersReducedMotion } from './motion'
 import type { StackItem } from './types'
 
 export function IncomingStack({
   items,
-  picking,
   onNodeRef,
-  onNeedsYou,
-  onPick,
-  onRetake,
-  onClosePicker,
 }: {
   items: StackItem[]
-  /** Which thumbnail has the picker open, if any. Owned by the route, because
-   *  the route also has to stop late answers overruling the reader while it is
-   *  open (`identity.ts`'s `engaged`). */
-  picking: string | null
   /** Mirrors every mount/unmount into the parent's own node map, so Scan.tsx
    *  can measure a slot's rect at flight time without owning this list's
    *  render loop. */
   onNodeRef: (id: string, el: HTMLDivElement | null) => void
-  onNeedsYou: (id: string) => void
-  onPick: (id: string, match: ScanMatch) => void
-  onRetake: (id: string) => void
-  onClosePicker: () => void
 }) {
   const nodesRef = useRef(new Map<string, HTMLDivElement>())
   const prevRectsRef = useRef(new Map<string, DOMRect>())
@@ -88,98 +82,62 @@ export function IncomingStack({
     prevIdsRef.current = nextIds
   }, [items])
 
-  const open = picking ? items.find((i) => i.id === picking) : undefined
-  const hintLabel = open ? ocrHintLabel(open.identity.read) : null
-
   return (
-    <>
-      {/* THE COLUMN IS CAPPED NOW THAT THUMBNAILS PERSIST. A pending capture
-          cleared itself in a second or two, so four of them never fitted at
-          once; a needs-you capture waits for the reader, and a run through a
-          box of sleeved cards can leave several. Past the cap it scrolls —
-          reachable because a touch that starts on a needs-you thumbnail (the
-          only `pointer-events-auto` thing in here) scrolls its ancestor, which
-          is exactly the case that can fill the column. The column itself stays
-          `pointer-events-none` so a stack of captures can never swallow a tap
-          meant for the camera. */}
-      <div className="pointer-events-none absolute right-[8px] top-[10px] z-20 flex max-h-[calc(100%-20px)] w-[54px] flex-col items-end gap-[8px] overflow-y-auto overscroll-contain">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            ref={(el) => {
-              if (el) nodesRef.current.set(item.id, el)
-              else nodesRef.current.delete(item.id)
-              onNodeRef(item.id, el)
-            }}
-            data-stack-phase={item.identity.phase}
-            className={`relative w-[54px] shrink-0 overflow-hidden rounded-md shadow-panel ${
-              item.identity.phase === 'needs-you'
-                ? 'ring-2 ring-warning'
-                : item.identity.phase === 'confident'
-                  ? 'ring-1 ring-change-positive'
-                  : 'ring-1 ring-surface-tertiary'
-            }`}
-            style={{ aspectRatio: '63 / 88' }}
-          >
-            <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
-            <StackPhaseOverlay item={item} onNeedsYou={onNeedsYou} />
-          </div>
-        ))}
-      </div>
-
-      {open && (
-        <AlternatesPopover
-          matches={open.identity.candidates}
-          currentCardId={null}
-          onPick={(m) => onPick(open.id, m)}
-          onClose={onClosePicker}
-          // Pinned to the camera box, not hung off the 54 px thumbnail — see the
-          // file header. `max-h` + its own scroll so a full top-5 plus a hint and
-          // a retake never runs off the bottom of a short camera box.
-          className="pointer-events-auto absolute right-[70px] top-[10px] z-30 max-h-[calc(100%-20px)] w-[218px] overflow-y-auto"
-          title="Which card is this?"
-          hint={
-            hintLabel ? (
-              <div className="mx-[6px] mb-[6px] inline-flex items-center gap-[5px] rounded-full bg-surface-tertiary px-[8px] py-[3px] text-[11px] font-semibold text-text-secondary">
-                <Icon name="search" size={11} /> {hintLabel}
-              </div>
-            ) : null
-          }
-          footer={
-            <div className="mt-[4px] border-t border-divider-subtle pt-[6px]">
-              <button
-                type="button"
-                onClick={() => onRetake(open.id)}
-                className="flex w-full items-center justify-center gap-[6px] rounded-lg p-[7px] text-[12px] font-semibold text-text-muted hover:bg-surface-tertiary hover:text-text-primary"
-              >
-                <Icon name="close" size={12} /> Discard and retake
-              </button>
-            </div>
-          }
-        />
-      )}
-    </>
+    // NO SCROLL, AND NO SCROLL CAP. Both were added for the parked needs-you
+    // thumbnails of 2026-09-05: those waited for the reader, a run through a box
+    // of sleeved cards could leave several, and past the cap the column had to
+    // scroll to stay reachable. Nothing waits here now — every capture leaves
+    // within a couple of seconds of settling — so the column is back to what it
+    // was: a `pointer-events-none` strip that clips at the camera's height and
+    // can never swallow a tap meant for the camera.
+    <div className="pointer-events-none absolute right-[8px] top-[10px] z-20 flex max-h-[calc(100%-20px)] w-[54px] flex-col items-end gap-[8px] overflow-hidden">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          ref={(el) => {
+            if (el) nodesRef.current.set(item.id, el)
+            else nodesRef.current.delete(item.id)
+            onNodeRef(item.id, el)
+          }}
+          data-stack-phase={item.identity.phase}
+          className={`relative w-[54px] shrink-0 overflow-hidden rounded-md shadow-panel ${
+            item.identity.phase === 'needs-you'
+              ? 'ring-2 ring-warning'
+              : item.identity.phase === 'confident'
+                ? 'ring-1 ring-change-positive'
+                : 'ring-1 ring-surface-tertiary'
+          }`}
+          style={{ aspectRatio: '63 / 88' }}
+        >
+          <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+          <StackPhaseOverlay item={item} />
+        </div>
+      ))}
+    </div>
   )
 }
 
 /**
  * The one part of a thumbnail that differs by phase.
  *
- * Its own component so the tick can be a mount effect: `confident` is entered
- * once and lasts `DURATION.confirmTick` before the courier takes the thumbnail
- * away, so the animation belongs to the element's LIFETIME rather than to a
- * `useEffect` in the list that would have to diff phases to know when to fire.
+ * Its own component so the marker can be a mount effect: a settled phase is
+ * entered once and lasts `DURATION.confirmTick` before the courier takes the
+ * thumbnail away, so the animation belongs to the element's LIFETIME rather than
+ * to a `useEffect` in the list that would have to diff phases to know when to
+ * fire.
  */
-function StackPhaseOverlay({ item, onNeedsYou }: { item: StackItem; onNeedsYou: (id: string) => void }) {
-  const tickRef = useRef<HTMLDivElement>(null)
+function StackPhaseOverlay({ item }: { item: StackItem }) {
+  const markRef = useRef<HTMLDivElement>(null)
   const phase = item.identity.phase
 
   useEffect(() => {
-    const el = tickRef.current
+    const el = markRef.current
     if (!el || prefersReducedMotion()) return
     // Transform + opacity only, WAAPI, per motion.ts's hard rule. A scale-in
     // with the snap easing — the same overshoot the quad uses when it locks, so
-    // "the scanner decided" reads the same in both places.
+    // "the scanner decided" reads the same in both places. BOTH verdicts get it:
+    // giving up is a decision too, and the reader is about to watch the
+    // thumbnail fly on it.
     const anim = el.animate(
       [
         { opacity: 0, transform: 'scale(0.4)' },
@@ -200,26 +158,19 @@ function StackPhaseOverlay({ item, onNeedsYou }: { item: StackItem; onNeedsYou: 
 
   if (phase === 'confident') {
     return (
-      <div ref={tickRef} className="absolute inset-0 flex items-center justify-center bg-change-positive/75">
+      <div ref={markRef} className="absolute inset-0 flex items-center justify-center bg-change-positive/75">
         <Icon name="check" size={22} strokeWidth={3} className="text-surface-primary" />
       </div>
     )
   }
 
-  // needs-you. NO SCRIM: the reader is being asked to look at the capture, so
-  // the capture stays legible and only the badge and the ring say what is being
-  // asked. `pointer-events-auto` against the column's `pointer-events-none` —
-  // this is the only thing in the stack that has ever been tappable.
+  // needs-you — the mirror. Same wash, same beat, amber, and an alert glyph
+  // where the tick goes. It is a departure notice, not a question: the question
+  // is asked on the row this thumbnail is about to become, so there is nothing
+  // here to tap and nothing to read beyond "this one is going down marked".
   return (
-    <button
-      type="button"
-      onClick={() => onNeedsYou(item.id)}
-      aria-label="Pick a match for this capture, or retake it"
-      className="pointer-events-auto absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/70 to-transparent pb-[4px]"
-    >
-      <span className="inline-flex items-center gap-[3px] rounded-full bg-warning px-[5px] py-[2px] text-[9px] font-extrabold uppercase tracking-wide text-surface-primary">
-        <Icon name="alert" size={9} /> you
-      </span>
-    </button>
+    <div ref={markRef} className="absolute inset-0 flex items-center justify-center bg-warning/75">
+      <Icon name="alert" size={20} strokeWidth={3} className="text-surface-primary" />
+    </div>
   )
 }

@@ -279,7 +279,7 @@ function SwipeCardFace({
       </div>
       <div className="flex shrink-0 flex-col gap-[6px] p-[14px]">
         <div className="truncate font-display text-[18px] font-semibold text-text-primary">
-          {entry.matched ? entry.name : 'Needs attention'}
+          {entry.matched ? entry.name : 'Needs your input'}
         </div>
         <div className="flex items-center gap-[6px] text-[12px] text-text-muted">
           {entry.matched ? (

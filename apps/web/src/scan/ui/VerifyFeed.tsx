@@ -6,8 +6,10 @@
 // FeedEntryCard's own mount effect, not here, so this only ever moves rows
 // that already existed).
 import type { ReactNode } from 'react'
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ScanMatch } from '../../lib/api'
+import { Icon } from '../../components/Icon'
+import { unresolvedCount } from './feed'
 import { DURATION, EASE, flipReflow } from './motion'
 import type { FeedEntry } from './types'
 import { FeedEntryCard } from './FeedEntryCard'
@@ -20,9 +22,13 @@ export function VerifyFeed({
   onVariantChange,
   onCorrect,
   onRemove,
+  onDiscard,
   onReport,
   onOpenDetail,
+  onPickerOpenChange,
   registerThumbNode,
+  scrollToId,
+  scrollSignal = 0,
 }: {
   entries: FeedEntry[]
   /** "Cards" in Step 1's collapsed bin, "Verify" as the Step-2 screen title —
@@ -35,9 +41,22 @@ export function VerifyFeed({
   onVariantChange: (id: string, variantId: number) => void
   onCorrect: (id: string, match: ScanMatch) => void
   onRemove: (id: string) => void
+  onDiscard?: (entry: FeedEntry) => void
   onReport: (entry: FeedEntry) => Promise<void>
   onOpenDetail: (cardId: string) => void
+  onPickerOpenChange?: (id: string, open: boolean) => void
   registerThumbNode: (id: string, el: HTMLDivElement | null) => void
+  /**
+   * Bring one row into view — the commit gate's "Go back to them".
+   *
+   * The gate names the FIRST unresolved row (`feed.firstUnresolvedId`) and the
+   * list is the only thing that knows where that row is on screen, so the scroll
+   * belongs here rather than in a `querySelector` from the route. `scrollSignal`
+   * is what makes pressing it twice work: the id has not changed, so nothing
+   * else in the dependency list would.
+   */
+  scrollToId?: string | null
+  scrollSignal?: number
 }) {
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
   const prevRectsRef = useRef(new Map<string, DOMRect>())
@@ -55,7 +74,19 @@ export function VerifyFeed({
     prevRectsRef.current = next
   }, [entries])
 
+  useEffect(() => {
+    if (!scrollToId) return
+    rowRefs.current.get(scrollToId)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToId, scrollSignal])
+
   const totalCards = entries.reduce((n, e) => n + e.quantity, 0)
+  // The header used to be able to say "14 cards" about a list only twelve of
+  // which could commit, and before 2026-09-06 that was survivable because the
+  // other two were not in this list at all. They are now, so the count says how
+  // many of them are still questions rather than leaving the reader to find the
+  // discrepancy in the Add button.
+  const needing = unresolvedCount(entries)
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -67,6 +98,14 @@ export function VerifyFeed({
             <span className="text-icon-muted">·</span>
             <b className="text-[13px] text-action-primary-strong">{entries.length}</b> unique
           </span>
+          {needing > 0 && (
+            <span
+              data-needs-input-count={needing}
+              className="inline-flex h-[26px] items-center gap-[4px] rounded-full bg-warning/15 px-[10px] text-[11px] font-bold text-warning"
+            >
+              <Icon name="alert" size={12} /> {needing} need{needing === 1 ? 's' : ''} you
+            </span>
+          )}
           {headerExtra}
         </div>
       </div>
@@ -91,8 +130,10 @@ export function VerifyFeed({
                 onVariantChange={onVariantChange}
                 onCorrect={onCorrect}
                 onRemove={onRemove}
+                onDiscard={onDiscard}
                 onReport={onReport}
                 onOpenDetail={onOpenDetail}
+                onPickerOpenChange={onPickerOpenChange}
                 registerThumbNode={registerThumbNode}
               />
             </div>

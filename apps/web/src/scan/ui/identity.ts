@@ -4,18 +4,36 @@
 //
 // PLAN.md "Addendum — 2026-09-05 owner rulings", verbatim: "scan thumbnail
 // stays on the side until the card is resolved confidently by whatever means.
-// Then it moves down to the list and variant resolve happens there" — and
-// "Unresolvable identities (backs/blur): thumbnail flips to a needs-you state in
-// the stack, tappable to pick/retake; batch commit reminds; never blocks
-// scanning."
+// Then it moves down to the list and variant resolve happens there."
 //
-// Before this, `Scan.tsx` flew every capture into the list the moment `/scan`
-// answered, WHATEVER it answered — a confident match and an "Unidentified card"
-// took the same flight into the same list, and the reader ended a run with a
-// list that was part collection and part homework. The ruling separates them by
-// WHERE they live rather than by how the row is coloured: resolved cards are in
-// the list, unresolved captures are still on the camera, and the reader can keep
-// scanning past both.
+// Before that, `Scan.tsx` flew every capture into the list the moment `/scan`
+// answered, WHATEVER it answered — the thumbnail left the camera while the
+// answer was still unknown, so the reader watched cards fly away and only found
+// out downstairs which ones had been identified. The ruling's fix is the WAIT:
+// a capture stays on the camera until something has settled its identity, and
+// nothing flies while it is pending. That half is unchanged and this file is it.
+//
+// ── AND THE PART THAT WAS REVERSED, 2026-09-06 ──────────────────────────────
+//
+// The same addendum went on to park the FAILURES on the camera too — "thumbnail
+// flips to a needs-you state in the stack, tappable to pick/retake". The owner
+// used it and ruled against it, verbatim: "I do not like the change where ones
+// that need my input stay in the side. If the resolution is 'needs your input'
+// they should still go down to the list."
+//
+// So `needs-you` is a settlement like any other now, not a parking space. The
+// thumbnail waits for it exactly as it waits for `confident`, shows its own
+// brief marker exactly as `confident` shows its tick, and takes the SAME flight
+// down — landing as a marked "needs your input" row with the capture, the OCR
+// hint and the candidates on it, where the same picker opens in place.
+//
+// What that costs this file: nothing in the machine, which is the point. The
+// five outcomes below are unchanged and so is every transition between them.
+// What it removed is one field — `engaged` — which existed only because the
+// reader could tap a thumbnail while its race was still running. They cannot;
+// the stack is untappable again, and the row's own picker opens long after the
+// reducer has finished with the capture. See `feed.ts` for the rules that took
+// over at the moment the thumbnail lands.
 //
 // ── WHY A REDUCER AND NOT FOUR `useState`s IN THE ROUTE ─────────────────────
 //
@@ -63,9 +81,12 @@ import { gateScanResponse } from './tieGate'
 /**
  * Where one capture's thumbnail is.
  *
- *   pending    on the camera, spinner, both answers still out.
+ *   pending    on the camera, spinner, both answers still out. NOTHING FLIES
+ *              from here — the wait is the 2026-09-05 ruling's whole point.
  *   confident  named. A brief tick, then the courier flies it to the list.
- *   needs-you  named by nobody. Stays on the camera, distinct, tappable.
+ *   needs-you  named by nobody. A brief amber marker — the tick's mirror — then
+ *              the SAME courier, to the same list, as a "needs your input" row
+ *              (2026-09-06: "they should still go down to the list").
  *   discarded  the reader took the retake. It leaves without a row.
  */
 export type IdentityPhase = 'pending' | 'confident' | 'needs-you' | 'discarded'
@@ -100,8 +121,9 @@ export interface IdentityState {
   match: Identity | null
   by: IdentitySource | null
   /**
-   * What the picker offers on a needs-you thumbnail: the TIE-GATED phash
-   * ranking, best first.
+   * What the picker offers once this capture is a needs-input ROW: the
+   * TIE-GATED phash ranking, best first. Carried down by the flight as the
+   * row's `alternates`.
    *
    * NOT merged with the resolve endpoint's own matches, and that is the same
    * call `ocrNarrow.ts`'s header already made for the feed-row popover: those
@@ -129,17 +151,20 @@ export interface IdentityState {
    * it arrives empty (no OCR, nothing read, no such endpoint).
    */
   resolveVerdict: { resolvedBy: ScanResolveResponse['resolvedBy']; confident: boolean } | null
-  /**
-   * The reader has the picker open on this thumbnail.
-   *
-   * From here a late confident answer is ignored. The scanner is allowed to
-   * change its mind about a card nobody is looking at; it is not allowed to swap
-   * the card out from under a reader mid-tap. Same principle `narrowedIdentity`
-   * already enforces with `entry.verified` — a field read off a 26x12 px badge
-   * does not overrule a human.
-   */
-  engaged: boolean
 }
+// NO `engaged` FIELD, AND THAT IS THE 2026-09-06 REVERSAL SHOWING THROUGH.
+//
+// It used to be here: the reader tapped a needs-you thumbnail, the picker opened
+// ON THE CAMERA while the resolve was still in flight, and a late confident
+// answer had to be stopped from swapping the card out from under their finger.
+//
+// The stack is untappable now. A capture's race is over — settled or timed out —
+// before its thumbnail leaves, and the picker the reader opens is on a LIST ROW,
+// which this reducer has already finished with. The protection did not go away
+// with the field; it moved to where the reader now is, as `Scan.tsx`'s
+// picker-open guard in front of the narrowing patch. Same rule, same reason
+// (`narrowedIdentity`'s: a field read off a 26x12 px badge does not overrule a
+// human), one screen further down.
 
 export type IdentityEvent =
   /** The identify round trip answered — or failed, which is `res: null`. */
@@ -159,11 +184,18 @@ export type IdentityEvent =
   | { type: 'resolve'; resolved: ScanResolveResponse | null }
   /** `IDENTITY_DEADLINE_MS` elapsed with nothing named. */
   | { type: 'deadline' }
-  /** The reader opened the picker. */
-  | { type: 'engage' }
-  /** The reader chose from the candidates. */
+  /**
+   * The reader chose from the candidates.
+   *
+   * DISPATCHED FROM THE LIST NOW, not from the stack — the row's picker, on a
+   * capture whose thumbnail flew down minutes ago. `Scan.tsx` reduces the state
+   * the row carried with it so the reader's answer is still attributed to the
+   * capture that asked the question; see `identityRecord` below, which is the
+   * only reason this event still exists.
+   */
   | { type: 'pick'; match: ScanMatch }
-  /** The reader took the retake. The capture is dropped, no row, no apology. */
+  /** The reader discarded the capture. Same picker, same list row, and the row
+   *  goes with it. */
   | { type: 'retake' }
 
 /**
@@ -195,7 +227,6 @@ export function initialIdentity(): IdentityState {
     phashSettled: false,
     resolveSettled: false,
     resolveVerdict: null,
-    engaged: false,
   }
 }
 
@@ -230,24 +261,12 @@ export function identityFromResolve(m: ScanResolveMatch): Identity {
   }
 }
 
-/**
- * May an incoming answer name this card? Only while the reader is not naming it
- * themselves.
- *
- * `engaged` is STICKY — closing the picker without choosing does not hand the
- * capture back to the race. The reader looked at the five candidates and did not
- * take any of them, which is information: whatever they do next, having a round
- * trip decide it for them thirty seconds later is not it. The capture stays
- * needs-you, which is an actionable state, not a stuck one.
- */
-function mayName(s: IdentityState): boolean {
-  return !s.engaged
-}
-
 /** Both answers are in and neither named the card — that IS needs-you. Reached
  *  before the deadline in the ordinary failure (a card back, a blurred crop):
  *  nothing is gained by making the reader watch a spinner run down a clock for
- *  an answer that has already arrived and said no. */
+ *  an answer that has already arrived and said no. Under the 2026-09-06 ruling
+ *  this is a departure, not a parking brake: the thumbnail marks itself amber
+ *  and flies, and the question it could not answer is asked in the list. */
 function settleOrWait(s: IdentityState): IdentityState {
   if (!s.phashSettled || !s.resolveSettled) return s
   return s.phase === 'needs-you' ? s : { ...s, phase: 'needs-you' }
@@ -272,7 +291,7 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
       // ranked list IS the picker, so a demoted result still fills it.
       const next: IdentityState = { ...s, candidates: gated?.matches ?? s.candidates, phashSettled: true }
       const top = gated?.matched ? gated.matches[0] : undefined
-      if (top && mayName(s)) return { ...next, phase: 'confident', match: identityFromMatch(top), by: 'phash' }
+      if (top) return { ...next, phase: 'confident', match: identityFromMatch(top), by: 'phash' }
       return settleOrWait(next)
     }
 
@@ -288,15 +307,12 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
           : s.resolveVerdict,
       }
       const top = resolvedIdentity(e.resolved)
-      if (top && mayName(s)) return { ...next, phase: 'confident', match: identityFromResolve(top), by: 'printing' }
+      if (top) return { ...next, phase: 'confident', match: identityFromResolve(top), by: 'printing' }
       return settleOrWait(next)
     }
 
     case 'deadline':
       return s.phase === 'pending' ? { ...s, phase: 'needs-you' } : s
-
-    case 'engage':
-      return s.engaged ? s : { ...s, engaged: true }
 
     case 'pick':
       return { ...s, phase: 'confident', match: identityFromMatch(e.match), by: 'reader' }
@@ -307,7 +323,9 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
 }
 
 /**
- * The hint chip on the needs-you picker: what OCR actually read off this card.
+ * The hint chip on a needs-input ROW's picker: what OCR actually read off this
+ * card. (It was the stack picker's chip until 2026-09-06 moved the picker into
+ * the list; the chip is the same chip, drawn one screen down.)
  *
  * Written as a quotation, not a conclusion — the reader is being asked to
  * identify a card the scanner could not, and "read 161/182" is the single most
@@ -356,9 +374,20 @@ export function ocrHintLabel(read: OcrRead | null): string | null {
  *   confident-resolve  the printed key named it — the OCR lane's whole purpose,
  *                      and the number this telemetry exists to produce.
  *   needs-you          both answers landed and neither named it (or the deadline
- *                      ran out first). Still on the camera, waiting.
+ *                      ran out first). It goes to the list as a needs-input row.
  *   picked             the reader chose from the candidates.
- *   retaken            the reader took the retake and the capture was dropped.
+ *   retaken            the reader discarded the capture.
+ *
+ * UNCHANGED BY THE 2026-09-06 REVERSAL, deliberately. The five are outcomes of
+ * the IDENTIFICATION, and where a needs-you thumbnail comes to rest is not one:
+ * the ruling moved the question from the camera to the list without changing
+ * what was asked or who answered it. Adding a `rowLocation` to say "list"
+ * would be a column with one value, and the sessions either side of the change
+ * are separated by `pipelineVersion` already (`flags.ts`).
+ *
+ * `picked` and `retaken` are still produced — from the ROW's picker now rather
+ * than the thumbnail's, by reducing the identity state the row carried down with
+ * it. That is the whole reason a landed needs-input row keeps one.
  */
 export type IdentityOutcome = 'confident-phash' | 'confident-resolve' | 'needs-you' | 'picked' | 'retaken'
 
@@ -411,45 +440,14 @@ export function identityRecord(s: IdentityState, msToResolve: number): Record<st
   }
 }
 
-/** How many captures are sitting on the camera waiting for the reader. */
-export function unresolvedCount(items: readonly { identity: IdentityState }[]): number {
-  return items.reduce((n, i) => n + (i.identity.phase === 'needs-you' ? 1 : 0), 0)
-}
-
-// ── THE GATE IN FRONT OF THE BATCH COMMIT ───────────────────────────────────
+// ── WHERE THE UNRESOLVED-COUNT AND THE COMMIT GATE WENT ─────────────────────
 //
-// 2026-09-05 ruling: "batch commit reminds [about unresolved ones]". It is a
-// stack question, not a write question, and it is deliberately not in
-// `commit.ts` — that module holds the API client, and a rule about what the
-// reader has to be told before their session ends should be answerable by a test
-// that does not need one.
+// `feed.ts`. They used to be here, counting `phase === 'needs-you'` across the
+// STACK, because that is where an unnamed capture lived and Step 2 could not
+// show it. Under the 2026-09-06 reversal an unnamed capture is a ROW, so
+// "unresolved" is `cardId === null` on the list — a question about the list, in
+// the list's own module, asked of the same field `commit.ts` skips on.
 //
-// It matters more under this ruling than it would have before it, because the
-// captures it protects ARE NOT IN THE LIST. An unnamed capture stays on the
-// camera, and Step 2 does not render the camera at all — so the reader presses
-// "Add 12 cards" looking at twelve rows while two more go in the bin with the
-// session. The drop is possible, it is invisible, and it is therefore only
-// allowed to happen once somebody has said so out loud.
-//
-// One acknowledgement, not a blocker: "yes, those two were card backs" is a
-// perfectly good answer, and the same ruling is explicit that unresolved
-// captures never block the reader.
-
-export interface CommitGate {
-  /** May the write run now? */
-  proceed: boolean
-  /** How many captures are still on the camera, unnamed. */
-  unresolved: number
-  /** What to ask, or null when there is nothing to ask about. */
-  prompt: string | null
-}
-
-export function commitGate(items: readonly { identity: IdentityState }[], acknowledged: boolean): CommitGate {
-  const unresolved = unresolvedCount(items)
-  if (unresolved === 0) return { proceed: true, unresolved: 0, prompt: null }
-  return {
-    proceed: acknowledged,
-    unresolved,
-    prompt: `${unresolved} scan${unresolved === 1 ? '' : 's'} unresolved — commit without them?`,
-  }
-}
+// Leaving them here counting stack phases would have kept the reminder pointed
+// at a stack that empties itself: every gate would have passed, and the rows the
+// reader still owed an answer to would have gone in with the batch unremarked.

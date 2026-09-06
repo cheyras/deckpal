@@ -15,6 +15,20 @@
 // the endpoint's `confident` flag are asked the same way the product asks them —
 // through `reduceIdentity` — so a fixture that agrees with a local copy of the
 // rule cannot pass this file.
+//
+// ── WHAT THE 2026-09-06 REVERSAL DID AND DID NOT CHANGE HERE ────────────────
+//
+// "If the resolution is 'needs your input' they should still go down to the
+// list." That is a statement about WHERE a settled capture goes, and the machine
+// below has never had an opinion about where anything goes — so every ordering
+// test in this file is untouched, which is the strongest evidence available that
+// the reversal is presentation and not policy.
+//
+// One thing did go: `engaged`. It existed because the reader could open a picker
+// on a thumbnail whose race was still running. They cannot — the picker is on a
+// list row this reducer has already let go of — so the field is gone and the
+// protection it gave lives where the reader now is. See the last test in "the
+// reader" for the shape of what replaced it.
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
@@ -26,7 +40,6 @@ import {
   ocrHintLabel,
   reduceIdentity,
   resolvedIdentity,
-  unresolvedCount,
   type IdentityEvent,
   type IdentityState,
 } from '../identity'
@@ -151,6 +164,25 @@ describe('the identity race', () => {
     assert.equal(s.by, null)
   })
 
+  it('NEEDS-YOU IS A DEPARTURE, and it leaves carrying its own evidence', () => {
+    // Since 2026-09-06 this state is a flight to the list, not a parking space,
+    // and the row it becomes is built entirely out of what is here: the picture
+    // (the caller's), the tie-gated candidates for its picker, and the OCR read
+    // for its hint chip. Anything the reducer drops at this point is a question
+    // the reader gets asked with less to answer it from.
+    const s = run([
+      { type: 'phash', res: TIED },
+      { type: 'read', read: read({ number: '116', denominator: '182' }) },
+      { type: 'resolve', resolved: resolveRes({ confident: false }) },
+    ])
+    assert.equal(s.phase, 'needs-you')
+    assert.deepEqual(s.candidates.map((m) => m.cardId), ['sve-004', 'sve-003', 'sve-002'])
+    assert.equal(ocrHintLabel(s.read), 'read 116/182')
+    // And the verdict is still on it, so the row's eventual pick can be recorded
+    // beside what the ladder had said (`identityRecord`).
+    assert.deepEqual(s.resolveVerdict, { resolvedBy: 'number+denominator', confident: false })
+  })
+
   it('fills the picker from the tie-gated ranking even though the claim was refused', () => {
     const s = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
     assert.equal(s.phase, 'needs-you')
@@ -236,8 +268,17 @@ describe('the deadline', () => {
 
 // ── the reader ──────────────────────────────────────────────────────────────
 
+// ── the reader ──────────────────────────────────────────────────────────────
+//
+// THEY ANSWER FROM THE LIST NOW. `Scan.tsx` reduces the state the needs-input
+// ROW carried down with it (`FeedEntry.identity`) rather than a live stack
+// entry — not to drive anything, since the row's own state is what changes, but
+// so the answer is still ATTRIBUTED to the capture that asked the question. That
+// is the only reason these two events survive the reversal, and the reason they
+// are still tested against the shipping reducer rather than against a copy.
+
 describe('the reader', () => {
-  it('PICKING from a needs-you thumbnail names the card', () => {
+  it('PICKING from the row’s picker names the card', () => {
     const needsYou = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
     assert.equal(needsYou.phase, 'needs-you')
     const picked = reduceIdentity(needsYou, { type: 'pick', match: needsYou.candidates[1] })
@@ -246,7 +287,7 @@ describe('the reader', () => {
     assert.equal(picked.match?.cardId, 'sve-003')
   })
 
-  it('RETAKING discards the capture — no row, no identity', () => {
+  it('DISCARDING drops the capture — the row goes with it', () => {
     const needsYou = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
     const gone = reduceIdentity(needsYou, { type: 'retake' })
     assert.equal(gone.phase, 'discarded')
@@ -256,27 +297,31 @@ describe('the reader', () => {
     assert.equal(reduceIdentity(gone, { type: 'resolve', resolved: resolveRes() }).phase, 'discarded')
   })
 
-  it('ONCE THE PICKER IS OPEN, a late confident answer does not overrule them', () => {
-    // The bug this pins: the reader taps the thumbnail, reads the five
-    // candidates, and the card changes under their finger because a round trip
-    // finally came back. Same principle `narrowedIdentity` enforces with
-    // `verified` — a badge read does not overrule a human.
-    const engaged = run([
-      { type: 'phash', res: TIED },
-      { type: 'resolve', resolved: null },
-      { type: 'engage' },
-    ])
-    assert.equal(engaged.phase, 'needs-you')
-    const late = reduceIdentity(engaged, { type: 'resolve', resolved: resolveRes() })
-    assert.equal(late.phase, 'needs-you', 'the reader is mid-decision; the answer waits its turn')
-    // Their own choice still lands.
-    assert.equal(reduceIdentity(late, { type: 'pick', match: late.candidates[0] }).by, 'reader')
+  it('THE MACHINE NO LONGER TRACKS WHETHER THEY ARE MID-DECISION', () => {
+    // `engaged` used to live here, and it stopped a late confident answer
+    // swapping the card out from under a reader who had the thumbnail's picker
+    // open. There is no thumbnail picker: the reader's picker is on a list row,
+    // long after this reducer has finished with the capture, so the field would
+    // have been a lock on a door nobody uses.
+    const needsYou = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
+    assert.equal('engaged' in needsYou, false, 'the stack-only field is gone, not merely unused')
+
+    // What that means for the machine: a late confident answer ALWAYS promotes,
+    // with no second condition to satisfy. The protection did not disappear —
+    // `Scan.tsx` withholds the narrowing patch from a row whose picker is open —
+    // it just is not the reducer's job any more.
+    const late = reduceIdentity(needsYou, { type: 'resolve', resolved: resolveRes() })
+    assert.equal(late.phase, 'confident')
+    assert.equal(late.by, 'printing')
   })
 
-  it('opening the picker on a still-pending capture stops the race naming it too', () => {
-    const s = run([{ type: 'engage' }, { type: 'phash', res: CLEAR }])
-    assert.equal(s.phase, 'pending', 'engaged: nothing may name it but the reader')
-    assert.deepEqual(s.candidates.map((m) => m.cardId), ['sv10-057', 'sv10-058'])
+  it('and their own answer beats a late one, by arriving first', () => {
+    // The remaining ordering guarantee, and it needs no flag: `pick` makes the
+    // state confident, and confident is terminal.
+    const needsYou = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
+    const picked = reduceIdentity(needsYou, { type: 'pick', match: needsYou.candidates[0] })
+    assert.equal(reduceIdentity(picked, { type: 'resolve', resolved: resolveRes() }), picked)
+    assert.equal(picked.by, 'reader')
   })
 })
 
@@ -313,15 +358,8 @@ describe('the OCR hint chip', () => {
   })
 })
 
-describe('unresolvedCount', () => {
-  it('counts only the thumbnails waiting on the reader', () => {
-    const pending = initialIdentity()
-    const needsYou = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
-    const confident = run([{ type: 'phash', res: CLEAR }])
-    assert.equal(
-      unresolvedCount([{ identity: pending }, { identity: needsYou }, { identity: confident }, { identity: needsYou }]),
-      2,
-    )
-    assert.equal(unresolvedCount([]), 0)
-  })
-})
+// `unresolvedCount` used to be tested here, counting `needs-you` across the
+// stack. It counts LIST ROWS now and lives in `feed.ts` with the rest of the
+// list's rules — see `commitGate.test.ts`. Counting phases would have meant
+// counting a stack that empties itself, and reporting zero for a screen full of
+// unanswered rows.

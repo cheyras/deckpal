@@ -16,17 +16,14 @@ import { commitFeed } from '../scan/ui/commit'
 import { OCR_ENABLED, uploadScanFlag, recordCaptureEvent, recordIdentityEvent, recordLockEvent } from '../scan/ui/flags'
 import { narrowedIdentity, OCR_NARROW_TIMEOUT_MS, readCardFields, resolveWithOcr } from '../scan/ui/ocrNarrow'
 import {
-  commitGate,
-  identityFromMatch,
   identityOutcome,
   identityRecord,
   initialIdentity,
   reduceIdentity,
-  unresolvedCount,
-  type Identity,
   type IdentityEvent,
   type IdentityState,
 } from '../scan/ui/identity'
+import { addArrival, commitGate, firstUnresolvedId, resolveRow, unresolvedCount } from '../scan/ui/feed'
 import { createOcrStage } from '../scan/ocr/staging'
 import type { OcrRead } from '../scan/ocr/pipeline'
 import {
@@ -198,27 +195,50 @@ export function Scan() {
   const [hint, setHint] = useState('Point the camera at a card')
   const [notice, setNotice] = useState<string | null>(null)
   const [committing, setCommitting] = useState(false)
-  /** Which needs-you thumbnail has its picker open. */
-  const [picking, setPicking] = useState<string | null>(null)
-  /** The unresolved-scans confirm (commit.ts's `commitGate`), or null. */
-  const [commitConfirm, setCommitConfirm] = useState<string | null>(null)
+  /** The unresolved-rows confirm (`feed.commitGate`), and the row "Go back to
+   *  them" should scroll to. Null when there is nothing to ask. */
+  const [commitConfirm, setCommitConfirm] = useState<{ prompt: string; rowId: string | null } | null>(null)
+  /** Which row the list should bring into view, and a nonce so pressing "Go
+   *  back to them" twice scrolls twice. */
+  const [scrollTo, setScrollTo] = useState<{ id: string | null; signal: number }>({ id: null, signal: 0 })
 
   const feedRef = useRef<FeedEntry[]>(feed)
   useEffect(() => {
     feedRef.current = feed
   }, [feed])
-  const stackRef = useRef<StackItem[]>(stack)
-  useEffect(() => {
-    stackRef.current = stack
-  }, [stack])
-  /** How many thumbnails are waiting on the reader, in a ref because the hint
-   *  is written from the detect-tick effect and adding `stack` to THAT effect's
-   *  dependencies would re-run the region ageing and the auto-capture branch on
-   *  every stack change. The effect fires ~8x/s, so the line is current. */
+  // NO `stackRef`. It existed for one caller — the commit gate, reading how many
+  // captures were parked on the camera. Since 2026-09-06 nothing parks there and
+  // the gate reads the list (`feedRef`), so a mirror of a stack that empties
+  // itself has no readers left.
+  /**
+   * How many ROWS are waiting on the reader — not thumbnails. Since 2026-09-06
+   * an unnamed capture goes down to the list like any other, so the count the
+   * camera's standing hint quotes has to come from the list too, or it would
+   * report zero for a screen full of unanswered rows.
+   *
+   * In a ref because the hint is written from the detect-tick effect and adding
+   * `feed` to THAT effect's dependencies would re-run the region ageing and the
+   * auto-capture branch on every feed change. The effect fires ~8x/s, so the
+   * line is current.
+   */
   const unresolvedRef = useRef(0)
   useEffect(() => {
-    unresolvedRef.current = unresolvedCount(stack)
-  }, [stack])
+    unresolvedRef.current = unresolvedCount(feed)
+  }, [feed])
+  /**
+   * WHICH ROW THE READER HAS A PICKER OPEN ON, if any.
+   *
+   * The 2026-09-06 successor to `identity.ts`'s `engaged`. That field stopped a
+   * late confident answer swapping the card out from under a reader who was
+   * looking at the candidates; the candidates are now on a list row, which the
+   * reducer no longer owns, so the same protection has to be applied where the
+   * narrowing patch lands (`setFeed` below). A ref rather than state because
+   * nothing renders off it — it is read once, inside an updater.
+   */
+  const pickerRowRef = useRef<string | null>(null)
+  const notePickerOpen = useCallback((id: string, open: boolean) => {
+    pickerRowRef.current = open ? id : pickerRowRef.current === id ? null : pickerRowRef.current
+  }, [])
 
   // ── THE IDENTITY RACE'S BOOKKEEPING ───────────────────────────────────────
   //
@@ -238,9 +258,14 @@ export function Scan() {
   //                  stack→list flight awaits it, so a very fast identify can
   //                  never launch the second courier out of a thumbnail the
   //                  first one has not put on screen yet.
+  //   landingRef     which captures have a flight scheduled. Exactly one per
+  //                  capture: a settled phase can be reached and then MOVED
+  //                  (a late confident answer overtaking a deadline), and a
+  //                  second flight is a second row for one card.
   const identitiesRef = useRef(new Map<string, IdentityState>())
   const captureDataRef = useRef(new Map<string, StackItem>())
   const arrivalsRef = useRef(new Map<string, Promise<void>>())
+  const landingRef = useRef(new Set<string>())
 
   const refractoryRef = useRef(new Set<number>())
 
@@ -398,116 +423,133 @@ export function Scan() {
   )
 
   /**
-   * Writes a settled identity into the feed — a new row, or a quantity bump on
-   * an existing one by cardId. Pure state; the caller owns the flight around it.
+   * Writes a SETTLED capture into the feed — named or not.
    *
-   * `identity === null` is still reachable, but only from the UPLOAD fallback,
-   * which has no camera, no stack and therefore nowhere for a needs-you
-   * thumbnail to live. On the camera path an unnamed capture no longer lands
-   * here at all — it stays on the stack, which is the whole of the 2026-09-05
-   * ruling.
+   * Under the 2026-09-05 ruling only the named ones reached here; the 2026-09-06
+   * reversal ("if the resolution is 'needs your input' they should still go down
+   * to the list") sends both, so this builds either row and hands the merge rule
+   * to `feed.addArrival`, which is where "an unresolved row merges with nothing"
+   * is written down and tested.
+   *
+   * Returns the id of the row the capture landed ON — which is the existing
+   * row's when it merged — because the caller is about to fly a thumbnail into
+   * that row's picture and cannot ask a `setFeed` updater where it went.
    */
   const addFeedEntry = useCallback(
-    (identity: Identity | null, alternates: ScanMatch[], stackItem: StackItem) => {
-      setFeed((prev) => {
-        const existing = identity ? prev.find((e) => e.cardId === identity.cardId) : undefined
-        if (existing) {
-          return prev.map((e) => (e.id === existing.id ? { ...e, quantity: e.quantity + 1, mergeTick: e.mergeTick + 1 } : e))
-        }
-        const entry: FeedEntry = identity
-          ? {
-              id: identity.cardId,
-              cardId: identity.cardId,
-              matched: true,
-              name: identity.name,
-              setName: identity.setName,
-              number: identity.number,
-              rarity: identity.rarity,
-              images: identity.images,
-              capturePreviewUrl: stackItem.previewUrl,
-              captureBlob: stackItem.blob,
-              // `-1`/`0` when the PRINTED-NUMBER ladder named this card: phash
-              // never nominated it, so there is no distance and none is
-              // invented. FeedEntryCard reads the -1 and shows provenance
-              // instead of a meter.
-              confidence: identity.confidence ?? 0,
-              distance: identity.distance ?? -1,
-              quantity: 1,
-              variantId: null,
-              variants: [],
-              printingPicked: false,
-              detectingPrinting: false,
-              alternates,
-              capturedAt: Date.now(),
-              mergeTick: 0,
-              verified: false,
-            }
-          : {
-              id: makeId('unmatched'),
-              cardId: null,
-              matched: false,
-              name: 'Unidentified card',
-              setName: '',
-              number: '',
-              rarity: null,
-              images: null,
-              capturePreviewUrl: stackItem.previewUrl,
-              captureBlob: stackItem.blob,
-              confidence: 0,
-              distance: -1,
-              quantity: 1,
-              variantId: null,
-              variants: [],
-              printingPicked: false,
-              detectingPrinting: false,
-              alternates,
-              capturedAt: Date.now(),
-              mergeTick: 0,
-              verified: false,
-            }
-        return [entry, ...prev]
-      })
+    (st: IdentityState, stackItem: StackItem): string => {
+      const identity = st.match
+      // Minted out here, not inside the updater: an unresolved row's id is
+      // synthetic, the courier needs it a frame later, and an updater React may
+      // call twice must not mint two.
+      const rowId = identity ? identity.cardId : makeId('unmatched')
+      const entry: FeedEntry = {
+        id: rowId,
+        cardId: identity?.cardId ?? null,
+        matched: !!identity,
+        name: identity?.name ?? 'Unidentified card',
+        setName: identity?.setName ?? '',
+        number: identity?.number ?? '',
+        rarity: identity?.rarity ?? null,
+        images: identity?.images ?? null,
+        capturePreviewUrl: stackItem.previewUrl,
+        captureBlob: stackItem.blob,
+        captureId: stackItem.id,
+        // Held only while the row is still a question — the discard path uses it
+        // to release the refractory hold so the same card can be re-scanned.
+        captureTrackId: identity ? null : stackItem.trackId,
+        // `-1`/`0` when the PRINTED-NUMBER ladder named this card, and on an
+        // unresolved row: phash either never nominated it or was refused, so
+        // there is no distance and none is invented. FeedEntryCard reads the -1
+        // and shows provenance (or nothing) instead of a meter.
+        confidence: identity?.confidence ?? 0,
+        distance: identity?.distance ?? -1,
+        quantity: 1,
+        variantId: null,
+        variants: [],
+        printingPicked: false,
+        detectingPrinting: false,
+        alternates: st.candidates,
+        // The SHUTTER's clock, not this moment's — a capture now waits seconds
+        // for its verdict, and `identityRecord`'s `msToResolve` measures from
+        // the first.
+        capturedAt: stackItem.capturedAt,
+        mergeTick: 0,
+        verified: false,
+        // THE RACE RIDES DOWN WITH AN UNRESOLVED CAPTURE and with nothing else:
+        // the row needs the OCR read for its hint chip, and needs enough of the
+        // machine to attribute the reader's eventual pick or discard back to
+        // this capture (`recordRowOutcome`). A named row is not asking anything
+        // and carries none of it.
+        identity: identity ? null : st,
+      }
+      setFeed((prev) => addArrival(prev, entry))
       if (identity) void loadVariants(identity.cardId)
-      setHint(identity ? `Got it — ${identity.name}` : 'Needs a closer look')
+      setHint(identity ? `Got it — ${identity.name}` : 'That one needs you — it’s in the list')
+      return rowId
     },
     [loadVariants],
   )
 
-  /** Take a capture off the camera — landed, or discarded by a retake. The
-   *  object URL is deliberately NOT revoked (see `objectUrlsRef`): a landed row
-   *  still shows it, and a session revokes everything once, on unmount. */
+  /**
+   * Take a capture off the camera. EVERY capture reaches this now — settled one
+   * way or the other, it has flown to the list and the stack is done with it.
+   *
+   * The object URL is deliberately NOT revoked (see `objectUrlsRef`): the row it
+   * landed on still shows it, and a session revokes everything once, on unmount.
+   * The reducer state goes, though, and that is the point at which
+   * `FeedEntry.identity` becomes the only copy — carried by the rows that still
+   * have a question to ask, and by nothing else.
+   */
   const dropStackItem = useCallback((id: string) => {
     identitiesRef.current.delete(id)
     captureDataRef.current.delete(id)
     arrivalsRef.current.delete(id)
-    setPicking((p) => (p === id ? null : p))
+    landingRef.current.delete(id)
     setStack((prev) => prev.filter((s) => s.id !== id))
   }, [])
 
   /**
-   * A capture has been named — the tick, then the courier to the list.
+   * A capture's identity has SETTLED — the marker, then the courier to the list.
    *
-   * The order matters and is the ruling's: the thumbnail confirms ON THE CAMERA
-   * (`DURATION.confirmTick`), and only then does it move down. A flight that
+   * ONE FLIGHT FOR BOTH VERDICTS, which is the 2026-09-06 ruling in code: "if
+   * the resolution is 'needs your input' they should still go down to the list".
+   * A confident capture shows its tick, an unnamed one shows the amber mirror of
+   * it, and then the identical courier takes both to the identical list.
+   *
+   * The order matters and is 2026-09-05's: the thumbnail states its verdict ON
+   * THE CAMERA (`DURATION.confirmTick`) and only then moves down. A flight that
    * starts the instant the answer lands is a card that vanishes from under the
    * reader's eye with no statement that anything was decided.
    */
-  const landIdentity = useCallback(
-    async (item: StackItem, st: IdentityState) => {
-      const identity = st.match
-      if (!identity) return
+  const landCapture = useCallback(
+    async (item: StackItem) => {
       // Never fly out of a thumbnail the arrival courier has not delivered yet.
       await settleWithin(arrivalsRef.current.get(item.id) ?? Promise.resolve(), 3000)
       await new Promise<void>((r) => window.setTimeout(r, DURATION.confirmTick))
-      addFeedEntry(identity, st.candidates, item)
+      // THE VERDICT AS IT STANDS NOW, not as it stood when the flight was
+      // scheduled. There is a ~240 ms window between the two, and one ordering
+      // fits through it: the deadline flips a capture to needs-you, the resolve
+      // it was waiting for lands confident a moment later, and the row is
+      // written after that. Reading the state here means the late answer is
+      // honoured by the flight that is already in the air, instead of needing a
+      // second one — which is what would put the same capture in the list twice.
+      const st = identitiesRef.current.get(item.id) ?? item.identity
+      const rowId = addFeedEntry(st, item)
       await nextFrame()
       const wrap = stageWrapRef.current
       const stackEl = stackNodesRef.current.get(item.id)
-      // A matched row's id IS its cardId (see `addFeedEntry`), including when
-      // this capture merged into a row that was already there.
-      const thumbEl = feedThumbNodesRef.current.get(identity.cardId)
+      // The row this capture landed on — its own, or the one it merged into.
+      const thumbEl = feedThumbNodesRef.current.get(rowId)
       if (thumbEl && wrap) {
-        const fromRect = rectRelativeTo(stackEl ?? thumbEl, wrap)
+        // The thumbnail's rect, unless there is no thumbnail to measure — the
+        // camera is `hidden` while the bin is expanded, and a hidden element
+        // measures 0x0, which would launch the courier out of the top-left
+        // corner of the screen. `?? thumbEl` alone did not catch that: the node
+        // is still in the map, it just has no box. Landing on itself is a
+        // no-visible-flight, which is the right answer for a list the reader is
+        // looking at full-screen.
+        const stackRect = stackEl ? rectRelativeTo(stackEl, wrap) : null
+        const fromRect = stackRect && stackRect.width ? stackRect : rectRelativeTo(thumbEl, wrap)
         await settleWithin(
           flyToTarget(
             item.previewUrl,
@@ -526,10 +568,9 @@ export function Scan() {
    * The one way anything reaches the identity machine.
    *
    * Reduces against `identitiesRef` (synchronous, current), mirrors the result
-   * into `stack` for rendering, and turns the two terminal phases into the
-   * effects they mean. Everything else — which answer arrived, in what order,
-   * whether the reader got there first — is `identity.ts`'s problem, not this
-   * component's.
+   * into `stack` for rendering, and turns a settled phase into the flight it
+   * means. Everything else — which answer arrived, in what order — is
+   * `identity.ts`'s problem, not this component's.
    */
   const dispatchIdentity = useCallback(
     (id: string, ev: IdentityEvent) => {
@@ -540,13 +581,16 @@ export function Scan() {
       identitiesRef.current.set(id, next)
       setStack((prev) => prev.map((s) => (s.id === id ? { ...s, identity: next } : s)))
 
-      // THE IDENTITY RECORD — round 7's 26 device-unknown outcomes, written down
-      // this time. Posted on a CHANGE OF OUTCOME, not on every transition: a
-      // reader opening the picker on a needs-you thumbnail moves the state but
-      // not the answer, and two identical records would say the machine changed
-      // its mind when it did not. `confident` and `discarded` are terminal in the
-      // reducer, so a capture emits at most two — needs-you, then whatever the
-      // reader made of it.
+      // THE IDENTITY RECORD — the 26 device-unknown outcomes of the earlier
+      // drives, written down this time. Posted on a CHANGE OF OUTCOME, not on
+      // every transition: a `read` landing moves the state but not the answer,
+      // and two identical records would say the machine changed its mind when it
+      // did not.
+      //
+      // A capture emits at most two, and only the FIRST comes from here. The
+      // second — `picked` or `retaken` — is the reader's, and by the time they
+      // give it the capture is a row and this reducer has let go; see
+      // `recordRowOutcome`.
       if (identityOutcome(next) !== identityOutcome(cur)) {
         const item = captureDataRef.current.get(id)
         const record = item ? identityRecord(next, Date.now() - item.capturedAt) : null
@@ -559,54 +603,57 @@ export function Scan() {
         dropStackItem(id)
         return
       }
-      if (next.phase === 'confident' && cur.phase !== 'confident') {
+      // BOTH SETTLEMENTS FLY, which is the 2026-09-06 reversal. `pending` is the
+      // only phase that stays, and it is the only one that has nothing to say
+      // yet.
+      //
+      // ONCE PER CAPTURE, and `landingRef` is what makes that true rather than
+      // the phase comparison this used to do. Two things can now move a capture
+      // that is already on its way down — a late confident answer overtaking a
+      // deadline-driven needs-you, and an OCR read landing on a settled state —
+      // and either would have scheduled a second flight, which is a second row
+      // for one card. The flight reads the verdict for itself when it writes
+      // (see `landCapture`), so nothing is lost by refusing the second.
+      if ((next.phase === 'confident' || next.phase === 'needs-you') && !landingRef.current.has(id)) {
         const item = captureDataRef.current.get(id)
-        if (item) void landIdentity({ ...item, identity: next }, next)
+        if (item) {
+          landingRef.current.add(id)
+          void landCapture(item)
+        }
       }
       // No hint is set here on purpose. The auto-capture effect rewrites the
       // hint on every detect tick (~8x/s), so anything announced from a
       // one-shot callback is gone before it is read; the standing "N need you"
       // line lives in that effect instead, off `unresolvedRef`.
     },
-    [dropStackItem, landIdentity],
+    [dropStackItem, landCapture],
   )
 
-  // ── the needs-you affordances ─────────────────────────────────────────────
+  // ── the needs-input row's affordances, one screen down from where they were ──
   //
-  // `engage` is dispatched with the picker OPEN, not with the pick: from the
-  // moment the reader is looking at the candidates, a late confident answer
-  // stops being allowed to swap the card out from under them (identity.ts).
-  const openPicker = useCallback(
-    (id: string) => {
-      dispatchIdentity(id, { type: 'engage' })
-      // Opens, never toggles. `useDismiss` inside the popover already closes it
-      // on an outside mousedown — and a second tap on the thumbnail IS an
-      // outside mousedown — so a toggle here would fight it and read as a
-      // thumbnail that cannot be closed by tapping it twice.
-      setPicking(id)
-    },
-    [dispatchIdentity],
-  )
-  const pickForStackItem = useCallback(
-    (id: string, match: ScanMatch) => {
-      setPicking(null)
-      dispatchIdentity(id, { type: 'pick', match })
-    },
-    [dispatchIdentity],
-  )
-  const retakeStackItem = useCallback(
-    (id: string) => {
-      // Release the refractory hold on the track this capture came from, so the
-      // same card presenting again is a capture rather than a suppression. The
-      // captured REGION is left alone on purpose: it retires on its own clock
-      // once the card leaves (regions.ts), and a card still lying in frame is
-      // one the reader is about to move anyway — which is what a retake is.
-      const trackId = captureDataRef.current.get(id)?.trackId
-      if (typeof trackId === 'number') refractoryRef.current.delete(trackId)
-      dispatchIdentity(id, { type: 'retake' })
-    },
-    [dispatchIdentity],
-  )
+  // Until 2026-09-06 these hung off a needs-you THUMBNAIL and went through
+  // `dispatchIdentity`, because the capture was still the reducer's. It is a row
+  // now and the reducer has finished with it, so the row's own state is what the
+  // reader's answer is reduced against — not to drive anything, but so the
+  // answer is still ATTRIBUTED to the capture that asked the question.
+
+  /**
+   * Post the reader's half of this capture's identity record.
+   *
+   * The pair is the interesting record: "the machine said needs-you and the
+   * reader picked the phash top hit anyway" is a different finding from either
+   * half alone (`flags.ts`). Losing it was the cost of moving the picker into
+   * the list, and carrying `FeedEntry.identity` down with the capture is what
+   * buys it back — the row has the state, the blob and the capture id, so
+   * nothing has to be kept alive on the side.
+   */
+  const recordRowOutcome = useCallback((entry: FeedEntry, ev: IdentityEvent) => {
+    if (!entry.identity || !entry.captureId) return
+    const record = identityRecord(reduceIdentity(entry.identity, ev), Date.now() - entry.capturedAt)
+    if (record) {
+      void recordIdentityEvent({ rectified: entry.captureBlob, captureId: entry.captureId, detail: record })
+    }
+  }, [])
 
   /** The full capture → stack → identify → feed pipeline for one engine capture. */
   const handleCaptured = useCallback(
@@ -791,8 +838,16 @@ export function Scan() {
           setFeed((prev) =>
             prev.map((e) => {
               if (e.capturePreviewUrl !== previewUrl) return e
+              // THE PICKER-OPEN GUARD — `identity.ts`'s `engaged`, one screen
+              // down. The reader is looking at this row's candidates right now,
+              // and a round trip that finally came back does not get to change
+              // the card under their finger. Same principle `narrowedIdentity`
+              // already enforces with `verified`.
+              if (pickerRowRef.current === e.id) return e
               const identity = narrowedIdentity(e, outcome.resolved)
-              return identity ? { ...e, ...identity } : e
+              // A row this names is no longer asking anything, so the race it
+              // carried for its picker goes with the question.
+              return identity ? { ...e, ...identity, identity: null, captureTrackId: null } : e
             }),
           )
         } catch {
@@ -958,13 +1013,15 @@ export function Scan() {
     // THE STANDING NEEDS-YOU LINE. Only in the idle branch — while the reader is
     // aiming at something the hint belongs to that card, and interrupting a lock
     // to mention an older capture would be the scanner talking over itself. But
-    // with nothing in frame there is nothing better to say, and "tap it" is the
-    // only instruction the amber thumbnail does not give by itself.
+    // with nothing in frame there is nothing better to say.
+    //
+    // It points DOWN now, not right: since 2026-09-06 the captures it is about
+    // are amber rows in the list below, not thumbnails parked on the camera.
     else if (unresolvedRef.current > 0)
       setHint(
         unresolvedRef.current === 1
-          ? 'One scan needs you — tap it on the right'
-          : `${unresolvedRef.current} scans need you — tap them on the right`,
+          ? 'One scan needs you — it’s in the list below'
+          : `${unresolvedRef.current} scans need you — they’re in the list below`,
       )
     else setHint('Point the camera at a card')
   }, [engineState, step, runCapture, binExpanded, ageRegions, alreadyCapturedHere, regions])
@@ -1045,58 +1102,52 @@ export function Scan() {
   }, [])
 
   /**
+   * "Discard and retake" from a needs-input row's picker.
+   *
+   * The row goes, and — the part `removeEntry` cannot do — the engine's
+   * refractory hold on the track this capture came off is RELEASED, so the same
+   * card presenting again is a capture rather than a suppression. That was
+   * `retakeStackItem`'s job while the picker lived on the thumbnail; the
+   * affordance moved to the row and took its meaning with it.
+   *
+   * The captured REGION is left alone on purpose: it retires on its own clock
+   * once the card leaves (regions.ts), and a card still lying in frame is one
+   * the reader is about to move anyway — which is what a retake is.
+   */
+  const discardEntry = useCallback(
+    (entry: FeedEntry) => {
+      recordRowOutcome(entry, { type: 'retake' })
+      if (typeof entry.captureTrackId === 'number') refractoryRef.current.delete(entry.captureTrackId)
+      setFeed((prev) => prev.filter((e) => e.id !== entry.id))
+    },
+    [recordRowOutcome],
+  )
+
+  /**
+   * The reader naming a row — from a needs-input row's picker, or from a matched
+   * row's "wrong card?".
+   *
+   * The merge itself is `feed.resolveRow`, beside `feed.addArrival`, so
+   * resolving a needs-input row into a card the list already holds produces
+   * exactly what a confident capture of that card would have: one row, both
+   * quantities, one printing to pick.
+   *
    * `markVerified` is true only when the correction came out of swipe-review
-   * (an explicit resolution the reader just made there) — the list view's
-   * own "wrong card?" popover leaves it false, matching `FeedEntry.verified`'s
-   * contract: "verified" means confirmed BY SWIPE, not merely edited.
+   * (an explicit resolution the reader just made there) — the list view's own
+   * pickers leave it false, matching `FeedEntry.verified`'s contract: "verified"
+   * means confirmed BY SWIPE, not merely edited.
    */
   const correctEntry = useCallback(
     (id: string, match: ScanMatch, markVerified = false) => {
-      setFeed((prev) => {
-        const current = prev.find((e) => e.id === id)
-        if (!current) return prev
-        // Correcting INTO a card already sitting in the feed under its own
-        // row merges quantities into that row instead of creating a second
-        // row for the same card — the same corruption `ripSession.ts` avoids
-        // by keying its dedupe on cardId.
-        const target = prev.find((e) => e.cardId === match.cardId && e.id !== id)
-        if (target) {
-          return prev
-            .map((e) =>
-              e.id === target.id
-                ? { ...e, quantity: e.quantity + current.quantity, mergeTick: e.mergeTick + 1, verified: e.verified || markVerified }
-                : e,
-            )
-            .filter((e) => e.id !== id)
-        }
-        return prev.map((e) =>
-          e.id === id
-            ? {
-                ...e,
-                id: match.cardId,
-                cardId: match.cardId,
-                matched: true,
-                name: match.name,
-                setName: match.setName,
-                number: match.number,
-                rarity: match.rarity,
-                images: match.images,
-                confidence: match.confidence,
-                distance: match.distance,
-                variantId: null,
-                variants: [],
-                // A different card has different printings, so the previous
-                // row's pick means nothing here — the slot goes back to
-                // needs-pick once the new card's variants land.
-                printingPicked: false,
-                verified: markVerified,
-              }
-            : e,
-        )
-      })
+      // The reader's half of the identity record, and only for a row that was
+      // still a question — a "wrong card?" on an already-named row is a
+      // correction, which `narrowedIdentity`'s channel already covers.
+      const before = feedRef.current.find((e) => e.id === id)
+      if (before?.identity) recordRowOutcome(before, { type: 'pick', match })
+      setFeed((prev) => resolveRow(prev, id, match, markVerified))
       void loadVariants(match.cardId)
     },
-    [loadVariants],
+    [loadVariants, recordRowOutcome],
   )
 
   const confirmEntry = useCallback((id: string) => {
@@ -1104,17 +1155,22 @@ export function Scan() {
   }, [])
 
   /**
-   * The upload fallback — no camera, so no stack and nowhere for a needs-you
-   * thumbnail to live. This path therefore keeps the OLD behaviour on purpose:
-   * an unnamed upload lands in the list as a "needs attention" row with its
-   * top-5, which is the same ask in the only place this screen has to make it.
-   * The tie gate still applies; it is applied here rather than in the reducer
-   * because there is no capture in a race to reduce.
+   * The upload fallback — no camera, so no stack, no flight and no waiting: the
+   * row lands the moment `/scan` answers.
+   *
+   * It reaches the list through the SAME reducer and the same `addFeedEntry`
+   * anyway, driven straight to a settled state by the two events it does have.
+   * That is not ceremony — it is what stops this path from re-deriving the tie
+   * gate, "is the ladder sure", and the shape of an unresolved row for itself,
+   * which it used to do (a local `gateScanResponse` and a second row literal)
+   * and which is exactly how two paths drift apart. `resolve: null` is the
+   * honest event here: there is no OCR lane behind an upload, and the reducer's
+   * own contract says that is how a caller says "no second answer is coming".
    */
   const handleUploadFile = useCallback(
     async (file: File) => {
       const { bytes, type } = await toScanBytes(file)
-      const res = gateScanResponse(await api.scan(bytes, type, 5, 'low'))
+      const res = await api.scan(bytes, type, 5, 'low')
       const blob = new Blob([bytes], { type })
       const previewUrl = trackUrl(URL.createObjectURL(blob))
       const stackItem: StackItem = {
@@ -1125,8 +1181,11 @@ export function Scan() {
         capturedAt: Date.now(),
         identity: initialIdentity(),
       }
-      const top = res?.matched ? res.matches[0] : undefined
-      addFeedEntry(top ? identityFromMatch(top) : null, res?.matches ?? [], stackItem)
+      const settled = [{ type: 'phash' as const, res }, { type: 'resolve' as const, resolved: null }].reduce(
+        reduceIdentity,
+        initialIdentity(),
+      )
+      addFeedEntry(settled, stackItem)
     },
     [addFeedEntry, trackUrl],
   )
@@ -1168,17 +1227,22 @@ export function Scan() {
    * Pressing Add. Between the press and the write sits `commitGate` — the
    * 2026-09-05 ruling's "batch commit reminds [about unresolved ones]".
    *
-   * The captures it is reminding about are NOT in the list: they are needs-you
-   * thumbnails still on the camera, which is exactly why the reminder has to
-   * exist. Committing ends the session and takes them with it, and the list the
-   * reader is looking at does not show them, so without this the drop is
-   * invisible by construction. One acknowledgement, then it proceeds — "yes,
-   * those two were card backs" is a perfectly good answer.
+   * IT COUNTS ROWS NOW, not stack thumbnails. Under the previous ruling the
+   * captures it protected were on a camera Step 2 does not render, so the drop
+   * was invisible by construction; since 2026-09-06 they are rows in the list
+   * the reader is looking at, and the reminder is a smaller thing — but "Add 12
+   * cards" over a list of fourteen still leaves two behind without saying which,
+   * so it stays. Left counting the stack it would have found an empty one every
+   * time and never fired at all.
+   *
+   * One acknowledgement, then it proceeds — "yes, those two were card backs" is
+   * a perfectly good answer.
    */
   const handleCommit = useCallback(() => {
-    const gate = commitGate(stackRef.current, false)
-    if (!gate.proceed) {
-      setCommitConfirm(gate.prompt)
+    const rows = feedRef.current
+    const gate = commitGate(rows, false)
+    if (!gate.proceed && gate.prompt) {
+      setCommitConfirm({ prompt: gate.prompt, rowId: firstUnresolvedId(rows) })
       return
     }
     void doCommit()
@@ -1255,15 +1319,10 @@ export function Scan() {
                       engineError={engineError}
                       hint={hint}
                       stackItems={stack}
-                      picking={picking}
                       onStackNodeRef={(id, el) => {
                         if (el) stackNodesRef.current.set(id, el)
                         else stackNodesRef.current.delete(id)
                       }}
-                      onNeedsYou={openPicker}
-                      onPick={pickForStackItem}
-                      onRetake={retakeStackItem}
-                      onClosePicker={() => setPicking(null)}
                       onRetry={() => void retryCamera()}
                       onReportCamera={() => void reportCamera()}
                       flashSignal={flashSignal}
@@ -1330,12 +1389,16 @@ export function Scan() {
                 onVariantChange={changeVariant}
                 onCorrect={(id, match) => correctEntry(id, match)}
                 onRemove={removeEntry}
+                onDiscard={discardEntry}
                 onReport={reportEntry}
                 onOpenDetail={openDetail}
+                onPickerOpenChange={notePickerOpen}
                 registerThumbNode={(id, el) => {
                   if (el) feedThumbNodesRef.current.set(id, el)
                   else feedThumbNodesRef.current.delete(id)
                 }}
+                scrollToId={scrollTo.id}
+                scrollSignal={scrollTo.signal}
               />
             </div>
 
@@ -1376,12 +1439,16 @@ export function Scan() {
                 onVariantChange={changeVariant}
                 onCorrect={(id, match) => correctEntry(id, match)}
                 onRemove={removeEntry}
+                onDiscard={discardEntry}
                 onReport={reportEntry}
                 onOpenDetail={openDetail}
+                onPickerOpenChange={notePickerOpen}
                 registerThumbNode={(id, el) => {
                   if (el) feedThumbNodesRef.current.set(id, el)
                   else feedThumbNodesRef.current.delete(id)
                 }}
+                scrollToId={scrollTo.id}
+                scrollSignal={scrollTo.signal}
               />
             ) : (
               <SwipeReview
@@ -1411,22 +1478,26 @@ export function Scan() {
           </div>
         )}
 
-        {/* THE UNRESOLVED-SCANS CONFIRM. Deliberately not a `window.confirm`:
-            the answer "go back" has to be able to put the reader somewhere they
-            can act on those captures, and the only place the needs-you
-            thumbnails exist is Step 1. */}
+        {/* THE UNRESOLVED-ROWS CONFIRM. Deliberately not a `window.confirm`:
+            the answer "go back" has to put the reader in front of the rows it is
+            about — and since 2026-09-06 that is a scroll rather than a trip back
+            to Step 1, because the rows are in whatever list they are already
+            looking at. Swipe review is the one place they are not, so it hands
+            the reader back to the list first. */}
         {commitConfirm && (
           <div className="absolute inset-x-[14px] bottom-[14px] z-[61] rounded-xl border border-warning/60 bg-surface-secondary p-[12px] shadow-elevated motion-safe:animate-[sheet-panel-in_180ms_cubic-bezier(0.22,0.61,0.36,1)_both]">
             <div className="flex items-start gap-[8px]">
               <Icon name="alert" size={16} className="mt-[2px] shrink-0 text-warning" />
-              <span className="flex-1 text-[13px] font-semibold text-text-primary">{commitConfirm}</span>
+              <span className="flex-1 text-[13px] font-semibold text-text-primary">{commitConfirm.prompt}</span>
             </div>
             <div className="mt-[10px] flex gap-[8px]">
               <button
                 type="button"
                 onClick={() => {
+                  const rowId = commitConfirm.rowId
                   setCommitConfirm(null)
-                  backToScan()
+                  setReviewMode('list')
+                  setScrollTo((s) => ({ id: rowId, signal: s.signal + 1 }))
                 }}
                 className="h-[34px] flex-1 rounded-full border border-border-default text-[13px] font-bold text-text-body hover:bg-surface-tertiary"
               >

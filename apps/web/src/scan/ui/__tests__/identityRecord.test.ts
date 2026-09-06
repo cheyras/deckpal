@@ -235,23 +235,79 @@ describe('identityRecord', () => {
     assert.equal(record.msToResolve, 18_400)
   })
 
-  it('and records the READER as the answer once they have engaged', () => {
-    // Engaged is sticky, so the late confident answer above is ignored here and
-    // the record must not claim the machine got there.
-    const picked = run([
+  it('and records the READER as the answer when they give one', () => {
+    // THE SECOND POST, and the reason `picked`/`retaken` survived 2026-09-06.
+    //
+    // The reader answers from a LIST ROW now, minutes after the thumbnail flew
+    // down, and by then the reducer has let the capture go. `Scan.tsx` keeps the
+    // settled state on the row (`FeedEntry.identity`) and reduces the reader's
+    // event against it — exactly what this does — so the pair "the machine said
+    // needs-you, and here is what the reader made of it" still lands.
+    const settled = run([
+      { type: 'phash', res: TIED },
+      { type: 'read', read: null },
+      { type: 'resolve', resolved: resolveRes({ confident: false, resolvedBy: 'prior-only' }) },
+    ])
+    assert.equal(identityOutcome(settled), 'needs-you', 'the first post, from the race')
+
+    const record = identityRecord(reduceIdentity(settled, { type: 'pick', match: match('sv10-058', 7) }), 31_000)
+      ?.identity as Record<string, unknown>
+    assert.equal(record.identityOutcome, 'picked')
+    assert.equal(record.cardId, 'sv10-058')
+    assert.equal(record.msToResolve, 31_000, 'measured from the SHUTTER, not from when the row landed')
+    // The ladder's verdict is still recorded — it just did not name the card.
+    // "The endpoint answered prior-only and was not sure, and the reader chose
+    // the phash runner-up" is the single most useful row this channel produces.
+    assert.equal(record.resolvedBy, 'prior-only')
+    assert.equal(record.confident, false)
+  })
+
+  it('and the discard the same way, so a binned capture is not a silent gap', () => {
+    const settled = run([
+      { type: 'phash', res: TIED },
+      { type: 'read', read: read({ pass: 'escalated', bodyLines: ['Deceit'] }) },
+      { type: 'resolve', resolved: null },
+    ])
+    const record = identityRecord(reduceIdentity(settled, { type: 'retake' }), 12_000)?.identity as Record<
+      string,
+      unknown
+    >
+    assert.equal(record.identityOutcome, 'retaken')
+    assert.equal(record.cardId, null)
+    assert.equal(record.ocr, 'escalated')
+  })
+
+  it('THE FIVE OUTCOMES ARE STILL FIVE, and none of them says where the row is', () => {
+    // The reversal moved the question from the camera to the list without
+    // changing what was asked or who answered it, so nothing here gains a
+    // `rowLocation` — a column with one value. Sessions either side of the
+    // change are separated by `pipelineVersion`, which `flags.ts` stamps.
+    const stuck: IdentityEvent[] = [
       { type: 'phash', res: TIED },
       { type: 'read', read: null },
       { type: 'resolve', resolved: null },
-      { type: 'engage' },
-      { type: 'resolve', resolved: resolveRes() },
-      { type: 'pick', match: match('sv10-058', 7) },
+    ]
+    const seen = new Set([
+      identityOutcome(run([{ type: 'phash', res: CLEAR }])),
+      identityOutcome(run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: resolveRes() }])),
+      identityOutcome(run(stuck)),
+      identityOutcome(reduceIdentity(run(stuck), { type: 'pick', match: match('sv10-058', 7) })),
+      identityOutcome(reduceIdentity(run(stuck), { type: 'retake' })),
     ])
-    const record = identityRecord(picked, 31_000)?.identity as Record<string, unknown>
-    assert.equal(record.identityOutcome, 'picked')
-    assert.equal(record.cardId, 'sv10-058')
-    // The ladder's verdict is still recorded — it just did not get to name the
-    // card. "The endpoint was confident and the reader chose something else" is
-    // the single most useful row this channel can produce.
-    assert.equal(record.confident, true)
+    assert.deepEqual(
+      [...seen].sort(),
+      ['confident-phash', 'confident-resolve', 'needs-you', 'picked', 'retaken'],
+    )
+    const record = identityRecord(run(stuck), 900)?.identity as Record<string, unknown>
+    assert.deepEqual(Object.keys(record).sort(), [
+      'bodyLines',
+      'cardId',
+      'confident',
+      'identityOutcome',
+      'msToResolve',
+      'ocr',
+      'ocrMs',
+      'resolvedBy',
+    ])
   })
 })
