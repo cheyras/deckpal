@@ -129,8 +129,19 @@ export interface SupportFlowProps {
    * closed the sheet recorded NEITHER a `chose` nor a `dismissed`: the exposure
    * simply vanished from the experiment.
    *
-   * This fires at the two points where an answer exists: an amount settled
-   * (including $0, which is a real answer) and a gift that landed.
+   * It fires wherever an answer exists, which is FIVE places — an earlier
+   * version of this comment said two, and the tree had three:
+   *
+   *   1. an amount settled, including $0, which is a real answer;
+   *   2. a dunning card replaced and the outstanding invoice collected;
+   *   3. a gift that landed;
+   *   4. the browser lost the bank's challenge but the intent says the
+   *      subscription is paying;
+   *   5. the same, seen through a subscription status that has not caught up.
+   *
+   * The last two are answers as surely as the first. Leaving them out recorded
+   * a DISMISSAL on top of a conversion the moment the sheet was closed — the
+   * both-outcomes-per-exposure overlap this signal exists to end.
    */
   onAnswered?: () => void
   /** Called once the flow has finished and the frame may close itself. */
@@ -296,6 +307,11 @@ export function SupportFlow({
             // The population that lands here is challenge-heavy issuers, which
             // is precisely the bias `/one-time/confirm` exists to prevent.
             if (lastIntent === 'succeeded') {
+              // ⚠️ AND IT IS AN ANSWER. Reporting the conversion without saying
+              // so recorded a `dismissed` on top of the `chose` as soon as the
+              // sheet was closed — both outcomes against one exposure, which is
+              // exactly what separating this signal from `onState` was for.
+              onAnswered?.()
               void api
                 .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
                 .catch(() => {/* the subscription is live; the analytics row is not worth an error */})
@@ -307,10 +323,18 @@ export function SupportFlow({
           // or library error whose text says nothing about whether money moved,
           // and letting `??` prefer it replaced the one sentence that does.
           setError(
-            settled
+            actionError.type === 'card_error'
               ? (actionError.message ??
                   'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
-              : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.',
+              : settled
+                // Settled, but only the RETRIEVE knew it. `actionError` here is
+                // a library or connection failure whose text — "the
+                // PaymentIntent supplied is not in the requires_action state" —
+                // says nothing a reader can act on, and showing it in place of
+                // the sentence that does was the tail of R18's rule: Stripe's
+                // words for a refusal Stripe reported, ours otherwise.
+                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
+                : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.',
           )
           // The server state is still worth taking: the subscription exists as
           // `incomplete`, and the profile card should say so rather than show
@@ -374,6 +398,9 @@ export function SupportFlow({
         // needs the webhook, and DECISIONS records it as a known gap rather
         // than a fix bolted on late.)
         if (!declined) {
+          // Same reasoning as the ambiguous branch above: a payment that is
+          // settling is an answer given, not an exposure walked away from.
+          onAnswered?.()
           void api
             .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
             .catch(() => {/* the answer is saved; the analytics row is not worth an error */})
@@ -512,10 +539,14 @@ export function SupportFlow({
           }
           // Stripe's message only for a refusal — see the subscription twin.
           setError(
-            settled
+            actionError.type === 'card_error'
               ? (actionError.message ??
                   'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
-              : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.',
+              : settled
+                // See the subscription twin: settled by the retrieve, not by a
+                // card error, so the library's own text is not the reader's.
+                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
+                : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.',
           )
           return
         }

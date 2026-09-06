@@ -16116,6 +16116,40 @@ an id another account will later store turns their billing into unique-violation
 errors until an operator clears the row. Accepted and named, so it is
 diagnosable rather than mysterious.
 
+### 22. Round nineteen: a signal that did not reach the branch that proved it
+
+Third consecutive round with nothing above minor, and the finding is the same
+family again, one level smaller. Round eighteen separated "they answered" from
+"the state changed" and fired the new signal at the settled outcomes — but not
+at the ambiguous branch where the RETRIEVE proves the subscription is paying. So
+that branch reported the conversion and did not claim it as an answer, and
+closing the sheet posted a dismissal on top of the `chose`: both outcomes
+against one exposure, which is precisely the overlap the signal exists to end.
+It fires there now, and on the lagging-status branch beside it.
+
+§21 and the docstring both said the signal fires "at the two points where an
+answer exists". The tree had three when that was written and has five now, and
+the docstring lists them. This is the fourth time in this branch a comment has
+been confidently wrong about its own change — §6, §15, §19 and here — which
+is why every round's prompt now tells the reviewer to treat prose as a claim.
+
+Round eighteen's rule was "Stripe's words for a refusal, ours for everything
+else", implemented as "ours unless `settled`". Those differ: `settled` is also
+reached when only the retrieve saw the refusal, and there `actionError` is a
+library failure whose text — "the PaymentIntent supplied is not in the
+requires_action state" — says nothing a reader can act on, and it displaced the
+sentence that does. Keyed on `card_error` now, in both twins, which is what the
+rule said.
+
+Also recorded, not editable: 053's header says the webhook resolves an account
+by subscription id when an event carries no customer, and
+`billing_account_subscription_idx` exists to serve that lookup. `webhook.ts`
+never queries by subscription id — `customerIdOf` always resolves a customer,
+falling back to `previous_attributes` for `payment_method.detached`. The index is
+unused. 053 is applied, so B4 forbids correcting the header in place; this
+paragraph is the correction, and the index is left alone rather than dropped in
+the nineteenth round of a review loop.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists
