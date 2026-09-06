@@ -30,6 +30,16 @@
  * the caller's cache is replaced wholesale.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+
+/** A short opaque id for one payment attempt. `crypto` is present everywhere
+ *  this ships; the fallback exists so a hostile polyfill cannot break checkout. */
+function newAttemptId(): string {
+  try {
+    return crypto.randomUUID().replace(/-/g, '').slice(0, 32)
+  } catch {
+    return `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+  }
+}
 import type { Stripe } from '@stripe/stripe-js'
 import { api, type BillingState, type SupportPromptKind } from '../../lib/api'
 import { formatAmount, formatDate, stripeFor } from '../../lib/billing'
@@ -131,6 +141,18 @@ export function SupportFlow({
    * difference is only what happens after it succeeds.
    */
   const [cardFor, setCardFor] = useState<'subscription' | 'one-time'>('subscription')
+  /**
+   * One id per one-off attempt, minted when the reader starts one and kept
+   * until it succeeds.
+   *
+   * It is the difference between a retry and a second charge. The server turns
+   * it into a Stripe idempotency key, so re-posting after a dropped connection,
+   * a double click, or completing a bank challenge all resolve to the SAME
+   * charge. It is deliberately not regenerated on failure — the reader pressing
+   * the button again after an error is still the same attempt; only leaving and
+   * coming back is a new one.
+   */
+  const attemptId = useRef(newAttemptId())
 
   /**
    * Is the one-off follow-up worth offering?
@@ -178,7 +200,9 @@ export function SupportFlow({
           onState(next)
           return
         }
-        next = await api.refreshBilling()
+        // Reports the confirmed outcome so the experiment records it once, and
+        // only now that it is real.
+        next = await api.refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
       }
       onState(next)
       // ⚠️ CHECK WHAT ACTUALLY HAPPENED before saying thank you. Completing the
@@ -196,7 +220,17 @@ export function SupportFlow({
       // Only on $0, only once, and only where the ask belongs.
       setStep(amount === 0 && offerOneTime ? 'one-time' : 'done')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Nothing has been charged.')
+      // NOT "nothing has been charged". This catch sits after `setSupport`,
+      // which can succeed at Stripe and then have a later step fail — the RLS
+      // watchdog reclaiming the connection, a `pullState` that times out. The
+      // subscription path is safely retryable (the update branch is
+      // idempotent), but telling somebody money did not move when it may have
+      // is how the one-off next door gets paid twice.
+      setError(
+        e instanceof Error
+          ? e.message
+          : 'We could not confirm that. Check your profile before trying again.',
+      )
     } finally {
       setBusy(false)
     }
@@ -223,7 +257,13 @@ export function SupportFlow({
       setCommitted(res.support.cents)
       setStep('done')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong.')
+      // Card replacement moves no money of its own, but `retryOpenInvoice`
+      // behind it does, so the same rule applies: do not assert an outcome.
+      setError(
+        e instanceof Error
+          ? e.message
+          : 'We could not confirm that. Check your profile before trying again.',
+      )
     } finally {
       setBusy(false)
     }
@@ -234,7 +274,11 @@ export function SupportFlow({
     setBusy(true)
     setError(null)
     try {
-      const res = await api.giveOnce(onceAmount, setupIntentId, analyticsContext ?? context)
+      const res = await api.giveOnce(onceAmount, {
+        ...(setupIntentId ? { setupIntentId } : {}),
+        context: analyticsContext ?? context,
+        attemptId: attemptId.current,
+      })
       let paid = res.paid
       if (res.clientSecret) {
         const stripe = await stripePromise
@@ -251,6 +295,14 @@ export function SupportFlow({
         // no subscription state to fall back on, so asserting "$25, one time
         // only, Stripe will email you a receipt" without reading this was the
         // baldest unverified claim in the flow.
+        if (paymentIntent?.status === 'processing') {
+          // Neither charged nor refused. Saying "nothing has been charged"
+          // here is a lie that invites a second payment.
+          setError(
+            'Your bank is still processing this. Do not pay again — it will complete on its own, and Stripe will email you a receipt if it goes through.',
+          )
+          return
+        }
         paid = paymentIntent?.status === 'succeeded'
       }
       if (!paid) {
@@ -259,9 +311,19 @@ export function SupportFlow({
       }
       onState(res)
       setGaveOnce(onceAmount)
+      // Spent. Anything after this is a NEW attempt and must not collapse into
+      // the charge that just succeeded.
+      attemptId.current = newAttemptId()
       setStep('done')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Nothing has been charged.')
+      // NOT "nothing has been charged" — this catch is reachable after the
+      // charge succeeded and a later step failed. The attempt id is kept, so
+      // pressing the button again is the same attempt and cannot double-charge.
+      setError(
+        e instanceof Error
+          ? e.message
+          : 'We could not confirm that. Do not pay again — check your email for a receipt, or your profile, before retrying.',
+      )
     } finally {
       setBusy(false)
     }

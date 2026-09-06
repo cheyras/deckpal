@@ -1539,14 +1539,27 @@ export const api = {
    * `paid` is false when the issuer wants the reader to confirm — `clientSecret`
    * then carries the challenge.
    */
-  giveOnce: (amountCents: number, setupIntentId?: string, context?: string) =>
+  giveOnce: (amountCents: number, opts: { setupIntentId?: string; context?: string; attemptId: string }) =>
     send<BillingState & { paid: boolean }>('POST', '/me/billing/one-time', {
       amountCents,
-      ...(setupIntentId ? { setupIntentId } : {}),
-      ...(context ? { context } : {}),
+      ...(opts.setupIntentId ? { setupIntentId: opts.setupIntentId } : {}),
+      ...(opts.context ? { context: opts.context } : {}),
+      // ONE id per user-initiated attempt, held across every retry of it. This
+      // is what makes a network retry or a double click a single charge: the
+      // server puts it in the Stripe idempotency key. A new id is minted only
+      // when the reader deliberately starts again.
+      attemptId: opts.attemptId,
     }),
-  /** Re-read Stripe after an authentication challenge completed in the browser. */
-  refreshBilling: () => send<BillingState>('POST', '/me/billing/refresh'),
+  /**
+   * Re-read Stripe after an authentication challenge completed in the browser.
+   *
+   * `amountCents` + `context` report the CONFIRMED outcome: the write that
+   * started the challenge deliberately recorded nothing, because at that moment
+   * nothing had been paid. Passing them here records the answer exactly once,
+   * and only if the subscription really is paying now.
+   */
+  refreshBilling: (confirmed?: { amountCents: number; context: string }) =>
+    send<BillingState>('POST', '/me/billing/refresh', confirmed ?? {}),
   /** Stripe's hosted portal: invoices, receipts, the long tail of card management. */
   billingPortal: () => send<{ url: string }>('POST', '/me/billing/portal'),
   setShowcase: (cards: (string | null)[]) => send<{ showcase: ShowcaseSlot[] }>('PUT', '/me/showcase', { cards }),

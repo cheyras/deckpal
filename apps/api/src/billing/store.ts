@@ -102,14 +102,22 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  * experiment exists to detect.
  *
  *   WITH exposures AS (
- *     SELECT variant, count(*) AS shown
+ *     -- DISTINCT USERS, not rows. A person re-asked in three consecutive
+ *     -- months is one person; counting three exposures means the arm that
+ *     -- converts FASTER stops accruing re-asks and its cents-per-exposure
+ *     -- rises for a reason that is not the thing being measured.
+ *     SELECT variant, count(DISTINCT user_id) AS exposed
  *       FROM billing_ab_event
  *      WHERE kind = 'shown' AND context NOT LIKE 'forced-%'
  *      GROUP BY variant
  *   ), monthly AS (
+ *     -- Only answers given TO A PROMPT. A `chose` from the profile card has no
+ *     -- matching exposure, so including it puts a numerator over a denominator
+ *     -- it was never part of.
  *     SELECT DISTINCT ON (user_id) user_id, variant, amount_cents
  *       FROM billing_ab_event
  *      WHERE kind = 'chose' AND context NOT LIKE 'forced-%'
+ *        AND context IN ('onboarding', 'checkin')
  *      ORDER BY user_id, created_at DESC
  *   ), one_off AS (
  *     SELECT variant, sum(amount_cents) AS cents
@@ -118,16 +126,16 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  *      GROUP BY variant
  *   )
  *   SELECT e.variant,
- *          e.shown,
+ *          e.exposed,
  *          count(m.user_id) FILTER (WHERE m.amount_cents > 0)      AS paying,
  *          coalesce(sum(m.amount_cents), 0)                        AS monthly_cents,
  *          coalesce(max(o.cents), 0)                               AS one_off_cents,
  *          round(coalesce(sum(m.amount_cents), 0)::numeric
- *                / nullif(e.shown, 0), 1)         AS monthly_cents_per_exposure
+ *                / nullif(e.exposed, 0), 1)       AS monthly_cents_per_person
  *     FROM exposures e
  *     LEFT JOIN monthly  m ON m.variant = e.variant
  *     LEFT JOIN one_off  o ON o.variant = e.variant
- *    GROUP BY e.variant, e.shown
+ *    GROUP BY e.variant, e.exposed
  *    ORDER BY e.variant;
  *
  * ⚠️ Ten accounts exist today. This collects honestly; reading it for a winner
@@ -188,7 +196,20 @@ export interface StripePatch {
   card_exp_year?: number | null;
 }
 
+/**
+ * Make sure the row exists, WITHOUT counting a visit.
+ *
+ * On Supabase this has to be a SECURITY DEFINER call: 054 revoked INSERT from
+ * `authenticated`, so the plain statement this used to run raised `42501` the
+ * moment a row was genuinely missing — which the call site cheerfully described
+ * as "genuinely unreachable rather than merely unlikely". It is reachable: an
+ * account created before 053, or any gap in the signup trigger, lands here.
+ */
 async function ensureRow(userId: string): Promise<void> {
+  if (SUPABASE_MODE) {
+    await q(`SELECT billing_ensure_row()`);
+    return;
+  }
   await q(`INSERT INTO billing_account (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [userId]);
 }
 
@@ -198,9 +219,10 @@ export async function readRow(userId: string): Promise<BillingRow> {
   if (row) return row;
   await ensureRow(userId);
   const created = await q1<BillingRow>(`SELECT ${COLS} FROM billing_account WHERE user_id = $1`, [userId]);
-  // The INSERT above is unconditional and the FK is to a user we just
-  // authenticated, so this is genuinely unreachable rather than merely unlikely.
-  if (!created) throw new Error(`billing row missing for ${userId} immediately after insert`);
+  // `ensureRow` either created it or raised. Reaching here means the row was
+  // deleted between the two statements, which is a real 500 and not something
+  // to paper over.
+  if (!created) throw new Error(`billing row missing for ${userId} immediately after ensureRow`);
   return created;
 }
 
@@ -294,8 +316,17 @@ export const PROMPT_INTERVAL_DAYS = 30;
  */
 export const PAYMENT_ISSUE_INTERVAL_DAYS = 3;
 
-/** Stripe statuses that mean "the money did not arrive and the reader can fix it". */
-const NEEDS_ATTENTION = new Set(['past_due', 'unpaid', 'incomplete']);
+/**
+ * Stripe statuses that mean "the money did not arrive and the reader can fix it".
+ *
+ * `incomplete` was here and should not have been: it means nobody ever tried to
+ * pay, so telling that account "your bank turned down the most recent charge"
+ * was simply false — and the dunning flow it opened could not help either,
+ * since `retryOpenInvoice` has no outstanding invoice to settle and reported
+ * success anyway. An abandoned attempt now falls through to the ordinary
+ * cadence, which is what it is.
+ */
+const NEEDS_ATTENTION = new Set(['past_due', 'unpaid']);
 
 /**
  * Is this account currently contributing?

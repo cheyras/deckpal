@@ -84,7 +84,21 @@ function customerIdOf(event: Stripe.Event): string | null {
   if (obj.object === 'customer') return obj.id ?? null;
   const c = obj.customer;
   if (typeof c === 'string') return c;
-  return c?.id ?? null;
+  if (c?.id) return c.id;
+
+  // ⚠️ `payment_method.detached` arrives with `customer: null` — detaching is
+  // precisely the act of removing that link. So the ONE event that means "the
+  // card is gone" resolved to no customer and was silently dropped, and if the
+  // removed card was not the invoice default no compensating `customer.updated`
+  // follows: the profile would go on showing a card that no longer exists,
+  // which is the exact failure `pullState`'s own comment says the full re-sync
+  // exists to prevent.
+  //
+  // Stripe puts the old value in `previous_attributes`.
+  const prev = event.data.previous_attributes as { customer?: string | { id?: string } | null } | undefined;
+  const p = prev?.customer;
+  if (typeof p === 'string') return p;
+  return p?.id ?? null;
 }
 
 /**
@@ -115,6 +129,34 @@ async function syncCustomer(stripe: Stripe, customerId: string, deleted: boolean
   // Stripe account may be used for something else entirely, and a test-mode
   // dashboard is full of hand-made customers. Acknowledge and move on.
   if (!owner) return 'unknown';
+
+  // ⚠️ THE ROW IS NOT PROOF OF OWNERSHIP. Ask Stripe.
+  //
+  // `stripe_customer_id` is reachable from the browser: `billing_apply_stripe`
+  // is executable by `authenticated` and therefore callable over PostgREST with
+  // the anon key. Someone who plants a stranger's `cus_…` in their own row
+  // would, without this check, have that stranger's card brand, last four,
+  // expiry and subscription state synced onto their row by the next webhook —
+  // and could then simply read it. Customer ids are not secrets; they turn up
+  // in support threads and screenshots.
+  //
+  // Every route already refuses a customer whose metadata does not name the
+  // caller (`ensureCustomer`). The webhook had no such check, which is exactly
+  // why it was the way in: the guard sat in the path nobody was attacking.
+  // Migration 059 pins the column write-once as well; either fix closes this,
+  // and both together mean it stays closed if one is refactored away.
+  if (!deleted) {
+    const customer = await stripe.customers.retrieve(customerId);
+    const claims = !customer.deleted && customer.metadata?.deckpal_user_id === owner.user_id;
+    if (!claims) {
+      console.error('[deckpal-api] stripe webhook: refusing a customer whose metadata does not name the row owner', {
+        // Never the customer id or the user id — this line goes to a shared log
+        // and the pairing is the sensitive part.
+        reason: customer.deleted ? 'customer deleted' : 'metadata mismatch',
+      });
+      return 'unknown';
+    }
+  }
 
   if (deleted) {
     await q(

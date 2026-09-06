@@ -276,6 +276,49 @@ CVC is a card that works.
    Anything else — especially "partial" — means a variable did not arrive.
 ```
 
+### ⚠️ Going live: the test data is in your PRODUCTION tables
+
+**Read this before switching to live keys.** The preview deployment runs
+test-mode Stripe against the **production database** — that is what makes
+previewing useful, and it is also a trap. Every test subscription taken on the
+preview has written real rows:
+
+* `billing_account` caches `support_cents`, `subscription_status`,
+  `current_period_end` and the card summary. After the cutover those point at
+  Stripe objects that **do not exist in live mode**. The consequences are both
+  silent: `isContributing()` suppresses the support prompt for those accounts
+  indefinitely, and `GET /me/billing` is a pure cache read, so the profile shows
+  a fictional "$N a month, next payment on X" until some mutating route or
+  webhook happens to run — which for a passive account is never.
+* `billing_ab_event` rows recorded on the preview are indistinguishable from
+  live ones. The `forced-` filter does not cover them: a flow driven organically
+  in test mode records exactly like a real one.
+
+Neither self-heals. Run this **after** the live keys are in place and **before**
+anyone is invited to pay, adjusting the timestamp to when you cut over:
+
+```sql
+-- 1. Forget every cached test-mode Stripe fact. The next visit re-syncs from
+--    live Stripe; an account with nothing there correctly reads as $0.
+UPDATE billing_account
+   SET stripe_customer_id = NULL, subscription_id = NULL, subscription_status = NULL,
+       support_cents = 0, current_period_end = NULL, cancel_at_period_end = FALSE,
+       card_brand = NULL, card_last4 = NULL, card_exp_month = NULL, card_exp_year = NULL,
+       stripe_synced_at = NULL;
+
+-- 2. Start the $1 experiment from zero. Test-mode exposures and answers cannot
+--    be told apart from real ones, and an experiment seeded with your own
+--    testing is worse than one with no data.
+DELETE FROM billing_ab_event;
+
+-- 3. The webhook ledger refers to test-mode event ids that will never recur.
+DELETE FROM billing_event;
+```
+
+The experiment arm (`ab_presets`) is deliberately NOT cleared: it is a coin
+flip, it carries no Stripe state, and re-flipping it would re-bucket everyone
+who had already been assigned.
+
 **The migration backfills existing accounts on purpose.** 053 seeds every
 `app_user` that already exists at `visit_count = 3` with `onboarded_at` stamped,
 which makes the check-in due on their next visit and makes sure they get the

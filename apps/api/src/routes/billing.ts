@@ -76,6 +76,9 @@ export const billingRouter: Router = Router();
  * description of what people do, not an instruction.
  */
 
+/** Statuses in which the subscription is genuinely collecting money. */
+const PAYING = new Set(['active', 'trialing', 'past_due', 'unpaid']);
+
 function iso(v: Date | string | null): string | null {
   if (v === null) return null;
   return v instanceof Date ? v.toISOString() : new Date(v).toISOString();
@@ -330,6 +333,12 @@ billingRouter.put(
 
       const { clientSecret } = await setSupport(stripe, customerId, amountCents);
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
+      // Settled means: they said $0 (a complete answer needing no money), or
+      // the subscription is actually paying. An attempt still waiting on the
+      // bank is NOT an outcome — recording it made an abandoned $25 challenge
+      // count as $25/month for ever. The client reports the confirmed result
+      // through /refresh once the challenge completes.
+      const settled = amountCents === 0 || PAYING.has(fresh.subscription_status ?? '');
       // The outcome, INCLUDING zero. "They engaged and picked nothing" is a
       // different result from walking away, and collapsing the two would
       // flatter every conversion number this experiment produces.
@@ -339,7 +348,7 @@ billingRouter.put(
       // one. It now has its own endpoint, so this is belt and braces — a
       // dunning fix must never read as a fresh conversion.
       const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
-      if (!context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, amountCents);
+      if (settled && !context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, amountCents);
       // Asking is now settled however this went: they answered the question.
       const acked = await ackPrompt(userId, fresh.onboarded_at === null);
       res.json(shape(acked, { clientSecret }));
@@ -422,6 +431,13 @@ billingRouter.post(
     const amountCents = normalizeAmountCents(req.body?.amountCents);
     if (amountCents === 0) throw badRequest('a one-time contribution needs an amount');
     const setupIntentId = typeof req.body?.setupIntentId === 'string' ? req.body.setupIntentId.trim() : null;
+    // The browser holds one of these across every retry of the same click, so
+    // a network retry cannot become a second charge. Constrained in shape
+    // because it goes into a Stripe idempotency key.
+    const attemptId =
+      typeof req.body?.attemptId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(req.body.attemptId)
+        ? req.body.attemptId
+        : undefined;
 
     const row = await readRow(userId);
     try {
@@ -429,12 +445,14 @@ billingRouter.post(
       if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
       if (setupIntentId) await adoptSetupIntent(stripe, customerId, setupIntentId);
 
-      const { clientSecret, paid } = await chargeOnce(stripe, customerId, amountCents);
-      // Recorded whether or not the issuer stepped in: an authentication
-      // challenge is part of the same answer, and a gift that needed one
-      // confirmation click is not a different outcome from one that did not.
+      const { clientSecret, paid } = await chargeOnce(stripe, customerId, amountCents, attemptId);
+      // Only a gift that actually landed. A challenge still outstanding is not
+      // an outcome, and recording one made an abandoned confirmation count as
+      // revenue. The browser re-posts the same attempt id after completing the
+      // challenge; the idempotency key makes that safe, and Stripe returns the
+      // settled intent, so the event is recorded then.
       const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
-      await recordAbEvent(userId, 'chose_one_time', context, amountCents);
+      if (paid) await recordAbEvent(userId, 'chose_one_time', context, amountCents);
       // The card summary may be new; the subscription state is untouched.
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
       res.json({ ...shape(fresh, { clientSecret }), paid });
@@ -464,7 +482,25 @@ billingRouter.post(
     }
     const row = await readRow(userId);
     try {
-      res.json(shape(await resync(userId, currentUserEmail(req), row)));
+      const fresh = await resync(userId, currentUserEmail(req), row);
+      // The other half of "record only settled outcomes". `PUT /subscription`
+      // deliberately does not record a `chose` when the bank asked for a
+      // confirmation, because at that moment nothing had been paid. The client
+      // completes the challenge and calls this; if the subscription is now
+      // paying, THAT is the outcome worth recording, and it is recorded exactly
+      // once because the earlier call skipped it.
+      const amountCents = Number(req.body?.amountCents);
+      const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : null;
+      if (
+        context &&
+        Number.isInteger(amountCents) &&
+        amountCents > 0 &&
+        !context.includes('payment_issue') &&
+        PAYING.has(fresh.subscription_status ?? '')
+      ) {
+        await recordAbEvent(userId, 'chose', context, amountCents);
+      }
+      res.json(shape(fresh));
     } catch (err) {
       stripeFailure(err);
     }
@@ -488,7 +524,14 @@ billingRouter.post(
     // own origin, which is right for every ordinary deployment and for local
     // development. The client never supplies this: a return URL from a request
     // body is an open redirect with a Stripe-branded page in front of it.
-    const origin = (process.env.PUBLIC_APP_ORIGIN ?? '').trim() || `${req.protocol}://${req.get('host') ?? 'deckpal.app'}`;
+    // ⚠️ `req.protocol` is `http` behind Vercel unless Express is told to trust
+    // the proxy, so the derived origin was `http://deckpal.app` — a return URL
+    // Stripe would send people to over plain HTTP. `x-forwarded-proto` is what
+    // the proxy actually says, and it is only trusted for choosing a scheme
+    // (never for the host, and never as an authorisation input).
+    const proto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim() || req.protocol;
+    const scheme = proto === 'http' && req.get('host')?.startsWith('localhost') ? 'http' : 'https';
+    const origin = (process.env.PUBLIC_APP_ORIGIN ?? '').trim() || `${scheme}://${req.get('host') ?? 'deckpal.app'}`;
     try {
       const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
       const session = await portalSession(stripe, customerId, `${origin}/profile`);

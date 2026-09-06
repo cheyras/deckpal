@@ -196,11 +196,30 @@ describe('promptDue — A CONTRIBUTOR IS NEVER ASKED AGAIN', () => {
 describe('promptDue — a broken payment outranks the ask', () => {
   const base = { onboarded_at: new Date(NOW - 90 * DAY), visit_count: 999, support_cents: 500 };
 
-  for (const status of ['past_due', 'unpaid', 'incomplete']) {
+  for (const status of ['past_due', 'unpaid']) {
     test(`${status} asks about the card, not about the amount`, () => {
       assert.equal(promptDue(row({ ...base, subscription_status: status }), NOW), 'payment_issue');
     });
   }
+
+  test('an ABANDONED attempt is not a failed charge', () => {
+    // `incomplete` used to be treated as a payment problem, and the copy that
+    // produced -- "your bank turned down the most recent charge" -- was simply
+    // false: nothing was ever charged. The dunning flow could not help either,
+    // having no outstanding invoice to settle, yet reported success.
+    //
+    // `pullState` no longer counts an incomplete subscription's price as
+    // `support_cents`, so the realistic row is `incomplete` at 0 -- and the
+    // honest answer is the ordinary check-in, because that is somebody who is
+    // not paying.
+    const abandoned = row({
+      ...base,
+      support_cents: 0,
+      subscription_status: 'incomplete',
+      prompt_last_shown_at: null,
+    });
+    assert.equal(promptDue(abandoned, NOW), 'checkin');
+  });
 
   test('it is reminded on its own faster cadence, not every load', () => {
     const justTold = row({

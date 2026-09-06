@@ -69,6 +69,23 @@ const LIVE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'inco
 const NEEDS_PAYMENT = new Set(['past_due', 'unpaid']);
 
 /**
+ * Statuses in which money is genuinely flowing.
+ *
+ * `incomplete` is NOT one of them, and treating it as one had two consequences
+ * pulling in opposite directions: `pullState` reported the price of an
+ * abandoned attempt as `support_cents`, so `isContributing` classed somebody
+ * who had paid nothing as a contributor and never asked them again; while
+ * `NEEDS_ATTENTION` classed the same row as a failed payment and showed them
+ * "your bank turned down the last charge" — which it had not, because nothing
+ * was ever charged. An abandoned first attempt is simply somebody who is not
+ * paying, and both of those now follow from this set.
+ *
+ * `past_due` and `unpaid` ARE paying subscriptions with a charge to sort out;
+ * `paused` collects nothing.
+ */
+const PAYING_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid']);
+
+/**
  * `incomplete` is deliberately NOT here.
  *
  * An `incomplete` subscription has a FINALIZED first invoice at whatever amount
@@ -170,7 +187,15 @@ async function managedSubscription(stripe: Stripe, customerId: string): Promise<
  * produce one subscription/charge; somebody trying again a minute later gets a
  * real attempt.
  */
-function idempotencyKey(kind: string, customerId: string, amountCents: number): string {
+function idempotencyKey(kind: string, customerId: string, amountCents: number, attempt?: string): string {
+  // An ATTEMPT id from the browser is the correct unit and the caller supplies
+  // one wherever it can. It is held across retries of the same user action and
+  // regenerated only when the reader deliberately starts again, so a network
+  // retry, a double click and a double tab all collapse — including across a
+  // minute boundary, which the time bucket did not.
+  if (attempt) return `${kind}:${customerId}:${amountCents}:${attempt}`;
+  // Fallback for callers with no attempt id. Deliberately coarse and
+  // deliberately NOT the whole story: see the note in `chargeOnce`.
   return `${kind}:${customerId}:${amountCents}:${Math.floor(Date.now() / 60_000)}`;
 }
 
@@ -206,10 +231,13 @@ export async function pullState(stripe: Stripe, customerId: string): Promise<Str
 
   const item = sub?.items.data[0];
   const price = item?.price;
-  const live = !!sub && LIVE_STATUSES.has(sub.status);
+  // PAYING, not merely live: an `incomplete` subscription has a price and has
+  // paid nothing, and reporting that price as `support_cents` made an abandoned
+  // attempt look like a contributor for ever. See PAYING_STATUSES.
+  const paying = !!sub && PAYING_STATUSES.has(sub.status);
   // `unit_amount` is null for tiered/metered prices, which this feature never
   // creates — 0 is the honest reading of "not an amount we understand".
-  const cents = live && price?.unit_amount ? price.unit_amount * (item?.quantity ?? 1) : 0;
+  const cents = paying && price?.unit_amount ? price.unit_amount * (item?.quantity ?? 1) : 0;
 
   return {
     stripe_customer_id: customerId,
@@ -414,11 +442,51 @@ export async function setSupport(
     },
     // Two clicks, two tabs, or a retried request must not produce two live
     // subscriptions — one of which `managedSubscription` would never surface
-    // again while it billed away invisibly.
-    { idempotencyKey: idempotencyKey('sub', customerId, amountCents) },
+    // again while it billed away invisibly. The key includes the subscription
+    // this attempt REPLACED (or 'new'), so a retry after an abandoned attempt
+    // was cancelled is a genuinely new request rather than an idempotent replay
+    // of the now-cancelled one.
+    { idempotencyKey: idempotencyKey('sub', customerId, amountCents, `r-${existing?.id ?? 'new'}`) },
   );
 
+  // ⚠️ THE KEY IS NOT ENOUGH ON ITS OWN, and believing it was is what this
+  // guard exists to correct. It covers a repeat of the SAME request; it does
+  // nothing about two tabs submitting DIFFERENT amounts, which both pass the
+  // "is there a subscription?" check above and both create one. The loser then
+  // bills monthly and is invisible in the app, because `managedSubscription`
+  // only ever surfaces one.
+  //
+  // Cancelling the strays after the fact is idempotent and self-healing: it
+  // runs on every create, so a race that slipped through is cleaned up by
+  // whichever request finishes last rather than living on as a second charge.
+  await cancelStraySubscriptions(stripe, customerId, created.id);
+
   return settle(stripe, created);
+}
+
+/**
+ * Cancel any OTHER live subscription this feature owns for a customer.
+ *
+ * There should never be more than one. Two tabs, a retried request, or a create
+ * racing another create can leave a second — and the one that loses the
+ * `managedSubscription` lookup becomes an invisible recurring charge, which is
+ * the worst shape a billing bug can take. Failures here are swallowed: a stray
+ * that could not be cancelled is a support ticket, not a reason to fail the
+ * request that just succeeded.
+ */
+async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keepId: string): Promise<void> {
+  try {
+    const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
+    const strays = list.data.filter(
+      (s) => s.id !== keepId && s.metadata?.[SUPPORT_METADATA_KEY] === 'true' && LIVE_STATUSES.has(s.status),
+    );
+    for (const s of strays) {
+      console.warn('[deckpal-api] billing: cancelling a duplicate support subscription');
+      await stripe.subscriptions.cancel(s.id);
+    }
+  } catch (err) {
+    console.error('[deckpal-api] billing: could not clean up duplicate subscriptions —', (err as Error).message);
+  }
 }
 
 /** Pay the first invoice if one is outstanding; otherwise there is nothing to do. */
@@ -518,6 +586,7 @@ export async function chargeOnce(
   stripe: Stripe,
   customerId: string,
   amountCents: number,
+  attemptId?: string,
 ): Promise<{ clientSecret: string | null; paid: boolean }> {
   const customer = await stripe.customers.retrieve(customerId, {
     expand: ['invoice_settings.default_payment_method'],
@@ -545,9 +614,13 @@ export async function chargeOnce(
         // from a subscription invoice without inferring it from the absence of one.
         metadata: { [SUPPORT_METADATA_KEY]: 'true', kind: 'one_time' },
       },
-      // A double-submit here is a DOUBLE CHARGE, with no subscription state to
-      // make it self-correcting. The most important key in this file.
-      { idempotencyKey: idempotencyKey('once', customerId, amountCents) },
+      // ⚠️ THE MOST IMPORTANT KEY IN THIS FILE. A double-submit here is a
+      // DOUBLE CHARGE and, unlike a subscription, there is no state left behind
+      // that would make it self-correcting or even visible: the profile shows
+      // no gift history, so a reader told "check whether it went through"
+      // cannot. The browser therefore holds one attempt id across every retry
+      // of the same click, and only a deliberate fresh attempt makes a new one.
+      { idempotencyKey: idempotencyKey('once', customerId, amountCents, attemptId) },
     );
     if (intent.status === 'requires_action') return { clientSecret: intent.client_secret, paid: false };
     return { clientSecret: null, paid: intent.status === 'succeeded' };
