@@ -178,7 +178,7 @@ const UNAVAILABLE = {
  * for a one-time charge" is a wiring failure that exists to be seen, and
  * reducing it to `type: unknown` hid it. See the line itself.
  */
-function stripeFailure(err: unknown): never {
+function stripeFailure(err: unknown, kind: 'subscription' | 'one_time' = 'subscription'): never {
   // Typed structurally rather than as `Stripe.StripeRawError`: that type
   // describes the JSON Stripe returns (`type: 'card_error'`), while the SDK
   // throws an Error subclass whose `type` is the CLASS name
@@ -216,13 +216,26 @@ function stripeFailure(err: unknown): never {
   // watchdog reclaiming the connection mid-request — and telling somebody
   // nothing happened is how a one-off gets paid twice. Say what is true and
   // point at the place that knows.
-  // An ApiError for the same reason: this sentence is the one that stops a
-  // one-off being paid for twice, and as a plain Error it was replaced by
-  // "Internal server error" before it ever reached a browser.
+  //
+  // ⚠️ AND THAT PLACE IS NOT THE SAME FOR BOTH. A subscription writes its state
+  // to the profile card, so "open your profile" is a true instruction. A
+  // ONE-OFF does not: 057 deliberately gives the profile no gift history, and a
+  // standalone PaymentIntent produces no invoice, so the Stripe portal has
+  // nothing either. The client's fallback strings were corrected for this and
+  // this sentence was not — and since every real 502 here is an `ApiError`
+  // whose message the client shows verbatim, this is the sentence that actually
+  // renders. The receipt is the only surface that can answer for a gift, which
+  // is why `chargeOnce` names `receipt_email` rather than trusting an account
+  // setting.
+  //
+  // An ApiError for the same reason as the refusals: as a plain Error it was
+  // replaced by "Internal server error" before it ever reached a browser.
   throw new ApiError(
     502,
     'billing_upstream',
-    'We could not finish that just now. Open your profile to check whether it went through before trying again.',
+    kind === 'one_time'
+      ? 'We could not finish that just now. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.'
+      : 'We could not finish that just now. Open your profile to check whether it went through before trying again.',
   );
 }
 
@@ -572,7 +585,7 @@ billingRouter.post(
       // yet leave — from a decline. They need opposite sentences.
       res.json({ ...shape(fresh, { clientSecret }), paid, status });
     } catch (err) {
-      stripeFailure(err);
+      stripeFailure(err, 'one_time');
     }
   }),
 );
@@ -632,7 +645,7 @@ billingRouter.post(
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
       res.json({ ...shape(fresh), paid });
     } catch (err) {
-      stripeFailure(err);
+      stripeFailure(err, 'one_time');
     }
   }),
 );

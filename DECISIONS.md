@@ -15814,10 +15814,11 @@ than naming the two refusal classes. They are exported and asserted now — a
 test that cannot fail on the change it guards is scenery.
 
 Two known gaps, recorded rather than fixed. A stray subscription skipped because
-its first payment was settling is only revisited on the account's next amount
-change; the honest close is a sweep on the webhook's `invoice.paid`, and adding
-one in the ninth round of a review loop is precisely how rounds six and seven
-went wrong. And a supporter above the $500 ceiling is arranged by hand, so their
+its first payment was settling is never revisited — §25 corrects this sentence,
+which said "only revisited on the account's next amount change" and was wrong
+about every path. The honest close is a sweep where all three paths converge, or
+on the webhook's `invoice.paid`, and adding one in the ninth round of a review
+loop is precisely how rounds six and seven went wrong. And a supporter above the $500 ceiling is arranged by hand, so their
 subscription must be stamped with the `deckpal_support` metadata or `pullState`
 cannot see it and the check-in asks the product's largest supporter for money
 every month for ever; that is now in the runbook and beside the error message
@@ -16223,6 +16224,41 @@ contradicting the button in front of the reader. `provenSafe` is hoisted and
 drives the freeze, the rotation and the sentence together. The `confirmOneTime`
 on that branch also returns the only fresh billing state we have and was
 discarding it.
+
+### 25. Round twenty-two: the string that renders, and the string that was fixed
+
+Round twenty-one corrected the two client-side sentences that sent a one-off
+contributor to a profile with no gift history. Neither of them renders. Every
+real 502 from `/one-time` is an `ApiError` whose message the client shows
+verbatim, and THAT sentence — in `stripeFailure` — still said "open your
+profile". So the fix landed on the fallback and not on the path, which is this
+loop's oldest shape at its most literal.
+
+It matters because of what a gift leaves behind: nothing. 057 gives the profile
+no gift history by design, and a standalone PaymentIntent produces no invoice,
+so the Stripe portal has nothing either. On the one path where the reader most
+needs a true instruction, both surfaces named were provably empty. `stripeFailure`
+now takes the kind and sends a subscription's reader to their profile, which
+does show subscription state, and a gift's reader to their receipt — which is
+why round twenty-one made `chargeOnce` name `receipt_email` rather than trust an
+account setting. There is a test for the gift half.
+
+Second: the one-off's proved-success branch reported the conversion and left the
+reader on the chooser. The only live control there was "No thanks", which took
+them to a done screen reading "you're on $0, nothing changes" — the app telling
+somebody who had just paid $25 that nothing was paid. And the thank-you rendered
+inside `FlowError`, in red. Both twins now END where the happy path ends: the
+proved branch is the happy path wearing a different coat, so it records the
+answer, marks the flow spent, rotates the attempt id and shows the done screen.
+
+Third, a comment that contradicted itself: `cancelStraySubscriptions` said a
+skipped stray "is picked up on the account's next amount change and not before".
+It has one call site, `setSupport`'s CREATE path — and a stray only exists
+alongside a live subscription we kept, so the next amount change finds that one,
+takes the UPDATE branch, and never sweeps. The $0 branch is worse: it sets
+`cancel_at_period_end` on the modifiable subscription only, so "stop my support"
+leaves the stray billing. Nothing revisits it. §17's sentence carried the same
+error and is corrected. Understating a known gap is how it gets deprioritised.
 
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060

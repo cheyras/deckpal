@@ -645,15 +645,21 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
       // ever look for it again. Leave it: it settles or expires on its own, and
       // once it has settled there is a PAID invoice to give back.
       //
-      // ⚠️ Nothing schedules a second look. This sweep runs only from
-      // `setSupport`'s create path, so a stray skipped here is picked up on the
-      // account's next amount change and not before — if there is never
-      // another, a settled stray bills monthly and `managedSubscription`
-      // surfaces only one subscription, so nobody sees it. Reaching that needs
-      // the advisory lock to have already failed AND a card left `processing`,
-      // which is why it is a known gap rather than a fix: the honest close is a
-      // sweep on the webhook's `invoice.paid`, and adding one late in a review
-      // loop is how the last three rounds went wrong.
+      // ⚠️ NOTHING REVISITS IT. This sweep has ONE call site: `setSupport`'s
+      // CREATE path. A stray only exists alongside a live subscription we kept
+      // — so on the next amount change `managedSubscription` finds that live
+      // one, `modifiable` is non-null, and `setSupport` takes the UPDATE
+      // branch, which never sweeps. The $0 branch is worse: it sets
+      // `cancel_at_period_end` on the modifiable subscription only, so a reader
+      // who says "stop my support" goes on being billed by the stray.
+      //
+      // An earlier version of this comment said the stray was "picked up on the
+      // account's next amount change", which is not true of any path, and
+      // understating a known gap is how it gets deprioritised. Reaching it
+      // needs the advisory lock to have already failed AND a card left
+      // `processing`; the honest close is a sweep where all three paths
+      // converge, or on the webhook's `invoice.paid`, and adding one late in a
+      // review loop is how rounds six and seven went wrong.
       if (s.status === 'incomplete' && (await firstPaymentInFlight(stripe, s))) {
         console.warn('[deckpal-api] billing: leaving a duplicate subscription alone — its first payment is settling');
         continue;

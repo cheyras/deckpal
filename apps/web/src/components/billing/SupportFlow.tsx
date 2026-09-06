@@ -324,14 +324,18 @@ export function SupportFlow({
             // The population that lands here is challenge-heavy issuers, which
             // is precisely the bias `/one-time/confirm` exists to prevent.
             if (lastIntent === 'succeeded') {
-              // ⚠️ AND IT IS AN ANSWER. Reporting the conversion without saying
-              // so recorded a `dismissed` on top of the `chose` as soon as the
-              // sheet was closed — both outcomes against one exposure, which is
-              // exactly what separating this signal from `onState` was for.
+              // ⚠️ THE HAPPY PATH WEARING A DIFFERENT COAT — see the one-off
+              // twin. The browser lost the challenge; the payment did not, so
+              // this ends on the thank-you screen rather than leaving the
+              // reader staring at a locked chooser under a red alert.
               onAnswered?.()
               void api
                 .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
                 .catch(() => {/* the subscription is live; the analytics row is not worth an error */})
+              onState(next)
+              setCommitted(amount)
+              setStep(amount === 0 && offerOneTime ? 'one-time' : 'done')
+              return
             }
           }
           // ⚠️ STRIPE'S MESSAGE ONLY FOR A REFUSAL. A decline's message is the
@@ -343,10 +347,7 @@ export function SupportFlow({
             actionError.type === 'card_error'
               ? (actionError.message ??
                   'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
-              : lastIntent === 'succeeded'
-                // Proved. The browser lost the challenge; the payment did not.
-                ? 'That went through — thank you. Your profile will show the subscription in a moment.'
-                : provenSafe
+              : provenSafe
                   // `provenSafe`, not `settled`: it also covers an ABANDONED
                   // bank window, where nothing was taken and the controls are
                   // deliberately left unlocked — so "we could not confirm what
@@ -537,7 +538,6 @@ export function SupportFlow({
           // only by the retrieve kept its attempt id and replayed Stripe's
           // stored `requires_action` for ever.
           let settled = actionError.type === 'card_error'
-          let landed = false
           // Hoisted: the FREEZE and the SENTENCE are two decisions about one
           // fact, and reading it twice is how this file has gone wrong five
           // times. A card error is proof enough on its own that nothing was
@@ -570,7 +570,6 @@ export function SupportFlow({
               status === 'canceled' ||
               status === 'requires_action' ||
               status === 'requires_confirmation'
-            landed = status === 'succeeded'
             if (!provenSafe) setFrozenAmount(onceAmount)
             // ⚠️ AND IF IT LANDED, SAY SO. We are here because the browser lost
             // track of the challenge, not because the gift failed — the intent
@@ -578,14 +577,28 @@ export function SupportFlow({
             // record it. Skipping that lost a real conversion for no reason
             // other than which branch the reader arrived on.
             if (status === 'succeeded' && after) {
-              // Its answer is also the only FRESH billing state we have — `res`
-              // was built before the bank was asked. The happy path uses it;
-              // discarding it here left the card summary behind the sheet a
-              // step stale for no reason.
+              // ⚠️ THIS IS THE HAPPY PATH WEARING A DIFFERENT COAT, so it ends
+              // where the happy path ends. The browser lost the challenge; the
+              // gift did not. Reporting the conversion and then leaving the
+              // reader on the chooser meant the only live control was "No
+              // thanks", which took them to a done screen reading "you're on
+              // $0, nothing changes" — the app telling somebody who had just
+              // paid $25 that nothing was paid. It also rendered the thank-you
+              // inside `FlowError`, i.e. in red.
+              //
+              // Its answer is also the only FRESH billing state we have: `res`
+              // was built before the bank was asked.
               const fresh = await api
                 .confirmOneTime(after.id, analyticsContext ?? context)
                 .catch(() => null /* the money landed; the analytics row is not worth failing over */)
-              if (fresh) onState(fresh)
+              onState(fresh ?? res)
+              setFrozenAmount(null)
+              onAnswered?.()
+              setGaveOnce(onceAmount)
+              // Spent. Anything after this is a NEW attempt.
+              attemptId.current = newAttemptId()
+              setStep('done')
+              return
             }
             // A retrieve that could not answer leaves `settled` false: the id is
             // kept, which is the side that cannot double-charge.
@@ -610,9 +623,7 @@ export function SupportFlow({
             actionError.type === 'card_error'
               ? (actionError.message ??
                   'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
-              : landed
-                ? 'That went through — thank you. Stripe will email you a receipt.'
-                : provenSafe
+              : provenSafe
                   ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
                   // NOT "or your profile": a one-off leaves no gift history
                   // there, by 057's explicit design. The receipt is the only

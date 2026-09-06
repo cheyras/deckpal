@@ -365,7 +365,8 @@ preview has written real rows:
   in test mode records exactly like a real one.
 
 Neither self-heals. Run this **after** the live keys are in place and **before**
-anyone is invited to pay, adjusting the timestamp to when you cut over:
+anyone is invited to pay. All three statements are unconditional — they clear
+everything, which is right precisely because nothing before the cutover is real:
 
 ```sql
 -- 1. Forget every cached test-mode Stripe fact. The next visit re-syncs from

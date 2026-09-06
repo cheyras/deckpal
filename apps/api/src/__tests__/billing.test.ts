@@ -354,9 +354,12 @@ describe('normalizeAmountCents', () => {
  * not an `ApiError`. It does NOT read a `status` property off a plain Error —
  * and two refusals and the upstream wrapper were written as plain Errors with
  * `status` bolted on, so every one of them reached the reader as an outage.
- * Including "Open your profile to check whether it went through before trying
- * again", which is the sentence that exists to stop a one-off being paid twice
- * and had never once been rendered.
+ * Including the do-not-retry sentence — the one written to stop a one-off
+ * being paid for twice — which had never once been rendered. (It has since
+ * been split in two: `stripeFailure` sends a subscription's reader to their
+ * profile, which shows subscription state, and a gift's reader to their
+ * receipt, because 057 gives the profile no gift history and a standalone
+ * PaymentIntent produces no invoice either.)
  *
  * Nothing else in the suite touches the funnel, which is how it survived seven
  * reviews. So: the shape of a billing error is asserted here, cheaply, and the
@@ -424,5 +427,22 @@ describe('billing errors reach the reader', () => {
     );
     assert.equal(status, 502);
     assert.match(JSON.stringify(body), /Open your profile/);
+  });
+
+  test('a gift is not sent to a profile that has no gift history', () => {
+    // The other half of the same 502. `stripeFailure(err, 'one_time')` must not
+    // hand a one-off contributor the subscription sentence: 057 gives the
+    // profile no gift history and a standalone PaymentIntent produces no
+    // invoice, so both surfaces it names are provably empty for them.
+    const { body } = answered(
+      new ApiError(
+        502,
+        'billing_upstream',
+        'We could not finish that just now. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.',
+      ),
+    );
+    const shown = JSON.stringify(body);
+    assert.match(shown, /receipt/);
+    assert.doesNotMatch(shown, /profile/);
   });
 });
