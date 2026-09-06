@@ -15823,6 +15823,35 @@ cannot see it and the check-in asks the product's largest supporter for money
 every month for ever; that is now in the runbook and beside the error message
 that sends them to email.
 
+### 13. Round ten: the first GO, and the four things it still found
+
+No blocker and no money defect. Four small ones, and two of them are the same
+class this loop keeps producing — a guard that covers one writer and a sentence
+that describes it as if it covered both.
+
+`support_cents` was clamped inside `billing_apply_stripe` (059), which covers
+every write a ROUTE makes. The webhook does not go through the RPC; it writes
+`pullState`'s figure straight to the table as its owner. The only subscription
+that can exceed the ceiling is the >$500 supporter the runbook has the owner
+arrange by hand — and for one of those, the row flip-flopped between the
+clamped and the real figure depending on which writer went last, and above
+$5,000 the webhook's UPDATE violated 053's CHECK, so every event for that
+customer failed for ever, wedging the row permanently stale. Clamping in
+`pullState` puts it at the source both writers share, which is the only version
+of "clamped display" that was ever true.
+
+The other: `express.raw()` does not necessarily hand over the parsed object when
+a platform layer has consumed the stream. body-parser skips only a request it
+believes was already read, so it can re-read an ended stream and hand over a
+ZERO-LENGTH Buffer — which passes `isBuffer`, fails the signature check, and
+produces the misleading 400 that round nine's whole diagnostic branch exists to
+stop giving. Empty is now treated as lost; Stripe never signs an empty body.
+
+And `attemptId` — the string that makes a double-submitted gift one charge —
+was documented as required and implemented as optional, falling back to a coarse
+minute bucket when absent or malformed. That is the protection silently
+downgraded for any caller that is not our own client. It is required now.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

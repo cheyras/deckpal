@@ -42,7 +42,7 @@
  */
 import type Stripe from 'stripe';
 import { ApiError } from '../http.js';
-import { SUPPORT_CURRENCY, supportProductId } from './stripe.js';
+import { SUPPORT_CURRENCY, SUPPORT_MAX_CENTS, supportProductId } from './stripe.js';
 import type { StripePatch } from './store.js';
 
 /**
@@ -251,7 +251,22 @@ export async function pullState(stripe: Stripe, customerId: string): Promise<Str
   const paying = !!sub && PAYING_STATUSES.has(sub.status);
   // `unit_amount` is null for tiered/metered prices, which this feature never
   // creates — 0 is the honest reading of "not an amount we understand".
-  const cents = paying && price?.unit_amount ? price.unit_amount * (item?.quantity ?? 1) : 0;
+  const raw = paying && price?.unit_amount ? price.unit_amount * (item?.quantity ?? 1) : 0;
+  // ⚠️ CLAMPED HERE, not only in the RPC. 059 clamps `support_cents` inside
+  // `billing_apply_stripe`, which covers every write a ROUTE makes — and the
+  // webhook does not go through it, writing `pullState`'s figure straight to
+  // the table as its owner. The one subscription that can exceed the ceiling is
+  // the >$500 supporter the runbook has the owner arrange by hand, and the
+  // consequences of the gap were: between $500 and $5,000 the row flip-flopped
+  // between the clamped and the real figure depending on which writer went
+  // last, and ABOVE $5,000 the webhook's UPDATE violated 053's CHECK, so every
+  // event for that customer 500'd for ever — terminal ones included, wedging
+  // the row permanently stale.
+  //
+  // Clamping at the source makes both writers agree, which is the only version
+  // of "clamped display" that is true. It is a DISPLAY figure; nothing here
+  // decides what Stripe charges.
+  const cents = Math.min(raw, SUPPORT_MAX_CENTS);
 
   return {
     stripe_customer_id: customerId,

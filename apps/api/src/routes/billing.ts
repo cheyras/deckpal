@@ -523,10 +523,16 @@ billingRouter.post(
     // The browser holds one of these across every retry of the same click, so
     // a network retry cannot become a second charge. Constrained in shape
     // because it goes into a Stripe idempotency key.
-    const attemptId =
-      typeof req.body?.attemptId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(req.body.attemptId)
-        ? req.body.attemptId
-        : undefined;
+    // ⚠️ REQUIRED, not best-effort. This used to fall back to a minute bucket
+    // when absent or malformed, which silently downgraded the one guard between
+    // a double-submitted gift and a double charge — and API.md described it as
+    // required, which it was not. The official client always sends one; any
+    // other caller has to as well, and gets told so rather than quietly getting
+    // the weaker key.
+    const attemptId = typeof req.body?.attemptId === 'string' ? req.body.attemptId : '';
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(attemptId)) {
+      throw badRequest('attemptId is required, and must be 8–64 characters of A-Z, a-z, 0-9, _ or -');
+    }
 
     // Same reason as the subscription route, and more urgent: a duplicate
     // one-off has no subscription state to make it visible afterwards.

@@ -218,9 +218,16 @@ export function normalizeAmountCents(v: unknown): number {
     // `pullState` cannot see the subscription at all, so the account reads as
     // paying nothing and the monthly check-in asks its largest supporter for
     // money every month, for ever. With it, everything works except that the
-    // cached `support_cents` is clamped to this ceiling (059) — a display
+    // cached `support_cents` displays clamped to this ceiling — a display
     // figure, not a charge. Clamped display beats invisible supporter.
-    // DEPLOYMENT.md carries the same note where the owner will meet it.
+    //
+    // The clamp is in `pullState`, so the webhook and the routes agree on it.
+    // 059's clamp inside `billing_apply_stripe` covers only the routes, and on
+    // its own it left the row flip-flopping between the clamped and the real
+    // figure depending on which writer went last — and above $5,000 the
+    // webhook's UPDATE violated 053's CHECK, so every event for that customer
+    // failed for ever. DEPLOYMENT.md carries the same note where the owner will
+    // meet it.
     throw badRequest(`amounts above $${SUPPORT_MAX_CENTS / 100} have to be arranged by email — that is almost always a typo`);
   }
   return n;

@@ -286,7 +286,9 @@ CVC is a card that works.
    cannot see it at all: the account reads as paying nothing, and the monthly
    check-in asks the product's largest supporter for money every month for ever.
    With it, everything works except that the cached amount displays clamped to
-   $500 (059). A clamped display beats an invisible supporter.
+   $500 — a display figure, never a charge — and a clamped display beats an
+   invisible supporter. (The clamp lives in `pullState`, so the webhook and the
+   API agree on it. 059's clamp is in the RPC and covers only the API.)
 
    ⚠️ **Do not enable a bank-debit payment method** (`us_bank_account` / ACH,
    SEPA) in the Stripe dashboard without a code change first. The card form uses
