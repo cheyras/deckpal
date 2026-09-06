@@ -164,6 +164,18 @@ export function SupportPrompt() {
    */
   const exposed = useRef(false)
   /**
+   * Has this mount already been closed?
+   *
+   * `boot()` re-runs on `SIGNED_IN`, which supabase-js re-fires on tab focus
+   * (see `exposed` above). The ack is a network write, so there is a window
+   * between closing the sheet and the server knowing it: a refire inside that
+   * window reads `due` still true and reopens the modal on somebody who has
+   * just answered it. `exposed` keeps the experiment honest through that;
+   * this keeps the READER's answer honoured. Per mount, so the next page load
+   * asks the server afresh, which is where the decision belongs.
+   */
+  const closedHere = useRef(false)
+  /**
    * Did they actually answer?
    *
    * `onState` fires only after a write the server accepted, so it is the honest
@@ -180,8 +192,9 @@ export function SupportPrompt() {
     let alive = true
 
     async function boot() {
+      if (closedHere.current) return
       const { session } = await readSession()
-      if (!session || !alive) return
+      if (!session || !alive || closedHere.current) return
       try {
         const s = await api.billingVisit()
         if (!alive) return
@@ -239,6 +252,7 @@ export function SupportPrompt() {
    * outcomes overlap: every conversion also logged a walk-away.
    */
   function close(dismissed = true) {
+    closedHere.current = true
     setOpen(false)
     if (!kind) return
     api

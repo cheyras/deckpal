@@ -16150,6 +16150,42 @@ unused. 053 is applied, so B4 forbids correcting the header in place; this
 paragraph is the correction, and the index is left alone rather than dropped in
 the nineteenth round of a review loop.
 
+### 23. Round twenty: freezing on proof, when the proof is what fails
+
+The first finding above minor in four rounds, and it is round fourteen's fix
+read back the wrong way round.
+
+Round fourteen stopped the ambiguous branches locking on ASSUMPTION and had them
+ask the intent instead — rightly, because "not a card_error" also covers an
+abandoned challenge and locking on that stranded readers. But it then froze only
+on a PROVEN `processing`/`succeeded`, and the retrieve most often fails for the
+same reason the `actionError` happened: the network is still down. `status` is
+then null, and the one-off's chooser stayed live under the words "do not pay
+again", with the money's fate unknown.
+
+That is a real second charge. The amount is inside the idempotency key, so
+nudging $25 to $20 is a NEW key, not a retry — and the comment sitting under it
+said keeping the attempt id "is the side that cannot double-charge", which is
+true only of a retry at the same amount, the very thing an unfrozen chooser
+stops it being. The subscription twin had the same client gap and is backstopped
+by `firstPaymentInFlight`; the one-off has no server-side equivalent, because
+nothing checks for an in-flight gift before creating a fresh intent.
+
+The list is inverted now: thaw only for the states that PROVE nothing was taken
+— `requires_payment_method`, `canceled`, `requires_action`,
+`requires_confirmation` — and freeze for everything else, null included. A
+wrong freeze costs a reload. A wrong thaw costs $20. Both twins.
+
+Two smaller. When the retrieve PROVES the payment landed, both branches locked
+and reported the conversion and then told the reader "we lost the connection
+before your bank answered" — the retrieve's answer driving the lock and the
+report but not the sentence, the last tail of §18's family. They say it went
+through now. And `boot()` re-runs on `SIGNED_IN`, which supabase-js re-fires on
+tab focus, so a refire inside the window between closing the sheet and the ack
+committing reopened the modal on somebody who had just answered it. `exposed`
+kept the experiment honest through that; a second ref now keeps the reader's
+answer honoured.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

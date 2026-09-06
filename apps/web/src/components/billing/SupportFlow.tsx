@@ -296,8 +296,21 @@ export function SupportFlow({
           if (!settled) {
             const { paymentIntent: after } = await stripe.retrievePaymentIntent(next.clientSecret)
             lastIntent = after?.status ?? null
-            if (lastIntent === 'processing' || lastIntent === 'succeeded') setInFlight(true)
-            else if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
+            // ⚠️ UNKNOWN LOCKS — the same inversion as the one-off twin, and
+            // for the same reason: the retrieve most often fails because the
+            // network that produced the actionError is still down, so `null` is
+            // the likely answer rather than the rare one. `setSupport` refuses a
+            // replacement while the first payment is settling, so nothing here
+            // can double-charge; what an unlocked chooser buys is a reader
+            // pressing a button the server will refuse, under a sentence
+            // telling them to wait.
+            const provenSafe =
+              lastIntent === 'requires_payment_method' ||
+              lastIntent === 'canceled' ||
+              lastIntent === 'requires_action' ||
+              lastIntent === 'requires_confirmation'
+            if (!provenSafe) setInFlight(true)
+            if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
             // ⚠️ AND IF IT LANDED, REPORT IT — the same duty the one-off's twin
             // branch has, for the same reason. We are here because the browser
             // lost track of the challenge, not because the payment failed: the
@@ -326,15 +339,19 @@ export function SupportFlow({
             actionError.type === 'card_error'
               ? (actionError.message ??
                   'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
-              : settled
-                // Settled, but only the RETRIEVE knew it. `actionError` here is
-                // a library or connection failure whose text — "the
-                // PaymentIntent supplied is not in the requires_action state" —
-                // says nothing a reader can act on, and showing it in place of
-                // the sentence that does was the tail of R18's rule: Stripe's
-                // words for a refusal Stripe reported, ours otherwise.
-                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
-                : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.',
+              : lastIntent === 'succeeded'
+                // Proved. The browser lost the challenge; the payment did not.
+                ? 'That went through — thank you. Your profile will show the subscription in a moment.'
+                : settled
+                  // Settled, but only the RETRIEVE knew it. `actionError` here
+                  // is a library or connection failure whose text — "the
+                  // PaymentIntent supplied is not in the requires_action state"
+                  // — says nothing a reader can act on, and showing it in place
+                  // of the sentence that does was the tail of R18's rule:
+                  // Stripe's words for a refusal Stripe reported, ours
+                  // otherwise.
+                  ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
+                  : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.',
           )
           // The server state is still worth taking: the subscription exists as
           // `incomplete`, and the profile card should say so rather than show
@@ -515,10 +532,36 @@ export function SupportFlow({
           // only by the retrieve kept its attempt id and replayed Stripe's
           // stored `requires_action` for ever.
           let settled = actionError.type === 'card_error'
+          let landed = false
           if (!settled) {
             const { paymentIntent: after } = await stripe.retrievePaymentIntent(res.clientSecret)
             const status = after?.status ?? null
-            if (status === 'processing' || status === 'succeeded') setFrozenAmount(onceAmount)
+            // ⚠️ UNKNOWN FREEZES. `retrievePaymentIntent` resolves with an error
+            // and no intent when the network is still down — which is the
+            // LIKELY case here, since the same outage produced the actionError
+            // we are handling. `status` is then null, and freezing only on a
+            // proven `processing`/`succeeded` left the chooser live beneath the
+            // words "do not pay again", with the money's fate unknown.
+            //
+            // That is a real second charge: the amount is inside the
+            // idempotency key, so a nudge from $25 to $20 is a NEW key, not a
+            // retry. The comment that used to sit below said keeping the
+            // attempt id "is the side that cannot double-charge" — true only of
+            // a retry at the SAME amount, which is precisely what an unfrozen
+            // chooser stops it being. Unlike the subscription twin, there is no
+            // server-side backstop: nothing checks for an in-flight one-off
+            // before creating a fresh intent.
+            //
+            // So the list is inverted: thaw only for the states that PROVE
+            // nothing was taken, and freeze for everything else, null included.
+            // A wrong freeze costs a reload; a wrong thaw costs $20.
+            const provenSafe =
+              status === 'requires_payment_method' ||
+              status === 'canceled' ||
+              status === 'requires_action' ||
+              status === 'requires_confirmation'
+            landed = status === 'succeeded'
+            if (!provenSafe) setFrozenAmount(onceAmount)
             // ⚠️ AND IF IT LANDED, SAY SO. We are here because the browser lost
             // track of the challenge, not because the gift failed — the intent
             // says it succeeded and we are holding its id, so the server can
@@ -531,22 +574,28 @@ export function SupportFlow({
             }
             // A retrieve that could not answer leaves `settled` false: the id is
             // kept, which is the side that cannot double-charge.
-            else if (status === 'requires_payment_method' || status === 'canceled') settled = true
+            if (status === 'requires_payment_method' || status === 'canceled') settled = true
           }
           if (settled) {
             attemptId.current = newAttemptId()
             setFrozenAmount(null)
           }
           // Stripe's message only for a refusal — see the subscription twin.
+          // And when the retrieve PROVED it went through, say that: the browser
+          // lost the challenge, the gift did not, and "we lost the connection
+          // before your bank answered" is needlessly frightening about money
+          // that has already arrived.
           setError(
             actionError.type === 'card_error'
               ? (actionError.message ??
                   'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
-              : settled
-                // See the subscription twin: settled by the retrieve, not by a
-                // card error, so the library's own text is not the reader's.
-                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
-                : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.',
+              : landed
+                ? 'That went through — thank you. Stripe will email you a receipt.'
+                : settled
+                  // See the subscription twin: settled by the retrieve, not by
+                  // a card error, so the library's own text is not the reader's.
+                  ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
+                  : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.',
           )
           return
         }
