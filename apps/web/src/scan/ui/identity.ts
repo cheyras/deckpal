@@ -119,6 +119,17 @@ export interface IdentityState {
   phashSettled: boolean
   resolveSettled: boolean
   /**
+   * WHICH RUNG OF THE LADDER ANSWERED, kept for the RECORD and never for the
+   * decision — that is `resolvedIdentity`'s, taken the moment the event lands.
+   *
+   * Two scalars rather than the whole `ScanResolveResponse`, because the rest of
+   * that response is five matches with names and image URLs and this exists so a
+   * capture's telemetry can say `number+denominator` instead of leaving the next
+   * session to guess. Null until the resolve event arrives, and still null when
+   * it arrives empty (no OCR, nothing read, no such endpoint).
+   */
+  resolveVerdict: { resolvedBy: ScanResolveResponse['resolvedBy']; confident: boolean } | null
+  /**
    * The reader has the picker open on this thumbnail.
    *
    * From here a late confident answer is ignored. The scanner is allowed to
@@ -183,6 +194,7 @@ export function initialIdentity(): IdentityState {
     read: null,
     phashSettled: false,
     resolveSettled: false,
+    resolveVerdict: null,
     engaged: false,
   }
 }
@@ -268,7 +280,13 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
       return { ...s, read: e.read }
 
     case 'resolve': {
-      const next: IdentityState = { ...s, resolveSettled: true }
+      const next: IdentityState = {
+        ...s,
+        resolveSettled: true,
+        resolveVerdict: e.resolved
+          ? { resolvedBy: e.resolved.resolvedBy, confident: e.resolved.confident }
+          : s.resolveVerdict,
+      }
       const top = resolvedIdentity(e.resolved)
       if (top && mayName(s)) return { ...next, phase: 'confident', match: identityFromResolve(top), by: 'printing' }
       return settleOrWait(next)
@@ -312,6 +330,85 @@ export function ocrHintLabel(read: OcrRead | null): string | null {
   if (key.length) return `read ${key.join(' ')}`
   if (read.name) return `read “${read.name}”`
   return null
+}
+
+// ── WHAT THE RECORD SAYS ABOUT HOW THIS CAPTURE WAS NAMED ──────────────────
+//
+// Round 7 closed with 26 captures whose identity outcome was simply UNKNOWN:
+// the capture-event carries what the matcher said (`Scan.tsx`'s
+// `matcherOutcomeFor`, added for exactly this reason after the 2026-09-04
+// session could only score the 21 captures the owner happened to press *report*
+// on), and then the trail stops. Whether the row was named by phash, corrected
+// by the printed key, left for the reader, picked by hand or thrown away was not
+// written down anywhere, so the one question the OCR lane exists to answer —
+// does it name cards phash could not? — was unanswerable on device.
+//
+// This is the missing half, and it is deliberately PURE and HERE rather than in
+// the route: it is a statement about the reducer's own state, the reducer is
+// where that state is defined, and a mapping in a 1,400-line component is a
+// mapping nothing can test. `Scan.tsx` posts it; this decides what it says.
+
+/**
+ * The five ways a capture's identity settles.
+ *
+ *   confident-phash    the matcher named it and the tie gate let the claim
+ *                      stand.
+ *   confident-resolve  the printed key named it — the OCR lane's whole purpose,
+ *                      and the number this telemetry exists to produce.
+ *   needs-you          both answers landed and neither named it (or the deadline
+ *                      ran out first). Still on the camera, waiting.
+ *   picked             the reader chose from the candidates.
+ *   retaken            the reader took the retake and the capture was dropped.
+ */
+export type IdentityOutcome = 'confident-phash' | 'confident-resolve' | 'needs-you' | 'picked' | 'retaken'
+
+/**
+ * Which of the five this state is, or null while it is still `pending` — a
+ * capture nothing has decided yet is not an outcome and must not be recorded as
+ * one.
+ */
+export function identityOutcome(s: IdentityState): IdentityOutcome | null {
+  if (s.phase === 'discarded') return 'retaken'
+  if (s.phase === 'needs-you') return 'needs-you'
+  if (s.phase !== 'confident') return null
+  // `by` is set on every transition into `confident`; the fallback is the
+  // reader's, because a confident phase with no source recorded is a bug in the
+  // reducer and 'picked' is the reading that does not overstate the machine.
+  return s.by === 'phash' ? 'confident-phash' : s.by === 'printing' ? 'confident-resolve' : 'picked'
+}
+
+/**
+ * The capture's identity record, in the shape `flags.recordIdentityEvent` posts.
+ *
+ * `Record<string, unknown>` and not a typed struct on purpose — this is the same
+ * contract `matcherOutcomeFor` returns, meta merged into a JSON sidecar the fix
+ * bench reads, and giving it a nominal type here would imply a schema the
+ * endpoint does not enforce.
+ *
+ * `ocr` is the RUNG, straight off the read: `'roi'` for the shipped two-pass
+ * recipe, `'escalated'` when the full-crop rung ran too, `'null'` when there was
+ * no read at all (lane off for the session, model fetch failed, or the read
+ * timed out). Written as the string `'null'` and not as JSON null because it is
+ * one of three values of an enum, not a missing field.
+ */
+export function identityRecord(s: IdentityState, msToResolve: number): Record<string, unknown> | null {
+  const outcome = identityOutcome(s)
+  if (!outcome) return null
+  return {
+    identity: {
+      identityOutcome: outcome,
+      ocr: s.read ? s.read.pass : 'null',
+      // How much the escalation actually produced, which is the question a
+      // reviewer will have about every `'escalated'` row: did the re-extraction
+      // rescue a key, or did it fall through to the prose?
+      bodyLines: s.read?.bodyLines?.length ?? null,
+      ocrMs: s.read ? Math.round(s.read.ms) : null,
+      resolvedBy: s.resolveVerdict?.resolvedBy ?? null,
+      confident: s.resolveVerdict?.confident ?? null,
+      cardId: s.match?.cardId ?? null,
+      msToResolve: Math.round(msToResolve),
+    },
+  }
 }
 
 /** How many captures are sitting on the camera waiting for the reader. */

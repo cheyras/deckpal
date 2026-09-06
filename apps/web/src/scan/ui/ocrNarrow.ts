@@ -30,10 +30,19 @@
 //    for cards phash never nominated, and rendering "distance —" beside real
 //    distances would make the popover lie about what it is ranking by.
 
-import { ApiError, api, type ScanMatch, type ScanResolveFields, type ScanResolveResponse } from '../../lib/api'
+import { ApiError, api, type ScanMatch, type ScanResolveResponse } from '../../lib/api'
 import type { OcrRead } from '../ocr'
 import { resolvedIdentity } from './identity'
+import { hasAnySignal, toResolveFields } from './resolveFields'
 import type { FeedEntry } from './types'
+
+// THE WIRE SHAPE lives in `./resolveFields`, not here, and that file's header
+// says why: this module imports `lib/api` (and, behind it, `import.meta.env`),
+// so anything sharing a file with it cannot be loaded by a node test process.
+// The rule about what may be asserted to a server is exactly the kind of rule
+// that has to be testable, so it moved next door. Re-exported so callers still
+// have one import — the same arrangement `flags.ts` has with `eventPost.ts`.
+export { hasAnySignal, toResolveFields } from './resolveFields'
 
 /** How long the whole narrowing pass may take before it is abandoned. Generous
  *  on purpose — it is the one thing in the scanner nothing is waiting for — but
@@ -46,36 +55,6 @@ export interface OcrResolveResult {
   resolved: ScanResolveResponse | null
   /** True when the endpoint is not deployed (404). The caller stops asking. */
   unavailable: boolean
-}
-
-/**
- * Convert an OCR read to the wire shape — OMITTING absent fields rather than
- * sending nulls.
- *
- * This is not cosmetic. CROSSWALK §7.1 and the endpoint's own contract treat an
- * absent denominator as EVIDENCE: the energy and promo sets print none, so
- * `SVE 017` is distinguished from `SVI 017` by the absence. Sending
- * `denominator: null` would be asserting we read that there was none, which is
- * a different claim from "we did not read one" — and the whole point of
- * `fields.ts` returning null on uncertainty is not to make claims like that.
- */
-export function toResolveFields(read: OcrRead): ScanResolveFields {
-  const fields: ScanResolveFields = {}
-  if (read.name) fields.name = read.name
-  if (read.number) fields.number = read.number
-  if (read.denominator) fields.denominator = read.denominator
-  // The endpoint documents `setCode` as "the badge, as read, language subscript
-  // and all" and resolves it itself against the same 29-code table with the same
-  // §4.2 rules. Sending the code this side already resolved is idempotent under
-  // that — a window scan over `DRI` finds `DRI` at distance 0 — and it means the
-  // client's own telemetry and the server's agree on one value instead of two.
-  if (read.setCode) fields.setCode = read.setCode
-  return fields
-}
-
-/** Did OCR read anything at all? */
-export function hasAnySignal(read: OcrRead): boolean {
-  return Boolean(read.name || read.number || read.denominator || read.setCode)
 }
 
 /**

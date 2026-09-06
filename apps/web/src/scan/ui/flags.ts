@@ -236,6 +236,72 @@ export async function recordCaptureEvent(input: CaptureEventInput): Promise<void
   }
 }
 
+/** The identity record's own thumbnail. Smaller than the capture event's 320,
+ *  because the capture event ALREADY carries the frame and the 320 crop under
+ *  the same `captureId` — this one only has to be big enough to see which card
+ *  the record is talking about while reading it. */
+const IDENTITY_EVENT_LONG_SIDE = 160
+
+/**
+ * Record HOW ONE CAPTURE'S IDENTITY SETTLED, as `meta.type = 'identity-event'`.
+ *
+ * ── WHY THIS IS NOT ON THE CAPTURE EVENT ────────────────────────────────────
+ *
+ * It looks like it belongs in `recordCaptureEvent`'s `outcome`, beside the
+ * matcher's verdict, and it does not — for two reasons and the second is the
+ * hard one.
+ *
+ *  1. THE DEADLINE. `OUTCOME_WAIT_MS` is 15 s and its comment is explicit that
+ *     it is a hard local cap: "a caller's promise must never be able to wedge
+ *     the recorder and lose the capture record entirely. Late is acceptable;
+ *     missing is not." The identity race runs to `IDENTITY_DEADLINE_MS` and the
+ *     narrowing behind it to `OCR_NARROW_TIMEOUT_MS` (20 s) — and the escalation
+ *     rung added to that budget. Hanging the capture record on it would trade a
+ *     record that always lands for one that sometimes does not, on exactly the
+ *     slow captures worth recording.
+ *
+ *  2. THE READER ANSWERS LATE, AND SOMETIMES MUCH LATER. `picked` and `retaken`
+ *     are outcomes a person produces, possibly a minute after the capture and
+ *     possibly after several other cards have been scanned. There is no promise
+ *     that can be resolved with them at capture time, so a capture-event field
+ *     could only ever have held the machine's half.
+ *
+ * So: a separate post, correlated by `captureId`, which the capture event now
+ * carries in its own `detail`. A capture emits at most two of these — one when
+ * the race settles, one more if the reader then acts on a `needs-you` thumbnail
+ * — and the pair is itself the interesting record, because "the machine said
+ * needs-you and the reader picked the phash top hit anyway" is a different
+ * finding from either half alone.
+ */
+export async function recordIdentityEvent(input: {
+  /** The rectified JPEG — the same crop OCR read and the matcher matched. */
+  rectified: Blob | null
+  /** Ties this to its `capture-event`. */
+  captureId: string
+  /** From `identity.identityRecord`, already shaped. */
+  detail: Record<string, unknown>
+}): Promise<void> {
+  try {
+    if (recorderSuspended()) return
+    if (!input.rectified) return
+    const bmp = await createImageBitmap(input.rectified)
+    const png = await downscaledPngBase64(bmp, bmp.width, bmp.height, IDENTITY_EVENT_LONG_SIDE)
+    bmp.close?.()
+    if (!png) return
+    await postEvent(png, {
+      type: 'identity-event',
+      epochMs: Date.now(),
+      source: 'scan-identity-event',
+      captureId: input.captureId,
+      pipelineVersion: PIPELINE_VERSION,
+      ...input.detail,
+    })
+  } catch {
+    // As everywhere in this file: instrumentation must never take a capture
+    // down with it.
+  }
+}
+
 /**
  * Record a LOCK — the moment auto-capture becomes possible — as
  * `meta.type = 'lock-event'`, throttled to one every LOCK_EVENT_MIN_GAP_MS.

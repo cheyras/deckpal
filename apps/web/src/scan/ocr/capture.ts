@@ -7,6 +7,7 @@
 // being possible, so it is deliberately small.
 
 import { detInputSize, ROI_SCALE, ROIS, roiPixels, type RoiName } from './rois'
+import type { FullCropInput } from './pipeline'
 import { makeRaster, type Raster } from './raster'
 
 /**
@@ -67,6 +68,59 @@ export interface RoiRaster {
   raster: Raster
 }
 
+/** A source rectangle in pixels. */
+interface PixelBox {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * One region → one detector input: scale it, letterbox it to the multiple of
+ * 32, and report where inside the padded raster the image actually landed.
+ *
+ * CONTAIN, not fill: the reference resizes to the multiple of 32 with sharp's
+ * `fit: 'contain'`, so the region's aspect ratio is preserved and the ≤31 px of
+ * slack becomes a pad. Stretching instead would shear every glyph by up to 8 %
+ * on one axis, which is a change to the measured recipe made for no reason other
+ * than that it is one line shorter.
+ *
+ * The returned `drawn` rectangle is what lets a caller turn a detected line's
+ * pixel midline back into a fraction of the REGION rather than of the padded
+ * raster — see `pipeline.FullCropInput`. Band callers ignore it, because a band
+ * is already a positional filter.
+ */
+function rasterise(
+  source: CanvasImageSource,
+  box: PixelBox,
+  scale: number,
+): { raster: Raster; drawn: PixelBox } {
+  const scaledW = Math.round(box.w * scale)
+  const scaledH = Math.round(box.h * scale)
+  const input = detInputSize(scaledW, scaledH)
+  const fit = Math.min(input.w / scaledW, input.h / scaledH)
+  const drawW = Math.round(scaledW * fit)
+  const drawH = Math.round(scaledH * fit)
+  const dx = Math.round((input.w - drawW) / 2)
+  const dy = Math.round((input.h - drawH) / 2)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = input.w
+  canvas.height = input.h
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) throw new Error('this browser could not prepare the OCR crop')
+  ctx.fillStyle = PAD
+  ctx.fillRect(0, 0, input.w, input.h)
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = SMOOTHING_QUALITY
+  ctx.drawImage(source, box.x, box.y, box.w, box.h, dx, dy, drawW, drawH)
+  const img = ctx.getImageData(0, 0, input.w, input.h)
+  const raster = makeRaster(input.w, input.h)
+  raster.data.set(img.data)
+  return { raster, drawn: { x: dx, y: dy, w: drawW, h: drawH } }
+}
+
 /**
  * Crop the two ROIs out of a rectified card image, upscale each by
  * `ROI_SCALE`, and letterbox to the detector's multiple-of-32 input.
@@ -82,37 +136,31 @@ export function cropRois(
   height: number,
   rois: readonly RoiName[] = ['name', 'strip'],
 ): RoiRaster[] {
-  const out: RoiRaster[] = []
-  for (const roi of rois) {
-    const box = roiPixels(ROIS[roi], width, height)
-    const scaledW = Math.round(box.w * ROI_SCALE)
-    const scaledH = Math.round(box.h * ROI_SCALE)
-    const input = detInputSize(scaledW, scaledH)
-    // CONTAIN, not fill: the reference resizes to the multiple of 32 with
-    // sharp's `fit: 'contain'`, so the band's aspect ratio is preserved and the
-    // ≤31 px of slack becomes a pad. Stretching instead would shear every glyph
-    // by up to 8 % on one axis, which is a change to the measured recipe made
-    // for no reason other than that it is one line shorter.
-    const fit = Math.min(input.w / scaledW, input.h / scaledH)
-    const drawW = Math.round(scaledW * fit)
-    const drawH = Math.round(scaledH * fit)
-    const dx = Math.round((input.w - drawW) / 2)
-    const dy = Math.round((input.h - drawH) / 2)
+  return rois.map((roi) => ({
+    roi,
+    raster: rasterise(source, roiPixels(ROIS[roi], width, height), ROI_SCALE).raster,
+  }))
+}
 
-    const canvas = document.createElement('canvas')
-    canvas.width = input.w
-    canvas.height = input.h
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) throw new Error('this browser could not prepare the OCR crop')
-    ctx.fillStyle = PAD
-    ctx.fillRect(0, 0, input.w, input.h)
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = SMOOTHING_QUALITY
-    ctx.drawImage(source, box.x, box.y, box.w, box.h, dx, dy, drawW, drawH)
-    const img = ctx.getImageData(0, 0, input.w, input.h)
-    const raster = makeRaster(input.w, input.h)
-    raster.data.set(img.data)
-    out.push({ roi, raster })
-  }
-  return out
+/**
+ * THE ESCALATION RUNG'S INPUT: the whole card, no ROI and no upscale.
+ *
+ * `paddle-full` from REPORT.md §1, verbatim — `{ roi: null, prep: {} }` in the
+ * bakeoff's own `configs.mjs`. The upscale is deliberately absent and this is
+ * the one place in the lane where that is true: §3.2's 3× exists to feed the
+ * DETECTOR a bigger BAND, and the full crop is already 480×670. Tripling it
+ * would be a configuration nobody measured, at nine times the detector cost,
+ * on the one path that is already the slow one.
+ *
+ * At scale 1 the contain-fit is a no-op — `detInputSize(480, 670)` is 480×672,
+ * so the card is drawn 1:1 with a single pixel of black above and below it and
+ * no resampling happens at all. `drawn` carries that offset out so the caller's
+ * height fractions are the card's and not the pad's.
+ *
+ * Called through a thunk from `readFields` and therefore NEVER on a read that
+ * found a name or a number: a canvas allocation and a 480×672 `getImageData`
+ * are not free, and the ruling is that the happy path pays nothing.
+ */
+export function cropFullCard(source: CanvasImageSource, width: number, height: number): FullCropInput {
+  return rasterise(source, { x: 0, y: 0, w: width, h: height }, 1)
 }

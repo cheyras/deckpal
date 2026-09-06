@@ -83,7 +83,7 @@ function resolveRes(over: Partial<ScanResolveResponse> = {}): ScanResolveRespons
 }
 
 function read(over: Partial<OcrRead> = {}): OcrRead {
-  return { name: null, number: null, denominator: null, setCode: null, ms: 340, ...over }
+  return { name: null, number: null, denominator: null, setCode: null, pass: 'roi', ms: 340, ...over }
 }
 
 /** Replay a sequence of events against the shipping reducer. */

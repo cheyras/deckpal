@@ -13,11 +13,13 @@ import { UploadFallback } from '../scan/ui/UploadFallback'
 import { SwipeReview } from '../scan/ui/SwipeReview'
 import { HelpModal } from '../scan/ui/HelpModal'
 import { commitFeed } from '../scan/ui/commit'
-import { OCR_ENABLED, uploadScanFlag, recordCaptureEvent, recordLockEvent } from '../scan/ui/flags'
+import { OCR_ENABLED, uploadScanFlag, recordCaptureEvent, recordIdentityEvent, recordLockEvent } from '../scan/ui/flags'
 import { narrowedIdentity, OCR_NARROW_TIMEOUT_MS, readCardFields, resolveWithOcr } from '../scan/ui/ocrNarrow'
 import {
   commitGate,
   identityFromMatch,
+  identityOutcome,
+  identityRecord,
   initialIdentity,
   reduceIdentity,
   unresolvedCount,
@@ -538,6 +540,21 @@ export function Scan() {
       identitiesRef.current.set(id, next)
       setStack((prev) => prev.map((s) => (s.id === id ? { ...s, identity: next } : s)))
 
+      // THE IDENTITY RECORD — round 7's 26 device-unknown outcomes, written down
+      // this time. Posted on a CHANGE OF OUTCOME, not on every transition: a
+      // reader opening the picker on a needs-you thumbnail moves the state but
+      // not the answer, and two identical records would say the machine changed
+      // its mind when it did not. `confident` and `discarded` are terminal in the
+      // reducer, so a capture emits at most two — needs-you, then whatever the
+      // reader made of it.
+      if (identityOutcome(next) !== identityOutcome(cur)) {
+        const item = captureDataRef.current.get(id)
+        const record = item ? identityRecord(next, Date.now() - item.capturedAt) : null
+        if (item && record) {
+          void recordIdentityEvent({ rectified: item.blob, captureId: id, detail: record })
+        }
+      }
+
       if (next.phase === 'discarded') {
         dropStackItem(id)
         return
@@ -595,6 +612,12 @@ export function Scan() {
   const handleCaptured = useCallback(
     async (result: CaptureResult, trigger: 'auto' | 'manual') => {
       const previewUrl = trackUrl(URL.createObjectURL(result.blob))
+      // Minted BEFORE the capture record so both halves of this capture's
+      // telemetry carry it: the `capture-event` posted below, and the
+      // `identity-event` posted minutes later when the reader finally decides
+      // what the card was. Without a shared key the second is unattributable —
+      // which is the shape round 7's 26 unknown outcomes already had.
+      const captureId = makeId('cap')
       // The matcher's verdict, handed to the recorder below as a promise so the
       // capture record can carry it (scan/ui/flags.ts `CaptureEventInput.outcome`).
       // The record's frame and crop are snapshotted before this ever settles.
@@ -610,6 +633,7 @@ export function Scan() {
         rectified: result.blob,
         outcome: matcherOutcome,
         detail: {
+          captureId,
           trigger,
           quad: result.quad,
           trackId: result.trackId,
@@ -641,7 +665,7 @@ export function Scan() {
         },
       })
       const stackItem: StackItem = {
-        id: makeId('cap'),
+        id: captureId,
         trackId: result.trackId,
         previewUrl,
         blob: result.blob,

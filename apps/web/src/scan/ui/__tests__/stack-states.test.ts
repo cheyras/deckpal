@@ -53,7 +53,7 @@ const CONFIDENT = reduceIdentity(PENDING, {
 })
 const NEEDS_YOU = [
   { type: 'phash' as const, res: scanRes([match('sve-004', 7), match('sve-003', 7), match('sve-002', 7)]) },
-  { type: 'read' as const, read: { name: null, number: '161', denominator: '182', setCode: null, ms: 340 } },
+  { type: 'read' as const, read: { name: null, number: '161', denominator: '182', setCode: null, pass: 'roi' as const, ms: 340 } },
   { type: 'resolve' as const, resolved: null },
 ].reduce(reduceIdentity, initialIdentity())
 

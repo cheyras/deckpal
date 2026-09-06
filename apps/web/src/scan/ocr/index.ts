@@ -39,12 +39,14 @@ export { ocrEnabled, readOcrOverride, OCR_OVERRIDE_KEY } from './flag'
 export type { OcrFlagInputs } from './flag'
 export { loadOcrSession, resetOcrSession, ocrSessionStarted } from './session'
 export type { OcrSession } from './session'
-export { readFields, readRoi } from './pipeline'
-export type { OcrRead, RoiInput } from './pipeline'
-export { cropRois } from './capture'
+export { readFields, readRoi, readLines } from './pipeline'
+export type { OcrRead, OcrPass, OcrLine, RoiInput, FullCropInput, FullCropSource } from './pipeline'
+export { extractFullCropFields, normaliseBodyLines, shouldEscalate, MAX_BODY_LINES, MAX_BODY_LINE_CHARS } from './escalate'
+export type { PlacedLine } from './escalate'
+export { cropRois, cropFullCard } from './capture'
 export type { RoiRaster } from './capture'
 
-import { cropRois } from './capture'
+import { cropFullCard, cropRois } from './capture'
 import { readFields, type OcrRead } from './pipeline'
 import { loadOcrSession } from './session'
 
@@ -84,5 +86,9 @@ export function warmOcr(): void {
  */
 export async function readCard(source: CanvasImageSource, width: number, height: number): Promise<OcrRead> {
   const session = await loadOcrSession()
-  return readFields(session, cropRois(source, width, height))
+  // The third argument is the ESCALATION RUNG (2026-09-06 ruling) and it is a
+  // thunk, not a value: `readFields` only calls it when the two bands came back
+  // with no name and no number, so a card the shipped recipe can read never
+  // prepares this crop and never runs the extra detection. See `escalate.ts`.
+  return readFields(session, cropRois(source, width, height), () => cropFullCard(source, width, height))
 }

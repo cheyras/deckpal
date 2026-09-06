@@ -15,6 +15,7 @@
 
 import { decodeCtc, MIN_LINE_CONFIDENCE } from './ctc'
 import { detectBoxes, groupIntoLines } from './db'
+import { extractFullCropFields, normaliseBodyLines, shouldEscalate } from './escalate'
 import { extractFields, type OcrFields, type RoiRead } from './fields'
 import { cropRotated, resample, rgbaToBGRPlanar, type Box, type Raster } from './raster'
 import type { OcrSession } from './session'
@@ -31,10 +32,27 @@ const REC_HEIGHT = 48
  *  4 px produces a zero-length time axis. */
 const MIN_REC_WIDTH = 8
 
-/** The product contract. `ms` is wall-clock for the whole read — both passes,
+/** Which rungs ran. `roi` is the shipped two-pass recipe and the only value the
+ *  happy path can produce; `escalated` means the full-crop pass ran too, which
+ *  by the 2026-09-06 ruling can only have happened after the two bands came back
+ *  with no name and no number. */
+export type OcrPass = 'roi' | 'escalated'
+
+/** The product contract. `ms` is wall-clock for the whole read — every pass,
  *  detection and recognition — measured by the caller of `readFields`. */
 export interface OcrRead extends OcrFields {
   ms: number
+  pass: OcrPass
+  /**
+   * The card's own prose, for the API's family-text rung — present ONLY when the
+   * escalation ran and still could not produce a name or a number.
+   *
+   * Absent, not empty, in every other case: a `bodyLines: []` on the wire would
+   * be a claim that the card had no readable text on it, which is a different
+   * statement from "we never got that far" and exactly the distinction
+   * `toResolveFields` exists to preserve for the denominator.
+   */
+  bodyLines?: string[]
 }
 
 /** What one ROI raster is, once `capture.cropRois` has produced it. Kept
@@ -46,12 +64,40 @@ export interface RoiInput {
 }
 
 /**
- * Run detection + recognition over one prepared ROI raster and return its lines
- * in reading order, grouped the way the extractor expects (see
- * `db.groupIntoLines` for why the grouping is not cosmetic).
+ * The whole card, prepared for the escalation pass — the raster the detector is
+ * fed, plus WHERE THE CARD IMAGE SITS INSIDE IT.
+ *
+ * The second half is not bookkeeping. `escalate.ts` filters name candidates by
+ * the line's height fraction, and a raster rounded up to the detector's
+ * multiple-of-32 input carries up to 31 px of letterbox pad that is not card. A
+ * fraction measured against the padded raster would be quietly wrong by up to
+ * 4.6 % of the band's own width, so the pad is reported and divided out.
  */
-export async function readRoi(session: OcrSession, input: RoiInput): Promise<string[]> {
-  const { raster } = input
+export interface FullCropInput {
+  raster: Raster
+  drawn: { x: number; y: number; w: number; h: number }
+}
+
+/** How the escalation gets its raster — a THUNK, never a value. Preparing the
+ *  full crop means a canvas draw and a `getImageData` of a 480×672 surface, and
+ *  the ruling is that the happy path pays nothing: on the 21 crops the shipped
+ *  recipe reads, this is never called. */
+export type FullCropSource = () => FullCropInput | null
+
+/** One recognised line, as the recogniser and the grouper leave it. */
+export interface OcrLine {
+  text: string
+  mean: number
+  /** Midline in raster pixels — see `db.groupIntoLines`. */
+  y: number
+}
+
+/**
+ * Run detection + recognition over one prepared raster and return its lines in
+ * reading order, grouped the way the extractor expects (see `db.groupIntoLines`
+ * for why the grouping is not cosmetic).
+ */
+export async function readLines(session: OcrSession, raster: Raster): Promise<OcrLine[]> {
   const det = await session.det.run(rgbaToBGRPlanar(raster), [1, 3, raster.height, raster.width])
   // DB's head emits [1, 1, H, W] at the input's own resolution. Read H and W
   // back off the tensor rather than assuming: an export with a different stride
@@ -78,23 +124,81 @@ export async function readRoi(session: OcrSession, input: RoiInput): Promise<str
     if (decoded.mean < MIN_LINE_CONFIDENCE) continue
     recognised.push({ box, text: decoded.text, mean: decoded.mean })
   }
-  return groupIntoLines(recognised).map((l) => l.text)
+  return groupIntoLines(recognised)
 }
 
 /**
- * The whole read: both ROIs through the model, then the field extractor.
- *
- * Passes run SEQUENTIALLY on purpose. They are two inferences on one WASM
- * runtime with `numThreads` clamped to 1 (no COOP/COEP headers, so ORT never
- * starts a worker pool — `model.ts`'s header), so issuing them concurrently
- * would interleave in the proxy worker's queue for no throughput and would make
- * a slow phone's memory high-water mark the sum of both rather than the max.
+ * The same read, text only — what a band pass needs, because the band has
+ * already done the positional filtering the geometry would be used for.
  */
-export async function readFields(session: OcrSession, inputs: readonly RoiInput[]): Promise<OcrRead> {
+export async function readRoi(session: OcrSession, input: RoiInput): Promise<string[]> {
+  return (await readLines(session, input.raster)).map((l) => l.text)
+}
+
+/**
+ * The whole read: both ROIs through the model, then the field extractor — and
+ * then, ONLY IF THOSE READ NOTHING, the escalation rung.
+ *
+ * Passes run SEQUENTIALLY on purpose. They are inferences on one WASM runtime
+ * with `numThreads` clamped to 1 (no COOP/COEP headers, so ORT never starts a
+ * worker pool — `model.ts`'s header), so issuing them concurrently would
+ * interleave in the proxy worker's queue for no throughput and would make a slow
+ * phone's memory high-water mark the sum of them rather than the max.
+ *
+ * ── THE ESCALATION COSTS THE HAPPY PATH NOTHING, AND THAT IS STRUCTURAL ─────
+ *
+ * `fullCrop` is a thunk and `shouldEscalate` is checked before it is called, so
+ * a read that produced a name or a number does not prepare the crop, does not
+ * run a third detection, and returns at exactly the moment it returned before.
+ * That matters beyond CPU: this function's result is what gates the FIRST
+ * `/scan/resolve` POST (`Scan.tsx`'s race awaits the read, then calls
+ * `resolveWithOcr`), so a full-card pass that ran unconditionally would push
+ * every narrowing round trip ~1-1.5 s later on the owner's iPhone — the probe
+ * measures 137 ms of detection plus 38-48 ms per recognised line, and a whole
+ * card is 15-25 lines. `__tests__/escalate.test.ts` asserts the thunk is never
+ * touched on a read that found something.
+ *
+ * The escalation still runs INSIDE `OCR_NARROW_TIMEOUT_MS`, and arriving late is
+ * survivable by construction: `identity.ts`'s reducer promotes a confident
+ * answer whenever it lands, and the deadline only decides what the thumbnail
+ * looks like while it waits.
+ */
+export async function readFields(
+  session: OcrSession,
+  inputs: readonly RoiInput[],
+  fullCrop?: FullCropSource,
+): Promise<OcrRead> {
   const t0 = performance.now()
   const reads: RoiRead[] = []
   for (const input of inputs) {
     reads.push({ roi: input.roi, lines: await readRoi(session, input) })
   }
-  return { ...extractFields(reads), ms: performance.now() - t0 }
+  const fields = extractFields(reads)
+  if (!fullCrop || !shouldEscalate(fields)) {
+    return { ...fields, pass: 'roi', ms: performance.now() - t0 }
+  }
+  // A browser that cannot give us a canvas is not a reason to lose the read we
+  // already have — `capture.ts` throws there, and the ROI answer stands.
+  let full: FullCropInput | null = null
+  try {
+    full = fullCrop()
+  } catch {
+    full = null
+  }
+  if (!full) return { ...fields, pass: 'roi', ms: performance.now() - t0 }
+  const { raster, drawn } = full
+
+  const lines = await readLines(session, raster)
+  // Pixel midlines to card-height fractions, with the letterbox divided out.
+  const placed = lines.map((l) => ({ text: l.text, y: (l.y - drawn.y) / drawn.h }))
+  const rescued = extractFullCropFields(placed)
+  const ms = () => performance.now() - t0
+  // THE RESCUE. Fields came out of the full crop after all, so the ordinary
+  // resolve flow takes it from here and nothing new goes on the wire.
+  if (!shouldEscalate(rescued)) return { ...rescued, pass: 'escalated', ms: ms() }
+  // And the last rung: no key, but the card's prose is right there.
+  const bodyLines = normaliseBodyLines(placed.map((l) => l.text))
+  return bodyLines.length
+    ? { ...rescued, pass: 'escalated', bodyLines, ms: ms() }
+    : { ...rescued, pass: 'escalated', ms: ms() }
 }

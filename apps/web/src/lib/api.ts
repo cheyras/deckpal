@@ -302,6 +302,23 @@ export interface ScanResolveFields {
   number?: string
   denominator?: string
   setCode?: string
+  /**
+   * THE ESCALATION RUNG'S PAYLOAD — the card's own prose, when no printed key
+   * could be read at all (2026-09-06 owner ruling; `scan/ocr/escalate.ts`).
+   *
+   * Normalised lines of the full-card read, top of the card first, at most 24 of
+   * them and at most 80 characters each. EVIDENCE, NOT A CLAIM: unlike the four
+   * fields above, nothing here has passed a believability gate — these are the
+   * lines the recogniser returned with the obvious furniture stripped, and the
+   * API's family-text rung is what decides whether they name a print.
+   *
+   * Present only when `name`, `number`, `denominator` and `setCode` are all
+   * absent, which is the only state in which it is worth a round trip. A backend
+   * without the family-text rung ignores the key and answers `prior-only`,
+   * which is exactly what it answered before this existed — see
+   * `scan/ui/ocrNarrow.ts`.
+   */
+  bodyLines?: string[]
 }
 /** `distance` and `confidence` are nullable HERE and not on `ScanMatch`: a card
  *  the ladder resolved by its printed key was never nominated by phash and has
@@ -315,7 +332,12 @@ export interface ScanResolveResponse {
   /** The ladder is sure. Only then may a caller present this over the phash
    *  result — see CROSSWALK §7.3 for what each rung is worth. */
   confident: boolean
-  resolvedBy: 'badge+number' | 'number+denominator' | 'name+number' | 'prior-only'
+  /** Which rung answered. `family-text` is the escalation rung's — reached only
+   *  from `fields.bodyLines`, and only on a backend that has it. A backend
+   *  without it simply never returns the value, which is why nothing on this
+   *  side switches exhaustively on this union: it is recorded and displayed,
+   *  never branched on. */
+  resolvedBy: 'badge+number' | 'number+denominator' | 'name+number' | 'family-text' | 'prior-only'
   matches: ScanResolveMatch[]
 }
 
