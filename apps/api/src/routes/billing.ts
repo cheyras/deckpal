@@ -38,7 +38,15 @@ import {
   stripeClient,
   stripeMode,
 } from '../billing/stripe.js';
-import { adoptSetupIntent, createSetupIntent, ensureCustomer, portalSession, pullState, setSupport } from '../billing/service.js';
+import {
+  adoptSetupIntent,
+  chargeOnce,
+  createSetupIntent,
+  ensureCustomer,
+  portalSession,
+  pullState,
+  setSupport,
+} from '../billing/service.js';
 import {
   ackPrompt,
   applyStripe,
@@ -83,6 +91,18 @@ function shape(row: BillingRow, extra: { clientSecret?: string | null } = {}) {
     mode: stripeMode(),
     publishableKey: publishableKey(),
     presetsCents: presetsFor(row),
+    /**
+     * The one-time ladder, offered after somebody answers $0.
+     *
+     * Higher anchors than the monthly one and no $0 rung: declining is the
+     * "No thanks" button beside the action, not a nought in the grid. $0 is a
+     * real answer to "what would you like to pay each month" and a meaningless
+     * one to "would you like to give once".
+     *
+     * Deliberately NOT part of the $1 experiment — one variable at a time, and
+     * this ladder is identical in both arms.
+     */
+    oneTimePresetsCents: [300, 500, 1000, 2500],
     // Named so the browser can render it in a debug view and so a support
     // ticket can say which ladder somebody saw. It is NOT what the experiment
     // is measured from — that comes off `billing_ab_event`, stamped
@@ -124,6 +144,7 @@ const UNAVAILABLE = {
   mode: 'unknown' as const,
   publishableKey: null,
   presetsCents: [] as number[],
+  oneTimePresetsCents: [] as number[],
   abVariant: null,
   minCents: SUPPORT_MIN_CENTS,
   maxCents: SUPPORT_MAX_CENTS,
@@ -304,6 +325,51 @@ billingRouter.put(
       // Asking is now settled however this went: they answered the question.
       const acked = await ackPrompt(userId, fresh.onboarded_at === null);
       res.json(shape(acked, { clientSecret }));
+    } catch (err) {
+      stripeFailure(err);
+    }
+  }),
+);
+
+/**
+ * A one-time contribution — the follow-up to a $0 answer.
+ *
+ * Same shape as the subscription write and the same rules: the browser sends an
+ * amount (and, on the leg where a card was just entered, a SetupIntent id that
+ * is verified against this account's customer before it is used). Everything
+ * else is resolved server-side.
+ *
+ * It is recorded as `chose_one_time`, never as `chose` — see migration 057. A
+ * one-off folded into the recurring number would overstate that person by 12x
+ * and would land preferentially in whichever experiment arm produces more $0
+ * answers, biasing the measurement toward the thing being measured.
+ */
+billingRouter.post(
+  '/one-time',
+  asyncHandler(async (req, res) => {
+    const userId = currentUserId(req);
+    const stripe = stripeClient();
+    if (!stripe) throw badRequest('Billing is not configured on this deployment.');
+
+    const amountCents = normalizeAmountCents(req.body?.amountCents);
+    if (amountCents === 0) throw badRequest('a one-time contribution needs an amount');
+    const setupIntentId = typeof req.body?.setupIntentId === 'string' ? req.body.setupIntentId.trim() : null;
+
+    const row = await readRow(userId);
+    try {
+      const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
+      if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
+      if (setupIntentId) await adoptSetupIntent(stripe, customerId, setupIntentId);
+
+      const { clientSecret, paid } = await chargeOnce(stripe, customerId, amountCents);
+      // Recorded whether or not the issuer stepped in: an authentication
+      // challenge is part of the same answer, and a gift that needed one
+      // confirmation click is not a different outcome from one that did not.
+      const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+      await recordAbEvent(userId, 'chose_one_time', context, amountCents);
+      // The card summary may be new; the subscription state is untouched.
+      const fresh = await applyStripe(userId, await pullState(stripe, customerId));
+      res.json({ ...shape(fresh, { clientSecret }), paid });
     } catch (err) {
       stripeFailure(err);
     }

@@ -72,8 +72,13 @@ export function presetsFor(row: BillingRow): number[] {
   return [...PRESET_LADDERS[row.ab_presets ?? 'without_1']];
 }
 
-/** What happened to the ask. See migration 055 for why all three are recorded. */
-export type AbEventKind = 'shown' | 'chose' | 'dismissed'
+/**
+ * What happened to the ask. See migration 055 for why the first three are
+ * recorded, and 057 for why a one-time gift is its OWN kind rather than a
+ * `chose` with a different context: `chose` means monthly recurring cents, and
+ * folding a one-off $25 into that sum reads as $25 a month.
+ */
+export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
 
 /**
  * ⚠️ THE ANALYSIS QUERY NEEDS ONE MORE CLAUSE THAN 055's HEADER SAYS.

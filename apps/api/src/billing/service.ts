@@ -368,6 +368,73 @@ async function finishFirstPayment(stripe: Stripe, sub: Stripe.Subscription): Pro
 }
 
 /**
+ * Charge a one-time contribution to the card on file.
+ *
+ * ── WHY THIS REUSES THE SETUP-INTENT PATH INSTEAD OF ITS OWN ELEMENT ────────
+ *
+ * The obvious build is a PaymentIntent with its own Payment Element and
+ * `stripe.confirmPayment` in the browser — a second card-collection flow beside
+ * the subscription one. This does not do that. The card is collected exactly as
+ * it always is (SetupIntent, `usage: 'off_session'`, the same `CardForm`), and
+ * the charge is then made server-side against the customer's default method.
+ *
+ * One card path, not two. Two would mean two places for the Link prefill to
+ * drift, two places for the wallet configuration to differ, and two ways for
+ * the "your card never touches DeckPal" claim to stop being true. The cost is
+ * one extra round trip for somebody with no card yet, which is the rarer case
+ * and is invisible next to typing a card number.
+ *
+ * ── `off_session: true` IS A STATEMENT ABOUT WHO IS PRESENT, NOT A SHORTCUT ──
+ *
+ * The reader IS present — they just pressed a button. But the mandate this
+ * charge relies on was collected by the SetupIntent, and telling Stripe the
+ * truth about that is what lets the issuer step up when it wants to: an
+ * `authentication_required` error comes back carrying the intent, and the
+ * browser finishes it. Claiming the customer is on-session with a payment
+ * method we did not just collect is how you get a decline with no recourse.
+ */
+export async function chargeOnce(
+  stripe: Stripe,
+  customerId: string,
+  amountCents: number,
+): Promise<{ clientSecret: string | null; paid: boolean }> {
+  const customer = await stripe.customers.retrieve(customerId, {
+    expand: ['invoice_settings.default_payment_method'],
+  });
+  if (customer.deleted) throw new Error('customer is deleted');
+  const pm = customer.invoice_settings?.default_payment_method;
+  const paymentMethod = typeof pm === 'string' ? pm : pm?.id;
+  if (!paymentMethod) {
+    // The route collects a card first, so this is a wiring error rather than a
+    // reader error — and it must not become a silent no-op.
+    throw new Error('no payment method on file for a one-time charge');
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.create({
+      customer: customerId,
+      payment_method: paymentMethod,
+      amount: amountCents,
+      currency: SUPPORT_CURRENCY,
+      confirm: true,
+      off_session: true,
+      description: 'DeckPal — one-time contribution',
+      // So the dashboard, and anyone reading a charge later, can tell a one-off
+      // from a subscription invoice without inferring it from the absence of one.
+      metadata: { [SUPPORT_METADATA_KEY]: 'true', kind: 'one_time' },
+    });
+    if (intent.status === 'requires_action') return { clientSecret: intent.client_secret, paid: false };
+    return { clientSecret: null, paid: intent.status === 'succeeded' };
+  } catch (err) {
+    const intent = (err as { payment_intent?: Stripe.PaymentIntent })?.payment_intent;
+    if (intent?.status === 'requires_action' && intent.client_secret) {
+      return { clientSecret: intent.client_secret, paid: false };
+    }
+    throw err;
+  }
+}
+
+/**
  * A Stripe-hosted billing portal session: invoices, receipts, and card
  * management in the one place a person already trusts for it.
  *

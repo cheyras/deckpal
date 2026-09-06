@@ -267,6 +267,27 @@ describe('the $1 experiment (migration 055)', () => {
   })
 })
 
+describe('the one-time ladder (the $0 follow-up)', () => {
+  // The ladder lives in routes/billing.ts (the server owns what is offerable);
+  // these pin the properties that would break the feature or the experiment.
+  const ONE_TIME = [300, 500, 1000, 2500]
+
+  test('every rung survives the server validator', () => {
+    for (const c of ONE_TIME) assert.equal(normalizeAmountCents(c), c)
+  })
+
+  test('there is no $0 rung — declining is a button, not an amount', () => {
+    assert.ok(!ONE_TIME.includes(0), '$0 in a one-off ladder is a meaningless answer')
+  })
+
+  test('it anchors higher than the monthly ladder', () => {
+    // A one-off is compared against a single coffee, a monthly against a
+    // subscription. Offering the same numbers for both invites people to read
+    // the one-off as the cheaper version of the same thing.
+    assert.ok(Math.min(...ONE_TIME) >= Math.min(...PRESET_LADDERS.without_1.filter((c) => c > 0)))
+  })
+})
+
 describe('normalizeAmountCents', () => {
   test('zero is an answer, not a rejection', () => {
     assert.equal(normalizeAmountCents(0), 0);

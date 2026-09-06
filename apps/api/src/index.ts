@@ -417,7 +417,7 @@ export function createApp(): express.Express {
         'POST /scan',
         '/me/billing', 'POST /me/billing/visit', 'POST /me/billing/prompt-ack',
         'POST /me/billing/setup-intent', 'PUT /me/billing/subscription',
-        'POST /me/billing/refresh', 'POST /me/billing/portal', 'POST /stripe/webhook',
+        'POST /me/billing/refresh', 'POST /me/billing/one-time', 'POST /me/billing/portal', 'POST /stripe/webhook',
         '/tokens', 'POST /tokens', 'DELETE /tokens/:id',
         '/avatar', 'POST /avatar', 'DELETE /avatar',
         '/oauth/client', 'POST /oauth/authorize/decision',

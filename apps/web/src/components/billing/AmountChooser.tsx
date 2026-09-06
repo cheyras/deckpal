@@ -75,6 +75,8 @@ export function AmountChooser({
   minCents,
   maxCents,
   disabled,
+  showMostCommon = true,
+  label = 'Choose your monthly amount',
 }: {
   presetsCents: number[]
   valueCents: number
@@ -82,6 +84,19 @@ export function AmountChooser({
   minCents: number
   maxCents: number
   disabled?: boolean
+  /**
+   * "Most people pick $5" is a fact about the MONTHLY ladder. The one-time
+   * ladder is a different question with different anchors, and repeating the
+   * monthly figure under it would be a claim nobody has measured.
+   */
+  showMostCommon?: boolean
+  /**
+   * The control is reused for the one-off follow-up, where "monthly" is not
+   * merely wrong but MISLEADING — somebody skim-reading a payment screen that
+   * says "monthly" above a $5 button has been told they are subscribing. It is
+   * a prop rather than a hardcoded string for exactly that reason.
+   */
+  label?: string
 }) {
   const groupId = useId()
   // "Other" is a mode of the last cell, not a value: someone who types 7, taps
@@ -124,7 +139,7 @@ export function AmountChooser({
   return (
     <div role="group" aria-labelledby={`${groupId}-label`}>
       <div id={`${groupId}-label`} className="mb-[12px] text-[13px] font-semibold text-text-secondary">
-        Choose your monthly amount
+        {label}
       </div>
 
       {/* auto-fit, not a fixed column count. The ladder is 5 or 6 rungs
@@ -206,7 +221,7 @@ export function AmountChooser({
           {customProblem}
         </p>
       ) : (
-        presetsCents.includes(MOST_COMMON_CENTS) && (
+        showMostCommon && presetsCents.includes(MOST_COMMON_CENTS) && (
           <p className="mt-[10px] text-[12px] text-text-muted">
             Most people pick {formatAmount(MOST_COMMON_CENTS)}.
           </p>

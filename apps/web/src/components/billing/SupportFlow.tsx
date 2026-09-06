@@ -105,7 +105,7 @@ export function SupportFlow({
   dismissLabel = 'Not right now',
 }: SupportFlowProps) {
   const [amount, setAmount] = useState(state.support.cents)
-  const [step, setStep] = useState<'choose' | 'card' | 'done'>(
+  const [step, setStep] = useState<'choose' | 'card' | 'one-time' | 'done'>(
     // A broken payment is not a question about the amount — it opens straight
     // on the card field, because replacing the card is the entire job.
     context === 'payment_issue' ? 'card' : 'choose',
@@ -113,6 +113,24 @@ export function SupportFlow({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [committed, setCommitted] = useState<number | null>(null)
+  /** The one-off amount, and whether it was actually given. */
+  const [onceAmount, setOnceAmount] = useState(() => state.oneTimePresetsCents[1] ?? 500)
+  const [gaveOnce, setGaveOnce] = useState<number | null>(null)
+  /**
+   * What the card step is collecting for. The card form is the same either way
+   * — one card path, deliberately (see service.ts `chargeOnce`) — so the
+   * difference is only what happens after it succeeds.
+   */
+  const [cardFor, setCardFor] = useState<'subscription' | 'one-time'>('subscription')
+
+  /**
+   * Is the one-off follow-up worth offering?
+   *
+   * Only after a $0 answer, and never in the profile card. In settings, $0
+   * means "stop my support" — following a cancellation with "how about a
+   * tenner, then?" is the exact behaviour this product does not have.
+   */
+  const offerOneTime = context !== 'settings' && state.oneTimePresetsCents.length > 0
 
   const stripePromise: Promise<Stripe | null> | null = useMemo(
     () => (state.publishableKey ? stripeFor(state.publishableKey) : null),
@@ -155,6 +173,36 @@ export function SupportFlow({
       }
       onState(next)
       setCommitted(amount)
+      // The owner's ask: lead with the subscription, follow up with the one-off.
+      // Only on $0, only once, and only where the ask belongs.
+      setStep(amount === 0 && offerOneTime ? 'one-time' : 'done')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong. Nothing has been charged.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Charge the one-off, handling a bank that wants confirming. */
+  async function giveOnce(setupIntentId?: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api.giveOnce(onceAmount, setupIntentId, analyticsContext ?? context)
+      if (res.clientSecret) {
+        const stripe = await stripePromise
+        if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')
+        const { error: actionError } = await stripe.handleNextAction({ clientSecret: res.clientSecret })
+        if (actionError) {
+          setError(
+            actionError.message
+              ?? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.',
+          )
+          return
+        }
+      }
+      onState(res)
+      setGaveOnce(onceAmount)
       setStep('done')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Nothing has been charged.')
@@ -163,9 +211,74 @@ export function SupportFlow({
     }
   }
 
+  // ── the one-off follow-up ─────────────────────────────────────────────────
+  //
+  // ONE follow-up, not a funnel. It appears once, after a $0 answer, and both
+  // ways out are on the same row at the same weight. A second ask that has to
+  // be fought off is how a pay-what-you-want prompt turns into the thing it was
+  // written not to be — and "No thanks" here is genuinely the end of it: the
+  // $0 is already saved, so declining costs nothing and undoes nothing.
+  if (step === 'one-time') {
+    return (
+      <div>
+        <div className="mb-[14px]">
+          <h3 className="text-[17px] font-extrabold text-text-primary">Not every month, then. How about once?</h3>
+          <p className="mt-[6px] text-[14px] leading-[1.6] text-text-secondary">
+            Your $0 is saved and that is completely fine. If you would rather give something one time than commit to
+            anything monthly, here is the place — a single payment, no subscription, nothing to remember or cancel
+            later.
+          </p>
+        </div>
+
+        <AmountChooser
+          presetsCents={state.oneTimePresetsCents}
+          valueCents={onceAmount}
+          onChange={setOnceAmount}
+          minCents={state.minCents}
+          maxCents={state.maxCents}
+          disabled={busy}
+          showMostCommon={false}
+          label="Choose a one-time amount"
+        />
+
+        <AcceptedMethods className="mt-[12px]" />
+
+        {error && (
+          <div className="mt-[18px]">
+            <FlowError>{error}</FlowError>
+          </div>
+        )}
+
+        <div className="mt-[20px] flex flex-col-reverse gap-[8px] sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={() => setStep('done')}
+            disabled={busy}
+            className="text-[14px] font-semibold text-text-secondary hover:text-text-primary disabled:opacity-50"
+          >
+            No thanks
+          </button>
+          <Button
+            loading={busy}
+            onClick={() => {
+              if (!hasCard) {
+                setCardFor('one-time')
+                setStep('card')
+              } else void giveOnce()
+            }}
+          >
+            {hasCard ? `Give ${formatAmount(onceAmount)} once` : `Continue to card — ${formatAmount(onceAmount)} once`}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   // ── done ──────────────────────────────────────────────────────────────────
   if (step === 'done') {
-    const paid = (committed ?? 0) > 0
+    const monthly = (committed ?? 0) > 0
+    const once = (gaveOnce ?? 0) > 0
+    const paid = monthly || once
     return (
       <div className="text-center">
         <div
@@ -180,7 +293,14 @@ export function SupportFlow({
           {paid ? 'Thank you — genuinely.' : "That's set — you're on $0."}
         </h3>
         <p className="mx-auto mt-[8px] max-w-[420px] text-[14px] leading-[1.6] text-text-secondary">
-          {paid ? (
+          {once ? (
+            <>
+              {/* Said plainly, because the one thing somebody fears about a
+                  "one-time" payment is that it quietly was not one. */}
+              <span className="font-semibold text-text-primary">{formatAmount(gaveOnce ?? 0)}</span>, one time only —
+              nothing recurring has been set up and there is nothing to cancel. Stripe will email you a receipt.
+            </>
+          ) : monthly ? (
             <>
               You&apos;re supporting DeckPal with{' '}
               <span className="font-semibold text-text-primary">{formatAmount(committed ?? 0)} a month</span>. Stripe
@@ -214,6 +334,11 @@ export function SupportFlow({
             Your bank turned down the last charge — nearly always an expired card or a replaced number. Adding a card
             here puts it right, and nothing has been interrupted in the meantime.
           </p>
+        ) : cardFor === 'one-time' ? (
+          <p className="mb-[16px] text-[14px] leading-[1.6] text-text-secondary">
+            {formatAmount(onceAmount)}, charged once. Enter your card below — it goes straight to Stripe, and no
+            subscription is created.
+          </p>
         ) : (
           <p className="mb-[16px] text-[14px] leading-[1.6] text-text-secondary">
             {formatAmount(amount)} a month, starting today. Enter your card below — it goes straight to Stripe.
@@ -224,13 +349,19 @@ export function SupportFlow({
           stripePromise={stripePromise}
           mode={state.mode}
           submitLabel={
-            context === 'payment_issue' ? 'Save card' : busy ? 'Working…' : `Support ${formatAmount(amount)}/month`
+            context === 'payment_issue'
+              ? 'Save card'
+              : cardFor === 'one-time'
+                ? `Give ${formatAmount(onceAmount)} once`
+                : `Support ${formatAmount(amount)}/month`
           }
           cancelLabel={context === 'payment_issue' ? 'Later' : 'Back'}
-          onComplete={(setupIntentId) => commit(setupIntentId)}
+          onComplete={(setupIntentId) =>
+            cardFor === 'one-time' ? giveOnce(setupIntentId) : commit(setupIntentId)
+          }
           onCancel={() => {
             if (context === 'payment_issue') onDismiss?.()
-            else setStep('choose')
+            else setStep(cardFor === 'one-time' ? 'one-time' : 'choose')
           }}
         />
       </div>
@@ -307,8 +438,10 @@ export function SupportFlow({
           loading={busy}
           disabled={unchanged && context === 'settings'}
           onClick={() => {
-            if (amount > 0 && !hasCard) setStep('card')
-            else void commit()
+            if (amount > 0 && !hasCard) {
+              setCardFor('subscription')
+              setStep('card')
+            } else void commit()
           }}
         >
           {amount === 0

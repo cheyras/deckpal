@@ -1065,6 +1065,12 @@ export interface BillingState {
    * control and the copy can disagree about what was offered.
    */
   presetsCents: number[]
+  /**
+   * The ladder for a one-off gift, offered after somebody answers $0. Higher
+   * anchors and no $0 rung — declining is a button, not an amount. Identical in
+   * both experiment arms on purpose: one variable at a time.
+   */
+  oneTimePresetsCents: number[]
   /** Which arm, for support tickets and debugging. Never sent back up. */
   abVariant: 'with_1' | 'without_1' | null
   minCents: number
@@ -1507,6 +1513,18 @@ export const api = {
       ...(setupIntentId ? { setupIntentId } : {}),
       // Where the answer came from, so a $1 rung that works in the welcome flow
       // and fails in the month-later check-in is visible rather than pooled.
+      ...(context ? { context } : {}),
+    }),
+  /**
+   * A one-off contribution, charged to the card on file. `setupIntentId` only
+   * on the leg where a card was just entered, exactly as the subscription call.
+   * `paid` is false when the issuer wants the reader to confirm — `clientSecret`
+   * then carries the challenge.
+   */
+  giveOnce: (amountCents: number, setupIntentId?: string, context?: string) =>
+    send<BillingState & { paid: boolean }>('POST', '/me/billing/one-time', {
+      amountCents,
+      ...(setupIntentId ? { setupIntentId } : {}),
       ...(context ? { context } : {}),
     }),
   /** Re-read Stripe after an authentication challenge completed in the browser. */
