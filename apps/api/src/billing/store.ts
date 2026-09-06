@@ -173,12 +173,40 @@ export async function recordAbEvent(
 ): Promise<void> {
   try {
     if (SUPABASE_MODE) {
-      await q(`SELECT billing_record_ab_event($1, $2, $3, $4)`, [
-        kind,
-        context,
-        amountCents ?? null,
-        dedupeKey ?? null,
-      ]);
+      // ⚠️ A SAVEPOINT, BECAUSE A CATCH IN JAVASCRIPT DOES NOT UNDO A RAISE IN
+      // POSTGRES.
+      //
+      // Every route in SUPABASE_MODE runs inside the one transaction the RLS
+      // middleware opens (`apps/api/src/index.ts`). When this function raises —
+      // the amount cap, an unknown kind, the daily ceiling — Postgres puts that
+      // transaction into the aborted state (25P02), and the `catch` below
+      // swallows the JavaScript error while EVERY LATER STATEMENT IN THE
+      // REQUEST fails and the whole request rolls back at COMMIT. The comment
+      // that used to sit here, and 062's own header, both said this degraded to
+      // a warning and lost nothing but an analytics row. It did not: a gift
+      // could be charged at Stripe and then have its entire database side
+      // rolled back, leaving a 502 and a retry loop.
+      //
+      // A savepoint makes the swallow honest. The event write is the only thing
+      // rolled back, and the request carries on with the money it just moved
+      // recorded correctly.
+      //
+      // Self-host has no surrounding transaction, so no savepoint — SAVEPOINT
+      // outside a transaction block is itself an error.
+      await q(`SAVEPOINT ab_event`);
+      try {
+        await q(`SELECT billing_record_ab_event($1, $2, $3, $4)`, [
+          kind,
+          context,
+          amountCents ?? null,
+          dedupeKey ?? null,
+        ]);
+        await q(`RELEASE SAVEPOINT ab_event`);
+      } catch (e) {
+        await q(`ROLLBACK TO SAVEPOINT ab_event`);
+        await q(`RELEASE SAVEPOINT ab_event`);
+        throw e;
+      }
       return;
     }
     const row = await q1<{ ab_presets: string | null }>(

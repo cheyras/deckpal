@@ -505,7 +505,7 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
       // Refund first, cancel second. A refund we cannot make is logged loudly
       // rather than swallowed: money kept by mistake is the one failure here
       // nobody would otherwise notice.
-      await refundFirstInvoice(stripe, s);
+      await refundStraySubscription(stripe, s);
       await stripe.subscriptions.cancel(s.id);
     }
   } catch (err) {
@@ -514,29 +514,40 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
 }
 
 /**
- * Give back what a duplicate subscription collected.
+ * Give back everything a duplicate subscription collected.
  *
  * Only ever called for a subscription this feature is about to cancel as a
  * stray, and only when its invoice is actually `paid` — so it cannot refund a
  * legitimate charge.
  */
-async function refundFirstInvoice(stripe: Stripe, sub: Stripe.Subscription): Promise<void> {
+async function refundStraySubscription(stripe: Stripe, sub: Stripe.Subscription): Promise<void> {
   try {
-    const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice : sub.latest_invoice?.id;
-    if (!invoiceId) return;
-    const invoice = await stripe.invoices.retrieve(invoiceId, { expand: ['payments'] });
-    if (invoice.status !== 'paid' || !invoice.amount_paid) return;
-    const payment = invoice.payments?.data?.[0]?.payment;
-    const intentId = typeof payment?.payment_intent === 'string' ? payment.payment_intent : payment?.payment_intent?.id;
-    if (!intentId) {
-      console.error('[deckpal-api] billing: a duplicate subscription was PAID and could not be refunded automatically');
-      return;
+    // ⚠️ EVERY PAID INVOICE, NOT JUST THE LATEST. This read `latest_invoice`
+    // and refunded one month, on the reasoning that a stray is caught in the
+    // same request that created it. That holds for the two-tab race it was
+    // written for and not for the case it is actually insurance against: a
+    // stray that survived because THIS cleanup failed, and has been quietly
+    // billing for three months. Refunding one of those three is arguably worse
+    // than refunding none, because it looks settled.
+    const invoices = await stripe.invoices.list({ subscription: sub.id, status: 'paid', limit: 100 });
+    for (const invoice of invoices.data) {
+      if (!invoice.amount_paid) continue;
+      const full = await stripe.invoices.retrieve(invoice.id!, { expand: ['payments'] });
+      const payment = full.payments?.data?.[0]?.payment;
+      const intentId =
+        typeof payment?.payment_intent === 'string' ? payment.payment_intent : payment?.payment_intent?.id;
+      if (!intentId) {
+        console.error('[deckpal-api] billing: a duplicate subscription was PAID and could not be refunded automatically');
+        continue;
+      }
+      await stripe.refunds.create(
+        { payment_intent: intentId, reason: 'duplicate' },
+        // Per invoice, so a partially-completed sweep resumes rather than
+        // double-refunding what it already gave back.
+        { idempotencyKey: `dup-refund:${invoice.id}` },
+      );
+      console.warn('[deckpal-api] billing: refunded a duplicate subscription charge');
     }
-    await stripe.refunds.create(
-      { payment_intent: intentId, reason: 'duplicate' },
-      { idempotencyKey: `dup-refund:${invoiceId}` },
-    );
-    console.warn('[deckpal-api] billing: refunded a duplicate subscription charge');
   } catch (err) {
     console.error('[deckpal-api] billing: FAILED to refund a duplicate charge —', (err as Error).message);
   }

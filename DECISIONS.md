@@ -15592,6 +15592,52 @@ logged, rather than a single silent write. SECURITY.md carries the accurate
 version; the two migration headers are left as shipped, because they are applied
 migrations and correcting them in place is what B4 forbids.
 
+### 8. Round five: a JavaScript catch does not undo a Postgres raise
+
+The first review to come back GO, and it still found something worth the round.
+
+`recordAbEvent` wraps its call in try/catch and logs a warning, on the reasoning
+that an analytics row is never worth failing a payment over. That reasoning is
+right and the code did not implement it. In SUPABASE_MODE every statement in a
+request runs inside the one transaction the RLS middleware opens, so when the
+function RAISEd, Postgres put that transaction into the aborted state and every
+later statement failed — the catch swallowed the JavaScript error while the
+whole request rolled back at COMMIT. An account that had deliberately spammed
+itself past the new daily ceiling could then make a gift, have Stripe charge it,
+and have the entire database side rolled back behind a 502, with every retry
+replaying the same charged intent.
+
+Two changes, both wanted. The ceiling now DROPS the event instead of raising,
+because it is the only guard a caller might brush against by accident. And the
+API takes a SAVEPOINT around the call, so the two guards that DO still raise —
+the amount cap and the unknown kind, both unreachable from our own code — roll
+back the event write and nothing else. Verified against real Postgres: without
+the savepoint the following statement fails with "current transaction is
+aborted" and the request's writes are lost; with it, they commit.
+
+That is three rounds in a row where a comment described behaviour the code did
+not have, and this one was in a migration header as well. The pattern is
+specific enough to name: the comments have been right about the INTENT and wrong
+about whether the mechanism achieves it. Reasoning stops at the language
+boundary — JavaScript's error handling looks like it contains a database error,
+and does not.
+
+Four smaller things from the same round. The amount is part of Stripe's
+idempotency key, so holding the attempt id across an ambiguous failure only
+protected a retry at the SAME amount — the chooser stayed live under the words
+"do not pay again", and nudging $25 to $20 would have made a second real charge.
+It is frozen now until the attempt resolves. The subscription's challenge path
+never learned the `processing` lesson the one-off path learned last round, and
+would have said "nothing has been charged, try again" for money still in flight,
+where retrying cancels the incomplete subscription and starts a second first
+month. `/setup-intent` creates the Stripe customer and took no lock, so two tabs
+opening the card form raced into 059's pin and left an orphan customer behind.
+And `refundStraySubscription` refunded `latest_invoice` only, which is right for
+the two-tab race it was written for and wrong for the case it is insurance
+against — a stray that survived because the cleanup itself failed, and has been
+billing quietly for months. Refunding one of three months is worse than
+refunding none, because it looks settled.
+
 **Implications:** migrations 061 and 062 are new; 053—057 are applied, 058—062
 are not. They must be applied together and in order — 059 without 060 is worse
 than neither, because it recreates the orphan-minting loop 060 exists to fix.

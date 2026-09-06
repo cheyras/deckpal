@@ -276,6 +276,13 @@ CVC is a card that works.
    events one account may write. `packages/db` applies only what is pending and
    refuses to run if a shipped migration has been edited.
 
+   ⚠️ **Remove the `?prompt=` override before reading the experiment.** It is
+   testing scaffolding (`SupportPrompt.tsx`) that forces the modal open on
+   demand. It is inert in live mode — gated on the server-reported
+   `stripeMode === 'test'`, and its exposures are labelled `forced-` so the
+   analysis query excludes them — so it does not block going live. It does
+   need to be gone before the $1 result is read for real.
+
    ⚠️ **All of them, in order, in one run.** The deployed code hard-requires
    every one of 058—062: `billing_ensure_row` (059),
    `billing_release_customer` (060) and the four-argument

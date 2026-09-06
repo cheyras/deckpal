@@ -134,6 +134,25 @@ export function SupportFlow({
   const [committed, setCommitted] = useState<number | null>(null)
   /** The one-off amount, and whether it was actually given. */
   const [onceAmount, setOnceAmount] = useState(() => state.oneTimePresetsCents[1] ?? 500)
+  /**
+   * An attempt that may already have taken the money, and must not be varied.
+   *
+   * ── WHY THE ATTEMPT ID IS NOT ENOUGH ────────────────────────────────────
+   *
+   * Stripe's idempotency key is `once:{customer}:{amount}:{attempt}` — the
+   * AMOUNT IS IN IT, because two deliberate gifts of different sizes in the
+   * same minute are two gifts and must not collapse. The consequence is that
+   * holding the attempt id across an ambiguous failure only protects a retry at
+   * the SAME amount. The chooser was still live underneath the words "do not
+   * pay again — check your email for a receipt": nudge $25 to $20, press, and
+   * the key is different, so a charge that had in fact succeeded is joined by a
+   * second one.
+   *
+   * So the amount is frozen until the attempt is resolved. A settled refusal
+   * clears it (there is nothing outstanding to protect); reloading clears it
+   * too, by which time the receipt or the profile can answer the question.
+   */
+  const [frozenAmount, setFrozenAmount] = useState<number | null>(null)
   const [gaveOnce, setGaveOnce] = useState<number | null>(null)
   /**
    * What the card step is collecting for. The card form is the same either way
@@ -188,7 +207,9 @@ export function SupportFlow({
       if (next.clientSecret) {
         const stripe = await stripePromise
         if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')
-        const { error: actionError } = await stripe.handleNextAction({ clientSecret: next.clientSecret })
+        const { error: actionError, paymentIntent } = await stripe.handleNextAction({
+          clientSecret: next.clientSecret,
+        })
         if (actionError) {
           setError(
             actionError.message
@@ -198,6 +219,19 @@ export function SupportFlow({
           // `incomplete`, and the profile card should say so rather than show
           // the old amount as if nothing had happened.
           onState(next)
+          return
+        }
+        // ⚠️ THE SAME TRUTH THE ONE-OFF PATH LEARNED. A first invoice whose
+        // intent is `processing` leaves the subscription `incomplete`, and the
+        // check further down would then say "nothing has been charged — try
+        // again" for money that may yet leave. Retrying cancels the incomplete
+        // subscription and creates a new one, so that sentence is an invitation
+        // to be billed for two first months.
+        if (paymentIntent?.status === 'processing') {
+          onState(next)
+          setError(
+            'Your bank is still processing this. Do not try again — it will complete on its own, and your profile will show the subscription once it does.',
+          )
           return
         }
         // Reports the confirmed outcome so the experiment records it once, and
@@ -337,10 +371,13 @@ export function SupportFlow({
         // prevents a double charge; a decline is a settled answer and the next
         // press is genuinely a new attempt.
         attemptId.current = newAttemptId()
+        // Settled: nothing outstanding, so the chooser opens again.
+        setFrozenAmount(null)
         setError('That did not go through, so nothing has been charged. You can try again, or use a different card.')
         return
       }
       onState(state)
+      setFrozenAmount(null)
       setGaveOnce(onceAmount)
       // Spent. Anything after this is a NEW attempt and must not collapse into
       // the charge that just succeeded.
@@ -362,7 +399,15 @@ export function SupportFlow({
       // charge may well have gone through, and the id is kept so that pressing
       // again is the same attempt and cannot bill twice.
       const settledRefusal = e instanceof ApiError && e.status === 400
-      if (settledRefusal) attemptId.current = newAttemptId()
+      if (settledRefusal) {
+        attemptId.current = newAttemptId()
+        setFrozenAmount(null)
+      } else {
+        // Ambiguous: the charge may have landed. Pin the amount, or the next
+        // press builds a different idempotency key and Stripe treats it as a
+        // second gift rather than a retry of this one.
+        setFrozenAmount(onceAmount)
+      }
       setError(
         e instanceof Error
           ? e.message
@@ -400,7 +445,10 @@ export function SupportFlow({
           onChange={setOnceAmount}
           minCents={state.minCents}
           maxCents={state.maxCents}
-          disabled={busy}
+          // Frozen while an attempt is outstanding: see `frozenAmount`. The
+          // amount is part of Stripe's idempotency key, so changing it turns a
+          // retry into a second charge.
+          disabled={busy || frozenAmount !== null}
           showMostCommon={false}
           label="Choose a one-time amount"
         />

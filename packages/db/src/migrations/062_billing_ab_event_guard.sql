@@ -25,9 +25,13 @@
 -- account can still post 200 — it is the difference between noise a human would
 -- notice in the data and silent, unbounded fabrication.
 --
--- Refused rather than clamped, and the API's caller swallows the error into a
--- warning, so a legitimate user who somehow reached the ceiling loses an
--- analytics row and nothing else.
+-- The ceiling DROPS the event rather than raising. A raise would abort the
+-- caller's transaction, which in SUPABASE_MODE is the whole request — the API
+-- swallows the JavaScript error but Postgres does not un-abort, so a gift could
+-- be charged at Stripe and have its database side rolled back behind a 502.
+-- (`store.ts` also takes a savepoint around the call, which covers the two
+-- guards above, both of which do raise and should: they can only be reached by
+-- a caller sending something the API itself would never send.)
 --
 -- ── WHY THE OLD SIGNATURE IS DROPPED ───────────────────────────────────────
 --
@@ -73,7 +77,16 @@ BEGIN
     FROM public.billing_ab_event
    WHERE user_id = uid AND created_at > now() - interval '1 day';
   IF v_today >= 200 THEN
-    RAISE EXCEPTION 'billing_record_ab_event: this account has already written % events today', v_today;
+    -- ⚠️ RETURN, NOT RAISE. A raise here aborts the caller's whole transaction
+    -- (25P02), and in SUPABASE_MODE that transaction is the entire request —
+    -- so an account that had deliberately spammed itself past the ceiling could
+    -- then make a gift, have Stripe charge it, and have every database write in
+    -- that request rolled back behind a 502. The API takes a savepoint around
+    -- this call as well; both are wanted, because the two guards above DO raise
+    -- and should, and this one is the only ceiling a legitimate caller could
+    -- ever brush against.
+    RAISE WARNING 'billing_record_ab_event: ceiling reached, dropping event';
+    RETURN;
   END IF;
 
   SELECT ab_presets INTO v_arm FROM public.billing_account WHERE user_id = uid;

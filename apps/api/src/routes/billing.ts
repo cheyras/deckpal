@@ -334,6 +334,12 @@ billingRouter.post(
     const userId = currentUserId(req);
     const stripe = stripeClient();
     if (!stripe) throw badRequest('Billing is not configured on this deployment.');
+    // Moves no money, but it is the FIRST route most accounts reach and it
+    // creates the Stripe customer. Two tabs opening the card form together both
+    // read "no customer", both create one, and the loser's write raises 059's
+    // "cannot be repointed" — a 502 and an orphan customer at Stripe, for
+    // something the reader experienced as opening a form twice.
+    await lockAccount(userId);
     const row = await readRow(userId);
     try {
       const customerId = await customerFor(req, userId, row, stripe);
@@ -550,13 +556,21 @@ billingRouter.post(
     const intentId = typeof req.body?.paymentIntentId === 'string' ? req.body.paymentIntentId.trim() : '';
     if (!intentId.startsWith('pi_')) throw badRequest('paymentIntentId is required');
 
+    await lockAccount(userId);
     const row = await readRow(userId);
+    // Nothing to confirm against. Said plainly rather than letting
+    // `customerFor` mint a customer for a confirmation that cannot be genuine.
+    if (!row.stripe_customer_id) throw badRequest('there is no payment on this account to confirm');
     try {
+      // ⚠️ `customerFor`, NOT `row.stripe_customer_id` — this was the last route
+      // that compared the browser's intent against a column instead of against
+      // a customer Stripe has confirmed belongs to this account. Every other
+      // path goes through `ensureCustomer`'s metadata check; depth is only
+      // depth if it is everywhere.
+      const customerId = await customerFor(req, userId, row, stripe);
       const intent = await stripe.paymentIntents.retrieve(intentId);
       const owner = typeof intent.customer === 'string' ? intent.customer : intent.customer?.id;
-      // The id arrives from the browser, so it is checked against the customer
-      // resolved from the session — exactly as a SetupIntent is.
-      if (!owner || owner !== row.stripe_customer_id) throw badRequest('that payment does not belong to this account');
+      if (!owner || owner !== customerId) throw badRequest('that payment does not belong to this account');
       // ⚠️ AND IT MUST BE A ONE-OFF THIS FLOW CREATED. Ownership alone is not
       // enough: a subscriber's own first-invoice PaymentIntent passes the
       // customer check, so without this a recurring charge could be posted here
@@ -571,7 +585,7 @@ billingRouter.post(
         // or as a browser retry — records the gift exactly once.
         await recordAbEvent(userId, 'chose_one_time', context, intent.amount, `once:${intent.id}`);
       }
-      const fresh = await applyStripe(userId, await pullState(stripe, row.stripe_customer_id!));
+      const fresh = await applyStripe(userId, await pullState(stripe, customerId));
       res.json({ ...shape(fresh), paid });
     } catch (err) {
       stripeFailure(err);
