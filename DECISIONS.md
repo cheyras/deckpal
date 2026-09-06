@@ -16186,6 +16186,44 @@ committing reopened the modal on somebody who had just answered it. `exposed`
 kept the experiment honest through that; a second ref now keeps the reader's
 answer honoured.
 
+### 24. Round twenty-one: a guard on the door and not on the timer
+
+Nothing above minor, and the useful finding is that round twenty's own fix was
+put where the function BEGINS rather than where it acts. `closedHere` was
+checked on entry to `boot()` and after the session read — but not after the
+`billingVisit` await, and not inside the 1400ms timer that actually opens the
+sheet. A boot scheduled a beat before the reader answered fired a beat after,
+and `setOpen(true)` put the modal back in front of somebody who had just
+answered it. `close()` has no re-entry guard, so dismissing it again posted a
+second `dismissed` against one exposure; and the reopened flow remounts against
+that boot's now-stale state, so a reader who had just chosen $5 saw a button
+reading "Continue with $0" and pressing it set `cancel_at_period_end` on the
+subscription they made ninety seconds earlier.
+
+The explicit dismiss button had the same shape of gap: the ✕ takes
+`!answered.current` and "Not right now" took a flat `true`. Two branches leave
+the flow on `choose` AFTER an answer is recorded, with the chooser and submit
+disabled, so that button is the reader's only live control — and pressing it
+posted a dismissal on top of the `chose`.
+
+**The receipt was promised six times and guaranteed nowhere.** `chargeOnce` set
+no `receipt_email`, so the promise rested on an account-wide Stripe setting
+nothing in this repo turns on. That matters more than it sounds: a standalone
+PaymentIntent produces no invoice, so the billing portal has no record of it
+either, and 057 deliberately gives the profile no gift history. "Do not pay
+again — check your email for a receipt, or your profile" was, for a one-off,
+three places that could not answer. The charge names the address now, the
+runbook has a step for customer emails, and the two strings no longer send
+anybody to a profile that has nothing to show them.
+
+And the last tail of §18's family, in both twins: the freeze read four states
+and the sentence read two, so an ABANDONED bank window — nothing charged,
+controls deliberately left live — was described as "do not pay again",
+contradicting the button in front of the reader. `provenSafe` is hoisted and
+drives the freeze, the rotation and the sentence together. The `confirmOneTime`
+on that branch also returns the only fresh billing state we have and was
+discarding it.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

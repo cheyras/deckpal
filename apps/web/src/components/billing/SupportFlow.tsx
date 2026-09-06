@@ -293,6 +293,10 @@ export function SupportFlow({
           // not confirm what your bank decided" when the intent said plainly
           // that it was refused.
           let settled = actionError.type === 'card_error'
+          // Hoisted for the same reason as the one-off twin: the LOCK and the
+          // SENTENCE are two decisions about one fact. A card error is proof on
+          // its own that nothing was taken, so it starts true.
+          let provenSafe = settled
           if (!settled) {
             const { paymentIntent: after } = await stripe.retrievePaymentIntent(next.clientSecret)
             lastIntent = after?.status ?? null
@@ -304,7 +308,7 @@ export function SupportFlow({
             // can double-charge; what an unlocked chooser buys is a reader
             // pressing a button the server will refuse, under a sentence
             // telling them to wait.
-            const provenSafe =
+            provenSafe =
               lastIntent === 'requires_payment_method' ||
               lastIntent === 'canceled' ||
               lastIntent === 'requires_action' ||
@@ -342,14 +346,15 @@ export function SupportFlow({
               : lastIntent === 'succeeded'
                 // Proved. The browser lost the challenge; the payment did not.
                 ? 'That went through — thank you. Your profile will show the subscription in a moment.'
-                : settled
-                  // Settled, but only the RETRIEVE knew it. `actionError` here
-                  // is a library or connection failure whose text — "the
-                  // PaymentIntent supplied is not in the requires_action state"
-                  // — says nothing a reader can act on, and showing it in place
-                  // of the sentence that does was the tail of R18's rule:
-                  // Stripe's words for a refusal Stripe reported, ours
-                  // otherwise.
+                : provenSafe
+                  // `provenSafe`, not `settled`: it also covers an ABANDONED
+                  // bank window, where nothing was taken and the controls are
+                  // deliberately left unlocked — so "we could not confirm what
+                  // your bank decided" there contradicted the live chooser in
+                  // front of the reader. `actionError`'s own text is a library
+                  // failure ("the PaymentIntent supplied is not in the
+                  // requires_action state") and says nothing about money, which
+                  // is why it is shown only for a `card_error`.
                   ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
                   : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.',
           )
@@ -533,6 +538,11 @@ export function SupportFlow({
           // stored `requires_action` for ever.
           let settled = actionError.type === 'card_error'
           let landed = false
+          // Hoisted: the FREEZE and the SENTENCE are two decisions about one
+          // fact, and reading it twice is how this file has gone wrong five
+          // times. A card error is proof enough on its own that nothing was
+          // taken, so it starts true.
+          let provenSafe = settled
           if (!settled) {
             const { paymentIntent: after } = await stripe.retrievePaymentIntent(res.clientSecret)
             const status = after?.status ?? null
@@ -555,7 +565,7 @@ export function SupportFlow({
             // So the list is inverted: thaw only for the states that PROVE
             // nothing was taken, and freeze for everything else, null included.
             // A wrong freeze costs a reload; a wrong thaw costs $20.
-            const provenSafe =
+            provenSafe =
               status === 'requires_payment_method' ||
               status === 'canceled' ||
               status === 'requires_action' ||
@@ -568,9 +578,14 @@ export function SupportFlow({
             // record it. Skipping that lost a real conversion for no reason
             // other than which branch the reader arrived on.
             if (status === 'succeeded' && after) {
-              await api
+              // Its answer is also the only FRESH billing state we have — `res`
+              // was built before the bank was asked. The happy path uses it;
+              // discarding it here left the card summary behind the sheet a
+              // step stale for no reason.
+              const fresh = await api
                 .confirmOneTime(after.id, analyticsContext ?? context)
-                .catch(() => {/* the money landed; the analytics row is not worth failing over */})
+                .catch(() => null /* the money landed; the analytics row is not worth failing over */)
+              if (fresh) onState(fresh)
             }
             // A retrieve that could not answer leaves `settled` false: the id is
             // kept, which is the side that cannot double-charge.
@@ -585,17 +600,25 @@ export function SupportFlow({
           // lost the challenge, the gift did not, and "we lost the connection
           // before your bank answered" is needlessly frightening about money
           // that has already arrived.
+          // ONE reading drives the freeze, the rotation and the sentence.
+          // Stripe's own words only for a `card_error`, because only that
+          // message is the reader's; `provenSafe` otherwise, which covers both
+          // a refusal the retrieve saw and an abandoned bank window — the
+          // controls are thawed for both, so "do not pay again" would
+          // contradict the live button in front of them.
           setError(
             actionError.type === 'card_error'
               ? (actionError.message ??
                   'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
               : landed
                 ? 'That went through — thank you. Stripe will email you a receipt.'
-                : settled
-                  // See the subscription twin: settled by the retrieve, not by
-                  // a card error, so the library's own text is not the reader's.
+                : provenSafe
                   ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
-                  : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.',
+                  // NOT "or your profile": a one-off leaves no gift history
+                  // there, by 057's explicit design. The receipt is the only
+                  // place that can answer, which is why `chargeOnce` now names
+                  // the address rather than trusting an account-wide setting.
+                  : 'We lost the connection before your bank answered. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.',
           )
           return
         }
@@ -698,7 +721,8 @@ export function SupportFlow({
           ? e.message
           : settledRefusal
             ? 'That did not go through, so nothing has been charged. You can try again, or use a different card.'
-            : 'We could not confirm that. Do not pay again — check your email for a receipt, or your profile, before retrying.',
+            // See above: a one-off has no profile history to check.
+            : 'We could not confirm that. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.',
       )
     } finally {
       setBusy(false)

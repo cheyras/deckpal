@@ -197,7 +197,10 @@ export function SupportPrompt() {
       if (!session || !alive || closedHere.current) return
       try {
         const s = await api.billingVisit()
-        if (!alive) return
+        // ⚠️ AFTER THE AWAIT TOO. Guarding only the entry to this function left
+        // an in-flight boot able to schedule the timer below on a reader who
+        // answered while the fetch was outstanding.
+        if (!alive || closedHere.current) return
         setState(s)
         // The override is test-mode-only; see FORCE_PARAM. In live mode
         // `forced` is always null and this reads exactly as it did before.
@@ -208,7 +211,17 @@ export function SupportPrompt() {
           setKind(due)
           setForced(!!forced)
           window.setTimeout(() => {
-            if (!alive) return
+            // ⚠️ AND HERE, which is the one that actually reopened the sheet. A
+            // boot scheduled before `close()` fires this a beat after it, and
+            // `setOpen(true)` then put the modal back in front of somebody who
+            // had just answered — with `close()` having no re-entry guard, so
+            // dismissing it again posted a SECOND `dismissed` against one
+            // exposure. Worse in the tail: the reopened flow remounts against
+            // boot's now-stale state, so a reader who had just chosen $5 saw a
+            // button reading "Continue with $0", and pressing it set
+            // `cancel_at_period_end` on the subscription they had made ninety
+            // seconds earlier.
+            if (!alive || closedHere.current) return
             // The render suppresses the modal on a chromeless page (/auth,
             // /authorize, the landing). Recording an exposure there counted a
             // reader who saw nothing — and somebody who then left via an OAuth
@@ -301,7 +314,12 @@ export function SupportPrompt() {
           }}
           context={kind}
           analyticsContext={forced ? `forced-${kind}` : kind}
-          onDismiss={() => close(true)}
+          // `!answered.current`, NOT an unconditional dismissal — the same
+          // reading the ✕ takes. Two branches leave the flow on `choose` AFTER
+          // an answer was recorded, with the chooser and submit disabled by
+          // `inFlight`, so this button is the reader's only live control; a
+          // flat `true` there posted a dismissal on top of the `chose`.
+          onDismiss={() => close(!answered.current)}
           dismissLabel={copy.dismiss}
           onDone={() => close(false)}
         />

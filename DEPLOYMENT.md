@@ -279,6 +279,16 @@ CVC is a card that works.
    of dropped. `packages/db` applies only what is pending and refuses to run if
    a shipped migration has been edited.
 
+   ⚠️ **Turn on Stripe's customer emails** (Stripe — Settings — Customer
+   emails — "Successful payments"). Subscription invoices email a receipt on
+   their own; a one-time contribution is a standalone PaymentIntent, which does
+   not, and it produces no invoice so the billing portal has nothing to show
+   either. The API names `receipt_email` on the charge, which in LIVE mode makes
+   Stripe send it regardless of this setting — but the setting is what covers
+   test mode and anything sent from the dashboard, and the flow's own recovery
+   copy ("do not pay again — Stripe emails a receipt for every contribution")
+   is only true if a receipt actually arrives.
+
    ⚠️ **A supporter above $500/month must have their subscription stamped.**
    The API refuses amounts over the ceiling and tells them to email, so any such
    subscription is made by hand in the dashboard — and it needs

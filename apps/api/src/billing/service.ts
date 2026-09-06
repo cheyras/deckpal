@@ -847,6 +847,22 @@ export async function chargeOnce(
   stripe: Stripe,
   customerId: string,
   amountCents: number,
+  /**
+   * Where the receipt goes.
+   *
+   * ⚠️ THE COPY PROMISES ONE, SIX TIMES OVER, and it is the RECOVERY
+   * instruction on the ambiguous path: "do not pay again — check your email for
+   * a receipt". Without `receipt_email` that promise depends on an account-wide
+   * Stripe setting nobody in this repo turns on — and a standalone
+   * PaymentIntent produces no invoice, so it is absent from the portal's
+   * history too, and 057 deliberately gives the profile no gift history. A
+   * reader whose freeze was cleared by a reload would have been sent to three
+   * places, none of which could answer.
+   *
+   * Naming it here makes the receipt Stripe's own promise rather than a
+   * configuration nobody checked.
+   */
+  receiptEmail: string | null,
   // ⚠️ REQUIRED, not optional. `idempotencyKey` falls back to a minute bucket
   // without one, which is the coarse key the route was fixed to stop using —
   // leaving the parameter optional here re-arms that downgrade for the next
@@ -892,6 +908,7 @@ export async function chargeOnce(
         confirm: true,
         off_session: true,
         description: 'DeckPal — one-time contribution',
+        ...(receiptEmail ? { receipt_email: receiptEmail } : {}),
         // So the dashboard, and anyone reading a charge later, can tell a one-off
         // from a subscription invoice without inferring it from the absence of one.
         metadata: { [SUPPORT_METADATA_KEY]: 'true', kind: 'one_time' },

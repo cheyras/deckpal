@@ -170,9 +170,13 @@ const UNAVAILABLE = {
  * ours, or Stripe's, and the reader can do nothing about either: it becomes a
  * 502 with a generic sentence, and the detail goes to the log.
  *
- * The log line names the type and the Stripe request id and NOTHING else. A
- * Stripe error object can carry the payment method and the customer; dumping it
- * into a log is how card metadata ends up somewhere it was never meant to be.
+ * For a STRIPE error the log line names the type and the request id and nothing
+ * else: a Stripe error object can carry the payment method and the customer,
+ * and dumping it into a log is how card metadata ends up somewhere it was never
+ * meant to be. For an error that is NOT Stripe's it also logs the message,
+ * because this funnel catches our own throws too — "no payment method on file
+ * for a one-time charge" is a wiring failure that exists to be seen, and
+ * reducing it to `type: unknown` hid it. See the line itself.
  */
 function stripeFailure(err: unknown): never {
   // Typed structurally rather than as `Stripe.StripeRawError`: that type
@@ -542,7 +546,13 @@ billingRouter.post(
       const customerId = await customerFor(req, userId, row, stripe);
       if (setupIntentId) await adoptSetupIntent(stripe, customerId, setupIntentId);
 
-      const { clientSecret, paid, status, intentId } = await chargeOnce(stripe, customerId, amountCents, attemptId);
+      const { clientSecret, paid, status, intentId } = await chargeOnce(
+        stripe,
+        customerId,
+        amountCents,
+        currentUserEmail(req),
+        attemptId,
+      );
       // Only a gift that actually landed. A challenge still outstanding is not
       // an outcome, and recording one made an abandoned confirmation count as
       // revenue. When the bank does step in, the browser calls
