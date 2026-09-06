@@ -59,7 +59,18 @@ export type FlowContext = SupportPromptKind | 'settings'
  * both mean the opposite of thank-you, and both are reachable after a bank
  * challenge that the browser saw succeed.
  */
-const PAID_STATUSES = new Set(['active', 'trialing'])
+/**
+ * Statuses in which the amount change is DONE, as the server counts it.
+ *
+ * ⚠️ Mirrors the API's `PAYING` set, and it must. This was `active`/`trialing`
+ * alone, which is right for a first payment and wrong for everything else: a
+ * `past_due` subscriber changing their amount from the profile takes the update
+ * path, succeeds, has the `chose` event recorded server-side — and was then told
+ * "your bank confirmed it, but the payment did not complete", with a retry that
+ * is idempotent and therefore loops for ever. Their card problem is real and
+ * the dunning card says so; the amount change was not the thing that failed.
+ */
+const SETTLED_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid'])
 
 /**
  * A failure, put where the person already is.
@@ -225,9 +236,17 @@ export function SupportFlow({
         })
         lastIntent = paymentIntent?.status ?? null
         if (actionError) {
+          // Same settled-vs-ambiguous split as the one-off. A `card_error` is a
+          // refusal and can say so; anything else may have left a payment in
+          // flight, and `firstPaymentInFlight` will refuse the retry it would
+          // otherwise be inviting — so say the true thing rather than make the
+          // server the only guard.
+          if (actionError.type !== 'card_error') setInFlight(true)
           setError(
-            actionError.message
-              ?? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.',
+            actionError.message ??
+              (actionError.type === 'card_error'
+                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
+                : 'We lost the connection before your bank answered. Reload in a moment — your profile will show the subscription if it went through.'),
           )
           // The server state is still worth taking: the subscription exists as
           // `incomplete`, and the profile card should say so rather than show
@@ -264,22 +283,28 @@ export function SupportFlow({
       // bank's challenge does not mean the charge succeeded — an authenticated
       // card can still be declined — and this used to go straight to the
       // thank-you screen on the strength of `handleNextAction` not erroring.
-      if (amount > 0 && next.support.status && !PAID_STATUSES.has(next.support.status)) {
+      if (amount > 0 && next.support.status && !SETTLED_STATUSES.has(next.support.status)) {
         // ⚠️ THE INTENT DECIDES, NOT THE SUBSCRIPTION'S LAG. This branch fires
         // for two opposite reasons: money that has landed and a subscription
         // that has not caught up (`succeeded`/`processing`), and a card that was
         // refused after authenticating (`requires_payment_method`). Latching on
         // both — which is what checking only the subscription status did — left
         // a declined reader with a disabled chooser and nothing to do but
-        // reload, under a sentence inviting them to try again. And the comment
-        // here claimed the server refuses that retry "regardless", which it does
-        // not: `firstPaymentInFlight` correctly lets a settled refusal through.
-        const settling = lastIntent === 'succeeded' || lastIntent === 'processing';
-        if (settling) setInFlight(true)
+        // reload, under a sentence inviting them to try again.
+        //
+        // `lastIntent` is null when no challenge happened, and then this branch
+        // means only "the subscription is `incomplete`" — which is the FIRST
+        // charge still settling or refused off-session, and we cannot tell
+        // which from here. That is the ambiguous side: do not assert a refusal,
+        // and lock, because the retry would cancel-and-replace. (The server
+        // refuses it too, but a client that invites what the server forbids is
+        // a contradiction the reader has to resolve.)
+        const declined = lastIntent === 'requires_payment_method' || lastIntent === 'canceled'
+        if (!declined) setInFlight(true)
         setError(
-          settling
-            ? 'Your bank confirmed it, but the subscription has not started yet. Reload in a moment — your profile will show it once it has.'
-            : 'Your bank confirmed it, but the payment did not complete. Nothing has been charged — try again, or use a different card.',
+          declined
+            ? 'Your bank confirmed it, but the payment did not complete. Nothing has been charged — try again, or use a different card.'
+            : 'Your payment has not finished settling. Reload in a moment — your profile will show the subscription once it has.',
         )
         return
       }
@@ -354,9 +379,34 @@ export function SupportFlow({
         if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')
         const { error: actionError, paymentIntent } = await stripe.handleNextAction({ clientSecret: res.clientSecret })
         if (actionError) {
+          // ⚠️ THE THIRD PATH A DECLINE ARRIVES BY, and the rotation rule has to
+          // be here too — it is the same rule as the thrown 400 and the `!paid`
+          // return below, on the branch that carries a refusal the bank made
+          // AFTER the challenge.
+          //
+          // Settled (`card_error`): rotate, or the next press replays Stripe's
+          // stored response for this key — the original `requires_action` and a
+          // secret for an intent no longer in that state — so
+          // `handleNextAction` fails on it and every retry loops until the sheet
+          // is closed and reopened.
+          //
+          // Anything else is AMBIGUOUS: a connection dropped after the challenge
+          // was submitted, where the intent may well have succeeded. Keep the id
+          // AND freeze the amount, because the amount is inside the idempotency
+          // key — a nudge from $25 to $20 under the words "nothing has been
+          // charged" is a second real charge on top of one that landed.
+          const settled = actionError.type === 'card_error'
+          if (settled) {
+            attemptId.current = newAttemptId()
+            setFrozenAmount(null)
+          } else {
+            setFrozenAmount(onceAmount)
+          }
           setError(
-            actionError.message
-              ?? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.',
+            actionError.message ??
+              (settled
+                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
+                : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.'),
           )
           return
         }

@@ -847,7 +847,12 @@ export async function chargeOnce(
   stripe: Stripe,
   customerId: string,
   amountCents: number,
-  attemptId?: string,
+  // ⚠️ REQUIRED, not optional. `idempotencyKey` falls back to a minute bucket
+  // without one, which is the coarse key the route was fixed to stop using —
+  // leaving the parameter optional here re-arms that downgrade for the next
+  // caller, silently, on the one call in this file where a repeat is a second
+  // real charge.
+  attemptId: string,
 ): Promise<{ clientSecret: string | null; paid: boolean; status: string | null; intentId: string | null }> {
   const customer = await stripe.customers.retrieve(customerId, {
     expand: ['invoice_settings.default_payment_method'],

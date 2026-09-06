@@ -15909,16 +15909,59 @@ third path a decline can take, and that branch neither rotated the attempt id
 nor thawed the amount. The next press replays Stripe's stored response for the
 same key — the original `requires_action` and a secret for an intent no longer
 in that state — so `handleNextAction` fails on it and every retry loops until
-the sheet is closed and reopened. The 24-hour idempotency replay has now caused
-three separate bugs in this file, each on a different path a decline can arrive
-by; the rule is in one place and stated once: settled refusals rotate the id,
-ambiguity keeps it.
+the sheet is closed and reopened.
+
+⚠️ **That paragraph was written before the change it describes, and the change
+did not land.** The script making it aborted on an earlier hunk and the edits
+after it never ran, so §15 shipped claiming a fix the tree did not contain —
+in the commit titled "a comment wrong about its own fix". Round thirteen caught
+it. Recorded rather than silently corrected, because it is the second time a
+half-applied edit has produced a confidently false comment here (see §6), and
+the lesson is procedural: after an edit script, GREP FOR THE CHANGE. An
+assertion that a script ran is not evidence that it finished.
+
+The 24-hour idempotency replay has now caused three separate bugs in this file,
+each on a different path a decline can arrive by; the rule is stated once and
+applied on all three: settled refusals rotate the id, ambiguity keeps it AND
+freezes the amount.
 
 Two counts corrected. SECURITY.md said three writers log a Stripe message
 outside the funnel; there are five, and the signature-verification line is one
 of them. API.md put `/prompt-shown` on the list of endpoints answering the
 common shape; it answers `{ recorded }`, deliberately, as its own entry sixty
 lines later says.
+
+### 16. Round thirteen: the fix that was written down but not written
+
+The blocker was §15 itself. Round twelve's edit script aborted on an earlier
+hunk, so the one-off's `actionError` rotation never reached the tree while the
+commit message and DECISIONS both said it had. Both consequences were live: a
+card refused after the challenge looped for ever on Stripe's replayed
+`requires_action`, and an ambiguous `actionError` left the chooser unfrozen
+under the words "nothing has been charged" — a nudge from $25 to $20 there is a
+second real charge, the exact shape round six was a headline fix for, on the
+third branch.
+
+It is in now, on all three paths, with the ambiguous side freezing rather than
+inviting. The procedural lesson is written into §15: grep for the change after
+an edit script, because "the script printed ok" is not evidence it finished.
+
+The same round found the client calling a SUCCESSFUL amount change a decline.
+`PAID_STATUSES` was `active`/`trialing`, which is right for a first payment and
+wrong for a `past_due` subscriber changing their amount from the profile: the
+update succeeds, the server records the `chose`, and the reader is told "your
+bank confirmed it, but the payment did not complete" with a retry that is
+idempotent and therefore loops. It mirrors the API's `PAYING` set now, which is
+what "settled" has meant on the server all along.
+
+And the post-challenge branch reads `lastIntent`, which is null when no
+challenge happened — an `incomplete` subscription whose first charge is
+settling or was refused off-session, and unknowable from the client. It no
+longer asserts a refusal there: only an intent that actually says
+`requires_payment_method` or `canceled` gets the decline copy, and everything
+else locks and says the payment has not finished settling, which is what the
+server enforces anyway. `chargeOnce`'s `attemptId` is required rather than
+optional, so the minute-bucket fallback cannot be re-armed by a future caller.
 
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
