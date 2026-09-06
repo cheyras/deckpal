@@ -213,6 +213,14 @@ export function normalizeAmountCents(v: unknown): number {
   }
   if (n % 100 !== 0) throw badRequest('amountCents must be a whole number of dollars (a multiple of 100)');
   if (n > SUPPORT_MAX_CENTS) {
+    // ⚠️ If one of these is ever actually arranged, STAMP THE SUBSCRIPTION with
+    // `metadata.deckpal_support = 'true'` in the dashboard. Without it
+    // `pullState` cannot see the subscription at all, so the account reads as
+    // paying nothing and the monthly check-in asks its largest supporter for
+    // money every month, for ever. With it, everything works except that the
+    // cached `support_cents` is clamped to this ceiling (059) — a display
+    // figure, not a charge. Clamped display beats invisible supporter.
+    // DEPLOYMENT.md carries the same note where the owner will meet it.
     throw badRequest(`amounts above $${SUPPORT_MAX_CENTS / 100} have to be arranged by email — that is almost always a typo`);
   }
   return n;

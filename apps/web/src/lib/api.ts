@@ -1568,10 +1568,15 @@ export const api = {
   /**
    * Re-read Stripe after an authentication challenge completed in the browser.
    *
-   * `amountCents` + `context` report the CONFIRMED outcome: the write that
-   * started the challenge deliberately recorded nothing, because at that moment
-   * nothing had been paid. Passing them here records the answer exactly once,
-   * and only if the subscription really is paying now.
+   * `context` reports the CONFIRMED outcome: the write that started the
+   * challenge deliberately recorded nothing, because at that moment nothing had
+   * been paid. Passing it here records the answer exactly once, and only if the
+   * subscription really is paying now.
+   *
+   * `amountCents` is sent for symmetry with that write and is IGNORED by the
+   * server, which records `support_cents` as Stripe reports it — the client
+   * naming its own amount was the one number an account could have set to
+   * anything without going near Stripe.
    */
   refreshBilling: (confirmed?: { amountCents: number; context: string }) =>
     send<BillingState>('POST', '/me/billing/refresh', confirmed ?? {}),

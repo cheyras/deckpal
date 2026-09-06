@@ -25,6 +25,7 @@ import {
 } from '../billing/store.js';
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
 import { ApiError, errorMiddleware } from '../http.js';
+import { PaymentInFlightError, SubscriptionPausedError } from '../billing/service.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -392,6 +393,27 @@ describe('billing errors reach the reader', () => {
     const { status, body } = answered(bolted);
     assert.equal(status, 500, 'a plain Error must not be able to fake a 4xx');
     assert.deepEqual(body, { error: { code: 'internal', message: 'Internal server error' } });
+  });
+
+  test('the real refusal classes ARE ApiErrors — revert them and this fails', () => {
+    // The point of naming them here rather than constructing an equivalent
+    // ApiError: this test fails if somebody changes `extends ApiError` back to
+    // `extends Error`, which is exactly the regression it exists for. The
+    // previous version of this block asserted the middleware's behaviour and
+    // would have passed happily through that revert.
+    for (const err of [new PaymentInFlightError(), new SubscriptionPausedError()]) {
+      assert.ok(err instanceof ApiError, `${err.constructor.name} must extend ApiError to reach the reader`);
+      const { status, body } = answered(err);
+      assert.equal(status, 400, `${err.constructor.name} must be a 400`);
+      const shown = (body as { error: { code: string; message: string } }).error;
+      assert.notEqual(shown.code, 'internal');
+      assert.equal(shown.message, err.message, 'the sentence written for the reader must be the one sent');
+    }
+  });
+
+  test('their codes are the ones API.md documents', () => {
+    assert.equal((answered(new PaymentInFlightError()).body as { error: { code: string } }).error.code, 'payment_in_flight');
+    assert.equal((answered(new SubscriptionPausedError()).body as { error: { code: string } }).error.code, 'subscription_paused');
   });
 
   test('the upstream wrapper reaches the reader, because it is an ApiError', () => {

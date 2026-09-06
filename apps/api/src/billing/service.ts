@@ -451,7 +451,7 @@ async function firstPaymentInFlight(stripe: Stripe, sub: Stripe.Subscription): P
  * the reader as an outage, including the sentence written to stop a one-off
  * being paid twice.
  */
-class PaymentInFlightError extends ApiError {
+export class PaymentInFlightError extends ApiError {
   constructor() {
     super(
       400,
@@ -475,7 +475,7 @@ class PaymentInFlightError extends ApiError {
  * the dashboard, and unpausing is a dashboard action too. So this says so,
  * rather than quietly doing the wrong thing in either direction.
  */
-class SubscriptionPausedError extends ApiError {
+export class SubscriptionPausedError extends ApiError {
   constructor() {
     super(
       400,
@@ -613,8 +613,18 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
       // A stray whose first payment is still `processing` has no PAID invoice,
       // so the refund sweep below finds nothing to give back — and cancelling
       // lands the charge against a cancelled subscription where nothing will
-      // ever look for it again. Leave it; it settles or expires on its own, and
-      // the next call here picks it up with an invoice to refund.
+      // ever look for it again. Leave it: it settles or expires on its own, and
+      // once it has settled there is a PAID invoice to give back.
+      //
+      // ⚠️ Nothing schedules a second look. This sweep runs only from
+      // `setSupport`'s create path, so a stray skipped here is picked up on the
+      // account's next amount change and not before — if there is never
+      // another, a settled stray bills monthly and `managedSubscription`
+      // surfaces only one subscription, so nobody sees it. Reaching that needs
+      // the advisory lock to have already failed AND a card left `processing`,
+      // which is why it is a known gap rather than a fix: the honest close is a
+      // sweep on the webhook's `invoice.paid`, and adding one late in a review
+      // loop is how the last three rounds went wrong.
       if (s.status === 'incomplete' && (await firstPaymentInFlight(stripe, s))) {
         console.warn('[deckpal-api] billing: leaving a duplicate subscription alone — its first payment is settling');
         continue;

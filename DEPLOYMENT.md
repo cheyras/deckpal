@@ -224,6 +224,7 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `STRIPE_PUBLISHABLE_KEY` | `pk_live_…` / `pk_test_…` | **Public by design** — it identifies the account to Stripe.js and can do nothing on its own. Served to the browser at RUNTIME from `GET /me/billing`, deliberately not baked into the bundle: a build-time publishable key and a runtime secret key are independently settable, and the failure of them disagreeing is a LIVE key in the browser talking to a TEST key on the server, which presents to the reader as "my card was declined for no reason". Serving both halves from the same process makes that unreachable. **Must be from the same Stripe account and the same mode as `STRIPE_SECRET_KEY`.** `VITE_STRIPE_PUBLISHABLE_KEY` is accepted as an alias. |
 | `STRIPE_SUPPORT_PRODUCT_ID` | `prod_…` | **The one Stripe Product every supporter is billed against.** Create it once in the Stripe dashboard (Product catalog → Add product; name it something a cardholder will recognise on a statement, e.g. "DeckPal Support"; no price is needed — the amount is generated per subscription). There is no Price object because there is no price: the amount is inline `price_data` on the subscription item, so each invoice reads "DeckPal Support $5.00/month" and the dashboard still groups every supporter under one product. Unset means billing is off exactly as an unset secret key does. **A test-mode product id is not valid in live mode** — create one in each. |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` | **The webhook's ONLY authentication, and the one whose absence is dangerous rather than safe.** `POST /api/stripe/webhook` is public by necessity (Stripe holds no session), so the signature check *is* the access control on the endpoint that decides which accounts are recorded as paying — unset, the route answers `503` and processes nothing rather than trusting the body. That fails safe for the endpoint and UNSAFE for the product: a deployment with a secret key and no webhook secret takes cards and creates subscriptions happily, and then never hears about a renewal, a failure or a cancellation again. `/health` calls that state `partial` and the API warns about it by name on boot. Get the value from Stripe → Developers → Webhooks → add endpoint `https://deckpal.app/api/stripe/webhook`, subscribing to `customer.subscription.*`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `payment_method.*`, `setup_intent.succeeded`, `customer.updated`, `customer.deleted`. **Test and live modes have different signing secrets.** |
+| `NODEJS_HELPERS` | `0` (Vercel only) | **Set it if the webhook rejects deliveries the signature is right for.** Vercel's Node helpers can read and JSON-parse the request body before `express.raw()` sees the stream, and Stripe's signature is over the ORIGINAL bytes — once parsed they cannot be reconstructed, because key order and whitespace are gone. The handler recovers every shape it can (Buffer, Uint8Array, string) and, for the one it cannot, logs "the request body was parsed before this handler saw it" and answers `500` naming this variable, rather than reporting a signature failure nobody could act on. `0` turns the helpers off. Not needed for the standalone Node server or self-host. |
 | `PUBLIC_APP_ORIGIN` | unset (default) | Optional. The origin Stripe's billing portal returns the reader to. Unset, the API derives it from the request (`https://deckpal.app`), which is right for every ordinary deployment; set it only behind a proxy that rewrites `Host`. The client never supplies it — a return URL taken from a request body is an open redirect with a Stripe-branded page in front of it. |
 
 ### Turning the pay-what-you-want tier on
@@ -277,6 +278,15 @@ CVC is a card that works.
    "processed", so a delivery that fails or dies mid-flight is retried instead
    of dropped. `packages/db` applies only what is pending and refuses to run if
    a shipped migration has been edited.
+
+   ⚠️ **A supporter above $500/month must have their subscription stamped.**
+   The API refuses amounts over the ceiling and tells them to email, so any such
+   subscription is made by hand in the dashboard — and it needs
+   `metadata.deckpal_support = "true"` on it. Without that stamp `pullState`
+   cannot see it at all: the account reads as paying nothing, and the monthly
+   check-in asks the product's largest supporter for money every month for ever.
+   With it, everything works except that the cached amount displays clamped to
+   $500 (059). A clamped display beats an invisible supporter.
 
    ⚠️ **Do not enable a bank-debit payment method** (`us_bank_account` / ACH,
    SEPA) in the Stripe dashboard without a code change first. The card form uses

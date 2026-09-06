@@ -15777,6 +15777,52 @@ frozen: pressing it cannot double-charge, but on the challenge path Stripe
 replays the original `requires_action`, `handleNextAction` fails on it, and the
 copy then asserts "nothing has been charged" over money still settling.
 
+### 12. Round nine: a personal access token could spend your money
+
+Every billing route sat behind `resolveIdentity` alone, and a personal access
+token (`dsk_—`) resolves to a user exactly as a session does. So a token could
+set somebody's monthly amount, charge a one-off of up to $500 against their
+saved card, cancel their support, and open a Stripe portal session showing their
+invoice history, billing address and card management.
+
+These are tokens minted specifically to hand to third-party AI clients. The
+repo's own doctrine already said this — `/tokens`, `/avatar` and `/oauth` are
+behind `requireSession` on the reasoning that "a token reads a collection, it
+does not restyle the account" — and money is account administration by any
+reading of that sentence. The billing router was written after those and simply
+did not inherit the rule. `requireSession` now, and no client loses anything:
+both web surfaces use sessions.
+
+Second, the one thing this review could not settle from the code. The webhook's
+signature is over the exact bytes Stripe sent, and Vercel's Node helpers can
+read and JSON-parse the body before `express.raw()` gets the stream — the same
+interference `http.ts`'s `toBuffer` exists for on the avatar routes. Parsed, the
+bytes are unrecoverable: key order and whitespace are gone. The failure looks
+identical to a wrong secret, so EVERY delivery 400s while cards go on being
+charged, which is the worst state this feature has.
+
+It cannot be proven from here, only observed on a real deployment, so the code
+now makes it observable: recoverable shapes are recovered, and the one that
+cannot be says so — a 500 whose log names `NODEJS_HELPERS=0` and DEPLOYMENT.md,
+rather than a signature error nobody could act on. The go-live runbook's
+"send a test webhook and confirm a 200" step remains a real gate, not a
+formality.
+
+Also this round: the regression test added in round eight would have passed a
+revert of the round-eight fix, because it constructed its own `ApiError`s rather
+than naming the two refusal classes. They are exported and asserted now — a
+test that cannot fail on the change it guards is scenery.
+
+Two known gaps, recorded rather than fixed. A stray subscription skipped because
+its first payment was settling is only revisited on the account's next amount
+change; the honest close is a sweep on the webhook's `invoice.paid`, and adding
+one in the ninth round of a review loop is precisely how rounds six and seven
+went wrong. And a supporter above the $500 ceiling is arranged by hand, so their
+subscription must be stamped with the `deckpal_support` metadata or `pullState`
+cannot see it and the check-in asks the product's largest supporter for money
+every month for ever; that is now in the runbook and beside the error message
+that sends them to email.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

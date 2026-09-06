@@ -503,11 +503,21 @@ expiring card during the wind-down month after choosing $0 silently un-cancelled
 the stop, and it recorded a fresh `chose` event for what was only a card fix.
 
 ### POST /deckpal/api/me/billing/one-time
-`{ "amountCents": 2500, "setupIntentId": "seti_—", "context": "checkin" }` —
+`{ "amountCents": 2500, "setupIntentId": "seti_—", "context": "checkin",
+"attemptId": "…" }` —
 the common shape plus `paid` and `status`. A single charge against the card on
 file, offered as the follow-up when somebody answers $0. No subscription is
 created. Recorded as `chose_one_time`, never `chose` — folding a one-off into
 the recurring number overstates that account by 12x (migration 057).
+
+`attemptId` is required and load-bearing: an opaque client string matching
+`[A-Za-z0-9_-]{8,64}` that goes into the Stripe idempotency key alongside the
+customer and the amount. The browser holds ONE of these across every retry of a
+single press, so a network retry or a double click is one charge — and mints a
+new one only after a settled outcome, because Stripe replays a stored response
+(declines included) for 24 hours and a retry under the old id would never reach
+the bank. Changing the amount changes the key, which is why the client freezes
+the amount while an attempt is unresolved.
 
 `paid` is false when the issuer wants the reader to confirm; `clientSecret` then
 carries the challenge, and the browser must check the intent's own status

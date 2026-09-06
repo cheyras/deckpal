@@ -200,6 +200,12 @@ function stripeFailure(err: unknown): never {
   console.error('[deckpal-api] billing: stripe call failed', {
     type: e?.type ?? 'unknown',
     requestId: e?.requestId ?? null,
+    // ⚠️ Only for errors that are NOT Stripe's. A Stripe error's message can
+    // carry the reader's own decline copy, and this line is a server log — but
+    // this funnel also catches OUR throws ("no payment method on file for a
+    // one-time charge" is a wiring failure that exists to be seen), and logging
+    // type+requestId alone reduced every one of them to `unknown`/`null`.
+    message: e?.type ? undefined : (err as Error)?.message,
   });
   // NOT "nothing was charged". This funnel is reached from after a successful
   // charge too — a `pullState` that fails once the money has moved, or the RLS

@@ -450,9 +450,17 @@ grant to either role.
 
 An amount, and a `setupIntentId` on the one leg where a card was just entered —
 that id being verified to belong to this account's customer, and to have
-succeeded, before it is used. Customer ids, subscription ids, prices,
-payment-method ids and statuses are all resolved server-side and never accepted
-from a request.
+succeeded, before it is used. Two more object references, both checked the same
+way: a `paymentIntentId` on `/one-time/confirm`, verified to belong to this
+account's customer AND to carry the metadata marking it a one-off this flow
+created; and an `attemptId`, a client-generated opaque string constrained to
+`[A-Za-z0-9_-]{8,64}` because it goes into a Stripe idempotency key — which is
+what makes a retried gift one charge rather than two.
+
+Customer ids, subscription ids, prices, payment-method ids and statuses are all
+resolved server-side and never accepted from a request. `/refresh` accepts an
+`amountCents` and deliberately ignores it: the recorded figure is what Stripe
+says the subscription bills.
 
 It also sends two analytics values: the prompt `kind` and a free-text `context`
 (truncated to 40 characters). Neither touches money. The experiment arm — the

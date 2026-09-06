@@ -173,7 +173,8 @@ export function createApp(): express.Express {
 
   // JWT verification runs on every request (extracts req.user from Bearer token).
   // It never rejects — user-scoped routers are gated by resolveIdentity below,
-  // and the session-only ones (/tokens, /avatar, /oauth) by requireSession too.
+  // and the session-only ones (/me/billing, /tokens, /avatar, /oauth) by
+  // requireSession too.
   api.use(authMiddleware);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
@@ -466,7 +467,18 @@ export function createApp(): express.Express {
   // Mounted ahead of `/me` so the two-segment path resolves here; meRouter has
   // no `/billing` route, so nothing is shadowed either way, but the order says
   // which router owns the path.
-  api.use('/me/billing', billingRouter);
+  //
+  // ⚠️ `requireSession`, ON THE SAME REASONING AS /tokens AND /avatar. A
+  // personal access token (`dsk_…`) resolves to a user exactly as a session
+  // does, so without this every billing route accepted one — and these are
+  // tokens minted specifically to hand to third-party AI clients. A leaked or
+  // over-trusted token could set somebody's monthly amount, charge a one-off
+  // against their saved card, cancel their support, and open a Stripe portal
+  // session exposing their invoice history, billing address and card
+  // management. A token reads a collection; it does not spend money or
+  // administer the account. Both web surfaces use sessions, so nothing
+  // legitimate loses access.
+  api.use('/me/billing', requireSession, billingRouter);
   api.use('/me', meRouter);
 
   // Deck-E's transcript history. Mounted under `/decke` so the feature's routes

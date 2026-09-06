@@ -102,6 +102,27 @@ function customerIdOf(event: Stripe.Event): string | null {
 }
 
 /**
+ * The exact bytes Stripe signed, or null if they are gone.
+ *
+ * `express.raw()` normally hands over a Buffer. The other shapes are what a
+ * platform layer leaves behind when it read the stream first: a Uint8Array or
+ * ArrayBuffer (bytes intact, recoverable), or a string (decoded as UTF-8, which
+ * re-encodes byte-for-byte because that is how it was decoded).
+ *
+ * A plain object is the one that cannot be recovered — the JSON has been
+ * parsed, and re-serialising it would produce different bytes and therefore a
+ * different signature. That returns null so the caller can say so plainly
+ * instead of reporting a signature failure it cannot fix.
+ */
+function rawBody(body: unknown): Buffer | null {
+  if (Buffer.isBuffer(body)) return body;
+  if (body instanceof Uint8Array) return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (typeof body === 'string' && body.length > 0) return Buffer.from(body, 'utf8');
+  return null;
+}
+
+/**
  * How long a claim may sit unfinished before another delivery may take it over.
  *
  * Longer than any handler can run (the whole request is bounded well below it),
@@ -257,10 +278,32 @@ async function handle(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // ⚠️ THE BYTES, NOT THE OBJECT. `express.raw()` gives a Buffer when it gets
+  // to read the stream — but under Vercel's Node helpers something may already
+  // have consumed and decoded it, exactly as it does on the avatar routes (see
+  // `toBuffer` in http.ts, which exists for that reason). A JSON body that
+  // arrives already parsed cannot be un-parsed: key order and whitespace are
+  // gone, and the signature is over the original bytes.
+  //
+  // That failure is indistinguishable from a wrong secret at the Stripe end —
+  // EVERY delivery 400s while cards go on being charged, which DEPLOYMENT.md
+  // calls the worst state this feature has. So it is named rather than left to
+  // look like a signature problem: recoverable shapes are recovered, and the
+  // unrecoverable one says what to do about it (B11 — fail loudly).
+  const raw = rawBody(req.body);
+  if (!raw) {
+    console.error(
+      '[deckpal-api] stripe webhook: the request body was parsed before this handler saw it, so the signature ' +
+        'cannot be checked. The platform is consuming the stream — set NODEJS_HELPERS=0 on the deployment ' +
+        '(see DEPLOYMENT.md). Deliveries will keep failing until it is set.',
+    );
+    res.status(500).json({ error: { code: 'raw_body_lost', message: 'Could not read the request body.' } });
+    return;
+  }
+
   let event: Stripe.Event;
   try {
-    // req.body is a Buffer here (express.raw), which is the whole point.
-    event = stripe.webhooks.constructEvent(req.body as Buffer, signature, secret);
+    event = stripe.webhooks.constructEvent(raw, signature, secret);
   } catch (err) {
     // Never log the body or the signature: one is an unverified payload from an
     // unauthenticated caller, the other is the thing an attacker is trying to
