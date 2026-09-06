@@ -277,9 +277,13 @@ export function SupportPrompt() {
 
         <SupportFlow
           state={state}
-          onState={(next) => {
+          // ⚠️ `onState`, NOT the answer signal. It fires whenever the state on
+          // screen must change — including after a failure — so inferring an
+          // answer from it recorded neither outcome for a reader who tried,
+          // failed and closed the sheet. `onAnswered` is the signal.
+          onState={setState}
+          onAnswered={() => {
             answered.current = true
-            setState(next)
           }}
           context={kind}
           analyticsContext={forced ? `forced-${kind}` : kind}

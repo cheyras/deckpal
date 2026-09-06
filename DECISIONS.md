@@ -16084,6 +16084,38 @@ compensation that would itself need a refund path. It is left as it is,
 deliberately, and named here so the next person does not discover it as a
 surprise.
 
+### 21. Round eighteen: an effect that fired on its own flag
+
+Second consecutive round with nothing above minor. The one worth reading is the
+retire-effect added last round, which was keyed on `errorHidesNote` as well as on
+the query data — so it ran the instant the flag was SET, against whatever
+snapshot happened to be cached. An account that went `past_due` after the page
+loaded had its brand-new "the outstanding payment still did not go through"
+cleared in the same tick by data that still said `active`, and the reader was
+left believing the card fix had worked. It is keyed on `dataUpdatedAt` now:
+retirement needs a genuinely new fetch, which is what the sentence describing it
+always said.
+
+The other three. `SupportPrompt` inferred "they answered" from `onState`, which
+`SupportFlow` also calls on failure and ambiguous branches — because the card
+summary and the status on screen must stay honest whatever happened. A reader
+who tried, failed and closed the sheet therefore recorded NEITHER a `chose` nor
+a `dismissed`: the exposure vanished from the experiment. There is an explicit
+`onAnswered` now, fired at the two points where an answer exists.
+
+`actionError.message ??` took precedence over the settled-versus-ambiguous
+sentence, in both twins. A decline's message is the reader's own and better than
+anything written here; every other error's text says nothing about whether money
+moved, and preferring it replaced the one sentence that does. Stripe's words for
+a refusal, ours for everything else.
+
+And SECURITY.md now names what the write-once pin does NOT do: the first write
+is unchecked, because the RPC cannot ask Stripe who owns a customer id. The
+disclosure stays closed on the ownership checks; what is left is that squatting
+an id another account will later store turns their billing into unique-violation
+errors until an operator clears the row. Accepted and named, so it is
+diagnosable rather than mysterious.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

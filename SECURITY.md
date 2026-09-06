@@ -422,6 +422,18 @@ API can decide. Migration 054 makes it the database's decision instead:
   headers in 059 and 060 described the two halves as independent, such that
   either alone would hold. That was wrong, and the ownership check above is
   load-bearing on its own.
+- **The write-once pin permits the FIRST write to any value.** There is no
+  ownership check at write time — the RPC cannot ask Stripe — so an account
+  whose `stripe_customer_id` is still NULL can plant an arbitrary `cus_—`. The
+  disclosure stays closed, because the webhook and every route verify the
+  customer's metadata names the row owner before reading anything from it. What
+  remains is a nuisance: the column is UNIQUE, so squatting an id that another
+  account will LATER legitimately store turns that account's billing requests
+  into unique-violation errors until an operator clears the row. It needs
+  knowing a live customer id before its owner's row records it — a window
+  measured in the seconds between `ensureCustomer` and `applyStripe` — and
+  recovery is one UPDATE. Accepted, and named so it is diagnosable rather than
+  mysterious.
 - **`billing_release_customer` can be called by the account it belongs to**
   (060), and deliberately carries no "not while you are subscribed" check. Such
   a check would read the row's CACHED subscription status to decide, and the one

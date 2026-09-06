@@ -28,7 +28,7 @@
  * upward, an unavailable deployment renders nothing at all, and a failed read
  * renders a quiet line rather than an error state.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type BillingState } from '../../lib/api'
 import { isCloudMode } from '../../lib/supabase'
@@ -70,6 +70,12 @@ export function SupportSettings() {
    * error's SUBJECT, not to there being one.
    */
   const [errorHidesNote, setErrorHidesNote] = useState(false)
+  // Read inside the retire-effect without making the effect depend on it — see
+  // the effect's own warning about running against a stale snapshot.
+  const errorHidesNoteRef = useRef(false)
+  errorHidesNoteRef.current = errorHidesNote
+  /** The fetch this component has already reacted to. */
+  const fetchedAt = useRef<number | null>(null)
 
   useEffect(() => {
     if (!query.data) return
@@ -79,14 +85,24 @@ export function SupportSettings() {
     // suppresses the status note while it is up — so if Stripe's own dunning
     // collects the invoice a few minutes later, a stale sentence saying the
     // payment did not go through would go on hiding a note that by then reads
-    // "next payment on the 14th". Any refetch that shows the account no longer
-    // needing attention retires it.
+    // "next payment on the 14th". A FRESH FETCH showing the account no longer
+    // needs attention retires it.
+    //
+    // ⚠️ A FRESH one. Keyed on `dataUpdatedAt`, and deliberately NOT on
+    // `errorHidesNote`: with the flag in the dependency list this ran the
+    // moment the flag was set, against whatever `query.data` was already
+    // cached — so an account that went `past_due` after the page loaded had its
+    // brand-new "the outstanding payment still did not go through" cleared in
+    // the same tick by a snapshot that still said `active`, and the reader was
+    // left believing the card fix had worked.
+    if (fetchedAt.current === query.dataUpdatedAt) return
+    fetchedAt.current = query.dataUpdatedAt
     const status = query.data.support?.status ?? null
-    if (errorHidesNote && status !== 'past_due' && status !== 'unpaid') {
+    if (status !== 'past_due' && status !== 'unpaid') {
       setErrorHidesNote(false)
-      setError(null)
+      setError((prev) => (errorHidesNoteRef.current ? null : prev))
     }
-  }, [query.data, errorHidesNote])
+  }, [query.data, query.dataUpdatedAt])
 
   // Self-host, or a deployment with no Stripe: say nothing at all. An empty
   // card headed "Supporting DeckPal" would advertise a tier that does not exist

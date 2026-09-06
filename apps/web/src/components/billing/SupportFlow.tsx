@@ -118,6 +118,21 @@ export interface SupportFlowProps {
    * changing a word of what the reader sees. Defaults to `context`.
    */
   analyticsContext?: string
+  /**
+   * Called when the reader has actually ANSWERED — and only then.
+   *
+   * ⚠️ NOT the same as `onState`, which the frame used to infer this from.
+   * `onState` fires on failure and ambiguous branches too (an abandoned
+   * challenge, a payment still settling, an `incomplete` subscription), because
+   * the card summary and the status on screen must stay honest whatever
+   * happened. Treating that as an answer meant a reader who tried, failed, and
+   * closed the sheet recorded NEITHER a `chose` nor a `dismissed`: the exposure
+   * simply vanished from the experiment.
+   *
+   * This fires at the two points where an answer exists: an amount settled
+   * (including $0, which is a real answer) and a gift that landed.
+   */
+  onAnswered?: () => void
   /** Called once the flow has finished and the frame may close itself. */
   onDone?: () => void
   /** The dismissal, when the frame has one. Renders as an equal-weight action. */
@@ -130,6 +145,7 @@ export function SupportFlow({
   onState,
   context,
   analyticsContext,
+  onAnswered,
   onDone,
   onDismiss,
   dismissLabel = 'Not right now',
@@ -285,11 +301,16 @@ export function SupportFlow({
                 .catch(() => {/* the subscription is live; the analytics row is not worth an error */})
             }
           }
+          // ⚠️ STRIPE'S MESSAGE ONLY FOR A REFUSAL. A decline's message is the
+          // reader's own — "your card was declined" in their bank's words — and
+          // better than anything written here. Everything else is a connection
+          // or library error whose text says nothing about whether money moved,
+          // and letting `??` prefer it replaced the one sentence that does.
           setError(
-            actionError.message ??
-              (settled
-                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
-                : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.'),
+            settled
+              ? (actionError.message ??
+                  'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
+              : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.',
           )
           // The server state is still worth taking: the subscription exists as
           // `incomplete`, and the profile card should say so rather than show
@@ -364,6 +385,7 @@ export function SupportFlow({
         )
         return
       }
+      onAnswered?.()
       setCommitted(amount)
       // The owner's ask: lead with the subscription, follow up with the one-off.
       // Only on $0, only once, and only where the ask belongs.
@@ -403,6 +425,7 @@ export function SupportFlow({
         )
         return
       }
+      onAnswered?.()
       setCommitted(res.support.cents)
       setStep('done')
     } catch (e) {
@@ -487,11 +510,12 @@ export function SupportFlow({
             attemptId.current = newAttemptId()
             setFrozenAmount(null)
           }
+          // Stripe's message only for a refusal — see the subscription twin.
           setError(
-            actionError.message ??
-              (settled
-                ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
-                : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.'),
+            settled
+              ? (actionError.message ??
+                  'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.')
+              : 'We lost the connection before your bank answered. Do not pay again — check your email for a receipt, or your profile, before retrying.',
           )
           return
         }
@@ -558,6 +582,7 @@ export function SupportFlow({
       }
       onState(state)
       setFrozenAmount(null)
+      onAnswered?.()
       setGaveOnce(onceAmount)
       // Spent. Anything after this is a NEW attempt and must not collapse into
       // the charge that just succeeded.
