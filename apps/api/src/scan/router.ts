@@ -249,7 +249,8 @@ scanRouter.post(
  *         "name":        "Floragato",   // the title line, as read
  *         "number":      "014",         // the numerator; zero padding is ignored
  *         "denominator": "198",         // ABSENT IS MEANINGFUL — see below
- *         "setCode":     "SVIEN"        // the badge, language subscript and all
+ *         "setCode":     "SVIEN",       // the badge, language subscript and all
+ *         "bodyLines":   ["Slash", …]   // ESCALATION ONLY — see below
  *       },
  *       "priorMatches": [ { "cardId": "sv01-014", "distance": 3 } ]
  *     }
@@ -279,9 +280,37 @@ scanRouter.post(
  *                        99.6% unique with a denominator, 94.3% without. The
  *                        two share a label because they share a shape; the
  *                        distinction the caller cares about is `confident`.
+ *   'family-text'        rung 9 — the text in the MIDDLE of the card. See the
+ *                        escalation note below; this is the one rung that can
+ *                        return `matched: false` WITH candidates.
  *   'prior-only'         OCR added no key, only a filter. The answer is the
  *                        existing phash path's, possibly narrowed to a set or a
  *                        number, and `confident` is always false.
+ *
+ * ── fields.bodyLines: WHEN TO SEND IT, AND WHAT COMES BACK ─────────────────
+ *
+ * Send it ONLY when the name and the number both failed to extract. It is the
+ * whole-card text — attacks, ability, rules text, flavour line — as at most 24
+ * lines of at most 200 characters, in reading order, and it is a last resort
+ * rather than a bonus signal: it costs a large slow OCR region and everything
+ * it can say is said better by the two small ones. Sending it alongside a good
+ * read is harmless (rung 9 runs after every rung that resolves from a name, a
+ * number or a badge, so it can never override one) and simply wasted.
+ *
+ * What comes back is a FAMILY, never a printing, because every printing of one
+ * card carries the same words — that is what a reprint is. So:
+ *
+ *   - the family has exactly one printing → `matched: true`, `confident: true`,
+ *     one match. This is the whole set of circumstances in which body text
+ *     alone identifies a card.
+ *   - the family has several → `matched: false` with every printing in
+ *     `matches`. 🔴 Not an empty answer, and not a matched one: put those in
+ *     front of a person to choose from, and never auto-add one.
+ *   - nothing was decisive → the rung is silent and some other `resolvedBy`
+ *     answers, exactly as it would have if `bodyLines` had not been sent.
+ *
+ * The rung is also silent — with no error and no change to any other rung — on
+ * a deployment whose migrations or catalog sync have not run yet.
  *
  * `confident` is an IDENTITY claim — this is that card — and never a claim
  * about the printing. Which variant (reverse holo, first edition, jumbo) stays
@@ -313,6 +342,40 @@ const MAX_PRIORS = 50;
 /** OCR output is short strings. Anything longer is not a card name. */
 const MAX_FIELD_LEN = 128;
 
+/**
+ * `fields.bodyLines` is the one OCR field that is a LIST, and the one that
+ * reaches an array-containment query, so it gets its own two bounds rather than
+ * MAX_FIELD_LEN's.
+ *
+ * 24 lines is the owner's ruling, verbatim. 200 characters is deliberate
+ * headroom rather than a target: the longest single line in the recorded
+ * full-crop OCR reads is 65 characters, and a card does not print longer ones,
+ * so anything approaching this bound is two lines a grouper glued together and
+ * is still cheaper to accept than to argue about.
+ *
+ * The ladder clamps to the same two numbers on its own (`familyText.ts`).
+ * These exist so a caller that overshoots gets a 400 naming the limit it hit,
+ * instead of a silent truncation and an answer it cannot explain.
+ */
+const MAX_BODY_LINES = 24;
+const MAX_BODY_LINE_LEN = 200;
+
+function readBodyLines(fields: Record<string, unknown>): string[] | undefined {
+  const v = fields.bodyLines;
+  if (v == null) return undefined;
+  if (!Array.isArray(v)) throw badRequest('fields.bodyLines must be an array of strings');
+  if (v.length > MAX_BODY_LINES) throw badRequest(`fields.bodyLines holds at most ${MAX_BODY_LINES} lines`);
+  const out: string[] = [];
+  for (const [i, line] of v.entries()) {
+    if (typeof line !== 'string') throw badRequest(`fields.bodyLines[${i}] must be a string`);
+    if (line.length > MAX_BODY_LINE_LEN) {
+      throw badRequest(`fields.bodyLines[${i}] is longer than ${MAX_BODY_LINE_LEN} characters`);
+    }
+    if (line.trim() !== '') out.push(line);
+  }
+  return out;
+}
+
 function readField(fields: Record<string, unknown>, key: string): string | undefined {
   const v = fields[key];
   if (v == null) return undefined;
@@ -326,7 +389,9 @@ function readField(fields: Record<string, unknown>, key: string): string | undef
 
 function parseResolveBody(body: unknown): { fields: OcrFields; priorMatches: PriorMatch[] } {
   if (body == null || typeof body !== 'object' || Array.isArray(body)) {
-    throw badRequest('POST a JSON object: { fields: { name?, number?, denominator?, setCode? }, priorMatches?: [...] }');
+    throw badRequest(
+      'POST a JSON object: { fields: { name?, number?, denominator?, setCode?, bodyLines? }, priorMatches?: [...] }',
+    );
   }
   const b = body as Record<string, unknown>;
 
@@ -339,6 +404,7 @@ function parseResolveBody(body: unknown): { fields: OcrFields; priorMatches: Pri
       number: readField(f, 'number'),
       denominator: readField(f, 'denominator'),
       setCode: readField(f, 'setCode'),
+      bodyLines: readBodyLines(f),
     };
   }
 

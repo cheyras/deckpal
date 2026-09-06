@@ -27,6 +27,17 @@
  * not drag down a certain identity. There is deliberately no variant field in
  * anything this module returns.
  *
+ * ── ONE RUNG ANSWERS A WEAKER QUESTION ON PURPOSE ──────────────────────────
+ *
+ * Rung 9 reads the text in the MIDDLE of the card — attacks, ability, rules
+ * text, flavour line — and it is an escalation the device only reaches for when
+ * the name and the number have both failed. What that text identifies is the
+ * card FAMILY, because every printing of one card carries the same words; it
+ * cannot identify a printing at any confidence. So rung 9 is confident only
+ * when the family it lands on has exactly one printing, and otherwise returns
+ * `matched: false` carrying the family's printings as candidates. `familyText.ts`
+ * holds the reasoning and the measurements.
+ *
  * ── WHAT THE PRE-2023 77% GETS ─────────────────────────────────────────────
  *
  * English cards only began printing a text set code with Scarlet & Violet
@@ -36,6 +47,13 @@
  * denominator`, which needs no set code at all and is 99.6% unique.
  */
 import { resolveBadge, type BadgeResolution } from './printedSetCode.js';
+import {
+  MIN_SHARED_TOKENS,
+  chooseFamily,
+  planProbe,
+  readTokens,
+  type FamilyTextCard,
+} from './familyText.js';
 
 // ── The catalogue, as this module needs to see it ───────────────────────────
 
@@ -68,6 +86,29 @@ export interface CatalogPort {
   byNumber(numeric: number): Promise<CatalogCard[]>;
   /** Hydration for `priorMatches`, which arrive as bare ids. */
   byIds(cardIds: readonly string[]): Promise<CatalogCard[]>;
+
+  /**
+   * rung 9, coarse prefilter: cards whose `card_text.tokens` share at least
+   * `minOverlap` of `probeTokens`, with a family key and a bag to score.
+   *
+   * OPTIONAL, and that is the graceful-skip mechanism rather than an oversight.
+   * The table it reads (migration 049) does not exist on a deployment that has
+   * not migrated, and is empty on one that has not re-synced. A port that
+   * cannot answer this simply does not implement it, the ladder never asks, and
+   * every other rung behaves exactly as it did before rung 9 existed.
+   */
+  byTextTokens?(probeTokens: readonly string[], minOverlap: number): Promise<FamilyTextCard[]>;
+  /**
+   * rung 9, second half: EVERY printing of one family.
+   *
+   * A separate query on purpose. How many printings a family has is the entire
+   * basis of the confident/not-confident split, and the prefilter's pool is
+   * capped — answering "exactly one printing" from a truncated list is how a
+   * family with six prints gets reported as a certainty. This one is an
+   * equality on `card.playable_fingerprint`, which migration 047 indexed for
+   * precisely this read.
+   */
+  byFamilyKey?(familyKey: string): Promise<FamilyTextCard[]>;
 }
 
 // ── Request / response ──────────────────────────────────────────────────────
@@ -84,6 +125,21 @@ export interface OcrFields {
   denominator?: string;
   /** The badge, as read, language subscript and all: 'SVIEN' is the expected shape. */
   setCode?: string;
+  /**
+   * Whole-card OCR text — attacks, ability, rules text, the flavour line — as
+   * up to 24 lines in reading order.
+   *
+   * ESCALATION ONLY. The device sends this when the name AND the number both
+   * failed to extract, and at no other time. It is not a cheap extra signal to
+   * bolt onto a good read: the whole middle of the card is a large, slow OCR
+   * region, and everything it can say is said better by the two small ones.
+   *
+   * Sending it anyway is not an error and cannot corrupt an answer — rung 9
+   * runs last and every rung that resolves from a name, a number or a badge
+   * returns before it — but it will cost the request an OCR pass and a query
+   * for nothing.
+   */
+  bodyLines?: string[];
 }
 
 export interface PriorMatch {
@@ -92,7 +148,7 @@ export interface PriorMatch {
   distance: number;
 }
 
-export type ResolvedBy = 'badge+number' | 'number+denominator' | 'name+number' | 'prior-only';
+export type ResolvedBy = 'badge+number' | 'number+denominator' | 'name+number' | 'family-text' | 'prior-only';
 
 export interface RankedCard extends CatalogCard {
   /** The phash distance from `priorMatches`, or null when the priors never nominated this card. */
@@ -100,6 +156,12 @@ export interface RankedCard extends CatalogCard {
 }
 
 export interface ResolveOutcome {
+  /**
+   * A CARD was identified. Everywhere except rung 9 this is simply
+   * `matches.length > 0`; rung 9 is the one rung that can return candidates
+   * while reporting `matched: false`, because body text identifies a family and
+   * a family with several printings is not a card. See `familyText.ts`.
+   */
   matched: boolean;
   confident: boolean;
   resolvedBy: ResolvedBy;
@@ -369,6 +431,44 @@ export async function resolveCard(
     }
   }
 
+  // ── Rung 9 — the card's own body text. Escalation, and never a printing. ──
+  //
+  // Last of the rungs that can name anything, and it runs only because every
+  // rung above it declined to return: a badge, a number or a name that resolved
+  // has already left this function, so body text can never override one. That
+  // ordering is the house ruling (2026-09-06), not an implementation detail —
+  // the text on a card is the WEAKEST identity evidence it carries, because it
+  // is the evidence every reprint shares.
+  //
+  // It sits ABOVE rungs 6/7/8 rather than below because those never name a card
+  // either; they hand the phash answer back, filtered. A rung that can produce
+  // a family has more to say than a filter, so it is asked first — and when it
+  // refuses, which is most of the time, control falls through to exactly the
+  // code that ran before this rung existed.
+  //
+  // CROSSWALK §7.3 stops at rung 8 and contemplates no text rung at all; §7.4's
+  // note names a set-symbol classifier as the sequel for the pre-2023 77%. This
+  // is a different escalation with a different ceiling, and it is numbered 9
+  // because the ladder is append-only.
+  const family = await resolveFamilyText(fields.bodyLines, port);
+  if (family) {
+    const matches = rank(family, priors.distance).slice(0, MAX_MATCHES);
+    // Exactly one printing, or nothing certain. This is the whole rung.
+    const sole = family.length === 1 ? family[0]! : null;
+    return {
+      // 🔴 `matched: false` with a non-empty `matches` is deliberate here and
+      // nowhere else. A family with several printings means we know WHICH CARD
+      // and not WHICH ONE OF THESE, and the client's needs-you picker is the
+      // right place for that — not a `matched: true` that would let an
+      // auto-add path bank a printing nobody chose.
+      matched: sole != null && matches.length > 0,
+      confident: sole != null && matches.length > 0 && !priorsContradict(sole, priors, opts),
+      resolvedBy: 'family-text',
+      matches,
+      badge,
+    };
+  }
+
   // ── Rungs 6/7/8 — never a key, only a filter ──────────────────────────────
   // A number alone leaves a mean of 66 candidates and a name alone 4.7 (114 for
   // Pikachu). Neither is ever sufficient, so neither gets to name a card: they
@@ -378,6 +478,57 @@ export async function resolveCard(
   if (numeric != null) filtered = filtered.filter((c) => c.numberNumeric === numeric);
   if (nameRead) filtered = filtered.filter((c) => nameTier(nameRead, c.name) != null);
   return done('prior-only', filtered.length > 0 ? filtered : priors.cards, false);
+}
+
+/**
+ * Rung 9's whole body, kept out of `resolveCard` because it is the only rung
+ * with a two-query shape and four different ways of declining.
+ *
+ * Returns EVERY printing of the winning family — from `byFamilyKey`, not from
+ * the prefilter's slice — as plain `CatalogCard`s. 🔴 The strip on the way out
+ * is not tidiness: `rank()` spreads whatever it is handed into the response,
+ * and a `FamilyTextCard` carries the whole token bag. Handing those straight
+ * through would put a card's normalised text into every match object, which is
+ * both a payload nobody asked for and a comparison form leaking out of the
+ * layer that owns it.
+ *
+ * Every `return null` below is a graceful skip, and none of them is an error:
+ *
+ *   - no body lines: the normal case.
+ *   - the port has no text lookups: `card_text` is absent or the deployment
+ *     predates migration 049. Rung 9 costs nothing and the ladder is unchanged.
+ *   - the read is shorter than the shared-token floor it would have to clear:
+ *     refused before a query rather than after one.
+ *   - `chooseFamily` refused: too few shared tokens, too low a score, or two
+ *     families too close to separate.
+ */
+async function resolveFamilyText(
+  bodyLines: readonly string[] | undefined,
+  port: CatalogPort,
+): Promise<CatalogCard[] | null> {
+  if (!bodyLines || bodyLines.length === 0) return null;
+  if (!port.byTextTokens || !port.byFamilyKey) return null;
+
+  const read = readTokens(bodyLines);
+  // A read carrying fewer tokens than the winner would have to SHARE cannot be
+  // accepted by any pool, so the query is skipped rather than run and thrown
+  // away. Same constant as the decision uses — not a second, looser guess.
+  if (read.length < MIN_SHARED_TOKENS) return null;
+  const probe = planProbe(read);
+  if (probe.tokens.length < probe.minOverlap) return null;
+
+  const pool = await port.byTextTokens(probe.tokens, probe.minOverlap);
+  const decision = chooseFamily(read, pool);
+  if (!decision.family) return null;
+
+  const printings = await port.byFamilyKey(decision.family.familyKey);
+  // Falling back to the pool's members would be wrong if it were ever reached
+  // with a short list — but it is only reached when the second query found
+  // NOTHING, which means the fingerprint index moved under us mid-request. The
+  // pool's members are then the honest remainder, and they are still the same
+  // family.
+  const family = printings.length > 0 ? printings : decision.family.cards;
+  return family.map(({ familyKey: _k, tokens: _t, ...card }: FamilyTextCard) => card);
 }
 
 /**

@@ -1,6 +1,6 @@
 // TCGdex catalog importer — populates series, card_set, card (+ attribute junctions),
-// the variant vocabulary/junction tables, and card_variant, from the compiled EN JSON
-// (generated/en/{series,sets,cards}.json). Idempotent; re-running is a no-op.
+// card_text, the variant vocabulary/junction tables, and card_variant, from the compiled
+// EN JSON (generated/en/{series,sets,cards}.json). Idempotent; re-running is a no-op.
 //
 // Connection budget: uses a SINGLE pooled client for the whole run (sync = 1 of 3). One
 // transaction per set (SCHEMA/DATA-LAYER §7 grain), plus two global-vocabulary transactions.
@@ -12,10 +12,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makePool, loadEnv, type Queryable } from '@deckpal/db';
+import { CARD_TEXT_NORMALIZER_VERSION, bodyText, bodyTokens } from '@deckpal/db/cardText';
 import { batchInsert } from '../batchInsert.js';
 import {
   planCardVariants, toFacet, variantKindCode, tierDerived, kindDisplayName, printRunCode,
   slugify, normalizeName, numberSort, localIdNumeric, subtypeLabel, foilLabel, humanize,
+  cardTextLines,
   NON_ERROR_SUBTYPES, SYNTHESIZED_FACET, TIER_RULE_VERSION, type RawCard, type Facet,
 } from './transform.js';
 
@@ -389,12 +391,12 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
         setId, c.id, 'en', c.localId, localIdNumeric(c.localId), numberSort(c.localId),
         c.name, normalizeName(c.name), c.category, c.rarity ?? null, c.illustrator ?? null,
         c.hp ?? null, c.stage ?? null, c.suffix ?? null, c.evolveFrom ?? null, c.trainerType ?? null,
-        c.energyType ?? null, c.retreat ?? null, c.effect ?? null,
+        c.energyType ?? null, c.retreat ?? null, c.effect ?? null, c.description ?? null,
         c.regulationMark ? c.regulationMark.slice(0, 1) : null,
         c.legal?.standard ?? false, c.legal?.expanded ?? false,
         st.releaseDate ?? null, c.updated ?? null,
       ]);
-      const CARD_COLS = 24;
+      const CARD_COLS = 25;
       const cardIdByTcgdex = new Map<string, number>();
       for (let i = 0; i < cardRows.length; i += 400) {
         const chunk = cardRows.slice(i, i + 400);
@@ -405,7 +407,8 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
           `INSERT INTO card
              (set_id, tcgdex_id, lang, local_id, local_id_numeric, number_sort, name, name_normalized,
               category, rarity, illustrator, hp, stage, suffix, evolve_from, trainer_type, energy_type,
-              retreat, effect, regulation_mark, legal_standard, legal_expanded, released_on, tcgdex_updated_at)
+              retreat, effect, flavor_text, regulation_mark, legal_standard, legal_expanded, released_on,
+              tcgdex_updated_at)
            VALUES ${ph}
            ON CONFLICT (tcgdex_id, lang) DO UPDATE SET
              set_id=EXCLUDED.set_id, local_id=EXCLUDED.local_id, local_id_numeric=EXCLUDED.local_id_numeric,
@@ -413,7 +416,8 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
              category=EXCLUDED.category, rarity=EXCLUDED.rarity, illustrator=EXCLUDED.illustrator, hp=EXCLUDED.hp,
              stage=EXCLUDED.stage, suffix=EXCLUDED.suffix, evolve_from=EXCLUDED.evolve_from,
              trainer_type=EXCLUDED.trainer_type, energy_type=EXCLUDED.energy_type, retreat=EXCLUDED.retreat,
-             effect=EXCLUDED.effect, regulation_mark=EXCLUDED.regulation_mark, legal_standard=EXCLUDED.legal_standard,
+             effect=EXCLUDED.effect, flavor_text=EXCLUDED.flavor_text,
+             regulation_mark=EXCLUDED.regulation_mark, legal_standard=EXCLUDED.legal_standard,
              legal_expanded=EXCLUDED.legal_expanded, released_on=EXCLUDED.released_on,
              tcgdex_updated_at=EXCLUDED.tcgdex_updated_at, synced_at=now()
            RETURNING id, tcgdex_id`,
@@ -446,6 +450,40 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
       if (attackRows.length) await batchInsert(client, () => `INSERT INTO card_attack (card_id,ord,name,damage,effect,cost) VALUES __VALUES__`, 6, attackRows);
       if (abilityRows.length) await batchInsert(client, () => `INSERT INTO card_ability (card_id,ord,kind,name,effect) VALUES __VALUES__`, 5, abilityRows);
       if (matchupRows.length) await batchInsert(client, () => `INSERT INTO card_matchup (card_id,kind,ord,type,value) VALUES __VALUES__`, 5, matchupRows);
+
+      // card_text (049): the scanner's body-text comparison bag. DELETE-then-INSERT
+      // for the same reason the junctions above are — derived, no user FK, and a
+      // card whose text upstream has REMOVED must lose its bag rather than keep a
+      // stale one that a family-text lookup would still match on.
+      //
+      // 🔴 Built from `RawCard` here rather than by a later pass over the child
+      // tables, which is the opposite of what 047 does for `playable_fingerprint`
+      // and deliberately so. That hash could not be computed here because it
+      // covers rows this importer had not written yet at the time; this bag is
+      // read from the SAME `setCards` array the child tables were just written
+      // from, so computing it in this loop costs one pass over memory we already
+      // hold — and it means the weekly sync maintains it with no second command
+      // for anyone to forget to run.
+      await client.query(`DELETE FROM card_text WHERE card_id = ANY($1::bigint[])`, [cardIds]);
+      const textRows: unknown[][] = [];
+      for (const c of setCards) {
+        const lines = cardTextLines(c);
+        const tokens = bodyTokens(lines);
+        // A card with nothing legible to match on gets NO ROW, not an empty one.
+        // Basic Energy is the honest instance: it prints a symbol and nothing
+        // else, and 24 of them share three names (CROSSWALK §3.3). An empty bag
+        // can never match anything anyway; leaving the row out says so in the
+        // schema instead of in a comment.
+        if (tokens.length === 0) continue;
+        textRows.push([cardIdByTcgdex.get(c.id)!, CARD_TEXT_NORMALIZER_VERSION, bodyText(lines), tokens]);
+      }
+      if (textRows.length)
+        await batchInsert(
+          client,
+          () => `INSERT INTO card_text (card_id, normalizer_version, body, tokens) VALUES __VALUES__`,
+          4,
+          textRows,
+        );
 
       // card_variant: clear primaries for these cards, then upsert (keyed on card_id,variant_kind_code)
       await client.query(`UPDATE card_variant SET is_primary=false WHERE card_id = ANY($1::bigint[]) AND is_primary`, [cardIds]);

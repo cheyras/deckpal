@@ -30,6 +30,17 @@ export interface RawCard {
   energyType?: string;
   retreat?: number;
   effect?: string;
+  /**
+   * The flavour/Pokédex line printed under the attacks — "Burnt charcoal came
+   * to life and became a Pokémon."
+   *
+   * Parsed past by this importer until 2026-09 for exactly the reason
+   * `RawSet.abbreviation` was (see import.ts, and migration 048): there was no
+   * member for it here. Upstream publishes it across the Pokémon half of the
+   * catalogue and omits it on Trainers and Energy, which print none. Stored raw
+   * in `card.flavor_text` (049) and folded into the scanner's text bag.
+   */
+  description?: string;
   regulationMark?: string;
   updated?: string;
   types?: string[];
@@ -388,4 +399,49 @@ export function planCardVariants(card: RawCard): PlanResult {
     };
   });
   return { variants, droppedDuplicates: dropped };
+}
+
+// ── the scanner's body-text bag (migration 049) ──────────────────────────────
+
+/**
+ * The lines of PRINTED TEXT on a card, in reading order, as the scanner's
+ * family-text rung compares them.
+ *
+ * "Printed text" is the whole test for what belongs here, and it excludes four
+ * things the card carries that are not words:
+ *
+ *   - **Energy costs.** `attacks[].cost` is `["Psychic","Psychic","Colorless"]`
+ *     upstream; the card prints three coloured circles. Nobody has ever read the
+ *     word "colorless" off a card.
+ *   - **Damage, HP, retreat, weakness and resistance.** Numerals and symbols.
+ *     `bodyTokens` drops digit-only tokens anyway (they are the most OCR-fragile
+ *     and least discriminative glyphs on a card — hundreds of cards say 30), so
+ *     including them would contribute exactly nothing and imply otherwise.
+ *   - **Types.** Symbols again.
+ *   - **The card's own name.** The device escalates to body text only when the
+ *     name could not be read, so a name token in the bag could only ever be
+ *     matched by accident.
+ *
+ * `evolveFrom` and `trainerType` ARE here: "Evolves from Kirlia" and "Item" are
+ * literal English printed on the card, in the body, and "kirlia" is one of the
+ * more discriminative tokens a Stage 2 has.
+ */
+export function cardTextLines(c: RawCard): string[] {
+  const lines: string[] = [];
+  if (c.trainerType) lines.push(c.trainerType);
+  if (c.evolveFrom) lines.push(`Evolves from ${c.evolveFrom}`);
+  for (const a of c.abilities ?? []) {
+    if (a?.name == null) continue; // 40 abilities upstream have no name; the importer skips them too
+    if (a.type) lines.push(a.type);
+    lines.push(a.name);
+    if (a.effect) lines.push(a.effect);
+  }
+  for (const a of c.attacks ?? []) {
+    if (a?.name == null) continue; // 94 attacks upstream have no name
+    lines.push(a.name);
+    if (a.effect) lines.push(a.effect);
+  }
+  if (c.effect) lines.push(c.effect);
+  if (c.description) lines.push(c.description);
+  return lines;
 }

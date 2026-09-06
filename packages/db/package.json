@@ -9,6 +9,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./cardText": {
+      "types": "./src/cardText.ts",
+      "default": "./dist/cardText.js"
     }
   },
   "scripts": {

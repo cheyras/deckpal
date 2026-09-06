@@ -1,5 +1,5 @@
 /**
- * The Postgres half of the OCR resolution ladder: the four catalogue lookups
+ * The Postgres half of the OCR resolution ladder: the six catalogue lookups
  * `resolve.ts` needs, and the dev-startup cross-check between the vendored
  * printed-code table and what the catalog sync last wrote.
  *
@@ -8,7 +8,9 @@
  * startup check without importing an express Router to get at it.
  */
 import { q } from '../db.js';
+import { CARD_TEXT_NORMALIZER_VERSION } from '@deckpal/db/cardText';
 import type { CatalogCard, CatalogPort } from './resolve.js';
+import { MAX_POOL_ROWS, type FamilyTextCard } from './familyText.js';
 import { diffPrintedSetCodes, printedSetCodesAsOf, type CardSetAbbrevRow } from './printedSetCode.js';
 
 interface CardRow {
@@ -22,6 +24,11 @@ interface CardRow {
   series_tcgdex_id: string;
 }
 
+interface CardTextRow extends CardRow {
+  playable_fingerprint: string;
+  tokens: string[];
+}
+
 function shape(r: CardRow): CatalogCard {
   return {
     cardId: r.tcgdex_id,
@@ -33,6 +40,10 @@ function shape(r: CardRow): CatalogCard {
     seriesId: r.series_tcgdex_id,
     rarity: r.rarity,
   };
+}
+
+function shapeText(r: CardTextRow): FamilyTextCard {
+  return { ...shape(r), familyKey: r.playable_fingerprint, tokens: r.tokens };
 }
 
 // Every lookup shares this projection; only the WHERE differs. `c.lang = 'en'`
@@ -59,6 +70,22 @@ const SELECT = `
  * so a malformed number can never turn into a catalogue-wide scan.
  */
 const ROW_LIMIT = 250;
+
+// The rung-9 lookups need two columns the four above do not — `tokens` and the
+// family key — and they enter from `card_text` rather than from `card`, so they
+// compose their own statement out of these three pieces instead of extending
+// SELECT. Same English-only scope, plus 047's rule that a NULL fingerprint is
+// not a family of nulls.
+const PROJECTION = `
+  SELECT c.tcgdex_id, c.name, c.local_id, c.local_id_numeric, c.rarity,
+         c.playable_fingerprint, t.tokens,
+         cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name,
+         ser.tcgdex_id AS series_tcgdex_id`;
+const JOINS = `
+  JOIN card c      ON c.id = t.card_id
+  JOIN card_set cs ON cs.id = c.set_id
+  JOIN series ser  ON ser.id = cs.series_id`;
+const SCOPE = `c.lang = 'en' AND c.playable_fingerprint IS NOT NULL`;
 
 export const pgCatalogPort: CatalogPort = {
   // Rung 1. Joins on `local_id_numeric`, never on `local_id` text: TCGdex zero
@@ -100,7 +127,112 @@ export const pgCatalogPort: CatalogPort = {
     );
     return rows.map(shape);
   },
+
+  // Rung 9's prefilter. `t.tokens && $1` is the GIN-indexable half (049's
+  // card_text_tokens_idx); the intersection count is the selective half and
+  // runs on the rows the index already narrowed to. Both halves are needed:
+  // `&&` alone matches on one common word, and the count alone is a sequential
+  // scan of 23.5k arrays.
+  //
+  // Two filters that look like belt-and-braces and are not:
+  //   - `c.playable_fingerprint IS NOT NULL` — 047 is explicit that NULL is
+  //     "too little gameplay data to hash" and NOT an equality with the other
+  //     NULLs. A row with no family key cannot be grouped and must not arrive
+  //     here pretending to be a family of one.
+  //   - `t.normalizer_version = $n` — a bag folded by an older normaliser is
+  //     not comparable with a read folded by this one, and a half-migrated
+  //     table is the single state in which this rung could match the wrong
+  //     family quietly. Mismatched rows are skipped, the pool comes back short
+  //     or empty, and the rung declines. The fix is always a re-sync.
+  //
+  // 🔴 ORDER BY overlap DESC is not cosmetic and must not be dropped to save a
+  // sort. The LIMIT exists so a pathological read cannot pull the catalogue
+  // into memory, and an unordered LIMIT discards an ARBITRARY subset — which
+  // could be the family that would have won, leaving a rival to be scored top
+  // of a pool it only leads because the real answer was truncated away. Ordered,
+  // the rows the cap keeps are the rows most worth scoring.
+  //
+  // Measured on the 378-card corpus the thresholds were sized against: pool p50
+  // 10 rows, p90 72, max 246, and across 988 accepted reads at four noise
+  // levels the prefilter dropped the winning family twice — both under heavy
+  // degradation, and both times the result was a REFUSAL rather than a wrong
+  // answer, which is the direction a lossy prefilter is allowed to fail in.
+  //
+  // `minOverlap` is the caller's, not a constant, because a probe made of words
+  // half the game shares needs a proportionally larger overlap to be a filter
+  // at all — see `planProbe`.
+  async byTextTokens(probeTokens, minOverlap) {
+    if (probeTokens.length === 0) return [];
+    return textQuery(
+      `WITH hit AS (
+         SELECT t.card_id, t.tokens,
+                cardinality(ARRAY(SELECT unnest(t.tokens) INTERSECT SELECT unnest($1::text[]))) AS overlap
+           FROM card_text t
+          WHERE t.tokens && $1::text[] AND t.normalizer_version = $2
+       )
+       ${PROJECTION}
+         FROM hit t
+         ${JOINS}
+        WHERE ${SCOPE} AND t.overlap >= $3
+        ORDER BY t.overlap DESC, c.tcgdex_id
+        LIMIT ${MAX_POOL_ROWS}`,
+      [[...probeTokens], CARD_TEXT_NORMALIZER_VERSION, minOverlap],
+    );
+  },
+
+  // Rung 9's second half: every printing of one family. An equality on the
+  // column 047 indexed, and the reason the confident/not-confident split is
+  // allowed to say "exactly one printing" at all.
+  async byFamilyKey(familyKey) {
+    return textQuery(
+      `${PROJECTION}
+         FROM card_text t
+         ${JOINS}
+        WHERE ${SCOPE} AND c.playable_fingerprint = $1 AND t.normalizer_version = $2
+        ORDER BY c.tcgdex_id
+        LIMIT ${MAX_POOL_ROWS}`,
+      [familyKey, CARD_TEXT_NORMALIZER_VERSION],
+    );
+  },
 };
+
+/**
+ * The two rung-9 lookups share a projection, a join and a failure mode.
+ *
+ * 🔴 THE FAILURE MODE IS THE POINT. `card_text` ships in migration 049 and is
+ * filled by the next catalog sync, and production will spend some window with
+ * neither having happened. A missing table (42P01) or a missing column (42703)
+ * must therefore mean "this rung is not available yet", not a 500 on an
+ * endpoint whose other eight rungs work perfectly — so those two SQLSTATEs are
+ * swallowed to an empty pool, which `resolve.ts` reads as a graceful skip.
+ *
+ * Nothing else is swallowed. A connection failure, a timeout or a syntax error
+ * is a real fault and still throws.
+ */
+async function textQuery(sql: string, params: unknown[]): Promise<FamilyTextCard[]> {
+  try {
+    const rows = await q<CardTextRow>(sql, params);
+    return rows.map(shapeText);
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === '42P01' || code === '42703') {
+      warnTextUnavailable(code);
+      return [];
+    }
+    throw err;
+  }
+}
+
+/** Once per process. A per-request warning for a known, expected state is noise. */
+let warnedTextUnavailable = false;
+function warnTextUnavailable(code: string): void {
+  if (warnedTextUnavailable) return;
+  warnedTextUnavailable = true;
+  console.warn(
+    `[scan] card_text is not available (SQLSTATE ${code}) — the family-text rung is skipped and the ` +
+      'ladder behaves as it did before migration 049. Run the migrations, then the catalog sync.',
+  );
+}
 
 /**
  * Dev-startup divergence warning for the vendored printed-code table.

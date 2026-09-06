@@ -900,6 +900,38 @@ scan indexer.
 
 ---
 
+### POST /deckpal/api/scan/resolve
+The OCR resolution ladder: printed-text fields read off a captured card ->
+identity. JSON body: `{ "fields": { "name"?, "number"?, "denominator"?,
+"setCode"?, "bodyLines"?: string[] }, "priorMatches"?: [{ "cardId", "distance"
+}] }`. All fields optional; an ABSENT denominator is meaningful (some sets
+print none) and an empty `bodyLines` must be omitted, not sent. `bodyLines`
+(<= 24 lines, <= 200 chars each) is the whole-card escalation: the client
+sends it only when name and number extraction both failed; the family-text
+rung (rung 9) runs last and can never override a rung that resolved from
+name/number/badge.
+
+Response: `{ "matched", "confident", "resolvedBy":
+"badge+number"|"number+denominator"|"name+number"|"family-text"|"prior-only",
+"matches": [...same card shape as /scan...] }`. Two contract deviations from
+/scan: `distance`/`confidence` are `number|null` (a card resolved by its
+printed key was never nominated by phash — null means "no phash opinion",
+where 0 would claim an identical hash), and for `resolvedBy: "family-text"`
+a `matched: false` response CARRIES a non-empty `matches` list when body text
+resolved a multi-printing family — the candidates for the picker; never
+auto-add one. `confident` is an identity claim only; variant/printing
+confidence is a separate dimension and never appears here. A badge whose
+printed denominator contradicts the read one is rejected (falls down the
+ladder); sets that print no denominator are eliminated when a denominator WAS
+read. 400 on malformed shapes with specific messages. Read-only.
+
+Note: `setCode` here is the code PRINTED on 2023+ cards (SVI, DRI, ...) — a
+different namespace from PTCGL codes (`PR-SV` vs `SVP`), see
+`apps/api/src/scan/data/printed-set-code.json`. Rung 9 needs `card_text`
+populated (migrations 049/050 + a catalog sync); until then it skips silently
+and every other rung behaves identically.
+
+
 ## Bugs — in-app bug reporter
 
 ### POST /deckpal/api/bugs
