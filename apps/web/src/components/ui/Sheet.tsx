@@ -137,6 +137,7 @@ export function Sheet({
   size = 'md',
   ariaLabel,
   headerSlot,
+  headerRight,
   contentClassName = '',
 }: {
   /** Rendered as the sheet's heading and used as its accessible name. */
@@ -154,6 +155,20 @@ export function Sheet({
    * grab handle and a floating close button in place of a heading.
    */
   headerSlot?: ReactNode
+  /**
+   * A small mark or control sitting between the title and the close button.
+   *
+   * Distinct from `headerSlot`, which REPLACES the whole bar and makes the
+   * caller responsible for the close button and the mobile grab handle. This is
+   * for the common case of wanting one badge in the corner without inheriting
+   * all of that — the billing prompt puts "Powered by Stripe" here, where a
+   * payment surface expects it, rather than spending a horizontal rule and a
+   * centred line in the body to say four words.
+   *
+   * It is given `shrink-0` and the title `min-w-0`, so a long title wraps
+   * rather than crushing the accessory.
+   */
+  headerRight?: ReactNode
   contentClassName?: string
 }) {
   const titleId = useId()
@@ -286,18 +301,21 @@ export function Sheet({
             <div className="flex justify-center pt-[8px] nav:hidden">
               <span className="h-[4px] w-[40px] rounded-full bg-surface-tertiary" />
             </div>
-            <div className="flex items-center justify-between px-[20px] py-[12px] nav:px-[24px] nav:py-[18px]">
-              <h2 id={titleId} className="text-[18px] font-bold text-text-primary">
+            <div className="flex items-center justify-between gap-[12px] px-[20px] py-[12px] nav:px-[24px] nav:py-[18px]">
+              <h2 id={titleId} className="min-w-0 text-[18px] font-bold text-text-primary">
                 {title}
               </h2>
-              <button
-                type="button"
-                onClick={requestClose}
-                aria-label="Close"
-                className="-mr-[6px] flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary"
-              >
-                <Icon name="close" size={22} />
-              </button>
+              <div className="flex shrink-0 items-center gap-[10px]">
+                {headerRight}
+                <button
+                  type="button"
+                  onClick={requestClose}
+                  aria-label="Close"
+                  className="-mr-[6px] flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary"
+                >
+                  <Icon name="close" size={22} />
+                </button>
+              </div>
             </div>
           </div>
         )}

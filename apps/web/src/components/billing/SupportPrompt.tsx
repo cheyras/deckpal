@@ -45,6 +45,7 @@ import { readSession } from '../../lib/authSession'
 import { isChromelessPathname } from '../../lib/landingRoute'
 import { Sheet } from '../ui/Sheet'
 import { Icon } from '../Icon'
+import { PoweredByStripe } from './StripeTrust'
 import { SupportFlow } from './SupportFlow'
 
 /** Long enough that the app has painted, short enough not to feel like an ambush. */
@@ -216,7 +217,14 @@ export function SupportPrompt() {
   const copy = COPY[kind]
 
   return (
-    <Sheet title={copy.title} onClose={close} size="lg">
+    <Sheet
+      title={copy.title}
+      onClose={close}
+      size="lg"
+      // Top right, beside the close button. A processor mark belongs in the
+      // chrome of a payment surface, not in the middle of the argument.
+      headerRight={<PoweredByStripe height={18} />}
+    >
       <div>
         {/* A pill rather than bare uppercase text. It is the one small piece of
             chrome in a surface that is otherwise all type, it gives the eye

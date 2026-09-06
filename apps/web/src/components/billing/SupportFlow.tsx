@@ -38,7 +38,7 @@ import { FormAlert } from '../ui/FormAlert'
 import { Icon } from '../Icon'
 import { AmountChooser } from './AmountChooser'
 import { CardForm } from './CardForm'
-import { AcceptedMethods, PoweredByStripe, TrustPoints } from './StripeTrust'
+import { AcceptedMethods, TrustPoints } from './StripeTrust'
 
 export type FlowContext = SupportPromptKind | 'settings'
 
@@ -325,7 +325,33 @@ export function SupportFlow({
   // ── card ──────────────────────────────────────────────────────────────────
   if (step === 'card') {
     if (!stripePromise) {
-      return <FormAlert kind="error">Payments are not configured on this deployment.</FormAlert>
+      // A bare alert used to be the whole of this branch — no button, no way
+      // back, and `payment_issue` opens DIRECTLY here, so the entire modal was
+      // a sentence and a close box. It should be unreachable in production
+      // (`available` is false unless a publishable key is configured, and
+      // SupportPrompt renders nothing when it is false), which is exactly why
+      // it deserves a real way out: an unreachable dead end is one deploy
+      // configuration away from being a reachable one.
+      return (
+        <div>
+          <FormAlert kind="error">
+            The payment form could not be loaded, so there is nothing to fill in here. Nothing has been charged and
+            nothing about your account has changed.
+          </FormAlert>
+          <p className="mb-[16px] text-[14px] leading-[1.6] text-text-secondary">
+            This is a problem on our side rather than yours. Reloading the page usually clears it; if it does not, your
+            billing details are always reachable from your profile.
+          </p>
+          <div className="flex flex-col-reverse gap-[8px] sm:flex-row sm:justify-end">
+            {onDismiss && (
+              <Button variant="ghost" onClick={onDismiss}>
+                Close
+              </Button>
+            )}
+            <Button onClick={() => window.location.reload()}>Reload the page</Button>
+          </div>
+        </div>
+      )
     }
     return (
       <div>
@@ -402,18 +428,12 @@ export function SupportFlow({
         </p>
       )}
 
-      {context !== 'settings' && (
-        <>
-          <TrustPoints className="mt-[18px]" />
-          {/* The mark itself, on the ask — the owner's request, and the right
-              instinct: the three claims above are OURS, and a reader has no
-              reason to take our word for them. Stripe's badge is the part of
-              this block that is somebody else's reputation. */}
-          <div className="mt-[14px] flex items-center justify-center border-t border-divider-subtle pt-[14px]">
-            <PoweredByStripe height={24} />
-          </div>
-        </>
-      )}
+      {/* The Stripe mark used to sit below this, centred, under a horizontal
+          rule — about 50px of vertical space to say four words, and a band of
+          dead air between the trust points and the button. It now lives in the
+          sheet header (see SupportPrompt's `headerRight`), which is where a
+          payment surface expects a processor mark and costs nothing. */}
+      {context !== 'settings' && <TrustPoints className="mt-[18px]" />}
 
       {error && (
         <div className="mt-[18px]">
