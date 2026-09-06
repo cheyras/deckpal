@@ -1489,8 +1489,26 @@ export const api = {
   // here decides when somebody is asked for money. Called once per app boot.
   billing: (signal?: AbortSignal) => get<BillingState>('/me/billing', signal),
   billingVisit: () => send<BillingState>('POST', '/me/billing/visit'),
-  /** Stamp "we asked" -- on dismissal as much as on an answer. */
-  ackSupportPrompt: (kind: SupportPromptKind) => send<BillingState>('POST', '/me/billing/prompt-ack', { kind }),
+  /**
+   * Stamp "we asked". `dismissed` distinguishes walking away from answering:
+   * both buy the same month of quiet, but only one is a dismissal, and
+   * recording both against the same exposure made the experiment's outcomes
+   * overlap. `context` carries the `forced-` label under the testing override.
+   */
+  ackSupportPrompt: (kind: SupportPromptKind, opts: { dismissed: boolean; context?: string }) =>
+    send<BillingState>('POST', '/me/billing/prompt-ack', {
+      kind,
+      dismissed: opts.dismissed,
+      ...(opts.context ? { context: opts.context } : {}),
+    }),
+  /**
+   * Replace the card and settle whatever failed. Separate from `setSupport` on
+   * purpose: changing a card is not changing an amount, and conflating them
+   * un-cancelled pending stops and logged card fixes as conversions.
+   * `settled` says whether the outstanding invoice actually went through.
+   */
+  replacePaymentMethod: (setupIntentId: string) =>
+    send<BillingState & { settled: boolean }>('POST', '/me/billing/payment-method', { setupIntentId }),
   /**
    * The ask was displayed. This is the experiment's denominator -- without it
    * there is no conversion rate, only a count of people who said yes. Fired

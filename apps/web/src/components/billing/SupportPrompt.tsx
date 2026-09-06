@@ -37,7 +37,7 @@
  * the difference between "DeckPal asked me something" and "DeckPal wouldn't let
  * me in until I dealt with a payment screen".
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
 import { api, type BillingState, type SupportPromptKind } from '../../lib/api'
 import { isCloudMode, supabase } from '../../lib/supabase'
@@ -153,6 +153,16 @@ export function SupportPrompt() {
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState<SupportPromptKind | null>(null)
   const [forced, setForced] = useState(false)
+  /**
+   * One exposure per page load, ever.
+   *
+   * `boot()` runs on mount AND on every `SIGNED_IN`, and supabase-js re-fires
+   * that event when a tab regains focus. Without this, alt-tabbing away and
+   * back while the prompt was open recorded another `shown` each time — an
+   * unbounded, self-selecting inflation of one arm's denominator, contributed
+   * entirely by whoever happened to be switching windows.
+   */
+  const exposed = useRef(false)
 
   // The boot call. Once per page load, and only for somebody who is signed in.
   useEffect(() => {
@@ -176,12 +186,19 @@ export function SupportPrompt() {
           setForced(!!forced)
           window.setTimeout(() => {
             if (!alive) return
+            // The render suppresses the modal on a chromeless page (/auth,
+            // /authorize, the landing). Recording an exposure there counted a
+            // reader who saw nothing — and somebody who then left via an OAuth
+            // redirect was "exposed" to a modal that never painted.
+            if (isChromelessPathname(window.location.pathname)) return
             setOpen(true)
             // The exposure, recorded when the modal actually MOUNTS rather than
             // when the state was fetched. Most loads show nothing; counting
             // those as exposures would put an unknown amount of noise in the
             // denominator of the $1 experiment. Fire-and-forget: analytics
             // never blocks the thing being measured.
+            if (exposed.current) return
+            exposed.current = true
             api.supportPromptShown(forced ? `forced-${due}` : due).catch(() => { /* not worth a word */ })
           }, SETTLE_MS)
         }
@@ -205,10 +222,18 @@ export function SupportPrompt() {
     }
   }, [])
 
-  /** Dismissal and completion both count as "we asked" — see migration 054. */
-  function close() {
+  /**
+   * Both a dismissal and a completed answer count as "we asked" — that is what
+   * buys the month of quiet (migration 054). Only one of them is a DISMISSAL,
+   * though, and recording both against the same exposure made the experiment's
+   * outcomes overlap: every conversion also logged a walk-away.
+   */
+  function close(dismissed = true) {
     setOpen(false)
-    if (kind) api.ackSupportPrompt(kind).catch(() => { /* the next boot re-decides */ })
+    if (!kind) return
+    api
+      .ackSupportPrompt(kind, { dismissed, context: forced ? `forced-${kind}` : kind })
+      .catch(() => { /* the next boot re-decides */ })
   }
 
   if (!isCloudMode || !state?.available || !kind || !open) return null
@@ -219,7 +244,7 @@ export function SupportPrompt() {
   return (
     <Sheet
       title={copy.title}
-      onClose={close}
+      onClose={() => close(true)}
       size="lg"
       // Top right, beside the close button. A processor mark belongs in the
       // chrome of a payment surface, not in the middle of the argument.
@@ -242,9 +267,9 @@ export function SupportPrompt() {
           onState={setState}
           context={kind}
           analyticsContext={forced ? `forced-${kind}` : kind}
-          onDismiss={close}
+          onDismiss={() => close(true)}
           dismissLabel={copy.dismiss}
-          onDone={close}
+          onDone={() => close(false)}
         />
       </div>
     </Sheet>

@@ -531,12 +531,37 @@ It holds two unrelated things, which is why the table has a divider in it:
 
 **Writes have two paths and both are narrow.** The Stripe webhook runs outside
 the RLS middleware, as the connection's owning role, and writes by customer id.
-The billing routes run as `authenticated` and write through three
+The billing routes run as `authenticated` and write through four
 `SECURITY DEFINER` functions that derive the row from `auth.uid()`. The
 alternatives — a second pooled connection per request, or a `RESET ROLE` dance on
 the request's own client — are respectively a B2 violation and a way to leave a
 whole request running with RLS off. See `SECURITY.md` for why the customer id in
 particular has to be unwritable from the browser.
+
+**The connection budget shapes the Stripe client.** These are the first routes
+that hold the per-request pooled connection across long third-party I/O, and the
+watchdog reclaims it after `PGRLS_MAX_HOLD_MS` (30 s). The Stripe client is
+therefore sized against THAT rather than against Stripe: 8 s timeout, one retry,
+so a single call's worst case stays inside the budget with room for the database
+writes either side. When a request does fail after a charge has succeeded, the
+error says "check your profile before trying again" rather than "nothing was
+charged" — the latter is how a one-off gets paid twice.
+
+**`billing_ab_event` (055/057/058) is an append-only log, not a counter.** It
+carries one row per exposure, answer and dismissal, with the experiment arm
+STAMPED on the row rather than joined — so a reassignment could not rewrite the
+experiment's own past. It exists to answer one question: does offering a $1 rung
+raise revenue, or move people down the ladder? The reading is
+revenue-per-exposure, not conversion rate, and the query has three traps in it
+(amount changes append rows, the testing override records, one-offs are a
+different kind); the corrected version lives beside `promptDue` in
+`billing/store.ts`, because migration 055's own header predates all three and
+cannot be edited (B4).
+
+**One-time contributions** reuse the subscription's card path exactly — same
+SetupIntent, same Payment Element — and charge server-side against the customer
+default. Two card-collection flows would mean two places for the Link prefill to
+drift and two ways for "your card never touches DeckPal" to stop being true.
 
 **The subscription has no Price object.** A pay-what-you-want amount cannot be a
 fixed Stripe Price, so each subscription item carries inline `price_data` against

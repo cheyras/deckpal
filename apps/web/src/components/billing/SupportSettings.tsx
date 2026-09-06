@@ -177,11 +177,12 @@ export function SupportSettings() {
                 cancelLabel="Cancel"
                 onCancel={() => setPanel('none')}
                 onComplete={async (setupIntentId) => {
-                  // Re-sending the CURRENT amount is what promotes the new card
-                  // to the default; it is deliberately not a separate endpoint,
-                  // so there is one server path that adopts a SetupIntent and
-                  // one place that validates it belongs to this customer.
-                  const next = await api.setSupport(support.cents, setupIntentId)
+                  // NOT `setSupport(support.cents, …)`. That re-sent the amount
+                  // to promote the card, which set `cancel_at_period_end: false`
+                  // as a side effect — so replacing an expiring card during the
+                  // wind-down month after choosing $0 silently un-cancelled the
+                  // stop and billed them again. It also logged a conversion.
+                  const next = await api.replacePaymentMethod(setupIntentId)
                   setState(next)
                   setPanel('none')
                 }}

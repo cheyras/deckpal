@@ -441,7 +441,8 @@ The common shape:
 
 ```json
 { "available": true, "mode": "test", "publishableKey": "pk_test_…",
-  "presetsCents": [0, 300, 500, 1000, 2500], "minCents": 100, "maxCents": 50000,
+  "presetsCents": [0, 300, 500, 1000, 2500], "oneTimePresetsCents": [300, 500, 1000, 2500],
+  "abVariant": "without_1", "minCents": 100, "maxCents": 50000,
   "support": { "cents": 500, "currency": "USD", "status": "active",
                "currentPeriodEnd": "2026-10-05T12:00:00.000Z",
                "cancelAtPeriodEnd": false },
@@ -449,9 +450,17 @@ The common shape:
   "prompt": { "due": null } }
 ```
 
+`presetsCents` is NOT a constant: which ladder an account sees is the $1
+experiment's arm (migration 055), assigned once and sticky per account, and
+`abVariant` names it. Render what arrives. `oneTimePresetsCents` is the ladder
+for the one-off follow-up — higher anchors, no $0 rung, and identical in both
+arms, because one variable at a time.
+
 `prompt.due` is `onboarding` | `checkin` | `payment_issue` | `null`, decided
 server-side from a row the browser cannot edit (`promptDue()` in
-`apps/api/src/billing/store.ts`). There is no client-side "have I shown this"
+`apps/api/src/billing/store.ts`). **An account that is currently contributing is
+never shown the check-in** — not monthly, not ever. A broken payment still
+surfaces, because that is help rather than an ask. There is no client-side "have I shown this"
 flag: clearing site data must not restart the cadence, and signing in on a
 second device must not re-ask a question already answered.
 
@@ -465,9 +474,43 @@ when somebody is asked for money. At most one count per six hours, enforced in
 SQL, so a reload or a second tab is free. The app calls this once per page load.
 
 ### POST /deckpal/api/me/billing/prompt-ack
-`{ "kind": "onboarding" | "checkin" | "payment_issue" }` — records that the ask
-was PUT, on dismissal as much as on an answer, which is what makes a "not right
-now" buy the same full month of quiet a "yes" does. Returns the common shape.
+`{ "kind": "onboarding" | "checkin" | "payment_issue", "dismissed": true,
+"context": "checkin" }` — records that the ask was PUT. Both a dismissal and a
+completed answer buy the same full month of quiet; `dismissed` distinguishes
+them for the experiment, because recording both against one exposure made the
+two outcomes overlap. `context` carries the `forced-` label under the testing
+override. Returns the common shape.
+
+### POST /deckpal/api/me/billing/prompt-shown
+`{ "context": "checkin" }` → `{ "recorded": true }`. The experiment's
+DENOMINATOR, recorded when the modal actually mounts — not when the state is
+fetched, because most loads show no modal at all. The arm is read server-side;
+the client is trusted only with where the ask appeared.
+
+### POST /deckpal/api/me/billing/payment-method
+`{ "setupIntentId": "seti_—" }` → the common shape plus `settled`.
+
+Replaces the card and settles whatever failed: it sets the customer default,
+CLEARS any subscription-level pin (Stripe charges the subscription's own method
+in preference to the customer's, so without this a replaced card was never the
+one charged), and pays the outstanding invoice rather than leaving it on
+Stripe's multi-day retry clock. `settled` is the honest answer to "did that fix
+it" — a new card can be declined too.
+
+Deliberately NOT `PUT /subscription` with the same amount, which is what this
+used to be: that path sets `cancel_at_period_end: false`, so replacing an
+expiring card during the wind-down month after choosing $0 silently un-cancelled
+the stop, and it recorded a fresh `chose` event for what was only a card fix.
+
+### POST /deckpal/api/me/billing/one-time
+`{ "amountCents": 2500, "setupIntentId": "seti_—", "context": "checkin" }` →
+the common shape plus `paid`. A single charge against the card on file, offered
+as the follow-up when somebody answers $0. No subscription is created. Recorded
+as `chose_one_time`, never `chose` — folding a one-off into the recurring
+number overstates that account by 12x (migration 057). `paid` is false when the
+issuer wants the reader to confirm; `clientSecret` then carries the challenge,
+and the browser must check the intent's own status afterwards rather than
+assuming success.
 
 ### POST /deckpal/api/me/billing/setup-intent
 `{ "clientSecret": "seti_…_secret_…", "publishableKey": "pk_…", "mode": "test" }`

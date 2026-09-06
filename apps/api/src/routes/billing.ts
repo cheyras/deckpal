@@ -45,6 +45,7 @@ import {
   ensureCustomer,
   portalSession,
   pullState,
+  retryOpenInvoice,
   setSupport,
 } from '../billing/service.js';
 import {
@@ -179,8 +180,13 @@ function stripeFailure(err: unknown): never {
     type: e?.type ?? 'unknown',
     requestId: e?.requestId ?? null,
   });
+  // NOT "nothing was charged". This funnel is reached from after a successful
+  // charge too — a `pullState` that fails once the money has moved, or the RLS
+  // watchdog reclaiming the connection mid-request — and telling somebody
+  // nothing happened is how a one-off gets paid twice. Say what is true and
+  // point at the place that knows.
   const wrapped = new Error(
-    'We could not reach the payment provider just now. Nothing was charged — please try again in a moment.',
+    'We could not finish that just now. Open your profile to check whether it went through before trying again.',
   ) as Error & { status?: number; code?: string };
   wrapped.status = 502;
   wrapped.code = 'billing_upstream';
@@ -238,10 +244,17 @@ billingRouter.post(
     if (kind !== 'onboarding' && kind !== 'checkin' && kind !== 'payment_issue') {
       throw badRequest("kind must be one of: onboarding|checkin|payment_issue");
     }
-    // Closed without answering. Recorded BEFORE the ack so the two cannot
-    // disagree about whether the ask happened, and awaited rather than fired
-    // and forgotten so the row exists before the client re-reads state.
-    await recordAbEvent(userId, 'dismissed', kind);
+    // ⚠️ ONLY a real dismissal records one. This used to fire unconditionally,
+    // and the prompt calls this endpoint on the way out of a COMPLETED flow
+    // too — so every conversion also recorded a dismissal against the same
+    // exposure, and the experiment's two outcomes were not mutually exclusive.
+    //
+    // `context` carries the `forced-` label when the testing override is in
+    // play; without it, test-driven dismissals were recorded as real ones,
+    // which the forced-labelling was specifically meant to prevent.
+    const dismissed = req.body?.dismissed !== false;
+    const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : kind;
+    if (dismissed) await recordAbEvent(userId, 'dismissed', context);
     res.json(shape(await ackPrompt(userId, kind === 'onboarding')));
   }),
 );
@@ -320,11 +333,66 @@ billingRouter.put(
       // The outcome, INCLUDING zero. "They engaged and picked nothing" is a
       // different result from walking away, and collapsing the two would
       // flatter every conversion number this experiment produces.
+      //
+      // `payment_issue` is excluded: that surface never asks for an amount, and
+      // the only reason it reached this endpoint was to re-send the existing
+      // one. It now has its own endpoint, so this is belt and braces — a
+      // dunning fix must never read as a fresh conversion.
       const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
-      await recordAbEvent(userId, 'chose', context, amountCents);
+      if (!context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, amountCents);
       // Asking is now settled however this went: they answered the question.
       const acked = await ackPrompt(userId, fresh.onboarded_at === null);
       res.json(shape(acked, { clientSecret }));
+    } catch (err) {
+      stripeFailure(err);
+    }
+  }),
+);
+
+/**
+ * Replace the card, and nothing else.
+ *
+ * ── WHY THIS IS NOT `PUT /subscription` WITH THE SAME AMOUNT ────────────────
+ *
+ * That is what the profile card and the dunning prompt used to do, and it had
+ * two bugs sitting in it:
+ *
+ *  • `setSupport`'s update branch sets `cancel_at_period_end: false`
+ *    unconditionally. Somebody who had answered $0 — whose subscription is
+ *    winding down but still shows an amount until the period ends — would have
+ *    their cancellation SILENTLY UNDONE by updating an expiring card, and be
+ *    billed again the following month after saying they wanted to stop.
+ *  • It recorded a `chose` event at the existing amount every time, so fixing a
+ *    card looked like a fresh conversion to the $1 experiment.
+ *
+ * Changing a payment method is not changing an amount. Keeping them apart is
+ * the fix for both, and it lets this endpoint do the thing the amount path
+ * could not: settle the invoice that actually failed.
+ */
+billingRouter.post(
+  '/payment-method',
+  asyncHandler(async (req, res) => {
+    const userId = currentUserId(req);
+    const stripe = stripeClient();
+    if (!stripe) throw badRequest('Billing is not configured on this deployment.');
+    const setupIntentId = typeof req.body?.setupIntentId === 'string' ? req.body.setupIntentId.trim() : '';
+    if (!setupIntentId) throw badRequest('setupIntentId is required');
+
+    const row = await readRow(userId);
+    try {
+      const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
+      if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
+      // Sets the customer default AND clears any subscription-level pin, so the
+      // new card is the one that actually gets charged.
+      await adoptSetupIntent(stripe, customerId, setupIntentId);
+      // Then settle whatever failed. Without this, "updating your card here
+      // puts it straight" was false: the open invoice sat on Stripe's own retry
+      // clock, days away.
+      const status = await retryOpenInvoice(stripe, customerId);
+      const fresh = await applyStripe(userId, await pullState(stripe, customerId));
+      // `settled` is the honest answer to "did that fix it", and the client
+      // shows a different sentence when it did not.
+      res.json({ ...shape(fresh), settled: status === null || !['past_due', 'unpaid'].includes(status) });
     } catch (err) {
       stripeFailure(err);
     }

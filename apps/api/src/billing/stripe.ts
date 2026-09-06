@@ -148,8 +148,21 @@ export function stripeClient(): Stripe | null {
       // Named so a support ticket or a Stripe request log says which service
       // and which release made the call.
       appInfo: { name: 'DeckPal', url: 'https://deckpal.app' },
-      maxNetworkRetries: 2,
-      timeout: 20_000,
+      // ⚠️ SIZED AGAINST THE RLS CONNECTION BUDGET, not against Stripe.
+      //
+      // In SUPABASE_MODE a request holds one pooled connection for its whole
+      // life and the watchdog destroys it after PGRLS_MAX_HOLD_MS (30 s,
+      // apps/api/src/index.ts). These routes make several sequential Stripe
+      // calls, so the old 20 s × 2 retries meant ONE slow call could exceed the
+      // whole budget — the connection dies, the DB writes fail, and the caller
+      // is told the request failed after the money has already moved.
+      //
+      // 8 s × 1 retry keeps a single call's worst case at ~16 s, inside the
+      // budget with room for the writes either side. Stripe's own p99 is far
+      // below this; a call that takes eight seconds is a call that is not
+      // coming back.
+      maxNetworkRetries: 1,
+      timeout: 8_000,
     });
   }
   return cached;
@@ -194,11 +207,13 @@ export function normalizeAmountCents(v: unknown): number {
   // multiple of 100"). Somebody typing 50 has a budget in mind, not a units
   // misunderstanding.
   if (n < SUPPORT_MIN_CENTS) {
-    throw badRequest(`the smallest amount we can charge is $${SUPPORT_MIN_CENTS / 100} a month — or choose $0`);
+    // No "a month": this validator also guards the one-off endpoint, and the
+    // message is surfaced to the reader verbatim.
+    throw badRequest(`the smallest amount we can charge is $${SUPPORT_MIN_CENTS / 100} — or choose $0`);
   }
   if (n % 100 !== 0) throw badRequest('amountCents must be a whole number of dollars (a multiple of 100)');
   if (n > SUPPORT_MAX_CENTS) {
-    throw badRequest(`amounts above $${SUPPORT_MAX_CENTS / 100} a month have to be arranged by email — that is almost always a typo`);
+    throw badRequest(`amounts above $${SUPPORT_MAX_CENTS / 100} have to be arranged by email — that is almost always a typo`);
   }
   return n;
 }

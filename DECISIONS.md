@@ -15393,3 +15393,106 @@ again; `/health` names it and the API warns about it on boot. The first
 production run of migration 053 asks every existing account for money on their
 next visit; that is the intended behaviour and the one part of this that cannot
 be rehearsed.
+
+
+## 2026-09-06 — The $1 experiment, one-time gifts, and a correctness pass over the money paths
+
+**Decided by:** the owner, across a working session on `feat/pwyw-billing`.
+Three product decisions and one review, logged together because the last one
+changed the shape of the first three.
+
+### 1. The $1 experiment (migrations 055/056, later 058)
+
+*"Make it so that half the time, there is also a $1 option — gather data on
+which one was shown and the result, so that later we can analyze whether
+including a $1 option results in higher conversions or if it just results in
+people defaulting to a lower amount and therefore less revenue."*
+
+Two ladders differing by exactly one rung. The arm is assigned once by
+`random()` inside `billing_touch_visit`, stored on the account and never
+recomputed — sticky per ACCOUNT rather than per device, because a cookie split
+counts one person twice in different arms and produces a confident wrong answer.
+Every exposure, answer and dismissal goes to `billing_ab_event` with the arm
+stamped on the row.
+
+**The headline number is revenue per exposure, not conversion rate.** A $1 rung
+will almost certainly raise the share who pay something; the entire question is
+whether it drags the median down far enough that revenue falls. An experiment
+that only recorded conversions could not have answered the thing that was asked.
+
+### 2. One-time contributions (migration 057)
+
+*"If they select 0, I'd like a follow-up asking them if they'd like to make a
+one-time contribution instead. So we lead with subscription, but follow up with
+the option to do one-time."*
+
+One follow-up, only after $0, never in the profile card — there $0 means "stop
+my support", and following a cancellation with another ask is the behaviour this
+product was written not to have. It reuses the subscription's card path rather
+than growing a second one.
+
+It has its OWN event kind. Recording it as `chose` would have folded a one-time
+$25 into a monthly-recurring sum — a 12× overstatement — landing
+preferentially in whichever arm produces more $0 answers, i.e. biased toward the
+thing being measured.
+
+### 3. A testing override that disables itself
+
+The prompt is deliberately hard to see twice, which also makes it untestable.
+`?prompt=` forces it, works only while `stripeMode` is `test` (read server-side
+off the key's prefix), and labels its events `forced-` so they are excludable.
+It switches itself off when live keys arrive rather than depending on anyone
+remembering to remove it.
+
+### 4. The correctness pass, and why it happened
+
+A fresh-context review of the whole branch was commissioned before merge, on the
+owner's instruction that *"this is payments so it needs to be correct"*. It
+returned a no-go with seven money-path defects. The security model — webhook
+signatures, RLS, no card data, no secrets in logs — was found sound; the
+correctness of the Stripe interactions was not. What was wrong, and now is not:
+
+- **A transient Stripe error orphaned a paying subscription.** `ensureCustomer`
+  caught EVERY error from `customers.retrieve` and fell through to creating a
+  new customer. A timeout or a 429 during any billing request would mint an
+  empty customer, overwrite `stripe_customer_id`, show the reader "$0, no card",
+  drop that customer's webhooks — and leave the old subscription charging
+  monthly, invisibly, with no way to stop it in the app. Only `resource_missing`
+  now falls through; everything else propagates as a 502 the reader can retry.
+- **Replacing a card never reached the subscription.** Creation pinned the first
+  paying card at the SUBSCRIPTION level, which Stripe charges in preference to
+  the customer default, while adopting a new card only updated the customer. The
+  whole dunning path — "updating your card here puts it straight" — changed
+  nothing, and never retried the failed invoice either. The pin is gone, the
+  customer default is the single source of truth, and the outstanding invoice is
+  now paid.
+- **Retrying an abandoned first payment charged the old amount.** An
+  `incomplete` subscription has a FINALIZED invoice; repricing it does not
+  regenerate one. Pick $25, abandon the bank's challenge, come back, pick $1 —
+  and the confirm charged $25. `incomplete` is no longer modifiable; it is
+  cancelled and replaced.
+- **Replacing a card un-cancelled a pending stop.** The profile card re-sent the
+  current amount to promote a new card, and that path sets
+  `cancel_at_period_end: false`. Somebody who said $0 and then updated an
+  expiring card would have been billed the next month. Card replacement is now
+  its own endpoint that touches neither the amount nor the cancellation.
+- **No idempotency keys on subscription or payment-intent creation.** Two tabs,
+  two charges. Keyed per customer, amount and one-minute bucket, so a
+  double-submit collapses and a deliberate retry still works.
+- **Success screens asserted outcomes they had not checked.** Completing a bank
+  challenge is not the same as the charge succeeding; both the subscription and
+  the one-off path showed "Thank you — genuinely" on the strength of
+  `handleNextAction` not erroring. Both now read the actual status.
+- **The experiment counted itself wrong.** Every completion also recorded a
+  dismissal (the prompt acks on the way out of a finished flow too); forced-mode
+  dismissals were unlabelled; and the documented sum double-counted every amount
+  change. All three fixed, and the corrected query lives in `billing/store.ts`
+  because 055's header cannot be edited (B4).
+- **`SUPPORT_METADATA_KEY` was written and never read**, while the lookup took
+  whatever subscription came first — so a hand-arranged subscription on the same
+  customer would have been repriced by the next in-app change. It now filters.
+
+**Implications:** migrations 055—058 are additive and already applied through
+057; 058 needs applying. The review is to be re-run from fresh context until it
+returns clean twice, on the owner's instruction. Nothing here changes the
+product decisions above — it changes whether they were implemented correctly.

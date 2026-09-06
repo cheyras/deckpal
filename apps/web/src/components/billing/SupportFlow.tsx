@@ -43,6 +43,15 @@ import { AcceptedMethods, TrustPoints } from './StripeTrust'
 export type FlowContext = SupportPromptKind | 'settings'
 
 /**
+ * Stripe statuses in which the money actually arrived.
+ *
+ * Used to check an outcome rather than assume one. `incomplete` and `past_due`
+ * both mean the opposite of thank-you, and both are reachable after a bank
+ * challenge that the browser saw succeed.
+ */
+const PAID_STATUSES = new Set(['active', 'trialing'])
+
+/**
  * A failure, put where the person already is.
  *
  * ── WHY THIS IS NOT JUST `<FormAlert>` AT THE TOP ────────────────────────────
@@ -172,6 +181,16 @@ export function SupportFlow({
         next = await api.refreshBilling()
       }
       onState(next)
+      // ⚠️ CHECK WHAT ACTUALLY HAPPENED before saying thank you. Completing the
+      // bank's challenge does not mean the charge succeeded — an authenticated
+      // card can still be declined — and this used to go straight to the
+      // thank-you screen on the strength of `handleNextAction` not erroring.
+      if (amount > 0 && next.support.status && !PAID_STATUSES.has(next.support.status)) {
+        setError(
+          'Your bank confirmed it, but the payment did not complete. Nothing has been charged — try again, or use a different card.',
+        )
+        return
+      }
       setCommitted(amount)
       // The owner's ask: lead with the subscription, follow up with the one-off.
       // Only on $0, only once, and only where the ask belongs.
@@ -183,16 +202,44 @@ export function SupportFlow({
     }
   }
 
+  /**
+   * Replace the card and settle the failed invoice. The dunning path.
+   *
+   * `settled` is the server's honest answer to "did that fix it" — a new card
+   * can be declined too, and the screen must not promise otherwise.
+   */
+  async function saveCard(setupIntentId: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api.replacePaymentMethod(setupIntentId)
+      onState(res)
+      if (!res.settled) {
+        setError(
+          'The card is saved, but the outstanding payment still did not go through. Your bank may be declining it — try a different card, or contact them.',
+        )
+        return
+      }
+      setCommitted(res.support.cents)
+      setStep('done')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** Charge the one-off, handling a bank that wants confirming. */
   async function giveOnce(setupIntentId?: string) {
     setBusy(true)
     setError(null)
     try {
       const res = await api.giveOnce(onceAmount, setupIntentId, analyticsContext ?? context)
+      let paid = res.paid
       if (res.clientSecret) {
         const stripe = await stripePromise
         if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')
-        const { error: actionError } = await stripe.handleNextAction({ clientSecret: res.clientSecret })
+        const { error: actionError, paymentIntent } = await stripe.handleNextAction({ clientSecret: res.clientSecret })
         if (actionError) {
           setError(
             actionError.message
@@ -200,6 +247,15 @@ export function SupportFlow({
           )
           return
         }
+        // ⚠️ The intent's OWN status, not the absence of an error. A one-off has
+        // no subscription state to fall back on, so asserting "$25, one time
+        // only, Stripe will email you a receipt" without reading this was the
+        // baldest unverified claim in the flow.
+        paid = paymentIntent?.status === 'succeeded'
+      }
+      if (!paid) {
+        setError('That did not go through, so nothing has been charged. You can try again, or use a different card.')
+        return
       }
       onState(res)
       setGaveOnce(onceAmount)
@@ -383,7 +439,13 @@ export function SupportFlow({
           }
           cancelLabel={context === 'payment_issue' ? 'Later' : 'Back'}
           onComplete={(setupIntentId) =>
-            cardFor === 'one-time' ? giveOnce(setupIntentId) : commit(setupIntentId)
+            cardFor === 'one-time'
+              ? giveOnce(setupIntentId)
+              : context === 'payment_issue'
+                ? // Replacing a dead card is NOT re-sending the amount: that
+                  // path un-cancelled pending stops and logged a conversion.
+                  saveCard(setupIntentId)
+                : commit(setupIntentId)
           }
           onCancel={() => {
             if (context === 'payment_issue') onDismiss?.()

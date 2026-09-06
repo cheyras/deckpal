@@ -44,11 +44,40 @@ import type Stripe from 'stripe';
 import { SUPPORT_CURRENCY, supportProductId } from './stripe.js';
 import type { StripePatch } from './store.js';
 
+/**
+ * "That customer id points at nothing" — as distinct from "Stripe did not
+ * answer". Only the former may be recovered from by creating a new customer.
+ *
+ * `resource_missing` covers a deleted customer and an id from another Stripe
+ * account (test id used against a live key), which are the two cases the
+ * fallback exists for. Anything else — timeout, 429, 5xx, connection reset —
+ * is Stripe being unavailable, and the id is still perfectly good.
+ */
+function isMissingCustomer(err: unknown): boolean {
+  const e = err as { type?: string; code?: string; statusCode?: number };
+  if (e?.code === 'resource_missing') return true;
+  return e?.type === 'StripeInvalidRequestError' && e?.statusCode === 404;
+}
+
 /** Marks the subscriptions this feature owns, so it never touches another. */
 export const SUPPORT_METADATA_KEY = 'deckpal_support';
 
 /** Statuses in which a subscription is still ours to modify rather than replace. */
 const LIVE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused']);
+
+/** …and the subset with money outstanding that a new card could settle. */
+const NEEDS_PAYMENT = new Set(['past_due', 'unpaid']);
+
+/**
+ * `incomplete` is deliberately NOT here.
+ *
+ * An `incomplete` subscription has a FINALIZED first invoice at whatever amount
+ * it was created with, and updating the subscription's price does not
+ * regenerate it. Treating one as modifiable meant: pick $25, abandon the bank's
+ * confirmation, come back, pick $1 — and the retry confirms the old invoice and
+ * charges $25. It is replaced rather than modified (see `setSupport`).
+ */
+const MODIFIABLE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'paused']);
 
 function unixToIso(secs: number | null | undefined): string | null {
   return typeof secs === 'number' && Number.isFinite(secs) ? new Date(secs * 1000).toISOString() : null;
@@ -84,10 +113,20 @@ export async function ensureCustomer(
       if (!found.deleted && found.metadata?.deckpal_user_id === userId) {
         return { customerId: found.id, created: false };
       }
-    } catch {
-      // Gone, or belonging to another Stripe account entirely (a key was
-      // swapped between test and live). Either way it is not usable; fall
-      // through and make one that is.
+    } catch (err) {
+      // ⚠️ ONLY "this customer does not exist" may fall through to creating a
+      // new one. This used to catch EVERYTHING, and the consequence is the
+      // worst bug this file could have: a Stripe timeout, a 500 or a rate
+      // limit during any billing request would mint a fresh empty customer and
+      // overwrite `stripe_customer_id`. The profile would then read "$0, no
+      // card on file", the portal would open the empty customer, webhooks for
+      // the old one would resolve to no row and be dropped — and the OLD
+      // SUBSCRIPTION WOULD KEEP CHARGING, monthly, invisibly, with no way for
+      // the account holder to see or stop it in the app.
+      //
+      // A transient failure must propagate: a 502 the reader can retry is
+      // enormously better than a silent, un-cancellable charge.
+      if (!isMissingCustomer(err)) throw err;
     }
   }
 
@@ -101,13 +140,38 @@ export async function ensureCustomer(
   return { customerId: customer.id, created: true };
 }
 
-/** The subscription this feature manages for a customer, if there is one. */
+/**
+ * The subscription THIS FEATURE created for a customer, if there is one.
+ *
+ * The metadata filter is not decoration. `SUPPORT_METADATA_KEY` was written on
+ * every subscription and read by nothing, while this function took whatever
+ * subscription happened to be first — so a subscription set up by hand (which
+ * `stripe.ts` explicitly tells people to ask for above $500) would be repriced
+ * or cancelled by the next in-app amount change. It now means what its own
+ * comment always claimed: never touch another.
+ */
 async function managedSubscription(stripe: Stripe, customerId: string): Promise<Stripe.Subscription | null> {
   const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
+  const ours = list.data.filter((s) => s.metadata?.[SUPPORT_METADATA_KEY] === 'true');
   // Prefer a live one; fall back to the most recent so a just-cancelled
   // subscription still reports its end date rather than vanishing from the UI.
-  const live = list.data.find((s) => LIVE_STATUSES.has(s.status));
-  return live ?? list.data[0] ?? null;
+  const live = ours.find((s) => LIVE_STATUSES.has(s.status));
+  return live ?? ours[0] ?? null;
+}
+
+/**
+ * A key that collapses an accidental double-submit into one charge, without
+ * blocking a deliberate retry a moment later.
+ *
+ * Stripe replays the FIRST result for 24 hours against a given key, so a key
+ * that is purely (user, amount) would make a genuine second attempt after a
+ * failure silently return the failure. A one-minute bucket is the compromise:
+ * two clicks, two tabs or a flaky connection land in the same bucket and
+ * produce one subscription/charge; somebody trying again a minute later gets a
+ * real attempt.
+ */
+function idempotencyKey(kind: string, customerId: string, amountCents: number): string {
+  return `${kind}:${customerId}:${amountCents}:${Math.floor(Date.now() / 60_000)}`;
 }
 
 /** The card summary Stripe shows for a customer's default instrument. */
@@ -215,7 +279,54 @@ export async function adoptSetupIntent(stripe: Stripe, customerId: string, setup
   if (intent.status !== 'succeeded') throw new Error(`setup intent is ${intent.status}, not succeeded`);
   const pm = typeof intent.payment_method === 'string' ? intent.payment_method : intent.payment_method?.id;
   if (!pm) throw new Error('setup intent carries no payment method');
+
   await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: pm } });
+
+  // ⚠️ THE CUSTOMER DEFAULT IS NOT ENOUGH ON ITS OWN, and this is the bug that
+  // made the whole dunning flow a lie.
+  //
+  // Stripe charges a subscription's OWN `default_payment_method` in preference
+  // to the customer's. Subscriptions created here used to set
+  // `payment_settings.save_default_payment_method: 'on_subscription'`, which
+  // pins whichever card paid first at the subscription level — so when a card
+  // died and the reader added a new one, renewals kept hitting the dead card
+  // and the modal's "updating your card here puts it straight" was false.
+  //
+  // Clearing the subscription-level pin (empty string is Stripe's documented
+  // "unset") makes the CUSTOMER DEFAULT the single source of truth for which
+  // card gets charged. Creation no longer sets the pin at all; this clears it
+  // for every subscription made before that change.
+  const sub = await managedSubscription(stripe, customerId);
+  if (sub && LIVE_STATUSES.has(sub.status) && sub.default_payment_method) {
+    await stripe.subscriptions.update(sub.id, { default_payment_method: '' });
+  }
+}
+
+/**
+ * Pay the outstanding invoice on a subscription whose last charge failed.
+ *
+ * The other half of the dunning fix. Adopting a new card told Stripe what to
+ * charge NEXT time, and then left the open invoice sitting on Stripe's own
+ * retry clock — days away, and (before the fix above) aimed at the dead card.
+ * The reader was shown "that puts it straight" and nothing happened.
+ *
+ * Returns the resulting subscription status so the caller can tell the truth
+ * about whether it worked. A failure here is NOT fatal: the invoice stays open
+ * and Stripe's dunning still runs, which is exactly where it was before.
+ */
+export async function retryOpenInvoice(stripe: Stripe, customerId: string): Promise<string | null> {
+  const sub = await managedSubscription(stripe, customerId);
+  if (!sub || !NEEDS_PAYMENT.has(sub.status)) return sub?.status ?? null;
+  const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice : sub.latest_invoice?.id;
+  if (!invoiceId) return sub.status;
+  try {
+    await stripe.invoices.pay(invoiceId);
+  } catch {
+    // Declined again, or nothing payable. Stripe's own retries continue; the
+    // caller reports the status rather than claiming success.
+  }
+  const after = await stripe.subscriptions.retrieve(sub.id);
+  return after.status;
 }
 
 export interface SetSupportResult {
@@ -247,13 +358,23 @@ export async function setSupport(
   amountCents: number,
 ): Promise<SetSupportResult> {
   const existing = await managedSubscription(stripe, customerId);
-  const modifiable = existing && LIVE_STATUSES.has(existing.status) ? existing : null;
+  const modifiable = existing && MODIFIABLE_STATUSES.has(existing.status) ? existing : null;
 
   if (amountCents === 0) {
     if (modifiable && !modifiable.cancel_at_period_end) {
       await stripe.subscriptions.update(modifiable.id, { cancel_at_period_end: true });
     }
+    // An abandoned first attempt is not a subscription anybody wants kept
+    // around at $0 — cancel it outright so the next attempt starts clean.
+    if (existing?.status === 'incomplete') await stripe.subscriptions.cancel(existing.id);
     return { clientSecret: null };
+  }
+
+  // See MODIFIABLE_STATUSES: an unpaid, finalized first invoice cannot be
+  // repriced, so the abandoned attempt is thrown away and a fresh subscription
+  // is created below at the amount actually asked for.
+  if (existing?.status === 'incomplete') {
+    await stripe.subscriptions.cancel(existing.id);
   }
 
   const priceData = {
@@ -273,29 +394,29 @@ export async function setSupport(
       items: [{ id: item.id, price_data: priceData, quantity: 1 }],
       expand: ['latest_invoice.confirmation_secret'],
     });
-    // ⚠️ An `incomplete` subscription has NEVER BEEN PAID, and it is
-    // modifiable, so this branch can be reached for one. Returning success here
-    // would tell somebody "thank you — genuinely" for a charge that never
-    // happened, and record the amount on their account while Stripe quietly
-    // expired the subscription 23 hours later.
-    //
-    // Found by looking at a real one: the owner's first $3 attempt was left
-    // `incomplete` by the handleNextAction bug, and retrying would have taken
-    // this path and reported a payment that did not occur. Both branches now
-    // finish the first payment.
     return settle(stripe, updated);
   }
 
-  const created = await stripe.subscriptions.create({
-    customer: customerId,
-    items: [{ price_data: priceData, quantity: 1 }],
-    payment_behavior: 'default_incomplete',
-    payment_settings: { save_default_payment_method: 'on_subscription' },
-    // So a dashboard reader and `managedSubscription` can both tell at a glance
-    // that this is the support subscription and not something else.
-    metadata: { [SUPPORT_METADATA_KEY]: 'true' },
-    expand: ['latest_invoice.confirmation_secret'],
-  });
+  const created = await stripe.subscriptions.create(
+    {
+      customer: customerId,
+      items: [{ price_data: priceData, quantity: 1 }],
+      payment_behavior: 'default_incomplete',
+      // NO `save_default_payment_method` — see `adoptSetupIntent`. Pinning a
+      // card at the subscription level is what made replacing a dead card
+      // change nothing: Stripe prefers the subscription's own method over the
+      // customer's, so renewals kept hitting the card that had just been
+      // replaced. The customer default is the single source of truth.
+      // So a dashboard reader and `managedSubscription` can both tell at a
+      // glance that this is the support subscription and not something else.
+      metadata: { [SUPPORT_METADATA_KEY]: 'true' },
+      expand: ['latest_invoice.confirmation_secret'],
+    },
+    // Two clicks, two tabs, or a retried request must not produce two live
+    // subscriptions — one of which `managedSubscription` would never surface
+    // again while it billed away invisibly.
+    { idempotencyKey: idempotencyKey('sub', customerId, amountCents) },
+  );
 
   return settle(stripe, created);
 }
@@ -411,18 +532,23 @@ export async function chargeOnce(
   }
 
   try {
-    const intent = await stripe.paymentIntents.create({
-      customer: customerId,
-      payment_method: paymentMethod,
-      amount: amountCents,
-      currency: SUPPORT_CURRENCY,
-      confirm: true,
-      off_session: true,
-      description: 'DeckPal — one-time contribution',
-      // So the dashboard, and anyone reading a charge later, can tell a one-off
-      // from a subscription invoice without inferring it from the absence of one.
-      metadata: { [SUPPORT_METADATA_KEY]: 'true', kind: 'one_time' },
-    });
+    const intent = await stripe.paymentIntents.create(
+      {
+        customer: customerId,
+        payment_method: paymentMethod,
+        amount: amountCents,
+        currency: SUPPORT_CURRENCY,
+        confirm: true,
+        off_session: true,
+        description: 'DeckPal — one-time contribution',
+        // So the dashboard, and anyone reading a charge later, can tell a one-off
+        // from a subscription invoice without inferring it from the absence of one.
+        metadata: { [SUPPORT_METADATA_KEY]: 'true', kind: 'one_time' },
+      },
+      // A double-submit here is a DOUBLE CHARGE, with no subscription state to
+      // make it self-correcting. The most important key in this file.
+      { idempotencyKey: idempotencyKey('once', customerId, amountCents) },
+    );
     if (intent.status === 'requires_action') return { clientSecret: intent.client_secret, paid: false };
     return { clientSecret: null, paid: intent.status === 'succeeded' };
   } catch (err) {

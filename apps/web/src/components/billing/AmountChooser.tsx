@@ -188,7 +188,7 @@ export function AmountChooser({
               inputMode="numeric"
               autoComplete="off"
               placeholder="7"
-              aria-label="Your own monthly amount, in whole dollars"
+              aria-label={`${label}, in whole dollars`}
               value={custom}
               disabled={disabled}
               aria-invalid={!!customProblem || undefined}

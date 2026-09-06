@@ -81,25 +81,58 @@ export function presetsFor(row: BillingRow): number[] {
 export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
 
 /**
- * ⚠️ THE ANALYSIS QUERY NEEDS ONE MORE CLAUSE THAN 055's HEADER SAYS.
+ * ⚠️ THE ANALYSIS QUERY IN 055's HEADER IS WRONG. USE THIS ONE.
  *
- * That header was written before the testing override existed, and 055 is
- * applied so it cannot be edited (contract B4). The override
- * (`?prompt=checkin`, test mode only — see `SupportPrompt.tsx`) records its
- * events with a `forced-` context so they can be told apart from real ones.
- * Reading the experiment without excluding them counts every time somebody
- * opened the modal on purpose as an exposure, which lands entirely in whichever
- * arm the tester happens to be in.
+ * 055 is applied and cannot be edited (contract B4), and its header predates
+ * three things that each break the simple version it suggests:
  *
- *   SELECT variant,
- *          count(*) FILTER (WHERE kind = 'shown')                      AS shown,
- *          count(*) FILTER (WHERE kind = 'chose' AND amount_cents > 0) AS paid,
- *          sum(amount_cents) FILTER (WHERE kind = 'chose')             AS cents
- *     FROM billing_ab_event
- *    WHERE context NOT LIKE 'forced-%'          -- <— this line
- *    GROUP BY variant;
+ *   • `sum(amount_cents) FILTER (kind = 'chose')` IS NOT REVENUE. Every amount
+ *     CHANGE appends a fresh `chose` row, so somebody who picks $5 and later
+ *     drops to $3 sums to $8. The arms diverge here the moment one of them
+ *     induces more edits than the other — which is precisely the behaviour the
+ *     $1 rung is suspected of causing.
+ *   • The testing override (`?prompt=`) records with a `forced-` context.
+ *   • One-off gifts are `chose_one_time` (057) and must not be added to a
+ *     monthly figure.
+ *
+ * So: take each account's LAST monthly answer, sum one-offs separately, and
+ * divide by exposures. `monthly_cents_per_exposure` is the number that answers
+ * "does a $1 option raise revenue or just move people down the ladder" — a
+ * higher `paying` count with a lower figure here is the cannibalisation the
+ * experiment exists to detect.
+ *
+ *   WITH exposures AS (
+ *     SELECT variant, count(*) AS shown
+ *       FROM billing_ab_event
+ *      WHERE kind = 'shown' AND context NOT LIKE 'forced-%'
+ *      GROUP BY variant
+ *   ), monthly AS (
+ *     SELECT DISTINCT ON (user_id) user_id, variant, amount_cents
+ *       FROM billing_ab_event
+ *      WHERE kind = 'chose' AND context NOT LIKE 'forced-%'
+ *      ORDER BY user_id, created_at DESC
+ *   ), one_off AS (
+ *     SELECT variant, sum(amount_cents) AS cents
+ *       FROM billing_ab_event
+ *      WHERE kind = 'chose_one_time' AND context NOT LIKE 'forced-%'
+ *      GROUP BY variant
+ *   )
+ *   SELECT e.variant,
+ *          e.shown,
+ *          count(m.user_id) FILTER (WHERE m.amount_cents > 0)      AS paying,
+ *          coalesce(sum(m.amount_cents), 0)                        AS monthly_cents,
+ *          coalesce(max(o.cents), 0)                               AS one_off_cents,
+ *          round(coalesce(sum(m.amount_cents), 0)::numeric
+ *                / nullif(e.shown, 0), 1)         AS monthly_cents_per_exposure
+ *     FROM exposures e
+ *     LEFT JOIN monthly  m ON m.variant = e.variant
+ *     LEFT JOIN one_off  o ON o.variant = e.variant
+ *    GROUP BY e.variant, e.shown
+ *    ORDER BY e.variant;
+ *
+ * ⚠️ Ten accounts exist today. This collects honestly; reading it for a winner
+ * has to wait for volume, and no amount of SQL fixes that.
  */
-export const REAL_EVENTS_ONLY = "context NOT LIKE 'forced-%'"
 ;
 
 /**

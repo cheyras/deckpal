@@ -396,9 +396,19 @@ API can decide. Migration 054 makes it the database's decision instead:
   grants `authenticated` write privileges on new public tables by default. A
   write then fails loudly with `42501` rather than quietly affecting zero rows,
   and keeps failing even if a future migration adds a permissive policy.
-- **Writes go through three `SECURITY DEFINER` functions** that derive the row
-  from `auth.uid()` and never from an argument, each writing only the columns
-  its name describes. There is no user id to forge.
+- **Writes go through four `SECURITY DEFINER` functions** —
+  `billing_touch_visit`, `billing_ack_prompt`, `billing_apply_stripe` (054) and
+  `billing_record_ab_event` (056) — which derive the row from `auth.uid()` and
+  never from an argument, each writing only the columns its name describes.
+  There is no user id to forge.
+- **Those functions are reachable over PostgREST**, because `authenticated` must
+  be able to execute them and the anon key is in the SPA by design. The inputs
+  are therefore constrained in the FUNCTION, not in the route: the experiment
+  arm is read from the caller's own row rather than accepted as a parameter, and
+  migration 058 refuses an `amount_cents` outside `0≤50000` (the product's own
+  ceiling) or an unrecognised event kind. A caller can still write a plausible
+  event about themselves; they cannot forge an arm, an amount the API would
+  reject, or anybody else's row.
 - **Defence in depth in the API:** a stored customer id is only used when the
   Stripe customer's own `metadata.deckpal_user_id` names this account.
 
@@ -407,11 +417,26 @@ grant to either role.
 
 ### What the browser may send
 
-One number. `amountCents`, plus a `setupIntentId` on the one leg where a card
-was just entered — and that id is verified to belong to this account's customer,
-and to have succeeded, before it is used. Customer ids, subscription ids, prices,
+An amount, and a `setupIntentId` on the one leg where a card was just entered —
+that id being verified to belong to this account's customer, and to have
+succeeded, before it is used. Customer ids, subscription ids, prices,
 payment-method ids and statuses are all resolved server-side and never accepted
 from a request.
+
+It also sends two analytics values: the prompt `kind` and a free-text `context`
+(truncated to 40 characters). Neither touches money. The experiment arm — the
+one field that would make the measurement forgeable — is deliberately not among
+them.
+
+### A testing override that switches itself off
+
+`?prompt=onboarding|checkin|payment_issue` forces the support prompt open, so a
+surface designed to be hard to see twice can be tested at all. It works **only
+while `stripeMode` is `test`**, which is read server-side off the secret key's
+own prefix — so it stops working the moment live keys are configured, rather
+than relying on anyone remembering to remove it. It can force a modal; it cannot
+charge anything, and events recorded under it carry a `forced-` context so they
+are excluded from the experiment.
 
 ### Logging
 
