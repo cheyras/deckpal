@@ -181,7 +181,12 @@ export function statusNote(
     case 'incomplete':
       return {
         tone: 'warn',
-        text: 'Your bank asked for confirmation and it was not completed, so nothing has been charged. Choosing an amount again will pick up where it left off.',
+        // Not "nothing has been charged": a first invoice whose payment is
+        // still `processing` also reads as `incomplete` here, and choosing an
+        // amount again REPLACES the subscription rather than resuming it — so
+        // the old wording invited a second first month for money already in
+        // flight. This says what is true in both cases.
+        text: 'Your bank asked for confirmation and the subscription has not started yet. If you were in the middle of confirming, give it a minute and reload before trying again — otherwise choose an amount to start afresh.',
       }
     case 'canceled':
       return null

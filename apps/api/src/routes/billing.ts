@@ -236,6 +236,12 @@ async function customerFor(req: Request, userId: string, row: BillingRow, stripe
 async function resync(req: Request, userId: string, row: BillingRow): Promise<BillingRow> {
   const stripe = stripeClient();
   if (!stripe) return row;
+  // ⚠️ A RE-READ, NOT A CREATE. `customerFor` makes a customer when the column
+  // is NULL, so this used to mint one for any $0 account that happened to hit
+  // `/refresh` — contradicting the rule two routes over that a $0 answer with
+  // nothing on file never touches Stripe at all. There is nothing at Stripe to
+  // read for a row with no customer, and the row already says so.
+  if (!row.stripe_customer_id) return row;
   const customerId = await customerFor(req, userId, row, stripe);
   const patch = await pullState(stripe, customerId);
   return applyStripe(userId, patch);
@@ -611,6 +617,11 @@ billingRouter.post(
       res.json(UNAVAILABLE);
       return;
     }
+    // `resync` can release and re-point the customer id when Stripe says the
+    // stored one is gone, which is the same write two concurrent requests would
+    // race into 059's write-once pin over. Cheap here: the guard above means
+    // most calls do no Stripe work at all.
+    await lockAccount(userId);
     const row = await readRow(userId);
     try {
       const fresh = await resync(req, userId, row);

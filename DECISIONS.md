@@ -15638,6 +15638,48 @@ against — a stray that survived because the cleanup itself failed, and has bee
 billing quietly for months. Refunding one of three months is worse than
 refunding none, because it looks settled.
 
+### 9. Round six: the same miss, on the branch the fix was written for
+
+Round five froze the one-off amount after an ambiguous failure, because the
+amount is inside Stripe's idempotency key and a retry at a different amount is a
+second real charge rather than a retry. It froze the thrown-error path and left
+both `processing` branches unfrozen — the two places where the screen says "do
+not pay again" in so many words. Gift $25, watch it go to `processing`, nudge
+the still-live chooser to $20, press: $45 for one gift. Section 8 above said "it
+is frozen now until the attempt resolves", which was not true when it was
+written.
+
+That is four rounds running, and the shape never changes: the diagnosis is
+right, the fix is right, and it lands on one of the two or three branches that
+reach the fault. Worth stating as a rule for anyone extending this file — when
+you fix a payment path, enumerate every branch that reaches the state you are
+fixing and put the fix on all of them, or put it somewhere all of them pass
+through. A comment saying "fixed" is worth nothing next to that list.
+
+The round also found a refund that could take back real money. `paused` is in
+`LIVE_STATUSES` but not `MODIFIABLE_STATUSES`, so an amount change on a
+subscription the owner had paused from the dashboard takes the CREATE path, and
+the stray sweep that follows would have found the paused subscription "live, and
+not the one we are keeping" and refunded its entire collected history before
+cancelling it. Months of legitimate support given back for changing an amount.
+`paused` is excluded from the sweep now, and the function's docstring no longer
+claims a guarantee it cannot enforce from the inside — the caller's filter is
+what makes it true.
+
+Three smaller ones. `/refresh` is a re-read and was creating Stripe customers:
+unlocked, so two concurrent calls raced into 059's pin, and it minted a customer
+for any $0 account that touched it, contradicting the rule two routes over that
+$0 with nothing on file never reaches Stripe at all. A refund that threw
+mid-sweep abandoned the remaining months while the caller cancelled anyway, so
+each month now fails on its own and an incomplete refund is logged with the
+subscription id the owner needs to finish it by hand. And the webhook's
+claim-before-process dropped an event for good when processing failed: 053
+reasoned that the next event for the customer would repair the row, which is
+true of everything except the terminal events — there is no next event after
+`customer.subscription.deleted` on an immediate cancel. The claim is released on
+failure, which is safe because every handler is a full re-read rather than an
+increment.
+
 **Implications:** migrations 061 and 062 are new; 053—057 are applied, 058—062
 are not. They must be applied together and in order — 059 without 060 is worse
 than neither, because it recreates the orphan-minting loop 060 exists to fix.

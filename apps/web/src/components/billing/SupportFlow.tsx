@@ -333,6 +333,15 @@ export function SupportFlow({
         if (paymentIntent?.status === 'processing') {
           // Neither charged nor refused. Saying "nothing has been charged"
           // here is a lie that invites a second payment.
+          //
+          // ⚠️ AND THE AMOUNT FREEZES, for the same reason it freezes on an
+          // ambiguous throw. The words say "do not pay again" while the chooser
+          // underneath them stays live, and the amount is inside Stripe's
+          // idempotency key — so nudging $25 to $20 and pressing builds a
+          // DIFFERENT key, which is a second real charge rather than a retry.
+          // Round five froze the throw path and left these two, which is the
+          // same one-branch-away miss this feature keeps making.
+          setFrozenAmount(onceAmount)
           setError(
             'Your bank is still processing this. Do not pay again — it will complete on its own, and Stripe will email you a receipt if it goes through.',
           )
@@ -351,6 +360,8 @@ export function SupportFlow({
           if (settled) state = settled
         }
       } else if (res.status === 'processing') {
+        // Frozen for the same reason as the challenge path above.
+        setFrozenAmount(onceAmount)
         // ⚠️ THE SAME TRUTH ON THE PATH WITH NO CHALLENGE. `chargeOnce` returns
         // `paid: false` for a `processing` intent as well as for a refusal, and
         // the branch below both says "nothing has been charged" AND mints a new

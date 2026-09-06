@@ -104,10 +104,12 @@ function customerIdOf(event: Stripe.Event): string | null {
 /**
  * Record the event, and say whether it is new.
  *
- * Inserted BEFORE processing: a crash mid-handler drops that retry rather than
- * replaying it, which is the right trade when every handler is a full re-sync
- * (the next event of any kind repairs the row, and `stripe_synced_at` shows how
- * stale it got). See migration 053.
+ * Inserted BEFORE processing, so two concurrent deliveries of the same event
+ * cannot both act on it. The handler releases the claim if processing fails, so
+ * Stripe's retry is a real second attempt rather than a duplicate — see the
+ * catch in `handle`, and 053's header, which reasoned that the next event for
+ * the customer would repair a dropped one. That holds for everything except the
+ * TERMINAL events, after which there is no next event.
  */
 async function claimEvent(event: Stripe.Event): Promise<boolean> {
   const rows = await q<{ stripe_event_id: string }>(
@@ -247,10 +249,28 @@ async function handle(req: Request, res: Response): Promise<void> {
     const outcome = await syncCustomer(stripe, customerId, event.type === 'customer.deleted');
     res.json({ received: true, handled: outcome === 'synced' });
   } catch (err) {
-    // A 500 here makes Stripe retry, which is what we want for a transient
-    // database or API failure. The event id is already claimed, so the retry
-    // will be treated as a duplicate — deliberately: see `claimEvent`. The next
-    // event for this customer re-syncs the row.
+    // ⚠️ RELEASE THE CLAIM, or a transient failure drops the event for good.
+    //
+    // The claim is taken BEFORE processing so that two concurrent deliveries of
+    // the same event cannot both act. The cost is that a failure after the
+    // claim makes Stripe's retry look like a duplicate. The old comment here
+    // said the next event for the customer would repair the row, and for most
+    // events that is true — but not for the TERMINAL ones. There is no next
+    // event after `customer.subscription.deleted` on an immediate cancel, or
+    // after `customer.deleted`, so a single transient database wobble would
+    // have left `support_cents` set for ever: the profile claiming a payment
+    // that is not happening, and `isContributing` suppressing the check-in for
+    // somebody who is no longer paying.
+    //
+    // Deleting the claim is safe because `syncCustomer` is a full re-read
+    // rather than an increment — replaying it converges on the same row whether
+    // or not the first attempt got halfway. If this delete fails too the
+    // database is properly down, and we are no worse off than before.
+    await q(`DELETE FROM billing_event WHERE stripe_event_id = $1`, [event.id]).catch(() => {
+      console.error('[deckpal-api] stripe webhook: could not release the event claim; retries will be ignored');
+    });
+    // The 500 makes Stripe retry, which is what we want for a transient
+    // database or API failure — and now the retry can actually do the work.
     console.error('[deckpal-api] stripe webhook: processing failed', {
       eventId: event.id,
       type: event.type,
