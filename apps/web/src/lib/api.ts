@@ -1540,7 +1540,11 @@ export const api = {
    * then carries the challenge.
    */
   giveOnce: (amountCents: number, opts: { setupIntentId?: string; context?: string; attemptId: string }) =>
-    send<BillingState & { paid: boolean }>('POST', '/me/billing/one-time', {
+    // `status` is the PaymentIntent's own, and the reason it is here is that
+    // `paid: false` alone cannot be spoken: `processing` means the money may
+    // still leave, and telling somebody "nothing has been charged" then invites
+    // a second payment.
+    send<BillingState & { paid: boolean; status: string | null }>('POST', '/me/billing/one-time', {
       amountCents,
       ...(opts.setupIntentId ? { setupIntentId: opts.setupIntentId } : {}),
       ...(opts.context ? { context: opts.context } : {}),

@@ -40,6 +40,7 @@ import {
   stripeMode,
 } from '../billing/stripe.js';
 import {
+  SUPPORT_METADATA_KEY,
   adoptSetupIntent,
   chargeOnce,
   createSetupIntent,
@@ -214,7 +215,19 @@ function stripeFailure(err: unknown): never {
  */
 async function customerFor(req: Request, userId: string, row: BillingRow, stripe: Stripe): Promise<string> {
   const { customerId, replaced } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
-  if (replaced) await releaseCustomer(userId);
+  if (replaced) {
+    // ⚠️ RELEASE-THEN-SET IS THE ONE WAY A CUSTOMER ID EVER MOVES, so it is the
+    // one thing worth a line in the log. 059's pin refuses a direct repoint;
+    // this pair is permitted, and 059's and 060's own headers overstated that
+    // as two independent locks (SECURITY.md has the accurate version). The
+    // control that actually closes the disclosure is `ensureCustomer`'s
+    // metadata check, three lines above, and the webhook's — which is why this
+    // only ever runs after Stripe has said the stored customer is gone or is
+    // not ours. If this line appears for an account whose Stripe customer is
+    // demonstrably fine, that is worth looking at.
+    console.warn('[deckpal-api] billing: releasing an unusable Stripe customer and re-pointing the account');
+    await releaseCustomer(userId);
+  }
   if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
   return customerId;
 }
@@ -353,6 +366,19 @@ billingRouter.put(
     await lockAccount(userId);
     const row = await readRow(userId);
     try {
+      // ⚠️ $0 WITH NOTHING ON FILE TOUCHES STRIPE AT ALL. Most people answer
+      // $0, and creating a customer for each of them fills the dashboard with
+      // records that will never hold a card, a charge or an invoice — the same
+      // reason the SetupIntent is created lazily rather than on open. There is
+      // nothing to cancel, nothing to reprice and nothing to read back, so the
+      // whole Stripe leg is skipped and the answer is still recorded.
+      if (amountCents === 0 && !row.stripe_customer_id && !setupIntentId) {
+        const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+        if (!context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, 0);
+        res.json(shape(await ackPrompt(userId, row.onboarded_at === null)));
+        return;
+      }
+
       const customerId = await customerFor(req, userId, row, stripe);
 
       // A card was just entered: promote it before the subscription tries to
@@ -476,7 +502,7 @@ billingRouter.post(
       const customerId = await customerFor(req, userId, row, stripe);
       if (setupIntentId) await adoptSetupIntent(stripe, customerId, setupIntentId);
 
-      const { clientSecret, paid } = await chargeOnce(stripe, customerId, amountCents, attemptId);
+      const { clientSecret, paid, status, intentId } = await chargeOnce(stripe, customerId, amountCents, attemptId);
       // Only a gift that actually landed. A challenge still outstanding is not
       // an outcome, and recording one made an abandoned confirmation count as
       // revenue. When the bank does step in, the browser calls
@@ -485,10 +511,16 @@ billingRouter.post(
       // which an idempotency key would answer with the original
       // `requires_action` response rather than the settled one.
       const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
-      if (paid) await recordAbEvent(userId, 'chose_one_time', context, amountCents);
+      // Keyed to the intent, so this and `/one-time/confirm` cannot both count
+      // the same gift, and so a retried request cannot count it twice (061).
+      if (paid) {
+        await recordAbEvent(userId, 'chose_one_time', context, amountCents, intentId ? `once:${intentId}` : undefined);
+      }
       // The card summary may be new; the subscription state is untouched.
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
-      res.json({ ...shape(fresh, { clientSecret }), paid });
+      // `status` travels so the browser can tell `processing` — money that may
+      // yet leave — from a decline. They need opposite sentences.
+      res.json({ ...shape(fresh, { clientSecret }), paid, status });
     } catch (err) {
       stripeFailure(err);
     }
@@ -525,10 +557,19 @@ billingRouter.post(
       // The id arrives from the browser, so it is checked against the customer
       // resolved from the session — exactly as a SetupIntent is.
       if (!owner || owner !== row.stripe_customer_id) throw badRequest('that payment does not belong to this account');
+      // ⚠️ AND IT MUST BE A ONE-OFF THIS FLOW CREATED. Ownership alone is not
+      // enough: a subscriber's own first-invoice PaymentIntent passes the
+      // customer check, so without this a recurring charge could be posted here
+      // and counted as one-time support. `chargeOnce` stamps both keys.
+      const isGift =
+        intent.metadata?.[SUPPORT_METADATA_KEY] === 'true' && intent.metadata?.kind === 'one_time';
+      if (!isGift) throw badRequest('that payment is not a one-time contribution');
       const paid = intent.status === 'succeeded';
       if (paid) {
         const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
-        await recordAbEvent(userId, 'chose_one_time', context, intent.amount);
+        // Keyed to the intent (061), so replaying this endpoint — deliberately
+        // or as a browser retry — records the gift exactly once.
+        await recordAbEvent(userId, 'chose_one_time', context, intent.amount, `once:${intent.id}`);
       }
       const fresh = await applyStripe(userId, await pullState(stripe, row.stripe_customer_id!));
       res.json({ ...shape(fresh), paid });
@@ -565,16 +606,21 @@ billingRouter.post(
       // completes the challenge and calls this; if the subscription is now
       // paying, THAT is the outcome worth recording, and it is recorded exactly
       // once because the earlier call skipped it.
-      const amountCents = Number(req.body?.amountCents);
+      // ⚠️ `fresh.support_cents`, NOT the body. The client used to name the
+      // amount here and the server wrote it down, so the one event this
+      // endpoint produces was the one an account could set to any figure it
+      // liked without going near Stripe. The subscription has just been re-read
+      // from Stripe; what it is actually billing is the only honest number, and
+      // it needs no validation because Stripe would not have accepted an
+      // invalid one.
       const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : null;
       if (
         context &&
-        Number.isInteger(amountCents) &&
-        amountCents > 0 &&
+        fresh.support_cents > 0 &&
         !context.includes('payment_issue') &&
         PAYING.has(fresh.subscription_status ?? '')
       ) {
-        await recordAbEvent(userId, 'chose', context, amountCents);
+        await recordAbEvent(userId, 'chose', context, fresh.support_cents);
       }
       res.json(shape(fresh));
     } catch (err) {

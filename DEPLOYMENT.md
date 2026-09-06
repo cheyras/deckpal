@@ -263,7 +263,7 @@ CVC is a card that works.
    Turn OFF: "cancel subscription" is fine to leave on, but cancelling in the
    app is one tap on the $0 preset and never requires leaving it.
 
-5. Apply the migrations (053—060) BEFORE the deploy that reads them.
+5. Apply the migrations (053—062) BEFORE the deploy that reads them.
    053 tables + backfill; 054 (@supabase-only) RLS, the write functions and the
    REVOKEs that undo Supabase's default table grants; 055/056 the $1
    experiment; 057 the one-time contribution's event kind; 058 the amount cap
@@ -271,8 +271,20 @@ CVC is a card that works.
    and the `support_cents` clamp — do not skip this one, it is what stops an
    account repointing its row at somebody else's Stripe customer**; 060 the
    release function 059 needs so a genuinely dead customer can be recovered
-   from. `packages/db` applies only what is pending and refuses to run if a
-   shipped migration has been edited.
+   from; 061 the `dedupe_key` column on the experiment log; 062
+   (@supabase-only) the RPC that uses it, plus a daily ceiling on how many
+   events one account may write. `packages/db` applies only what is pending and
+   refuses to run if a shipped migration has been edited.
+
+   ⚠️ **All of them, in order, in one run.** The deployed code hard-requires
+   every one of 058—062: `billing_ensure_row` (059),
+   `billing_release_customer` (060) and the four-argument
+   `billing_record_ab_event` (062) are all called by name. Applying **059
+   without 060** is the worst of the partial states — it recreates the fault
+   060 exists to fix, where a deleted Stripe customer sends the account into a
+   502 loop minting a fresh orphan customer on every request. The sequential
+   runner does the right thing on its own; only a hand-picked subset can get
+   this wrong.
 
 6. **Send a real webhook and confirm it lands.** `/health` says the secret is
    configured; it does not say the endpoint works. The one thing that could

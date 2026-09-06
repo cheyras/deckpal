@@ -15541,6 +15541,61 @@ because the script making it aborted midway. In a branch where each round reads
 the last one's comments as evidence, a confidently wrong comment is a defect,
 and they are recorded here rather than quietly corrected.
 
+### 7. Round four: one cast, and the whole feature was dead
+
+The lock added in round three to stop the two-tab double charge was
+`pg_advisory_xact_lock(8534071, hashtextextended($1, 0)::int)`. `hashtextextended`
+returns a 64-bit bigint and a cast to `int4` in Postgres is range-checked, not
+truncating — so it raises `integer out of range` for essentially every uuid.
+Measured against real Postgres: 0 of 200 survived. The lock is taken before the
+try/catch on all three money routes, so in production every subscribe, every card
+change and every gift would have been a 500, including choosing $0 in the
+onboarding modal. Nobody could have paid anything.
+
+It failed safe — the raise happens before any Stripe call, so no money moved —
+and it was invisible to the test suite, which never enters SUPABASE_MODE and
+where `lockAccount` is a deliberate no-op. That is the lesson worth keeping: the
+tests are green on a code path production does not take. The single-argument
+form is now used, with the namespace folded into the hashed string, and it is
+verified against Postgres rather than reasoned about.
+
+Three more from the same round, all in the one-off gift:
+
+A declined card is a THROWN error, not a `paid: false` response — so round
+three's "a decline can now be retried" fix sat on a branch declines never reach,
+and the comment above it described the opposite of what the code did. Twice now
+in this feature a fix has landed one branch away from the bug. The retry rule is
+now written where the decline actually arrives: a 400 is a settled refusal and
+earns a fresh attempt id, anything else is ambiguous and keeps the old one.
+
+`chargeOnce` returns `paid: false` for a `processing` intent as well as for a
+refusal. The challenge path knew that; the path with no challenge did not, and
+told the reader "nothing has been charged" while minting a new attempt id — an
+invitation to pay twice, with the new id guaranteeing the second charge would go
+through. The intent's status now travels with the verdict, because the boolean
+alone cannot be spoken aloud.
+
+And `/one-time/confirm` verified only that the intent belonged to the account,
+which is true every time the same intent is submitted. One paid gift could be
+posted twenty times, and a subscriber could post their own first-invoice intent
+and have a recurring charge counted as one-off support. It now checks the
+metadata this flow stamps, and migrations 061/062 give the event log a
+`dedupe_key` so the write is unique per account per Stripe object.
+
+**On the "two independent locks" claim.** 059 and 060 each said the write-once
+pin and the webhook's ownership check would hold alone if the other were
+refactored away. That is not true: release-to-NULL followed by a set is two
+permitted calls that together reach any customer id no other row holds. The
+disclosure stays closed because of the ownership check, full stop. The pin is
+depth — it makes a repoint deliberate, two-step, card-summary-wiping and now
+logged, rather than a single silent write. SECURITY.md carries the accurate
+version; the two migration headers are left as shipped, because they are applied
+migrations and correcting them in place is what B4 forbids.
+
+**Implications:** migrations 061 and 062 are new; 053—057 are applied, 058—062
+are not. They must be applied together and in order — 059 without 060 is worse
+than neither, because it recreates the orphan-minting loop 060 exists to fix.
+
 Also: a declined one-off could never be retried. Stripe replays a stored
 response for an idempotency key for 24 hours, declines included, so holding the
 attempt id across a decline meant every retry got the cached refusal without the

@@ -503,14 +503,37 @@ expiring card during the wind-down month after choosing $0 silently un-cancelled
 the stop, and it recorded a fresh `chose` event for what was only a card fix.
 
 ### POST /deckpal/api/me/billing/one-time
-`{ "amountCents": 2500, "setupIntentId": "seti_—", "context": "checkin" }` →
-the common shape plus `paid`. A single charge against the card on file, offered
-as the follow-up when somebody answers $0. No subscription is created. Recorded
-as `chose_one_time`, never `chose` — folding a one-off into the recurring
-number overstates that account by 12x (migration 057). `paid` is false when the
-issuer wants the reader to confirm; `clientSecret` then carries the challenge,
-and the browser must check the intent's own status afterwards rather than
-assuming success.
+`{ "amountCents": 2500, "setupIntentId": "seti_—", "context": "checkin" }` —
+the common shape plus `paid` and `status`. A single charge against the card on
+file, offered as the follow-up when somebody answers $0. No subscription is
+created. Recorded as `chose_one_time`, never `chose` — folding a one-off into
+the recurring number overstates that account by 12x (migration 057).
+
+`paid` is false when the issuer wants the reader to confirm; `clientSecret` then
+carries the challenge, and the browser must check the intent's own status
+afterwards rather than assuming success. ⚠️ `paid: false` is also returned for a
+`processing` intent, where the money may still leave — which is what `status`
+is for. Treat `status: "processing"` as "do not pay again"; only a settled
+refusal may be offered a retry.
+
+### POST /deckpal/api/me/billing/one-time/confirm
+`{ "paymentIntentId": "pi_—", "context": "checkin" }` — the common shape plus
+`paid`. Called by the browser after it has completed a bank challenge on a
+one-off. The server retrieves the intent itself and records the gift only if
+Stripe says it succeeded; the client's word is not taken for anything.
+
+Three checks, each of which has to be there: the intent must belong to this
+account's Stripe customer, its metadata must mark it a one-off this flow created
+(otherwise a subscriber could post their own first-invoice intent and have a
+recurring charge counted as one-time support), and the event carries the intent
+id as a `dedupe_key`, so replaying the call — deliberately, or as a browser
+retry — records the gift exactly once (migrations 061/062).
+
+Why it exists rather than re-posting `/one-time`: that request's idempotency key
+would replay the original `requires_action` response instead of the settled one,
+so the whole class of challenged gifts would be missing from the experiment —
+and step-up rates vary by issuer and country, so it would have biased whichever
+arm attracted more of them.
 
 ### POST /deckpal/api/me/billing/setup-intent
 `{ "clientSecret": "seti_…_secret_…", "publishableKey": "pk_…", "mode": "test" }`

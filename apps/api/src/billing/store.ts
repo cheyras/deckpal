@@ -106,9 +106,16 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  *     -- months is one person; counting three exposures means the arm that
  *     -- converts FASTER stops accruing re-asks and its cents-per-exposure
  *     -- rises for a reason that is not the thing being measured.
+ *     --
+ *     -- The SAME surfaces the numerator counts. `payment_issue` is an
+ *     -- exposure of a dunning modal that never asks for an amount, so it can
+ *     -- never produce a `chose`; leaving it in the denominator penalises
+ *     -- whichever arm happens to collect more failed cards, which is a
+ *     -- property of the cards and not of the $1 rung.
  *     SELECT variant, count(DISTINCT user_id) AS exposed
  *       FROM billing_ab_event
  *      WHERE kind = 'shown' AND context NOT LIKE 'forced-%'
+ *        AND context IN ('onboarding', 'checkin')
  *      GROUP BY variant
  *   ), monthly AS (
  *     -- Only answers given TO A PROMPT. A `chose` from the profile card has no
@@ -154,10 +161,24 @@ export async function recordAbEvent(
   kind: AbEventKind,
   context: string,
   amountCents?: number,
+  /**
+   * The Stripe object this event is about, when there is one — `once:pi_123`.
+   *
+   * Migration 061 makes it unique per account, so a confirm the browser retries
+   * (or replays deliberately) records the gift once. Leave it undefined for
+   * events that legitimately repeat: two `chose` answers at $5 two months apart
+   * are two real answers, and giving them an identity would drop the second.
+   */
+  dedupeKey?: string,
 ): Promise<void> {
   try {
     if (SUPABASE_MODE) {
-      await q(`SELECT billing_record_ab_event($1, $2, $3)`, [kind, context, amountCents ?? null]);
+      await q(`SELECT billing_record_ab_event($1, $2, $3, $4)`, [
+        kind,
+        context,
+        amountCents ?? null,
+        dedupeKey ?? null,
+      ]);
       return;
     }
     const row = await q1<{ ab_presets: string | null }>(
@@ -166,9 +187,10 @@ export async function recordAbEvent(
     );
     if (!row?.ab_presets) return;
     await q(
-      `INSERT INTO billing_ab_event (user_id, variant, kind, amount_cents, context)
-       VALUES ($1, $2, $3, $4, left($5, 40))`,
-      [userId, row.ab_presets, kind, amountCents ?? null, context],
+      `INSERT INTO billing_ab_event (user_id, variant, kind, amount_cents, context, dedupe_key)
+       VALUES ($1, $2, $3, $4, left($5, 40), left($6, 80))
+       ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`,
+      [userId, row.ab_presets, kind, amountCents ?? null, context, dedupeKey ?? null],
     );
   } catch (e) {
     console.warn('[deckpal-api] billing: could not record experiment event —', (e as Error).message);
@@ -324,9 +346,22 @@ export async function releaseCustomer(userId: string): Promise<void> {
  */
 export async function lockAccount(userId: string): Promise<void> {
   if (!SUPABASE_MODE) return;
-  // hashtextextended gives a stable bigint from the uuid; the constant
-  // namespaces this lock away from any other advisory lock in the schema.
-  await q(`SELECT pg_advisory_xact_lock(8534071, hashtextextended($1, 0)::int)`, [userId]);
+  // ⚠️ THE SINGLE-BIGINT FORM, NOT THE (int, int) PAIR.
+  //
+  // This shipped for one round as `pg_advisory_xact_lock(8534071,
+  // hashtextextended($1, 0)::int)`, which raises `integer out of range` for
+  // essentially every uuid: `hashtextextended` returns a full 64-bit bigint and
+  // a cast to int4 is range-checked, not truncating. Measured against real
+  // Postgres, 0 of 200 uuids survived it. Because the lock is taken before the
+  // try/catch on all three money routes, that made every subscribe, every card
+  // change and every gift a 500 — including choosing $0 in the onboarding
+  // modal. It failed safe (no Stripe call happens after the raise) and it was
+  // invisible to the tests, which never enter SUPABASE_MODE.
+  //
+  // The namespace constant lives in the hashed string instead, which keeps this
+  // lock distinct from any other advisory lock in the schema without needing
+  // the two-argument form at all.
+  await q(`SELECT pg_advisory_xact_lock(hashtextextended('deckpal.billing.' || $1, 8534071))`, [userId]);
 }
 
 /** Cache what Stripe just told us about THIS caller's account. */

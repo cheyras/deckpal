@@ -640,13 +640,29 @@ export async function chargeOnce(
   customerId: string,
   amountCents: number,
   attemptId?: string,
-): Promise<{ clientSecret: string | null; paid: boolean }> {
+): Promise<{ clientSecret: string | null; paid: boolean; status: string | null; intentId: string | null }> {
   const customer = await stripe.customers.retrieve(customerId, {
     expand: ['invoice_settings.default_payment_method'],
   });
   if (customer.deleted) throw new Error('customer is deleted');
   const pm = customer.invoice_settings?.default_payment_method;
-  const paymentMethod = typeof pm === 'string' ? pm : pm?.id;
+  let paymentMethod = typeof pm === 'string' ? pm : pm?.id;
+  if (!paymentMethod) {
+    // ⚠️ THE SAME CARD `defaultCard` DISPLAYS, or the profile is lying.
+    //
+    // Display falls back to any attached card, because one that was added and
+    // then abandoned mid-flow is still theirs and still on file. Charging did
+    // not, so a reader whose adopt step had failed saw "Visa ···· 4242 on file"
+    // and got an upstream error when they used it. Promote the attached card to
+    // the invoice default here and the two agree from then on, for renewals as
+    // well as for this charge.
+    const attached = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+    const recovered = attached.data[0]?.id;
+    if (recovered) {
+      await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: recovered } });
+      paymentMethod = recovered;
+    }
+  }
   if (!paymentMethod) {
     // The route collects a card first, so this is a wiring error rather than a
     // reader error — and it must not become a silent no-op.
@@ -675,12 +691,24 @@ export async function chargeOnce(
       // of the same click, and only a deliberate fresh attempt makes a new one.
       { idempotencyKey: idempotencyKey('once', customerId, amountCents, attemptId) },
     );
-    if (intent.status === 'requires_action') return { clientSecret: intent.client_secret, paid: false };
-    return { clientSecret: null, paid: intent.status === 'succeeded' };
+    // ⚠️ THE STATUS TRAVELS WITH THE VERDICT. `paid: false` alone is not enough
+    // for the browser to speak: `processing` means the money may yet leave, and
+    // the copy for that is "do not pay again", the exact opposite of the copy
+    // for a decline. Returning only the boolean is what let the no-challenge
+    // path tell a reader mid-`processing` that nothing had been charged.
+    if (intent.status === 'requires_action') {
+      return { clientSecret: intent.client_secret, paid: false, status: intent.status, intentId: intent.id };
+    }
+    return {
+      clientSecret: null,
+      paid: intent.status === 'succeeded',
+      status: intent.status,
+      intentId: intent.id,
+    };
   } catch (err) {
     const intent = (err as { payment_intent?: Stripe.PaymentIntent })?.payment_intent;
     if (intent?.status === 'requires_action' && intent.client_secret) {
-      return { clientSecret: intent.client_secret, paid: false };
+      return { clientSecret: intent.client_secret, paid: false, status: intent.status, intentId: intent.id };
     }
     throw err;
   }

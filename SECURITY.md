@@ -402,19 +402,26 @@ API can decide. Migration 054 makes it the database's decision instead:
   `billing_release_customer` (059/060) — which derive the row from
   `auth.uid()` and never from an argument, each writing only the columns its
   name describes. There is no user id to forge.
-- **`stripe_customer_id` is write-once** (059). It may be set while NULL and
-  re-asserted to the same value; it can never be repointed. This closes a real
-  disclosure: the column is reachable from the browser through
-  `billing_apply_stripe`, and the webhook resolved accounts from it, so planting
-  a stranger's `cus_—` in your own row would have synced their card summary and
-  subscription state onto it. Customer ids are not secrets.
-  Releasing it to NULL (060) is permitted, because NULL cannot be aimed at
-  anybody: the worst it achieves is detaching your own row from your own
-  customer.
-- **The webhook verifies ownership with Stripe**, not with the row: before
-  writing, it checks the customer's own `metadata.deckpal_user_id` names the
-  account it is about to update. Every API route already did this; the webhook
-  was the one path that did not, which is precisely why it was the way in.
+- **The webhook verifies ownership with Stripe, and that is the control that
+  closes the disclosure.** Before writing, `syncCustomer` retrieves the Stripe
+  customer and checks its own `metadata.deckpal_user_id` names the account it is
+  about to update; every API route does the same through `ensureCustomer`. The
+  hole it closes: `billing_apply_stripe` is reachable from the browser over
+  PostgREST with the anon key the SPA ships, the webhook used to resolve an
+  account from `stripe_customer_id` alone, and customer ids are not secrets —
+  so planting a stranger's `cus_—` in your own row would have synced their card
+  brand, last four, expiry and subscription state onto it.
+- **`stripe_customer_id` is write-once at the database level** (059), as depth
+  behind that check rather than as a second independent lock. It may be set
+  while NULL and re-asserted to the same value; a direct repoint is refused.
+  ⚠️ Read that precisely: 060 permits releasing it to NULL, and release-then-set
+  is two permitted calls that together reach any customer id no other row is
+  currently holding. What the pin actually buys is that a repoint cannot happen
+  silently or by accident — it takes a deliberate two-step, the row's card
+  summary is wiped in between, and the server logs it (`customerFor`). Earlier
+  headers in 059 and 060 described the two halves as independent, such that
+  either alone would hold. That was wrong, and the ownership check above is
+  load-bearing on its own.
 - **Those functions are reachable over PostgREST**, because `authenticated` must
   be able to execute them and the anon key is in the SPA by design. The inputs
   are therefore constrained in the FUNCTION, not in the route: the experiment

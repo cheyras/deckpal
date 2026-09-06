@@ -41,7 +41,7 @@ function newAttemptId(): string {
   }
 }
 import type { Stripe } from '@stripe/stripe-js'
-import { api, type BillingState, type SupportPromptKind } from '../../lib/api'
+import { ApiError, api, type BillingState, type SupportPromptKind } from '../../lib/api'
 import { formatAmount, formatDate, stripeFor } from '../../lib/billing'
 import { Button } from '../ui/Button'
 import { FormAlert } from '../ui/FormAlert'
@@ -280,6 +280,7 @@ export function SupportFlow({
         attemptId: attemptId.current,
       })
       let paid = res.paid
+      let state: BillingState = res
       if (res.clientSecret) {
         const stripe = await stripePromise
         if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')
@@ -307,11 +308,25 @@ export function SupportFlow({
         if (paid && paymentIntent) {
           // The server recorded nothing when it handed back the challenge, so
           // it learns the outcome here — from the intent, which it re-reads
-          // itself rather than taking our word for.
-          await api.confirmOneTime(paymentIntent.id, analyticsContext ?? context).catch(() => {
-            /* the money landed; the analytics row is not worth failing over */
-          })
+          // itself rather than taking our word for. Its answer is also the only
+          // FRESH billing state we have: `res` was built before the bank was
+          // asked, so rendering it would show a card summary one step behind.
+          const settled = await api
+            .confirmOneTime(paymentIntent.id, analyticsContext ?? context)
+            .catch(() => null /* the money landed; the analytics row is not worth failing over */)
+          if (settled) state = settled
         }
+      } else if (res.status === 'processing') {
+        // ⚠️ THE SAME TRUTH ON THE PATH WITH NO CHALLENGE. `chargeOnce` returns
+        // `paid: false` for a `processing` intent as well as for a refusal, and
+        // the branch below both says "nothing has been charged" AND mints a new
+        // attempt id — so a reader who took that invitation while the charge was
+        // still settling would have been billed twice, with the new id
+        // guaranteeing the second one went through.
+        setError(
+          'Your bank is still processing this. Do not pay again — it will complete on its own, and Stripe will email you a receipt if it goes through.',
+        )
+        return
       }
       if (!paid) {
         // ⚠️ A NEW ATTEMPT ID, or "try again" is a lie. Stripe replays the
@@ -325,20 +340,35 @@ export function SupportFlow({
         setError('That did not go through, so nothing has been charged. You can try again, or use a different card.')
         return
       }
-      onState(res)
+      onState(state)
       setGaveOnce(onceAmount)
       // Spent. Anything after this is a NEW attempt and must not collapse into
       // the charge that just succeeded.
       attemptId.current = newAttemptId()
       setStep('done')
     } catch (e) {
-      // NOT "nothing has been charged" — this catch is reachable after the
-      // charge succeeded and a later step failed. The attempt id is kept, so
-      // pressing the button again is the same attempt and cannot double-charge.
+      // ⚠️ THE DECLINE ARRIVES HERE, NOT AT `!paid`.
+      //
+      // A refused card is a thrown `StripeCardError` on the server, which
+      // `stripeFailure` turns into a 400 — so it never reaches the `!paid`
+      // branch that mints a fresh attempt id, and for one round the fix for
+      // "a decline can never be retried" sat on a path declines do not take.
+      // Same key, same amount, and Stripe replays its stored 402 for 24 hours
+      // without asking the bank again, while the screen says "try again".
+      //
+      // A 400 is a SETTLED refusal: the request was understood and the answer
+      // was no, so the next press is a genuinely new attempt and gets a new id.
+      // Anything else — 502, a timeout, a network drop — is AMBIGUOUS, the
+      // charge may well have gone through, and the id is kept so that pressing
+      // again is the same attempt and cannot bill twice.
+      const settledRefusal = e instanceof ApiError && e.status === 400
+      if (settledRefusal) attemptId.current = newAttemptId()
       setError(
         e instanceof Error
           ? e.message
-          : 'We could not confirm that. Do not pay again — check your email for a receipt, or your profile, before retrying.',
+          : settledRefusal
+            ? 'That did not go through, so nothing has been charged. You can try again, or use a different card.'
+            : 'We could not confirm that. Do not pay again — check your email for a receipt, or your profile, before retrying.',
       )
     } finally {
       setBusy(false)
