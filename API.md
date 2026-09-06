@@ -552,6 +552,15 @@ today. Below `minCents`, not a multiple of 100, above `maxCents`, or missing →
 `400` with a message written for a person. A declined card → `400` carrying
 Stripe's own decline copy.
 
+Two more `400`s, both refusals rather than failures. `payment_in_flight`: the
+existing subscription is `incomplete` and its first payment is still settling.
+Replacing it would cancel the subscription the money is on its way to — so the
+charge lands where the stray sweep will never look for it — and bill a fresh
+first month on top. `subscription_paused`: the subscription was paused from the
+Stripe dashboard, which nothing in this app does. It is not modifiable, so any
+amount change would build a second subscription beside it (double billing the
+day it resumes) and `0` would silently do nothing while reporting success.
+
 Returns the common shape, plus `clientSecret` when the bank wants the first
 charge authenticated — the subscription exists as `incomplete` and confirming
 that secret in the browser completes it. Ignoring it charges nobody anything;

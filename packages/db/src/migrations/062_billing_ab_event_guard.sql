@@ -38,9 +38,9 @@
 -- ⚠️ `CREATE OR REPLACE FUNCTION` with a different argument count creates an
 -- OVERLOAD, not a replacement. Leaving the 3-argument version in place would
 -- leave it granted to `authenticated` and would leave BOTH new guards trivially
--- bypassable by calling the older name. It is dropped first, and the API's
--- three-positional-argument call resolves to the new function through its
--- default.
+-- bypassable by calling the older name. It is dropped first. (The API passes
+-- all four arguments; the DEFAULT is there so any hand-written three-argument
+-- call still resolves to this function rather than finding nothing.)
 
 DROP FUNCTION IF EXISTS public.billing_record_ab_event(text, text, integer);
 

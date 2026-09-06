@@ -102,23 +102,63 @@ function customerIdOf(event: Stripe.Event): string | null {
 }
 
 /**
- * Record the event, and say whether it is new.
+ * How long a claim may sit unfinished before another delivery may take it over.
  *
- * Inserted BEFORE processing, so two concurrent deliveries of the same event
- * cannot both act on it. The handler releases the claim if processing fails, so
- * Stripe's retry is a real second attempt rather than a duplicate — see the
- * catch in `handle`, and 053's header, which reasoned that the next event for
- * the customer would repair a dropped one. That holds for everything except the
- * TERMINAL events, after which there is no next event.
+ * Longer than any handler can run (the whole request is bounded well below it),
+ * so a claim this old belongs to an attempt that died without releasing it.
+ * Erring long is cheap: every handler is a full re-read of Stripe rather than an
+ * increment, so an early re-run would be harmless anyway, and Stripe keeps
+ * retrying for days.
  */
-async function claimEvent(event: Stripe.Event): Promise<boolean> {
+const STALE_CLAIM = '5 minutes';
+
+/**
+ * Take the event, and say what was already known about it.
+ *
+ * ── WHY TWO COLUMNS AND NOT ONE ─────────────────────────────────────────────
+ *
+ * 053 wrote the id before processing so two concurrent deliveries could not both
+ * act, and the handler then read the row's existence as "already done". Those
+ * are different facts, and events fell through the gap between them: a
+ * concurrent delivery was told 200-duplicate while the first attempt was still
+ * running, so when that attempt failed and released its claim, Stripe had
+ * already had its 2xx and never retried either; and an attempt killed between
+ * claim and completion — a serverless timeout — never reached the release at
+ * all.
+ *
+ * Survivable for most events, because the next one for that customer re-reads
+ * everything. NOT survivable for the terminal ones: nothing follows
+ * `customer.subscription.deleted` on an immediate cancel, so a single lost
+ * delivery leaves `support_cents` set for ever, the profile claiming a payment
+ * that is not happening and the check-in suppressed for somebody who stopped
+ * paying.
+ *
+ * So (063): `processed_at` means finished, and only that earns a duplicate 200.
+ * A fresh claim means another delivery is genuinely mid-flight and the honest
+ * answer is "come back" — Stripe will. A stale claim is a dead attempt's, and
+ * may be taken over.
+ */
+async function claimEvent(event: Stripe.Event): Promise<'claimed' | 'in_progress' | 'done'> {
   const rows = await q<{ stripe_event_id: string }>(
-    `INSERT INTO billing_event (stripe_event_id, type) VALUES ($1, $2)
-     ON CONFLICT (stripe_event_id) DO NOTHING
+    `INSERT INTO billing_event (stripe_event_id, type, claimed_at) VALUES ($1, $2, now())
+     ON CONFLICT (stripe_event_id) DO UPDATE
+        SET claimed_at = now(), type = EXCLUDED.type
+      WHERE billing_event.processed_at IS NULL
+        AND billing_event.claimed_at < now() - interval '${STALE_CLAIM}'
      RETURNING stripe_event_id`,
     [event.id, event.type],
   );
-  return rows.length > 0;
+  if (rows.length > 0) return 'claimed';
+  const existing = await q1<{ processed_at: string | null }>(
+    `SELECT processed_at FROM billing_event WHERE stripe_event_id = $1`,
+    [event.id],
+  );
+  return existing?.processed_at ? 'done' : 'in_progress';
+}
+
+/** Mark the claim finished. Only now is a redelivery a duplicate. */
+async function completeEvent(eventId: string): Promise<void> {
+  await q(`UPDATE billing_event SET processed_at = now() WHERE stripe_event_id = $1`, [eventId]);
 }
 
 /** Write the cached row for whichever account owns this customer. */
@@ -237,16 +277,29 @@ async function handle(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    if (!(await claimEvent(event))) {
+    const claim = await claimEvent(event);
+    if (claim === 'done') {
       res.json({ received: true, duplicate: true });
+      return;
+    }
+    if (claim === 'in_progress') {
+      // ⚠️ NOT a 2xx. Another delivery of this same event is mid-flight and may
+      // yet fail; telling Stripe "done" here is what made its release of the
+      // claim pointless. 409 keeps the event in Stripe's retry schedule, and
+      // the retry finds it either processed (duplicate) or stale (reclaimable).
+      res.status(409).json({ received: false, inProgress: true });
       return;
     }
     const customerId = customerIdOf(event);
     if (!customerId) {
+      // Nothing to do, but it IS finished — an event we will never handle must
+      // not stay claimable for ever.
+      await completeEvent(event.id);
       res.json({ received: true, handled: false });
       return;
     }
     const outcome = await syncCustomer(stripe, customerId, event.type === 'customer.deleted');
+    await completeEvent(event.id);
     res.json({ received: true, handled: outcome === 'synced' });
   } catch (err) {
     // ⚠️ RELEASE THE CLAIM, or a transient failure drops the event for good.
@@ -266,9 +319,14 @@ async function handle(req: Request, res: Response): Promise<void> {
     // rather than an increment — replaying it converges on the same row whether
     // or not the first attempt got halfway. If this delete fails too the
     // database is properly down, and we are no worse off than before.
-    await q(`DELETE FROM billing_event WHERE stripe_event_id = $1`, [event.id]).catch(() => {
-      console.error('[deckpal-api] stripe webhook: could not release the event claim; retries will be ignored');
-    });
+    // Releasing early is better than waiting out the stale window, but the
+    // window is what makes correctness not depend on this line running at all —
+    // a process killed here never reaches it, and the retry still gets in.
+    await q(`DELETE FROM billing_event WHERE stripe_event_id = $1 AND processed_at IS NULL`, [event.id]).catch(
+      () => {
+        console.error('[deckpal-api] stripe webhook: could not release the event claim; the stale window will');
+      },
+    );
     // The 500 makes Stripe retry, which is what we want for a transient
     // database or API failure — and now the retry can actually do the work.
     console.error('[deckpal-api] stripe webhook: processing failed', {

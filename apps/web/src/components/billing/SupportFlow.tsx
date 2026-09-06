@@ -153,6 +153,16 @@ export function SupportFlow({
    * too, by which time the receipt or the profile can answer the question.
    */
   const [frozenAmount, setFrozenAmount] = useState<number | null>(null)
+  /**
+   * A subscription payment the bank has accepted and is still settling.
+   *
+   * The monthly flow's equivalent of `frozenAmount`, and it disables rather than
+   * pins: there is no retry that helps. Choosing again would cancel the
+   * incomplete subscription and bill a fresh first month beside the one on its
+   * way, which is the two-months-for-one this whole guard exists to prevent.
+   * Cleared by a reload, by which time the webhook has settled the question.
+   */
+  const [inFlight, setInFlight] = useState(false)
   const [gaveOnce, setGaveOnce] = useState<number | null>(null)
   /**
    * What the card step is collecting for. The card form is the same either way
@@ -229,6 +239,13 @@ export function SupportFlow({
         // to be billed for two first months.
         if (paymentIntent?.status === 'processing') {
           onState(next)
+          // ⚠️ AND THE CONTROLS LOCK, not just the copy. Round six froze the
+          // one-off's processing branches and left this one with a sentence and
+          // a live chooser — pressing a different amount here cancels the
+          // incomplete subscription and starts a second first month while the
+          // first is still settling. The server refuses that now
+          // (`firstPaymentInFlight`), and this stops the reader reaching for it.
+          setInFlight(true)
           setError(
             'Your bank is still processing this. Do not try again — it will complete on its own, and your profile will show the subscription once it does.',
           )
@@ -244,8 +261,12 @@ export function SupportFlow({
       // card can still be declined — and this used to go straight to the
       // thank-you screen on the strength of `handleNextAction` not erroring.
       if (amount > 0 && next.support.status && !PAID_STATUSES.has(next.support.status)) {
+        // Not "nothing has been charged": this also fires when the charge
+        // SUCCEEDED and the subscription's transition has not reached the
+        // immediate re-read yet. Asserting a refusal there is what sends
+        // somebody back to the chooser for a second first month.
         setError(
-          'Your bank confirmed it, but the payment did not complete. Nothing has been charged — try again, or use a different card.',
+          'Your bank confirmed it, but the subscription has not started yet. Reload in a moment — if it still says this, try again or use a different card.',
         )
         return
       }
@@ -634,7 +655,10 @@ export function SupportFlow({
         onChange={setAmount}
         minCents={state.minCents}
         maxCents={state.maxCents}
-        disabled={busy}
+        // `inFlight`: a payment the bank has accepted and is still settling.
+        // Choosing again would replace the incomplete subscription and bill a
+        // second first month beside it.
+        disabled={busy || inFlight}
       />
 
       {/* Directly under the grid, and only when an amount has actually been
@@ -685,7 +709,7 @@ export function SupportFlow({
         )}
         <Button
           loading={busy}
-          disabled={unchanged && context === 'settings'}
+          disabled={inFlight || (unchanged && context === 'settings')}
           onClick={() => {
             if (amount > 0 && !hasCard) {
               setCardFor('subscription')

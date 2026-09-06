@@ -15680,9 +15680,57 @@ true of everything except the terminal events — there is no next event after
 failure, which is safe because every handler is a full re-read rather than an
 increment.
 
-**Implications:** migrations 061 and 062 are new; 053—057 are applied, 058—062
-are not. They must be applied together and in order — 059 without 060 is worse
-than neither, because it recreates the orphan-minting loop 060 exists to fix.
+### 10. Round seven: round six broke its own rule in the same commit
+
+Section 9 wrote the rule down — enumerate every branch that reaches the state
+you are fixing — and then fixed the one-off's three `processing` branches and
+left the subscription's. Choosing a new amount while a first payment is settling
+cancels the subscription the money is heading for, so the charge lands against a
+cancelled subscription where the stray sweep never looks, and then bills a fresh
+first month beside it. Two months for one, the same shape as the gift.
+
+The fix is deliberately not another branch. `setSupport` refuses outright when
+the existing subscription is `incomplete` and its first payment is `processing`,
+checked once at the top rather than at the two places that cancel — so a third
+cancel added later cannot miss it. The client disables its controls too, but
+that is now the belt and not the braces. `requires_action` is deliberately NOT
+treated as in flight: that is the abandoned challenge, and refusing it would
+break "pick $25, walk away, come back, pick $1", which is a fix from round one.
+
+The webhook ledger had the same shape of problem one level down. 053 wrote the
+event id before processing so two deliveries could not both act, and the handler
+read the row's existence as "already done" — two different facts in one column.
+A concurrent delivery got a 200 while the first attempt was still running, so
+round six's release-on-failure fired into a void Stripe had already stopped
+retrying; and an attempt killed between claim and completion never reached the
+release at all. 063 splits `claimed_at` from `processed_at`: only processed
+earns a duplicate 200, a fresh claim answers 409 so Stripe comes back, and a
+claim older than five minutes belongs to a dead attempt and may be taken over.
+Verified against real Postgres including the backfill of existing rows.
+
+Two smaller ones, both about `paused`. Round six stopped the stray sweep
+refunding a paused subscription's whole history; it did not stop an amount
+change from creating a SECOND subscription beside the paused one, which would
+double-bill the day the owner resumed it, nor stop `$0` from reporting "you are
+on $0" while the paused subscription waited to start charging again. Amount
+changes are refused outright while a managed subscription is paused, because
+nothing in this app pauses one — the owner did it from the dashboard, and
+undoing it is a dashboard action too. And `/portal` was the last route reaching
+`customerFor` without the advisory lock, which matters because `customerFor`
+WRITES when Stripe says the stored customer is gone: the state every account
+that touched the test-mode preview is in if the go-live cleanup is skipped.
+
+Also recorded, not fixed: `billing_release_customer` has no "not while you are
+subscribed" check. Adding one means deciding from the row's CACHED status, and
+the one time it matters is when that cache is wrong — which is precisely the
+state that produced the 502 loop in §6. It is self-harm with no reach into
+anyone else's data, so it is named in SECURITY.md instead of patched with a
+constraint that would trade a real outage for a self-inflicted one.
+
+**Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
+058—063 are not. They must be applied together and in order — 059 without 060
+is worse than neither, because it recreates the orphan-minting loop 060 exists
+to fix.
 
 Also: a declined one-off could never be retried. Stripe replays a stored
 response for an idempotency key for 24 hours, declines included, so holding the

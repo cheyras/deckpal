@@ -422,6 +422,16 @@ API can decide. Migration 054 makes it the database's decision instead:
   headers in 059 and 060 described the two halves as independent, such that
   either alone would hold. That was wrong, and the ownership check above is
   load-bearing on its own.
+- **`billing_release_customer` can be called by the account it belongs to**
+  (060), and deliberately carries no "not while you are subscribed" check. Such
+  a check would read the row's CACHED subscription status to decide, and the one
+  time it matters is when that cache is wrong — which is the state that sent
+  this feature into a 502 loop once already (DECISIONS §6). Detaching your own
+  row from your own paying subscription is self-harm with no reach into anybody
+  else's data: the subscription keeps charging at Stripe, the app shows $0, and
+  re-subscribing bills a second time. Accepted, and named here rather than
+  patched with a constraint that would recreate a real outage to prevent a
+  self-inflicted one.
 - **Those functions are reachable over PostgREST**, because `authenticated` must
   be able to execute them and the anon key is in the SPA by design. The inputs
   are therefore constrained in the FUNCTION, not in the route: the experiment

@@ -393,6 +393,78 @@ export interface SetSupportResult {
  * than a dead end. If they abandon it, the subscription stays `incomplete`,
  * Stripe expires it within 23 hours, and nobody is charged for anything.
  */
+/**
+ * Is this subscription's first payment still in flight?
+ *
+ * ⚠️ THE ONE PLACE EVERY "REPLACE THE INCOMPLETE SUBSCRIPTION" PATH GOES
+ * THROUGH, which is the point. An `incomplete` subscription is normally an
+ * abandoned attempt and is thrown away and replaced — that is deliberate, and
+ * it is what makes "pick $25, abandon the bank's confirmation, come back, pick
+ * $1" charge $1 instead of $25.
+ *
+ * But `incomplete` also covers a payment the bank has ACCEPTED and is still
+ * settling. Replacing that one cancels the subscription while its money is on
+ * the way — the charge lands against a cancelled subscription, so the stray
+ * sweep never sees it and never refunds it — and then bills a fresh first month
+ * on top. Two months for one.
+ *
+ * `requires_action` is deliberately not in flight: that IS the abandoned
+ * challenge, and blocking on it would break the flow above.
+ */
+async function firstPaymentInFlight(stripe: Stripe, sub: Stripe.Subscription): Promise<boolean> {
+  try {
+    const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice : sub.latest_invoice?.id;
+    if (!invoiceId) return false;
+    const invoice = await stripe.invoices.retrieve(invoiceId, { expand: ['payments'] });
+    const payment = invoice.payments?.data?.[0]?.payment;
+    const intentId =
+      typeof payment?.payment_intent === 'string' ? payment.payment_intent : payment?.payment_intent?.id;
+    if (!intentId) return false;
+    const intent = await stripe.paymentIntents.retrieve(intentId);
+    return intent.status === 'processing';
+  } catch {
+    // Unreadable is not "in flight". Refusing every amount change because a
+    // lookup failed would be its own outage, and the caller is about to talk to
+    // Stripe anyway.
+    return false;
+  }
+}
+
+/** Refused because money is already moving. Surfaces as a 400, not a 502. */
+class PaymentInFlightError extends Error {
+  readonly status = 400;
+  readonly code = 'payment_in_flight';
+  constructor() {
+    super(
+      'Your bank is still processing your last payment. Give it a minute and reload — changing the amount now would charge you twice.',
+    );
+  }
+}
+
+/**
+ * Refused because the subscription is paused, which only the owner can undo.
+ *
+ * `paused` is live enough to start collecting again and not modifiable, so
+ * every amount change would take the CREATE path and leave a second
+ * subscription sitting beside the paused one — billing twice the day it
+ * resumes. $0 was worse in its own way: `setSupport(0)` had nothing modifiable
+ * to cancel, did nothing, and reported "you are on $0" while the paused
+ * subscription waited to start charging again.
+ *
+ * Nothing in this app pauses a subscription; one that is paused was paused from
+ * the dashboard, and unpausing is a dashboard action too. So this says so,
+ * rather than quietly doing the wrong thing in either direction.
+ */
+class SubscriptionPausedError extends Error {
+  readonly status = 400;
+  readonly code = 'subscription_paused';
+  constructor() {
+    super(
+      'Your support is paused on our side, so the amount cannot be changed here yet. Email us and we will sort it out.',
+    );
+  }
+}
+
 export async function setSupport(
   stripe: Stripe,
   customerId: string,
@@ -400,6 +472,17 @@ export async function setSupport(
 ): Promise<SetSupportResult> {
   const existing = await managedSubscription(stripe, customerId);
   const modifiable = existing && MODIFIABLE_STATUSES.has(existing.status) ? existing : null;
+
+  // Both branches below cancel an `incomplete` subscription. Neither may do it
+  // while its first payment is settling — see `firstPaymentInFlight`. Checked
+  // once, here, rather than at the two cancel sites, so a third one added later
+  // cannot miss it.
+  if (existing?.status === 'incomplete' && (await firstPaymentInFlight(stripe, existing))) {
+    throw new PaymentInFlightError();
+  }
+
+  // Before either branch, and before $0 too — see SubscriptionPausedError.
+  if (existing?.status === 'paused') throw new SubscriptionPausedError();
 
   if (amountCents === 0) {
     if (modifiable && !modifiable.cancel_at_period_end) {

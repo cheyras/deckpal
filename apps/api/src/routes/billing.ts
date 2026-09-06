@@ -179,7 +179,13 @@ function stripeFailure(err: unknown): never {
   // describes the JSON Stripe returns (`type: 'card_error'`), while the SDK
   // throws an Error subclass whose `type` is the CLASS name
   // (`'StripeCardError'`). Naming the wrong one compiles and never matches.
-  const e = err as { type?: string; requestId?: string; message?: string };
+  const e = err as { type?: string; requestId?: string; message?: string; status?: number };
+  // Anything that already carries an HTTP status decided its own answer — a
+  // `badRequest` from a guard above, or `PaymentInFlightError` from
+  // `setSupport`. Wrapping those as a 502 would both lose the sentence written
+  // for the reader and, worse, put a deliberate refusal on the AMBIGUOUS side
+  // of the client's retry rule, where the amount stays frozen for no reason.
+  if (typeof e?.status === 'number') throw err;
   if (e?.type === 'StripeCardError') {
     throw badRequest(e.message ?? 'Your card was declined. Try a different card.');
   }
@@ -662,6 +668,12 @@ billingRouter.post(
     const userId = currentUserId(req);
     const stripe = stripeClient();
     if (!stripe) throw badRequest('Billing is not configured on this deployment.');
+    // The last `customerFor` caller that did not take this. It moves no money,
+    // but `customerFor` WRITES when Stripe says the stored customer is gone —
+    // which is exactly the state every account that touched the test-mode
+    // preview is in if the go-live cleanup SQL is skipped. Two concurrent
+    // opens then race into 059's pin: one 502 and one orphan customer.
+    await lockAccount(userId);
     const row = await readRow(userId);
     if (!row.stripe_customer_id) {
       throw badRequest('There is nothing to manage yet — choose an amount first.');

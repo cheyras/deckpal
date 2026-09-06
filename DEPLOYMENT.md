@@ -263,7 +263,7 @@ CVC is a card that works.
    Turn OFF: "cancel subscription" is fine to leave on, but cancelling in the
    app is one tap on the $0 preset and never requires leaving it.
 
-5. Apply the migrations (053—062) BEFORE the deploy that reads them.
+5. Apply the migrations (053—063) BEFORE the deploy that reads them.
    053 tables + backfill; 054 (@supabase-only) RLS, the write functions and the
    REVOKEs that undo Supabase's default table grants; 055/056 the $1
    experiment; 057 the one-time contribution's event kind; 058 the amount cap
@@ -273,8 +273,10 @@ CVC is a card that works.
    release function 059 needs so a genuinely dead customer can be recovered
    from; 061 the `dedupe_key` column on the experiment log; 062
    (@supabase-only) the RPC that uses it, plus a daily ceiling on how many
-   events one account may write. `packages/db` applies only what is pending and
-   refuses to run if a shipped migration has been edited.
+   events one account may write; 063 splits the webhook ledger's "claimed" from
+   "processed", so a delivery that fails or dies mid-flight is retried instead
+   of dropped. `packages/db` applies only what is pending and refuses to run if
+   a shipped migration has been edited.
 
    ⚠️ **Remove the `?prompt=` override before reading the experiment.** It is
    testing scaffolding (`SupportPrompt.tsx`) that forces the modal open on
