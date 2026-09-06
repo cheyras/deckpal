@@ -211,9 +211,16 @@ scanFlagsRouter.get(
       entry.size += obj.byteSize;
       byId.set(id, entry);
     }
+    // 200 held ~a session's worth of rows until identity-events doubled the
+    // rate (owner session 3, 2026-09-06: the cap fell INSIDE the session and
+    // 12 of 63 captures were unrecoverable). 1000 holds the densest recorded
+    // session ~5x over; ?limit lets a harvester ask for less. The listing
+    // call already sees every key either way — the cap only bounds the
+    // comment fetches and the response body.
+    const limit = Math.min(Math.max(Number(_req.query.limit) || 1000, 1), 5000);
     const top = [...byId.entries()]
       .sort((a, b) => Number(b[0]) - Number(a[0]))
-      .slice(0, 200);
+      .slice(0, limit);
     const flags = await Promise.all(
       top.map(async ([id, { files, size }]) => {
         const cpath = commentPaths.get(id);
