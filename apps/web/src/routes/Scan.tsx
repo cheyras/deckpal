@@ -20,6 +20,7 @@ import {
   identityRecord,
   initialIdentity,
   reduceIdentity,
+  resolvedIdentity,
   type IdentityEvent,
   type IdentityState,
 } from '../scan/ui/identity'
@@ -835,21 +836,33 @@ export function Scan() {
           // named; where phash got there first the row exists, the reader may
           // have touched it, and `narrowedIdentity` is the policy that decides
           // whether a badge read gets to overrule any of that.
-          setFeed((prev) =>
-            prev.map((e) => {
-              if (e.capturePreviewUrl !== previewUrl) return e
-              // THE PICKER-OPEN GUARD — `identity.ts`'s `engaged`, one screen
-              // down. The reader is looking at this row's candidates right now,
-              // and a round trip that finally came back does not get to change
-              // the card under their finger. Same principle `narrowedIdentity`
-              // already enforces with `verified`.
-              if (pickerRowRef.current === e.id) return e
-              const identity = narrowedIdentity(e, outcome.resolved)
-              // A row this names is no longer asking anything, so the race it
-              // carried for its picker goes with the question.
-              return identity ? { ...e, ...identity, identity: null, captureTrackId: null } : e
-            }),
-          )
+          setFeed((prev) => {
+            const row = prev.find((e) => e.capturePreviewUrl === previewUrl)
+            if (!row) return prev
+            // THE PICKER-OPEN GUARD — `identity.ts`'s `engaged`, one screen
+            // down. The reader is looking at this row's candidates right now,
+            // and a round trip that finally came back does not get to change
+            // the card under their finger. Same principle `narrowedIdentity`
+            // already enforces with `verified`.
+            if (pickerRowRef.current === row.id) return prev
+            const identity = narrowedIdentity(row, outcome.resolved)
+            if (!identity) return prev
+            // THROUGH `resolveRow`, NOT AN IN-PLACE PATCH. Round 9 forced the
+            // difference: hold this round trip 8 s while the same card is
+            // captured twice more, and an in-place rename leaves three rows of
+            // one card where the fast path merges them. resolveRow is the one
+            // rule for "this row is now that card" — name or merge, same as a
+            // pick and same as an arrival.
+            const top = resolvedIdentity(outcome.resolved)
+            if (!top) return prev
+            return resolveRow(prev, row.id, {
+              ...top,
+              // The arrival path's null mapping (line ~465): the printed-number
+              // ladder has no phash opinion, and none is invented.
+              confidence: top.confidence ?? 0,
+              distance: top.distance ?? -1,
+            })
+          })
         } catch {
           // An enrichment that can break a capture is worse than no enrichment —
           // the same rule the capture recorder is written under. But the machine

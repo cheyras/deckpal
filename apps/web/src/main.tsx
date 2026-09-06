@@ -568,6 +568,13 @@ const quadLabelerRoute = createRoute({
   beforeLoad: async () => {
     if (import.meta.env.DEV) return
     if (!isCloudMode) return
+    // Preview deployments are open: the labeler writes to the SAME recorder
+    // whose server gate is already "non-production unconditional"
+    // (apps/api/src/dev/scanFlags.ts), and the owner labels signed in as QA
+    // per AGENTS.md B12 — an owner-only gate here locked out the only person
+    // who uses the surface (round 9 measured the resulting "Not Found").
+    // Production (deckpal.app) stays owner-only below, same as ever.
+    if (window.location.hostname.endsWith('.vercel.app')) return
     try {
       const me = await api.me()
       if (me.owner) return
