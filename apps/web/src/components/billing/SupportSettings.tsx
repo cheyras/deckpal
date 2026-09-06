@@ -72,8 +72,21 @@ export function SupportSettings() {
   const [errorHidesNote, setErrorHidesNote] = useState(false)
 
   useEffect(() => {
-    if (query.data) setState(query.data)
-  }, [query.data])
+    if (!query.data) return
+    setState(query.data)
+    // ⚠️ THE DUNNING ALERT IS ABOUT A FACT THAT CAN STOP BEING TRUE. It is set
+    // when a replaced card failed to settle the outstanding invoice, and it
+    // suppresses the status note while it is up — so if Stripe's own dunning
+    // collects the invoice a few minutes later, a stale sentence saying the
+    // payment did not go through would go on hiding a note that by then reads
+    // "next payment on the 14th". Any refetch that shows the account no longer
+    // needing attention retires it.
+    const status = query.data.support?.status ?? null
+    if (errorHidesNote && status !== 'past_due' && status !== 'unpaid') {
+      setErrorHidesNote(false)
+      setError(null)
+    }
+  }, [query.data, errorHidesNote])
 
   // Self-host, or a deployment with no Stripe: say nothing at all. An empty
   // card headed "Supporting DeckPal" would advertise a tier that does not exist

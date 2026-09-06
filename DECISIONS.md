@@ -16057,6 +16057,33 @@ says so nothing was mischarged; the reader was misled at the one moment they
 must not be. The chooser reports an unusable entry and both submit buttons
 disable on it.
 
+### 20. Round seventeen: the first round with nothing above minor
+
+Fifth consecutive round with no money defect, and the first where nothing found
+rose above MINOR. Both findings were the same shape as §19's, one turn further
+in: round sixteen taught the ONE-OFF's ambiguous branch to report a gift the
+retrieve says landed, and did not teach the SUBSCRIPTION's twin the same thing.
+A reader whose browser loses track of the challenge ends with a live, charging
+subscription whose `chose` is never recorded — and the population that lands
+there is challenge-heavy issuers, which is exactly the bias `/one-time/confirm`
+was built to prevent. It reports now.
+
+The other: the dunning alert set by a card that failed to settle is about a fact
+that can stop being true. Stripe's own dunning may collect the invoice minutes
+later, and the alert — which suppresses the status note while it is up — would
+go on hiding a note that by then reads "next payment on the 14th". Any refetch
+showing the account no longer needs attention retires it.
+
+**The residual worth stating plainly.** `firstPaymentInFlight` is read-then-act,
+not atomic: the subscription is read, then the intent, then the cancel. A
+challenge completing inside that window still cancels a just-paid subscription,
+and a cancelled one is outside `LIVE_STATUSES` so no sweep ever refunds it. §14
+narrowed this from "any lag" to "a single round trip", and closing it entirely
+means either a Stripe-side lock that does not exist or a cancel-then-verify
+compensation that would itself need a refund path. It is left as it is,
+deliberately, and named here so the next person does not discover it as a
+surprise.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

@@ -271,6 +271,19 @@ export function SupportFlow({
             lastIntent = after?.status ?? null
             if (lastIntent === 'processing' || lastIntent === 'succeeded') setInFlight(true)
             else if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
+            // ⚠️ AND IF IT LANDED, REPORT IT — the same duty the one-off's twin
+            // branch has, for the same reason. We are here because the browser
+            // lost track of the challenge, not because the payment failed: the
+            // subscription is live and charging, and without this its `chose`
+            // is never recorded, because nobody carries a context back after a
+            // reload and the webhook-side recorder is a documented non-goal.
+            // The population that lands here is challenge-heavy issuers, which
+            // is precisely the bias `/one-time/confirm` exists to prevent.
+            if (lastIntent === 'succeeded') {
+              void api
+                .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
+                .catch(() => {/* the subscription is live; the analytics row is not worth an error */})
+            }
           }
           setError(
             actionError.message ??
