@@ -28,7 +28,7 @@
  */
 import { Router, type Request } from 'express';
 import type Stripe from 'stripe';
-import { asyncHandler, badRequest, userCache } from '../http.js';
+import { ApiError, asyncHandler, badRequest, userCache } from '../http.js';
 import { currentUserEmail, currentUserId } from '../identity.js';
 import {
   SUPPORT_MAX_CENTS,
@@ -179,13 +179,21 @@ function stripeFailure(err: unknown): never {
   // describes the JSON Stripe returns (`type: 'card_error'`), while the SDK
   // throws an Error subclass whose `type` is the CLASS name
   // (`'StripeCardError'`). Naming the wrong one compiles and never matches.
-  const e = err as { type?: string; requestId?: string; message?: string; status?: number };
-  // Anything that already carries an HTTP status decided its own answer — a
-  // `badRequest` from a guard above, or `PaymentInFlightError` from
-  // `setSupport`. Wrapping those as a 502 would both lose the sentence written
-  // for the reader and, worse, put a deliberate refusal on the AMBIGUOUS side
-  // of the client's retry rule, where the amount stays frozen for no reason.
-  if (typeof e?.status === 'number') throw err;
+  const e = err as { type?: string; requestId?: string; message?: string };
+  // A refusal that already decided its own answer — a `badRequest` from a guard
+  // above, or `PaymentInFlightError`/`SubscriptionPausedError` from
+  // `setSupport`. Wrapping those as a 502 would lose the sentence written for
+  // the reader and put a deliberate refusal on the AMBIGUOUS side of the
+  // client's retry rule, where the amount stays frozen for no reason.
+  //
+  // ⚠️ `instanceof ApiError`, NOT a `status` property. `errorMiddleware` only
+  // honours `ApiError`; a plain Error carrying `status = 400` reaches the
+  // reader as 500 "Internal server error". This test used to be the property,
+  // which is why the refusals it was written for never once got out. It also
+  // has to stay narrow for a second reason: stripe-node's own errors carry
+  // `statusCode`, and had they carried `status` a duck-typed check would have
+  // let raw upstream messages through to the browser.
+  if (err instanceof ApiError) throw err;
   if (e?.type === 'StripeCardError') {
     throw badRequest(e.message ?? 'Your card was declined. Try a different card.');
   }
@@ -198,12 +206,14 @@ function stripeFailure(err: unknown): never {
   // watchdog reclaiming the connection mid-request — and telling somebody
   // nothing happened is how a one-off gets paid twice. Say what is true and
   // point at the place that knows.
-  const wrapped = new Error(
+  // An ApiError for the same reason: this sentence is the one that stops a
+  // one-off being paid for twice, and as a plain Error it was replaced by
+  // "Internal server error" before it ever reached a browser.
+  throw new ApiError(
+    502,
+    'billing_upstream',
     'We could not finish that just now. Open your profile to check whether it went through before trying again.',
-  ) as Error & { status?: number; code?: string };
-  wrapped.status = 502;
-  wrapped.code = 'billing_upstream';
-  throw wrapped;
+  );
 }
 
 /**

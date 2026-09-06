@@ -526,6 +526,14 @@ export function promptDue(row: BillingRow, now: number = Date.now()): PromptKind
   // 2. THE GUARANTEE. A contributor is never asked again. See isContributing.
   if (isContributing(row)) return null;
 
+  // 2b. A subscription paused from the Stripe dashboard reports zero cents, so
+  //     it falls through the guarantee above and would be shown the monthly
+  //     check-in — where every possible answer is refused, because an amount
+  //     change would build a second subscription beside the paused one and $0
+  //     would silently do nothing (`SubscriptionPausedError`). Asking a
+  //     question whose every answer is an error is worse than not asking.
+  if (row.subscription_status === 'paused') return null;
+
   // 3. A subscription set to end still bills until it does, so they are still a
   //    contributor in every sense that matters until then. Asking now would be
   //    re-litigating a decision that has not taken effect yet.

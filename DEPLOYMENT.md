@@ -278,6 +278,14 @@ CVC is a card that works.
    of dropped. `packages/db` applies only what is pending and refuses to run if
    a shipped migration has been edited.
 
+   ⚠️ **Do not enable a bank-debit payment method** (`us_bank_account` / ACH,
+   SEPA) in the Stripe dashboard without a code change first. The card form uses
+   `automatic_payment_methods`, so anything enabled on the account and
+   chargeable off-session appears in it — and bank debits are. `defaultCard` and
+   `chargeOnce` both look for a card, so a reader who paid by ACH would see "no
+   card on file" and one-time contributions would fail, while their subscription
+   carried on renewing. Cards, wallets and Link are what this is built for.
+
    ⚠️ **Remove the `?prompt=` override before reading the experiment.** It is
    testing scaffolding (`SupportPrompt.tsx`) that forces the modal open on
    demand. It is inert in live mode — gated on the server-reported
@@ -286,7 +294,8 @@ CVC is a card that works.
    need to be gone before the $1 result is read for real.
 
    ⚠️ **All of them, in order, in one run.** The deployed code hard-requires
-   every one of 058—062: `billing_ensure_row` (059),
+   every one of 058—063 — without 063 the webhook handler reads columns that
+   do not exist and every delivery 500s until Stripe disables the endpoint: `billing_ensure_row` (059),
    `billing_release_customer` (060) and the four-argument
    `billing_record_ab_event` (062) are all called by name. Applying **059
    without 060** is the worst of the partial states — it recreates the fault

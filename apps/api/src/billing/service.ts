@@ -41,6 +41,7 @@
  * that is what it is for.
  */
 import type Stripe from 'stripe';
+import { ApiError } from '../http.js';
 import { SUPPORT_CURRENCY, supportProductId } from './stripe.js';
 import type { StripePatch } from './store.js';
 
@@ -288,10 +289,20 @@ export async function pullState(stripe: Stripe, customerId: string): Promise<Str
  *
  * With automatic methods Stripe offers what is (a) enabled on the account,
  * (b) supported by the device, and (c) — because `usage: 'off_session'` is set
- * — chargeable again later without the reader present. That third filter is
- * what makes this safe: the bank-debit and voucher methods that cannot be
- * charged off-session are excluded by Stripe rather than by us, so a
- * subscription that silently never renews is unrepresentable.
+ * — chargeable again later without the reader present. The voucher and
+ * redirect methods that cannot be charged off-session are excluded by Stripe
+ * rather than by us, so a subscription that silently never renews is
+ * unrepresentable.
+ *
+ * ⚠️ THAT FILTER IS NOT "CARDS ONLY", and the rest of this file assumes cards.
+ * `us_bank_account` (ACH) and SEPA direct debit ARE chargeable off-session, so
+ * enabling either in the Stripe dashboard would put them in this element — and
+ * `defaultCard` and `chargeOnce` both look for `type: 'card'`, so the profile
+ * would show no card on file and a one-off would fail outright. Subscriptions
+ * would keep working, which is the worst shape for a bug like this to have.
+ * Do not enable a bank-debit method without teaching those two functions about
+ * it first; DEPLOYMENT.md carries the same warning where the owner will meet
+ * it.
  *
  * Apple Pay additionally needs the domain registered with Stripe. That is a
  * one-off per domain and is done with the CLI, not from here.
@@ -430,12 +441,21 @@ async function firstPaymentInFlight(stripe: Stripe, sub: Stripe.Subscription): P
   }
 }
 
-/** Refused because money is already moving. Surfaces as a 400, not a 502. */
-class PaymentInFlightError extends Error {
-  readonly status = 400;
-  readonly code = 'payment_in_flight';
+/**
+ * Refused because money is already moving. A 400, not a 502.
+ *
+ * ⚠️ EXTENDS `ApiError`, and that is not a detail. `errorMiddleware` answers
+ * 500 "Internal server error" for anything that is not an `ApiError` — it does
+ * NOT read a `status` property off a plain Error. Shipping these as plain
+ * Errors with `status = 400` bolted on meant every refusal in this file reached
+ * the reader as an outage, including the sentence written to stop a one-off
+ * being paid twice.
+ */
+class PaymentInFlightError extends ApiError {
   constructor() {
     super(
+      400,
+      'payment_in_flight',
       'Your bank is still processing your last payment. Give it a minute and reload — changing the amount now would charge you twice.',
     );
   }
@@ -455,11 +475,11 @@ class PaymentInFlightError extends Error {
  * the dashboard, and unpausing is a dashboard action too. So this says so,
  * rather than quietly doing the wrong thing in either direction.
  */
-class SubscriptionPausedError extends Error {
-  readonly status = 400;
-  readonly code = 'subscription_paused';
+class SubscriptionPausedError extends ApiError {
   constructor() {
     super(
+      400,
+      'subscription_paused',
       'Your support is paused on our side, so the amount cannot be changed here yet. Email us and we will sort it out.',
     );
   }
@@ -589,6 +609,16 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
         s.status !== 'paused',
     );
     for (const s of strays) {
+      // ⚠️ THE SAME REFUSAL `setSupport` MAKES, on the other path that cancels.
+      // A stray whose first payment is still `processing` has no PAID invoice,
+      // so the refund sweep below finds nothing to give back — and cancelling
+      // lands the charge against a cancelled subscription where nothing will
+      // ever look for it again. Leave it; it settles or expires on its own, and
+      // the next call here picks it up with an invoice to refund.
+      if (s.status === 'incomplete' && (await firstPaymentInFlight(stripe, s))) {
+        console.warn('[deckpal-api] billing: leaving a duplicate subscription alone — its first payment is settling');
+        continue;
+      }
       console.warn('[deckpal-api] billing: cancelling a duplicate support subscription');
       // ⚠️ CANCELLING DOES NOT UNDO A CHARGE. If the stray's first invoice was
       // already paid — which it is whenever the racing request got as far as

@@ -504,6 +504,14 @@ export function SupportFlow({
           </button>
           <Button
             loading={busy}
+            // Frozen means an attempt may already have taken the money. Pressing
+            // again replays the same idempotency key, so it cannot double-charge
+            // — but on the challenge path Stripe replays the original
+            // `requires_action` response, `handleNextAction` fails on it, and
+            // the copy then asserts "nothing has been charged" over money that
+            // is still settling. There is nothing useful behind this button
+            // until the attempt resolves.
+            disabled={frozenAmount !== null}
             onClick={() => {
               if (!hasCard) {
                 setCardFor('one-time')

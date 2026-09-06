@@ -24,6 +24,7 @@ import {
   type BillingRow,
 } from '../billing/store.js';
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
+import { ApiError, errorMiddleware } from '../http.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -340,5 +341,66 @@ describe('normalizeAmountCents', () => {
     for (const bad of [-100, 1.5, NaN, Infinity, 'five', null, undefined, {}]) {
       assert.throws(() => normalizeAmountCents(bad), `accepted ${String(bad)}`);
     }
+  });
+});
+
+/**
+ * The error funnel, which is the third thing in billing with an opinion.
+ *
+ * ── WHY THIS TEST EXISTS ────────────────────────────────────────────────────
+ *
+ * `errorMiddleware` answers 500 "Internal server error" for anything that is
+ * not an `ApiError`. It does NOT read a `status` property off a plain Error —
+ * and two refusals and the upstream wrapper were written as plain Errors with
+ * `status` bolted on, so every one of them reached the reader as an outage.
+ * Including "Open your profile to check whether it went through before trying
+ * again", which is the sentence that exists to stop a one-off being paid twice
+ * and had never once been rendered.
+ *
+ * Nothing else in the suite touches the funnel, which is how it survived seven
+ * reviews. So: the shape of a billing error is asserted here, cheaply, and the
+ * next person who invents one has to make it an ApiError to get out.
+ */
+describe('billing errors reach the reader', () => {
+  const answered = (err: unknown): { status: number; body: unknown } => {
+    let status = 200;
+    let body: unknown = null;
+    const res = {
+      status(s: number) {
+        status = s;
+        return this;
+      },
+      json(b: unknown) {
+        body = b;
+        return this;
+      },
+    } as unknown as Parameters<typeof errorMiddleware>[2];
+    errorMiddleware(err, {} as never, res, (() => {}) as never);
+    return { status, body };
+  };
+
+  test('an ApiError keeps its status, code and sentence', () => {
+    const { status, body } = answered(new ApiError(400, 'payment_in_flight', 'still processing'));
+    assert.equal(status, 400);
+    assert.deepEqual(body, { error: { code: 'payment_in_flight', message: 'still processing' } });
+  });
+
+  test('a plain Error with a bolted-on status is NOT honoured — the bug this guards', () => {
+    const bolted = new Error('give it a minute') as Error & { status?: number; code?: string };
+    bolted.status = 400;
+    bolted.code = 'payment_in_flight';
+    const { status, body } = answered(bolted);
+    assert.equal(status, 500, 'a plain Error must not be able to fake a 4xx');
+    assert.deepEqual(body, { error: { code: 'internal', message: 'Internal server error' } });
+  });
+
+  test('the upstream wrapper reaches the reader, because it is an ApiError', () => {
+    // The 502 shape stripeFailure throws. Its message is the do-not-retry
+    // instruction; a 500 here would replace it with "Internal server error".
+    const { status, body } = answered(
+      new ApiError(502, 'billing_upstream', 'Open your profile to check whether it went through.'),
+    );
+    assert.equal(status, 502);
+    assert.match(JSON.stringify(body), /Open your profile/);
   });
 });

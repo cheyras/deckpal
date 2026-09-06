@@ -586,7 +586,16 @@ Authenticated solely by the `Stripe-Signature` header; `503` when
 `STRIPE_WEBHOOK_SECRET` is unset (never a fallback to trusting the body), `400`
 on a bad signature. Every handler is a full re-sync from Stripe rather than a
 delta, so out-of-order delivery is harmless and a missed event repairs itself on
-the next one; `billing_event` makes a replay a no-op.
+the next one.
+
+`billing_event` is a two-phase ledger (063), not a seen-set. A replay of a
+FINISHED event is a `200` no-op; a delivery arriving while another is still
+processing the same event gets `409`, so Stripe comes back rather than being
+told "done" about work that may yet fail; and a claim left behind by an attempt
+that died is reclaimable after five minutes. The distinction matters for the
+terminal events — there is no next event after
+`customer.subscription.deleted` on an immediate cancel, so a delivery dropped
+there would leave the row claiming a payment that is not happening.
 
 ## Collection — mutation & activity log
 

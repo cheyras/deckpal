@@ -188,6 +188,15 @@ export function statusNote(
         // flight. This says what is true in both cases.
         text: 'Your bank asked for confirmation and the subscription has not started yet. If you were in the middle of confirming, give it a minute and reload before trying again — otherwise choose an amount to start afresh.',
       }
+    case 'paused':
+      // Nothing in this app pauses a subscription, so this one was paused from
+      // the Stripe dashboard. It reports zero cents, which without this case
+      // left the profile saying "you are on $0, which is a perfectly good
+      // answer" beside a subscription waiting to start billing again.
+      return {
+        tone: 'warn',
+        text: 'Your support is paused on our side. Nothing is being charged while it is, and the amount cannot be changed here — email us and we will sort it out.',
+      }
     case 'canceled':
       return null
     default:

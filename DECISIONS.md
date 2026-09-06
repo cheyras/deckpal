@@ -15541,6 +15541,13 @@ because the script making it aborted midway. In a branch where each round reads
 the last one's comments as evidence, a confidently wrong comment is a defect,
 and they are recorded here rather than quietly corrected.
 
+Also: a declined one-off could never be retried. Stripe replays a stored
+response for an idempotency key for 24 hours, declines included, so holding the
+attempt id across a decline meant every retry got the cached refusal without the
+bank being asked again — while the screen said "try again, or use a different
+card". The id is now kept across AMBIGUOUS failures, which is where it prevents
+a double charge, and minted afresh after a settled one.
+
 ### 7. Round four: one cast, and the whole feature was dead
 
 The lock added in round three to stop the two-tab double charge was
@@ -15727,14 +15734,50 @@ state that produced the 502 loop in §6. It is self-harm with no reach into
 anyone else's data, so it is named in SECURITY.md instead of patched with a
 constraint that would trade a real outage for a self-inflicted one.
 
+### 11. Round eight: the sentence that had never reached a browser
+
+Round seven made two refusals — "your bank is still processing your last
+payment" and "your support is paused" — and taught `stripeFailure` to let a
+deliberate refusal past its 502 wrapper. Both classes extended plain `Error`
+with a `status` property bolted on, and `errorMiddleware` honours `ApiError` and
+nothing else: it does not read a `status` property. So every one of those
+refusals reached the reader as **500 Internal server error**, and so did the
+502 wrapper — which means "Open your profile to check whether it went through
+before trying again", the sentence written in round one to stop a one-off being
+paid for twice, had never once been rendered in a browser in any round of this
+work.
+
+The money was still safe, but by luck: a 500 falls on the AMBIGUOUS side of the
+client's 400-means-settled rule, so the frozen amount and the held attempt id
+did their job anyway. What was lost was every explanation. API.md documented the
+two 400s and the round-seven commit claimed "a deliberate refusal stays a 400";
+neither was true.
+
+Same class as the last five rounds, one layer lower: the diagnosis right, the
+mechanism stopping one step short of the reader, and the docs describing the
+intent. So this round adds the thing none of the previous ones had — a test on
+the error funnel itself, including an explicit assertion that a plain Error
+carrying `status = 400` is NOT honoured. 118 pure tests had never touched it,
+which is how it survived seven reviews.
+
+The pass-through is now `err instanceof ApiError`, which also closes a hazard
+the property check had left open: stripe-node's own errors carry `statusCode`,
+and had they carried `status`, duck-typing would have let raw upstream messages
+through to the browser.
+
+Three smaller. A stray subscription whose first payment was still settling could
+be cancelled by the sweep — its invoice is not `paid` yet, so the refund pass
+finds nothing, and the charge lands against a cancelled subscription where
+nothing ever looks again; the same in-flight refusal `setSupport` makes now
+guards the sweep. A paused subscriber was shown the monthly check-in, where
+every possible answer is refused, so the prompt is suppressed for `paused` and
+the profile has copy for it instead of "you are on $0, which is a perfectly good
+answer". And the one-off's Give button stayed enabled while the amount was
+frozen: pressing it cannot double-charge, but on the challenge path Stripe
+replays the original `requires_action`, `handleNextAction` fails on it, and the
+copy then asserts "nothing has been charged" over money still settling.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists
 to fix.
-
-Also: a declined one-off could never be retried. Stripe replays a stored
-response for an idempotency key for 24 hours, declines included, so holding the
-attempt id across a decline meant every retry got the cached refusal without the
-bank being asked again — while the screen said "try again, or use a different
-card". The id is now kept across AMBIGUOUS failures, which is where it prevents
-a double charge, and minted afresh after a settled one.
