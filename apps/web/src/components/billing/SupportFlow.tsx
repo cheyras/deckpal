@@ -174,6 +174,17 @@ export function SupportFlow({
    * Cleared by a reload, by which time the webhook has settled the question.
    */
   const [inFlight, setInFlight] = useState(false)
+  /**
+   * The typed amount is not one we could charge.
+   *
+   * The chooser deliberately keeps the last VALID amount selected when an entry
+   * is rejected — typing 750 over 75 should not drop you to nothing — so the
+   * button went on offering the old figure beneath a field showing the new one
+   * and an error. The server charges what the button says, so nothing is
+   * mischarged; the reader is misled at the one moment they must not be.
+   */
+  const [amountInvalid, setAmountInvalid] = useState(false)
+  const [onceInvalid, setOnceInvalid] = useState(false)
   const [gaveOnce, setGaveOnce] = useState<number | null>(null)
   /**
    * What the card step is collecting for. The card form is the same either way
@@ -248,14 +259,22 @@ export function SupportFlow({
           // server explicitly allows a new amount after (`requires_action` is
           // not in flight). Locking on that stranded them behind a control only
           // a page reload reopens. One extra read settles it.
-          if (actionError.type !== 'card_error') {
+          // One reading, both decisions — the same rule the one-off's branch
+          // needed. The retrieve settles whether to LOCK and which sentence to
+          // show; deciding the second from the error type while the first came
+          // from the intent is how a refusal ended up described as "we could
+          // not confirm what your bank decided" when the intent said plainly
+          // that it was refused.
+          let settled = actionError.type === 'card_error'
+          if (!settled) {
             const { paymentIntent: after } = await stripe.retrievePaymentIntent(next.clientSecret)
             lastIntent = after?.status ?? null
-            if (after?.status === 'processing' || after?.status === 'succeeded') setInFlight(true)
+            if (lastIntent === 'processing' || lastIntent === 'succeeded') setInFlight(true)
+            else if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
           }
           setError(
             actionError.message ??
-              (actionError.type === 'card_error'
+              (settled
                 ? 'Your bank did not confirm the payment, so nothing has been charged. You can try again or use another card.'
                 : 'We could not confirm what your bank decided. Reload in a moment — your profile will show the subscription if it went through.'),
           )
@@ -437,6 +456,16 @@ export function SupportFlow({
             const { paymentIntent: after } = await stripe.retrievePaymentIntent(res.clientSecret)
             const status = after?.status ?? null
             if (status === 'processing' || status === 'succeeded') setFrozenAmount(onceAmount)
+            // ⚠️ AND IF IT LANDED, SAY SO. We are here because the browser lost
+            // track of the challenge, not because the gift failed — the intent
+            // says it succeeded and we are holding its id, so the server can
+            // record it. Skipping that lost a real conversion for no reason
+            // other than which branch the reader arrived on.
+            if (status === 'succeeded' && after) {
+              await api
+                .confirmOneTime(after.id, analyticsContext ?? context)
+                .catch(() => {/* the money landed; the analytics row is not worth failing over */})
+            }
             // A retrieve that could not answer leaves `settled` false: the id is
             // kept, which is the side that cannot double-charge.
             else if (status === 'requires_payment_method' || status === 'canceled') settled = true
@@ -587,6 +616,7 @@ export function SupportFlow({
           // amount is part of Stripe's idempotency key, so changing it turns a
           // retry into a second charge.
           disabled={busy || frozenAmount !== null}
+          onInvalid={setOnceInvalid}
           showMostCommon={false}
           label="Choose a one-time amount"
         />
@@ -617,7 +647,7 @@ export function SupportFlow({
             // the copy then asserts "nothing has been charged" over money that
             // is still settling. There is nothing useful behind this button
             // until the attempt resolves.
-            disabled={frozenAmount !== null}
+            disabled={frozenAmount !== null || onceInvalid}
             onClick={() => {
               if (!hasCard) {
                 setCardFor('one-time')
@@ -773,6 +803,7 @@ export function SupportFlow({
         // Choosing again would replace the incomplete subscription and bill a
         // second first month beside it.
         disabled={busy || inFlight}
+        onInvalid={setAmountInvalid}
       />
 
       {/* Directly under the grid, and only when an amount has actually been
@@ -823,7 +854,7 @@ export function SupportFlow({
         )}
         <Button
           loading={busy}
-          disabled={inFlight || (unchanged && context === 'settings')}
+          disabled={inFlight || amountInvalid || (unchanged && context === 'settings')}
           onClick={() => {
             if (amount > 0 && !hasCard) {
               setCardFor('subscription')

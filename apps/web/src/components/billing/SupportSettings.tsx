@@ -54,6 +54,22 @@ export function SupportSettings() {
   const [panel, setPanel] = useState<Panel>('none')
   const [portalBusy, setPortalBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * Does the error on screen CONTRADICT the status note?
+   *
+   * Only one of them does. "The card is saved, but the outstanding payment
+   * still did not go through" sits directly above a note reading "updating your
+   * card will put it right" — the reader has just done that and it has not, so
+   * the note is suppressed and the newer fact stands alone.
+   *
+   * ⚠️ The other error here does not contradict anything. "Could not open the
+   * billing portal" has nothing to say about a failed payment or a pending
+   * stop, and hiding the note for it removed guidance the reader needs — for as
+   * long as that error stayed up, which is until another portal attempt or a
+   * card save, i.e. potentially for ever. So the suppression is keyed to the
+   * error's SUBJECT, not to there being one.
+   */
+  const [errorHidesNote, setErrorHidesNote] = useState(false)
 
   useEffect(() => {
     if (query.data) setState(query.data)
@@ -96,6 +112,7 @@ export function SupportSettings() {
       // back here, and a popup would be eaten by half the browsers that matter.
       window.location.assign(url)
     } catch (e) {
+      setErrorHidesNote(false)
       setError(e instanceof Error ? e.message : 'Could not open the billing portal.')
       setPortalBusy(false)
     }
@@ -144,7 +161,7 @@ export function SupportSettings() {
           will put it right", and the error directly above it says the card was
           updated and it did not. Two adjacent sentences contradicting each
           other is worse than either alone, and the error is the newer fact. */}
-      {note && !error && (
+      {note && !(error && errorHidesNote) && (
         <p
           className={[
             'mt-[10px] rounded-[10px] px-[12px] py-[9px] text-[13px] leading-[1.5]',
@@ -196,6 +213,7 @@ export function SupportSettings() {
                   // replacing a card to clear a failed payment saw the panel
                   // close, took that as done, and had only the passive banner
                   // to tell them otherwise.
+                  setErrorHidesNote(next.settled === false)
                   setError(
                     next.settled === false
                       ? 'The card is saved, but the outstanding payment still did not go through. Your bank may be declining it — try a different card, or contact them.'

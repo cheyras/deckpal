@@ -16025,6 +16025,38 @@ And the known analytics gap in §17 has a one-off half, recorded there: a gift
 that goes to `processing` without a challenge cannot be confirmed later either,
 because the response carries no intent id to the browser.
 
+### 19. Round sixteen: the same rule, one component over
+
+Fourth consecutive round with no money defect. §18's rule — where a guard
+makes two decisions about one fact, read the fact once — was applied to the
+one-off's `actionError` branch and not to the subscription's, which sits eleven
+lines away and does exactly the same thing. Its retrieve drove the lock and the
+error type still drove the sentence, so a refusal the intent named plainly was
+described to the reader as "we could not confirm what your bank decided". Not a
+stuck state this time (the subscription create key is derived from the replaced
+subscription's id, so each retry is a fresh key) — but the asymmetry is the
+tell, and a rule recorded in one branch and not its twin is not a rule.
+
+Three more. The note suppression added last round was keyed to THERE BEING an
+error rather than to WHICH error: "could not open the billing portal" has
+nothing to say about a failed payment or a pending stop, and it hid the dunning
+guidance until another portal attempt or a card save — potentially for ever.
+The suppression is keyed to the error's subject now.
+
+The one-off's ambiguous branch retrieves the intent, sees `succeeded`, holds the
+id — and did not report it. We are on that branch because the BROWSER lost
+track of the challenge, not because the gift failed; skipping the report lost a
+real conversion for no reason except which branch the reader arrived on. It
+calls `/one-time/confirm` there now, which is dedupe-keyed and safe to repeat.
+
+And the amount chooser keeps the last VALID amount selected when an entry is
+rejected — right for the picker, since typing 750 over 75 should not drop you
+to nothing, and wrong for the button, which went on offering "Support $75/month"
+beneath a field reading 750 and an error. The server charges what the button
+says so nothing was mischarged; the reader was misled at the one moment they
+must not be. The chooser reports an unusable entry and both submit buttons
+disable on it.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

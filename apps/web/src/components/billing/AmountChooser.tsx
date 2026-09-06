@@ -75,6 +75,7 @@ export function AmountChooser({
   minCents,
   maxCents,
   disabled,
+  onInvalid,
   showMostCommon = true,
   label = 'Choose your monthly amount',
 }: {
@@ -84,6 +85,18 @@ export function AmountChooser({
   minCents: number
   maxCents: number
   disabled?: boolean
+  /**
+   * Told when the typed amount is not a usable one.
+   *
+   * ⚠️ THE FIELD AND THE BUTTON MUST NOT DISAGREE AT THE MOMENT OF PAYMENT.
+   * A rejected entry deliberately does not call `onChange`, so the last VALID
+   * amount stays selected — which is right for the picker (typing 750 over 75
+   * should not silently drop you to nothing) and wrong for the button, which
+   * went on offering "Support $75/month" beneath a field reading 750 and an
+   * error. The server charges what the button says, so nothing is mischarged;
+   * it is the reader who is misled, at the one moment they must not be.
+   */
+  onInvalid?: (problem: boolean) => void
   /**
    * "Most people pick $5" is a fact about the MONTHLY ladder. The one-time
    * ladder is a different question with different anchors, and repeating the
@@ -121,6 +134,13 @@ export function AmountChooser({
           : customCents > maxCents
             ? `That is more than ${formatAmount(maxCents)} a month. If you really mean it, email us and we will set it up by hand.`
             : null
+
+  // The parent disables its submit on this; it is a render-time fact, so it is
+  // reported in an effect rather than from the change handler, which would miss
+  // the initial state and any change driven from outside.
+  useEffect(() => {
+    onInvalid?.(customProblem !== null)
+  }, [customProblem, onInvalid])
 
   function pickPreset(cents: number) {
     setCustomOpen(false)
