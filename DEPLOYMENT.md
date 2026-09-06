@@ -263,14 +263,32 @@ CVC is a card that works.
    Turn OFF: "cancel subscription" is fine to leave on, but cancelling in the
    app is one tap on the $0 preset and never requires leaving it.
 
-5. Apply the migrations (053—058) BEFORE the deploy that reads them.
+5. Apply the migrations (053—060) BEFORE the deploy that reads them.
    053 tables + backfill; 054 (@supabase-only) RLS, the write functions and the
    REVOKEs that undo Supabase's default table grants; 055/056 the $1
    experiment; 057 the one-time contribution's event kind; 058 the amount cap
-   on the experiment's RPC. `packages/db` applies only what is pending and
-   refuses to run if a shipped migration has been edited.
+   on the experiment's RPC; **059 the write-once pin on `stripe_customer_id`
+   and the `support_cents` clamp — do not skip this one, it is what stops an
+   account repointing its row at somebody else's Stripe customer**; 060 the
+   release function 059 needs so a genuinely dead customer can be recovered
+   from. `packages/db` applies only what is pending and refuses to run if a
+   shipped migration has been edited.
 
-6. Verify from outside, not from the code:
+6. **Send a real webhook and confirm it lands.** `/health` says the secret is
+   configured; it does not say the endpoint works. The one thing that could
+   silently break it is the serverless wrapper consuming the request body before
+   `express.raw()` sees it, which would fail EVERY signature while looking like
+   a Stripe-side problem. From the Stripe dashboard (Developers → Webhooks →
+   your endpoint → Send test webhook) send `invoice.paid` and check:
+
+   - the delivery shows **200**, and
+   - a row appears: `SELECT count(*) FROM billing_event;`
+
+   A `400` means the raw body is not reaching the handler. Do not go live
+   without this: an endpoint that rejects every delivery leaves subscriptions
+   charging while the app believes nobody is paying.
+
+7. Verify from outside, not from the code:
      curl -s https://deckpal.app/api/health | jq '{billingGate, stripeMode}'
    → {"billingGate":"configured","stripeMode":"test"}
    Anything else — especially "partial" — means a variable did not arrive.

@@ -1,0 +1,81 @@
+-- @supabase-only
+-- 060 · Let a customer id be RELEASED, so the write-once pin does not brick an
+--       account whose Stripe customer really is gone.
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- THE CONFLICT 059 CREATED
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- 059 pinned `stripe_customer_id` write-once, which closed a real disclosure:
+-- the column is reachable from the browser via `billing_apply_stripe`, and the
+-- webhook used to resolve an account from it, so repointing your row at a
+-- stranger's customer harvested their card summary.
+--
+-- But `ensureCustomer` (apps/api/src/billing/service.ts) has a legitimate
+-- recovery path that the pin broke. When the stored customer is genuinely
+-- unusable — deleted in the dashboard, or belonging to a different Stripe
+-- account after a test/live key swap — it creates a fresh one. With 059 applied
+-- the follow-up write raised "cannot be repointed", so every subsequent request
+-- 502'd AND minted another orphan customer at Stripe. `/portal` was worse: it
+-- never writes the column, so it silently opened an empty portal on a
+-- brand-new customer while the account's real row pointed elsewhere.
+--
+-- 059's header said this case was "worth a manual UPDATE by the owner". That is
+-- not good enough: it is a self-inflicted outage on a path the code takes by
+-- itself, in a loop, spending Stripe objects as it goes.
+--
+-- ══════════════════════════════════════════════════════════════════════════════
+-- RELEASING IS SAFE IN A WAY REPOINTING IS NOT
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- This function can only ever set the column to NULL. It cannot be pointed at a
+-- value, so it cannot be aimed at anybody. The worst an abusive caller achieves
+-- is detaching THEIR OWN row from THEIR OWN customer — after which the next
+-- request creates them a fresh empty one and they have inconvenienced nobody.
+-- The disclosure 059 closed needs the ability to name a target, and naming a
+-- target is exactly what is still forbidden.
+--
+-- The card summary is cleared with it. A row that no longer knows its customer
+-- must not keep displaying that customer's last four digits: the two facts came
+-- from the same place and they leave together.
+--
+-- The route only calls this after Stripe itself has said the stored customer is
+-- missing or does not name this account — the check in `ensureCustomer`, which
+-- is also what makes the "brand new customer" it then creates trustworthy.
+
+CREATE OR REPLACE FUNCTION public.billing_release_customer()
+RETURNS public.billing_account
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  uid uuid := (SELECT auth.uid());
+  row public.billing_account;
+BEGIN
+  IF uid IS NULL THEN
+    RAISE EXCEPTION 'billing_release_customer: no authenticated user';
+  END IF;
+
+  UPDATE public.billing_account b
+     SET stripe_customer_id = NULL,
+         subscription_id     = NULL,
+         subscription_status = NULL,
+         support_cents       = 0,
+         current_period_end  = NULL,
+         cancel_at_period_end = FALSE,
+         card_brand     = NULL,
+         card_last4     = NULL,
+         card_exp_month = NULL,
+         card_exp_year  = NULL,
+         stripe_synced_at = now(),
+         updated_at       = now()
+   WHERE b.user_id = uid
+  RETURNING b.* INTO row;
+
+  RETURN row;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.billing_release_customer() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.billing_release_customer() TO authenticated;

@@ -1551,6 +1551,17 @@ export const api = {
       attemptId: opts.attemptId,
     }),
   /**
+   * Report a one-off that needed the bank's confirmation.
+   *
+   * The charge call returns without recording anything when the issuer steps
+   * in, because nothing has been paid at that moment. This hands back the
+   * intent so the server can read its real status — re-posting the original
+   * request would not work, since its idempotency key would replay the
+   * original "needs confirmation" answer rather than the settled one.
+   */
+  confirmOneTime: (paymentIntentId: string, context: string) =>
+    send<BillingState & { paid: boolean }>('POST', '/me/billing/one-time/confirm', { paymentIntentId, context }),
+  /**
    * Re-read Stripe after an authentication challenge completed in the browser.
    *
    * `amountCents` + `context` report the CONFIRMED outcome: the write that

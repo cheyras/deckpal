@@ -396,11 +396,25 @@ API can decide. Migration 054 makes it the database's decision instead:
   grants `authenticated` write privileges on new public tables by default. A
   write then fails loudly with `42501` rather than quietly affecting zero rows,
   and keeps failing even if a future migration adds a permissive policy.
-- **Writes go through four `SECURITY DEFINER` functions** —
-  `billing_touch_visit`, `billing_ack_prompt`, `billing_apply_stripe` (054) and
-  `billing_record_ab_event` (056) — which derive the row from `auth.uid()` and
-  never from an argument, each writing only the columns its name describes.
-  There is no user id to forge.
+- **Writes go through six `SECURITY DEFINER` functions** —
+  `billing_touch_visit`, `billing_ack_prompt`, `billing_apply_stripe` (054),
+  `billing_record_ab_event` (056), `billing_ensure_row` and
+  `billing_release_customer` (059/060) — which derive the row from
+  `auth.uid()` and never from an argument, each writing only the columns its
+  name describes. There is no user id to forge.
+- **`stripe_customer_id` is write-once** (059). It may be set while NULL and
+  re-asserted to the same value; it can never be repointed. This closes a real
+  disclosure: the column is reachable from the browser through
+  `billing_apply_stripe`, and the webhook resolved accounts from it, so planting
+  a stranger's `cus_—` in your own row would have synced their card summary and
+  subscription state onto it. Customer ids are not secrets.
+  Releasing it to NULL (060) is permitted, because NULL cannot be aimed at
+  anybody: the worst it achieves is detaching your own row from your own
+  customer.
+- **The webhook verifies ownership with Stripe**, not with the row: before
+  writing, it checks the customer's own `metadata.deckpal_user_id` names the
+  account it is about to update. Every API route already did this; the webhook
+  was the one path that did not, which is precisely why it was the way in.
 - **Those functions are reachable over PostgREST**, because `authenticated` must
   be able to execute them and the anon key is in the SPA by design. The inputs
   are therefore constrained in the FUNCTION, not in the route: the experiment

@@ -163,6 +163,16 @@ export function SupportPrompt() {
    * entirely by whoever happened to be switching windows.
    */
   const exposed = useRef(false)
+  /**
+   * Did they actually answer?
+   *
+   * `onState` fires only after a write the server accepted, so it is the honest
+   * signal. Without it, answering and then closing the sheet with the ✕ or the
+   * backdrop — rather than the "Back to DeckPal" button — recorded a dismissal
+   * ON TOP OF the answer, which is the both-outcomes-at-once overlap that
+   * splitting dismissal from completion was meant to end.
+   */
+  const answered = useRef(false)
 
   // The boot call. Once per page load, and only for somebody who is signed in.
   useEffect(() => {
@@ -244,7 +254,10 @@ export function SupportPrompt() {
   return (
     <Sheet
       title={copy.title}
-      onClose={() => close(true)}
+      // Not unconditionally a dismissal: closing the done screen with the ✕ is
+      // still an answer, and recording both put two mutually exclusive outcomes
+      // against one exposure.
+      onClose={() => close(!answered.current)}
       size="lg"
       // Top right, beside the close button. A processor mark belongs in the
       // chrome of a payment surface, not in the middle of the argument.
@@ -264,7 +277,10 @@ export function SupportPrompt() {
 
         <SupportFlow
           state={state}
-          onState={setState}
+          onState={(next) => {
+            answered.current = true
+            setState(next)
+          }}
           context={kind}
           analyticsContext={forced ? `forced-${kind}` : kind}
           onDismiss={() => close(true)}

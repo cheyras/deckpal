@@ -86,6 +86,12 @@ const NEEDS_PAYMENT = new Set(['past_due', 'unpaid']);
 const PAYING_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid']);
 
 /**
+ * `paused` is not here either: collection is suspended, so an amount change
+ * would report success while nothing is ever billed, and the UI would then
+ * claim a payment problem it cannot explain. Nothing in this app pauses a
+ * subscription; one that is paused was paused from the Stripe dashboard, and
+ * resuming it is a dashboard action too.
+ *
  * `incomplete` is deliberately NOT here.
  *
  * An `incomplete` subscription has a FINALIZED first invoice at whatever amount
@@ -94,7 +100,7 @@ const PAYING_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid']);
  * confirmation, come back, pick $1 — and the retry confirms the old invoice and
  * charges $25. It is replaced rather than modified (see `setSupport`).
  */
-const MODIFIABLE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'paused']);
+const MODIFIABLE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid']);
 
 function unixToIso(secs: number | null | undefined): string | null {
   return typeof secs === 'number' && Number.isFinite(secs) ? new Date(secs * 1000).toISOString() : null;
@@ -123,13 +129,19 @@ export async function ensureCustomer(
   userId: string,
   email: string | null,
   existingId: string | null,
-): Promise<{ customerId: string; created: boolean }> {
+): Promise<{ customerId: string; created: boolean; replaced: boolean }> {
+  let replaced = false;
   if (existingId) {
     try {
       const found = await stripe.customers.retrieve(existingId);
       if (!found.deleted && found.metadata?.deckpal_user_id === userId) {
-        return { customerId: found.id, created: false };
+        return { customerId: found.id, created: false, replaced: false };
       }
+      // Stripe says the stored id is unusable. The caller must RELEASE the
+      // column before writing the replacement, because migration 059 pins it
+      // write-once and would otherwise raise "cannot be repointed" on every
+      // request while this function minted a fresh orphan customer each time.
+      replaced = true;
     } catch (err) {
       // ⚠️ ONLY "this customer does not exist" may fall through to creating a
       // new one. This used to catch EVERYTHING, and the consequence is the
@@ -144,6 +156,7 @@ export async function ensureCustomer(
       // A transient failure must propagate: a 502 the reader can retry is
       // enormously better than a silent, un-cancellable charge.
       if (!isMissingCustomer(err)) throw err;
+      replaced = true;
     }
   }
 
@@ -154,7 +167,7 @@ export async function ensureCustomer(
     metadata: { deckpal_user_id: userId },
     description: `DeckPal account ${userId}`,
   });
-  return { customerId: customer.id, created: true };
+  return { customerId: customer.id, created: true, replaced };
 }
 
 /**
@@ -482,10 +495,50 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
     );
     for (const s of strays) {
       console.warn('[deckpal-api] billing: cancelling a duplicate support subscription');
+      // ⚠️ CANCELLING DOES NOT UNDO A CHARGE. If the stray's first invoice was
+      // already paid — which it is whenever the racing request got as far as
+      // `finishFirstPayment` — the customer has been billed twice for the same
+      // month and cancelling only stops the SECOND one recurring. The previous
+      // version of this function claimed to have closed the double-charge and
+      // had in fact closed only the future renewals.
+      //
+      // Refund first, cancel second. A refund we cannot make is logged loudly
+      // rather than swallowed: money kept by mistake is the one failure here
+      // nobody would otherwise notice.
+      await refundFirstInvoice(stripe, s);
       await stripe.subscriptions.cancel(s.id);
     }
   } catch (err) {
     console.error('[deckpal-api] billing: could not clean up duplicate subscriptions —', (err as Error).message);
+  }
+}
+
+/**
+ * Give back what a duplicate subscription collected.
+ *
+ * Only ever called for a subscription this feature is about to cancel as a
+ * stray, and only when its invoice is actually `paid` — so it cannot refund a
+ * legitimate charge.
+ */
+async function refundFirstInvoice(stripe: Stripe, sub: Stripe.Subscription): Promise<void> {
+  try {
+    const invoiceId = typeof sub.latest_invoice === 'string' ? sub.latest_invoice : sub.latest_invoice?.id;
+    if (!invoiceId) return;
+    const invoice = await stripe.invoices.retrieve(invoiceId, { expand: ['payments'] });
+    if (invoice.status !== 'paid' || !invoice.amount_paid) return;
+    const payment = invoice.payments?.data?.[0]?.payment;
+    const intentId = typeof payment?.payment_intent === 'string' ? payment.payment_intent : payment?.payment_intent?.id;
+    if (!intentId) {
+      console.error('[deckpal-api] billing: a duplicate subscription was PAID and could not be refunded automatically');
+      return;
+    }
+    await stripe.refunds.create(
+      { payment_intent: intentId, reason: 'duplicate' },
+      { idempotencyKey: `dup-refund:${invoiceId}` },
+    );
+    console.warn('[deckpal-api] billing: refunded a duplicate subscription charge');
+  } catch (err) {
+    console.error('[deckpal-api] billing: FAILED to refund a duplicate charge —', (err as Error).message);
   }
 }
 

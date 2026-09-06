@@ -304,8 +304,24 @@ export function SupportFlow({
           return
         }
         paid = paymentIntent?.status === 'succeeded'
+        if (paid && paymentIntent) {
+          // The server recorded nothing when it handed back the challenge, so
+          // it learns the outcome here — from the intent, which it re-reads
+          // itself rather than taking our word for.
+          await api.confirmOneTime(paymentIntent.id, analyticsContext ?? context).catch(() => {
+            /* the money landed; the analytics row is not worth failing over */
+          })
+        }
       }
       if (!paid) {
+        // ⚠️ A NEW ATTEMPT ID, or "try again" is a lie. Stripe replays the
+        // stored response for an idempotency key for 24 hours — including a
+        // decline — so retrying the same amount under the same id would get the
+        // cached refusal without the bank ever being asked again. The id is
+        // kept across AMBIGUOUS failures (timeouts, 5xx), which is where it
+        // prevents a double charge; a decline is a settled answer and the next
+        // press is genuinely a new attempt.
+        attemptId.current = newAttemptId()
         setError('That did not go through, so nothing has been charged. You can try again, or use a different card.')
         return
       }

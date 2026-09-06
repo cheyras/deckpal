@@ -15492,7 +15492,58 @@ correctness of the Stripe interactions was not. What was wrong, and now is not:
   whatever subscription came first — so a hand-arranged subscription on the same
   customer would have been repriced by the next in-app change. It now filters.
 
-**Implications:** migrations 055—058 are additive and already applied through
-057; 058 needs applying. The review is to be re-run from fresh context until it
-returns clean twice, on the owner's instruction. Nothing here changes the
-product decisions above — it changes whether they were implemented correctly.
+**Implications:** migrations 055—060 are additive; 053—057 are applied,
+058—060 are not yet. The review is re-run from fresh context until it returns
+clean twice, on the owner's instruction. Nothing here changes the product
+decisions above — it changes whether they were implemented correctly.
+
+### 5. Round two: a cross-account disclosure, and a double charge
+
+The second fresh-context audit found something the first had not, and it was
+mine. `billing_apply_stripe` is executable by `authenticated`, so it is callable
+over PostgREST with the anon key the SPA ships. 054's header argued this was
+safe because the write "will only ever land on its own row" — true, and not
+sufficient, because `stripe_customer_id` is a pointer into somebody else's
+money. Planting a stranger's customer id in your own row would have had the
+webhook, which resolved accounts purely from that column, sync their card brand,
+last four, expiry and subscription state onto it.
+
+Closed in both halves so it stays closed: the webhook now asks Stripe whether
+the customer's metadata names the row owner (every route already did — the
+webhook was the one path that did not, which is why it was the way in), and 059
+pins the column write-once.
+
+Also that round: the one-off idempotency key was bucketed by the minute, so a
+charge that succeeded and then failed downstream told the reader to "check your
+profile" — which shows no gift history — and their honest retry a minute later
+was a second real charge. And two tabs at different amounts both created a
+subscription, the loser billing invisibly forever.
+
+### 6. Round three: the fixes fought each other
+
+Worth recording because it is the argument for the loop. 059's write-once pin
+broke `ensureCustomer`'s recovery path: when Stripe says a stored customer is
+deleted it makes a new one, and the follow-up write then raised "cannot be
+repointed" — on every request, minting an orphan Stripe customer each time.
+060 adds release-to-NULL, which is safe in the way repointing is not: NULL
+cannot be aimed at anybody.
+
+And `cancelStraySubscriptions`, added in round two under a commit titled "stop
+double-charging", did not. Cancelling a subscription does not refund the invoice
+it has already collected, so the two-tab race still billed both first months and
+reported success twice. It now refunds before cancelling, and the three
+money-moving routes take a per-account advisory lock so the race does not happen
+at all.
+
+Two comments in that round also described behaviour the code did not have: a
+client re-post that was never written, and a fix that had only half applied
+because the script making it aborted midway. In a branch where each round reads
+the last one's comments as evidence, a confidently wrong comment is a defect,
+and they are recorded here rather than quietly corrected.
+
+Also: a declined one-off could never be retried. Stripe replays a stored
+response for an idempotency key for 24 hours, declines included, so holding the
+attempt id across a decline meant every retry got the cached refusal without the
+bank being asked again — while the screen said "try again, or use a different
+card". The id is now kept across AMBIGUOUS failures, which is where it prevents
+a double charge, and minted afresh after a settled one.

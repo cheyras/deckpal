@@ -141,7 +141,6 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  * ⚠️ Ten accounts exist today. This collects honestly; reading it for a winner
  * has to wait for volume, and no amount of SQL fixes that.
  */
-;
 
 /**
  * Record one experiment event. Fire-and-forget by design: analytics must never
@@ -272,6 +271,62 @@ export async function ackPrompt(userId: string, onboarding: boolean): Promise<Bi
     [userId, onboarding],
   );
   return readRow(userId);
+}
+
+/**
+ * Detach this account from a Stripe customer that Stripe says is unusable.
+ *
+ * Only ever called after `ensureCustomer` has asked Stripe and been told the
+ * stored id is deleted or belongs to somebody else. Migration 059 pins
+ * `stripe_customer_id` write-once — releasing to NULL is the one change that
+ * cannot be aimed at another account, which is why it is a separate function
+ * rather than a hole in the pin.
+ */
+export async function releaseCustomer(userId: string): Promise<void> {
+  if (SUPABASE_MODE) {
+    await q(`SELECT billing_release_customer()`);
+    return;
+  }
+  await q(
+    `UPDATE billing_account
+        SET stripe_customer_id = NULL, subscription_id = NULL, subscription_status = NULL,
+            support_cents = 0, current_period_end = NULL, cancel_at_period_end = FALSE,
+            card_brand = NULL, card_last4 = NULL, card_exp_month = NULL, card_exp_year = NULL,
+            stripe_synced_at = now(), updated_at = now()
+      WHERE user_id = $1`,
+    [userId],
+  );
+}
+
+/**
+ * Serialise this account's money-moving requests against each other.
+ *
+ * ── WHY A LOCK AND NOT JUST AN IDEMPOTENCY KEY ──────────────────────────────
+ *
+ * An idempotency key collapses a REPEAT of the same request. It does nothing
+ * about two DIFFERENT requests racing: two tabs submitting $5 and $10 both read
+ * "no subscription yet", both create one, and both charge a first invoice.
+ * Cancelling the loser afterwards stops its renewals but does not give back
+ * what it already collected — so the account is billed twice for one month.
+ *
+ * `pg_advisory_xact_lock` is held for the rest of the transaction, which in
+ * SUPABASE_MODE is the rest of the request, and is visible across every
+ * serverless instance because it lives in the database rather than in a
+ * process. The second request waits and then sees the first one's subscription,
+ * taking the update path instead of creating a second.
+ *
+ * Keyed on the user id alone: two different people never contend, and one
+ * person's own requests are exactly what must not interleave. The wait is
+ * bounded by the same PGRLS_MAX_HOLD_MS watchdog as everything else.
+ *
+ * No-op outside SUPABASE_MODE — self-host has one user and no concurrency
+ * story worth the round trip.
+ */
+export async function lockAccount(userId: string): Promise<void> {
+  if (!SUPABASE_MODE) return;
+  // hashtextextended gives a stable bigint from the uuid; the constant
+  // namespaces this lock away from any other advisory lock in the schema.
+  await q(`SELECT pg_advisory_xact_lock(8534071, hashtextextended($1, 0)::int)`, [userId]);
 }
 
 /** Cache what Stripe just told us about THIS caller's account. */

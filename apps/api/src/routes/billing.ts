@@ -26,7 +26,8 @@
  * so the client never has to guess what a write did or issue a follow-up GET
  * that may race a webhook. One shape, one source, no reconciliation in the UI.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import type Stripe from 'stripe';
 import { asyncHandler, badRequest, userCache } from '../http.js';
 import { currentUserEmail, currentUserId } from '../identity.js';
 import {
@@ -51,10 +52,12 @@ import {
 import {
   ackPrompt,
   applyStripe,
+  lockAccount,
   presetsFor,
   promptDue,
   readRow,
   recordAbEvent,
+  releaseCustomer,
   touchVisit,
   type BillingRow,
 } from '../billing/store.js';
@@ -196,11 +199,31 @@ function stripeFailure(err: unknown): never {
   throw wrapped;
 }
 
+/**
+ * Resolve this account's Stripe customer, and leave the row able to record it.
+ *
+ * Every money route needs the same three things in the same order and got them
+ * subtly differently before, which is how `/portal` ended up opening a portal
+ * on a customer the row had never heard of.
+ *
+ *  1. `releaseCustomer` when Stripe says the stored id is unusable. Migration
+ *     059 pins the column write-once, so without this the follow-up write
+ *     raises "cannot be repointed" — on every request, while minting a fresh
+ *     orphan customer each time.
+ *  2. Persist the id, so the webhook can find this account again.
+ */
+async function customerFor(req: Request, userId: string, row: BillingRow, stripe: Stripe): Promise<string> {
+  const { customerId, replaced } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
+  if (replaced) await releaseCustomer(userId);
+  if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
+  return customerId;
+}
+
 /** Ensure the customer exists, sync from Stripe, and return the fresh row. */
-async function resync(userId: string, email: string | null, row: BillingRow): Promise<BillingRow> {
+async function resync(req: Request, userId: string, row: BillingRow): Promise<BillingRow> {
   const stripe = stripeClient();
   if (!stripe) return row;
-  const { customerId } = await ensureCustomer(stripe, userId, email, row.stripe_customer_id);
+  const customerId = await customerFor(req, userId, row, stripe);
   const patch = await pullState(stripe, customerId);
   return applyStripe(userId, patch);
 }
@@ -226,9 +249,11 @@ billingRouter.post(
       res.json(UNAVAILABLE);
       return;
     }
-    // The counter is bumped even on a deployment whose Stripe is only partially
-    // configured, so that turning billing on later does not find every account
-    // sitting at zero visits and stay silent for another three sessions.
+    // Reached only when billing is available — the guard above returns first
+    // otherwise. (An earlier comment here claimed the counter was bumped on a
+    // partially-configured deployment too; only the missing-webhook-secret
+    // flavour of "partial" gets this far, because the other three values are
+    // what `billingAvailable` tests.)
     res.json(shape(await touchVisit(currentUserId(req))));
   }),
 );
@@ -298,8 +323,7 @@ billingRouter.post(
     if (!stripe) throw badRequest('Billing is not configured on this deployment.');
     const row = await readRow(userId);
     try {
-      const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
-      if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
+      const customerId = await customerFor(req, userId, row, stripe);
       const intent = await createSetupIntent(stripe, customerId);
       // The client secret is scoped to this one SetupIntent and is useless
       // without the publishable key's account — it is meant to reach a browser.
@@ -322,10 +346,14 @@ billingRouter.put(
     const amountCents = normalizeAmountCents(req.body?.amountCents);
     const setupIntentId = typeof req.body?.setupIntentId === 'string' ? req.body.setupIntentId.trim() : null;
 
+    // Two tabs at two amounts both read "no subscription yet" and both create
+    // one, and cancelling the loser afterwards does not give back the first
+    // invoice it already collected. The lock makes the second request wait and
+    // then see the first one's subscription, so it updates instead of creating.
+    await lockAccount(userId);
     const row = await readRow(userId);
     try {
-      const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
-      if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
+      const customerId = await customerFor(req, userId, row, stripe);
 
       // A card was just entered: promote it before the subscription tries to
       // charge, or the first invoice has nothing to bill.
@@ -387,10 +415,11 @@ billingRouter.post(
     const setupIntentId = typeof req.body?.setupIntentId === 'string' ? req.body.setupIntentId.trim() : '';
     if (!setupIntentId) throw badRequest('setupIntentId is required');
 
+    // `retryOpenInvoice` behind this moves money.
+    await lockAccount(userId);
     const row = await readRow(userId);
     try {
-      const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
-      if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
+      const customerId = await customerFor(req, userId, row, stripe);
       // Sets the customer default AND clears any subscription-level pin, so the
       // new card is the one that actually gets charged.
       await adoptSetupIntent(stripe, customerId, setupIntentId);
@@ -439,23 +468,70 @@ billingRouter.post(
         ? req.body.attemptId
         : undefined;
 
+    // Same reason as the subscription route, and more urgent: a duplicate
+    // one-off has no subscription state to make it visible afterwards.
+    await lockAccount(userId);
     const row = await readRow(userId);
     try {
-      const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
-      if (customerId !== row.stripe_customer_id) await applyStripe(userId, { stripe_customer_id: customerId });
+      const customerId = await customerFor(req, userId, row, stripe);
       if (setupIntentId) await adoptSetupIntent(stripe, customerId, setupIntentId);
 
       const { clientSecret, paid } = await chargeOnce(stripe, customerId, amountCents, attemptId);
       // Only a gift that actually landed. A challenge still outstanding is not
       // an outcome, and recording one made an abandoned confirmation count as
-      // revenue. The browser re-posts the same attempt id after completing the
-      // challenge; the idempotency key makes that safe, and Stripe returns the
-      // settled intent, so the event is recorded then.
+      // revenue. When the bank does step in, the browser calls
+      // `/one-time/confirm` once it has finished, and the event is recorded
+      // there from the intent's real status — NOT by re-posting this request,
+      // which an idempotency key would answer with the original
+      // `requires_action` response rather than the settled one.
       const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
       if (paid) await recordAbEvent(userId, 'chose_one_time', context, amountCents);
       // The card summary may be new; the subscription state is untouched.
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
       res.json({ ...shape(fresh, { clientSecret }), paid });
+    } catch (err) {
+      stripeFailure(err);
+    }
+  }),
+);
+
+/**
+ * Record a one-off that needed the bank's confirmation.
+ *
+ * `POST /one-time` returns without recording when the issuer wants a step-up,
+ * because at that moment nothing has been paid. The browser completes the
+ * challenge and calls this with the intent it was given; the server retrieves
+ * that intent and records the gift only if Stripe says it succeeded AND it
+ * belongs to this account's customer.
+ *
+ * Without this the entire class of 3-D-Secure gifts was missing from the
+ * experiment — and that is not evenly distributed noise: step-up rates vary by
+ * issuer and country, so it would have quietly biased whichever arm attracted
+ * more of them.
+ */
+billingRouter.post(
+  '/one-time/confirm',
+  asyncHandler(async (req, res) => {
+    const userId = currentUserId(req);
+    const stripe = stripeClient();
+    if (!stripe) throw badRequest('Billing is not configured on this deployment.');
+    const intentId = typeof req.body?.paymentIntentId === 'string' ? req.body.paymentIntentId.trim() : '';
+    if (!intentId.startsWith('pi_')) throw badRequest('paymentIntentId is required');
+
+    const row = await readRow(userId);
+    try {
+      const intent = await stripe.paymentIntents.retrieve(intentId);
+      const owner = typeof intent.customer === 'string' ? intent.customer : intent.customer?.id;
+      // The id arrives from the browser, so it is checked against the customer
+      // resolved from the session — exactly as a SetupIntent is.
+      if (!owner || owner !== row.stripe_customer_id) throw badRequest('that payment does not belong to this account');
+      const paid = intent.status === 'succeeded';
+      if (paid) {
+        const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+        await recordAbEvent(userId, 'chose_one_time', context, intent.amount);
+      }
+      const fresh = await applyStripe(userId, await pullState(stripe, row.stripe_customer_id!));
+      res.json({ ...shape(fresh), paid });
     } catch (err) {
       stripeFailure(err);
     }
@@ -482,7 +558,7 @@ billingRouter.post(
     }
     const row = await readRow(userId);
     try {
-      const fresh = await resync(userId, currentUserEmail(req), row);
+      const fresh = await resync(req, userId, row);
       // The other half of "record only settled outcomes". `PUT /subscription`
       // deliberately does not record a `chose` when the bank asked for a
       // confirmation, because at that moment nothing had been paid. The client
@@ -533,7 +609,11 @@ billingRouter.post(
     const scheme = proto === 'http' && req.get('host')?.startsWith('localhost') ? 'http' : 'https';
     const origin = (process.env.PUBLIC_APP_ORIGIN ?? '').trim() || `${scheme}://${req.get('host') ?? 'deckpal.app'}`;
     try {
-      const { customerId } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
+      // ⚠️ `customerFor`, not a bare `ensureCustomer`. This route used to skip
+      // persisting the id entirely, so when the stored customer was unusable it
+      // silently opened a portal on a brand-new empty one while the row went on
+      // pointing somewhere else — an invoice history that simply was not theirs.
+      const customerId = await customerFor(req, userId, row, stripe);
       const session = await portalSession(stripe, customerId, `${origin}/profile`);
       res.json({ url: session.url });
     } catch (err) {
