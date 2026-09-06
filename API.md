@@ -932,6 +932,8 @@ populated (migrations 049/050 + a catalog sync); until then it skips silently
 and every other rung behaves identically.
 
 
+---
+
 ## Bugs — in-app bug reporter
 
 ### POST /deckpal/api/bugs
