@@ -21,7 +21,19 @@ export function Modal({
   footer,
 }: {
   title: string
-  onClose: () => void
+  /**
+   * Return `false` to REFUSE the close — see `Sheet`.
+   *
+   * ⚠️ This was `() => void`, which meant a caller physically could not signal
+   * a refusal through this shell even though `Sheet` asks for one. `BugReport`
+   * refuses while a report is submitting, so its ✕ played the exit animation and
+   * then declined to unmount, leaving the panel AND the full-screen scrim at
+   * `opacity: 0 forwards`: an invisible, pointer-eating, focus-trapped overlay
+   * with the page scroll-locked and the reader's typed report inside it,
+   * escapable only by a reload that loses the report. Widening the type is the
+   * whole fix; every other caller returns `undefined` and is unaffected.
+   */
+  onClose: () => void | boolean
   children: ReactNode
   wide?: boolean
   /** Pinned under the scroll area, so actions survive a short screen. */

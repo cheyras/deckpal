@@ -17094,6 +17094,66 @@ the deploy — 059 without 060 is worse than neither, because it recreates the
 orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
 cutover.
 
+### 49. Round forty-six: two fixes that fixed the example and not the defect
+
+Both findings this round were mine, both from the round before, and both have
+the same shape: the fix was written against the case that produced it and
+stopped exactly where that case stopped.
+
+**A refusal one caller could not express.** Forty-five gave `Sheet` a way for a
+caller to say "I am refusing to close": return `false`. `BugReport` refuses —
+`if (busy) return` while a report is submitting — and returned `undefined`, and
+it reaches `Sheet` through `ListModals`' `Modal`, whose prop type was
+`onClose: () => void`, so that caller could not have said `false` even if it
+had wanted to. Executed against the real component: Escape mid-submit played
+the exit, the caller declined to unmount, and the panel and the full-screen
+scrim stayed at `opacity: 0 forwards` — an invisible, pointer-eating,
+focus-trapped `fixed inset-0` overlay with the page scroll-locked and the
+reader's typed report inside it, escapable only by a reload that loses the
+report. That is the exact bug forty-four's unconditional restore existed to fix,
+reintroduced by the fix for the fix. **When you give a shared component a new
+protocol, the type that fans it out to callers is part of the change.**
+
+**A validated context that still excluded itself.** Forty-five checked
+`/prompt-shown`'s `context` against an allow-list and mapped rejects to the
+literal `'unknown'`. Every CTE of the analysis filters `context IN
+('onboarding','checkin')`, and `'unknown'` is no more in that set than `'zzz'`
+was: replaying forty-five's own twenty-account cohort against its own fix
+reproduced the 25% fabricated separation in full — 250.0 against 200.0 on a
+cohort that was level. Posting `'settings'`, a value the allow-list ADMITS, did
+it too. An exposure's surface is its `kind`, which is validated, so the body is
+not read for it at all now.
+
+And the mirror image, unlooked-for both times: forty-five hardened the
+denominator and left every outcome route taking `context` verbatim, `forced-`
+prefix included, in LIVE mode — the prefix the analysis excludes. Executed:
+four identical $5 payers, two of them labelling their own answer `forced-`, and
+half the numerator disappeared while every subscription went on billing. One
+allow-list now governs every `recordAbEvent` call site.
+
+**Stated rather than hidden:** an account can still name a real prompt surface
+for an answer it gave from the profile card, and the API cannot tell that from
+an honest one. Gating on a matching exposure row was considered and rejected —
+the exposure POST is fire-and-forget, so anyone who answers before their own
+exposure lands would lose their conversion, which biases against fast answers
+and is worse than what it fixes. `billing_record_ab_event` is granted to
+`authenticated` regardless, so nothing at this layer is a boundary; 062's
+200/day ceiling is what bounds the volume.
+
+**Also verified, not changed:** an account with no arm has its events dropped,
+which is correct — the arm decides which ladder a person was SHOWN, so
+assigning one at outcome time would stamp an answer with an arm that could not
+have influenced it. A dropped row is a missing one; that would be a fabricated
+one. Recorded in `recordAbEvent` so a later round does not "fix" it.
+
+**Round forty-six also cleared the one-time contribution path**, driven end to
+end for the first time over the real router, the real migrations and a stateful
+Stripe: one charge per gift, concurrent posts collapsed by the lock and the
+idempotency key, 3-D-Secure recorded only at `/one-time/confirm` and only once,
+cross-account and subscription-invoice intents refused, declines retryable under
+a rotated attempt id, and 062's ceiling dropping an event without rolling back
+the charge.
+
 ### 48. Round forty-five: a fix in a shared component, and a race I did not close
 
 Round forty-four's `Sheet` fix cleared the close latch unconditionally. That is

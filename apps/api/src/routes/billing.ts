@@ -22,10 +22,16 @@
  *   • an ATTEMPT ID, an opaque client string constrained to
  *     `[A-Za-z0-9_-]{8,64}` and required, because it goes into a Stripe
  *     idempotency key — which is what makes a retried gift one charge;
- *   • a prompt KIND, a free-text CONTEXT truncated to 40 characters, and a
- *     DISMISSED boolean on `/prompt-ack`. None of them touches money; they
- *     decide which experiment row is written, and SECURITY.md's "an account can
- *     write a plausible event about itself" covers what that permits.
+ *   • a prompt KIND, validated against `onboarding|checkin|payment_issue` and
+ *     400'd otherwise, and a DISMISSED boolean on `/prompt-ack`;
+ *   • a CONTEXT on the routes that record an outcome, checked against the four
+ *     surfaces the analysis knows and replaced with `settings` otherwise. The
+ *     two prompt endpoints do not read it: an exposure is filed under its
+ *     validated KIND. The `forced-` prefix is the server's to write, honoured
+ *     from a client only in Stripe test mode. ⚠️ Free text here was not
+ *     harmless — see `analyticsContext` and `promptContext` below. None of them
+ *     touches money, and SECURITY.md's "an account can write a plausible event
+ *     about itself" still covers what the RPC grant permits directly.
  *
  * It never sends a customer id, a subscription id, a price, a payment-method id
  * or a status: every one of those is resolved server-side from the
@@ -338,6 +344,65 @@ async function resync(req: Request, userId: string, row: BillingRow): Promise<Bi
   return applyStripe(userId, patch);
 }
 
+
+/**
+ * The only contexts an experiment event may carry, and what to do with the rest.
+ *
+ * ⚠️ AN ALLOW-LIST WHOSE REJECTS FALL BACK TO A CONTEXT THE ANALYSIS KEEPS.
+ * Every CTE in `store.ts`'s query filters `context IN ('onboarding','checkin')`,
+ * so an unrecognised string is not untidy — it is self-exclusion. Round
+ * forty-five validated `/prompt-shown` alone and mapped its rejects to the
+ * literal `'unknown'`, which the analysis discards exactly as it discarded
+ * `'zzz'`: the 25% fabricated separation that fix was written for survived it
+ * intact, measured again over the same twenty accounts. The fallback is now the
+ * surface the SERVER knows the request came from, so a mislabelled exposure
+ * lands in the denominator instead of vanishing out of it.
+ *
+ * ⚠️ AND EVERY CALL SITE, not only the exposure. Round forty-five hardened the
+ * denominator and left the numerator wide open: a gift or an amount change from
+ * the profile card could post `context: 'onboarding'` and be counted as a
+ * conversion with no exposure behind it, repeatable on every edit. The same
+ * defect with the opposite sign.
+ *
+ * `forced-` is the server's own label for test traffic — the analysis excludes
+ * it — so a client may not write one in live mode.
+ *
+ * NOT a security boundary, and nothing here could be: `billing_record_ab_event`
+ * is `GRANT EXECUTE … TO authenticated`, so an account holding its own JWT can
+ * post events straight to PostgREST, which 062 bounds at 200/day rather than
+ * prevents. This governs what the API itself writes, which is the whole of what
+ * an ordinary client can cause.
+ */
+const CONTEXTS = new Set(['onboarding', 'checkin', 'payment_issue', 'settings']);
+
+export function analyticsContext(req: Pick<Request, 'body'>, fallback: string): string {
+  const raw = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : '';
+  const forced = raw.startsWith('forced-');
+  const bare = forced ? raw.slice(7) : raw;
+  if (!CONTEXTS.has(bare)) return fallback;
+  return forced && stripeMode() === 'test' ? `forced-${bare}` : bare;
+}
+
+/**
+ * The context of an event ABOUT A PROMPT — derived, never taken.
+ *
+ * A prompt's surface is its `kind`, which is validated on both endpoints that
+ * use this, so there is nothing for the client to contribute and no reason to
+ * read its `context` at all. An allow-list is not enough here: `'settings'` is
+ * a legitimate context for an ANSWER and never for an exposure, so admitting it
+ * on `/prompt-shown` still let two accounts drop themselves out of the
+ * denominator — executed, and it reproduced the same 25% fabricated separation
+ * as `'zzz'` did, 250.0 against 200.0 on a cohort that was level.
+ *
+ * The one thing the client may say is that this is the test-mode override
+ * talking, and even that is honoured only when the SERVER agrees it is in test
+ * mode: `forced-` is the prefix the analysis excludes.
+ */
+export function promptContext(req: Pick<Request, 'body'>, kind: string): string {
+  const raw = typeof req.body?.context === 'string' ? req.body.context : '';
+  return raw.startsWith('forced-') && stripeMode() === 'test' ? `forced-${kind}` : kind;
+}
+
 // ── Reads ────────────────────────────────────────────────────────────────────
 
 billingRouter.get(
@@ -389,9 +454,11 @@ billingRouter.post(
     //
     // `context` carries the `forced-` label when the testing override is in
     // play; without it, test-driven dismissals were recorded as real ones,
-    // which the forced-labelling was specifically meant to prevent.
+    // which the forced-labelling was specifically meant to prevent. ⚠️ The
+    // label is the ONLY thing the body contributes, and only in test mode: the
+    // surface is `kind`. See `promptContext`.
     const dismissed = req.body?.dismissed !== false;
-    const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : kind;
+    const context = promptContext(req, kind);
     if (dismissed) await recordAbEvent(userId, 'dismissed', context);
     const acked = await ackPrompt(userId, kind === 'onboarding');
     // Durably, before responding — see `PUT /subscription`. `dismissed` is
@@ -465,18 +532,14 @@ billingRouter.post(
     // forty-five over twenty accounts behaving identically: two non-payers in
     // one arm posting `context: 'zzz'` produced a 25% fabricated separation on
     // the number that decides whether the $1 rung ships.
-    const CONTEXTS = new Set(['onboarding', 'checkin', 'payment_issue', 'settings']);
-    const raw = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : '';
-    // `forced-` is ours to write, never theirs: the server decides test mode.
-    const bare = raw.startsWith('forced-') ? raw.slice(7) : raw;
-    const context =
-      raw.startsWith('forced-') && stripeMode() === 'test'
-        ? CONTEXTS.has(bare)
-          ? raw
-          : 'unknown'
-        : CONTEXTS.has(bare)
-          ? bare
-          : 'unknown';
+    // ⚠️ AND THE CONTEXT IS DERIVED FROM `kind`, NOT VALIDATED FROM THE BODY.
+    // Round forty-five mapped an unrecognised context to the literal
+    // `'unknown'`, which all three CTEs discard exactly as they discarded the
+    // string it replaced — the fabricated separation survived its own fix. An
+    // allow-list alone would not have closed it either: `'settings'` is a real
+    // context for an answer and never for an exposure, and posting it here
+    // reproduced the same 25% separation. See `promptContext`.
+    const context = promptContext(req, kind);
     await recordAbEvent(userId, 'shown', context);
     // ⚠️ AND THE CLOCK STARTS HERE, not on the ack. See the header.
     //
@@ -547,7 +610,7 @@ billingRouter.put(
       // nothing to cancel, nothing to reprice and nothing to read back, so the
       // whole Stripe leg is skipped and the answer is still recorded.
       if (amountCents === 0 && !row.stripe_customer_id && !setupIntentId) {
-        const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+        const context = analyticsContext(req, 'settings');
         if (!context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, 0);
         const acked0 = await ackPrompt(userId, row.onboarded_at === null);
         // ⚠️ EVERY PATH THAT RECORDS AN OUTCOME, not only the ones that charge.
@@ -586,7 +649,7 @@ billingRouter.put(
       // the only reason it reached this endpoint was to re-send the existing
       // one. It now has its own endpoint, so this is belt and braces — a
       // dunning fix must never read as a fresh conversion.
-      const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+      const context = analyticsContext(req, 'settings');
       if (settled && !context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, amountCents);
       // Asking is now settled however this went: they answered the question.
       const acked = await ackPrompt(userId, fresh.onboarded_at === null);
@@ -740,7 +803,7 @@ billingRouter.post(
       // there from the intent's real status — NOT by re-posting this request,
       // which an idempotency key would answer with the original
       // `requires_action` response rather than the settled one.
-      const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+      const context = analyticsContext(req, 'settings');
       // Keyed to the intent, so this and `/one-time/confirm` cannot both count
       // the same gift, and so a retried request cannot count it twice (061).
       if (paid) {
@@ -808,7 +871,7 @@ billingRouter.post(
       if (!isGift) throw badRequest('that payment is not a one-time contribution');
       const paid = intent.status === 'succeeded';
       if (paid) {
-        const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
+        const context = analyticsContext(req, 'settings');
         // Keyed to the intent (061), so replaying this endpoint — deliberately
         // or as a browser retry — records the gift exactly once.
         await recordAbEvent(userId, 'chose_one_time', context, intent.amount, `once:${intent.id}`);
@@ -866,7 +929,10 @@ billingRouter.post(
       // from Stripe; what it is actually billing is the only honest number, and
       // it needs no validation because Stripe would not have accepted an
       // invalid one.
-      const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : null;
+      // `''` when the client names nothing the analysis reads, and the guard
+      // below then records nothing — the same outcome as before, reached without
+      // writing a context the query would discard anyway.
+      const context = analyticsContext(req, '');
       if (
         context &&
         fresh.support_cents > 0 &&

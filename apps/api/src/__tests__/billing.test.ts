@@ -25,7 +25,7 @@ import {
 } from '../billing/store.js';
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
 import { ApiError, errorMiddleware } from '../http.js';
-import { stripeFailure } from '../routes/billing.js';
+import { analyticsContext, promptContext, stripeFailure } from '../routes/billing.js';
 import { pullState, sweepDuplicatePayingSubscriptions } from '../billing/service.js';
 import { PaymentInFlightError, SubscriptionPausedError } from '../billing/service.js';
 
@@ -774,5 +774,103 @@ describe('the billing state never invents an answer it does not have', () => {
     // would have cleared immediately.
     await assert.rejects(() => sweepDuplicatePayingSubscriptions(stripe, 'cus_1'), /rate limit/);
     assert.deepEqual(cancelled, [], 'not knowing is not the same as knowing there is nothing');
+  });
+});
+
+// ── The context an event is filed under ───────────────────────────────
+
+describe('analyticsContext — a reject must not fall out of the denominator', () => {
+  const ctx = (body: unknown, fallback: string) => analyticsContext({ body } as never, fallback);
+  const withKey = (key: string, fn: () => void) => {
+    const prev = process.env.STRIPE_SECRET_KEY;
+    process.env.STRIPE_SECRET_KEY = key;
+    try {
+      fn();
+    } finally {
+      if (prev === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = prev;
+    }
+  };
+
+  test('an unrecognised context becomes the fallback, NOT a string the analysis discards', () => {
+    // The round-forty-five defect: `'zzz'` and `'unknown'` are equally invisible
+    // to `context IN ('onboarding','checkin')`, so mapping one to the other
+    // changed nothing and left the fabricated separation in place.
+    assert.equal(ctx({ context: 'zzz' }, 'checkin'), 'checkin');
+    assert.equal(ctx({ context: 'unknown' }, 'checkin'), 'checkin');
+    assert.notEqual(ctx({ context: 'zzz' }, 'checkin'), 'unknown');
+  });
+
+  test('a missing or non-string context becomes the fallback', () => {
+    assert.equal(ctx({}, 'onboarding'), 'onboarding');
+    assert.equal(ctx({ context: 42 }, 'onboarding'), 'onboarding');
+    assert.equal(ctx(undefined, 'settings'), 'settings');
+  });
+
+  test('the four real surfaces pass through unchanged', () => {
+    for (const c of ['onboarding', 'checkin', 'payment_issue', 'settings']) {
+      assert.equal(ctx({ context: c }, 'settings'), c);
+    }
+  });
+
+  test('a client cannot label live traffic as test data', () => {
+    // `forced-` is what the analysis excludes. Honouring a client-written one in
+    // live mode lets an account delete its own exposures from the denominator.
+    withKey('sk_live_x', () => {
+      assert.equal(ctx({ context: 'forced-checkin' }, 'checkin'), 'checkin');
+    });
+    withKey('', () => {
+      assert.equal(ctx({ context: 'forced-checkin' }, 'checkin'), 'checkin');
+    });
+  });
+
+  test('but the test-mode override still labels itself', () => {
+    withKey('sk_test_x', () => {
+      assert.equal(ctx({ context: 'forced-checkin' }, 'checkin'), 'forced-checkin');
+      // A forced label over a context that is not real is still a reject.
+      assert.equal(ctx({ context: 'forced-zzz' }, 'checkin'), 'checkin');
+    });
+  });
+
+  test('an empty fallback means "record nothing" — /refresh keeps that', () => {
+    assert.equal(ctx({ context: 'zzz' }, ''), '');
+    assert.equal(ctx({}, ''), '');
+  });
+});
+
+describe('promptContext — an exposure is filed under the surface it happened on', () => {
+  const ctx = (body: unknown, kind: string) => promptContext({ body } as never, kind);
+  const withKey = (key: string, fn: () => void) => {
+    const prev = process.env.STRIPE_SECRET_KEY;
+    process.env.STRIPE_SECRET_KEY = key;
+    try {
+      fn();
+    } finally {
+      if (prev === undefined) delete process.env.STRIPE_SECRET_KEY;
+      else process.env.STRIPE_SECRET_KEY = prev;
+    }
+  };
+
+  test('the client cannot name it — `kind` decides, always', () => {
+    // Executed over R45's own twenty-account cohort: two non-payers posting
+    // `settings` here — a value an allow-list ADMITS — dropped themselves out of
+    // the denominator and read as a 25% separation on a level cohort, exactly as
+    // 'zzz' had. Nothing about a prompt's surface comes from the body.
+    assert.equal(ctx({ context: 'settings' }, 'checkin'), 'checkin');
+    assert.equal(ctx({ context: 'zzz' }, 'checkin'), 'checkin');
+    assert.equal(ctx({ context: 'onboarding' }, 'checkin'), 'checkin');
+    assert.equal(ctx({}, 'onboarding'), 'onboarding');
+  });
+
+  test('and cannot label live traffic as test data', () => {
+    withKey('sk_live_x', () => assert.equal(ctx({ context: 'forced-checkin' }, 'checkin'), 'checkin'));
+  });
+
+  test('but the test-mode override the SERVER decides still labels itself, on `kind`', () => {
+    withKey('sk_test_x', () => {
+      assert.equal(ctx({ context: 'forced-checkin' }, 'checkin'), 'forced-checkin');
+      // Even a forced label pointing somewhere else lands on the real surface.
+      assert.equal(ctx({ context: 'forced-settings' }, 'onboarding'), 'forced-onboarding');
+    });
   });
 });

@@ -187,6 +187,15 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  *
  * The ARM is not passed — `billing_record_ab_event` reads it from the caller's
  * own row, so a client cannot label its event with an arm it was not in.
+ *
+ * An account with NO arm (`ab_presets IS NULL`, i.e. one that has never reached
+ * `POST /visit`, which is where the coin is tossed) has its events DROPPED, in
+ * both branches. That is deliberate, not a gap: the arm decides which ladder a
+ * person was SHOWN, so assigning one at outcome time would stamp an answer with
+ * an arm that could not have influenced it — fabricated data, where a dropped
+ * row is merely a missing one. It is reachable only when the prompt's boot
+ * `billingVisit()` failed and the reader then used the profile card, whose
+ * contexts the analysis discards anyway.
  */
 export async function recordAbEvent(
   userId: string,

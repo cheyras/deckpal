@@ -446,10 +446,23 @@ change all three:
 - an `attemptId`, an opaque `[A-Za-z0-9_-]{8,64}` string, REQUIRED, because it
   goes into a Stripe idempotency key — which is what makes a retried gift one
   charge;
-- a prompt `kind`, a free-text `context` truncated to 40 characters, and a
-  `dismissed` boolean on `/prompt-ack`. None of these touches money; they decide
-  which experiment row is written, and SECURITY.md's "an account can write a
-  plausible event about itself" covers what that permits.
+- a prompt `kind`, validated against `onboarding|checkin|payment_issue` and
+  400'd otherwise, and a `dismissed` boolean on `/prompt-ack`;
+- a `context` on the routes that record an outcome, checked against the four
+  surfaces the analysis knows (`onboarding|checkin|payment_issue|settings`) and
+  replaced with `settings` otherwise. On `/prompt-shown` and `/prompt-ack` it is
+  not read at all: an exposure is filed under its validated `kind`. The
+  `forced-` prefix that marks test traffic is the SERVER's to write — a client
+  sending one is honoured only when the deployment is in Stripe test mode.
+  ⚠️ Free text here was not harmless: every CTE of the experiment's analysis
+  filters `context IN ('onboarding','checkin')`, so an unrecognised string
+  removed that account from the denominator and a client-written `forced-`
+  removed its answer from the numerator. Executed over twenty identical
+  accounts, either one moved a level cohort by 25%.
+
+  None of this touches money, and none of it is a boundary: SECURITY.md's "an
+  account can write a plausible event about itself" still covers what the RPC
+  grant permits directly.
 
 It never sends a customer id, a subscription id, a price, a payment-method id or
 a status: every one of those is resolved server-side from the authenticated

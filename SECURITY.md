@@ -480,13 +480,26 @@ resolved server-side and never accepted from a request. `/refresh` accepts an
 `amountCents` and deliberately ignores it: the recorded figure is what Stripe
 says the subscription bills.
 
-It also sends three analytics values: the prompt `kind`, a free-text `context`
-(truncated to 40 characters), and a `dismissed` boolean on `/prompt-ack` that
-decides which of the two exposure outcomes is written. None of them touches
-money, and all three are inside the accepted limit below — an account can
-write a plausible event about itself. The experiment ARM is the one field that
-would make the measurement forgeable, and it is deliberately not among them:
-`billing_record_ab_event` reads it from the caller's own row.
+It also sends three analytics values: the prompt `kind`, validated against
+`onboarding|checkin|payment_issue`; a `context`, checked against the four
+surfaces the analysis knows and replaced with `settings` otherwise — and not
+read at all on the two prompt endpoints, where the exposure is filed under its
+validated `kind`; and a `dismissed` boolean on `/prompt-ack` that decides which
+of the two exposure outcomes is written. The `forced-` prefix marking test
+traffic is the server's to write: a client sending one is honoured only in
+Stripe test mode.
+
+⚠️ The `context` was free text until round forty-six, and that was not the
+harmless field it looks like. Every CTE of the analysis filters `context IN
+('onboarding','checkin')`, so an unrecognised string removed the account from
+the denominator and a client-written `forced-` removed its answer from the
+numerator — either one moved a level twenty-account cohort by 25% when
+executed. None of them touches money, and all three remain inside the accepted
+limit below: an account can still write a plausible event about itself through
+the RPC directly, which is why the validation is hygiene rather than a
+boundary. The experiment ARM is the one field that would make the measurement
+forgeable, and it is deliberately not among them: `billing_record_ab_event`
+reads it from the caller's own row.
 
 `routes/billing.ts`'s module header and API.md carry the same inventory; if you
 change one, change all three.
