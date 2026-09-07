@@ -232,7 +232,16 @@ async function ourSubscriptions(
 }
 
 async function managedSubscription(stripe: Stripe, customerId: string): Promise<Stripe.Subscription | null> {
-  const { ours } = await ourSubscriptions(stripe, customerId);
+  const { ours, hitLimit } = await ourSubscriptions(stripe, customerId);
+  // ⚠️ REFUSE RATHER THAN GUESS. A truncated list can hide the live
+  // subscription behind newer dead ones, and the consequence is not a missing
+  // row — it is a CONFIDENT WRONG one: `pullState` would write
+  // `canceled`/$0 while Stripe went on billing, the profile would show $0, the
+  // reader would be re-asked, and their next answer would take the CREATE path
+  // and build a second live subscription. Paging moved that from 20 records to
+  // 500; throwing removes it. A route answers 502 (check your profile), and the
+  // webhook 500s so Stripe retries — both honest, neither a wrong row.
+  if (hitLimit) throw new Error('too many subscriptions to identify the support subscription');
   // Prefer a live one; fall back to the most recent so a just-cancelled
   // subscription still reports its end date rather than vanishing from the UI.
   const live = ours.find((s) => LIVE_STATUSES.has(s.status));
@@ -631,6 +640,10 @@ export async function setSupport(
   customerId: string,
   amountCents: number,
 ): Promise<SetSupportResult> {
+  // The floor for anything this request is allowed to undo. Read BEFORE the
+  // first Stripe call, so a subscription that existed when we started is
+  // provably not one we made. See `cancelStraySubscriptions`' `since`.
+  const startedAt = Math.floor(Date.now() / 1000);
   const existing = await managedSubscription(stripe, customerId);
   const modifiable = existing && MODIFIABLE_STATUSES.has(existing.status) ? existing : null;
 
@@ -736,7 +749,7 @@ export async function setSupport(
   // Cancelling the strays after the fact is idempotent and self-healing: it
   // runs on every create, so a race that slipped through is cleaned up by
   // whichever request finishes last rather than living on as a second charge.
-  await cancelStraySubscriptions(stripe, customerId, created.id);
+  await cancelStraySubscriptions(stripe, customerId, created.id, startedAt);
 
   return settle(stripe, created);
 }
@@ -788,14 +801,14 @@ export async function setSupport(
  *    state of every supporter in the product; only a second one is evidence of
  *    a duplicate. This is what keeps a renewal from being an event that can
  *    cancel anything.
- *  • The OLDEST paying one is the keeper, with NO preference parameter. The
- *    first version took one from `row.subscription_id` — `pullState`'s DISPLAY
- *    choice, which is the NEWEST live subscription — so it kept the newest
- *    whenever the newest was paying and shipped doing the thing this bullet
- *    said was wrong. See the body for what that cost when executed. There is no
- *    reader intent to respect between two subscriptions that are both charging;
- *    age is the only fact that separates the one with history from the
- *    accident.
+ *  • The keeper is the one with the most PAID INVOICES, and on a tie the
+ *    NEWEST. Not a preference parameter (round thirty-eight's was the display
+ *    choice in disguise) and not age in either direction (round thirty-eight
+ *    kept the newest and refunded six and twelve months of real support; round
+ *    thirty-nine kept the oldest and cancelled the reader's own subscription
+ *    while keeping the one the app has no UI for). The body has the derivation;
+ *    the short version is that age is not the question, and money already
+ *    collected is the evidence for which subscription is real.
  *  • A truncated snapshot is not acted on at all. `ourSubscriptions` pages and
  *    reports `hitLimit`; the previous `limit: 20` over a newest-first list of
  *    ALL statuses could hide a live subscription behind twenty dead ones.
@@ -835,8 +848,37 @@ export async function sweepDuplicatePayingSubscriptions(
     // date the reader recognises. Refunding it is the expensive mistake, and
     // refunding the younger one is the cheap one. So: oldest, always, with no
     // parameter for a caller to get wrong.
-    const keeper = paying.reduce((a, b) => (a.created <= b.created ? a : b));
-    console.warn('[deckpal-api] billing: two paying support subscriptions on one customer; refunding the newer');
+    // ⚠️ COLLECTED HISTORY DECIDES, NOT AGE. Third rule in three rounds, so the
+    // derivation matters more than the rule:
+    //
+    // `managedSubscription` is `ours.find(LIVE)` over a NEWEST-FIRST list, so
+    // the app always addresses the NEWEST live subscription — the profile
+    // card, `billing_account.subscription_id`, `setSupport`'s `modifiable`, and
+    // the `cancel_at_period_end` that "stop my support" sets. It follows that
+    // whenever two are both paying, the one the app CANNOT see is always the
+    // OLDER one; if the stray were newer, the profile would be showing it.
+    //
+    // So round thirty-eight kept the newest (`preferId` was the display choice
+    // in disguise) and refunded six and twelve months of real support; round
+    // thirty-nine kept the oldest and did the mirror — executed: a reader
+    // pressed "stop my support", had four months of their own $5 refunded, and
+    // was left on an ACTIVE $25 subscription with no cancellation pending, on
+    // the one the app has no UI for.
+    //
+    // Neither age answers it, because age is not the question. The question is
+    // which one is real, and the evidence for that is money already collected.
+    // Most PAID invoices wins; on a tie the NEWEST wins, because that is the
+    // one every other part of the system addresses, so keeping it leaves the
+    // profile, the amount and the stop button all pointing at what survived.
+    const withHistory = await Promise.all(
+      paying.map(async (s) => ({ sub: s, paid: (await paidInvoices(stripe, s.id).catch(() => [])).length })),
+    );
+    const keeper = withHistory.reduce((a, b) =>
+      b.paid > a.paid || (b.paid === a.paid && b.sub.created > a.sub.created) ? b : a,
+    ).sub;
+    console.warn(
+      '[deckpal-api] billing: two paying support subscriptions on one customer; keeping the one with the most collected months',
+    );
     for (const s of paying) {
       if (s.id === keeper.id) continue;
       const refunded = await refundStraySubscription(stripe, s);
@@ -857,7 +899,25 @@ export async function sweepDuplicatePayingSubscriptions(
 // the webhook now calls `sweepDuplicatePayingSubscriptions` instead, because
 // "everything else that is live" is only a safe definition of a stray for the
 // caller that just created the keeper. Kept private so nothing else adopts it.
-async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keepId: string): Promise<void> {
+async function cancelStraySubscriptions(
+  stripe: Stripe,
+  customerId: string,
+  keepId: string,
+  /**
+   * Unix seconds: this request's own start.
+   *
+   * ⚠️ NOTHING OLDER THAN THIS IS MINE TO UNDO. The only subscription this
+   * sweep can legitimately call a stray is one a RACING request just made, so
+   * a candidate carrying paid history from before the race is not a stray —
+   * it is somebody's actual support, and cancelling it is the "months of
+   * legitimate support given back for changing an amount" that `paused`'s
+   * exclusion below was written to prevent. Executed in round forty on the
+   * statuses nobody excluded: twelve paid months at $5, an abandoned
+   * `incomplete` $25 attempt, a nudge from $5 to $3 — $60 refunded and the
+   * year-old subscription cancelled.
+   */
+  since: number,
+): Promise<void> {
   try {
     const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
     const strays = list.data.filter(
@@ -924,7 +984,21 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
       // Refund first, cancel second. A refund we cannot make is logged loudly
       // rather than swallowed: money kept by mistake is the one failure here
       // nobody would otherwise notice.
-      const refunded = await refundStraySubscription(stripe, s);
+      //
+      // ⚠️ OLD MONEY MEANS THIS IS NOT A STRAY. Leave it entirely — do not
+      // refund it, do not cancel it — and say so loudly with the id, because
+      // an account with two live subscriptions IS wrong and somebody has to
+      // look. The webhook's sweep handles the genuine duplicate case, where
+      // both are collecting, without needing to guess.
+      const history = await paidInvoices(stripe, s.id).catch(() => []);
+      if (history.some((i) => i.created < since)) {
+        console.error(
+          '[deckpal-api] billing: NOT sweeping subscription %s — it has paid invoices older than this request. Two live subscriptions on one account; look at it by hand.',
+          s.id,
+        );
+        continue;
+      }
+      const refunded = await refundStraySubscription(stripe, s, since);
       // Cancelled either way: an unrefunded duplicate that keeps RENEWING is
       // worse than one that owes a refund. But a failure here is the one thing
       // in this file nobody would otherwise notice, and cancelling removes the
@@ -960,7 +1034,35 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
  * Returns false if any month could not be given back, so the caller can say so
  * loudly rather than cancel over the top of it.
  */
-async function refundStraySubscription(stripe: Stripe, sub: Stripe.Subscription): Promise<boolean> {
+/** The paid invoices of a subscription, newest first. */
+async function paidInvoices(stripe: Stripe, subId: string): Promise<Stripe.Invoice[]> {
+  const list = await stripe.invoices.list({ subscription: subId, status: 'paid', limit: 100 });
+  return list.data.filter((i) => !!i.amount_paid);
+}
+
+/**
+ * Give back what a duplicate collected — and NOT what it collected before
+ * this request existed.
+ *
+ * `since` is a floor: only invoices created at or after it are refunded, and a
+ * caller that passes one is saying "I am only entitled to undo what happened on
+ * my watch". The create-path sweep passes the moment its request began, because
+ * the only subscription it can legitimately call a stray is one a RACING
+ * request just made. Without that floor it refunded every invoice ever paid:
+ * executed in round forty — a reader with twelve paid months at $5 plus an
+ * abandoned `incomplete` attempt nudged their amount from $5 to $3 and had $60
+ * given back and a year-old subscription cancelled, for changing an amount.
+ * That is the harm `paused`'s exclusion was written to prevent, on the statuses
+ * nobody excluded.
+ *
+ * The webhook sweep passes no floor: it acts only when two subscriptions are
+ * both collecting, which is unambiguously a duplicate however old it is.
+ */
+async function refundStraySubscription(
+  stripe: Stripe,
+  sub: Stripe.Subscription,
+  since = 0,
+): Promise<boolean> {
   let complete = true;
   try {
     // ⚠️ EVERY PAID INVOICE, NOT JUST THE LATEST. This read `latest_invoice`
@@ -970,9 +1072,9 @@ async function refundStraySubscription(stripe: Stripe, sub: Stripe.Subscription)
     // stray that survived because THIS cleanup failed, and has been quietly
     // billing for three months. Refunding one of those three is arguably worse
     // than refunding none, because it looks settled.
-    const invoices = await stripe.invoices.list({ subscription: sub.id, status: 'paid', limit: 100 });
-    for (const invoice of invoices.data) {
-      if (!invoice.amount_paid) continue;
+    const invoices = await paidInvoices(stripe, sub.id);
+    for (const invoice of invoices) {
+      if (invoice.created < since) continue;
       const full = await stripe.invoices.retrieve(invoice.id!, { expand: ['payments'] });
       const payment = full.payments?.data?.[0]?.payment;
       const intentId =

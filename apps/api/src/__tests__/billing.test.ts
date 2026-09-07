@@ -534,34 +534,49 @@ describe('a cancelling supporter is asked once, not nagged', () => {
 
 /**
  * The one function in this feature that cancels subscriptions and issues
- * refunds — and it had no test at all.
+ * refunds — and until round thirty-nine it had no test at all.
  *
- * ── WHY THAT MATTERED ───────────────────────────────────────────────────────
+ * ── WHY THAT MATTERED, AND WHAT THESE PIN ───────────────────────────────────
  *
  * `sweepDuplicatePayingSubscriptions` is driven by a PUBLIC, unauthenticated
  * endpoint (Stripe's `invoice.paid`), runs outside the request transaction and
  * therefore outside the advisory lock every money route takes, and is the only
- * code path that can take money back. It shipped twice with the keeper chosen
- * wrongly — round thirty-seven kept `pullState`'s display choice, round
- * thirty-eight kept it again through a `preferId` argument that matched the
- * newest subscription whenever the newest was paying, while its own header said
- * "oldest". Both were caught by a reviewer executing it, not by this suite.
+ * code path that can take money back. It shipped THREE different keeper rules
+ * in three rounds, each caught by a reviewer executing it rather than by this
+ * suite: round 37 kept `pullState`'s choice; round 38 kept it again through a
+ * `preferId` argument; round 39 kept the OLDEST — and that one cancelled the
+ * reader's own subscription while keeping the one the app has no UI for.
  *
- * Stripe is a parameter, so nothing here needs a network or a database: a stub
- * that records what it was asked to cancel and refund is enough to pin the
- * decision, which is the part that has been wrong three times.
+ * The derivation that settles it: `managedSubscription` returns the NEWEST live
+ * subscription, so the app addresses that one everywhere — profile card, row,
+ * `modifiable`, the stop button. Whenever two are paying, the invisible one is
+ * therefore always the older. Neither age answers "which is real"; money
+ * already collected does. Most PAID invoices wins, newest on a tie.
+ *
+ * ⚠️ These pin the DECISION, which is the part that has been wrong three times.
+ * They do not pin paging or `hitLimit` — the stub answers one page — and the
+ * first version asserted on `created` alone, which is how the rule they pinned
+ * could be wrong while they passed.
  */
-describe('the duplicate sweep cancels the newer subscription, never the older', () => {
+describe('the duplicate sweep keeps the subscription with collected history', () => {
   const OURS = { deckpal_support: 'true' } as const;
 
-  /** A Stripe stub that records the destructive calls. */
-  function stripeWith(subs: { id: string; created: number; status: string; ours?: boolean }[]) {
+  /** A Stripe stub that records the destructive calls. `paid` is real history. */
+  function stripeWith(subs: { id: string; created: number; status: string; paid?: number; ours?: boolean }[]) {
     const cancelled: string[] = [];
     const refunded: string[] = [];
+    const invoicesFor = (id: string) => {
+      const s = subs.find((x) => x.id === id)!;
+      return Array.from({ length: s.paid ?? 1 }, (_, n) => ({
+        id: `in_${id}_${n}`,
+        created: s.created + n,
+        status: 'paid',
+        amount_paid: 500,
+      }));
+    };
     const stripe = {
       subscriptions: {
-        // Newest first, as Stripe returns them — the ordering that made
-        // `limit: 20` hide a live subscription behind dead ones.
+        // Newest first, as Stripe returns them.
         list: async () => ({
           data: [...subs]
             .sort((a, b) => b.created - a.created)
@@ -569,7 +584,7 @@ describe('the duplicate sweep cancels the newer subscription, never the older', 
               id: s.id,
               created: s.created,
               status: s.status,
-              latest_invoice: `in_${s.id}`,
+              latest_invoice: `in_${s.id}_0`,
               metadata: s.ours === false ? {} : OURS,
             })),
           has_more: false,
@@ -580,9 +595,7 @@ describe('the duplicate sweep cancels the newer subscription, never the older', 
         },
       },
       invoices: {
-        list: async ({ subscription }: { subscription: string }) => ({
-          data: [{ id: `in_${subscription}`, amount_paid: 500, status: 'paid' }],
-        }),
+        list: async ({ subscription }: { subscription: string }) => ({ data: invoicesFor(subscription) }),
         retrieve: async (id: string) => ({
           id,
           status: 'paid',
@@ -601,30 +614,48 @@ describe('the duplicate sweep cancels the newer subscription, never the older', 
     return s;
   };
 
-  test('the six-month supporter survives; the day-old duplicate does not', async () => {
-    // The executed failure: both keepers wrong, both times, kept the newest.
-    const { cancelled, refunded } = await run([
-      { id: 'sub_old', created: 1_000, status: 'active' },
-      { id: 'sub_new', created: 9_000, status: 'active' },
+  test('six months of history beats a day-old duplicate, whichever is newer', async () => {
+    const older = await run([
+      { id: 'sub_history', created: 1_000, status: 'active', paid: 6 },
+      { id: 'sub_new', created: 9_000, status: 'active', paid: 1 },
     ]);
-    assert.deepEqual(cancelled, ['sub_new'], 'the older subscription must never be the one cancelled');
-    assert.deepEqual(refunded, ['pi_in_sub_new']);
+    assert.deepEqual(older.cancelled, ['sub_new'], 'six collected months must never be the side refunded');
+
+    // The mirror, which is the case round thirty-nine broke: the reader's own
+    // long-lived subscription is the NEWER record and an old stray sits behind
+    // it. Age would keep the stray; history keeps the reader's.
+    const newer = await run([
+      { id: 'sub_stray', created: 1_000, status: 'active', paid: 1 },
+      { id: 'sub_history', created: 9_000, status: 'active', paid: 6 },
+    ]);
+    assert.deepEqual(newer.cancelled, ['sub_stray']);
   });
 
-  test('...even when the newer one is the one in dunning', async () => {
-    // `past_due` is a PAYING status, so it is sweepable — but it is still the
-    // younger record, and refunding twelve months of a healthy subscription to
-    // keep a failing one is the expensive mistake.
+  test('a tie keeps the NEWEST — the one the app can actually see', async () => {
+    // `managedSubscription` returns the newest live subscription, so the
+    // profile, the amount and the stop button all address it. With no history
+    // to separate them, keeping anything else strands the reader on a
+    // subscription the UI cannot reach: the executed round-forty failure was
+    // "stop my support", four months refunded, and an ACTIVE $25 left with no
+    // cancellation pending.
     const { cancelled } = await run([
-      { id: 'sub_old', created: 1_000, status: 'active' },
-      { id: 'sub_new', created: 9_000, status: 'past_due' },
+      { id: 'sub_invisible', created: 1_000, status: 'active', paid: 4 },
+      { id: 'sub_theirs', created: 9_000, status: 'active', paid: 4 },
     ]);
-    assert.deepEqual(cancelled, ['sub_new']);
+    assert.deepEqual(cancelled, ['sub_invisible']);
+  });
+
+  test('a dunning duplicate does not outrank a year of collected months', async () => {
+    const { cancelled } = await run([
+      { id: 'sub_year', created: 1_000, status: 'active', paid: 12 },
+      { id: 'sub_dun', created: 9_000, status: 'past_due', paid: 1 },
+    ]);
+    assert.deepEqual(cancelled, ['sub_dun']);
   });
 
   test('a single paying subscription is never touched — this runs on every renewal', async () => {
     const { cancelled, refunded } = await run([
-      { id: 'sub_1', created: 1_000, status: 'active' },
+      { id: 'sub_1', created: 1_000, status: 'active', paid: 3 },
       { id: 'sub_dead', created: 9_000, status: 'canceled' },
       { id: 'sub_ghost', created: 9_500, status: 'incomplete' },
     ]);
@@ -633,28 +664,27 @@ describe('the duplicate sweep cancels the newer subscription, never the older', 
   });
 
   test('a paused subscription is not a duplicate and not a stray', async () => {
-    // Nothing in this app pauses one; the owner did, from the dashboard.
     const { cancelled } = await run([
-      { id: 'sub_paid', created: 1_000, status: 'active' },
-      { id: 'sub_paused', created: 9_000, status: 'paused' },
+      { id: 'sub_paid', created: 1_000, status: 'active', paid: 2 },
+      { id: 'sub_paused', created: 9_000, status: 'paused', paid: 9 },
     ]);
-    assert.deepEqual(cancelled, []);
+    assert.deepEqual(cancelled, [], 'nothing in this app pauses one; the owner did, from the dashboard');
   });
 
-  test('somebody else\u2019s subscription on the same customer is never touched', async () => {
+  test('a subscription that is not ours is never touched', async () => {
     const { cancelled } = await run([
-      { id: 'sub_ours', created: 1_000, status: 'active' },
-      { id: 'sub_theirs', created: 9_000, status: 'active', ours: false },
+      { id: 'sub_ours', created: 1_000, status: 'active', paid: 2 },
+      { id: 'sub_theirs', created: 9_000, status: 'active', paid: 9, ours: false },
     ]);
     assert.deepEqual(cancelled, [], 'only subscriptions carrying our metadata are ours to cancel');
   });
 
-  test('three paying subscriptions leave exactly the oldest', async () => {
+  test('three paying subscriptions leave exactly the one with the most months', async () => {
     const { cancelled } = await run([
-      { id: 'sub_a', created: 1_000, status: 'active' },
-      { id: 'sub_b', created: 5_000, status: 'trialing' },
-      { id: 'sub_c', created: 9_000, status: 'unpaid' },
+      { id: 'sub_a', created: 9_000, status: 'active', paid: 1 },
+      { id: 'sub_b', created: 5_000, status: 'trialing', paid: 7 },
+      { id: 'sub_c', created: 1_000, status: 'unpaid', paid: 2 },
     ]);
-    assert.deepEqual(cancelled.sort(), ['sub_b', 'sub_c']);
+    assert.deepEqual(cancelled.sort(), ['sub_a', 'sub_c']);
   });
 });

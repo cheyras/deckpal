@@ -16930,6 +16930,55 @@ lived under a comment asserting the opposite of what it did. The test is the
 part I keep skipping, and it is the only one of these that would have caught the
 defect without a reviewer.
 
+### 43. Round forty: age was never the question
+
+Fifth defective fix in five rounds, and the first one where the reviewer handed
+back the derivation I should have made three rounds ago.
+
+`managedSubscription` is `ours.find(LIVE)` over a NEWEST-FIRST list, so the app
+addresses the newest live subscription — the profile card,
+`billing_account.subscription_id`, `setSupport`'s `modifiable`, and the
+`cancel_at_period_end` that "stop my support" sets. It follows that whenever two
+are both paying, the one the app CANNOT see is always the OLDER one; if the
+stray were newer, the profile would be showing it. Round thirty-nine kept the
+oldest, and therefore kept the invisible one every time. Executed: a reader
+pressed "stop my support", had four months of their own $5 refunded, and was
+left on an ACTIVE $25 subscription with no cancellation pending, on the
+subscription the app has no UI for.
+
+So: round thirty-eight kept the newest and refunded six and twelve months of
+real support; round thirty-nine kept the oldest and destroyed the reader's own.
+Neither age answers it, because age is not the question. The question is which
+subscription is REAL, and the evidence is money already collected. Most paid
+invoices wins; on a tie the newest, because that is the one every other part of
+the system addresses, so what survives is what the profile, the amount and the
+stop button all point at.
+
+Second defect, in the OTHER sweep and older than any of this:
+`cancelStraySubscriptions` excludes `paused` under a comment explaining exactly
+why — "months of legitimate support given back for changing an amount" — and
+excludes nothing else, while `refundStraySubscription` refunds EVERY paid
+invoice ever. Executed: twelve paid months at $5, an abandoned `incomplete` $25
+attempt, a nudge from $5 to $3 — $60 refunded and the year-old subscription
+cancelled. The create path may only undo what happened on its own watch, so it
+now takes a floor timestamp read before its first Stripe call, refunds nothing
+older, and REFUSES to touch a candidate carrying older paid history at all,
+logging it for a person to look at.
+
+And the tests I added last round pinned a rule that was false. They asserted on
+`created`, so they would have passed under any age-based rule and told me
+nothing about whether the rule was right. Rewritten around collected history and
+checked against BOTH historical wrong rules: newest-wins fails three, oldest-wins
+fails three, the shipped rule passes.
+
+**Five rounds, five defective fixes.** The through-line is not haste. It is that
+I have been choosing between candidate rules by argument, and each argument was
+locally reasonable — "respect the reader's last choice", "the older one has
+history" — while none was derived from what the rest of the system actually
+does with the answer. The reviewer's `managedSubscription` observation is one
+line of code, and it settles the question outright. Derive the invariant from
+the code that consumes it; do not reason about which rule sounds fairer.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists
