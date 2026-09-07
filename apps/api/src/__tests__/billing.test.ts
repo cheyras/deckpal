@@ -25,6 +25,7 @@ import {
 } from '../billing/store.js';
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
 import { ApiError, errorMiddleware } from '../http.js';
+import { stripeFailure } from '../routes/billing.js';
 import { PaymentInFlightError, SubscriptionPausedError } from '../billing/service.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00.000Z');
@@ -429,20 +430,57 @@ describe('billing errors reach the reader', () => {
     assert.match(JSON.stringify(body), /Open your profile/);
   });
 
+  /**
+   * ⚠️ THROUGH `stripeFailure` ITSELF, not through a hand-built ApiError.
+   *
+   * The first version of these asserted on an `ApiError` written out in the
+   * test, so it could not fail on anything: the sentences it checked were the
+   * sentences it supplied. "A test that cannot fail on the change it guards is
+   * scenery" (DECISIONS §12), repeated one round after recording it. That is
+   * why the function is exported.
+   *
+   * ⚠️ What this pins, precisely: that each `kind` produces the sentence its
+   * reader can act on. It does NOT pin the CALL SITES — reverting
+   * `stripeFailure(err, 'one_time')` to a bare call in `routes/billing.ts`
+   * would still leave these green, because that needs a request through the
+   * route and there is no DB in this suite. The call sites are enumerated in
+   * DECISIONS §26 instead, which is weaker than a test and is said plainly
+   * rather than implied.
+   */
+  const upstream = (kind?: Parameters<typeof stripeFailure>[1]): string => {
+    try {
+      stripeFailure(new Error('upstream blew up'), kind);
+    } catch (e) {
+      return (e as ApiError).message;
+    }
+    throw new Error('stripeFailure must always throw');
+  };
+
   test('a gift is not sent to a profile that has no gift history', () => {
-    // The other half of the same 502. `stripeFailure(err, 'one_time')` must not
-    // hand a one-off contributor the subscription sentence: 057 gives the
-    // profile no gift history and a standalone PaymentIntent produces no
-    // invoice, so both surfaces it names are provably empty for them.
-    const { body } = answered(
-      new ApiError(
-        502,
-        'billing_upstream',
-        'We could not finish that just now. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.',
-      ),
-    );
-    const shown = JSON.stringify(body);
+    // 057 gives the profile no gift history and a standalone PaymentIntent
+    // produces no invoice, so both surfaces the subscription sentence names are
+    // provably empty for a one-off contributor. The receipt is the only one
+    // that can answer, which is why `chargeOnce` sets `receipt_email`.
+    const shown = upstream('one_time');
     assert.match(shown, /receipt/);
     assert.doesNotMatch(shown, /profile/);
+  });
+
+  test('a subscription IS sent to its profile, which does show its state', () => {
+    const shown = upstream('subscription');
+    assert.match(shown, /profile/);
+  });
+
+  test('a route that moves no money says so instead of asking about a charge', () => {
+    // `/setup-intent` and `/portal`. "Check whether it went through" is a
+    // question about nothing there — and `/setup-intent` is on the gift leg
+    // too, so the subscription sentence was doubly wrong on it.
+    const shown = upstream('no_charge');
+    assert.match(shown, /[Nn]othing has been charged/);
+    assert.doesNotMatch(shown, /profile/);
+  });
+
+  test('the default kind is the subscription sentence', () => {
+    assert.equal(upstream(), upstream('subscription'));
   });
 });

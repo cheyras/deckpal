@@ -785,7 +785,22 @@ export function SupportFlow({
         <div className="mt-[20px] flex flex-col-reverse gap-[8px] sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
-            onClick={() => setStep('done')}
+            // ⚠️ WHILE AN ATTEMPT IS OUTSTANDING THIS LEAVES BY THE SHEET, not
+            // by the done screen. Four branches park the reader here frozen,
+            // with the chooser and the Give button disabled, under the words
+            // "do not pay again" — so this is their only live control. It used
+            // to navigate to `done`, where `gaveOnce` is null and `committed`
+            // is 0, and the screen read "That's set — you're on $0. Nothing
+            // changes." The app telling somebody whose $25 was still settling
+            // that nothing was paid, and erasing the warning in the same
+            // transition. Round twenty-two fixed that sentence for the ONE
+            // branch where the payment was proved and left the four where it is
+            // merely unknown, which is the worse half.
+            //
+            // Closing the sheet is honest: the answer ($0) is already saved,
+            // the ack is already due, and nothing claims anything about the
+            // gift. Falls back to `done` only where there is no sheet to close.
+            onClick={() => (frozenAmount !== null && onDismiss ? onDismiss() : setStep('done'))}
             disabled={busy}
             className="text-[14px] font-semibold text-text-secondary hover:text-text-primary disabled:opacity-50"
           >

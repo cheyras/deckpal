@@ -178,7 +178,14 @@ const UNAVAILABLE = {
  * for a one-time charge" is a wiring failure that exists to be seen, and
  * reducing it to `type: unknown` hid it. See the line itself.
  */
-function stripeFailure(err: unknown, kind: 'subscription' | 'one_time' = 'subscription'): never {
+export function stripeFailure(
+  err: unknown,
+  // ⚠️ EXPORTED so a test can call it. The one written for the gift sentence
+  // asserted on a hand-built `ApiError` and could not fail if both call sites
+  // were reverted — the "test that cannot fail on the change it guards is
+  // scenery" lesson of §12, repeated one round later.
+  kind: 'subscription' | 'one_time' | 'no_charge' = 'subscription',
+): never {
   // Typed structurally rather than as `Stripe.StripeRawError`: that type
   // describes the JSON Stripe returns (`type: 'card_error'`), while the SDK
   // throws an Error subclass whose `type` is the CLASS name
@@ -235,7 +242,14 @@ function stripeFailure(err: unknown, kind: 'subscription' | 'one_time' = 'subscr
     'billing_upstream',
     kind === 'one_time'
       ? 'We could not finish that just now. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.'
-      : 'We could not finish that just now. Open your profile to check whether it went through before trying again.',
+      : kind === 'no_charge'
+        // `/setup-intent` and `/portal` move no money and never could, so
+        // "check whether it went through" is a question about nothing. Saying
+        // so is better than sending a reader to look for a charge that cannot
+        // exist — and `/setup-intent` is on the GIFT leg too, so the
+        // subscription sentence was doubly wrong there.
+        ? 'We could not finish that just now. Nothing has been charged — try again in a moment.'
+        : 'We could not finish that just now. Open your profile to check whether it went through before trying again.',
   );
 }
 
@@ -393,7 +407,7 @@ billingRouter.post(
       // without the publishable key's account — it is meant to reach a browser.
       res.json({ clientSecret: intent.client_secret, publishableKey: publishableKey(), mode: stripeMode() });
     } catch (err) {
-      stripeFailure(err);
+      stripeFailure(err, 'no_charge');
     }
   }),
 );
@@ -756,7 +770,7 @@ billingRouter.post(
           + 'It is one save in the Stripe dashboard (Settings → Billing → Customer portal).',
         );
       }
-      stripeFailure(err);
+      stripeFailure(err, 'no_charge');
     }
   }),
 );

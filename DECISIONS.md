@@ -16257,8 +16257,41 @@ It has one call site, `setSupport`'s CREATE path — and a stray only exists
 alongside a live subscription we kept, so the next amount change finds that one,
 takes the UPDATE branch, and never sweeps. The $0 branch is worse: it sets
 `cancel_at_period_end` on the modifiable subscription only, so "stop my support"
-leaves the stray billing. Nothing revisits it. §17's sentence carried the same
-error and is corrected. Understating a known gap is how it gets deprioritised.
+leaves the stray billing. Nothing revisits it. §12's sentence carried the same
+error and is corrected. (§25 first said §17 — the wrong section, in the entry
+written to correct a wrong sentence. Round twenty-three caught that too.) Understating a known gap is how it gets deprioritised.
+
+### 26. Round twenty-three: the exit that contradicted the warning above it
+
+Round twenty-two fixed the "you're on $0, nothing changes" screen for the ONE
+one-off branch where the payment was proved, and left the four where it is
+merely UNKNOWN — which is the worse half. On all four the chooser and the Give
+button are frozen and "No thanks" is the reader's only live control, and it
+navigated straight to that screen, erasing "do not pay again" in the same
+transition. A reader whose $25 was still settling was told nothing was paid, and
+then got a receipt. While an attempt is outstanding that button now closes the
+sheet instead: the $0 answer is already saved, the ack is already due, and
+nothing claims anything about the gift.
+
+`/setup-intent` and `/portal` were still saying "open your profile to check
+whether it went through". Neither can have had anything go through, and
+`/setup-intent` is on the GIFT leg too — a $0 answerer with no card reaches it
+from "Continue to card". They have their own sentence now, which is the third
+`kind`.
+
+Two about this loop's own machinery. The gift-502 test asserted on an `ApiError`
+written out in the test, so the sentences it checked were the sentences it
+supplied: it could not fail on anything, one round after §12 recorded exactly
+that lesson about round eight's test. `stripeFailure` is exported and the tests
+call it. They pin the sentences and NOT the call sites, which needs a request
+through a route and a database this suite does not have — said plainly in the
+test rather than implied, and the call sites are: `/setup-intent` no_charge,
+`PUT /subscription` subscription, `/payment-method` subscription, `/one-time`
+one_time, `/one-time/confirm` one_time, `/refresh` subscription, `/portal`
+no_charge.
+
+And §25 cited the wrong section for its own correction — §17 rather than §12
+— in the entry written to correct a wrong sentence. Eight rounds now.
 
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
