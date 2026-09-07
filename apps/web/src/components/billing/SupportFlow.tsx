@@ -809,7 +809,7 @@ export function SupportFlow({
           label="Choose a one-time amount"
         />
 
-        <AcceptedMethods className="mt-[12px]" />
+        <AcceptedMethods className="mt-[12px]" hasCard={hasCard} />
 
         {error && (
           <div className="mt-[18px]">
@@ -1023,7 +1023,7 @@ export function SupportFlow({
       {/* Directly under the grid, and only when an amount has actually been
           picked — before that it is answering a question nobody has asked yet
           and it competes with the amounts for attention. */}
-      {amount > 0 && <AcceptedMethods className="mt-[12px]" />}
+      {amount > 0 && <AcceptedMethods className="mt-[12px]" hasCard={hasCard} />}
 
       {amount > 0 && state.support.cents > 0 && amount !== state.support.cents && (
         <p className="mt-[12px] text-[13px] leading-[1.5] text-text-muted">

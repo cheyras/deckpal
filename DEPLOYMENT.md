@@ -303,10 +303,19 @@ CVC is a card that works.
    ⚠️ **Do not enable a bank-debit payment method** (`us_bank_account` / ACH,
    SEPA) in the Stripe dashboard without a code change first. The card form uses
    `automatic_payment_methods`, so anything enabled on the account and
-   chargeable off-session appears in it — and bank debits are. `defaultCard` and
-   `chargeOnce` both look for a card, so a reader who paid by ACH would see "no
-   card on file" and one-time contributions would fail, while their subscription
-   carried on renewing. Cards, wallets and Link are what this is built for.
+   chargeable off-session appears in it — and bank debits are. `defaultCard`
+   and `ensureDefaultPaymentMethod` both require a CARD and both fall back to an
+   attached card, so a reader who paid by ACH would see "no card on file" and
+   every charge would fail loudly rather than billing an instrument the profile
+   never showed. Loud is the right failure and still a dead end for them. Cards
+   and wallets are what this is built for.
+
+   ⚠️ **Check Link once in live mode before inviting anyone to pay.** The
+   Payment Element offers it deliberately and it is normally card-backed, but if
+   it presents as a non-card PaymentMethod it lands in the same dead end as a
+   bank debit. Pay once with Link on the live keys and confirm the profile shows
+   a card and a second charge works. This is the one thing in this feature that
+   could not be settled by reading the code.
 
    ⚠️ **Remove the `?prompt=` override before reading the experiment.** It is
    testing scaffolding (`SupportPrompt.tsx`) that forces the modal open on
@@ -377,9 +386,27 @@ preview has written real rows:
   live ones. The `forced-` filter does not cover them: a flow driven organically
   in test mode records exactly like a real one.
 
-Neither self-heals. Run this **after** the live keys are in place and **before**
-anyone is invited to pay. All three statements are unconditional — they clear
-everything, which is right precisely because nothing before the cutover is real:
+Neither self-heals.
+
+**The cutover, in order.** The numbered list above is written to be run in TEST
+mode first, so its "run the cleanup SQL first" note is about the LIVE run. When
+you actually cut over, this is the sequence:
+
+1. Put the live `sk_live_` / `pk_live_` keys and the live-mode product id and
+   webhook secret in place.
+2. Run the cleanup SQL below. Doing it BEFORE the migrations is what removes
+   the 059 hazard rather than mitigating it: with no stored customer id there
+   is no repoint path for the pin to refuse.
+3. Apply migrations 058—063, together and in order.
+4. Deploy this branch. Steps 3 and 4 must be adjacent — see the warning at
+   step 5 above for what the gap costs.
+5. Re-run the send-a-test-webhook gate against the live endpoint and confirm a
+   200 and a `billing_event` row. The test-mode pass does not carry over: the
+   signing secret is different.
+6. Pay once with a real card, and once with Link (see the Link note at step 5).
+
+The cleanup's statements are unconditional — they clear everything, which is
+right precisely because nothing before the cutover is real:
 
 ```sql
 -- 1. Forget every cached test-mode Stripe fact. The next visit re-syncs from

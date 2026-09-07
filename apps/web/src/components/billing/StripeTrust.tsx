@@ -125,15 +125,29 @@ export function StripeBadge({ mode = 'unknown' }: { mode?: 'test' | 'live' | 'un
  * appear genuinely depends on the device, and a fixed Apple Pay logo shown to
  * somebody on Android is a promise the page cannot keep.
  */
-export function AcceptedMethods({ className = '' }: { className?: string }) {
+export function AcceptedMethods({
+  className = '',
+  /**
+   * Is there already a card on file?
+   *
+   * ⚠️ "Nothing to enter until the next step" is TRUE ONLY WHEN THERE IS A NEXT
+   * STEP. For a returning reader with a card the button underneath says
+   * "Support $5/month" or "Give $25 once", and pressing it charges — so a
+   * sentence promising another chance to change your mind sat immediately above
+   * the control that takes the money. The reassurance is for somebody who has
+   * not typed a card yet; for everybody else it is a false claim on the worst
+   * possible surface.
+   */
+  hasCard = false,
+}: { className?: string; hasCard?: boolean }) {
   return (
     <p className={`flex items-start gap-[8px] text-[12px] leading-[1.5] text-text-muted ${className}`}>
       <span className="mt-[1px] shrink-0">
         <Icon name="credit-card" size={14} />
       </span>
       <span>
-        Card, Apple&nbsp;Pay, Google&nbsp;Pay or Link — whichever your device offers. Nothing to enter until the next
-        step.
+        Card, Apple&nbsp;Pay, Google&nbsp;Pay or Link — whichever your device offers.
+        {hasCard ? '' : ' Nothing to enter until the next step.'}
       </span>
     </p>
   )

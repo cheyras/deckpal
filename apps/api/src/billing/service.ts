@@ -311,13 +311,19 @@ export async function pullState(stripe: Stripe, customerId: string): Promise<Str
  *
  * ⚠️ THAT FILTER IS NOT "CARDS ONLY", and the rest of this file assumes cards.
  * `us_bank_account` (ACH) and SEPA direct debit ARE chargeable off-session, so
- * enabling either in the Stripe dashboard would put them in this element — and
- * `defaultCard` and `chargeOnce` both look for `type: 'card'`, so the profile
- * would show no card on file and a one-off would fail outright. Subscriptions
- * would keep working, which is the worst shape for a bug like this to have.
- * Do not enable a bank-debit method without teaching those two functions about
- * it first; DEPLOYMENT.md carries the same warning where the owner will meet
- * it.
+ * enabling either in the Stripe dashboard would put them in this element.
+ * `defaultCard` and `ensureDefaultPaymentMethod` both require `pm.card` and
+ * both fall back to an attached CARD, so a reader who paid by bank debit would
+ * see "no card on file" and every charge — the first one included — would
+ * fail with the named wiring error rather than silently billing an instrument
+ * the profile never showed. That is the right way round, and it is still not a
+ * feature: it is a dead end for that reader.
+ *
+ * Do not enable a bank-debit method without teaching both of those functions
+ * about it first. DEPLOYMENT.md carries the same warning where the owner will
+ * meet it, and adds the one case worth checking live: Link, which the element
+ * offers deliberately, is normally card-backed but could present as a
+ * non-card PaymentMethod — in which case it lands in the same dead end.
  *
  * Apple Pay additionally needs the domain registered with Stripe. That is a
  * one-off per domain and is done with the CLI, not from here.
@@ -548,12 +554,22 @@ async function ensureDefaultPaymentMethod(stripe: Stripe, customerId: string): P
   });
   if (customer.deleted) throw new Error('customer is deleted');
   const pm = customer.invoice_settings?.default_payment_method;
-  const existing = typeof pm === 'string' ? pm : pm?.id;
+  // ⚠️ A CARD DEFAULT, exactly as `defaultCard` requires one. Its test is
+  // `pm.card`, so a NON-card invoice default — a bank debit, or a Link
+  // PaymentMethod that is not card-backed — falls through there to the
+  // attached-card list. Returning it here would have made the two disagree
+  // again, inverted: the profile showing a card while Stripe charged something
+  // else, which is the same lie this helper exists to stop.
+  //
+  // The two now take the same three steps in the same order, and neither can
+  // reach an instrument the other cannot see. If an account somehow has ONLY a
+  // non-card method, both answer "no card": the profile says so and the charge
+  // fails loudly with a named wiring error, which is the right way round. See
+  // DEPLOYMENT.md on why a bank-debit method must not be enabled without
+  // teaching both of them about it first.
+  const existing = pm && typeof pm !== 'string' && pm.card ? pm.id : null;
   if (existing) return existing;
 
-  // `type: 'card'` matches `defaultCard`, and matching it is the point. See
-  // DEPLOYMENT.md on why a bank-debit method must not be enabled without
-  // teaching both of them about it.
   const attached = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
   const recovered = attached.data[0]?.id;
   if (!recovered) return null;
@@ -599,7 +615,16 @@ export async function setSupport(
   //
   // Above the $0 branch would be wasted work: stopping needs no card. Here, so
   // it covers both the create and the update path.
-  await ensureDefaultPaymentMethod(stripe, customerId);
+  //
+  // ⚠️ AND FAILS THE SAME WAY `chargeOnce` DOES. Ignoring the null and creating
+  // the subscription anyway meant `finishFirstPayment` confirmed an intent with
+  // nothing to confirm: a `StripeInvalidRequestError` — not a card error, so
+  // no reader-facing copy — a 502 on every retry, and a discarded `incomplete`
+  // subscription each time. The two callers of one helper must not disagree
+  // about what its null means.
+  if (!(await ensureDefaultPaymentMethod(stripe, customerId))) {
+    throw new Error('no payment method on file for a subscription charge');
+  }
 
   // See MODIFIABLE_STATUSES: an unpaid, finalized first invoice cannot be
   // repriced, so the abandoned attempt is thrown away and a fresh subscription

@@ -16375,6 +16375,46 @@ an existing account the check-in rather than the welcome. Verified against real
 Postgres in the order the runbook now prescribes: cleanup on the 053—057
 schema, then 058—063 on top.
 
+### 29. Round twenty-six: the shared helper that still disagreed
+
+Round twenty-five made one helper so the card the profile SHOWS is the card
+Stripe CHARGES. It unified the missing-default case and left the one branch
+above it: `defaultCard` requires `pm.card`, so a NON-card invoice default — a
+bank debit, or a Link PaymentMethod that is not card-backed — falls through to
+the attached-card list, while the new helper returned it. Same lie, inverted:
+the profile showing a card while Stripe charged something else. Both now take
+the same three steps in the same order, and if an account has only a non-card
+method both answer "no card" — the profile says so and the charge fails with a
+named wiring error, which is the right way round.
+
+The two callers also disagreed about what a null from that helper MEANS.
+`chargeOnce` threw a named wiring error; `setSupport` ignored it and created the
+subscription anyway, so `finishFirstPayment` confirmed an intent with nothing to
+confirm: a 502 on every retry and a discarded `incomplete` subscription each
+time. One helper, one meaning.
+
+Named honestly rather than fixed: **Link is the one thing in this feature that
+could not be settled by reading the code.** The Payment Element offers it
+deliberately, it is normally card-backed, and if it ever presents as a non-card
+PaymentMethod it lands in the same dead end as a bank debit. The runbook now
+says to pay once with Link on live keys before inviting anybody, and to confirm
+the profile shows a card and a second charge works.
+
+Two more. "Nothing to enter until the next step" sat above the button on the
+chooser — true for somebody who has not typed a card, and false for a
+returning reader, where that button IS the charge. A sentence promising another
+chance to change your mind, immediately above the control that takes the money.
+Gated on `hasCard` now.
+
+And the runbook's ordering did not compose: step 5's "run the cleanup SQL first"
+lives inside a block headed "do the whole of this in TEST mode first", while the
+cleanup section says "after the live keys are in place" and never said where the
+migrations go. A reader following it literally would have run a go-live wipe in
+test mode. There is an explicit six-step cutover list now: keys, cleanup,
+migrations, deploy, re-run the webhook gate against the LIVE endpoint (the
+signing secret differs, so the test-mode pass does not carry), then a real card
+and a Link payment.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists
