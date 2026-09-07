@@ -193,9 +193,46 @@ export async function ensureCustomer(
  * or cancelled by the next in-app amount change. It now means what its own
  * comment always claimed: never touch another.
  */
+/**
+ * EVERY support subscription on this customer, newest first.
+ *
+ * ⚠️ PAGED, because `limit: 20` was a silent correctness bug and not a
+ * performance choice. Stripe returns newest first over ALL statuses, and an
+ * account accumulates `canceled` and `incomplete_expired` records: twenty of
+ * those newer than the live one made the live one INVISIBLE. Executed in round
+ * thirty-nine — the row synced to `canceled`/$0 while Stripe went on billing
+ * $5 a month, the profile showed $0, the reader was re-asked, and the next
+ * answer took the CREATE path and built a second live subscription the sweep
+ * also could not see. That is the worst shape a billing bug can take, arrived
+ * at by nothing worse than a few abandoned attempts.
+ *
+ * Stripe's list API cannot filter to a SET of statuses, so the honest fix is to
+ * page. Five pages of 100 is 500 subscription records for one customer; a
+ * caller that has genuinely made 500 has a problem no page limit will fix, and
+ * `hitLimit` tells the sweep to keep its hands off a snapshot it cannot trust.
+ */
+async function ourSubscriptions(
+  stripe: Stripe,
+  customerId: string,
+): Promise<{ ours: Stripe.Subscription[]; hitLimit: boolean }> {
+  const ours: Stripe.Subscription[] = [];
+  let startingAfter: string | undefined;
+  for (let page = 0; page < 5; page += 1) {
+    const list = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    ours.push(...list.data.filter((s) => s.metadata?.[SUPPORT_METADATA_KEY] === 'true'));
+    if (!list.has_more || list.data.length === 0) return { ours, hitLimit: false };
+    startingAfter = list.data[list.data.length - 1]!.id;
+  }
+  return { ours, hitLimit: true };
+}
+
 async function managedSubscription(stripe: Stripe, customerId: string): Promise<Stripe.Subscription | null> {
-  const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
-  const ours = list.data.filter((s) => s.metadata?.[SUPPORT_METADATA_KEY] === 'true');
+  const { ours } = await ourSubscriptions(stripe, customerId);
   // Prefer a live one; fall back to the most recent so a just-cancelled
   // subscription still reports its end date rather than vanishing from the UI.
   const live = ours.find((s) => LIVE_STATUSES.has(s.status));
@@ -751,27 +788,55 @@ export async function setSupport(
  *    state of every supporter in the product; only a second one is evidence of
  *    a duplicate. This is what keeps a renewal from being an event that can
  *    cancel anything.
- *  • The row's own subscription wins if it is paying — it is the reader's
- *    last expressed choice — and otherwise the OLDEST paying one does.
- *    "Newest wins" is right for the create path, where the last write is the
- *    chosen amount, and exactly wrong here, where it would refund the
- *    long-lived subscription and keep the seconds-old one.
+ *  • The OLDEST paying one is the keeper, with NO preference parameter. The
+ *    first version took one from `row.subscription_id` — `pullState`'s DISPLAY
+ *    choice, which is the NEWEST live subscription — so it kept the newest
+ *    whenever the newest was paying and shipped doing the thing this bullet
+ *    said was wrong. See the body for what that cost when executed. There is no
+ *    reader intent to respect between two subscriptions that are both charging;
+ *    age is the only fact that separates the one with history from the
+ *    accident.
+ *  • A truncated snapshot is not acted on at all. `ourSubscriptions` pages and
+ *    reports `hitLimit`; the previous `limit: 20` over a newest-first list of
+ *    ALL statuses could hide a live subscription behind twenty dead ones.
  */
 export async function sweepDuplicatePayingSubscriptions(
   stripe: Stripe,
   customerId: string,
-  preferId: string | null,
 ): Promise<void> {
   try {
-    const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
-    const paying = list.data.filter(
-      (s) => s.metadata?.[SUPPORT_METADATA_KEY] === 'true' && PAYING_STATUSES.has(s.status),
-    );
+    const { ours, hitLimit } = await ourSubscriptions(stripe, customerId);
+    // A snapshot we know is incomplete is not one to cancel from.
+    if (hitLimit) {
+      console.error('[deckpal-api] billing: too many subscriptions to sweep safely; leaving them alone');
+      return;
+    }
+    const paying = ours.filter((s) => PAYING_STATUSES.has(s.status));
     if (paying.length < 2) return;
 
-    const oldest = paying.reduce((a, b) => (a.created <= b.created ? a : b));
-    const keeper = paying.find((s) => s.id === preferId) ?? oldest;
-    console.warn('[deckpal-api] billing: two paying support subscriptions on one customer; refunding the duplicate');
+    // ⚠️ THE OLDEST. NO PREFERENCE ARGUMENT. NOT THE ROW'S.
+    //
+    // This took a `preferId` from `row.subscription_id` and kept it when
+    // paying, which read as "respect the reader's last choice". It is not that:
+    // `row.subscription_id` is `pullState`'s DISPLAY choice, and `pullState`
+    // picks the NEWEST live subscription. So the preference matched the newest
+    // whenever the newest was paying, the `?? oldest` fallback was dead, and
+    // this function shipped doing the exact thing its own header said was
+    // "exactly wrong for a sweep". Executed in round thirty-nine: a six-month
+    // supporter with a day-old duplicate had all six months refunded and the
+    // six-month subscription cancelled; twelve months against a `past_due`
+    // duplicate the same; and a reader who had answered $0 had their own
+    // winding-down subscription cancelled and four months given back while the
+    // stray was kept.
+    //
+    // There is no reader intent to respect here. Both subscriptions are
+    // charging, one of them is an accident, and the only fact that reliably
+    // separates them is age: the older one has history, renewals and a billing
+    // date the reader recognises. Refunding it is the expensive mistake, and
+    // refunding the younger one is the cheap one. So: oldest, always, with no
+    // parameter for a caller to get wrong.
+    const keeper = paying.reduce((a, b) => (a.created <= b.created ? a : b));
+    console.warn('[deckpal-api] billing: two paying support subscriptions on one customer; refunding the newer');
     for (const s of paying) {
       if (s.id === keeper.id) continue;
       const refunded = await refundStraySubscription(stripe, s);

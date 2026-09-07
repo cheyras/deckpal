@@ -16851,6 +16851,12 @@ customer, which no correct sequence produces. The row's subscription wins if it
 is paying, else the OLDEST does — "newest wins" is right for the create path,
 where the last write is the chosen amount, and exactly wrong for a sweep.
 
+⚠️ **§42 corrects that last sentence, which described what was avoided while the
+code did it.** `row.subscription_id` IS the newest live subscription — it is
+`pullState`'s display choice — so the preference matched the newest whenever
+the newest was paying and the `?? oldest` fallback never ran. The keeper is the
+oldest, unconditionally, with no preference argument for a caller to get wrong.
+
 Second: §40 said `commitRequestTx` means "a suspended tab loses neither the row
 nor the conversion". It does not. `res.on('close')` fires at the disconnect and
 DESTROYS the connection, so the next query throws and the commit is never
@@ -16874,6 +16880,55 @@ whichever arm attracted more of them". All six commit now.
 missed copies, §39's overlapping branches, and this). The pattern is not
 carelessness about the diagnosis; it is that a fix is written against the case
 that prompted it and shipped without asking what ELSE now reaches the new code.
+
+### 42. Round thirty-nine: the same wrong keeper, twice, under a header saying otherwise
+
+Round thirty-eight replaced round thirty-seven's sweep because it cancelled the
+subscription that was paying. The replacement did it too.
+
+`preferId` came from `row.subscription_id`, and `row.subscription_id` IS
+`pullState`'s display choice: `managedSubscription` returns the NEWEST live
+subscription. So `paying.find(s => s.id === preferId)` matched the newest
+whenever the newest was paying, and the `?? oldest` fallback was dead in exactly
+the case it existed for. The header said "the OLDEST paying one does" and named
+newest-wins as the thing being avoided. Executed: a six-month supporter with a
+day-old duplicate had all six months refunded and the six-month subscription
+cancelled; twelve months against a `past_due` duplicate the same; and a reader
+who had answered $0 had their own winding-down subscription cancelled and four
+months given back while the stray was kept — that last being the very case the
+webhook sweep was added for.
+
+The keeper is the oldest now, unconditionally. **There is no preference
+parameter**, because the previous two attempts both got the preference wrong and
+a parameter is where the mistake lived. Between two subscriptions that are both
+charging there is no reader intent to respect: one is an accident, and age is
+the only fact that reliably separates the one with history and a billing date
+the reader recognises from the one made by mistake. Refunding the older is the
+expensive error; refunding the younger is the cheap one.
+
+**And the path had no test.** Fifty billing tests, none on the only function in
+the feature that cancels subscriptions and issues refunds — driven by a public
+unauthenticated endpoint, outside the request transaction, unattended. Three
+wrong keepers shipped past a green suite and were each caught by a reviewer
+executing the code. Stripe is a parameter, so a stub that records what it was
+asked to cancel and refund pins the decision without a network or a database.
+Six tests now do, and they were checked the way §26 says to check a regression
+test: flipping the keeper back to newest-wins fails three of them.
+
+Separately, `limit: 20` on a newest-first list of ALL statuses was a correctness
+bug, not a performance choice. Twenty `canceled` or `incomplete_expired` records
+newer than the live one made the live one invisible: the row synced to
+`canceled`/$0 while Stripe went on billing, the profile showed $0, the reader
+was re-asked, and the next answer took the CREATE path and built a second live
+subscription. `ourSubscriptions` pages, and reports `hitLimit` so the sweep
+refuses to act on a snapshot it knows is partial.
+
+**Four rounds, four defective fixes of mine.** §41 named the pattern as shipping
+against the prompting case. This round adds the sharper version: three of the
+four were caught only because a reviewer EXECUTED the new code, and the fourth
+lived under a comment asserting the opposite of what it did. The test is the
+part I keep skipping, and it is the only one of these that would have caught the
+defect without a reviewer.
 
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060

@@ -385,11 +385,7 @@ async function handle(req: Request, res: Response): Promise<void> {
     // all unless TWO paying support subscriptions exist on one customer, which
     // is not a state any correct sequence produces. Its header has the rest.
     if (outcome === 'synced' && event.type === 'invoice.paid') {
-      const row = await q1<{ subscription_id: string | null }>(
-        `SELECT subscription_id FROM billing_account WHERE stripe_customer_id = $1`,
-        [customerId],
-      );
-      await sweepDuplicatePayingSubscriptions(stripe, customerId, row?.subscription_id ?? null);
+      await sweepDuplicatePayingSubscriptions(stripe, customerId);
     }
     await completeEvent(event.id);
     res.json({ received: true, handled: outcome === 'synced' });

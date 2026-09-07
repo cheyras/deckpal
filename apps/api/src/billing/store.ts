@@ -385,10 +385,18 @@ export async function releaseCustomer(userId: string): Promise<void> {
  * What actually makes the two-tab case safe is three things together, not this
  * lock alone: the lock for the ordinary case; `cancelStraySubscriptions` for
  * the race that gets through, which refunds every paid invoice of the loser;
- * and — since round thirty-seven — the same sweep on the webhook's
- * `invoice.paid`, which is the only actor that runs after a `processing` charge
- * has settled and can therefore refund the one stray the create-path sweep must
- * skip. Do not read this lock as the whole answer; it was cited as one to
+ * and — since round thirty-seven — a sweep on the webhook's `invoice.paid`,
+ * which is the only actor that runs after a `processing` charge has settled and
+ * can therefore give back the one stray the create-path sweep must skip.
+ *
+ * ⚠️ NOT the same sweep, and the distinction is the whole of rounds thirty-eight
+ * and thirty-nine: `sweepDuplicatePayingSubscriptions` acts only when TWO
+ * subscriptions are both collecting, and keeps the OLDER. Pointing the webhook
+ * at `cancelStraySubscriptions` instead — "everything else that is live",
+ * which is only safe for the caller that just created the keeper — cancelled
+ * and refunded the subscription that was actually paying.
+ *
+ * Do not read this lock as the whole answer; it was cited as one to
  * deprioritise the gap the third fix now covers.
  *
  * Keyed on the user id alone: two different people never contend, and one

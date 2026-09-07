@@ -26,6 +26,7 @@ import {
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
 import { ApiError, errorMiddleware } from '../http.js';
 import { stripeFailure } from '../routes/billing.js';
+import { sweepDuplicatePayingSubscriptions } from '../billing/service.js';
 import { PaymentInFlightError, SubscriptionPausedError } from '../billing/service.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00.000Z');
@@ -528,5 +529,132 @@ describe('a cancelling supporter is asked once, not nagged', () => {
   test('a first ask needs no wait either way', () => {
     assert.equal(promptDue(dunning({ cancel_at_period_end: true }), NOW), 'payment_issue');
     assert.equal(promptDue(dunning(), NOW), 'payment_issue');
+  });
+});
+
+/**
+ * The one function in this feature that cancels subscriptions and issues
+ * refunds — and it had no test at all.
+ *
+ * ── WHY THAT MATTERED ───────────────────────────────────────────────────────
+ *
+ * `sweepDuplicatePayingSubscriptions` is driven by a PUBLIC, unauthenticated
+ * endpoint (Stripe's `invoice.paid`), runs outside the request transaction and
+ * therefore outside the advisory lock every money route takes, and is the only
+ * code path that can take money back. It shipped twice with the keeper chosen
+ * wrongly — round thirty-seven kept `pullState`'s display choice, round
+ * thirty-eight kept it again through a `preferId` argument that matched the
+ * newest subscription whenever the newest was paying, while its own header said
+ * "oldest". Both were caught by a reviewer executing it, not by this suite.
+ *
+ * Stripe is a parameter, so nothing here needs a network or a database: a stub
+ * that records what it was asked to cancel and refund is enough to pin the
+ * decision, which is the part that has been wrong three times.
+ */
+describe('the duplicate sweep cancels the newer subscription, never the older', () => {
+  const OURS = { deckpal_support: 'true' } as const;
+
+  /** A Stripe stub that records the destructive calls. */
+  function stripeWith(subs: { id: string; created: number; status: string; ours?: boolean }[]) {
+    const cancelled: string[] = [];
+    const refunded: string[] = [];
+    const stripe = {
+      subscriptions: {
+        // Newest first, as Stripe returns them — the ordering that made
+        // `limit: 20` hide a live subscription behind dead ones.
+        list: async () => ({
+          data: [...subs]
+            .sort((a, b) => b.created - a.created)
+            .map((s) => ({
+              id: s.id,
+              created: s.created,
+              status: s.status,
+              latest_invoice: `in_${s.id}`,
+              metadata: s.ours === false ? {} : OURS,
+            })),
+          has_more: false,
+        }),
+        cancel: async (id: string) => {
+          cancelled.push(id);
+          return { id };
+        },
+      },
+      invoices: {
+        list: async ({ subscription }: { subscription: string }) => ({
+          data: [{ id: `in_${subscription}`, amount_paid: 500, status: 'paid' }],
+        }),
+        retrieve: async (id: string) => ({
+          id,
+          status: 'paid',
+          amount_paid: 500,
+          payments: { data: [{ payment: { payment_intent: `pi_${id}` } }] },
+        }),
+      },
+      refunds: { create: async ({ payment_intent }: { payment_intent: string }) => refunded.push(payment_intent) },
+    } as unknown as Parameters<typeof sweepDuplicatePayingSubscriptions>[0];
+    return { stripe, cancelled, refunded };
+  }
+
+  const run = async (subs: Parameters<typeof stripeWith>[0]) => {
+    const s = stripeWith(subs);
+    await sweepDuplicatePayingSubscriptions(s.stripe, 'cus_1');
+    return s;
+  };
+
+  test('the six-month supporter survives; the day-old duplicate does not', async () => {
+    // The executed failure: both keepers wrong, both times, kept the newest.
+    const { cancelled, refunded } = await run([
+      { id: 'sub_old', created: 1_000, status: 'active' },
+      { id: 'sub_new', created: 9_000, status: 'active' },
+    ]);
+    assert.deepEqual(cancelled, ['sub_new'], 'the older subscription must never be the one cancelled');
+    assert.deepEqual(refunded, ['pi_in_sub_new']);
+  });
+
+  test('...even when the newer one is the one in dunning', async () => {
+    // `past_due` is a PAYING status, so it is sweepable — but it is still the
+    // younger record, and refunding twelve months of a healthy subscription to
+    // keep a failing one is the expensive mistake.
+    const { cancelled } = await run([
+      { id: 'sub_old', created: 1_000, status: 'active' },
+      { id: 'sub_new', created: 9_000, status: 'past_due' },
+    ]);
+    assert.deepEqual(cancelled, ['sub_new']);
+  });
+
+  test('a single paying subscription is never touched — this runs on every renewal', async () => {
+    const { cancelled, refunded } = await run([
+      { id: 'sub_1', created: 1_000, status: 'active' },
+      { id: 'sub_dead', created: 9_000, status: 'canceled' },
+      { id: 'sub_ghost', created: 9_500, status: 'incomplete' },
+    ]);
+    assert.deepEqual(cancelled, [], 'an ordinary renewal must cancel nothing');
+    assert.deepEqual(refunded, []);
+  });
+
+  test('a paused subscription is not a duplicate and not a stray', async () => {
+    // Nothing in this app pauses one; the owner did, from the dashboard.
+    const { cancelled } = await run([
+      { id: 'sub_paid', created: 1_000, status: 'active' },
+      { id: 'sub_paused', created: 9_000, status: 'paused' },
+    ]);
+    assert.deepEqual(cancelled, []);
+  });
+
+  test('somebody else\u2019s subscription on the same customer is never touched', async () => {
+    const { cancelled } = await run([
+      { id: 'sub_ours', created: 1_000, status: 'active' },
+      { id: 'sub_theirs', created: 9_000, status: 'active', ours: false },
+    ]);
+    assert.deepEqual(cancelled, [], 'only subscriptions carrying our metadata are ours to cancel');
+  });
+
+  test('three paying subscriptions leave exactly the oldest', async () => {
+    const { cancelled } = await run([
+      { id: 'sub_a', created: 1_000, status: 'active' },
+      { id: 'sub_b', created: 5_000, status: 'trialing' },
+      { id: 'sub_c', created: 9_000, status: 'unpaid' },
+    ]);
+    assert.deepEqual(cancelled.sort(), ['sub_b', 'sub_c']);
   });
 });
