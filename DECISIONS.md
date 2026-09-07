@@ -17094,6 +17094,77 @@ the deploy — 059 without 060 is worse than neither, because it recreates the
 orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
 cutover.
 
+### 53. Sweep B: a charge that existed only at Stripe, and a pool that one person could drain
+
+The fourth reviewer in the parallel sweep found the worst defect of the whole
+review, and it had been reachable since the one-off shipped.
+
+**A gift could be charged and recorded nowhere.** A one-off produces no invoice
+and no subscription, so — unlike every other way money moves here — NO webhook
+event covered it. `HANDLED` had no `payment_intent.*` member. If the request
+died between Stripe taking the money and the database write, the charge existed
+only at Stripe, the reader got a 502 saying it had failed, and nothing in the
+product could ever learn otherwise. That is not a theoretical window: the RLS
+watchdog reclaims a connection at 30s, and `POST /one-time` makes 8 sequential
+Stripe round trips — 16 on an account with a long subscription history — so one
+slow Stripe minute is enough. Executed: intent `succeeded`, `billing_ab_event`
+empty, `stripe_synced_at` NULL, HTTP 502. Recovery depended entirely on the
+reader's browser re-posting the same attempt id, i.e. on the reader still being
+there.
+
+`payment_intent.succeeded` is handled now. It is filtered to intents this flow
+stamped (the same event fires for every subscription invoice), it goes through
+`syncCustomer`'s ownership check like every other path, and it is idempotent
+with both routes by construction: all three write `once:<intent id>` and 061's
+partial unique index collapses them. The context travels in the intent's own
+metadata, because a webhook that guessed would file a profile-card gift as a
+prompt conversion and put it in the experiment's numerator with no exposure
+behind it.
+
+**And one person with twelve tabs could take the site down.** In SUPABASE_MODE
+the RLS middleware holds one pooled connection for a request's whole lifetime,
+the pool's `max` IS the server's concurrency (12 against the Supabase pooler),
+and a request waiting on `lockAccount` holds a connection while doing nothing
+at all. Executed against the real `pg-pool`: twelve same-account requests took
+every connection, eleven of them merely waiting, and an unrelated request —
+`/health`, a card search, the Stripe webhook — then blocked the full 10s
+`connectionTimeoutMillis` and answered 500. The only thing that had ever freed
+them was the 30s watchdog.
+
+`SET LOCAL lock_timeout = '4s'` bounds it, and the loser gets a 409 that says
+what happened rather than a timeout. **That removes the trigger, not the
+shape.** Twelve DIFFERENT accounts transacting during a slow Stripe minute still
+exhaust the pool, because the real problem is holding a database connection
+across a network call to Stripe. The fix is to release it across the Stripe leg
+and reacquire after — a change to the middleware that wants a real Postgres to
+verify against, which this machine does not have. **Outstanding, and recorded
+here rather than quietly carried:**
+
+- Release the pooled connection across the Stripe leg (the real fix for the
+  above).
+- Give the webhook its own small pool: it is mounted outside the RLS middleware
+  and shares the request pool, so the load that loses a write also blocks the
+  actor that repairs it.
+- `ourSubscriptions` runs three times per `PUT /subscription` — 16 of that
+  route's 21 Stripe calls on a paged account are `subscriptions.list`. Reading
+  it once and threading it through cuts the worst-case hold from ~39s to well
+  inside the watchdog. Deferred deliberately: it is a refactor of the money
+  path, and the review's own history is that money-path refactors written at
+  the end of a session are where the defects come from.
+
+Also fixed: `/one-time/confirm` committed inside its `if (paid)` branch, and
+`commitRequestTx` ends the transaction — which releases the advisory lock. Up
+to seven Stripe round trips and a full cached-row overwrite then ran
+unserialised behind it, where the other three money routes measured zero. It
+commits after `applyStripe` now, as they do.
+
+**Method note, again.** This sweep could not model true multi-connection
+Postgres — no Docker, no local Postgres, and PGlite is single-connection — and
+said so rather than faking it. What it did instead is the reason its numbers are
+trustworthy: the real `pg-pool` with a stubbed wire client, so queueing, `max`,
+FIFO waiters and `connectionTimeoutMillis` are production's own code. The Stripe
+round-trip COUNTS are measured; the seconds are arithmetic on them.
+
 ### 52. The parallel sweep: the code was ready, the RUNBOOK was not
 
 Four reviewers at once, on the four surfaces nothing had executed — the
