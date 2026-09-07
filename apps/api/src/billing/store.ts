@@ -36,6 +36,7 @@
  * is not currently signed in. Its statements live in that file.
  */
 import { q, q1, SUPABASE_MODE } from '../db.js';
+import { ApiError } from '../http.js';
 
 /** One row of `billing_account`, verbatim (migration 053). */
 export interface BillingRow {
@@ -482,7 +483,53 @@ export async function lockAccount(userId: string): Promise<void> {
   // The namespace constant lives in the hashed string instead, which keeps this
   // lock distinct from any other advisory lock in the schema without needing
   // the two-argument form at all.
-  await q(`SELECT pg_advisory_xact_lock(hashtextextended('deckpal.billing.' || $1, 8534071))`, [userId]);
+  //
+  // ── ⚠️ AND THE WAIT IS BOUNDED, BECAUSE A WAITER HOLDS A CONNECTION ────────
+  //
+  // In SUPABASE_MODE the RLS middleware checks out ONE pooled connection for
+  // the whole lifetime of a request, so a request parked here is not waiting
+  // politely — it is holding a slot out of a pool whose `max` IS the server's
+  // maximum concurrency (contract B2; 12 against the Supabase pooler). And the
+  // holder it is waiting for is itself parked on 8-22 sequential Stripe round
+  // trips.
+  //
+  // Executed with the real `pg-pool`: twelve same-account requests — one
+  // person with twelve tabs — took every connection, and an unrelated request
+  // (`/health`, a card search, the Stripe webhook) then blocked for the full
+  // 10s `connectionTimeoutMillis` and answered 500. Eleven of the twelve were
+  // doing nothing but waiting here. Without a timeout the only thing that ever
+  // freed them was the 30s RLS watchdog.
+  //
+  // `lock_timeout` caps that at four seconds and turns the loser into a 409
+  // that says what happened. It does NOT fix the underlying shape — a request
+  // still holds its connection across the Stripe leg, and twelve DIFFERENT
+  // accounts transacting during a slow Stripe minute still exhaust the pool.
+  // The real fix is to release the connection across the Stripe calls, which
+  // is a change to the middleware and wants a real Postgres to verify against.
+  // DECISIONS.md records that as outstanding.
+  //
+  // `SET LOCAL` is scoped to this transaction, i.e. this request, so it cannot
+  // leak onto a pooled connection's next occupant.
+  await q(`SET LOCAL lock_timeout = '4s'`);
+  try {
+    await q(`SELECT pg_advisory_xact_lock(hashtextextended('deckpal.billing.' || $1, 8534071))`, [userId]);
+  } catch (err) {
+    // 55P03 lock_not_available. A 409 is the honest answer: nothing was
+    // attempted, and the reader's own other tab (or their own double-click) is
+    // almost always what they are queued behind.
+    if ((err as { code?: string }).code === '55P03') {
+      throw new ApiError(
+        409,
+        'busy',
+        'Another change to your support is still going through. Give it a moment and try again.',
+      );
+    }
+    throw err;
+  } finally {
+    // Back to the deployment default for the rest of the request: this bound is
+    // about the lock, not about every statement that follows it.
+    await q(`SET LOCAL lock_timeout = 0`).catch(() => {});
+  }
 }
 
 /** Cache what Stripe just told us about THIS caller's account. */

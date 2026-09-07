@@ -891,12 +891,18 @@ billingRouter.post(
       const customerId = await customerFor(req, userId, row, stripe);
       if (setupIntentId) await adoptSetupIntent(stripe, customerId, setupIntentId);
 
+      // ⚠️ RESOLVED BEFORE THE CHARGE, because it is stamped ON the charge.
+      // `payment_intent.succeeded` repairs a gift whose request died before it
+      // could record one, and the intent's metadata is the only place the
+      // surface survives that failure.
+      const context = analyticsContext(req, 'settings');
       const { clientSecret, paid, status, intentId } = await chargeOnce(
         stripe,
         customerId,
         amountCents,
         currentUserEmail(req),
         attemptId,
+        context,
       );
       // Only a gift that actually landed. A challenge still outstanding is not
       // an outcome, and recording one made an abandoned confirmation count as
@@ -905,7 +911,6 @@ billingRouter.post(
       // there from the intent's real status — NOT by re-posting this request,
       // which an idempotency key would answer with the original
       // `requires_action` response rather than the settled one.
-      const context = analyticsContext(req, 'settings');
       // Keyed to the intent, so this and `/one-time/confirm` cannot both count
       // the same gift, and so a retried request cannot count it twice (061).
       if (paid) {
@@ -913,9 +918,10 @@ billingRouter.post(
       }
       // The card summary may be new; the subscription state is untouched.
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
-      // Committed before responding — see `PUT /subscription`. A gift is the
-      // worse case for losing the write: no webhook records a one-off, so a
-      // discarded transaction loses that conversion permanently.
+      // Committed before responding — see `PUT /subscription`. A gift used to be
+      // the worst case for losing the write, because nothing else recorded a
+      // one-off; `payment_intent.succeeded` is the backstop now, and this is
+      // still the path that gets it right the first time.
       if (paid) await commitRequestTx(userId);
       // `status` travels so the browser can tell `processing` — money that may
       // yet leave — from a decline. They need opposite sentences.
@@ -982,9 +988,24 @@ billingRouter.post(
         // rates vary by issuer and country — so losing them again to a failed
         // cleanup commit would bias whichever arm attracts more of them, which
         // is the exact wording of its own header.
-        await commitRequestTx(userId);
       }
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
+      // ⚠️ COMMITTED HERE, NOT INSIDE THE BRANCH ABOVE — the ordering the other
+      // three money routes already use, and this one did not.
+      //
+      // `commitRequestTx` ends the transaction, which RELEASES the advisory
+      // lock `lockAccount` took. Committing before `applyStripe` left up to
+      // seven Stripe round trips and a full cached-row overwrite running
+      // unserialised behind it — measured at seven on a paged account, against
+      // zero for every other money route — so a concurrent `PUT /subscription`
+      // could have its write clobbered by this route's older snapshot. It
+      // self-healed on the next webhook, which is not a reason to leave it.
+      //
+      // The reason to commit at all is unchanged: 3-D-Secure gifts were missing
+      // from the experiment, and step-up rates vary by issuer and country, so
+      // losing one to a failed cleanup commit biases whichever arm attracts
+      // more of them.
+      if (paid) await commitRequestTx(userId);
       res.json({ ...shape(fresh), paid });
     } catch (err) {
       stripeFailure(err, 'one_time');

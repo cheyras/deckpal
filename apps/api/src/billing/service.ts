@@ -1263,6 +1263,14 @@ export async function chargeOnce(
   // caller, silently, on the one call in this file where a repeat is a second
   // real charge.
   attemptId: string,
+  /**
+   * The surface the gift was given from, stamped onto the intent.
+   *
+   * Only so the webhook's repair path can file it correctly when the request
+   * that charged it never got to write the row. Already validated by the route
+   * (`analyticsContext`); this function does not interpret it.
+   */
+  context?: string,
 ): Promise<{ clientSecret: string | null; paid: boolean; status: string | null; intentId: string | null }> {
   // See `ensureDefaultPaymentMethod`: the card the profile displays must be the
   // card Stripe charges.
@@ -1286,7 +1294,13 @@ export async function chargeOnce(
         ...(receiptEmail ? { receipt_email: receiptEmail } : {}),
         // So the dashboard, and anyone reading a charge later, can tell a one-off
         // from a subscription invoice without inferring it from the absence of one.
-        metadata: { [SUPPORT_METADATA_KEY]: 'true', kind: 'one_time' },
+        //
+        // ⚠️ AND THE CONTEXT TRAVELS WITH IT. The webhook repairs a gift whose
+        // request died before recording it (`payment_intent.succeeded`), and it
+        // has no idea which surface the reader was on. Guessing would file a
+        // gift given from the profile card as a prompt conversion and put it in
+        // the experiment's numerator with no exposure behind it.
+        metadata: { [SUPPORT_METADATA_KEY]: 'true', kind: 'one_time', ...(context ? { context } : {}) },
       },
       // ⚠️ THE MOST IMPORTANT KEY IN THIS FILE. A double-submit here is a
       // DOUBLE CHARGE and, unlike a subscription, there is no state left behind

@@ -49,7 +49,7 @@ import type { Express, Request, Response } from 'express';
 import express from 'express';
 import type Stripe from 'stripe';
 import { q, q1 } from '../db.js';
-import { pullState, sweepDuplicatePayingSubscriptions } from './service.js';
+import { SUPPORT_METADATA_KEY, pullState, sweepDuplicatePayingSubscriptions } from './service.js';
 import { stripeClient, webhookSecret } from './stripe.js';
 
 /**
@@ -76,6 +76,20 @@ const HANDLED = new Set([
   'setup_intent.succeeded',
   'customer.updated',
   'customer.deleted',
+  // ⚠️ THE ONE EVENT THAT REPAIRS A CHARGE THE REQUEST LOST.
+  //
+  // A one-off gift is the only money this feature moves that NO other event
+  // covers: it produces no invoice and no subscription, so if the request that
+  // charged it dies between Stripe's answer and the database write, the money
+  // exists only at Stripe and nothing in the product ever learns about it.
+  // That is not hypothetical — the RLS watchdog reclaims a connection after
+  // 30s, and a `/one-time` request on a slow Stripe minute can exceed that:
+  // executed, the intent was `succeeded`, `billing_ab_event` was empty, and the
+  // reader got a 502 telling them it had failed.
+  //
+  // Recovery used to depend entirely on the browser re-posting the same attempt
+  // id — i.e. on the reader still being there. Now Stripe tells us.
+  'payment_intent.succeeded',
 ]);
 
 /** Every handled event names a customer somewhere; find it without guessing. */
@@ -195,6 +209,34 @@ async function claimEvent(event: Stripe.Event): Promise<'claimed' | 'in_progress
 /** Mark the claim finished. Only now is a redelivery a duplicate. */
 async function completeEvent(eventId: string): Promise<void> {
   await q(`UPDATE billing_event SET processed_at = now() WHERE stripe_event_id = $1`, [eventId]);
+}
+
+/**
+ * Record a one-off gift from the event, for the case where the request could not.
+ *
+ * Idempotent with `POST /one-time` and `/one-time/confirm` by construction: all
+ * three write the same `once:<intent id>` dedupe key, and 061's partial unique
+ * index means whichever arrives second is silently dropped. So this is a repair
+ * that costs nothing when nothing needed repairing.
+ *
+ * The context travels in the intent's own metadata (`chargeOnce` stamps it),
+ * because the webhook has no idea which surface the reader was on and guessing
+ * would put a gift given from the profile card into the experiment's numerator.
+ *
+ * An account with no arm is skipped by the `ab_presets IS NOT NULL` predicate,
+ * for the reason `recordAbEvent` gives: the arm decides which ladder somebody
+ * was SHOWN, so stamping an answer with one assigned later is fabricated data.
+ */
+async function recordGiftFromEvent(userId: string, intent: Stripe.PaymentIntent): Promise<void> {
+  const context = typeof intent.metadata?.context === 'string' ? intent.metadata.context : 'settings';
+  await q(
+    `INSERT INTO billing_ab_event (user_id, variant, kind, amount_cents, context, dedupe_key)
+     SELECT user_id, ab_presets, 'chose_one_time', $2, left($3, 40), $4
+       FROM billing_account
+      WHERE user_id = $1 AND ab_presets IS NOT NULL
+     ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`,
+    [userId, intent.amount, context, `once:${intent.id}`],
+  );
 }
 
 /** Write the cached row for whichever account owns this customer. */
@@ -364,6 +406,19 @@ async function handle(req: Request, res: Response): Promise<void> {
       res.json({ received: true, handled: false });
       return;
     }
+    // ⚠️ A GIFT IS FILTERED BEFORE ANY STRIPE CALL. `payment_intent.succeeded`
+    // also fires for every subscription invoice, and those are already handled
+    // by `invoice.paid`; only an intent this flow stamped is a one-off.
+    if (event.type === 'payment_intent.succeeded') {
+      const intent = event.data.object as Stripe.PaymentIntent;
+      const isGift =
+        intent.metadata?.[SUPPORT_METADATA_KEY] === 'true' && intent.metadata?.kind === 'one_time';
+      if (!isGift) {
+        await completeEvent(event.id);
+        res.json({ received: true, handled: false });
+        return;
+      }
+    }
     const outcome = await syncCustomer(stripe, customerId, event.type === 'customer.deleted');
     // ⚠️ THE ONE ACTOR THAT RUNS AFTER A SETTLING CHARGE HAS SETTLED — AND
     // THE MOST DANGEROUS PLACE IN THIS FEATURE TO CANCEL ANYTHING.
@@ -386,6 +441,16 @@ async function handle(req: Request, res: Response): Promise<void> {
     // is not a state any correct sequence produces. Its header has the rest.
     if (outcome === 'synced' && event.type === 'invoice.paid') {
       await sweepDuplicatePayingSubscriptions(stripe, customerId);
+    }
+    // `syncCustomer` has already asked Stripe whether this customer belongs to
+    // the row, so `synced` is the ownership check — the same one every other
+    // path takes before writing anything about somebody's money.
+    if (outcome === 'synced' && event.type === 'payment_intent.succeeded') {
+      const owner = await q1<{ user_id: string }>(
+        `SELECT user_id FROM billing_account WHERE stripe_customer_id = $1`,
+        [customerId],
+      );
+      if (owner) await recordGiftFromEvent(owner.user_id, event.data.object as Stripe.PaymentIntent);
     }
     await completeEvent(event.id);
     res.json({ received: true, handled: outcome === 'synced' });
