@@ -966,6 +966,16 @@ export function Scan() {
           // have touched it, and `narrowedIdentity` is the policy that decides
           // whether a badge read gets to overrule any of that.
           setFeed((prev) => {
+            // THE SETTLED-NEEDS-YOU GUARD (round 10c §4). If the machine
+            // settled this capture needs-you, the backstop fired and this
+            // answer was DROPPED — the amber row is final, and this patch
+            // does not get to be the second path that upgrades it anyway
+            // (replaced-not-mutated is still a self-change, and telemetry
+            // would say lateAnswerDropped while the screen applied it). The
+            // patch's one job stays: correcting a row that landed on
+            // phash's answer — a capture whose race settled CONFIDENT.
+            const settled = identitiesRef.current.get(stackItem.id)
+            if (settled?.phase === 'needs-you') return prev
             const row = prev.find((e) => e.capturePreviewUrl === previewUrl)
             if (!row) return prev
             // THE PICKER-OPEN GUARD — `identity.ts`'s `engaged`, one screen
