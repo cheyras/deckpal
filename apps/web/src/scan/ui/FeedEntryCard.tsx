@@ -21,9 +21,32 @@
 //   * and never a quantity stepper, because a row that is not a card yet cannot
 //     be two of it (`feed.ts`: an unresolved row merges with nothing).
 //
-// Resolving one turns it into an ordinary row through `feed.resolveRow` — the
-// same merge a confident capture of that card would have taken — and the
-// printing slot picks up from there.
+// Resolving one turns it into an ordinary row through `feed.resolveRow`, in
+// place, and the printing slot picks up from there.
+//
+// ── ONE ROW IS ONE SCAN (owner ruling, 2026-09-07) ──────────────────────────
+//
+// "Separate every scan into different inline items in the list." Nothing here
+// changes shape for that — the row already drew one capture and one printing
+// selector — but two things about it stop being incidental and become the
+// point: the THUMBNAIL is this scan's own evidence and no longer stands for
+// several captures, and the PRINTING SELECT is this scan's own answer, which is
+// what makes "that one was the reverse holo" sayable at all.
+//
+// The duplicate-merge bump went with the merge. A re-presentation is a new row
+// now, and a new row's entrance reveal is already the feedback that bump was.
+//
+// ── AND IT MUST NOT BE WIDER THAN THE LIST ──────────────────────────────────
+//
+// "We are able to scroll to the side in the verify list, which feels really bad
+// on mobile." The printing `<select>` was the row's half of that: a select's
+// intrinsic minimum width is its LONGEST OPTION, and printing display names run
+// to "Poké Ball Pattern Reverse Holofoil". As a flex item with the default
+// `min-width: auto` it refused to shrink, pushed past the 60 px thumbnail plus
+// the row padding, and made the whole list draggable sideways. It is capped and
+// allowed to shrink below its content below, and every other flex row in here
+// is `min-w-0` + wrappable for the same reason — clipping the overflow at the
+// scroller without fixing this would only have hidden the text.
 import { useEffect, useRef, useState } from 'react'
 import { CardImage } from '../../components/CardImage'
 import { VariantChip } from '../../components/VariantChip'
@@ -33,7 +56,7 @@ import { ProgressBar, Spinner } from '../../components/ui'
 import { fmtNumber } from '../../lib/format'
 import type { ScanMatch } from '../../lib/api'
 import { ocrHintLabel } from './identity'
-import { bump, DURATION, revealEntry, staggerReveal } from './motion'
+import { revealEntry, staggerReveal } from './motion'
 import { printingState } from './printing'
 import type { FeedEntry } from './types'
 import { AlternatesPopover } from './AlternatesPopover'
@@ -84,8 +107,6 @@ export function FeedEntryCard({
   registerThumbNode: (id: string, el: HTMLDivElement | null) => void
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const countRef = useRef<HTMLSpanElement>(null)
-  const mountedTick = useRef(entry.mergeTick)
   const [popoverOpen, setPopoverOpenState] = useState(false)
   const [reportState, setReportState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
 
@@ -95,10 +116,12 @@ export function FeedEntryCard({
     setPopoverOpenState(open)
     onPickerOpenChange?.(entry.id, open)
   }
-  // A resolved row is a DIFFERENT row — `feed.resolveRow` gives it the card's id
-  // and React remounts it — so a picker open at that moment never gets its own
-  // close. Report it from the unmount instead, or the guard upstairs keeps
-  // protecting a row that no longer exists.
+  // A row that goes away with its picker open never gets its own close — the
+  // reader discarding it from inside the popover is the everyday case. Report it
+  // from the unmount too, or the guard upstairs keeps protecting a row that no
+  // longer exists. (Before 2026-09-07 this also covered resolution, which
+  // changed the row's id and forced a remount; a row keeps its capture id
+  // through being named now, so that path closes the popover explicitly.)
   useEffect(
     () => () => {
       if (popoverOpenRef.current) onPickerOpenChange?.(entry.id, false)
@@ -109,9 +132,11 @@ export function FeedEntryCard({
 
   // The entry's own open reveal — a stable `key={entry.id}` (see VerifyFeed)
   // means this component instance mounts exactly once, when the row is new;
-  // an existing row that re-renders (quantity change, variant pick, …) never
-  // remounts, so this never replays for it. That is the whole reason no
-  // separate "isNew" prop is threaded down from Scan.tsx.
+  // an existing row that re-renders (quantity change, variant pick, a RE-SORT
+  // that moves it up the list) never remounts, so this never replays for it.
+  // That is the whole reason no separate "isNew" prop is threaded down from
+  // Scan.tsx, and it is what keeps the 2026-09-07 sort control from playing
+  // fifty entrance animations every time the reader changes the order.
   useEffect(() => {
     if (rootRef.current) {
       void revealEntry(rootRef.current)
@@ -119,15 +144,6 @@ export function FeedEntryCard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Duplicate-merge bump — fires only when `mergeTick` actually advances (a
-  // re-presentation landed here), never for the reader's own +/- taps.
-  useEffect(() => {
-    if (entry.mergeTick === mountedTick.current) return
-    mountedTick.current = entry.mergeTick
-    if (rootRef.current) void bump(rootRef.current, 1.05, DURATION.dupBump)
-    if (countRef.current) void bump(countRef.current, 1.3, DURATION.dupBump)
-  }, [entry.mergeTick])
 
   const pct = Math.round(entry.confidence * 100)
   const selectedVariant = entry.variants.find((v) => v.variantId === entry.variantId)
@@ -264,12 +280,18 @@ export function FeedEntryCard({
           </div>
         )}
         {entry.matched && printing === 'needs-pick' && (
-          <div data-printing="needs-pick" className="fe-chips mt-[3px] flex items-center gap-[6px]">
+          <div data-printing="needs-pick" className="fe-chips mt-[3px] flex flex-wrap items-center gap-[6px]">
+            {/* `min-w-0 max-w-full truncate` is the fix for the 2026-09-07
+                sideways-scroll ruling (see the file header): a select's
+                intrinsic min-content width is its longest option, and printing
+                names are long enough to push this row past the viewport. It
+                shrinks now, and the label beside it wraps under rather than
+                widening the row. */}
             <select
               value={entry.variantId ?? ''}
               aria-label={`Printing of ${entry.name}`}
               onChange={(ev) => onVariantChange(entry.id, Number(ev.target.value))}
-              className="h-[26px] rounded-full border border-warning/60 bg-surface-primary px-[8px] text-[12px] text-text-body"
+              className="h-[26px] min-w-0 max-w-full truncate rounded-full border border-warning/60 bg-surface-primary px-[8px] text-[12px] text-text-body"
             >
               {entry.variants.map((v) => (
                 <option key={v.variantId} value={v.variantId}>
@@ -308,8 +330,12 @@ export function FeedEntryCard({
           <div className="fe-conf mt-[4px] text-[11px] text-text-muted">Matched from the printed number</div>
         )}
 
-        <div className="fe-row mt-[6px] flex items-center justify-between gap-[8px]">
-          <div className="flex items-center gap-[10px]">
+        {/* Wrappable, and the stepper is the part that must not shrink: at
+            390 px "pick a match" + "report" + the stepper is within a few pixels
+            of the column, and a rarity or a long card name earlier in the row
+            can spend those pixels. It wraps instead of widening the list. */}
+        <div className="fe-row mt-[6px] flex flex-wrap items-center justify-between gap-x-[8px] gap-y-[6px]">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-[10px] gap-y-[4px]">
             {/* A needs-input row ALWAYS offers this, even when `/scan` came back
                 with nothing to offer: the picker is also where "discard and
                 retake" lives, and a capture with no candidates is exactly the
@@ -336,7 +362,7 @@ export function FeedEntryCard({
             </button>
           </div>
           {entry.matched && (
-            <div className="inline-flex h-[28px] items-center overflow-hidden rounded-full border border-border-default bg-surface-primary">
+            <div className="ml-auto inline-flex h-[28px] shrink-0 items-center overflow-hidden rounded-full border border-border-default bg-surface-primary">
               <button
                 type="button"
                 aria-label={`One fewer ${entry.name}`}
@@ -345,7 +371,7 @@ export function FeedEntryCard({
               >
                 −
               </button>
-              <span ref={countRef} className="min-w-[26px] text-center text-[14px] font-bold tabular-nums text-text-primary">
+              <span className="min-w-[26px] text-center text-[14px] font-bold tabular-nums text-text-primary">
                 {entry.quantity}
               </span>
               <button

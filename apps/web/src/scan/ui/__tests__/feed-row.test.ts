@@ -57,11 +57,12 @@ const SETTLED_UNNAMED = [
 
 function row(over: Partial<FeedEntry> = {}): FeedEntry {
   return {
-    id: 'unmatched-1',
+    id: 'cap-1',
     cardId: null,
     matched: false,
     name: 'Unidentified card',
     setName: '',
+    setId: null,
     number: '',
     rarity: null,
     images: null,
@@ -78,7 +79,6 @@ function row(over: Partial<FeedEntry> = {}): FeedEntry {
     detectingPrinting: false,
     alternates: TIED,
     capturedAt: 1_000,
-    mergeTick: 0,
     verified: false,
     identity: SETTLED_UNNAMED,
     ...over,
@@ -86,11 +86,12 @@ function row(over: Partial<FeedEntry> = {}): FeedEntry {
 }
 
 const NAMED = row({
-  id: 'sv10-057',
+  id: 'cap-2',
   cardId: 'sv10-057',
   matched: true,
   name: 'Murkrow',
   setName: 'Destined Rivals',
+  setId: 'sv10',
   number: '161',
   images: { low: 'l', high: 'h' },
   confidence: 0.94,
@@ -191,7 +192,7 @@ describe('a resolved row stops asking', () => {
     // What `feed.resolveRow` produces: `identity: null`, `matched: true`. The row
     // must read as an ordinary card from that alone — nothing else is cleared.
     const resolved = row({
-      id: 'sv10-004',
+      id: 'cap-3',
       cardId: 'sv10-004',
       matched: true,
       name: 'Basic Energy',
@@ -211,7 +212,7 @@ describe('a resolved row stops asking', () => {
     // The hand-off the ruling describes — "variant resolve happens there" — is
     // reached from a needs-input row exactly as it is from a confident one.
     const resolved = row({
-      id: 'sv10-004',
+      id: 'cap-3',
       cardId: 'sv10-004',
       matched: true,
       name: 'Basic Energy',
@@ -223,5 +224,64 @@ describe('a resolved row stops asking', () => {
       ],
     })
     assert.match(render(resolved), /data-printing="needs-pick"/)
+  })
+})
+
+// ── the row cannot be wider than the list (owner ruling, 2026-09-07) ─────────
+//
+// "We are able to scroll to the side in the verify list, which feels really bad
+// on mobile."
+//
+// These assert a LAYOUT CONTRACT, not a measurement, and it is worth saying why
+// rather than pretending otherwise: `renderToStaticMarkup` produces a string,
+// there is no layout engine behind it, and a test here cannot tell you that the
+// row fits in 390 px. What it CAN do is pin the three declarations the fix is
+// made of, each of which was absent and each of which had to be there — so the
+// next person who reaches for `w-auto` on the select finds out here rather than
+// on a phone. The width itself was checked by hand; see the commit message.
+const MANY_PRINTINGS = row({
+  id: 'cap-4',
+  cardId: 'sv10-004',
+  matched: true,
+  name: 'Basic Grass Energy',
+  images: { low: 'l', high: 'h' },
+  identity: null,
+  variants: [
+    { variantId: 1, displayName: 'Normal', isPrimary: true, kind: 'normal', tier: null, ownedQuantity: 0 },
+    // The real shape of the problem: a display name long enough that the
+    // select's intrinsic min-content width exceeded the row.
+    { variantId: 2, displayName: 'Poké Ball Pattern Reverse Holofoil', isPrimary: false, kind: 'reverse', tier: null, ownedQuantity: 0 },
+    { variantId: 3, displayName: 'Master Ball Pattern Reverse Holofoil', isPrimary: false, kind: 'reverse', tier: null, ownedQuantity: 0 },
+  ],
+})
+
+describe('nothing in a row may push the list sideways', () => {
+  it('THE PRINTING SELECT SHRINKS — it was the thing that was too wide', () => {
+    // A `<select>`'s automatic minimum size is its longest option, so as a flex
+    // item with the default `min-width: auto` it simply refused to fit. All
+    // three of these are load-bearing: `min-w-0` lets it shrink at all,
+    // `max-w-full` stops it claiming more than the column, `truncate` makes the
+    // shrunk state readable instead of clipped mid-glyph.
+    const html = render(MANY_PRINTINGS)
+    const select = html.match(/<select[^>]*aria-label="Printing of [^"]*"[^>]*>/)?.[0] ?? ''
+    assert.notEqual(select, '', 'the needs-pick row still renders a printing select')
+    assert.match(select, /min-w-0/)
+    assert.match(select, /max-w-full/)
+    assert.match(select, /truncate/)
+  })
+
+  it('the chip line and the action line WRAP rather than widen', () => {
+    // "pick a printing" beside the select, and "pick a match" + "report" +
+    // the stepper, are each within a few pixels of the column at 390 px. They go
+    // to a second line instead of taking the row past the viewport.
+    const html = render(MANY_PRINTINGS)
+    assert.match(html, /class="fe-chips[^"]*flex-wrap/)
+    assert.match(html, /class="fe-row[^"]*flex-wrap/)
+  })
+
+  it('keeps the quantity stepper whole while everything around it gives', () => {
+    // It is 84 px of tap targets with nothing to truncate — shrinking it would
+    // produce two buttons the reader cannot hit.
+    assert.match(render(MANY_PRINTINGS), /inline-flex h-\[28px\] shrink-0 items-center overflow-hidden rounded-full/)
   })
 })

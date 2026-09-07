@@ -164,6 +164,11 @@ export interface Identity {
   cardId: string
   name: string
   setName: string
+  /** The catalog set id (`sv10`, `sv03.5`, `swsh12`). Carried since 2026-09-07
+   *  for the verify list's catalog sort order — `sort.ts` reads a series out of
+   *  the id's `<series><n>` shape, which is the only series signal a row has
+   *  without a round trip per row. Both wire shapes already have it. */
+  setId: string
   number: string
   rarity: string | null
   images: { low: string; high: string }
@@ -385,6 +390,7 @@ export function identityFromMatch(m: ScanMatch): Identity {
     cardId: m.cardId,
     name: m.name,
     setName: m.setName,
+    setId: m.setId,
     number: m.number,
     rarity: m.rarity,
     images: m.images,
@@ -398,6 +404,7 @@ export function identityFromResolve(m: ScanResolveMatch): Identity {
     cardId: m.cardId,
     name: m.name,
     setName: m.setName,
+    setId: m.setId,
     number: m.number,
     rarity: m.rarity,
     images: m.images,

@@ -24,7 +24,17 @@
 // — the same reason `resolvedIdentity` moved out of `ocrNarrow.ts`. It is also
 // genuinely a question about the STACK rather than about the write: the captures
 // it protects are the ones that never reached this list.
+//
+// ── WHAT THE 2026-09-07 RULING LEFT FOR THIS FILE ───────────────────────────
+//
+// "Separate every scan into different inline items in the list." The list does;
+// the collection has no such notion. Ten scans of one printing are ten rows and
+// one line of the write, and folding them is `feed.foldCommitLines` — pure,
+// tested, and applied here AFTER every row has been resolved to a variant id,
+// because two rows of one card can be two different printings and there is
+// nothing to fold about those.
 import { api } from '../../lib/api'
+import { foldCommitLines } from './feed'
 import type { FeedEntry } from './types'
 
 export interface CommitResult {
@@ -43,7 +53,7 @@ export async function commitFeed(entries: FeedEntry[]): Promise<CommitResult> {
     return false
   })
 
-  const items: { variantId: number; delta: number }[] = []
+  const lines: { variantId: number; delta: number }[] = []
 
   // THE READER'S CHOICE WINS, and costs no request — `variantId` is set the
   // moment the catalog answers (see Scan.tsx's `loadVariants`), or changed
@@ -67,8 +77,15 @@ export async function commitFeed(entries: FeedEntry[]): Promise<CommitResult> {
       unresolved.push({ id: entry.id, name: entry.name })
       continue
     }
-    items.push({ variantId, delta: entry.quantity })
+    lines.push({ variantId, delta: entry.quantity })
   }
+
+  // ONE LINE PER PRINTING. The API's own `foldItems` would do this on arrival,
+  // so this is not what makes the write correct — it is what keeps a long
+  // session inside `BATCH_MAX_ITEMS` (250) now that a row is a scan rather than
+  // a card, and what makes the idempotency key below describe the same shape the
+  // server fingerprints.
+  const items = foldCommitLines(lines)
 
   if (!items.length) return { applied: 0, unresolved }
 

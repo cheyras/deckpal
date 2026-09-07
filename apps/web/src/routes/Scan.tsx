@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
 import { Icon } from '../components/Icon'
@@ -33,7 +33,8 @@ import {
   type IdentityEvent,
   type IdentityState,
 } from '../scan/ui/identity'
-import { addArrival, commitGate, firstUnresolvedId, resolveRow, unresolvedCount } from '../scan/ui/feed'
+import { addArrival, commitGate, feedTotals, firstUnresolvedId, resolveRow, unresolvedCount } from '../scan/ui/feed'
+import { loadSort, saveSort, sortRows, type FeedSort } from '../scan/ui/sort'
 import { createOcrStage } from '../scan/ocr/staging'
 import type { OcrRead } from '../scan/ocr/pipeline'
 import {
@@ -212,10 +213,43 @@ export function Scan() {
    *  back to them" twice scrolls twice. */
   const [scrollTo, setScrollTo] = useState<{ id: string | null; signal: number }>({ id: null, signal: 0 })
 
+  /**
+   * WHAT ORDER THE LIST IS IN — owned here, not in `VerifyFeed`.
+   *
+   * 2026-09-07 ruling: "default should be first one scanned is on top, in order
+   * of scan", plus a control to change it. The choice lives at this level for
+   * one structural reason: the same `feed` is rendered by TWO `VerifyFeed`s
+   * (Step 1's collapsed bin, Step 2's full list) and the reader crosses between
+   * them constantly, so a state inside the component would let two views of one
+   * list disagree about its order. The rule and the persistence are `sort.ts`;
+   * `loadSort` is passed as a lazy initialiser so the localStorage read happens
+   * once, on mount, rather than on every render.
+   */
+  const [feedSort, setFeedSort] = useState<FeedSort>(loadSort)
+  const changeSort = useCallback((next: FeedSort) => {
+    setFeedSort(next)
+    saveSort(next)
+  }, [])
+
+  /**
+   * The list AS THE READER SEES IT, and the thing every consumer below gets.
+   *
+   * `feed` itself stays in scan order for ever — that IS the scan order the
+   * `scan` key reads, and reconstructing it from `capturedAt` would break for
+   * two captures in one millisecond. Sorting is a view over it.
+   */
+  const view = useMemo(() => sortRows(feed, feedSort), [feed, feedSort])
+
   const feedRef = useRef<FeedEntry[]>(feed)
   useEffect(() => {
     feedRef.current = feed
   }, [feed])
+  /** The sorted view, for "Go back to them" — which has to name the first
+   *  unresolved row THE READER WILL SEE, not the first one in scan order. */
+  const viewRef = useRef<FeedEntry[]>(view)
+  useEffect(() => {
+    viewRef.current = view
+  }, [view])
   // NO `stackRef`. It existed for one caller — the commit gate, reading how many
   // captures were parked on the camera. Since 2026-09-06 nothing parks there and
   // the gate reads the list (`feedRef`), so a mirror of a stack that empties
@@ -353,7 +387,23 @@ export function Scan() {
   const captureBusyRef = useRef(false)
   const stackNodesRef = useRef(new Map<string, HTMLDivElement>())
   const feedThumbNodesRef = useRef(new Map<string, HTMLDivElement>())
-  const variantsAsked = useRef(new Set<string>())
+  /**
+   * THE CATALOG'S ANSWER PER CARD, kept — not just the fact that it was asked.
+   *
+   * It was a `Set<string>` of card ids until 2026-09-07 and could not stay one.
+   * That set was a "do not ask twice" guard and it worked because a card had
+   * exactly one row: ask once, patch the one row, done. Every scan is its own
+   * row now, so the SECOND scan of a card arrives at a guard that says "already
+   * asked" and returns before patching anything — a row with `variants: []`,
+   * whose printing slot is `resolved` by default (`printing.ts`) and which
+   * therefore silently loses the printing selector that is the entire point of
+   * the ruling. The answer is remembered instead of the question, so the fourth
+   * scan of a card is filled in from memory, with no request.
+   */
+  const variantsCache = useRef(new Map<string, FeedVariant[]>())
+  /** In-flight lookups, so N simultaneous captures of one card make one request
+   *  and all N rows are filled when it lands. */
+  const variantsInflight = useRef(new Map<string, Promise<void>>())
   const objectUrlsRef = useRef(new Set<string>())
 
   const trackUrl = useCallback((url: string) => {
@@ -373,35 +423,71 @@ export function Scan() {
     [],
   )
 
-  const loadVariants = useCallback(async (cardId: string) => {
-    if (variantsAsked.current.has(cardId)) return
-    variantsAsked.current.add(cardId)
-    try {
-      const card = await api.card(cardId)
-      const variants: FeedVariant[] = card.variants.map((v) => ({
-        variantId: v.variantId,
-        displayName: v.displayName,
-        isPrimary: v.isPrimary,
-        kind: v.kind,
-        tier: v.tier,
-        // Straight off the same call — swipe-review's "resulting total"
-        // reads this with no second (batch or per-entry) ownership request.
-        ownedQuantity: v.quantity ?? 0,
-      }))
-      setFeed((prev) =>
-        prev.map((e) => {
-          if (e.cardId !== cardId) return e
-          const primary = variants.find((v) => v.isPrimary) ?? variants[0]
-          return { ...e, variants, variantId: e.variantId ?? primary?.variantId ?? null }
-        }),
-      )
-    } catch {
-      // Left silent, same reasoning the old rip list carried: the row still
-      // commits (commit.ts falls back to the primary printing), so a failed
-      // lookup costs the reader the CHOICE, not the card.
-      variantsAsked.current.delete(cardId)
-    }
+  /** Fill in every row of this card that has no printings yet — the rows the
+   *  lookup was made for, and any row of the same card that landed while it was
+   *  in flight. Rows that already have their printings are left alone, so a
+   *  reader's own pick is never overwritten by a late second caller. */
+  const applyVariants = useCallback((cardId: string, variants: FeedVariant[]) => {
+    setFeed((prev) =>
+      prev.map((e) => {
+        if (e.cardId !== cardId || e.variants.length > 0) return e
+        const primary = variants.find((v) => v.isPrimary) ?? variants[0]
+        return { ...e, variants, variantId: e.variantId ?? primary?.variantId ?? null }
+      }),
+    )
   }, [])
+
+  const loadVariants = useCallback(
+    async (cardId: string) => {
+      const cached = variantsCache.current.get(cardId)
+      if (cached) {
+        // A second scan of a card this session already looked up. It still needs
+        // its OWN printings written onto its own row — see `variantsCache`.
+        applyVariants(cardId, cached)
+        return
+      }
+      const inflight = variantsInflight.current.get(cardId)
+      if (inflight) {
+        // `.catch` because the OWNER of this request handles its failure; a
+        // second caller re-throwing it would be an unhandled rejection out of a
+        // `void loadVariants(…)`.
+        await inflight.catch(() => {})
+        const now = variantsCache.current.get(cardId)
+        if (now) applyVariants(cardId, now)
+        return
+      }
+      const request = (async () => {
+        const card = await api.card(cardId)
+        variantsCache.current.set(
+          cardId,
+          card.variants.map((v) => ({
+            variantId: v.variantId,
+            displayName: v.displayName,
+            isPrimary: v.isPrimary,
+            kind: v.kind,
+            tier: v.tier,
+            // Straight off the same call — swipe-review's "resulting total"
+            // reads this with no second (batch or per-entry) ownership request.
+            ownedQuantity: v.quantity ?? 0,
+          })),
+        )
+      })()
+      variantsInflight.current.set(cardId, request)
+      try {
+        await request
+        const variants = variantsCache.current.get(cardId)
+        if (variants) applyVariants(cardId, variants)
+      } catch {
+        // Left silent, same reasoning the old rip list carried: the row still
+        // commits (commit.ts falls back to the primary printing), so a failed
+        // lookup costs the reader the CHOICE, not the card. Nothing is cached,
+        // so the next scan of this card asks again.
+      } finally {
+        variantsInflight.current.delete(cardId)
+      }
+    },
+    [applyVariants],
+  )
 
   /** Fly an <img> of `previewUrl`, sized `from`, into `targetEl`'s current
    *  rect — the shared courier used for both capture→stack and stack→feed. */
@@ -448,27 +534,33 @@ export function Scan() {
    *
    * Under the 2026-09-05 ruling only the named ones reached here; the 2026-09-06
    * reversal ("if the resolution is 'needs your input' they should still go down
-   * to the list") sends both, so this builds either row and hands the merge rule
-   * to `feed.addArrival`, which is where "an unresolved row merges with nothing"
-   * is written down and tested.
+   * to the list") sends both, so this builds either row and hands it to
+   * `feed.addArrival`, which is the one door into the list.
    *
-   * Returns the id of the row the capture landed ON — which is the existing
-   * row's when it merged — because the caller is about to fly a thumbnail into
-   * that row's picture and cannot ask a `setFeed` updater where it went.
+   * Returns the id of the row the capture landed on, because the caller is about
+   * to fly a thumbnail into that row's picture and cannot ask a `setFeed`
+   * updater where it went. Since 2026-09-07 that is always A NEW ROW: every scan
+   * is its own item, so there is no longer an existing row it could have merged
+   * into and the answer is simply this capture's id.
    */
   const addFeedEntry = useCallback(
     (st: IdentityState, stackItem: StackItem): string => {
       const identity = st.match
-      // Minted out here, not inside the updater: an unresolved row's id is
-      // synthetic, the courier needs it a frame later, and an updater React may
-      // call twice must not mint two.
-      const rowId = identity ? identity.cardId : makeId('unmatched')
+      // THE CAPTURE'S OWN ID, named or not (2026-09-07). It used to be
+      // `identity.cardId` for a named row, which was the dedupe key; with every
+      // scan its own row a card id would collide the moment the same card was
+      // scanned twice and hand React two children with one key. The capture id
+      // is unique by construction and is already this row's telemetry key
+      // (`FeedEntry.captureId`), so the row, its capture record and its identity
+      // record are all one string.
+      const rowId = stackItem.id
       const entry: FeedEntry = {
         id: rowId,
         cardId: identity?.cardId ?? null,
         matched: !!identity,
         name: identity?.name ?? 'Unidentified card',
         setName: identity?.setName ?? '',
+        setId: identity?.setId ?? null,
         number: identity?.number ?? '',
         rarity: identity?.rarity ?? null,
         images: identity?.images ?? null,
@@ -494,7 +586,6 @@ export function Scan() {
         // for its verdict, and `identityRecord`'s `msToResolve` measures from
         // the first.
         capturedAt: stackItem.capturedAt,
-        mergeTick: 0,
         verified: false,
         // THE RACE RIDES DOWN WITH AN UNRESOLVED CAPTURE and with nothing else:
         // the row needs the OCR read for its hint chip, and needs enough of the
@@ -1368,7 +1459,14 @@ export function Scan() {
       const result = await commitFeed(snapshot)
       const unresolvedIds = new Set(result.unresolved.map((u) => u.id))
       setFeed((prev) => prev.filter((e) => unresolvedIds.has(e.id)))
-      variantsAsked.current = new Set([...variantsAsked.current].filter((id) => unresolvedIds.has(id)))
+      // THE WHOLE CACHE, not a filtered one. `FeedVariant.ownedQuantity` is a
+      // reading of the collection taken before this write, and this write just
+      // changed it — swipe review quotes it as "resulting total", so a stale
+      // entry would understate every printing the reader just committed. The old
+      // line tried to keep the entries for rows that survived and could not even
+      // do that any more: it filtered CARD ids against ROW ids, which have been
+      // different things since 2026-09-07.
+      variantsCache.current.clear()
       if (result.applied > 0) {
         setCelebration(
           result.unresolved.length
@@ -1402,10 +1500,13 @@ export function Scan() {
    * a perfectly good answer.
    */
   const handleCommit = useCallback(() => {
-    const rows = feedRef.current
-    const gate = commitGate(rows, false)
+    const gate = commitGate(feedRef.current, false)
     if (!gate.proceed && gate.prompt) {
-      setCommitConfirm({ prompt: gate.prompt, rowId: firstUnresolvedId(rows) })
+      // The ROW THE READER WILL SEE FIRST, so it is asked of the sorted view.
+      // Since 2026-09-07 the order is theirs to choose, and "go back to them"
+      // scrolling to a row that is last on their screen would be a worse answer
+      // than not scrolling at all.
+      setCommitConfirm({ prompt: gate.prompt, rowId: firstUnresolvedId(viewRef.current) })
       return
     }
     void doCommit()
@@ -1427,7 +1528,7 @@ export function Scan() {
     setBinExpanded(false)
   }, [])
 
-  const totalQuantity = feed.reduce((n, e) => n + e.quantity, 0)
+  const totalQuantity = feedTotals(feed).cards
   const commitCount = feed.reduce((n, e) => n + (e.cardId ? e.quantity : 0), 0)
   // Only a hard 'unavailable' (no getUserMedia at all) falls back to upload.
   // 'denied' still renders CameraStage — its own overlay offers "Try camera
@@ -1536,7 +1637,9 @@ export function Scan() {
               }
             >
               <VerifyFeed
-                entries={feed}
+                entries={view}
+                sort={feedSort}
+                onSortChange={changeSort}
                 title="Cards"
                 headerExtra={
                   <button
@@ -1596,7 +1699,9 @@ export function Scan() {
 
             {reviewMode === 'list' ? (
               <VerifyFeed
-                entries={feed}
+                entries={view}
+                sort={feedSort}
+                onSortChange={changeSort}
                 title="Verify"
                 onQuantityChange={changeQuantity}
                 onVariantChange={changeVariant}
@@ -1615,7 +1720,10 @@ export function Scan() {
               />
             ) : (
               <SwipeReview
-                entries={feed}
+                // The reader's order, here too — swipe review works `queue[0]`
+                // forward, so the order it is handed IS the order it asks about,
+                // and it must be the one the list beside it is showing.
+                entries={view}
                 onQuantityChange={changeQuantity}
                 onVariantChange={changeVariant}
                 onConfirm={confirmEntry}

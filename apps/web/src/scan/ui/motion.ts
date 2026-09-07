@@ -49,7 +49,10 @@ export const DURATION = {
   entryReveal: 300,
   stagger: 60,
   dupFly: 300,
-  dupBump: 200,
+  // `dupBump` was here until 2026-09-07. It timed the bump a row played when a
+  // re-presentation of the same card merged INTO it; there is no merge any more
+  // (every scan is its own row — `feed.ts`), and a token nothing can spend reads
+  // to the next person as a beat that is available to them.
   /** NEW, and not from the prototype: how long the confident tick holds on a
    *  stack thumbnail before the courier launches it at the list. The prototype
    *  had no such beat because a capture flew unconditionally; the 2026-09-05

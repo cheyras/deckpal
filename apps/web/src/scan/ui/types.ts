@@ -59,11 +59,26 @@ export interface StackItem {
   identity: IdentityState
 }
 
-/** One row in the verify feed. */
+/**
+ * One row in the verify feed — and, since 2026-09-07, ONE PHYSICAL SCAN.
+ *
+ * The owner ruling, verbatim: "When I scan a normal, then scan a reverse
+ * holofoil of the same card, there is currently no way to then say that one of
+ * them was one printing and one of them is another. Probably makes sense to
+ * separate every scan into different inline items in the list." Two captures of
+ * one card used to be one row; they are two now, each with its own thumbnail,
+ * its own printing selector and its own stepper. `feed.ts` holds the rule.
+ */
 export interface FeedEntry {
-  /** Stable React key and dedupe key. Equals the matched `cardId` once one
-   *  is known; a synthetic id for a still-unmatched "needs your input" row
-   *  (see `matched` / `cardId`). */
+  /**
+   * Stable React key — THE CAPTURE'S ID, never the card's.
+   *
+   * It was `cardId` on a named row until 2026-09-07, so the dedupe could find
+   * the row to merge into. With every scan its own row there is nothing to find,
+   * and a card id would collide the moment the same card was scanned twice —
+   * two children, one key. `Scan.tsx` mints it from `StackItem.id`, which is
+   * also `captureId`, so a row's key and its telemetry are the same string.
+   */
   id: string
   /** Null until a confident match — or the reader's own correction — names
    *  one. A row with `cardId === null` cannot commit; `scan/ui/commit.ts`
@@ -73,6 +88,11 @@ export interface FeedEntry {
   matched: boolean
   name: string
   setName: string
+  /** The catalog set id (`sv10`, `swsh12`, `base1`), straight off `ScanMatch`.
+   *  Null on an unnamed row. Carried for ONE reason: catalog sort order
+   *  (`sort.ts`) — a set id's `<series><n>` shape is the only series signal a
+   *  row has without a round trip per row. Nothing renders it. */
+  setId: string | null
   number: string
   rarity: string | null
   images: { low: string; high: string } | null
@@ -84,10 +104,11 @@ export interface FeedEntry {
   /**
    * The capture this row came from, correlating it to its `capture-event`.
    *
-   * Null on the upload fallback, which has no capture pipeline behind it. On a
-   * merged row it is the FIRST capture's id: the row is now several captures and
-   * the later ones reported their own outcome from the race, so claiming it for
-   * all of them would be worse than naming the one it belongs to.
+   * Null on the upload fallback, which has no capture pipeline behind it.
+   * Otherwise always exactly one capture's id, and since 2026-09-07 that is
+   * unambiguous: a row IS one capture. It used to have to be qualified ("on a
+   * merged row it is the FIRST capture's id"), which was the honest answer to a
+   * question the merge should never have made possible.
    */
   captureId: string | null
   /** The engine track this capture came off, so discarding the row can release
@@ -133,11 +154,11 @@ export interface FeedEntry {
    *  apart now that a capture waits for its identity, and `identityRecord`'s
    *  `msToResolve` is measured from the first. */
   capturedAt: number
-  /** Bumped each time a re-presentation merges into this row instead of
-   *  creating a new one. FeedEntryCard watches it (not `quantity`, which the
-   *  stepper also changes) to know when to play the duplicate-merge bump —
-   *  a user's own +/- tap must never replay it. */
-  mergeTick: number
+  // `mergeTick` lived here until 2026-09-07. It counted re-presentations that
+  // merged into this row, and FeedEntryCard played a bump off it. Nothing merges
+  // any more — a re-presentation is its own row now, and its own entrance reveal
+  // is the feedback that used to be the bump — so the field went with the rule
+  // rather than staying behind as a number that could only ever be 0.
   /** The reader has explicitly confirmed this row — by swiping right in
    *  swipe-review, or (implicitly) by correcting it there. Surfaced as a
    *  badge in the list view too, so the two review modes tell one story
