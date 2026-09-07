@@ -484,3 +484,49 @@ describe('billing errors reach the reader', () => {
     assert.equal(upstream(), upstream('subscription'));
   });
 });
+
+/**
+ * The dunning cadence for somebody who has already asked to stop.
+ *
+ * `payment_issue` outranks everything and runs on a 3-day clock, which is right
+ * for a supporter who wants to keep paying. It is not right for one who pressed
+ * "stop my support" while their card was failing: they owe one outstanding
+ * month for time they have had, so asking is fair, and asking ten times on the
+ * way out is not. Round 35 found the profile ALSO never acknowledged the stop
+ * on that path; this pins the half that lives in the scheduler.
+ */
+describe('a cancelling supporter is asked once, not nagged', () => {
+  const dunning = (over: Partial<BillingRow> = {}): BillingRow =>
+    row({ subscription_status: 'past_due', support_cents: 500, ...over });
+
+  test('an ordinary broken payment keeps the fast cadence', () => {
+    const r = dunning({ prompt_last_shown_at: new Date(NOW - PAYMENT_ISSUE_INTERVAL_DAYS * DAY) });
+    assert.equal(promptDue(r, NOW), 'payment_issue');
+  });
+
+  test('...and is silent inside it', () => {
+    const r = dunning({ prompt_last_shown_at: new Date(NOW - (PAYMENT_ISSUE_INTERVAL_DAYS - 1) * DAY) });
+    assert.equal(promptDue(r, NOW), null);
+  });
+
+  test('one who has asked to stop is NOT re-asked on the fast cadence', () => {
+    const r = dunning({
+      cancel_at_period_end: true,
+      prompt_last_shown_at: new Date(NOW - PAYMENT_ISSUE_INTERVAL_DAYS * DAY),
+    });
+    assert.equal(promptDue(r, NOW), null, 'three days is nagging somebody on their way out');
+  });
+
+  test('...but is still asked once, on the ordinary monthly clock', () => {
+    const r = dunning({
+      cancel_at_period_end: true,
+      prompt_last_shown_at: new Date(NOW - PROMPT_INTERVAL_DAYS * DAY),
+    });
+    assert.equal(promptDue(r, NOW), 'payment_issue', 'the outstanding month is real and still worth one ask');
+  });
+
+  test('a first ask needs no wait either way', () => {
+    assert.equal(promptDue(dunning({ cancel_at_period_end: true }), NOW), 'payment_issue');
+    assert.equal(promptDue(dunning(), NOW), 'payment_issue');
+  });
+});

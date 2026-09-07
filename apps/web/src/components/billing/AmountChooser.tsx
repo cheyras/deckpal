@@ -124,8 +124,25 @@ export function AmountChooser({
 
   const dollars = Number(custom)
   const customCents = Number.isFinite(dollars) ? Math.round(dollars) * 100 : NaN
+  // ⚠️ AN OPEN, EMPTY "OTHER" IS INVALID — NOT "no problem yet".
+  //
+  // `typeCustom` never calls `onChange` for an empty field, so the parent keeps
+  // the LAST VALID amount. Reporting no problem therefore left the submit
+  // button live and reading "Support $5/month" over a blank field with no
+  // preset selected. Two ways in, both ordinary: tap Other, type 5, backspace
+  // to go back to $0 — and pay $5 a month. Or type 750, read "that is more
+  // than $500 a month", clear the field to think again, and the button quietly
+  // returns to a live $75.
+  //
+  // §19 wrote the rule as "the field and the button must not disagree at the
+  // moment of payment" and applied it to the REJECTED entry. Empty is the other
+  // half: it is the initial state of the cell AND where a rejected entry lands
+  // when you clear it. The message stays null while the field is untouched —
+  // nagging somebody who has typed nothing yet is its own defect — but the
+  // cell still reports itself unusable, which is what the button reads.
+  const customEmpty = customOpen && custom.trim() === ''
   const customProblem =
-    !customOpen || custom.trim() === ''
+    !customOpen || customEmpty
       ? null
       : !/^\d+$/.test(custom.trim())
         ? 'Whole dollars only, please.'
@@ -139,8 +156,8 @@ export function AmountChooser({
   // reported in an effect rather than from the change handler, which would miss
   // the initial state and any change driven from outside.
   useEffect(() => {
-    onInvalid?.(customProblem !== null)
-  }, [customProblem, onInvalid])
+    onInvalid?.(customProblem !== null || customEmpty)
+  }, [customProblem, customEmpty, onInvalid])
 
   function pickPreset(cents: number) {
     setCustomOpen(false)

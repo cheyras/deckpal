@@ -16680,6 +16680,48 @@ checked the same way" when it is neither an object reference nor checkable;
 `SupportPrompt` said two branches lock where three do, and four rounds closed
 the overlap where five did.
 
+### 38. Round thirty-five: an empty field that charged $5 a month
+
+Thirty-four rounds READ the React components. This one MOUNTED them — the real
+`SupportFlow` and `AmountChooser` bundled against React 19 in jsdom, with Stripe
+and the API stubbed — and found a money bug in the first thing it drove.
+
+`customProblem` returns null when the custom cell is open and EMPTY, so the
+chooser reported itself valid. But `typeCustom` never calls `onChange` for an
+empty field, so the parent keeps the last valid amount. An open, blank "Other"
+box, no preset selected — and a live button reading "Support $5/month".
+
+Executed end to end: a $0 account taps Other, types 5, backspaces to go back to
+$0, presses the button, and is subscribed at $5 a month, thanked for it. The
+other way in is worse because it looks like caution: type 750, read "that is
+more than $500 a month", clear the field to think again, and the button quietly
+returns to a live $75.
+
+§19 wrote the rule — "the field and the button must not disagree at the moment
+of payment" — and applied it to the REJECTED entry. Empty is the other half,
+and it is both the cell's initial state and where a rejected entry lands when
+you clear it. The message still stays quiet while the field is untouched
+(nagging somebody who has typed nothing is its own defect); the cell simply
+reports itself unusable, which is what the button reads.
+
+Second: a supporter who presses "stop my support" while their card is failing
+was shown "$5 / month — thank you, this covers the servers" over "updating
+your card will put it right", with nothing anywhere acknowledging the stop they
+had just asked for. The app recorded the cancellation and never said so, and
+then asked them to fix their card every three days for a month — about ten
+modals on the way out. Both facts are true and both are now said, stop first,
+because the outstanding month is real; and the dunning clock for somebody who
+has asked to stop is the ordinary monthly one. Asked, not nagged. Five tests
+pin it.
+
+**The lesson is about the loop, not the feature.** Nine rounds of prose findings
+were read here as convergence. They were a reviewer running out of places it had
+been TOLD to look. Redirecting round thirty-four to execute the server found
+nothing, which was real evidence; redirecting round thirty-five to execute the
+CLIENT — the one surface thirty-four rounds had only ever read — found a
+defect that takes money from somebody who was trying to say $0. Where the
+reviews are looking is a bigger lever than how hard they look.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

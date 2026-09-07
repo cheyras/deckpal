@@ -174,10 +174,26 @@ export function statusNote(
   switch (status) {
     case 'past_due':
     case 'unpaid':
-      return {
-        tone: 'error',
-        text: 'Your last payment did not go through. Updating your card will put it right — nothing has been interrupted in the meantime.',
-      }
+      // ⚠️ A CANCELLING SUPPORTER IS TOLD THEY ARE CANCELLING, FIRST. This
+      // case sat above the `cancel_at_period_end` block below, so somebody who
+      // pressed "stop my support" while their card was failing saw "$5 / month
+      // — thank you, this covers the servers" over "updating your card will
+      // put it right", and NOTHING anywhere acknowledging the stop they had
+      // just asked for. The app recorded the cancellation and never said so.
+      //
+      // Both facts are true and both matter, so both are said, stop first: the
+      // outstanding month is real and a fixed card still settles it.
+      return opts.cancelAtPeriodEnd
+        ? {
+            tone: 'error',
+            text: until
+              ? `Your support is set to stop on ${until}, and your last payment did not go through. Updating your card settles the month you have already had; nothing renews after that.`
+              : 'Your support is set to stop at the end of this billing period, and your last payment did not go through. Updating your card settles the month you have already had; nothing renews after that.',
+          }
+        : {
+            tone: 'error',
+            text: 'Your last payment did not go through. Updating your card will put it right — nothing has been interrupted in the meantime.',
+          }
     case 'incomplete':
       return {
         tone: 'warn',

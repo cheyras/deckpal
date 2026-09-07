@@ -511,7 +511,10 @@ function time(v: Date | string | null): number | null {
  *  • **A broken payment outranks everything.** Someone whose card expired is
  *    already paying and already trying; showing them a "would you consider
  *    supporting us" modal instead of "your card needs updating" would be both
- *    useless and slightly insulting. It has its own, faster cadence.
+ *    useless and slightly insulting. It has its own, faster cadence — except
+ *    for somebody who has already asked to stop, who owes one outstanding month
+ *    and gets asked about it on the ordinary monthly clock rather than ten
+ *    times on the way out.
  *  • **Anyone actually paying is never asked again.** Not once a year, not
  *    "just to check". They answered.
  *  • **A PAUSED subscription is not asked either.** It reports zero cents, so
@@ -543,7 +546,14 @@ export function promptDue(row: BillingRow, now: number = Date.now()): PromptKind
   //    you consider supporting us" instead of "your card needs updating" would
   //    be both useless and slightly insulting.
   if (row.subscription_status && NEEDS_ATTENTION.has(row.subscription_status)) {
-    if (lastShown === null || now - lastShown >= ms(PAYMENT_ISSUE_INTERVAL_DAYS)) return 'payment_issue';
+    // ⚠️ THREE DAYS IS FOR SOMEBODY WHO WANTS TO KEEP PAYING. A supporter who
+    // has already pressed "stop my support" has one outstanding month for time
+    // they have had, so asking is still fair — but asking every three days
+    // until the period ends is roughly ten modals telling a person who just
+    // cancelled to fix their card. They get the ordinary monthly cadence
+    // instead: asked, not nagged.
+    const interval = row.cancel_at_period_end ? PROMPT_INTERVAL_DAYS : PAYMENT_ISSUE_INTERVAL_DAYS;
+    if (lastShown === null || now - lastShown >= ms(interval)) return 'payment_issue';
     return null;
   }
 
