@@ -16581,6 +16581,37 @@ card into it. The two thresholds are now named as two. (API.md had the same
 conflation in one word, "configured", which means three variables for the routes
 and four for `/health`.)
 
+### 35. Round thirty-two: the correction that missed a paragraph in its own file
+
+Round thirty-one rewrote 060's opening to say the pin does NOT close the
+disclosure, and left the paragraph forty lines below that repeats it — "the
+disclosure 059 closed needs the ability to name a target, and naming a target is
+exactly what is still forbidden". Both halves wrong, in the same file, in the
+same edit. Round thirty missed four copies across the repo; round thirty-one
+missed one inside the file it was editing. **Grep before believing a correction
+landed** is now written into 060 itself.
+
+The same round-31 edit also left a stale pair citing each other: 060 said
+"`routes/billing.ts` already notes that 059's and 060's headers overstate the
+guarantee", present tense, about headers it had just corrected — and
+`routes/billing.ts` said SECURITY.md "has the accurate version", when five files
+now do. A citation is a claim about another file's contents and goes stale the
+moment that file changes.
+
+And `store.ts`'s own header said "every write here goes through one of the three
+SECURITY DEFINER functions in migration 054". There are six, across four
+migrations. It was true when written; the two added since are `billing_ensure_
+row` and `billing_release_customer` — the second of which is the one function
+that can zero a paying row, so a reader auditing the write surface from the
+module that OWNS the write path was blind to exactly the one worth auditing.
+SECURITY.md had been updated to six; the module had not. `webhook.ts` carried
+the same count.
+
+Also corrected: DEPLOYMENT said the deployed code "hard-requires every one of
+058—063" and then named 059, 060, 062 and 063. 058 is a stepping stone — 062
+drops and replaces its function outright — and it errs safe, but a list that
+names four things after claiming six is the count-drift class again.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

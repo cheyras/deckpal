@@ -45,11 +45,19 @@
 -- charging at Stripe, the app then shows $0, `/portal` refuses because the row
 -- has no customer, and re-subscribing bills a second time. It is self-harm with
 -- no reach into anybody else's data, which is why it is accepted — but it is
--- accepted, not harmless. SECURITY.md carries the same account, and
--- `routes/billing.ts` already notes that 059's and 060's headers overstate the
--- guarantee. Corrected here while 060 is still unapplied and B4 permits it.
--- The disclosure 059 closed needs the ability to name a target, and naming a
--- target is exactly what is still forbidden.
+-- accepted, not harmless. SECURITY.md carries the same account, and so now do
+-- 059's header, `webhook.ts`, `service.ts`, `routes/billing.ts` and API.md.
+-- Corrected here while 060 is still unapplied and B4 permits it.
+--
+-- ⚠️ AND THE SENTENCE THAT USED TO SIT HERE said "the disclosure 059 closed
+-- needs the ability to name a target, and naming a target is exactly what is
+-- still forbidden". Both halves are wrong: 059 did not close the disclosure
+-- (the ownership check does), and naming a target is NOT forbidden — this
+-- very function makes release-then-set possible, and a first write into a NULL
+-- row never needed it. Round thirty-one rewrote the paragraph forty lines above
+-- that carried this claim and left the paragraph that repeated it, which is the
+-- defect class this file keeps demonstrating. Grep before you believe a
+-- correction landed.
 --
 -- The card summary is cleared with it. A row that no longer knows its customer
 -- must not keep displaying that customer's last four digits: the two facts came

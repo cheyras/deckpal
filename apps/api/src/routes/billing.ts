@@ -307,8 +307,9 @@ async function customerFor(req: Request, userId: string, row: BillingRow, stripe
   if (replaced) {
     // ⚠️ RELEASE-THEN-SET IS THE ONE WAY A CUSTOMER ID EVER MOVES, so it is the
     // one thing worth a line in the log. 059's pin refuses a direct repoint;
-    // this pair is permitted, and 059's and 060's own headers overstated that
-    // as two independent locks (SECURITY.md has the accurate version). The
+    // this pair is permitted. 059's and 060's headers USED TO describe the pin
+    // and the ownership check as two independent locks; both now carry the
+    // accurate account, as do SECURITY.md, `webhook.ts` and `service.ts`. The
     // control that actually closes the disclosure is `ensureCustomer`'s
     // metadata check, three lines above, and the webhook's — which is why this
     // only ever runs after Stripe has said the stored customer is gone or is

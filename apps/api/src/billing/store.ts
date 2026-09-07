@@ -3,8 +3,13 @@
  *
  * ── TWO WRITE PATHS, AND WHY ─────────────────────────────────────────────────
  *
- * On Supabase, every write here goes through one of the three SECURITY DEFINER
- * functions in migration 054. The API runs as `authenticated` inside the RLS
+ * On Supabase, every write here goes through one of the SIX SECURITY DEFINER
+ * functions this feature ships: `billing_touch_visit`, `billing_ack_prompt` and
+ * `billing_apply_stripe` (054), `billing_record_ab_event` (056, re-created by
+ * 058 and 062), `billing_ensure_row` (059) and `billing_release_customer`
+ * (060). (This said "the three … in migration 054", which was true when it was
+ * written and left a reader auditing the write surface from this file's own
+ * header blind to the one function that can zero a paying row.) The API runs as `authenticated` inside the RLS
  * transaction, `billing_account` is SELECT-only to that role on purpose (a row
  * that points at a Stripe customer must not be writable by the browser holding
  * the anon key), and the alternatives — a second pooled connection, or a

@@ -347,8 +347,11 @@ CVC is a card that works.
    and no money moves.
 
    ⚠️ **All of them, in order, in one run.** The deployed code hard-requires
-   every one of 058—063 — without 063 the webhook handler reads columns that
-   do not exist and every delivery 500s until Stripe disables the endpoint: `billing_ensure_row` (059),
+   059 through 063 by name — without 063 the webhook handler reads columns
+   that do not exist and every delivery 500s until Stripe disables the endpoint.
+   (058 is the exception: 062 drops and replaces its function outright, so 058
+   is only a stepping stone. It is still applied in sequence, because the runner
+   applies what is pending and skipping it proves nothing.) The names: `billing_ensure_row` (059),
    `billing_release_customer` (060) and the four-argument
    `billing_record_ab_event` (062) are all called by name. Applying **059
    without 060** is the worst of the partial states — it recreates the fault

@@ -13,8 +13,8 @@
  *    `createApp()` — that ordering is load-bearing, not stylistic.
  *
  * 2. **No identity, no RLS.** A Stripe delivery carries no session. It cannot
- *    pass `resolveIdentity`, `auth.uid()` is NULL inside it, and the three
- *    SECURITY DEFINER functions from migration 054 would refuse it — correctly,
+ *    pass `resolveIdentity`, `auth.uid()` is NULL inside it, and every one of
+ *    this feature's six SECURITY DEFINER functions would refuse it — correctly,
  *    since its whole job is to write rows for an account that is not signed in.
  *    Outside the RLS middleware `q()` runs on the shared pool as the
  *    connection's owning role, which owns these tables, so the statements below
