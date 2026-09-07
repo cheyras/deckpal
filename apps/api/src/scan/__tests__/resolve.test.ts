@@ -623,7 +623,10 @@ test('a vector top-1 INSIDE the name family is the corroboration that names the 
   const showable = (THRESHOLDS[MODEL]!.simFloor + THRESHOLDS[MODEL]!.simMin) / 2;
   const r = await runWithVector({ name: 'Ultra Ball' }, [
     { cardId: 'sv04-196', similarity: showable },
-    { cardId: 'sv01-196', similarity: showable - 0.01 },
+    // 0.03 below: these are DIFFERENT-art Ultra Balls, and the separation is
+    // what round 11's same-art regression made a requirement — a family
+    // member the vector cannot tell from its top pick blocks corroboration.
+    { cardId: 'sv01-196', similarity: showable - 0.03 },
   ]);
   assert.equal(r.resolvedBy, 'corroborated');
   assert.equal(r.matched, true);

@@ -93,6 +93,16 @@ export interface VectorVerdict {
    *  believing when something independent says the same thing. Never enough on
    *  its own. */
   showable: boolean;
+  /**
+   * `margin >= marginMin`: the vector can tell its top pick apart from the
+   * runner-up AT ALL. Round 11 measured why this is its own permission: two
+   * printings of one card with the same art sit 0.002 apart — the same
+   * picture — and a showable vector "agreeing" with a name family that
+   * contains both is agreeing with the ART, not the printing. Corroboration
+   * over a multi-candidate set requires this; over a single candidate the
+   * other signal already did the singling out and membership is the claim.
+   */
+  separated: boolean;
 }
 
 /**
@@ -119,14 +129,15 @@ export function vectorVerdict(matches: readonly VectorMatch[], modelId: string):
     );
   }
   const top = matches[0];
-  if (!top) return { cardId: null, similarity: 0, margin: null, decisive: false, showable: false };
+  if (!top) return { cardId: null, similarity: 0, margin: null, decisive: false, showable: false, separated: false };
   const second = matches[1];
   const margin = second ? top.similarity - second.similarity : null;
   const showable = top.similarity >= t.simFloor;
+  const separated = margin !== null && margin >= t.marginMin;
   // A single candidate cannot be checked against a runner-up, and the honest
   // answer to "how sure are you" with nothing to compare against is not "very".
-  const decisive = showable && top.similarity >= t.simMin && margin !== null && margin >= t.marginMin;
-  return { cardId: showable ? top.cardId : null, similarity: top.similarity, margin, decisive, showable };
+  const decisive = showable && top.similarity >= t.simMin && separated;
+  return { cardId: showable ? top.cardId : null, similarity: top.similarity, margin, decisive, showable, separated };
 }
 
 /**
@@ -225,6 +236,16 @@ export function corroborate(
 
   const ids = new Set(candidateIds);
   if (!ids.has(v.cardId)) return null;
+
+  // THE ROUND-11 REGRESSION, CLOSED. When the set holds more than one card,
+  // "the vector agrees with one of them" is only evidence if the vector can
+  // tell them apart — and same-art reprints (sv01-196 vs me01-131, measured
+  // 2.02/255 mean pixel difference, 0.002 apart in cosine) are the proof it
+  // often cannot. Without this gate a name family containing both got a
+  // confident wrong PRINTING, which is exactly the case the ruling sends to
+  // the reader. A single-candidate set is different: the key that built it
+  // already did the singling out, and membership is the whole claim.
+  if (ids.size > 1 && !v.separated) return null;
 
   // The hash gets a veto and no voice: it may only contradict what the vector
   // already said, and only from inside the near-exact band.

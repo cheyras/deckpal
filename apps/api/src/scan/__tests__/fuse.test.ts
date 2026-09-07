@@ -184,11 +184,36 @@ test('the vector breaks the 014/198 tie the printed key cannot', () => {
   // THE CASE THE WHOLE RULE EXISTS FOR. Two candidates, nothing printed to
   // separate them, and the vector's own top-1 is one of them at a similarity
   // that would NOT have been enough on its own.
-  const v = vectorVerdict([{ cardId: 'swsh6-014', similarity: 0.69 }, { cardId: 'sv01-014', similarity: 0.68 }], MODEL);
+  const v = vectorVerdict([{ cardId: 'swsh6-014', similarity: 0.69 }, { cardId: 'sv01-014', similarity: 0.62 }], MODEL);
   assert.equal(v.decisive, false, 'the premise: individually insufficient');
   assert.equal(
     corroborate(['sv01-014', 'swsh6-014'], { vector: v, phashNearExact: null }),
     'swsh6-014',
+  );
+});
+
+test('THE ROUND-11 REGRESSION: same-art reprints 0.002 apart corroborate NOTHING', () => {
+  // sv01-196 and me01-131 are one picture (measured 2.02/255 mean abs pixel
+  // difference); the live drive got a confident WRONG printing out of a name
+  // family holding both. The vector may agree with the ART, but with no
+  // margin inside the set it may not pick the PRINTING — that goes to the
+  // reader, per the standing ruling.
+  const v = vectorVerdict(
+    [{ cardId: 'me01-131', similarity: 0.712 }, { cardId: 'sv01-196', similarity: 0.71 }],
+    MODEL,
+  );
+  assert.equal(v.showable, true, 'the premise: well above the floor');
+  assert.equal(v.separated, false, 'and utterly unseparated');
+  assert.equal(
+    corroborate(['sv01-196', 'me01-131'], { vector: v, phashNearExact: null }),
+    null,
+    'a picture-level agreement must not settle a printing-level question',
+  );
+  // The single-candidate exception stands: when a printed key already singled
+  // one out, membership is the claim and separation is not required.
+  assert.equal(
+    corroborate(['me01-131'], { vector: v, phashNearExact: null }),
+    'me01-131',
   );
 });
 
@@ -225,19 +250,19 @@ test('the near-exact band is tighter than the scan gate, and never speaks alone'
 test('two corroborators that disagree corroborate nothing', () => {
   // Picking the "stronger" one would mean inventing a comparison between a
   // cosine and a Hamming distance, which is the exact blend this design refuses.
-  const v = vectorVerdict([{ cardId: 'swsh6-014', similarity: 0.69 }, { cardId: 'sv01-014', similarity: 0.68 }], MODEL);
+  const v = vectorVerdict([{ cardId: 'swsh6-014', similarity: 0.69 }, { cardId: 'sv01-014', similarity: 0.62 }], MODEL);
   assert.equal(corroborate(['sv01-014', 'swsh6-014'], { vector: v, phashNearExact: 'sv01-014' }), null);
 });
 
 test('two corroborators that AGREE are still one answer', () => {
-  const v = vectorVerdict([{ cardId: 'sv01-014', similarity: 0.69 }, { cardId: 'swsh6-014', similarity: 0.68 }], MODEL);
+  const v = vectorVerdict([{ cardId: 'sv01-014', similarity: 0.69 }, { cardId: 'swsh6-014', similarity: 0.62 }], MODEL);
   assert.equal(corroborate(['sv01-014', 'swsh6-014'], { vector: v, phashNearExact: 'sv01-014' }), 'sv01-014');
 });
 
 test('the ladder returns `corroborated` and leads with the agreed card', async () => {
   const r = await withVector({ number: '014', denominator: '198' }, [
     { cardId: 'swsh6-014', similarity: 0.69 },
-    { cardId: 'sv01-014', similarity: 0.68 },
+    { cardId: 'sv01-014', similarity: 0.62 },
   ]);
   assert.equal(r.resolvedBy, 'corroborated');
   assert.equal(r.confident, true);
