@@ -367,11 +367,29 @@ export async function releaseCustomer(userId: string): Promise<void> {
  * Cancelling the loser afterwards stops its renewals but does not give back
  * what it already collected — so the account is billed twice for one month.
  *
- * `pg_advisory_xact_lock` is held for the rest of the transaction, which in
- * SUPABASE_MODE is the rest of the request, and is visible across every
- * serverless instance because it lives in the database rather than in a
- * process. The second request waits and then sees the first one's subscription,
- * taking the update path instead of creating a second.
+ * `pg_advisory_xact_lock` is held for the rest of the TRANSACTION, and is
+ * visible across every serverless instance because it lives in the database
+ * rather than in a process. The second request waits and then sees the first
+ * one's subscription, taking the update path instead of creating a second.
+ *
+ * ⚠️ THE TRANSACTION IS NOT THE REQUEST, and this docstring said it was for
+ * thirty-three rounds. The RLS middleware commits on `res.on('finish')` and
+ * ROLLS BACK on `res.on('close')` or the 30s watchdog — while Express leaves
+ * the handler running. So a suspended tab, a dropped connection or a slow
+ * Stripe call releases the lock and destroys the connection while the handler
+ * is still inside `subscriptions.create`, which then completes unserialised.
+ *
+ * The docstring also only ever considered the WAITER being bounded by the
+ * watchdog. The HOLDER is bounded by it too, and that is the dangerous half.
+ *
+ * What actually makes the two-tab case safe is three things together, not this
+ * lock alone: the lock for the ordinary case; `cancelStraySubscriptions` for
+ * the race that gets through, which refunds every paid invoice of the loser;
+ * and — since round thirty-seven — the same sweep on the webhook's
+ * `invoice.paid`, which is the only actor that runs after a `processing` charge
+ * has settled and can therefore refund the one stray the create-path sweep must
+ * skip. Do not read this lock as the whole answer; it was cited as one to
+ * deprioritise the gap the third fix now covers.
  *
  * Keyed on the user id alone: two different people never contend, and one
  * person's own requests are exactly what must not interleave. The wait is

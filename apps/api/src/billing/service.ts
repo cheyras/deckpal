@@ -714,7 +714,11 @@ export async function setSupport(
  * that could not be cancelled is a support ticket, not a reason to fail the
  * request that just succeeded.
  */
-async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keepId: string): Promise<void> {
+export async function cancelStraySubscriptions(
+  stripe: Stripe,
+  customerId: string,
+  keepId: string,
+): Promise<void> {
   try {
     const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
     const strays = list.data.filter(
@@ -740,8 +744,25 @@ async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keep
       // ever look for it again. Leave it: it settles or expires on its own, and
       // once it has settled there is a PAID invoice to give back.
       //
-      // ⚠️ NOTHING REVISITS IT. This sweep has ONE call site: `setSupport`'s
-      // CREATE path. A stray only exists alongside a live subscription we kept
+      // ⚠️ THE WEBHOOK REVISITS IT — and it is the only actor that can.
+      //
+      // This used to say "NOTHING REVISITS IT", and the reason mattered: this
+      // sweep ran only from `setSupport`'s CREATE path, and a stray only exists
+      // beside a live subscription we kept, so the next amount change finds
+      // that one and takes the UPDATE branch, which never sweeps. The $0 branch
+      // is worse: it cancels the modifiable subscription only, so "stop my
+      // support" leaves the stray billing for ever.
+      //
+      // The gap was deprioritised because it needed the advisory lock to have
+      // failed AND a card left `processing`. Round thirty-seven showed the first
+      // precondition is one suspended tab: the RLS transaction — and with it
+      // this lock — ends when the RESPONSE ends, not when the handler does, so
+      // a dropped connection releases it mid-create while the handler runs on.
+      //
+      // `webhook.ts` now sweeps on `invoice.paid`, which is the one moment a
+      // `processing` charge has settled and somebody is guaranteed to be
+      // looking. This branch still skips it here, because here it genuinely
+      // cannot be refunded yet. A stray only exists alongside a live subscription we kept
       // — so on the next amount change `managedSubscription` finds that live
       // one, `modifiable` is non-null, and `setSupport` takes the UPDATE
       // branch, which never sweeps. The $0 branch is worse: it sets

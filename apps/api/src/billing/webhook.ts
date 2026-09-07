@@ -49,7 +49,7 @@ import type { Express, Request, Response } from 'express';
 import express from 'express';
 import type Stripe from 'stripe';
 import { q, q1 } from '../db.js';
-import { pullState } from './service.js';
+import { cancelStraySubscriptions, pullState } from './service.js';
 import { stripeClient, webhookSecret } from './stripe.js';
 
 /**
@@ -365,6 +365,33 @@ async function handle(req: Request, res: Response): Promise<void> {
       return;
     }
     const outcome = await syncCustomer(stripe, customerId, event.type === 'customer.deleted');
+    // ⚠️ THE ONE ACTOR THAT RUNS AFTER A SETTLING CHARGE HAS SETTLED.
+    //
+    // `cancelStraySubscriptions` is otherwise called only from `setSupport`'s
+    // CREATE path, and it deliberately skips a stray whose first payment is
+    // still `processing` — correctly, because there is nothing to refund yet.
+    // Nothing then went back for it: a stray only exists beside a subscription
+    // we kept, so the next amount change takes the UPDATE branch and never
+    // sweeps, and "stop my support" cancels only the one the row knows about,
+    // leaving the other billing for ever.
+    //
+    // That was deprioritised as needing the advisory lock to have failed. It
+    // does not: the RLS transaction, and with it the lock, ends when the
+    // RESPONSE ends rather than when the handler does, so a suspended tab or a
+    // dropped connection releases it while `subscriptions.create` is still in
+    // flight. One tab is enough.
+    //
+    // `invoice.paid` is the moment the settling charge has settled, so the
+    // sweep can now refund it, and it is a moment somebody is guaranteed to be
+    // looking. Keyed on the subscription `pullState` just chose — the sweep
+    // touches only OUR subscriptions and never the one the row holds.
+    if (outcome === 'synced' && event.type === 'invoice.paid') {
+      const row = await q1<{ subscription_id: string | null }>(
+        `SELECT subscription_id FROM billing_account WHERE stripe_customer_id = $1`,
+        [customerId],
+      );
+      if (row?.subscription_id) await cancelStraySubscriptions(stripe, customerId, row.subscription_id);
+    }
     await completeEvent(event.id);
     res.json({ received: true, handled: outcome === 'synced' });
   } catch (err) {

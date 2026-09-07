@@ -60,6 +60,7 @@
  */
 import { Router, type Request } from 'express';
 import type Stripe from 'stripe';
+import { commitRequestTx } from '../db.js';
 import { ApiError, asyncHandler, badRequest, userCache } from '../http.js';
 import { currentUserEmail, currentUserId } from '../identity.js';
 import {
@@ -507,6 +508,20 @@ billingRouter.put(
       if (settled && !context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, amountCents);
       // Asking is now settled however this went: they answered the question.
       const acked = await ackPrompt(userId, fresh.onboarded_at === null);
+      // ⚠️ COMMIT BEFORE RESPONDING, because money has moved.
+      //
+      // The RLS middleware commits on `res.on('finish')` and ROLLS BACK on
+      // `res.on('close')` or the watchdog. A reader whose tab is suspended
+      // between the Stripe call and the response therefore had the charge land
+      // and every database row — the cached amount, the `chose`, the prompt
+      // ack — discarded. The row heals from the next webhook;
+      // `billing_ab_event` never does, and the loss is biased toward slow
+      // networks and mobile, so it does not cancel between arms.
+      //
+      // `commitRequestTx` opens a fresh transaction with the same claims, so
+      // the rest of the request still runs under RLS. It also ends the advisory
+      // lock, which is correct here: the create it was serialising is done.
+      await commitRequestTx(userId);
       res.json(shape(acked, { clientSecret }));
     } catch (err) {
       stripeFailure(err);
@@ -632,6 +647,10 @@ billingRouter.post(
       }
       // The card summary may be new; the subscription state is untouched.
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
+      // Committed before responding — see `PUT /subscription`. A gift is the
+      // worse case for losing the write: no webhook records a one-off, so a
+      // discarded transaction loses that conversion permanently.
+      if (paid) await commitRequestTx(userId);
       // `status` travels so the browser can tell `processing` — money that may
       // yet leave — from a decline. They need opposite sentences.
       res.json({ ...shape(fresh, { clientSecret }), paid, status });

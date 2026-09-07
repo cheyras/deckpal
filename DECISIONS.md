@@ -16770,6 +16770,52 @@ promising a quiet line. And the card panel updated local state without
 refreshing the shared cache, so leaving the profile and returning inside the 60s
 `staleTime` showed the card that had just been replaced.
 
+### 40. Round thirty-seven: the transaction is not the request
+
+The surface nobody had executed was the one every billing request runs inside:
+the RLS middleware in `index.ts`, and what it does to a money-moving request
+that ends by any path other than `res.finish`. Round thirty-four ran the routes
+on a hand-rolled Express lookalike and only ever drove requests that COMPLETED.
+This round extracted the shipped middleware verbatim and ended requests early.
+
+`lockAccount`'s docstring said the lock "is held for the rest of the
+transaction, which in SUPABASE_MODE is the rest of the request". It is not. The
+middleware commits on `res.on('finish')` and rolls back — destroying the
+connection — on `res.on('close')` or the 30s watchdog, while Express leaves
+the handler running. A suspended tab, a dropped connection or a slow Stripe call
+releases the lock and kills the transaction while the handler is still inside
+`subscriptions.create`, which then completes unserialised. The docstring also
+only ever reasoned about the WAITER being bounded by the watchdog; the HOLDER is
+bounded by it too, and that is the dangerous half.
+
+`cancelStraySubscriptions` is the net and mostly holds — executed: $600
+collected, $100 refunded, one subscription left live. But it deliberately skips
+a stray whose first payment is `processing`, and its own comment said "NOTHING
+REVISITS IT… reaching it needs the advisory lock to have already failed AND a
+card left `processing`." This round's point is that the first precondition is
+one suspended tab. Executed end state: two live subscriptions, $6/month, nothing
+refunded, the profile showing $5 — and "stop my support" cancelling only the
+one the row knows about, leaving the other billing for ever. That is what
+`service.ts` itself calls the worst shape a billing bug can take, reached from a
+single tab.
+
+Three fixes, and the shape of them matters. The sweep now also runs from the
+webhook's `invoice.paid`, which is the ONE actor guaranteed to run after a
+`processing` charge has settled and can therefore refund the stray the
+create-path sweep must skip — the fix `service.ts` had been suggesting to
+itself for twelve rounds while the false docstring made it look optional. The
+two money routes call `commitRequestTx` before responding, so a suspended tab
+loses neither the row nor the conversion (the row heals from a webhook;
+`billing_ab_event` never does, and the loss was biased toward slow networks and
+mobile, so it did not cancel between arms). And the docstring now says what the
+lock is: one of three things that make the two-tab case safe, not the whole
+answer.
+
+**The lesson repeats §38's, one layer down.** The prose was not merely wrong; it
+was the CITED REASON another file used to deprioritise its own known gap. A
+false sentence about a mechanism is worse than no sentence, because it is load-
+bearing for decisions made elsewhere.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists
