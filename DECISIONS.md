@@ -17094,6 +17094,63 @@ the deploy — 059 without 060 is worse than neither, because it recreates the
 orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
 cutover.
 
+### 47. Round forty-four: a refusal that left an invisible wall
+
+The sharpest finding is the interaction between two of my own fixes. `Sheet`'s
+`requestClose` optimistically stamps `data-closing`, latches a timer it never
+resets, and relies on an invariant `theme.css` states outright: "the element
+unmounts a frame after the animation ends". Round forty-two made that false by
+having the billing sheet REFUSE to close while a payment is in flight.
+
+Executed: press Escape during a bank challenge on a $25 gift — the commonest
+panic action on a slow payment — and the panel AND the full-screen scrim
+animate to `opacity: 0 forwards`, stay mounted, and dead-latch every subsequent
+Escape, ✕ and backdrop click. The reader is left under an invisible,
+pointer-eating, focus-trapped `fixed inset-0` overlay until they reload. They
+never see the done screen saying "one time only, nothing recurring has been set
+up" — which, by 057, is a gift's only in-app record. The latch clears itself
+now, so a refused close plays the exit and comes back.
+
+`POST /me/billing/payment-method` was the only money-moving route without
+`commitRequestTx`, and `retryOpenInvoice` calls `stripe.invoices.pay`. Executed
+with the finish-COMMIT failing: the invoice was PAID, the client got
+`settled: true` and the new card, and the row stayed `past_due` with
+`card_last4` NULL — so the supporter who had just fixed their card was told
+"your last payment did not go through" and "no card on file, so your next
+payment will fail". `customerFor`'s repoint is lost in the same rollback, so the
+row keeps pointing at a dead customer while a live one holding their card is
+orphaned.
+
+**And the experiment's headline number was measuring the wrong thing.** 055's
+header query — the one somebody will paste, because it sits beside the table
+— pools every context. `payment_issue` records an exposure that can NEVER
+convert (both writers exclude it), so it is pure denominator, and it scales with
+the number of PAYERS, penalising the better-converting arm hardest. `settings`
+records a conversion with no exposure behind it, and repeats every time somebody
+changes their amount. Measured over forty seeded accounts: a true 2.00x
+separation read as 2.50x after one dunning cycle, and one account changing its
+amount four times contributed 4300c against zero exposures. 055 is applied, so
+the correction lives in `store.ts` (which now filters all three CTEs, the
+one-off one included) and in a runbook line telling the owner which query to
+run.
+
+Three smaller. My wind-down copy told a `past_due` supporter who had also
+cancelled that "nothing further will be charged" — Stripe's dunning does not
+stop because you cancelled, so it costs the owner the month that was used, and
+it is the same adjacent-contradiction shape one state over. `SupportSettings`
+and the shared query cache were two uncoordinated writers, so a fetch started by
+the modal's invalidate could land after a card replacement and revert the panel
+to the old card and `past_due`; the writers seed the cache now, and the modal's
+invalidate sits below both close guards. And `/prompt-shown` validated neither
+`kind` nor `context`, so a caller could label its own real exposures `forced-`
+— the prefix the analysis trusts to exclude test traffic — and delete itself
+from the denominator.
+
+Also corrected: DEPLOYMENT's `PUBLIC_APP_ORIGIN` row called the variable
+optional and claimed the `Host`-derived default "yields https://deckpal.app",
+which is why nobody set it. It yields whatever host answered, so every alias and
+preview URL returns the reader somewhere else. It is marked **set it**.
+
 ### 46. Round forty-three: the panel that was not guarded, and the card that did not listen
 
 Round forty-two's fixes held. Its guard did not reach far enough: `writing` was

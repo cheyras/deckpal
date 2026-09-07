@@ -104,6 +104,20 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  *     monthly figure.
  *
  * So: take each account's LAST monthly answer, sum one-offs separately, and
+ * ⚠️ THIS QUERY, NOT 055's. Migration 055's header carries an earlier version
+ * that pools every context, and it is the one somebody will paste because it
+ * sits next to the table. It is wrong in two directions at once, measured in
+ * round forty-four over forty seeded accounts: `payment_issue` records a
+ * `shown` and can NEVER record a `chose` (both writers exclude it), so it is
+ * pure denominator — and it scales with the NUMBER OF PAYERS, penalising the
+ * better-converting arm hardest. `settings` records a `chose` with no `shown`
+ * anywhere, so it is pure numerator, and it repeats every time somebody changes
+ * their amount. Executed: a true 2.00x separation read as 2.50x after one
+ * dunning cycle, and one account changing its amount four times contributed
+ * 4300c against zero exposures. 055 is applied, so B4 forbids correcting it in
+ * place; this is the correction, and the context filters below are the whole of
+ * it.
+ *
  * divide by exposures. `monthly_cents_per_exposure` is the number that answers
  * "does a $1 option raise revenue or just move people down the ladder" — a
  * higher `paying` count with a lower figure here is the cannibalisation the
@@ -135,9 +149,13 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  *        AND context IN ('onboarding', 'checkin')
  *      ORDER BY user_id, created_at DESC
  *   ), one_off AS (
+ *     -- Same two filters as `monthly`, for the same reason: a gift given from
+ *     -- the profile card has no exposure behind it, so counting it puts a
+ *     -- numerator over a denominator it was never part of.
  *     SELECT variant, sum(amount_cents) AS cents
  *       FROM billing_ab_event
  *      WHERE kind = 'chose_one_time' AND context NOT LIKE 'forced-%'
+ *        AND context IN ('onboarding', 'checkin')
  *      GROUP BY variant
  *   )
  *   SELECT e.variant,

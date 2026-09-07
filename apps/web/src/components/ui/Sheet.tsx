@@ -188,7 +188,27 @@ export function Sheet({
       return
     }
     setClosing(true)
-    closeTimer.current = window.setTimeout(onClose, EXIT_MS)
+    // ⚠️ THE LATCH MUST CLEAR ITSELF, because `onClose` MAY REFUSE.
+    //
+    // This used to leave `closeTimer.current` set for ever and never undo
+    // `closing`, on the assumption that the caller always unmounts a frame
+    // after the exit animation — the invariant `theme.css` states. The
+    // billing sheet made that false: it refuses to close while a payment is in
+    // flight (`SupportPrompt`'s `writing` ref). So pressing Escape during a
+    // bank challenge faded the panel AND the full-screen scrim to
+    // `opacity: 0 forwards`, left them mounted, and dead-latched every
+    // subsequent Escape, ✕ and backdrop click. The reader was left under an
+    // invisible, pointer-eating, focus-trapped `fixed inset-0` overlay until
+    // they reloaded — and reloading loses the done screen that is a one-off's
+    // only in-app record (057).
+    //
+    // Clearing both means a refused close simply plays the exit and comes back,
+    // and the reader can try again once the write finishes.
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null
+      setClosing(false)
+      onClose()
+    }, EXIT_MS)
   }, [onClose])
 
   useEffect(

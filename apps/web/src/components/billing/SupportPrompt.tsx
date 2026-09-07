@@ -295,9 +295,6 @@ export function SupportPrompt() {
    * outcomes overlap: every conversion also logged a walk-away.
    */
   function close(dismissed = true) {
-    // The dismissal path writes too (`ackPrompt` stamps the clock, and a $0
-    // answer settles the amount), so the card must re-read here as well.
-    void queryClient.invalidateQueries({ queryKey: ['billing'] })
     // ⚠️ NOT WHILE MONEY IS MOVING. The flow reports its own writes through
     // `onBusy`, including the card step's `confirmSetup`, which lives inside
     // `CardFields` and is otherwise invisible from here. Refusing the close is
@@ -312,6 +309,13 @@ export function SupportPrompt() {
     if (closedHere.current) return
     closedHere.current = true
     setOpen(false)
+    // ⚠️ BELOW BOTH GUARDS. The dismissal path writes too — `ackPrompt`
+    // stamps the clock — so the profile card must re-read. But a REFUSED
+    // close (a payment in flight) must not start a fetch: round forty-four
+    // executed one landing after a card replacement and reverting the panel to
+    // the old card and `past_due`, which tells somebody who just fixed their
+    // payment that it failed.
+    void queryClient.invalidateQueries({ queryKey: ['billing'] })
     if (!kind) return
     api
       .ackSupportPrompt(kind, { dismissed, context: forced ? `forced-${kind}` : kind })

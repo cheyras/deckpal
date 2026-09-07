@@ -442,8 +442,16 @@ billingRouter.post(
       res.json({ recorded: false });
       return;
     }
-    const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'unknown';
-    const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
+    // ⚠️ VALIDATED, as `/prompt-ack` validates. An unrecognised `kind` used to
+    // 200 and stamp the clock anyway, and a client-chosen context was recorded
+    // verbatim — including one starting `forced-`, which is the prefix the
+    // analysis query trusts to exclude test traffic. A caller could label its
+    // own real exposures as test data and remove itself from the denominator.
+    const KINDS = new Set(['onboarding', 'checkin', 'payment_issue']);
+    const raw = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'unknown';
+    const kind = typeof req.body?.kind === 'string' && KINDS.has(req.body.kind) ? req.body.kind : '';
+    // `forced-` is ours to write, never theirs: the server decides test mode.
+    const context = raw.startsWith('forced-') && stripeMode() !== 'test' ? raw.slice(7) : raw;
     await recordAbEvent(userId, 'shown', context);
     // ⚠️ AND THE CLOCK STARTS HERE, not on the ack. See the header.
     //
@@ -626,6 +634,19 @@ billingRouter.post(
       // clock, days away.
       const status = await retryOpenInvoice(stripe, customerId);
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
+      // ⚠️ THE ONE MONEY ROUTE THAT WAS MISSING THIS. `retryOpenInvoice` calls
+      // `stripe.invoices.pay`, so money moves here, and every other route that
+      // moves money commits before responding — this one did not. Executed in
+      // round forty-four with the middleware's finish-COMMIT failing: the
+      // invoice was PAID, the client got `settled: true` and the new card, and
+      // the row stayed `past_due` with `card_last4` NULL. The supporter who had
+      // just fixed their card was then told "your last payment did not go
+      // through" and "no card on file, so your next payment will fail".
+      //
+      // `customerFor`'s release-and-repoint write is lost in the same rollback,
+      // so the row keeps pointing at a dead customer while a live one holding
+      // their card is orphaned — and the next request mints another.
+      await commitRequestTx(userId);
       // `settled` is the honest answer to "did that fix it", and the client
       // shows a different sentence when it did not.
       res.json({ ...shape(fresh), settled: status === null || !['past_due', 'unpaid'].includes(status) });

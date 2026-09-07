@@ -225,7 +225,7 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `STRIPE_SUPPORT_PRODUCT_ID` | `prod_…` | **The one Stripe Product every supporter is billed against.** Create it once in the Stripe dashboard (Product catalog → Add product; name it something a cardholder will recognise on a statement, e.g. "DeckPal Support"; no price is needed — the amount is generated per subscription). There is no Price object because there is no price: the amount is inline `price_data` on the subscription item, so each invoice reads "DeckPal Support $5.00/month" and the dashboard still groups every supporter under one product. Unset means billing is off exactly as an unset secret key does. **A test-mode product id is not valid in live mode** — create one in each. |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` | **The webhook's ONLY authentication, and the one whose absence is dangerous rather than safe.** `POST /api/stripe/webhook` is public by necessity (Stripe holds no session), so the signature check *is* the access control on the endpoint that decides which accounts are recorded as paying — unset, the route answers `503` and processes nothing rather than trusting the body. That fails safe for the endpoint and UNSAFE for the product: a deployment with a secret key and no webhook secret takes cards and creates subscriptions happily, and then never hears about a renewal, a failure or a cancellation again. `/health` calls that state `partial` and the API warns about it by name on boot. Get the value from Stripe → Developers → Webhooks → add endpoint `https://deckpal.app/api/stripe/webhook`, subscribing to `customer.subscription.*`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `payment_method.*`, `setup_intent.succeeded`, `customer.updated`, `customer.deleted`. **Test and live modes have different signing secrets.** |
 | `NODEJS_HELPERS` | `0` (Vercel only) | **Set it if the webhook rejects deliveries the signature is right for.** Vercel's Node helpers can read and JSON-parse the request body before `express.raw()` sees the stream, and Stripe's signature is over the ORIGINAL bytes — once parsed they cannot be reconstructed, because key order and whitespace are gone. The handler recovers every shape it can (`Buffer`, `Uint8Array`, `ArrayBuffer`, and a UTF-8 `string`) and, for the one it cannot — an object, already JSON-parsed — logs "the request body was parsed before this handler saw it" and answers `500` naming this variable, rather than reporting a signature failure nobody could act on. `0` turns the helpers off. Not needed for the standalone Node server or self-host. |
-| `PUBLIC_APP_ORIGIN` | unset (default) | Optional. The origin Stripe's billing portal returns the reader to. Unset, the API derives it from the request (`https://deckpal.app`), which is right for every ordinary deployment; set it only behind a proxy that rewrites `Host`. The client never supplies it — a return URL taken from a request body is an open redirect with a Stripe-branded page in front of it. |
+| `PUBLIC_APP_ORIGIN` | `https://deckpal.app` — **set it** | The origin Stripe's billing portal returns the reader to. ⚠️ This row used to call it optional and say the derivation "yields `https://deckpal.app`… set it only behind a proxy that rewrites `Host`", which is why nobody set it. Unset, the return URL is built from the request's `Host` header: every alias and every `*.vercel.app` preview URL sends the reader back to THAT host rather than to deckpal.app, and a request with a hand-written `Host` gets a return URL pointing anywhere (not browser-reachable — browsers set `Host` from the URL — but the derivation is not a property of the deployment, which is the point). The client never supplies it — a return URL taken from a request body is an open redirect with a Stripe-branded page in front of it. |
 
 ### Turning the pay-what-you-want tier on
 
@@ -308,6 +308,17 @@ CVC is a card that works.
    $500 — a display figure, never a charge — and a clamped display beats an
    invisible supporter. (The clamp lives in `pullState`, so the webhook and the
    API agree on it. 059's clamp is in the RPC and covers only the API.)
+
+   ⚠️ **Read the experiment with the query in `apps/api/src/billing/store.ts`,
+   not the one in migration 055's header.** 055 is applied and B4 forbids
+   correcting it, and its version pools every context: `payment_issue` records
+   an exposure that can never convert (pure denominator, and it scales with the
+   number of PAYERS, so it penalises the better-converting arm hardest), while
+   `settings` records a conversion with no exposure behind it (pure numerator,
+   repeating every time somebody changes their amount). Measured over forty
+   seeded accounts, a true 2.00x separation read as 2.50x after one dunning
+   cycle. `store.ts`'s query filters context in all three CTEs; that is the
+   whole of the difference.
 
    ⚠️ **Do not enable a bank-debit payment method** (`us_bank_account` / ACH,
    SEPA) in the Stripe dashboard without a code change first. The card form uses

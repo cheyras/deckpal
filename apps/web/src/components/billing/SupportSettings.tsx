@@ -29,7 +29,7 @@
  * renders a quiet line rather than an error state.
  */
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type BillingState } from '../../lib/api'
 import { isCloudMode } from '../../lib/supabase'
 import { brandLabel, cardExpiryWarning, formatAmount, formatExpiry, statusNote, stripeFor } from '../../lib/billing'
@@ -44,6 +44,7 @@ import { SupportFlow } from './SupportFlow'
 type Panel = 'none' | 'amount' | 'card'
 
 export function SupportSettings() {
+  const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: ['billing'],
     queryFn: ({ signal }) => api.billing(signal),
@@ -146,8 +147,16 @@ export function SupportSettings() {
    * through the wind-down month, so it cannot be the test for "a payment is
    * coming that will fail" — there is no next payment.
    */
-  const winding = supporting && support.cancelAtPeriodEnd
-  const needsCard = supporting && !support.cancelAtPeriodEnd
+  // ⚠️ AN OPEN INVOICE OUTRANKS THE WIND-DOWN. Stripe's dunning is independent
+  // of `cancel_at_period_end`, so a `past_due` supporter who has also asked to
+  // stop WILL keep being retried for the month they actually used — and
+  // "nothing further will be charged" told them otherwise, directly beneath a
+  // note saying updating their card settles it. Same adjacent-contradiction
+  // shape this branch was added to fix, one state over, and this one costs the
+  // owner the month.
+  const dunning = support.status === 'past_due' || support.status === 'unpaid'
+  const winding = supporting && support.cancelAtPeriodEnd && !dunning
+  const needsCard = supporting && (!support.cancelAtPeriodEnd || dunning)
   const note = statusNote(support.status, {
     cents: support.cents,
     cancelAtPeriodEnd: support.cancelAtPeriodEnd,
@@ -292,12 +301,11 @@ export function SupportSettings() {
                   // wind-down month after choosing $0 silently un-cancelled the
                   // stop and billed them again. It also logged a conversion.
                   const next = await api.replacePaymentMethod(setupIntentId)
-                  setState(next)
+                  // Into the cache, for the same reason as the amount panel.
+                  queryClient.setQueryData(['billing'], next)
                   setPanel('none')
-                  // The amount panel refreshes the shared cache and this did
-                  // not, so leaving /profile and coming back inside the 60s
-                  // staleTime showed the card that had just been replaced.
-                  void query.refetch()
+                  // (The explicit refetch this used to do is unnecessary now
+                  // that the answer is written straight into the cache.)
                   // ⚠️ `settled` IS THE SERVER'S ANSWER TO "did that fix it".
                   // Behind this endpoint is `retryOpenInvoice`, and a new card
                   // can be refused as readily as the old one. The dunning modal
@@ -364,8 +372,14 @@ export function SupportSettings() {
           <SupportFlow
             state={state}
             onState={(next) => {
-              setState(next)
-              void query.refetch()
+              // ⚠️ SEED THE CACHE, do not race it. `setState` + `refetch` made
+              // this component and the shared query two uncoordinated writers:
+              // executed in round forty-four, a GET started elsewhere (the
+              // modal's invalidate) landed after a card replacement and
+              // reverted the panel to the old card and `past_due`. Writing the
+              // answer INTO the cache puts react-query's own ordering in
+              // charge, and the effect below then mirrors it into local state.
+              queryClient.setQueryData(['billing'], next)
             }}
             // ⚠️ THE SAME GUARD `SupportPrompt` HAS, ON THE OTHER MOUNT SITE.
             // This card's own controls sit outside the flow, so "Use a
