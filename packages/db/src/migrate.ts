@@ -27,6 +27,16 @@ import pg from 'pg';
 export interface MigrationResult {
   version: string;
   applied: boolean;
+  /**
+   * Skipped because it is `-- @supabase-only` and this run is not.
+   *
+   * ⚠️ Distinct from `applied: false`, which also means "already applied", and
+   * conflating the two in the CLI's output is how a production cutover can
+   * silently skip half its migrations: with `SUPABASE_MODE` unset the runner
+   * passes over 054/056/058/059/060/062 and printed `present` for each — the
+   * same word it prints for work that was genuinely already done.
+   */
+  skipped?: boolean;
   checksum: string;
 }
 
@@ -92,7 +102,7 @@ export async function migrateUp(pool: pg.Pool): Promise<MigrationResult[]> {
       }
       // Skip Supabase-only migrations on plain Postgres.
       if (m.supabaseOnly && !supabaseMode) {
-        results.push({ version: m.version, applied: false, checksum: m.checksum });
+        results.push({ version: m.version, applied: false, checksum: m.checksum, skipped: true });
         continue;
       }
       // ── Supabase preflight: clean orphaned app_user rows before 021 ────

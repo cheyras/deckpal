@@ -187,7 +187,10 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 
 1. Import the repo on [vercel.com](https://vercel.com).
 2. Set the following build configuration:
-   - **Build Command:** `pnpm --filter deckpal-web build`
+   - **Build Command:** ⚠️ **use what `vercel.json` says, not a filter.** The
+     repo's `vercel.json` builds all six workspaces; `pnpm --filter deckpal-web
+     build` — which this line used to prescribe — does not build `@deckpal/db`,
+     `api` or `mcp`, so the API ships against a stale or missing `dist/`.
    - **Output Directory:** `apps/web/dist`
    - **Root Directory:** (leave as repo root)
    - **Install Command:** `pnpm install`
@@ -206,8 +209,9 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `PGPASSWORD` | `<pw>` | |
 | `PGSSLMODE` | `require` | See "On `PGSSLMODE`" above |
 | `SUPABASE_DB_URL` | `postgresql://postgres:<pw>@db.<project>.supabase.co:5432/postgres` | Reference only — read by `scripts/migrate-to-cloud.mjs`, not by the API |
-| `API_BASE_PATH` | `/api` | |
+| `API_BASE_PATH` | `/api` | **On Vercel this must be `/api`.** The default is `/deckpal/api` (`apps/api/src/index.ts`), and the Stripe webhook mounts at `${API_BASE_PATH}/stripe/webhook` — so with the default, the endpoint Stripe was given (`/api/stripe/webhook`) is a **404 on every delivery, forever**, while `/health` still reports the billing gate as `configured`. |
 | `NODE_ENV` | `production` | |
+| `SUPABASE_MODE` | `1` | **Set in cloud, unset in self-host — and the billing tier is off without it.** It selects the RLS request-transaction middleware and the `SECURITY DEFINER` write path, and `billingAvailable()` requires it, so an unset value makes `GET /health` answer `billingGate: "self-host"` and every money route refuse, no matter how correct the four Stripe variables are. It also gates the migration runner: `packages/db` **skips every `-- @supabase-only` migration when it is unset** (054, 056, 058, 059, 060, 062) and the CLI prints them as `present`, which reads identically to "already applied". Load it before any migration run. |
 | `DECKE_VERCEL_AI_GATEWAY_KEY` | `<Vercel AI Gateway key>` | **Deck-E's brain. Unset = his chat is off.** The credential `POST /api/chat` uses to reach the Vercel AI Gateway. **Unset means every chat request 503s** and the client hides the character's entry point — fail-closed, and reported rather than silent: the API warns on boot and returns `deckeGate` on `GET /health` (`configured` / `unset` / `borrowed`). **It must be a key with paid credits attached.** A free-tier key authenticates fine and lists every model, then returns a bare `429` — no `retry-after`, no `x-ratelimit-*` headers — on *every* model, so a model fallback does not help and retrying only burns budget. **Deliberately separate from `AI_GATEWAY_API_KEY`**, which belongs to the marketing image generator (`scripts/gen-marketing-images.mjs`): two keys means Deck-E's per-user spend is legible on its own and revocable without breaking a build script. Local development falls back to `AI_GATEWAY_API_KEY` when this is unset; **production never falls back**, because quietly billing the wrong key is worse than being off. |
 | `DESIGN_EDITOR_USER_ID` | `<auth.users UUID>` | **Set this, or two features are dead.** Gates two surfaces. It names the deployment's **owner**: the one account allowed to open the read-only `/design` design-system reference and the `/dev/decke` character preview in production (`GET /me` returns `designEditor: true` and `owner: true` for it). **Unset = nobody**, so both fail closed — which is correct, but was silent until 2026-08-18: `/design` shipped gated on this and the variable was never set, so the route was shut to its only user for four days. The API now warns on boot and reports `ownerGate` on `GET /health` when it is missing (AGENTS.md B11). The name is historical — it means "the owner", and `/design` was simply the first thing that needed one. Editing the design system always requires the local dev server; this only gates viewing. |
 | `DECKE_ENTITLED_USER_IDS` | `<uuid>,<uuid>` | **Who may talk to Deck-E, beyond the owner.** Comma-separated `auth.users` UUIDs. `POST /api/chat` refuses anything not on this list and not `DESIGN_EDITOR_USER_ID` with **403**, checked server-side before the body is parsed. Until 2026-08-21 there was no server-side check at all — the gate lived in the browser, so any signed-in account could `curl` a full model turn onto the owner's Gateway key (verified against the deployed endpoint, not hypothesised). **Unset means owner-only**, which is a real intended configuration rather than a failure, so `GET /health` reports `deckeEntitlement.status` as `owner-only` — or `nobody` when `DESIGN_EDITOR_USER_ID` is also unset, which shuts Deck-E to everybody and warns on boot. Health reports the STATUS and a COUNT, never the ids: `/health` is unauthenticated. **This is also what makes the feature verifiable**: the QA account (`.qa-account`, AGENTS.md B12) is deliberately an ordinary user, and the browser gates for Deck-E include ones that write, which may never run as the owner. Put the QA account's UUID here. |
@@ -381,9 +385,20 @@ CVC is a card that works.
    - the delivery shows **200**, and
    - a row appears: `SELECT count(*) FROM billing_event;`
 
-   A `400` means the raw body is not reaching the handler. Do not go live
-   without this: an endpoint that rejects every delivery leaves subscriptions
-   charging while the app believes nobody is paying.
+   ⚠️ **The two failures are different codes, and this line used to name the
+   wrong one.** Executed against the real handler:
+
+   - **500** with `{"code":"raw_body_lost"}` (log: "the request body was parsed
+     before this handler saw it") — the raw body is not reaching the handler.
+     Set `NODEJS_HELPERS=0`.
+   - **400** `bad_signature` — the signing secret is wrong for this mode, or
+     the delivery is outside Stripe's 5-minute timestamp tolerance (a replay).
+   - **503** — `STRIPE_WEBHOOK_SECRET` is unset; nothing is processed.
+   - **404** — `API_BASE_PATH` is not `/api`, so the route is mounted
+     somewhere else entirely.
+
+   Do not go live without this check: an endpoint that rejects every delivery
+   leaves subscriptions charging while the app believes nobody is paying.
 
 7. Verify from outside, not from the code:
      curl -s https://deckpal.app/api/health | jq '{billingGate, stripeMode}'
@@ -392,7 +407,10 @@ CVC is a card that works.
    "partial" — one of the four is missing (the boot warning says which, and
    whether the tier is armed-and-deaf or simply off); "mode-mismatch" — the
    secret and publishable keys are from different Stripe modes, which answers
-   every request 200 and fails every card confirmation.
+   every request 200 and fails every card confirmation; **"self-host" —
+   `SUPABASE_MODE` is unset**, which turns the whole tier off regardless of the
+   Stripe keys and is easy to miss because it names a legitimate configuration
+   rather than a fault.
 ```
 
 ### ⚠️ Going live: the test data is in your PRODUCTION tables
@@ -417,32 +435,109 @@ Neither self-heals.
 
 **The cutover, in order.** The numbered list above is written to be run in TEST
 mode first, so its "run the cleanup SQL first" note is about the LIVE run. When
-you actually cut over, this is the sequence:
+you actually cut over, this is the sequence. It was walked step by step against
+a database seeded to production's current state; the notes marked ⚠️ are the
+places a literal reading of the previous version of this list went wrong.
 
-1. Put the live `sk_live_` / `pk_live_` keys and the live-mode product id and
-   webhook secret in place.
-2. Run the cleanup SQL below. Doing it BEFORE the migrations is what removes
-   the 059 hazard rather than mitigating it: with no stored customer id there
-   is no repoint path for the pin to refuse.
-3. Apply migrations 058—063, together and in order.
-4. Deploy this branch. Steps 3 and 4 must be adjacent — see the warning at
-   step 5 above for what the gap costs.
-5. Re-run the send-a-test-webhook gate against the live endpoint and confirm a
-   200 and a `billing_event` row. The test-mode pass does not carry over: the
-   signing secret is different.
-6. Pay once with a real card, and once with Link (see the Link note at step 5).
+**In the Stripe dashboard, in LIVE mode** (each of these is live-mode-only —
+the test-mode equivalents do not carry over):
+
+1. Product catalog → create the support product → `prod_…`.
+2. Developers → API keys → `sk_live_…`, `pk_live_…`.
+3. Developers → Webhooks → add `https://deckpal.app/api/stripe/webhook`,
+   subscribing to the events listed in the `STRIPE_WEBHOOK_SECRET` row →
+   `whsec_…`.
+4. Settings → Billing → Customer portal → **Save** (live mode has its own
+   portal configuration; without it `/portal` fails for everyone).
+5. Settings → Payment method domains → register `deckpal.app`. `vercel.json`
+   already ships the Apple-Pay domain-association redirect, but registration is
+   a dashboard action, and **wallets silently do not appear until it is done**.
+6. Settings → Customer emails → "Successful payments" ON. Nothing in this app
+   emails a receipt; Stripe is the only thing that does.
+
+**Environment** (Vercel → Project → Settings → Environment Variables):
+
+7. ⚠️ **Add all four `STRIPE_*` variables to PRODUCTION.** The existing ones
+   are **Preview only, git-branch-scoped to `feat/pwyw-billing`** — that scope
+   stops matching the moment the branch is merged, and Production was never
+   configured, so the tier comes up silently OFF. The previous version of this
+   list said only "put the live keys in place" and named no environment.
+8. Add `PUBLIC_APP_ORIGIN=https://deckpal.app` to **Production**. Leave it
+   unset in Preview, where deriving from `Host` is what sends a preview's
+   portal session back to the preview.
+9. Confirm `SUPABASE_MODE` is set in Production. Without it the tier is off
+   whatever else is right — see its row above.
+10. Do **not** accept Vercel's "redeploy?" prompt after adding variables. The
+    deploy that matters is step 14 and it must carry the new code.
+
+**Database** (needs the production `PG*` credentials; run it from a shell that
+has them, not from an agent session):
+
+11. `set -a && . ./.env.prod && set +a` — then **check `echo $SUPABASE_MODE`
+    is non-empty before going further**. This is the step that silently ruins
+    the rest: with it unset the runner skips 058/059/060/062 and the CLI prints
+    them as `present`, which reads exactly like "already applied".
+12. Run the cleanup SQL below, **once**. Doing it BEFORE the migrations is what
+    removes the 059 hazard rather than mitigating it: with no stored customer id
+    there is no repoint path for the pin to refuse.
+13. `pnpm --filter @deckpal/db build && pnpm --filter @deckpal/db migrate`,
+    then `pnpm --filter @deckpal/db migrate:status` and confirm **058-063 all
+    show applied**. ⚠️ Verify with `migrate:status`, not with the runner's own
+    output. ⚠️ The run is **not atomic** — each migration file is its own
+    transaction on one connection, so a failure at 062 leaves 058-061
+    committed. The recovery is to fix the cause and re-run: the runner resumes
+    from what is pending. (At 5 000 accounts the whole set applies in well under
+    a second; the only statements that touch live traffic are 061's unique index
+    and 063's `SET NOT NULL`, both sub-second at this scale.)
+
+**Deploy**
+
+14. ⚠️ **Merge `feat/pwyw-billing` into `main` via PR.** Vercel's git
+    integration deploys `main` to Production. The previous version said "deploy
+    this branch", whose literal reading is `vercel --prod` from a feature
+    worktree — which ships unmerged code. Steps 13 and 14 must be adjacent.
+15. `curl -s https://deckpal.app/api/health | jq '{billingGate, stripeMode}'`
+    → `{"billingGate":"configured","stripeMode":"live"}`.
+16. Re-run the send-a-test-webhook gate against the LIVE endpoint and confirm a
+    200 and a `billing_event` row. The test-mode pass does not carry over: the
+    signing secret is different.
+17. Pay once with a real card, and once with Link (see the Link note above).
+    This is also the only thing that catches two keys from the same mode but
+    **different accounts**, which the gate cannot see.
+
+⚠️ **Never re-run step 12 after step 17.** See the banner on the SQL itself.
 
 The cleanup's statements are unconditional — they clear everything, which is
-right precisely because nothing before the cutover is real:
+right precisely because nothing before the cutover is real.
+
+> ## ⛔ RUN THIS EXACTLY ONCE, BEFORE THE FIRST LIVE PAYMENT
+>
+> These statements are unconditional, and that is safe only while no row is
+> real. **After go-live they destroy real supporters** — executed against a
+> seeded row carrying a live customer, a live subscription and $25/month: it
+> came back `stripe_customer_id: NULL, support_cents: 0`, with no error, no
+> affected-row warning and no audit trail. The subscription goes on charging at
+> Stripe while the app believes nobody is paying, and nothing in the product can
+> tell you it happened.
+>
+> If you are reading this after step 17, the answer is no.
+
+It is one transaction on purpose: without the wrapper these are four
+autocommitting statements, and a failure at the third leaves the first two
+applied.
 
 ```sql
+BEGIN;
+
 -- 1. Forget every cached test-mode Stripe fact. The next visit re-syncs from
 --    live Stripe; an account with nothing there correctly reads as $0.
+--    `updated_at` is stamped so a cleared row is distinguishable afterwards
+--    from one that was never touched.
 UPDATE billing_account
    SET stripe_customer_id = NULL, subscription_id = NULL, subscription_status = NULL,
        support_cents = 0, current_period_end = NULL, cancel_at_period_end = FALSE,
        card_brand = NULL, card_last4 = NULL, card_exp_month = NULL, card_exp_year = NULL,
-       stripe_synced_at = NULL;
+       stripe_synced_at = NULL, updated_at = now();
 
 -- 2. Forget the prompt bookkeeping preview testing wrote. Without this, an
 --    account that was shown or dismissed the modal during the test-mode
@@ -460,11 +555,56 @@ DELETE FROM billing_ab_event;
 
 -- 4. The webhook ledger refers to test-mode event ids that will never recur.
 DELETE FROM billing_event;
+
+COMMIT;
+```
+
+Then confirm it did what it claims, before moving on:
+
+```sql
+SELECT count(*) FROM billing_account WHERE stripe_customer_id IS NOT NULL;  -- 0
+SELECT count(*) FROM billing_ab_event;                                       -- 0
+SELECT count(*) FROM billing_event;                                          -- 0
 ```
 
 The experiment arm (`ab_presets`) is deliberately NOT cleared: it is a coin
 flip, it carries no Stripe state, and re-flipping it would re-bucket everyone
 who had already been assigned.
+
+### If the first real payment goes wrong: rolling back
+
+⚠️ **The migrations are not reversible.** 062 drops the three-argument
+`billing_record_ab_event` outright, 063 backfills and adds a `NOT NULL`, and B4
+forbids editing any of them. So the rollback is code-and-Stripe only, and the
+schema stays forward — which is safe: the pre-billing code was executed against
+the post-063 schema and runs unharmed (the old three-argument RPC still resolves
+through 062's default, and the old ledger insert still works through
+`claimed_at`'s default).
+
+1. **Fastest — Vercel → Deployments → the last pre-billing Production
+   deployment → Instant Rollback.** The support UI and every billing route
+   disappear.
+2. **Softer** — remove `STRIPE_SECRET_KEY` from Production and redeploy.
+   `billingAvailable()` goes false, the tier is off, nothing else changes.
+3. ⚠️ **Neither of these stops money.** Existing subscriptions keep charging at
+   Stripe and must be cancelled — and refunded if you mean to — by hand in the
+   dashboard. Disable the webhook endpoint there too, or every delivery 500s
+   against code that no longer has the schema it expects.
+4. Leave the schema alone.
+
+### Rotating the webhook signing secret
+
+The code holds one secret (`STRIPE_WEBHOOK_SECRET`). Stripe's roll gives you a
+window in which **both** secrets sign every delivery — two `v1=` values in one
+`stripe-signature` header — and the SDK accepts a match against either, so a
+rotation works in either order **inside that window** and there is no
+coordination problem. Executed.
+
+It is one-sided, though: once the variable holds only the new secret, a delivery
+signed only by the old one is a 400. So: roll in Stripe → set the variable in
+Vercel → **redeploy** (an environment change does not reach running functions
+until you do) → confirm with the send-a-test-webhook gate, all before the old
+secret expires.
 
 **The migration backfills existing accounts on purpose.** 053 seeds every
 `app_user` that already exists at `visit_count = 3` with `onboarded_at` stamped,

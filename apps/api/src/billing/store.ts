@@ -436,11 +436,35 @@ export async function releaseCustomer(userId: string): Promise<void> {
  * person's own requests are exactly what must not interleave. The wait is
  * bounded by the same PGRLS_MAX_HOLD_MS watchdog as everything else.
  *
- * No-op outside SUPABASE_MODE — self-host has one user and no concurrency
- * story worth the round trip.
+ * ⚠️ OUTSIDE SUPABASE_MODE THIS THROWS RATHER THAN SHRUGGING, and that is the
+ * point. It used to return quietly, on the reasoning that self-host has one
+ * user and no concurrency story worth a round trip. That reasoning is true of
+ * the deployment and false of the code: every money route is unreachable in
+ * self-host only because `billingAvailable()` happens to require SUPABASE_MODE,
+ * and the day somebody drops that condition to let self-hosters take money, the
+ * serialisation disappears with no error and nothing to notice.
+ *
+ * Executed with the gate forced open, against the real routes and the real
+ * self-host schema: two concurrent `PUT /subscription` at $3 and $10 produced
+ * TWO live subscriptions on one customer, each having collected its own first
+ * invoice, with the row naming only one of them. On Supabase that window is
+ * closed twice over — this lock, and 059's write-once pin turning a lost race
+ * into a loud 502. Self-host has neither.
+ *
+ * So it fails closed. If self-host billing is ever wanted, the fix is a real
+ * `pg_advisory_xact_lock` inside a real transaction (outside one it is also a
+ * no-op — measured), plus the guards `applyStripe` and `recordAbEvent`'s
+ * self-host arms are missing: the write-once customer pin, the `support_cents`
+ * clamp, the empty-string handling, and the experiment's amount and daily caps,
+ * all of which live only in the @supabase-only migrations.
  */
 export async function lockAccount(userId: string): Promise<void> {
-  if (!SUPABASE_MODE) return;
+  if (!SUPABASE_MODE) {
+    throw new Error(
+      'lockAccount: billing has no serialization outside SUPABASE_MODE. '
+        + 'If you are enabling the money routes for self-host, read this function first.',
+    );
+  }
   // ⚠️ THE SINGLE-BIGINT FORM, NOT THE (int, int) PAIR.
   //
   // This shipped for one round as `pg_advisory_xact_lock(8534071,

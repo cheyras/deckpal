@@ -39,9 +39,19 @@
 -- belongs to an attempt that died without releasing it, and may be taken over.
 --
 -- The window is generous on purpose: reclaiming too early re-runs a handler
--- that may still be running, and while every handler here is idempotent (a full
--- re-read of Stripe, not an increment), a longer wait costs only a few minutes
--- of staleness on an event Stripe is retrying anyway.
+-- that may still be running, and a longer wait costs only a few minutes of
+-- staleness on an event Stripe is retrying anyway.
+--
+-- ⚠️ BE EXACT ABOUT WHAT THIS LEDGER GUARANTEES, because an earlier version of
+-- this paragraph was not. It guarantees that NO DELIVERY IS ANSWERED 2xx BEFORE
+-- ITS WORK COMPLETED, and that no event is lost. It does NOT guarantee
+-- at-most-once EXECUTION: executed at the five-minute mark, a takeover ran the
+-- same event concurrently with a still-live original and both answered 200.
+-- That is safe here only because of what the handlers are — `syncCustomer` is a
+-- full re-read of Stripe rather than an increment, and the one money-moving
+-- path, `refundStraySubscription`, carries `idempotencyKey: dup-refund:<id>`.
+-- A future handler that increments, appends or emails would break that, and
+-- this comment is the reason it would not be obvious.
 --
 -- Existing rows are backfilled as processed. They are the record of deliveries
 -- that DID complete under the old scheme — a `received_at` row only ever

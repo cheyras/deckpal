@@ -410,6 +410,16 @@ async function handle(req: Request, res: Response): Promise<void> {
     // Releasing early is better than waiting out the stale window, but the
     // window is what makes correctness not depend on this line running at all —
     // a process killed here never reaches it, and the retry still gets in.
+    //
+    // ⚠️ THE PREDICATE IS NOT CLAIM-SCOPED, and that is a known, bounded
+    // imprecision rather than an oversight. It deletes whichever claim is
+    // currently live, not this attempt's own — so an attempt slow enough to have
+    // been taken over at the five-minute mark releases the NEW owner's claim on
+    // its way out. Executed: the consequence is one extra re-execution, never a
+    // lost event and never a permanently-claimed one. Making it exact needs a
+    // `claim_token uuid` column scoping both this DELETE and `completeEvent`'s
+    // UPDATE; it is worth doing the next time this table is migrated for another
+    // reason, and is not worth a migration of its own.
     await q(`DELETE FROM billing_event WHERE stripe_event_id = $1 AND processed_at IS NULL`, [event.id]).catch(
       () => {
         console.error('[deckpal-api] stripe webhook: could not release the event claim; the stale window will');

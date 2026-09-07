@@ -17094,6 +17094,83 @@ the deploy — 059 without 060 is worse than neither, because it recreates the
 orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
 cutover.
 
+### 52. The parallel sweep: the code was ready, the RUNBOOK was not
+
+Four reviewers at once, on the four surfaces nothing had executed — the
+self-host branch, the connection budget, the webhook's serverless edge, and the
+cutover procedure itself. One round of wall-clock instead of four, which is how
+this should have been run from the start.
+
+**The finding that mattered was not in the code.** Every previous round audited
+what the software does; none audited the document a human follows to turn it on.
+Walked step by step against a database seeded to production's current state, the
+runbook fails three independent ways, any one of which is sufficient:
+
+- **The migration step had no command and never mentioned `SUPABASE_MODE`.**
+  With it unset the runner skips 054/056/058/059/060/062 and the CLI printed
+  `present` for each — the same word it prints for work already done. 061 and
+  063 still apply, so the run looks partly successful, and the deploy then hard-
+  fails on `billing_ensure_row()`. The CLI now prints `SKIPPED` and a warning
+  naming the variable; `MigrationResult` carries `skipped` so the two facts are
+  distinguishable at the type level rather than by eye.
+- **"Deploy this branch"** named a branch that is not the production branch, and
+  the file documented no deploy mechanism at all. Its literal reading is
+  `vercel --prod` from a feature worktree.
+- **The four `STRIPE_*` variables exist only in Preview, git-branch-scoped to
+  `feat/pwyw-billing`.** That scope stops matching at the merge and Production
+  was never configured, so the tier would have come up silently off.
+
+And the one with teeth: **the go-live cleanup SQL is unconditional and was
+unwrapped**. Four autocommitting statements, so a failure at the third leaves
+the first two applied — and re-running it after go-live wipes real supporters.
+Executed: a row carrying a live customer, a live subscription and $25/month came
+back nulled, with no error and no audit trail, while Stripe went on charging.
+It is one transaction now, under a banner that says what it does after go-live.
+Its predicates were checked column-by-column over sixty seeded accounts and are
+correct — the danger was never the SQL, it was the absence of a fence.
+
+Also fixed: the webhook gate told the operator to look for a **400**, and
+raw-body-lost is a **500** `raw_body_lost` — 400 means a wrong secret or a
+replay. That gate is the only detector for "every delivery rejected while cards
+keep charging", and its diagnostic pointed at the wrong variable in both
+directions. `API_BASE_PATH` had an empty notes cell despite being the difference
+between a working endpoint and a 404 on every delivery forever. `SUPABASE_MODE`
+was read by the billing gate and absent from the environment table (B11).
+DEPLOYMENT.md now also carries a rollback section — the migrations are NOT
+reversible, so rollback is Instant Rollback plus cancelling in Stripe by hand —
+and a secret-rotation procedure, which was absent entirely.
+
+**The code came back clean, with one latent hole worth closing.** The self-host
+branch is dead *and* correct: `pnpm migrate` reaches 063 on both a virgin and an
+already-migrated self-host database, and every self-host arm executes cleanly.
+But `lockAccount` returned quietly outside SUPABASE_MODE, and nothing degrades
+loudly if it does nothing. With the gate forced open — one plausible future
+change, letting self-hosters take money — two concurrent `PUT /subscription`
+produced two live subscriptions on one customer, each having collected its own
+first invoice. It throws now. The self-host arms of `applyStripe` and
+`recordAbEvent` are missing the guards that live in the @supabase-only
+migrations (the write-once pin, the amount clamp, the daily ceiling); that is
+recorded in the function rather than fixed, because the branch is unreachable
+and a fix nobody executes is a liability of its own.
+
+The webhook edge came back clean on everything that decides money: `rawBody()`
+is byte-exact for every shape including a non-ASCII payload arriving as a
+string, mount order is right, and no ledger path leaves an event stuck. Two
+comments overclaimed and were corrected: 063 said "every handler here is
+idempotent" when what the ledger actually guarantees is that no delivery is
+answered 2xx before its work completed — a takeover CAN run concurrently with a
+still-live original, and that is safe only because of what today's handlers are.
+And the claim release is not claim-scoped, which costs one extra re-execution
+and never a lost event; it is documented where somebody would need it rather
+than migrated for on its own.
+
+**Method note.** Every sweep was required to prove its harness could FAIL before
+trusting a pass, after round forty-eight found a suite that had silently
+no-op'd. It paid: one sweep's mutation testing (eight one-behaviour mutants
+against its own assertions) found two of its own checks passing for the wrong
+reason, and another found a false PASS caused by a fake Stripe resolving in a
+microtask, so two "concurrent" requests never actually interleaved.
+
 ### 51. Round forty-nine, and the end of the loop
 
 **The loop stops here.** Its exit condition — two consecutive fresh-context
