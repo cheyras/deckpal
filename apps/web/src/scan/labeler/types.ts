@@ -11,6 +11,25 @@ export type LabelSource = 'camera' | 'upload'
 export type SeededFrom = 'detector' | 'default'
 
 /**
+ * WHY a `seededFrom: 'default'` row fell back — recorded from 2026-09-07, and
+ * the difference matters enormously to a harvest.
+ *
+ *   'no_object'   THE MODEL RAN AND SAID NO. `hasObj` came in under the
+ *                 shipping acquire threshold on a real frame. This is SIGNAL:
+ *                 paired with a human positive it is a recorded detector MISS,
+ *                 which is the most valuable row the corpus can hold.
+ *   'no_quad'     the presence head opened but the corner output was not four
+ *                 finite points. Rare; a model fault, not a frame fault.
+ *   'unavailable' the detector never ran here at all — assets failed, the
+ *                 budget expired, the canvas could not be read. This says
+ *                 nothing about the frame and a harvest must not read it as a
+ *                 miss. Every `default` row recorded before 2026-09-07 is this
+ *                 case (rounds 9-9c: `captureStream` never delivered a frame),
+ *                 and none of them carry this field to say so.
+ */
+export type SeedFallback = 'no_object' | 'no_quad' | 'unavailable'
+
+/**
  * SCHEMA VERSION OF ONE SAVED LABEL — bumped 2026-09-06, and present on every
  * row this build writes.
  *
@@ -288,7 +307,27 @@ export function labelSchemaOf(row: { labelSchema?: number }): number {
 interface QuadLabelBase {
   /** See LABEL_SCHEMA_VERSION. Written on every row from 2026-09-06. */
   labelSchema: typeof LABEL_SCHEMA_VERSION
+  /** The CANONICAL frame's dimensions — what `corners` are fractions of, and
+   *  what the attached PNG is. Always `canonicalSize` square; kept because a
+   *  future canonical resolution must not silently rewrite old rows' meaning. */
   dims: { width: number; height: number }
+  /**
+   * THE SOURCE THE CANONICAL FRAME WAS CUT FROM — the camera stream's native
+   * resolution, or the uploaded photo's. Added 2026-09-07; ABSENT on the
+   * schema-2 rows recorded 2026-09-06.
+   *
+   * Without it a row cannot be mapped back to the pixels it came from, and
+   * `dims` cannot supply it: `dims` is always the canonical square, so every
+   * row looked like a 416x416 photo. A 12 MP phone frame and a 640x480 webcam
+   * frame produce identical `dims` and very different amounts of real detail,
+   * which is exactly what a training run wants to weight by.
+   */
+  stream?: { width: number; height: number }
+  /** The centre-square crop taken from `stream` to build the canonical frame
+   *  (engine/frame.ts `squareCrop`), in STREAM pixels. With `stream` above,
+   *  this is the complete inverse map from a normalized corner back to a pixel
+   *  in the original photo. Added 2026-09-07 alongside `stream`. */
+  crop?: { x: number; y: number; size: number }
   source: LabelSource
   seededFrom: SeededFrom
   pipeline: {
@@ -299,6 +338,20 @@ interface QuadLabelBase {
     modelNumThreads?: number
     modelProxy?: boolean
     modelCrossOriginIsolated?: boolean
+    /** Raw presence head for this frame, ungated. Present from 2026-09-07
+     *  whenever the model actually ran — including when it declined, which is
+     *  the case worth having the number for. */
+    hasObj?: number
+    /** The threshold `hasObj` was judged against (gate.ts DEFAULT_ACQUIRE at
+     *  the time of labelling), so a re-tune later cannot retroactively change
+     *  what a recorded row meant. */
+    seedAcquireThreshold?: number
+    /** Why a `seededFrom: 'default'` row fell back. See SeedFallback — the
+     *  distinction between a detector MISS and a detector that never ran. */
+    seedFallback?: SeedFallback
+    /** Wall time the seed took, ms — model load included on the first frame of
+     *  a session. Diagnostic only. */
+    seedMs?: number
   }
   savedAt: string
 }

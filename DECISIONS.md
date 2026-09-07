@@ -15056,3 +15056,107 @@ name+vector corroboration, the multi-family guard and the fuzzy-never-confident
 rule), 220 api pure, 175 web scan-ui (13 new across `identity.test.ts` and a new
 `candidates-picker.test.ts` that renders the shipping popover). API build, web
 typecheck and web build all pass.
+
+## 2026-09-07 — The labeler's seed stops pretending a still frame is a video
+
+**Decided by:** Agent, closing round 9c's open item 38, on the owner's "the next
+step is for me to start assembling the training data for the quads".
+
+**Decision:** `detectSeed.ts` no longer builds a synthetic MediaStream. The
+canvas-`captureStream()` → hidden `<video>` → `createScanEngine().start()` bridge
+is deleted and replaced by a direct single-shot call into the engine's own
+inference path: `drawModelInput` → `rgbaToBGRPlanar` → the cached `loadModel()`
+session → `hasObj >= DEFAULT_ACQUIRE` → `modelPointsToCanonicalQuad` →
+`refineQuadChecked(gradientField(...))`. Every one of those is the shipping
+module, called unmodified.
+
+**Why:** The seed had never once produced a quad — not on any device, in any
+round. Round 9 blamed the environment, round 9b traced an unbounded
+`await video.play()` that never settles on a canvas-backed stream, and round 9c
+fenced that await and found the seed *still* `default`: with the hang bypassed,
+the synthetic frame never reached the engine inside its 4 s window either. The
+transport was the defect. `captureStream()` is driven by DRAWING — a canvas
+nobody paints to after the stream opens has, from the track's point of view,
+nothing to send — so it was being asked to deliver a video with one frame, to a
+detector whose presence gate (hysteresis) and tracker (age, coasting) are both
+explicitly about change over time. A still frame has no time axis, and two of
+the three stages downstream were therefore answering a question that could not
+arise. What was left out is stated as such in the file: the rAF cadence, the
+gate's hysteresis (a cold gate is CLOSED, and a closed gate opens at exactly
+`acquire`, so the single-frame test IS what the shipping gate does on frame one)
+and the tracker, none of which changes the quad the detector proposed.
+
+**Implications:**
+
+* **The seed works, measured.** On a local production build in headless Chrome:
+  `seededFrom: 'detector'`, `hasObj` 0.999, and the seeded quad lands on the card
+  at **IoU 0.931** against an independently measured truth (0.19 against the
+  centred fallback). The editor opens in **~210 ms** where round 9c measured
+  **9.07 s**; `warmSeed()` starts the model load on mount, so the cold ORT boot
+  is spent while the reader is still framing rather than after the shutter.
+* **`seededTopLeftIndex` finally means something.** Every `default` row recorded
+  before today is a rig artefact, not a detector miss, so the
+  `topLeftIndex !== seededTopLeftIndex` rate over those rows measures nothing
+  about rectify.ts's ~7 % orientation residual. Rows from this build do.
+* **The fallback stays, and now says why it fired.** `pipeline.seedFallback`
+  distinguishes `'no_object'` (the model ran and declined — real signal, and a
+  recorded detector MISS when paired with a human positive) from `'unavailable'`
+  (it never ran — says nothing about the frame). `hasObj` and
+  `seedAcquireThreshold` ride along so a later re-tune cannot retroactively
+  change what a row claimed.
+* **Rows carry their provenance.** `stream` and `crop` are new and optional:
+  `dims` is always the canonical square, so before them every row looked like a
+  416x416 photo and no corner could be mapped back to a pixel in the original.
+  `labelSchema` stays **2** — these add provenance, not meaning — and they are
+  absent on the six schema-2 rows from 2026-09-06, where absence reads as
+  UNKNOWN.
+* **Nothing on the seed path awaits something unbounded any more**, which is
+  `scan/ui/deadline.ts`'s rule and the one round 9b's hang broke. A source-level
+  test asserts both awaits are raced against `SEED_BUDGET_MS` and that the
+  captureStream bridge cannot come back.
+* Harvest procedure is written down in `apps/web/src/scan/labeler/HARVEST.md`.
+
+## 2026-09-07 — The labeler is sized for a 200-frame session on a phone
+
+**Decided by:** Agent, same sitting.
+
+**Decision:** Taps per label drop from 4 to **1** (upload, multi-select queue)
+and from 3 to **2** (camera): a save now ADVANCES by itself — straight back to
+the live view, or on to the next queued photo — the "Next" tap is gone, upload
+takes a whole folder at once, and `CaptureStage` stays MOUNTED behind the editor
+so the camera is acquired once per session rather than once per frame. The nine
+rejection reasons move into a sheet one tap away; the corner handles get 44 px
+hit areas around their unchanged 26/30 px markers; the root height subtracts
+AppShell's `--app-header-h` instead of assuming the full viewport.
+
+**Why:** Every one of these is a per-frame cost multiplied by several hundred.
+The camera teardown alone was most of a second of black screen on every single
+label. Measured at 390x844, the root's `h-dvh` put the Save button — the one
+control pressed every frame — partly BELOW the fold, because the route renders
+inside AppShell's 64 px header. And round 9 item 26 had already measured the
+card-back toggle sitting 425 px above Save with all nine rejection chips between
+them; on a 390 px phone that left almost nothing for the frame being labelled.
+
+**Implications:**
+
+* A failed POST no longer loses the label. `saveLabel.ts` splits encoding from
+  sending, so the retry queue holds plain data (`PendingLabel`) rather than a
+  canvas: the reader is advanced anyway, the queue drains on `online` and on a
+  15 s backstop, and a `beforeunload` guard refuses to let a non-empty queue
+  die silently. Capped at 25 (~6 MB) — past that the reader is told to stop.
+* A double-tapped Save posts once, guarded by a REF (`setSaving` does not take
+  effect until React re-renders, so two taps 40 ms apart both read the old
+  `false`).
+* Save reads the corner REF, not mirrored state — any path that ends a drag
+  without a pointerup would otherwise post a quad the reader never saw, which is
+  the one corruption a corpus cannot detect later.
+* Still owed: `PwaUi`'s install pill is `fixed bottom-left` and overlaps the
+  editor's bottom-left control; `scan/ui/camera.ts` has an unbounded
+  `await video.play()` of the same family as the one fixed above. Both are
+  outside this lane's files and are reported, not touched.
+
+**Tests:** 647 web scan (7 new in `labelSchema.test.ts`; 588 was the baseline
+before a concurrent scan-ui lane added its own), web typecheck and the full
+`deckpal-web` build (check-api-base, check-precache, check-auth-deadlines) all
+pass. Driven in headless Chrome against a local production build + `vite
+preview`: 20/20 upload-and-seed checks, 6/6 camera checks, 0 page errors.

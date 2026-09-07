@@ -18,6 +18,9 @@ import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 
 import type { Quad } from '../../engine/contract'
+// The harvest-time inverse map is the SHIPPING one, not a copy of it — a row's
+// `stream`/`crop` are only useful if they feed the engine's own function.
+import { CANONICAL_SIZE, canonicalToStream, squareCrop } from '../../engine/frame'
 import { orientedCorners, type TopLeftIndex } from '../orientation'
 import {
   LABEL_SCHEMA_VERSION,
@@ -244,13 +247,26 @@ describe('mixing schema 1 and schema 2 in one harvest', () => {
 })
 
 describe('the seed pre-assigns the anchor on EVERY path', () => {
-  // detectSeed.ts cannot be imported here — it pulls the engine loader and the
-  // ONNX session, which need a browser. So the invariant is fenced at the
-  // source: there are three ways out of `seedQuad` (detector hit, detector
-  // miss, and the captureStream/exception fallbacks), and every one of them
-  // must go through the single helper that assigns the anchor. A hand-built
-  // SeedResult on any path would ship the editor an anchor of `undefined`.
-  const SRC = readFileSync(fileURLToPath(new URL('../detectSeed.ts', import.meta.url)), 'utf8')
+  // detectSeed.ts cannot be imported here — it pulls the ONNX session and a
+  // canvas, which need a browser. So the invariant is fenced at the source:
+  // there are several ways out of `seedQuad` (a detector hit, a detector miss,
+  // a model that would not load, an expired budget, an exception), and every
+  // one of them must go through the single helper that assigns the anchor. A
+  // hand-built SeedResult on any path would ship the editor an anchor of
+  // `undefined`.
+  const RAW = readFileSync(fileURLToPath(new URL('../detectSeed.ts', import.meta.url)), 'utf8')
+
+  /**
+   * CODE ONLY — comments stripped before any scan below runs.
+   *
+   * The file's header quotes rounds 9/9b/9c verbatim, and those rounds are a
+   * story about rows that came back `seededFrom: 'default'`, so the phrase this
+   * suite hunts for appears legitimately in prose several times. Scanning the
+   * raw text made the suite fail on a documentation change, which is the exact
+   * opposite of what it is for: it exists to notice a RETURN PATH that skipped
+   * the helper.
+   */
+  const SRC = RAW.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
 
   it('declares topLeftIndex on SeedResult', () => {
     assert.match(SRC, /topLeftIndex: TopLeftIndex/)
@@ -259,15 +275,116 @@ describe('the seed pre-assigns the anchor on EVERY path', () => {
   it('assigns it from the production geometric rule, in exactly one place', () => {
     const assignments = SRC.match(/topLeftIndex: seedTopLeftIndex\(/g) ?? []
     assert.equal(assignments.length, 1)
-    assert.match(SRC, /import \{ seedTopLeftIndex/)
+    assert.match(RAW, /import \{ seedTopLeftIndex/)
   })
 
   it('builds NO SeedResult by hand — every return goes through the helper', () => {
-    // A literal `seededFrom: 'detector'` anywhere outside the helper means some
-    // path is constructing the result itself, and has therefore skipped the
-    // anchor.
+    // A literal `seededFrom:` anywhere in the CODE outside the helper means
+    // some path is constructing the result itself, and has therefore skipped
+    // the anchor.
     const handBuilt = SRC.match(/seededFrom: '(detector|default)'/g) ?? []
     assert.deepEqual(handBuilt, [], `hand-built SeedResult(s) found: ${handBuilt.join(', ')}`)
-    assert.ok((SRC.match(/\bseeded\(/g) ?? []).length >= 4, 'helper definition plus every return path')
+  })
+
+  it('funnels every fallback through ONE place, which itself calls the helper', () => {
+    // The fallback paths are consolidated behind `fell(...)`, so there are
+    // exactly three occurrences of `seeded(`: its own definition, the fallback
+    // helper, and the one success return. A fourth is a fourth way out.
+    assert.equal((SRC.match(/\bseeded\(/g) ?? []).length, 3)
+    assert.match(SRC, /const fell = \(why: SeedFallback[\s\S]*?seeded\(normalize\(fallbackQuad\(\)\)/)
+  })
+
+  it('bounds every await — no path can hang the editor open', () => {
+    // Round 9b's defect was one unbounded `await video.play()` with every
+    // ceiling downstream of it, in a file whose sibling `scan/ui/deadline.ts`
+    // opens with the rule it broke: NOTHING on the capture path may await
+    // something that has no worst case. Both awaits that can block are now
+    // raced against the seed budget...
+    assert.match(SRC, /within\(loadModel\(\), SEED_BUDGET_MS\)/)
+    assert.match(SRC, /within\(session\.run\(input\)/)
+    // ...and the transport that could not be bounded is gone entirely.
+    assert.equal(
+      /captureStream|\.play\(\)|createElement\('video'\)/.test(SRC),
+      false,
+      'the canvas-captureStream video bridge must not come back',
+    )
+  })
+})
+
+describe('a row says WHY it fell back, and where its pixels came from', () => {
+  // The 2026-09-07 additions. Both exist because round 9's corpus could not
+  // answer a question a training run has to ask.
+  const PIPELINE_V2 = { ...PIPELINE, seedAcquireThreshold: 0.8 }
+
+  it('tells a detector MISS from a detector that never ran', () => {
+    // Both are `seededFrom: 'default'` and they mean opposite things. A miss is
+    // signal about a real frame — paired with a human positive it is the most
+    // valuable row in the set. "Never ran" is a note about the rig, and must
+    // never be mined as a miss.
+    const miss = overTheWire(
+      positive({ seededFrom: 'default', pipeline: { ...PIPELINE_V2, hasObj: 0.17, seedFallback: 'no_object' } }),
+    )
+    const broken = overTheWire(
+      positive({ seededFrom: 'default', pipeline: { ...PIPELINE_V2, seedFallback: 'unavailable' } }),
+    )
+    assert.equal(miss.seededFrom, broken.seededFrom)
+    assert.notEqual(
+      (miss.pipeline as Record<string, unknown>).seedFallback,
+      (broken.pipeline as Record<string, unknown>).seedFallback,
+    )
+    assert.equal(Object.hasOwn(broken.pipeline as object, 'hasObj'), false, 'a model that never ran has no reading')
+  })
+
+  it('leaves a pre-2026-09-07 `default` row readable as NEITHER — deliberately', () => {
+    // Every `default` row from rounds 9-9c is `unavailable` in fact (the
+    // captureStream transport never delivered a frame to the engine) and
+    // carries no field saying so. Absence must therefore read as UNKNOWN,
+    // exactly like a missing `face`.
+    const old = overTheWire(negative({ seededFrom: 'default', pipeline: PIPELINE }))
+    assert.equal(Object.hasOwn(old.pipeline as object, 'seedFallback'), false)
+  })
+
+  it('records the threshold the reading was judged against, not just the reading', () => {
+    // gate.ts's DEFAULT_ACQUIRE is tunable. Storing the value in force at
+    // labelling time means a later re-tune cannot retroactively change what a
+    // recorded row claimed.
+    const row = overTheWire(positive({ pipeline: { ...PIPELINE_V2, hasObj: 0.99 } }))
+    const p = row.pipeline as Record<string, number>
+    assert.equal(p.seedAcquireThreshold, 0.8)
+    assert.ok(p.hasObj >= p.seedAcquireThreshold, 'a detector seed cleared its own gate')
+  })
+
+  it('maps a corner back to a pixel in the ORIGINAL photo', () => {
+    // The single most important thing a training run does with one of these
+    // rows, and it was impossible before `stream`/`crop`: `dims` is always the
+    // canonical square, so every row looked like a 416x416 photo.
+    //
+    // The mapping is not re-implemented here — it is `engine/frame.ts`'s own
+    // `canonicalToStream`, the function the shipping pipeline uses, fed
+    // straight from the recorded fields.
+    const row = overTheWire(
+      positive({ stream: { width: 4032, height: 3024 }, crop: { x: 504, y: 0, size: 3024 } }),
+    )
+    const stream = row.stream as { width: number; height: number }
+    const crop = row.crop as { x: number; y: number; size: number }
+    assert.deepEqual(crop, squareCrop(stream.width, stream.height), 'the recorded crop IS the engine’s own')
+
+    const corners = row.corners as Quad
+    const [px, py] = canonicalToStream([corners[0][0] * CANONICAL_SIZE, corners[0][1] * CANONICAL_SIZE], crop)
+    // CORNERS[0] is (0.2, 0.1) of the square: 504 + 0.2*3024, and 0 + 0.1*3024.
+    assert.equal(Math.round(px), 1109)
+    assert.equal(Math.round(py), 302)
+    assert.ok(px >= 0 && px <= stream.width && py >= 0 && py <= stream.height, 'inside the source photo')
+  })
+
+  it('is ABSENT on the schema-2 rows recorded before it existed', () => {
+    // Six rows exist at schema 2 from 2026-09-06 with no provenance at all.
+    // They stay perfectly good quad-regression examples; they simply cannot be
+    // weighted by source resolution, and the schema number does not move for
+    // an addition that changes provenance rather than meaning.
+    const older = overTheWire({ ...positive(), stream: undefined, crop: undefined })
+    assert.equal(older.stream, undefined)
+    assert.equal(older.crop, undefined)
+    assert.equal(older.labelSchema, 2)
   })
 })
