@@ -430,13 +430,29 @@ caller needs.) The endpoints that would move money say so instead:
 `400 "Billing is not configured on this deployment."` A page can ask what the
 tier is; nothing can quietly no-op a payment.
 
-**The browser is trusted with exactly one number.** It sends an `amountCents`
-and, once per card, a `setupIntentId`. It never sends a customer id, a
-subscription id, a price, a payment-method id or a status — those are resolved
-server-side from the authenticated user, and the two ids that do arrive are
-validated against this account's Stripe customer before anything is done with
-them. `billing_account` is SELECT-only to `authenticated` (migration 054), so
-the row that holds the customer id is not writable through PostgREST either.
+**What the browser is trusted with**, in full — the same inventory
+`routes/billing.ts`'s header and SECURITY.md carry, and if you change one,
+change all three:
+
+- an `amountCents`, validated to whole dollars within the floor and ceiling;
+- a `setupIntentId`, on the one leg where a card was just entered, checked to
+  belong to this account's Stripe customer AND to have succeeded;
+- a `paymentIntentId` on `/one-time/confirm`, checked the same way plus the
+  metadata marking it a one-off this flow created;
+- an `attemptId`, an opaque `[A-Za-z0-9_-]{8,64}` string, REQUIRED, because it
+  goes into a Stripe idempotency key — which is what makes a retried gift one
+  charge;
+- a prompt `kind`, a free-text `context` truncated to 40 characters, and a
+  `dismissed` boolean on `/prompt-ack`. None of these touches money; they decide
+  which experiment row is written, and SECURITY.md's "an account can write a
+  plausible event about itself" covers what that permits.
+
+It never sends a customer id, a subscription id, a price, a payment-method id or
+a status: every one of those is resolved server-side from the authenticated
+user. `/refresh` accepts an `amountCents` and deliberately IGNORES it, recording
+what Stripe says the subscription bills. `billing_account` is SELECT-only to
+`authenticated` (migration 054), so the row that holds the customer id is not
+writable through PostgREST either.
 
 **No card data is stored or transits this API.** The card is typed into
 Stripe's own cross-origin iframe (Payment Element); DeckPal receives a brand,

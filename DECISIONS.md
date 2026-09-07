@@ -16446,6 +16446,33 @@ end: both selectors return null, the profile says "no card on file", and every
 attempt 502s. DEPLOYMENT step 6 is the only thing that catches it. **Treat it as
 a gate, not a smoke test: if Link fails, do not invite anyone to pay.**
 
+### 31. Round twenty-eight: the fix that overlapped its own sibling
+
+Round twenty-seven added a branch beside one it overlaps. `succeeded` is not in
+`provenSafe` — nothing was "safe", the money moved — so with the two written
+as independent `if`s a proved success ran BOTH: `refreshBilling` twice for one
+conversion. `/refresh` has no dedupe key, so one answer became two `chose` rows,
+and `onAnswered`'s idempotence hid half of it. Verified in Postgres: 055's
+published header query reports 1000¢ for a 500¢ conversion. `store.ts`'s
+corrected `DISTINCT ON (user_id)` query is immune, which is why it is minor and
+not serious — but the header query is the one somebody pastes.
+
+They are `else if` now: one branch per outcome. That is this loop's own shape
+appearing in the fix FOR this loop's own shape, one round later.
+
+While there: the success branch handed `onState(next)` upward — the
+PRE-challenge state — and discarded both refresh results, so the profile behind
+the sheet could show $0 under a thank-you until a reload. It takes the refresh's
+answer now, as the one-off twin already did.
+
+And the input inventory exists in THREE places. Round twenty-seven fixed the two
+it was looking at; API.md still carried the original defect verbatim — one id
+named, "two ids" claimed. All three now list the same items and say to change
+all three. All three were also missing a seventh input: `dismissed` on
+`/prompt-ack`, which decides which of the two exposure outcomes is written. It
+is inside SECURITY.md's already-accepted "an account can write a plausible event
+about itself", but a list that says "and no more" has to be right.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

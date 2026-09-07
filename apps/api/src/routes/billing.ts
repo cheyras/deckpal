@@ -17,16 +17,18 @@
  *   • an ATTEMPT ID, an opaque client string constrained to
  *     `[A-Za-z0-9_-]{8,64}` and required, because it goes into a Stripe
  *     idempotency key — which is what makes a retried gift one charge;
- *   • a prompt KIND and a free-text CONTEXT, truncated to 40 characters.
- *     Neither touches money.
+ *   • a prompt KIND, a free-text CONTEXT truncated to 40 characters, and a
+ *     DISMISSED boolean on `/prompt-ack`. None of them touches money; they
+ *     decide which experiment row is written, and SECURITY.md's "an account can
+ *     write a plausible event about itself" covers what that permits.
  *
  * It never sends a customer id, a subscription id, a price, a payment-method id
  * or a status: every one of those is resolved server-side from the
  * authenticated user. `/refresh` accepts an `amountCents` and deliberately
  * IGNORES it, recording what Stripe says the subscription bills. Migration 054
  * is the other lock — the row that holds the customer id is not writable by
- * the anon key. SECURITY.md carries the same inventory; if you change one,
- * change both.
+ * the anon key. SECURITY.md and API.md carry the same inventory; if you change
+ * one, change all three.
  *
  * ── THE VISIT COUNTER IS A POST, DELIBERATELY ────────────────────────────────
  *

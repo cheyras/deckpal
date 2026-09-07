@@ -145,6 +145,8 @@ export interface SupportFlowProps {
    *   7. a first payment the bank has accepted and is still `processing`;
    *   8. the same, seen only by the retrieve after the browser lost the
    *      challenge — or not seen at all, which locks for the same reason.
+   *      (`succeeded` there is item 4's branch, not this one: they are
+   *      `else if`, because running both reported one conversion twice.)
    *
    * Everything after the second is an answer as surely as the first. Leaving
    * one out records a DISMISSAL on top of a conversion the moment the sheet is
@@ -320,7 +322,38 @@ export function SupportFlow({
               lastIntent === 'canceled' ||
               lastIntent === 'requires_action' ||
               lastIntent === 'requires_confirmation'
-            if (!provenSafe) {
+            if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
+
+            // ⚠️ ONE BRANCH PER OUTCOME, and `else if` is load-bearing.
+            //
+            // `succeeded` is not in `provenSafe` — nothing was "safe", the
+            // money moved — so with these as two independent `if`s a proved
+            // success ran BOTH: `refreshBilling` twice for one conversion, and
+            // `/refresh` has no dedupe key, so one answer became two `chose`
+            // rows. `onAnswered` is idempotent and hid half of it. That was
+            // this loop's own shape, introduced by the fix for it one round
+            // earlier: a branch added beside a sibling it overlaps.
+            if (lastIntent === 'succeeded') {
+              // THE HAPPY PATH WEARING A DIFFERENT COAT — see the one-off
+              // twin. The browser lost the challenge; the payment did not, so
+              // this ends on the thank-you screen rather than leaving the
+              // reader staring at a locked chooser under a red alert.
+              //
+              // The population that lands here is challenge-heavy issuers,
+              // which is precisely the bias `/one-time/confirm` exists to
+              // prevent, so the conversion is reported — and its answer taken
+              // from the refresh, because `next` is the PRE-challenge state and
+              // handing that up left the profile showing $0 behind a thank-you
+              // until a reload.
+              onAnswered?.()
+              const fresh = await api
+                .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
+                .catch(() => null /* the subscription is live; the analytics row is not worth an error */)
+              onState(fresh ?? next)
+              setCommitted(amount)
+              setStep(amount === 0 && offerOneTime ? 'one-time' : 'done')
+              return
+            } else if (!provenSafe) {
               setInFlight(true)
               // ⚠️ AND THAT IS AN ANSWER — one reading of one fact drives both
               // (§18). We lock because the payment may be settling; a reader
@@ -339,29 +372,6 @@ export function SupportFlow({
               void api
                 .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
                 .catch(() => {/* the payment may be settling; the analytics row is not worth an error */})
-            }
-            if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
-            // ⚠️ AND IF IT LANDED, REPORT IT — the same duty the one-off's twin
-            // branch has, for the same reason. We are here because the browser
-            // lost track of the challenge, not because the payment failed: the
-            // subscription is live and charging, and without this its `chose`
-            // is never recorded, because nobody carries a context back after a
-            // reload and the webhook-side recorder is a documented non-goal.
-            // The population that lands here is challenge-heavy issuers, which
-            // is precisely the bias `/one-time/confirm` exists to prevent.
-            if (lastIntent === 'succeeded') {
-              // ⚠️ THE HAPPY PATH WEARING A DIFFERENT COAT — see the one-off
-              // twin. The browser lost the challenge; the payment did not, so
-              // this ends on the thank-you screen rather than leaving the
-              // reader staring at a locked chooser under a red alert.
-              onAnswered?.()
-              void api
-                .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
-                .catch(() => {/* the subscription is live; the analytics row is not worth an error */})
-              onState(next)
-              setCommitted(amount)
-              setStep(amount === 0 && offerOneTime ? 'one-time' : 'done')
-              return
             }
           }
           // ⚠️ STRIPE'S MESSAGE ONLY FOR A REFUSAL. A decline's message is the
