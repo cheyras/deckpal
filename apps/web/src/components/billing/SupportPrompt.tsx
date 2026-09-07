@@ -176,6 +176,22 @@ export function SupportPrompt() {
    */
   const closedHere = useRef(false)
   /**
+   * Is a write in flight right now?
+   *
+   * ⚠️ THE ✕, ESCAPE AND THE BACKDROP ARE THE FRAME'S, and they were live for
+   * the whole of every payment. Only the flow's own dismiss link was disabled
+   * while busy, so a reader who pressed "Give $10 once", met the bank's
+   * challenge, and closed the sheet had the $10 charged into a component that
+   * no longer existed — no done screen (the one that exists to say "one time
+   * only, nothing recurring has been set up"), no receipt on the profile by
+   * 057's design, and a `dismissed: true` recorded on top of the answer,
+   * because `onAnswered` never got to fire.
+   *
+   * A ref, not state: `close()` reads it synchronously from an event handler,
+   * and a re-render is neither needed nor wanted mid-write.
+   */
+  const writing = useRef(false)
+  /**
    * Did they actually answer?
    *
    * Set from `onAnswered`, which `SupportFlow` fires at the eight points where
@@ -277,6 +293,12 @@ export function SupportPrompt() {
    * outcomes overlap: every conversion also logged a walk-away.
    */
   function close(dismissed = true) {
+    // ⚠️ NOT WHILE MONEY IS MOVING. The flow reports its own writes through
+    // `onBusy`, including the card step's `confirmSetup`, which lives inside
+    // `CardFields` and is otherwise invisible from here. Refusing the close is
+    // better than taking it: the write finishes, the reader sees what happened
+    // to their money, and the exposure records one outcome instead of two.
+    if (writing.current) return
     // ⚠️ RE-ENTRY GUARD, not just a flag for `boot`. Two presses of the dismiss
     // button inside one commit window posted `ackSupportPrompt` twice, and
     // `dismissed` rows carry no dedupe key — two walk-aways against one
@@ -329,6 +351,9 @@ export function SupportPrompt() {
           onState={setState}
           onAnswered={() => {
             answered.current = true
+          }}
+          onBusy={(b) => {
+            writing.current = b
           }}
           context={kind}
           analyticsContext={forced ? `forced-${kind}` : kind}

@@ -108,7 +108,14 @@ export function SupportSettings() {
   // card headed "Supporting DeckPal" would advertise a tier that does not exist
   // here, and a self-hoster is running their own copy — there is nobody to pay.
   if (!isCloudMode) return null
-  if (query.isError) return null
+  // ⚠️ `&& !state` — a failed REFETCH must not delete the section. This ran
+  // after `state` was populated, and the live trigger is this component's own
+  // `query.refetch()` in `onState`: change your amount successfully, have the
+  // refetch fail, and the amount, the card, the way to stop and the "thank you"
+  // all vanish with no message, while the write reached the server. The header
+  // promises a failed read renders a quiet line; deleting the section is not
+  // that. A first load that fails still renders nothing, which is right.
+  if (query.isError && !state) return null
   if (!state) {
     return (
       <section className="rounded-2xl bg-surface-secondary p-[20px]">
@@ -235,6 +242,10 @@ export function SupportSettings() {
                   const next = await api.replacePaymentMethod(setupIntentId)
                   setState(next)
                   setPanel('none')
+                  // The amount panel refreshes the shared cache and this did
+                  // not, so leaving /profile and coming back inside the 60s
+                  // staleTime showed the card that had just been replaced.
+                  void query.refetch()
                   // ⚠️ `settled` IS THE SERVER'S ANSWER TO "did that fix it".
                   // Behind this endpoint is `retryOpenInvoice`, and a new card
                   // can be refused as readily as the old one. The dunning modal

@@ -76,19 +76,26 @@ function LinkNote() {
 function CardFields({
   submitLabel,
   onComplete,
+  onBusy,
   onCancel,
   cancelLabel,
   email,
 }: {
   submitLabel: string
   onComplete: (setupIntentId: string) => Promise<void> | void
+  onBusy?: (busy: boolean) => void
   onCancel?: () => void
   cancelLabel: string
   email: string | null
 }) {
   const stripe = useStripe()
   const elements = useElements()
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusyState] = useState(false)
+  // Reported upward as well as held locally: see `onBusy` on `CardForm`.
+  const setBusy = (b: boolean) => {
+    setBusyState(b)
+    onBusy?.(b)
+  }
   const [error, setError] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
   const errorRef = useRef<HTMLDivElement>(null)
@@ -184,6 +191,7 @@ export function CardForm({
   submitLabel,
   cancelLabel = 'Back',
   onComplete,
+  onBusy,
   onCancel,
 }: {
   stripePromise: Promise<Stripe | null>
@@ -191,6 +199,19 @@ export function CardForm({
   submitLabel: string
   cancelLabel?: string
   onComplete: (setupIntentId: string) => Promise<void> | void
+  /**
+   * Money is moving, or is about to be.
+   *
+   * ⚠️ THE FRAME CANNOT SEE `confirmSetup` OTHERWISE. `busy` lives inside
+   * `CardFields`, so from `SupportFlow`'s point of view nothing is happening
+   * for the whole of the bank's challenge — and the sheet's ✕, Escape and
+   * backdrop stayed live. Closing there unmounts this component while
+   * `confirmSetup` is still resolving: the charge lands, the reader never sees
+   * the screen that says "one time only, nothing recurring", and the exposure
+   * records a DISMISSAL on top of the answer. A one-off leaves no profile
+   * history by design (057), so the Stripe receipt becomes their only record.
+   */
+  onBusy?: (busy: boolean) => void
   onCancel?: () => void
 }) {
   const [clientSecret, setClientSecret] = useState<string | null>(null)
@@ -250,6 +271,7 @@ export function CardForm({
         submitLabel={submitLabel}
         cancelLabel={cancelLabel}
         onComplete={onComplete}
+        {...(onBusy ? { onBusy } : {})}
         email={email}
         {...(onCancel ? { onCancel } : {})}
       />

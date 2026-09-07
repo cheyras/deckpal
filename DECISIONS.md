@@ -16722,6 +16722,54 @@ CLIENT — the one surface thirty-four rounds had only ever read — found a
 defect that takes money from somebody who was trying to say $0. Where the
 reviews are looking is a bigger lever than how hard they look.
 
+### 39. Round thirty-six: the seams between the components
+
+§38 said where the reviews look matters more than how hard. This round was given
+that as its first task — decide the largest surface nothing had executed —
+and it picked the two MOUNT SITES and the contract between them: `SupportPrompt`
+and `SupportSettings` driven in a real DOM with a real query client, ~665 lines
+no round had ever run, plus `CardForm` reached through them and `SupportFlow`
+driven THROUGH its frames rather than standalone. The defects were in the seams:
+who records what when the sheet closes, and what the card step does with the
+flow's locks.
+
+**The sheet's ✕, Escape and backdrop were live for the whole of every payment.**
+Only the flow's own dismiss link was disabled while busy. Press "Give $10 once",
+meet the bank's challenge, close the sheet: `confirmSetup` resolves into a
+component that no longer exists, the $10 is charged, and the reader never
+reaches the done screen that exists specifically to say "one time only —
+nothing recurring has been set up and there is nothing to cancel". A one-off
+leaves no profile history by design (057), so the Stripe receipt becomes their
+only record that it happened. And `onAnswered` never fires, so the exposure
+records a `dismissed` on top of the server's `chose` — the both-outcomes
+overlap §21, §22, §24, §27 and §30 spent five rounds closing, reopened at the
+one point the answer signal structurally cannot cover.
+
+The card step was the worse half: `busy` lives inside `CardFields`, so from the
+frame's side nothing was happening for the entire challenge. `onBusy` is
+threaded from `CardForm` through `SupportFlow` to the prompt, which refuses to
+close while a write is in flight. Refusing is better than taking it: the write
+finishes, the reader sees what happened to their money, and one outcome is
+recorded instead of two.
+
+Second: the `processing` and ambiguous branches set their locks and return
+WITHOUT changing `step`, and both locks hang off controls the card step does not
+render. A reader who got there from the card step saw a fully live "Support
+$5/month" directly beneath "Do not try again" — on the only step a first-time
+contributor can reach `commit()` from, with the branch's own comment claiming
+the lock stopped them reaching for it. The card step now says what happened and
+offers Close or Reload, the treatment the `!stripePromise` dead end already had.
+
+Three smaller, all found by running rather than reading: the chooser's
+validation messages are monthly-only and were shown verbatim on the one-time
+surface ("or pick $0", where that ladder has no $0 rung; "more than $500 a month"
+for a single gift) — the same class `label` and `showMostCommon` were added
+for. `SupportSettings` deleted its entire section on a failed REFETCH, triggered
+by its own `query.refetch()` after a successful amount change, against a header
+promising a quiet line. And the card panel updated local state without
+refreshing the shared cache, so leaving the profile and returning inside the 60s
+`staleTime` showed the card that had just been replaced.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

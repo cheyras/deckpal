@@ -155,6 +155,24 @@ export interface SupportFlowProps {
    * closed — the both-outcomes-per-exposure overlap this signal exists to end.
    */
   onAnswered?: () => void
+  /**
+   * Money is moving, or is about to be — tell the frame so it stops offering
+   * an exit.
+   *
+   * ⚠️ THE FRAME'S ✕, ESCAPE AND BACKDROP ARE NOT THIS COMPONENT'S TO DISABLE,
+   * and they were live for the whole of every write. Closing there unmounts
+   * this flow mid-`giveOnce`: the charge lands, the reader never reaches the
+   * done screen that exists to say "one time only — nothing recurring has
+   * been set up and there is nothing to cancel", and `answered.current` never
+   * gets set, so the exposure records a DISMISSAL on top of the answer. That is
+   * the both-outcomes overlap five rounds went into closing, reopened at the
+   * one point the answer signal structurally cannot cover.
+   *
+   * The card step is the worse half: `busy` there lives inside `CardFields`, so
+   * without `CardForm`'s own `onBusy` the frame could not see the bank's
+   * challenge at all.
+   */
+  onBusy?: (busy: boolean) => void
   /** Called once the flow has finished and the frame may close itself. */
   onDone?: () => void
   /** The dismissal, when the frame has one. Renders as an equal-weight action. */
@@ -168,6 +186,7 @@ export function SupportFlow({
   context,
   analyticsContext,
   onAnswered,
+  onBusy,
   onDone,
   onDismiss,
   dismissLabel = 'Not right now',
@@ -178,7 +197,15 @@ export function SupportFlow({
     // on the card field, because replacing the card is the entire job.
     context === 'payment_issue' ? 'card' : 'choose',
   )
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusyState] = useState(false)
+  // Reported upward as well as held locally: see `onBusy`. Every `setBusy(true)`
+  // in this file is a write that has started, and every `setBusy(false)` in a
+  // `finally` is one that has finished — which is exactly the window the frame
+  // must not offer an exit during.
+  const setBusy = (b: boolean) => {
+    setBusyState(b)
+    onBusy?.(b)
+  }
   const [error, setError] = useState<string | null>(null)
   const [committed, setCommitted] = useState<number | null>(null)
   /** The one-off amount, and whether it was actually given. */
@@ -972,6 +999,41 @@ export function SupportFlow({
 
   // ── card ──────────────────────────────────────────────────────────────────
   if (step === 'card') {
+    // ⚠️ A PAYMENT THAT IS SETTLING MUST NOT BE OFFERED A CARD FORM.
+    //
+    // The `processing` and ambiguous branches set `inFlight` / `frozenAmount`
+    // and return WITHOUT changing `step`, so a reader who got here from the
+    // card step stayed on it — and both locks hang off controls this step does
+    // not render (`disabled={busy || inFlight}` on the chooser grid,
+    // `disabled={frozenAmount !== null}` on the Give button). The result was a
+    // fully live "Support $5/month" directly beneath the words "Do not try
+    // again", on the only step a first-time contributor can reach `commit()`
+    // from. The branch's own comment claimed the lock stopped them reaching for
+    // it; on this step it stopped nothing.
+    //
+    // Same treatment as the dead end below: say what happened, and offer a way
+    // out rather than a way to repeat it.
+    if (inFlight || frozenAmount !== null) {
+      return (
+        <div>
+          <FormAlert kind="error">
+            {error ??
+              'Your payment has not finished settling. Reload in a moment — your profile will show it once it has.'}
+          </FormAlert>
+          <p className="mb-[16px] text-[14px] leading-[1.6] text-text-secondary">
+            Do not pay again. If money moved, Stripe emails a receipt for every contribution.
+          </p>
+          <div className="flex flex-col-reverse gap-[8px] sm:flex-row sm:justify-end">
+            {onDismiss && (
+              <Button variant="ghost" onClick={onDismiss}>
+                Close
+              </Button>
+            )}
+            <Button onClick={() => window.location.reload()}>Reload</Button>
+          </div>
+        </div>
+      )
+    }
     if (!stripePromise) {
       // A bare alert used to be the whole of this branch — no button, no way
       // back, and `payment_issue` opens DIRECTLY here, so the entire modal was
@@ -1030,6 +1092,7 @@ export function SupportFlow({
                 : `Support ${formatAmount(amount)}/month`
           }
           cancelLabel={context === 'payment_issue' ? 'Later' : 'Back'}
+          {...(onBusy ? { onBusy } : {})}
           onComplete={(setupIntentId) =>
             cardFor === 'one-time'
               ? giveOnce(setupIntentId)

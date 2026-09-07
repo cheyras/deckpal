@@ -140,6 +140,10 @@ export function AmountChooser({
   // when you clear it. The message stays null while the field is untouched —
   // nagging somebody who has typed nothing yet is its own defect — but the
   // cell still reports itself unusable, which is what the button reads.
+  // Is this the MONTHLY ladder? Read from the presets rather than passed in:
+  // $0 is a rung there and on no other surface, which is the same fact both
+  // messages below need.
+  const monthly = presetsCents.includes(0)
   const customEmpty = customOpen && custom.trim() === ''
   const customProblem =
     !customOpen || customEmpty
@@ -147,9 +151,18 @@ export function AmountChooser({
       : !/^\d+$/.test(custom.trim())
         ? 'Whole dollars only, please.'
         : customCents < minCents
-          ? `The smallest we can charge is ${formatAmount(minCents)} — or pick $0.`
+          ? // ⚠️ "or pick $0" ONLY WHERE $0 IS A RUNG. The one-time ladder has
+            // none, so on that surface this was pointing at a choice that is
+            // not on the screen. Same reason `label` and `showMostCommon`
+            // exist: monthly wording on the one-off surface tells a reader
+            // they are subscribing.
+            monthly
+            ? `The smallest we can charge is ${formatAmount(minCents)} — or pick $0.`
+            : `The smallest we can charge is ${formatAmount(minCents)}.`
           : customCents > maxCents
-            ? `That is more than ${formatAmount(maxCents)} a month. If you really mean it, email us and we will set it up by hand.`
+            ? monthly
+              ? `That is more than ${formatAmount(maxCents)} a month. If you really mean it, email us and we will set it up by hand.`
+              : `That is more than ${formatAmount(maxCents)} in one go. If you really mean it, email us and we will set it up by hand.`
             : null
 
   // The parent disables its submit on this; it is a render-time fact, so it is
