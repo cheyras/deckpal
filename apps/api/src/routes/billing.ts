@@ -1,15 +1,32 @@
 /**
  * /me/billing — the pay-what-you-want tier.
  *
- * ── WHAT THE CLIENT IS TRUSTED WITH, WHICH IS ONE NUMBER ─────────────────────
+ * ── WHAT THE CLIENT IS TRUSTED WITH ─────────────────────────────────────────
  *
- * The browser sends an AMOUNT and, once, a SetupIntent id. That is the whole
- * attack surface. It never sends a customer id, a subscription id, a price, a
- * payment-method id or a status: every one of those is resolved server-side
- * from the authenticated user, and the two ids that do arrive are validated
- * against the customer this account owns before anything is done with them
- * (`service.ts`). Migration 054 is the third lock — the row that holds the
- * customer id is not writable by the anon key.
+ * Six things, and no more. A future reviewer reads this list as the inventory
+ * of the input surface, so it is kept exact rather than tidy:
+ *
+ *   • an AMOUNT — `normalizeAmountCents` (`stripe.ts`): whole dollars, within
+ *     the floor and the ceiling, refused rather than coerced;
+ *   • a SETUPINTENT id, on the one leg where a card was just entered —
+ *     `adoptSetupIntent` (`service.ts`) checks it belongs to this account's
+ *     customer AND succeeded before promoting it;
+ *   • a PAYMENTINTENT id, on `/one-time/confirm` — checked HERE, not in
+ *     `service.ts`: it must belong to this account's customer and carry the
+ *     metadata marking it a one-off this flow created;
+ *   • an ATTEMPT ID, an opaque client string constrained to
+ *     `[A-Za-z0-9_-]{8,64}` and required, because it goes into a Stripe
+ *     idempotency key — which is what makes a retried gift one charge;
+ *   • a prompt KIND and a free-text CONTEXT, truncated to 40 characters.
+ *     Neither touches money.
+ *
+ * It never sends a customer id, a subscription id, a price, a payment-method id
+ * or a status: every one of those is resolved server-side from the
+ * authenticated user. `/refresh` accepts an `amountCents` and deliberately
+ * IGNORES it, recording what Stripe says the subscription bills. Migration 054
+ * is the other lock — the row that holds the customer id is not writable by
+ * the anon key. SECURITY.md carries the same inventory; if you change one,
+ * change both.
  *
  * ── THE VISIT COUNTER IS A POST, DELIBERATELY ────────────────────────────────
  *

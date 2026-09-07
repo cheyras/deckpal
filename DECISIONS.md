@@ -16415,6 +16415,37 @@ migrations, deploy, re-run the webhook gate against the LIVE endpoint (the
 signing secret differs, so the test-mode pass does not carry), then a real card
 and a Link payment.
 
+### 30. Round twenty-seven: two of the three branches that lock
+
+No money defect. The finding is §27's, one branch over, for the third time in
+this file: where the controls lock because the payment may be settling, that is
+an answer given. `commit()` has three branches that lock, and two fired
+`onAnswered`. The one left out is the branch where the RETRIEVE proved
+`processing` — less ambiguous than the post-refresh branch, which already
+fired. So a reader whose issuer challenged them, whose confirmation the browser
+lost, and whose money is on its way had their only live control record a
+walk-away, with no `chose` ever.
+
+The lock and the answer are now one reading of one fact, inside the same `if`.
+The docstring says eight and lists them; it has said two, five and seven while
+the tree had three, six and seven.
+
+And the module header's input inventory was three ways wrong: it named one id
+and claimed "two ids", it predated both `attemptId` and `paymentIntentId`, and
+it pointed at `service.ts` for a check that lives in `routes/billing.ts`. It is
+now the same six-item list SECURITY.md carries, with where each is validated,
+and both say to change the other.
+
+**On Link.** Round twenty-six recorded it as unsettleable from the code; this
+round sharpened why it matters. Apple Pay and Google Pay produce CARD
+PaymentMethods — `card.wallet.type` is `apple_pay`/`google_pay` — so
+requiring `pm.card` is safe for wallets, verified against the shipped SDK types.
+But `PaymentMethod.Type` has a top-level `'link'` distinct from a card whose
+wallet is Link, and a `type: 'link'` method would land in the bank-debit dead
+end: both selectors return null, the profile says "no card on file", and every
+attempt 502s. DEPLOYMENT step 6 is the only thing that catches it. **Treat it as
+a gate, not a smoke test: if Link fails, do not invite anyone to pay.**
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

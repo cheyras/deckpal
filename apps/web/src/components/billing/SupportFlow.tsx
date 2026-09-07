@@ -129,9 +129,10 @@ export interface SupportFlowProps {
    * closed the sheet recorded NEITHER a `chose` nor a `dismissed`: the exposure
    * simply vanished from the experiment.
    *
-   * It fires wherever an answer exists, which is SEVEN places. Earlier versions
-   * of this comment said two, then five; the tree had three, then six. Keep the
-   * list and the call sites in step, or delete the count:
+   * It fires wherever an answer exists, which is EIGHT places. Earlier versions
+   * of this comment said two, then five, then seven; the tree had three, then
+   * six, then seven. Keep the list and the call sites in step, or delete the
+   * count:
    *
    *   1. an amount settled, including $0, which is a real answer;
    *   2. a dunning card replaced and the outstanding invoice collected;
@@ -141,7 +142,9 @@ export interface SupportFlowProps {
    *   5. the same, seen through a subscription status that has not caught up;
    *   6. the same for a GIFT — the retrieve proved it landed after the browser
    *      lost the challenge;
-   *   7. a first payment the bank has accepted and is still `processing`.
+   *   7. a first payment the bank has accepted and is still `processing`;
+   *   8. the same, seen only by the retrieve after the browser lost the
+   *      challenge — or not seen at all, which locks for the same reason.
    *
    * Everything after the second is an answer as surely as the first. Leaving
    * one out records a DISMISSAL on top of a conversion the moment the sheet is
@@ -317,7 +320,26 @@ export function SupportFlow({
               lastIntent === 'canceled' ||
               lastIntent === 'requires_action' ||
               lastIntent === 'requires_confirmation'
-            if (!provenSafe) setInFlight(true)
+            if (!provenSafe) {
+              setInFlight(true)
+              // ⚠️ AND THAT IS AN ANSWER — one reading of one fact drives both
+              // (§18). We lock because the payment may be settling; a reader
+              // whose payment may be settling has answered. Without this, their
+              // only live control is the dismiss, `answered.current` is still
+              // false, and the exposure records a WALK-AWAY for somebody whose
+              // money is on its way — with no `chose` ever, because
+              // `PUT /subscription` skipped it (the subscription is
+              // `incomplete`), a reload loses the context, and no webhook
+              // records conversions.
+              //
+              // Both sibling branches already did this: the `processing` one
+              // below, and the post-refresh one, which is MORE ambiguous than
+              // this branch and still fires. This was the third.
+              onAnswered?.()
+              void api
+                .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
+                .catch(() => {/* the payment may be settling; the analytics row is not worth an error */})
+            }
             if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
             // ⚠️ AND IF IT LANDED, REPORT IT — the same duty the one-off's twin
             // branch has, for the same reason. We are here because the browser
