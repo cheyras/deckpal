@@ -17094,6 +17094,57 @@ the deploy — 059 without 060 is worse than neither, because it recreates the
 orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
 cutover.
 
+### 48. Round forty-five: a fix in a shared component, and a race I did not close
+
+Round forty-four's `Sheet` fix cleared the close latch unconditionally. That is
+invisible where `onClose` unmounts by a plain `setState` — React batches the
+two — and NOT invisible where it unmounts through TanStack Router, which
+commits navigation inside `startTransition` after an async `router.load()`.
+There the restore lands as its own painted frame with the panel still mounted
+and no longer closing, so `animation-name` flips back to `sheet-panel-up`, and a
+name change RESTARTS the animation. The card sheet — the app's most-used
+modal, on five routes — read as "slide out, slide back in, vanish".
+
+This is the only change in forty-five rounds that touched a component outside
+the billing feature, and it regressed it. `onClose` returns `false` to mean
+refused now, and the sheet restores itself only then. **A shared primitive
+should not be taught a billing-specific behaviour by widening its default; it
+should be given a way for one caller to say something.**
+
+Second, and mine as well: round forty-four replaced `setState` + `refetch` with
+a bare `setQueryData`, on the stated ground that it "puts react-query's own
+ordering in charge". It does not. `setQueryData` neither cancels nor supersedes
+an in-flight fetch, and that fetch's success dispatch overwrites it. Executed: a
+`past_due` supporter dismisses the dunning modal (which invalidated, starting a
+GET against the old row), then replaces their card; the write lands, the panel
+shows the new card, and the stale GET arrives and reverts the panel AND the
+cache to the dead card and "your last payment did not go through" — to
+somebody who has just done exactly that, whose money has already moved. And
+round forty-four deleted the `refetch` that used to correct it a moment later,
+so with a 60-second `staleTime` it did not self-heal. Both writers cancel first
+now, and the prompt seeds the cache instead of invalidating it, because it was
+holding the fresh state all along.
+
+Third: the `kind` validation I added was a no-op. `kind` is used in exactly one
+place — `ackPrompt(userId, kind === 'onboarding')` — which already rejected
+everything the new set rejected, so an unrecognised kind still returned 200 and
+still stamped the clock. It 400s now, as `/prompt-ack` does. And stripping a
+client-supplied `forced-` closed one door beside an open one: all three CTEs of
+the analysis filter `context IN ('onboarding','checkin')`, so ANY unrecognised
+string achieves the same self-exclusion. Executed over twenty identically-
+behaving accounts: two non-payers in one arm posting `context: 'zzz'` produced a
+25% fabricated separation on the number that decides whether the $1 rung ships.
+Context is validated against the set the analysis trusts.
+
+**The verified-correct half is worth recording too.** The card-recovery path was
+driven whole for the first time — `POST /payment-method` through
+`customerFor`, `adoptSetupIntent`, `retryOpenInvoice` and `applyStripe`, over the
+real router and the real migrations — and the server half is sound: the
+invoice is really paid, the subscription-level card pin is cleared, `settled`
+agrees with the database, no phantom conversion is recorded, a cross-account
+SetupIntent is refused with nothing adopted, and a `past_due` account that has
+also asked to stop keeps its pending stop while still paying the month it used.
+
 ### 47. Round forty-four: a refusal that left an invisible wall
 
 The sharpest finding is the interaction between two of my own fixes. `Sheet`'s
@@ -17130,9 +17181,12 @@ records a conversion with no exposure behind it, and repeats every time somebody
 changes their amount. Measured over forty seeded accounts: a true 2.00x
 separation read as 2.50x after one dunning cycle, and one account changing its
 amount four times contributed 4300c against zero exposures. 055 is applied, so
-the correction lives in `store.ts` (which now filters all three CTEs, the
-one-off one included) and in a runbook line telling the owner which query to
-run.
+the correction is a runbook line telling the owner to run `store.ts`'s query
+instead. ⚠️ §48 corrects the parenthesis this sentence carried: `store.ts`'s
+`exposures` and `monthly` CTEs already filtered context — round twenty-six did
+that — and round forty-four added the filter to `one_off` alone. The measured
+defect was in 055's header query only; implying `store.ts` had been repaired
+overstated it.
 
 Three smaller. My wind-down copy told a `past_due` supporter who had also
 cancelled that "nothing further will be charged" — Stripe's dunning does not

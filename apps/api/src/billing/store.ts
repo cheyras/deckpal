@@ -115,8 +115,14 @@ export type AbEventKind = 'shown' | 'chose' | 'dismissed' | 'chose_one_time'
  * their amount. Executed: a true 2.00x separation read as 2.50x after one
  * dunning cycle, and one account changing its amount four times contributed
  * 4300c against zero exposures. 055 is applied, so B4 forbids correcting it in
- * place; this is the correction, and the context filters below are the whole of
- * it.
+ * place; this is the correction.
+ *
+ * ⚠️ To be exact, because §47 and its commit message were not: `exposures` and
+ * `monthly` here ALREADY filtered context — they were corrected in round
+ * twenty-six. Round forty-four added the filter to `one_off` only. The 2.00x
+ * -> 2.50x defect measured over forty accounts was in 055's header query alone,
+ * never in this one, and saying "the correction lives in store.ts" implied this
+ * query had been broken. It had not.
  *
  * divide by exposures. `monthly_cents_per_exposure` is the number that answers
  * "does a $1 option raise revenue or just move people down the ladder" — a

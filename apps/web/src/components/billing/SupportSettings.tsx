@@ -45,6 +45,28 @@ type Panel = 'none' | 'amount' | 'card'
 
 export function SupportSettings() {
   const queryClient = useQueryClient()
+  /**
+   * Land a write so nothing in flight can undo it.
+   *
+   * ⚠️ `setQueryData` ALONE DOES NOT WIN. Round forty-four replaced
+   * `setState` + `refetch` with a bare `setQueryData` on the stated ground that
+   * it "puts react-query's own ordering in charge". It does not: `setQueryData`
+   * neither cancels nor supersedes an in-flight fetch, and that fetch's success
+   * dispatch overwrites it. Executed in round forty-five — a `past_due`
+   * supporter dismisses the dunning modal (which invalidates, starting a GET
+   * against the OLD row), then replaces their card; the write lands, the panel
+   * shows the new card, and the stale GET arrives and reverts both the panel
+   * and the cache to the dead card and "your last payment did not go through".
+   * To somebody who has just done exactly that, whose money has already moved.
+   * Round forty-four also deleted the `refetch` that used to correct it a
+   * moment later, so with a 60s `staleTime` it did not self-heal.
+   *
+   * `cancelQueries` first is what makes the write authoritative.
+   */
+  const settle = async (next: BillingState) => {
+    await queryClient.cancelQueries({ queryKey: ['billing'] })
+    queryClient.setQueryData(['billing'], next)
+  }
   const query = useQuery({
     queryKey: ['billing'],
     queryFn: ({ signal }) => api.billing(signal),
@@ -301,8 +323,7 @@ export function SupportSettings() {
                   // wind-down month after choosing $0 silently un-cancelled the
                   // stop and billed them again. It also logged a conversion.
                   const next = await api.replacePaymentMethod(setupIntentId)
-                  // Into the cache, for the same reason as the amount panel.
-                  queryClient.setQueryData(['billing'], next)
+                  await settle(next)
                   setPanel('none')
                   // (The explicit refetch this used to do is unnecessary now
                   // that the answer is written straight into the cache.)
@@ -372,14 +393,7 @@ export function SupportSettings() {
           <SupportFlow
             state={state}
             onState={(next) => {
-              // ⚠️ SEED THE CACHE, do not race it. `setState` + `refetch` made
-              // this component and the shared query two uncoordinated writers:
-              // executed in round forty-four, a GET started elsewhere (the
-              // modal's invalidate) landed after a card replacement and
-              // reverted the panel to the old card and `past_due`. Writing the
-              // answer INTO the cache puts react-query's own ordering in
-              // charge, and the effect below then mirrors it into local state.
-              queryClient.setQueryData(['billing'], next)
+              void settle(next)
             }}
             // ⚠️ THE SAME GUARD `SupportPrompt` HAS, ON THE OTHER MOUNT SITE.
             // This card's own controls sit outside the flow, so "Use a

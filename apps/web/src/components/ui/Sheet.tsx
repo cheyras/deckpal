@@ -142,7 +142,17 @@ export function Sheet({
 }: {
   /** Rendered as the sheet's heading and used as its accessible name. */
   title: string
-  onClose: () => void
+  /**
+   * Close the sheet — or REFUSE, by returning `false`.
+   *
+   * ⚠️ Refusing is why this returns anything. The exit is played optimistically
+   * (see `requestClose`), so a caller that declines to unmount leaves a panel
+   * and a full-screen scrim animated to `opacity: 0 forwards` and still
+   * mounted: an invisible, pointer-eating, focus-trapped overlay. Returning
+   * `false` tells the sheet to put itself back. The billing sheet does this
+   * while a payment is in flight; almost nothing else should need to.
+   */
+  onClose: () => void | boolean
   children: ReactNode
   /** Pinned below the scroll area — actions stay reachable on a short screen. */
   footer?: ReactNode
@@ -202,12 +212,21 @@ export function Sheet({
     // they reloaded — and reloading loses the done screen that is a one-off's
     // only in-app record (057).
     //
-    // Clearing both means a refused close simply plays the exit and comes back,
-    // and the reader can try again once the write finishes.
+    // ⚠️ AND `setClosing(false)` ONLY ON A REFUSAL. Round forty-four cleared it
+    // unconditionally, which is invisible where `onClose` unmounts by a plain
+    // `setState` (React batches the two) and NOT invisible where it unmounts
+    // through TanStack Router, which commits navigation inside
+    // `startTransition` after an async `router.load()`. There the restore lands
+    // as its own painted frame with the panel still mounted and no longer
+    // closing, so `animation-name` flips back to `sheet-panel-up` — and a
+    // name change RESTARTS the animation. The card sheet, on five routes, read
+    // as "slide out, slide back in, vanish".
+    //
+    // A refusal is the only case that needs the restore, and the caller is the
+    // only thing that knows: `onClose` returns `false` to say so.
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null
-      setClosing(false)
-      onClose()
+      if (onClose() === false) setClosing(false)
     }, EXIT_MS)
   }, [onClose])
 

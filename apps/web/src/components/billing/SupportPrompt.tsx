@@ -294,19 +294,26 @@ export function SupportPrompt() {
    * though, and recording both against the same exposure made the experiment's
    * outcomes overlap: every conversion also logged a walk-away.
    */
-  function close(dismissed = true) {
+  /**
+   * Close, or refuse and say so.
+   *
+   * Returns `false` when it refuses, which is how `Sheet` knows to put its
+   * panel back rather than leave an invisible scrim over the page. See the
+   * `onClose` docstring there.
+   */
+  function close(dismissed = true): boolean {
     // ⚠️ NOT WHILE MONEY IS MOVING. The flow reports its own writes through
     // `onBusy`, including the card step's `confirmSetup`, which lives inside
     // `CardFields` and is otherwise invisible from here. Refusing the close is
     // better than taking it: the write finishes, the reader sees what happened
     // to their money, and the exposure records one outcome instead of two.
-    if (writing.current) return
+    if (writing.current) return false
     // ⚠️ RE-ENTRY GUARD, not just a flag for `boot`. Two presses of the dismiss
     // button inside one commit window posted `ackSupportPrompt` twice, and
     // `dismissed` rows carry no dedupe key — two walk-aways against one
     // exposure, the same shape as the double `chose` §31 records. The ref was
     // already being SET here; it was simply never read here.
-    if (closedHere.current) return
+    if (closedHere.current) return false
     closedHere.current = true
     setOpen(false)
     // ⚠️ BELOW BOTH GUARDS. The dismissal path writes too — `ackPrompt`
@@ -316,10 +323,11 @@ export function SupportPrompt() {
     // the old card and `past_due`, which tells somebody who just fixed their
     // payment that it failed.
     void queryClient.invalidateQueries({ queryKey: ['billing'] })
-    if (!kind) return
+    if (!kind) return true
     api
       .ackSupportPrompt(kind, { dismissed, context: forced ? `forced-${kind}` : kind })
       .catch(() => { /* the next boot re-decides */ })
+    return true
   }
 
   if (!isCloudMode || !state?.available || !kind || !open) return null
@@ -375,7 +383,16 @@ export function SupportPrompt() {
             // exposure. `chose` carries no dedupe key by design (061), so that
             // is a phantom conversion in the numerator of the number deciding
             // whether the $1 rung ships.
-            void queryClient.invalidateQueries({ queryKey: ['billing'] })
+            // ⚠️ SEED, DO NOT INVALIDATE. This held the answer already —
+            // `next` IS the fresh state — and invalidating instead started a
+            // GET that could land after somebody's next write and undo it (see
+            // `settle` in SupportSettings). Cancel first, then write: the card
+            // underneath updates immediately and nothing in flight can revert
+            // it.
+            void (async () => {
+              await queryClient.cancelQueries({ queryKey: ['billing'] })
+              queryClient.setQueryData(['billing'], next)
+            })()
           }}
           onAnswered={() => {
             answered.current = true

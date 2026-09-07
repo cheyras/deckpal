@@ -448,10 +448,35 @@ billingRouter.post(
     // analysis query trusts to exclude test traffic. A caller could label its
     // own real exposures as test data and remove itself from the denominator.
     const KINDS = new Set(['onboarding', 'checkin', 'payment_issue']);
-    const raw = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'unknown';
-    const kind = typeof req.body?.kind === 'string' && KINDS.has(req.body.kind) ? req.body.kind : '';
+    // ⚠️ REFUSED, not silently narrowed. Round forty-four wrote this as a
+    // ternary falling back to `''`, and `kind` is used in exactly one place —
+    // `ackPrompt(userId, kind === 'onboarding')` — which already rejected
+    // everything the set rejects. The "validation" changed nothing: an
+    // unrecognised kind still returned 200 and still stamped the clock, so a
+    // buggy or third-party client could buy itself a month of quiet from the
+    // recurring ask. `/prompt-ack` 400s; so does this now.
+    const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
+    if (!KINDS.has(kind)) throw badRequest('kind must be onboarding, checkin or payment_issue');
+
+    // ⚠️ AND THE CONTEXT AGAINST THE SAME SET THE ANALYSIS TRUSTS. Stripping a
+    // client-supplied `forced-` closed one door beside an open one: all three
+    // CTEs of the analysis filter `context IN ('onboarding','checkin')`, so ANY
+    // unrecognised string achieves the same self-exclusion. Executed in round
+    // forty-five over twenty accounts behaving identically: two non-payers in
+    // one arm posting `context: 'zzz'` produced a 25% fabricated separation on
+    // the number that decides whether the $1 rung ships.
+    const CONTEXTS = new Set(['onboarding', 'checkin', 'payment_issue', 'settings']);
+    const raw = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : '';
     // `forced-` is ours to write, never theirs: the server decides test mode.
-    const context = raw.startsWith('forced-') && stripeMode() !== 'test' ? raw.slice(7) : raw;
+    const bare = raw.startsWith('forced-') ? raw.slice(7) : raw;
+    const context =
+      raw.startsWith('forced-') && stripeMode() === 'test'
+        ? CONTEXTS.has(bare)
+          ? raw
+          : 'unknown'
+        : CONTEXTS.has(bare)
+          ? bare
+          : 'unknown';
     await recordAbEvent(userId, 'shown', context);
     // ⚠️ AND THE CLOCK STARTS HERE, not on the ack. See the header.
     //
