@@ -45,8 +45,11 @@
 -- charging at Stripe, the app then shows $0, `/portal` refuses because the row
 -- has no customer, and re-subscribing bills a second time. It is self-harm with
 -- no reach into anybody else's data, which is why it is accepted — but it is
--- accepted, not harmless. SECURITY.md carries the same account, and so now do
--- 059's header, `webhook.ts`, `service.ts`, `routes/billing.ts` and API.md.
+-- accepted, not harmless. SECURITY.md carries the same account — and ONLY
+-- SECURITY.md: the previous version of this line named six files, which
+-- conflated this self-harm note with the separate pin-versus-ownership-check
+-- correction those files do carry. It was written in the same commit as the
+-- paragraph below telling the reader to grep before believing a citation.
 -- Corrected here while 060 is still unapplied and B4 permits it.
 --
 -- ⚠️ AND THE SENTENCE THAT USED TO SIT HERE said "the disclosure 059 closed

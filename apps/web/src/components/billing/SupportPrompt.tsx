@@ -178,11 +178,19 @@ export function SupportPrompt() {
   /**
    * Did they actually answer?
    *
-   * `onState` fires only after a write the server accepted, so it is the honest
-   * signal. Without it, answering and then closing the sheet with the ✕ or the
-   * backdrop — rather than the "Back to DeckPal" button — recorded a dismissal
-   * ON TOP OF the answer, which is the both-outcomes-at-once overlap that
-   * splitting dismissal from completion was meant to end.
+   * Set from `onAnswered`, which `SupportFlow` fires at the eight points where
+   * an answer exists. Without it, answering and then closing the sheet with the
+   * ✕ or the backdrop — rather than the "Back to DeckPal" button — recorded
+   * a dismissal ON TOP OF the answer, which is the both-outcomes-at-once
+   * overlap that splitting dismissal from completion was meant to end.
+   *
+   * ⚠️ NOT `onState`, which is what this said for fifteen rounds after the
+   * mechanism changed underneath it — while the JSX below said the opposite.
+   * `onState` fires whenever the state on screen must change, INCLUDING on
+   * failure and ambiguous branches, because the card summary and the status
+   * have to stay honest whatever happened. A reader trusting the old sentence
+   * would conclude `onAnswered` is redundant and remove it, which re-opens the
+   * overlap four separate rounds went into closing.
    */
   const answered = useRef(false)
 

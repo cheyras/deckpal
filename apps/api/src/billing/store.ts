@@ -389,9 +389,11 @@ export async function lockAccount(userId: string): Promise<void> {
   // essentially every uuid: `hashtextextended` returns a full 64-bit bigint and
   // a cast to int4 is range-checked, not truncating. Measured against real
   // Postgres, 0 of 200 uuids survived it. Because the lock is taken before the
-  // try/catch on all three money routes, that made every subscribe, every card
-  // change and every gift a 500 — including choosing $0 in the onboarding
-  // modal. It failed safe (no Stripe call happens after the raise) and it was
+  // try/catch on EVERY route that takes it — seven today, and three when that
+  // sentence was written — it made every subscribe, every card change and
+  // every gift a 500, including choosing $0 in the onboarding modal. This
+  // docstring is the blast radius for any future regression here, so it says
+  // "every route that takes it" rather than a number that drifts. It failed safe (no Stripe call happens after the raise) and it was
   // invisible to the tests, which never enter SUPABASE_MODE.
   //
   // The namespace constant lives in the hashed string instead, which keeps this

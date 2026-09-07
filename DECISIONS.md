@@ -16612,6 +16612,32 @@ Also corrected: DEPLOYMENT said the deployed code "hard-requires every one of
 drops and replaces its function outright — and it errs safe, but a list that
 names four things after claiming six is the count-drift class again.
 
+### 36. Round thirty-three: a false citation, written beside the rule against them
+
+Round thirty-two named the stale-citation class and fixed two of them. In the
+same commit it wrote a NEW false one, twelve lines above the paragraph telling
+the reader to grep before believing a correction landed: 060's self-harm note
+said "SECURITY.md carries the same account, and so now do 059's header,
+`webhook.ts`, `service.ts`, `routes/billing.ts` and API.md". Only SECURITY.md
+does. The other five carry a DIFFERENT account — the pin-versus-ownership-check
+correction — and API.md does not mention release at all. Broadening a citation
+from two files to six while correcting citations is a good demonstration of why
+the class needs naming: a list of files is a claim about each of them.
+
+`lockAccount`'s docstring said the lock is taken "on all three money routes".
+Seven take it. Three was true in round four, and the sentence is the blast radius
+a future regression here would be measured against — it understated it by more
+than half. It now says "every route that takes it", with the number as an aside,
+for the reason §32 gives about numbers beside lists.
+
+And the `answered` ref in `SupportPrompt` still said `onState` "fires only after
+a write the server accepted, so it is the honest signal". Round eighteen replaced
+that mechanism with `onAnswered` and wrote the opposite into the JSX 135 lines
+below, so the file has carried two contradicting statements about one ref for
+fifteen rounds. The docstring is the one somebody reads first, and acting on it
+— concluding `onAnswered` is redundant — re-opens the both-outcomes overlap
+that §21, §22, §24, §27 and §30 went into closing.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists
