@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // node:crypto for the stamp digest and node:test for the suite. Nothing in
+    // the shipped surface touches the DOM — this package is imported by the
+    // browser engine, the API and a CLI alike, so it stays runtime-agnostic and
+    // takes pixels as plain arrays rather than ImageData.
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

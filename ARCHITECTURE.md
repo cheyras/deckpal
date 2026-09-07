@@ -529,6 +529,88 @@ shelled-out decoder the scanner shipped with is exactly what made the hosted
 scanner match nothing (issue #20). `ALGO` names the pipeline; changing either side
 means bumping it and re-indexing.
 
+### Card scanner — the identity embedding (built, off by default)
+
+The hash above is a good prefilter and a bad identifier. Measured 2026-09-03 on
+19 photographs of real cards rectified from HAND-LABELLED quads — the best crop
+geometry this pipeline can produce — its top-1 was the right card **twice**, and
+its own `matched: true` gate fired four times and named a different card every
+time. 0-for-4 precision. The failure is not crop quality and cannot be tuned
+away: a 64-bit greyscale hash cannot bridge glare, colour cast and sleeve
+reflection to a clean catalogue render.
+
+So identity becomes an **image embedding**, per the owner's 2026-09-04 ruling —
+computed **server-side**, per the 2026-09-05 amendment ("it's ok if we run that
+server-side"). The phone uploads the rectified crop it already uploads and
+downloads no model at all; `apps/api/src/scan/queryEmbed.ts` runs the checkpoint
+over the same input spec at the other end. The runtime is the ORT-web WASM
+bundle the detector already vendors, read off disk — not `onnxruntime-node`,
+which unpacks to 296 MB against a 250 MB function ceiling and whose binding
+`dlopen`s a shared object no static tracer can see (measured 2026-09-06;
+DEPLOYMENT.md carries the bundle arithmetic).
+
+The shape, and the four places it is enforced rather than intended:
+
+* **One versioned input spec.** `packages/matching` holds it, in TypeScript and
+  in a Python mirror that produces BIT-IDENTICAL tensors, checked by both test
+  suites against one committed golden. The phone, the API and the catalogue job
+  all import it, because a catalogue vector is computed months earlier on a
+  different machine and a cosine between two different resamplers measures the
+  resamplers. The spec does NOT redeclare the detector's `PIPELINE_VERSION` —
+  `apps/web/src/scan/engine/frame.ts` owns that, this formats what it is handed,
+  and a test asserts the number appears nowhere in the module.
+
+* **A stamped index.** `card_embedding` (migration 051) is keyed on
+  `(card_id, quality, stamp)` where the stamp names the spec version and the
+  checkpoint, and the matcher filters on it. This is `card_image_phash.algo`'s
+  rule, extended so two model generations can coexist and a cutover is a change
+  of one string. The HNSW index is partial on the current stamp, because an
+  unfiltered one would pick a neighbour from the wrong generation and let the
+  `WHERE` drop it afterwards — fewer than k rows, with nothing in the plan to
+  say why.
+
+* **Two confidences, never one.** `POST /api/scan/embed` returns an `identity`
+  block and a `variant` block and deliberately nothing that could be mistaken
+  for their average — no `matched`, no `confidence`. Variant has exactly one
+  level today, `unknown`, because nothing in this build measures a printing;
+  what it does compute is whether that unknown blocks the commit, which is the
+  ruling's "no silent default-to-primary" as a field the UI cannot ignore.
+
+* **One resolver, with the vector as evidence inside it.** The 2026-09-06
+  ruling — *"ensure that the image vector match is still a point of data in the
+  match"* — means the embedding is a rung of the OCR ladder
+  (`apps/api/src/scan/resolve.ts`) and not a rival endpoint's verdict. Three
+  rules, in `fuse.ts`: a printed key that resolved is never reviewed (OCR wins a
+  disagreement, because `(setCode, number)` is unique across 20,444 cards with
+  zero collisions and a cosine is not that kind of claim); where a key narrowed
+  the world to candidates it cannot choose between — `014/198` is Steenee or
+  Floragato — the vector's own top-1 agreeing with one of them makes the answer
+  confident and `resolvedBy: 'corroborated'`; and alone, the vector needs the
+  calibrated gate and is the LAST rung that can name a card. The perceptual hash
+  is demoted by the same ruling to a near-exact band (distance <= 2) in which it
+  may CONFIRM the vector and may never speak alone — its measured wrong top-1s
+  are same-art reprints at distance 1-6, inside that very band. `scan_exemplar`
+  records `resolved_by` and `phash_distance` so *"does the hash ever change an
+  outcome"* — the question that decides its retirement — is a `GROUP BY`.
+
+The verify flywheel (migration 052) stores **embeddings, not photographs**: 2-3
+frames per confirmed scan, each with its own vector, plus an optional sleeve
+label and the matcher's own claim at the time — which makes "of the scans we
+called confident, how many did the reader change" a continuous measurement
+rather than an afternoon with a spreadsheet. Crop retention is a separate
+opt-in tier whose consent is enforced by a trigger, so a retained image with no
+recorded consent is unrepresentable rather than discouraged.
+
+The whole path is behind `SCAN_EMBED_MATCH`, unset by default, and the hash path
+is untouched. Turning it on additionally requires migration 051 applied,
+`tools/embed-catalog` run, and the checkpoint present at
+`SCAN_EMBED_MODEL_PATH` — none of which the API can check, which is why
+`/health` reports `scanEmbed` and the boot log says so. With the flag off,
+`/resolve` returns byte-for-byte what it returned before any of this existed,
+which a test asserts across every fixture case rather than a comment claiming
+it; with the flag ON and the index still empty, it returns the same thing again,
+so the migrate → embed → flag sequence has no step that changes answers early.
+
 
 ## 13. Frontend
 

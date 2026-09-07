@@ -219,6 +219,63 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DECKE_DEEP_BUDGET_MS` | `210000` (default) | Wall-clock ceiling for ONE deep-tier sub-agent (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Must stay comfortably under `api/chat.mjs`'s `maxDuration` (300 s) — the gap is not slack, it is the time needed to write the partial answer out, let the conversational model comment on it, and close the stream properly. A sub-agent that hits this returns **what it has so far, labelled incomplete**, rather than being killed: it streams for exactly that reason, since a call that is simply killed produced nothing and was billed anyway. |
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_MESSAGE` | set by Vercel | **Not set by hand — but the feature that reads them can be switched off by accident.** Deck-E's transcript history stamps every turn with the build that served it, so *"did this get worse, and when"* is a query rather than a guess. The PR number is parsed from the squash-merge subject (`Title (#78)`) and the sha is the commit. Both arrive as ordinary runtime environment variables **only while the project's "Automatically expose System Environment Variables" setting is ON** (Vercel → Project → Settings → Environment Variables). Turn it off and every new turn records `buildPr: null, buildSha: null` — silently, and indistinguishably from a run of preview deploys, which is the failure this row exists to make findable. Nothing else depends on them; the history keeps working and simply stops being correlatable. Verified live: a turn recorded on a preview came back stamped with the deploying commit. |
 | `DECKE_CREDITS_ENABLED` | unset (default) | **Switches Deck-E from the daily two-counter meter to a single credit balance.** Unset or anything other than the exact string `true` keeps `decke_usage` (migration 039) and changes nothing. Set to `true` and every turn and every deep call spends from `decke_credit_balance` (migrations 041/042) instead, with a HARD STOP at zero — the owner's call: *"I can use him while I have credits. If I'm out, I can't use him."* **Do not set this before granting balances.** 041 creates every balance at `0`, so switching it on first makes Deck-E unavailable to every account at once, the owner's included. The order is: run the migrations, grant balances, then set the flag. 039's tables are left in place so the flag is reversible. Prices live in `apps/api/src/decke/credits.ts`, derived from measured per-call cost via `CREDIT_USD` — the retail price of a top-up is a separate decision and is not encoded anywhere yet. |
+| `SCAN_EMBED_MATCH` | unset (default) | **Switches on the scanner's embedding matcher — `POST /api/scan/embed`, and the vector's part in `POST /api/scan/resolve`.** Unset, or anything other than the exact string `true`, and `/embed` answers **404** (the honest answer: this deployment does not have that endpoint) while `/resolve` ignores any `vectorMatches` in the body and returns exactly what it returned before the matcher was written — same keys, no `similarity` field, same ordering. The dHash path (`POST /api/scan`) is untouched either way. **THREE things must be true before setting it, and none of them is checked from the API**: migration 051 applied (which needs `pgvector`, see below), `tools/embed-catalog` run for the current stamp, and the ONNX checkpoint present at `SCAN_EMBED_MODEL_PATH`. A serverless function has no boot to verify them in, so each surfaces on the first request instead — a missing table or extension degrades **silently back to the old ladder** (one warning in the log, no 500), while a missing model file is a 500 whose message names the path. Turn it on in **Preview first**, run one real scan, then Production. `GET /health` reports `scanEmbed: "on" \| "off"`, and the API logs one line at boot when it is on. |
+| `SCAN_EMBED_MODEL_PATH` | `apps/api/assets/embed/<EMBED_MODEL_ID>.onnx` (default) | **Where the API finds the identity model it embeds uploaded crops with.** Not committed — an int8 CLIP ViT-B/32 export is ~88 MB and this repo carries no binaries — so the file is placed by hand and carried into the serverless bundle by `vercel.json`'s `includeFiles`. `tools/embed-catalog/README.md` has the export snippet that produces it, and it is deliberately the *same file* the catalogue job uses: a query vector and a catalogue vector are comparable only when one model made both. Absent, `POST /api/scan/embed` fails with a message naming the missing path rather than a stack trace about a file handle. |
+| `SCAN_EMBED_ORT_DIR` | `apps/web/public/scan-assets` (default) | Where the API finds the ONNX Runtime it executes that model with: `ort.wasm.min.mjs` and `ort-wasm-simd-threaded.wasm`. **Both are already in the repo** — the detector ships them to the browser, and the server reads the same two files rather than vendoring a second 13 MB copy that could drift from the one phones run. Override only if a bundle puts them elsewhere. The runtime is WASM and not native on purpose: `onnxruntime-node` unpacks to **296 MB** against Vercel's 250 MB function ceiling, and the 44.7 MB `libonnxruntime.so` it `dlopen`s is invisible to static tracing, so it would either blow the limit or deploy green and 500 on the first scan (measured 2026-09-06 — see DECISIONS.md). |
+| `EMBED_MODEL_PATH` | `.cache/models/<EMBED_MODEL_ID>.onnx` (default) | Read only by `tools/embed-catalog`, never by the API or the web app — the operator-side twin of `SCAN_EMBED_MODEL_PATH`. Where the exported ONNX checkpoint lives on the machine running the catalogue embed. The job **refuses to run** if the file is absent rather than falling back to another checkpoint: a catalogue embedded with the wrong model is worse than an empty one, because it looks finished. `tools/embed-catalog/README.md` has the export snippet. |
+| `DRIVE_EXPORT_CREDENTIALS` | path to the service-account JSON | Read only by `tools/drive-export`, never by any deployed process — this is an operator's tool, not part of the running product, and the variable belongs on the machine somebody runs it from rather than in Vercel. Absent, the tool **refuses to start** with a message naming this variable and the expected file; it never silently no-ops and never falls back to a local write unless `--local-out` says so explicitly. The key file itself is gitignored (`.drive-export-credentials.json`) and its contents are never printed. |
+| `DRIVE_EXPORT_FOLDER_ID` | Drive folder id (optional) | Where curated training images go. Unset, the tool resolves `/deckpal/card_scans` **by name** and fails loudly if it cannot find it — it will not CREATE the folder, per B9: a tool that makes its own destination when it cannot find one is a tool that uploads somewhere nobody is watching. The folder must be shared with the service account's `client_email`. |
+| `DRIVE_EXPORT_CROP_BUCKET` | `card-scans` (default) | Which storage bucket holds the retained crops the export reads. **The default is a guess and has not been confirmed against a real deployment** — the opt-in crop tier has never written an object. Confirm it before the first run. |
+
+#### `pgvector` is a prerequisite of migration 051
+
+The scanner's embedding index (`card_embedding`) is a `vector(768)` column, so
+the database needs the `vector` extension **before** `pnpm migrate` reaches 051.
+
+- **Supabase** — already available; the migration's `CREATE EXTENSION` succeeds
+  with nothing to do first.
+- **Self-host** — one package: `apt install postgresql-<major>-pgvector` (or the
+  equivalent for your distribution), then re-run the migration.
+
+051 checks `pg_available_extensions` first and raises a message naming the
+package and this section, rather than letting Postgres answer "could not open
+extension control file" — which is accurate and useless to anyone who has not
+met it before. The check costs one row read and turns a support question into a
+one-line fix.
+
+#### The `api/index.mjs` bundle, with the identity model in it
+
+Vercel caps a serverless function at **250 MB uncompressed**. The scanner's
+server-side embedder adds two files to `api/index.mjs`, so the ceiling stops
+being theoretical. Measured 2026-09-06 on this repo:
+
+| | size | note |
+|---|---|---|
+| the function today | 62.8 MB | 127 packages; `sharp`'s Linux libvips is 17.4 MB of it |
+| ONNX Runtime (WASM) | 13.3 MB | `ort-wasm-simd-threaded.wasm` + a 50 KB loader, already in the repo |
+| CLIP ViT-B/32, int8 | 88.2 MB | `SCAN_EMBED_MODEL_PATH`, placed by hand |
+| **total** | **~164 MB** | ~86 MB of headroom |
+
+Two consequences worth knowing before somebody "simplifies" this:
+
+- **Do not add `onnxruntime-node`.** It unpacks to 296 MB — one tarball
+  carrying every platform, with no optional per-platform packages to prune — so
+  it does not fit at all. And its binding is loaded as
+  `` require(`../bin/napi-v6/${process.platform}/${process.arch}/…node`) ``,
+  which file tracing either wildcards (all 296 MB) or resolves to the 0.39 MB
+  `.node` while missing the 44.7 MB `libonnxruntime.so.1` that file `dlopen`s.
+  The second outcome deploys green and 500s on the first scan.
+- **The fallback, if the budget ever tightens**, is TinyCLIP ViT-betwixt/32 at
+  61.7 MB int8 — pre-measured, thresholds already in
+  `packages/matching/src/confidence.ts`, and 6% less similarity headroom
+  (0.0685 against 0.0731). It needs a re-embed of the catalogue and a migration
+  for the 640-wide column, because a different width is a different vector
+  space.
+
+Cold start is a model load, not a download: session creation measures ~7.5 ms
+per MB after a one-off ~360 ms runtime init, so an 88 MB graph is roughly
+1.0–1.5 s on the first request an instance serves, and nothing after that. The
+function already has 1024 MB of memory, which is comfortable for this.
 
 ### Static asset caching (`vercel.json` → `headers`)
 

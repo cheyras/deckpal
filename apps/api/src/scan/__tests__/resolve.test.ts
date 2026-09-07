@@ -485,10 +485,17 @@ test('a match carries an identity and never a printing', async () => {
   // Identity confidence only. Which VARIANT — reverse holo, first edition,
   // jumbo — is a separate unresolved dimension, and the two are never blended:
   // a certain identity must not launder a guess about the printing.
+  //
+  // `distance` and `similarity` are the two pieces of evidence a match carries,
+  // and neither is a printing. Everything the vector added to this ladder is an
+  // IDENTITY signal — the embedding is trained to be invariant to exactly the
+  // surface effects (gloss, holo shimmer, sleeve reflection) that distinguish a
+  // reverse holo from a normal, which is what makes it good here and useless
+  // for variant. So the list grew by one and the ruling is intact.
   const r = await run({ setCode: 'SVI', number: '014', denominator: '198' });
   assert.deepEqual(
     Object.keys(r.matches[0]!).sort(),
-    ['cardId', 'distance', 'name', 'number', 'numberNumeric', 'rarity', 'seriesId', 'setId', 'setName'],
+    ['cardId', 'distance', 'name', 'number', 'numberNumeric', 'rarity', 'seriesId', 'setId', 'setName', 'similarity'],
   );
 });
 

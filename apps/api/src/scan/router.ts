@@ -1,9 +1,14 @@
 import { Router, raw, type RequestHandler } from 'express';
 import { cardImages, q } from '../db.js';
-import { ApiError, asyncHandler, badRequest, clampInt, oneOf, toBuffer } from '../http.js';
+import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 import { pgCatalogPort } from './catalogPort.js';
-import { resolveCard, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
+import { resolveCard, type FusionInput, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
+import { scanEmbedGate } from './embedGate.js';
+import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
+import { DEFAULT_CAPTURE_MARGIN, embedCrop } from './queryEmbed.js';
+import type { VectorMatch } from './fuse.js';
+import { EMBED_MODEL_ID } from '@deckpal/matching';
 
 /**
  * Offline card scanner (Phase 8) — image → card matcher.
@@ -387,7 +392,9 @@ function readField(fields: Record<string, unknown>, key: string): string | undef
   return v;
 }
 
-function parseResolveBody(body: unknown): { fields: OcrFields; priorMatches: PriorMatch[] } {
+function parseResolveBody(
+  body: unknown,
+): { fields: OcrFields; priorMatches: PriorMatch[]; vectorMatches: VectorMatch[] } {
   if (body == null || typeof body !== 'object' || Array.isArray(body)) {
     throw badRequest(
       'POST a JSON object: { fields: { name?, number?, denominator?, setCode?, bodyLines? }, priorMatches?: [...] }',
@@ -429,11 +436,46 @@ function parseResolveBody(body: unknown): { fields: OcrFields; priorMatches: Pri
     }
   }
 
-  return { fields, priorMatches };
+  return { fields, priorMatches, vectorMatches: parseVectorMatches(b) };
 }
 
-function shapeResolved(m: RankedCard): Record<string, unknown> {
-  return {
+/**
+ * `vectorMatches` — the image evidence, in the same shape and with the same
+ * bounds as `priorMatches`, because it plays the same part: the client ran a
+ * matcher, got scored candidates back, and hands them to the ladder to be
+ * weighed against everything else.
+ *
+ * 🔴 PARSED ALWAYS, USED ONLY WHEN THE FLAG IS ON. The two halves are separate
+ * on purpose. Parsing here means a malformed body is a 400 whatever the
+ * deployment's flag says, so a client cannot discover the flag's state by
+ * sending rubbish; and `/resolve`'s handler is the ONE place that decides
+ * whether the parsed evidence reaches the ladder at all.
+ */
+function parseVectorMatches(b: Record<string, unknown>): VectorMatch[] {
+  const out: VectorMatch[] = [];
+  if (b.vectorMatches == null) return out;
+  if (!Array.isArray(b.vectorMatches)) throw badRequest('`vectorMatches` must be an array');
+  if (b.vectorMatches.length > MAX_PRIORS) throw badRequest(`at most ${MAX_PRIORS} vectorMatches`);
+  for (const [i, entry] of b.vectorMatches.entries()) {
+    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw badRequest(`vectorMatches[${i}] must be { cardId, similarity }`);
+    }
+    const v = entry as Record<string, unknown>;
+    if (typeof v.cardId !== 'string' || v.cardId === '' || v.cardId.length > MAX_FIELD_LEN) {
+      throw badRequest(`vectorMatches[${i}].cardId must be a non-empty card id`);
+    }
+    // -1..1 because that is the range of a cosine. A value outside it did not
+    // come from POST /scan/embed.
+    if (typeof v.similarity !== 'number' || !Number.isFinite(v.similarity) || v.similarity < -1 || v.similarity > 1) {
+      throw badRequest(`vectorMatches[${i}].similarity must be a number from -1 to 1`);
+    }
+    out.push({ cardId: v.cardId, similarity: v.similarity });
+  }
+  return out;
+}
+
+function shapeResolved(m: RankedCard, withVector: boolean): Record<string, unknown> {
+  const shaped: Record<string, unknown> = {
     cardId: m.cardId,
     name: m.name,
     number: m.number,
@@ -447,20 +489,147 @@ function shapeResolved(m: RankedCard): Record<string, unknown> {
     // attached, and inventing 0.0 would read as "maximally dissimilar".
     confidence: m.distance == null ? null : Math.round((1 - m.distance / 64) * 1000) / 1000,
   };
+  // 🔴 THE KEY IS ABSENT, NOT NULL, WHEN THE MATCHER IS OFF. A deployment
+  // without the embedding matcher must produce the response it produced before
+  // the matcher was written — the same keys in the same order — because that is
+  // what "the flag changes nothing" has to mean to a client parsing it. A
+  // `similarity: null` on every match would be a new field, and a client that
+  // read it as "the vector says no" would be reading a fact that does not exist.
+  if (withVector) shaped.similarity = m.similarity;
+  return shaped;
 }
 
 scanRouter.post(
   '/resolve',
   asyncHandler(async (req, res) => {
-    const { fields, priorMatches } = parseResolveBody(req.body);
+    const { fields, priorMatches, vectorMatches } = parseResolveBody(req.body);
+    // THE FLAG, AND THE WHOLE OF WHAT IT DOES HERE. Off — the default — and
+    // `fusion` is undefined, the ladder never builds a similarity map, never
+    // consults `fuse.ts`, and never reports a `similarity` key. There is no
+    // second branch to keep in step: the evidence is either supplied or it is
+    // not, and everything downstream follows from that one fact.
+    const fusion: FusionInput | undefined =
+      scanEmbedGate() === 'on' ? { vectorMatches, modelId: EMBED_MODEL_ID } : undefined;
     const outcome = await resolveCard(fields, priorMatches, pgCatalogPort, {
       phashConfidentMax: CONFIDENT_MAX,
+      fusion,
     });
     res.json({
       matched: outcome.matched,
       confident: outcome.confident,
       resolvedBy: outcome.resolvedBy,
-      matches: outcome.matches.map(shapeResolved),
+      matches: outcome.matches.map((m) => shapeResolved(m, fusion != null)),
     });
   }),
 );
+
+/**
+ * POST /api/scan/embed — the image rung, end to end: a crop in, scored
+ * candidates out.
+ *
+ *   Body:  the raw bytes of the rectified card crop, `Content-Type: image/*`.
+ *          EXACTLY what POST /api/scan already takes, on purpose.
+ *   Query: ?k=<1..25>          how many candidates (default 5)
+ *          ?margin=<0..0.25>   background beyond the card in the crop, per side
+ *                              (default 0.05 — `rectify.ts`'s CAPTURE_MARGIN)
+ *   Response 200:
+ *     { stamp, indexSize, identity, variant, matches: [ { cardId, name, number,
+ *       setId, setName, seriesId, rarity, images, similarity, variantCount } ] }
+ *
+ * ── IT TAKES A PICTURE, NOT A VECTOR, AND THAT IS THE RULING ────────────────
+ *
+ * The branch this merged from had this route accepting a 768-float array the
+ * PHONE computed. Owner ruling, 2026-09-05: the CLIP embedding runs server-side
+ * ("it's ok if we run that server-side"), so the phone no longer downloads 88 MB
+ * of model and no longer produces a vector at all. The old body shape is gone
+ * rather than kept as an alternative, for two reasons beyond tidiness:
+ *
+ *   * A client-supplied vector is a client-supplied position in the index. This
+ *     route is reachable by anyone who can reach the API, and "here is an
+ *     arbitrary point, tell me what is near it" is a different and much broader
+ *     capability than "here is a photograph of my card".
+ *   * Two accepted input shapes are two things to keep bit-identical forever.
+ *     The whole reason `@deckpal/matching` exists is that one image must mean
+ *     one tensor; an endpoint that will also take somebody else's answer to
+ *     that question has quietly given up the guarantee.
+ *
+ * ── AND IT IS A SEPARATE ROUTE FROM /scan, NOT A FIELD ON IT ────────────────
+ *
+ * Folding it into POST /api/scan was the alternative and it is worse. That
+ * endpoint is the dHash path, it is what every deployed client calls, and it
+ * has a response shape (`matched`, `threshold`, `confidence`) built out of hash
+ * distances. Adding a model load and an 88 MB file to ITS cold start, behind a
+ * flag, so that its answer could sometimes mean something different, is the
+ * kind of change that cannot be turned off cleanly. Two routes; the client
+ * calls whichever this deployment has, and feeds either one's output to
+ * /resolve as evidence.
+ *
+ * 404 when `SCAN_EMBED_MATCH` is unset — the honest answer, since this
+ * deployment then genuinely does not have this endpoint. 503 would promise it
+ * is coming back.
+ *
+ * The response carries no `matched` and no single blended `confidence`: see
+ * ./embedMatch.ts for why identity and variant are two numbers that must not be
+ * confusable.
+ */
+scanRouter.post(
+  '/embed',
+  readImageBody,
+  asyncHandler(async (req, res) => {
+    if (scanEmbedGate() === 'off') throw notFound('the embedding matcher is not enabled on this deployment');
+
+    const body = toBuffer(req.body);
+    if (!body || body.length === 0) {
+      throw badRequest('POST the raw crop bytes as the request body (Content-Type: image/*).');
+    }
+    const k = clampInt(req.query.k, 5, 1, 25);
+    const margin = readMargin(req.query.margin);
+
+    let embedding: Float32Array;
+    try {
+      embedding = await embedCrop(body, margin);
+    } catch (e) {
+      // The two failures here are not the same and must not read as one. A
+      // picture this server cannot decode is the caller's problem (400); a
+      // model that is not on this deployment is the operator's (500, with the
+      // sentence that names the missing file). `embedCrop` throws the second
+      // with a message written for whoever has to fix it, so it is re-raised
+      // rather than flattened.
+      const msg = (e as Error).message;
+      if (/identity model/.test(msg)) throw e;
+      throw badRequest(`could not embed the uploaded crop: ${msg}`);
+    }
+
+    const { indexSize, rows } = await pgNeighbours(assertQueryVector(embedding), CURRENT_STAMP, k);
+    if (indexSize === 0) {
+      // Same shape as the hash path's empty-index answer, and for the same
+      // reason: "nothing is indexed" and "nothing matched" are different facts
+      // and must not arrive looking identical.
+      res.json({
+        stamp: CURRENT_STAMP,
+        indexSize: 0,
+        identity: { level: 'none', cardId: null, similarity: 0, margin: null, modelId: EMBED_MODEL_ID },
+        variant: { level: 'unknown', reason: 'no-variant-model', requiresUserChoice: false },
+        matches: [],
+        note: `no embeddings indexed for ${CURRENT_STAMP} yet — run tools/embed-catalog`,
+      });
+      return;
+    }
+    res.json(buildResponse(CURRENT_STAMP, indexSize, rows));
+  }),
+);
+
+/**
+ * The crop's declared margin. A number this server cannot measure — a tight
+ * crop and one with table around it are both valid images — so a bad value is
+ * refused rather than guessed at, because the failure it produces is a
+ * perfectly plausible vector of the wrong rectangle.
+ */
+function readMargin(raw: unknown): number {
+  if (raw == null) return DEFAULT_CAPTURE_MARGIN;
+  const n = Number(Array.isArray(raw) ? raw[0] : raw);
+  if (!Number.isFinite(n) || n < 0 || n > 0.25) {
+    throw badRequest('margin must be a number from 0 to 0.25 (the fraction of background per side)');
+  }
+  return n;
+}

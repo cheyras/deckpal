@@ -353,10 +353,16 @@ test('a family-text match carries an identity and nothing from the matcher', asy
   // into the response, so a printing that arrived carrying its token bag would
   // put a card's normalised comparison text into the wire payload — a leak of
   // the one thing this layer is supposed to own.
+  //
+  // `similarity` is in the list and `tokens`/`familyKey` are not, which is the
+  // whole assertion: an evidence field the ladder itself produces belongs on a
+  // RankedCard, and one rung's private comparison form does not. Whether
+  // `similarity` reaches the WIRE is a separate decision `router.ts` takes from
+  // the flag — see `shapeResolved`.
   const r = await run({ bodyLines: textOf("Team Rocket's Nidoqueen") });
   assert.deepEqual(
     Object.keys(r.matches[0]!).sort(),
-    ['cardId', 'distance', 'name', 'number', 'numberNumeric', 'rarity', 'seriesId', 'setId', 'setName'],
+    ['cardId', 'distance', 'name', 'number', 'numberNumeric', 'rarity', 'seriesId', 'setId', 'setName', 'similarity'],
   );
 });
 

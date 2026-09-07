@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // Never built. This tool runs through tsx (`node --import tsx export.mts`),
+    // the same way `apps/api`'s CLI jobs do, so the only thing tsc is asked for
+    // here is the typecheck.
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    // `process`, `Buffer`, `fetch` and the `node:` imports. Asked for
+    // explicitly rather than relying on an implicit pull-in, matching
+    // packages/storage/tsconfig.json.
+    "types": ["node"]
+  },
+  "include": ["export.mts", "__tests__"],
+  "exclude": ["node_modules"]
+}

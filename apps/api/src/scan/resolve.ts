@@ -38,6 +38,29 @@
  * `matched: false` carrying the family's printings as candidates. `familyText.ts`
  * holds the reasoning and the measurements.
  *
+ * ── AND ONE RUNG DOES NOT READ THE CARD AT ALL ─────────────────────────────
+ *
+ * The image vector. Owner ruling, 2026-09-06: "Ensure that the image vector
+ * match is still a point of data in the match" — it is an independent signal
+ * inside THIS resolver, not a second endpoint with a competing opinion. Three
+ * rules, all in `fuse.ts`, all consulted from here:
+ *
+ *   1. A key that resolved is never reviewed. OCR wins a disagreement, because
+ *      a printed set code and a cosine are not the same kind of claim.
+ *   2. Corroboration: where a key narrowed the world to a handful it cannot
+ *      choose between — `014/198` is Steenee or Floragato — and the vector's
+ *      own top-1 is one of them, the agreement is the answer. `resolvedBy`
+ *      becomes 'corroborated'.
+ *   3. Alone, the vector needs the calibrated gate, and it is the LAST rung
+ *      that can name a card.
+ *
+ * The perceptual hash is demoted by the same ruling: inside the near-exact band
+ * it may confirm somebody else's answer and it may no longer produce one.
+ *
+ * ALL OF THIS IS SKIPPED unless `opts.fusion` is present, which `router.ts`
+ * populates only when `SCAN_EMBED_MATCH=true`. With it absent the ladder is,
+ * byte for byte, the one that shipped before the vector existed.
+ *
  * ── WHAT THE PRE-2023 77% GETS ─────────────────────────────────────────────
  *
  * English cards only began printing a text set code with Scarlet & Violet
@@ -54,6 +77,14 @@ import {
   readTokens,
   type FamilyTextCard,
 } from './familyText.js';
+import {
+  PHASH_NEAR_EXACT,
+  corroborate,
+  vectorVerdict,
+  type Corroborators,
+  type VectorMatch,
+  type VectorVerdict,
+} from './fuse.js';
 
 // ── The catalogue, as this module needs to see it ───────────────────────────
 
@@ -148,11 +179,40 @@ export interface PriorMatch {
   distance: number;
 }
 
-export type ResolvedBy = 'badge+number' | 'number+denominator' | 'name+number' | 'family-text' | 'prior-only';
+export type ResolvedBy =
+  | 'badge+number'
+  | 'number+denominator'
+  | 'name+number'
+  | 'family-text'
+  /**
+   * The image vector answered ALONE, on a decisive margin in vector space, with
+   * nothing else to agree with it. `fuse.ts` owns what "decisive" means.
+   */
+  | 'vector'
+  /**
+   * TWO INDEPENDENT SIGNALS NAMED THE SAME CARD, neither of them sufficient by
+   * itself. The 2026-09-06 ruling's shape: the vector is a data point in the
+   * one match rather than a competing answer, so the case where it BREAKS A TIE
+   * the OCR ladder could not — `014/198` is Steenee or Floragato and the
+   * printed key genuinely cannot say which — gets its own label instead of
+   * being laundered into whichever rung happened to produce the tie.
+   *
+   * A caller reading `confident` needs nothing more than the other rungs give
+   * it. A caller ASKING WHY, which is every debugging session and the whole
+   * accuracy benchmark, needs to know the answer came from an agreement.
+   */
+  | 'corroborated'
+  | 'prior-only';
 
 export interface RankedCard extends CatalogCard {
   /** The phash distance from `priorMatches`, or null when the priors never nominated this card. */
   distance: number | null;
+  /**
+   * The cosine similarity from `vectorMatches`, or null when the vector never
+   * nominated this card — which includes EVERY card when the embedding matcher
+   * is switched off, since the ladder is then never given any.
+   */
+  similarity: number | null;
 }
 
 export interface ResolveOutcome {
@@ -178,6 +238,28 @@ export interface ResolveOptions {
    * next to the scan endpoint that earned it.
    */
   phashConfidentMax: number;
+  /**
+   * THE IMAGE EVIDENCE, AND THE FLAG, IN ONE FIELD.
+   *
+   * Present only when `SCAN_EMBED_MATCH=true`. Absent — the default, and every
+   * caller that predates the embedding matcher — and every rule in `fuse.ts` is
+   * skipped, no similarity map is built, no `similarity` is reported, and this
+   * module produces exactly the bytes it produced before the vector existed.
+   *
+   * The flag is expressed as the PRESENCE OF EVIDENCE rather than as a boolean
+   * beside it on purpose: there is then no state in which the ladder believes
+   * fusion is on and has nothing to fuse, and no branch anybody can forget to
+   * write. `router.ts` reads the environment; this module never does.
+   */
+  fusion?: FusionInput;
+}
+
+export interface FusionInput {
+  /** The pgvector search's scored candidates, descending by similarity. */
+  vectorMatches: readonly VectorMatch[];
+  /** Which checkpoint's calibrated thresholds apply. A vector space's gate is
+   *  a property of that space, so the id travels with the candidates. */
+  modelId: string;
 }
 
 /**
@@ -345,6 +427,18 @@ interface Priors {
   best: RankedCard | null;
 }
 
+/** Everything the ladder hydrated from bare ids in ONE `byIds` round trip. */
+interface Evidence {
+  priors: Priors;
+  /** cardId -> cosine similarity, from `fusion.vectorMatches`. Empty when the
+   *  embedding matcher is off, which is what makes `rank` behave as it always
+   *  did on that path. */
+  similarity: Map<string, number>;
+  /** The vector's candidates, hydrated, in the order the search returned them
+   *  — which is descending similarity. */
+  vectorCards: CatalogCard[];
+}
+
 export async function resolveCard(
   fields: OcrFields,
   priorMatches: readonly PriorMatch[],
@@ -356,11 +450,63 @@ export async function resolveCard(
   const nameRead = fields.name?.trim() ? fields.name : null;
   const badge = resolveBadge(fields.setCode, denominator);
 
-  const priors = await hydratePriors(priorMatches, port);
+  const evidence = await hydrateEvidence(priorMatches, opts.fusion?.vectorMatches ?? [], port);
+  const priors = evidence.priors;
 
-  const done = (resolvedBy: ResolvedBy, cards: readonly CatalogCard[], confident: boolean): ResolveOutcome => {
-    const matches = rank(cards, priors.distance).slice(0, MAX_MATCHES);
-    return { matched: matches.length > 0, confident: confident && matches.length > 0, resolvedBy, matches, badge };
+  // What the image says, before anything else is known. Null when the matcher
+  // is off — and `corroborate` and the vector rung both treat null as "this
+  // signal does not exist", never as "this signal disagreed".
+  const vector: VectorVerdict | null = opts.fusion
+    ? vectorVerdict(opts.fusion.vectorMatches, opts.fusion.modelId)
+    : null;
+
+  // THE HASH, DEMOTED. Its top-1 is offered as a corroborator only inside the
+  // near-exact band, and only when fusion is on at all — outside that band it
+  // keeps the single job it has always had, which is `priorsContradict`.
+  const signals: Corroborators = {
+    vector,
+    phashNearExact:
+      opts.fusion && priors.best && priors.best.distance != null && priors.best.distance <= PHASH_NEAR_EXACT
+        ? priors.best.cardId
+        : null,
+  };
+
+  /**
+   * Finish a rung.
+   *
+   * `corroboratable` says whether the candidate list was narrowed by a KEY —
+   * a badge, a number, a denominator, a name, a family. Only such a list is
+   * worth an independent signal's agreement: "the vector's top-1 is one of the
+   * two cards this printed number allows" is a coincidence, and "the vector's
+   * top-1 is one of the twenty-five cards the hash liked" is not.
+   */
+  const done = (
+    resolvedBy: ResolvedBy,
+    cards: readonly CatalogCard[],
+    confident: boolean,
+    corroboratable = true,
+  ): ResolveOutcome => {
+    const matches = rank(cards, priors.distance, evidence.similarity).slice(0, MAX_MATCHES);
+    if (matches.length === 0) return { matched: false, confident: false, resolvedBy, matches, badge };
+    // RULE 1: a key that resolved is not up for review. Nothing below can
+    // demote it, and the vector is not consulted about it at all.
+    if (confident) return { matched: true, confident: true, resolvedBy, matches, badge };
+    // RULE 2: corroboration. Two insufficient signals naming one card.
+    const winner = corroboratable ? corroborate(matches.map((m) => m.cardId), signals) : null;
+    if (winner) {
+      const lead = matches.find((m) => m.cardId === winner)!;
+      return {
+        matched: true,
+        confident: true,
+        resolvedBy: 'corroborated',
+        // The agreed card first, and the rest kept rather than dropped: the
+        // reader who disagrees with a confident answer still needs somewhere to
+        // go, and that is the same list they would have been shown a moment ago.
+        matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
+        badge,
+      };
+    }
+    return { matched: true, confident: false, resolvedBy, matches, badge };
   };
 
   // ── Rung 1 — badge + number. 20,444 keys, zero collisions. ────────────────
@@ -452,9 +598,29 @@ export async function resolveCard(
   // because the ladder is append-only.
   const family = await resolveFamilyText(fields.bodyLines, port);
   if (family) {
-    const matches = rank(family, priors.distance).slice(0, MAX_MATCHES);
+    const matches = rank(family, priors.distance, evidence.similarity).slice(0, MAX_MATCHES);
     // Exactly one printing, or nothing certain. This is the whole rung.
     const sole = family.length === 1 ? family[0]! : null;
+    if (sole && matches.length > 0 && !priorsContradict(sole, priors, opts)) {
+      return { matched: true, confident: true, resolvedBy: 'family-text', matches, badge };
+    }
+    // A FAMILY THAT IS NOT A CARD IS THE BEST CORROBORATION CASE THERE IS, and
+    // it is why this rung routes through the same rule the others do. Body text
+    // identifies the WORDS, which every reprint shares; the vector identifies
+    // the PICTURE, which no two printings share. "It is one of these six
+    // Pikachus" plus "the closest image in the whole index is that one" is two
+    // signals covering each other's exact blind spot.
+    const winner = corroborate(matches.map((m) => m.cardId), signals);
+    if (winner) {
+      const lead = matches.find((m) => m.cardId === winner)!;
+      return {
+        matched: true,
+        confident: true,
+        resolvedBy: 'corroborated',
+        matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
+        badge,
+      };
+    }
     return {
       // 🔴 `matched: false` with a non-empty `matches` is deliberate here and
       // nowhere else. A family with several printings means we know WHICH CARD
@@ -462,11 +628,41 @@ export async function resolveCard(
       // right place for that — not a `matched: true` that would let an
       // auto-add path bank a printing nobody chose.
       matched: sole != null && matches.length > 0,
-      confident: sole != null && matches.length > 0 && !priorsContradict(sole, priors, opts),
+      confident: false,
       resolvedBy: 'family-text',
       matches,
       badge,
     };
+  }
+
+  // ── The image rung — the vector, with nothing to lean on ──────────────────
+  //
+  // This is where the 2026-09-04 ruling's "identity is an embedding against
+  // pgvector" actually lands, and it is deliberately the LAST rung that can
+  // name a card rather than the first. Everything above it read something
+  // PRINTED — a badge, a number, a name, the card's own sentences — and a
+  // printed key is a different kind of evidence from a distance in a learned
+  // space, not a weaker score of the same kind. The vector answers when the
+  // print did not.
+  //
+  // It sits above rungs 6/7/8 for the reason rung 9 does: those never name a
+  // card, they hand the hash's list back filtered. On the 19-frame ground truth
+  // the vector put the right card first on 10 of the 10 answerable frames and
+  // the hash on 2, so preferring the hash's list here would be preferring the
+  // measurably worse of two answers to the same question.
+  //
+  // Silence over lies, in three steps:
+  //   * decisive       → name it. `simMin` and `marginMin`, exactly as measured.
+  //   * near-exact hash agrees → name it. Two independent signals, one card;
+  //     this is the demoted hash's whole remaining job on the identity path.
+  //   * merely showable → hand the candidates over and claim NOTHING. Better
+  //     evidence than the hash's list, and still not an answer.
+  if (vector?.cardId && evidence.vectorCards.length > 0) {
+    if (vector.decisive) return done('vector', evidence.vectorCards, true, false);
+    if (signals.phashNearExact === vector.cardId) {
+      return done('corroborated', evidence.vectorCards, true, false);
+    }
+    return done('vector', evidence.vectorCards, false, false);
   }
 
   // ── Rungs 6/7/8 — never a key, only a filter ──────────────────────────────
@@ -477,7 +673,11 @@ export async function resolveCard(
   let filtered = priors.cards;
   if (numeric != null) filtered = filtered.filter((c) => c.numberNumeric === numeric);
   if (nameRead) filtered = filtered.filter((c) => nameTier(nameRead, c.name) != null);
-  return done('prior-only', filtered.length > 0 ? filtered : priors.cards, false);
+  // Corroboratable only when OCR actually contributed a constraint that some
+  // candidate satisfies. With neither a number nor a name this list is the raw
+  // phash ranking, and agreement with it is not evidence of anything.
+  const ocrNarrowed = (numeric != null || nameRead != null) && filtered.length > 0;
+  return done('prior-only', filtered.length > 0 ? filtered : priors.cards, false, ocrNarrowed);
 }
 
 /**
@@ -551,32 +751,91 @@ function priorsContradict(sole: CatalogCard, priors: Priors, opts: ResolveOption
   return !priors.distance.has(sole.cardId);
 }
 
-async function hydratePriors(priorMatches: readonly PriorMatch[], port: CatalogPort): Promise<Priors> {
+/**
+ * Turn both id lists into rows, in ONE query.
+ *
+ * Contract B2 is why the two are hydrated together rather than by two obvious
+ * little functions: `priorMatches` and `vectorMatches` are both bare card ids
+ * and both need the same columns, so asking twice would double this endpoint's
+ * connection cost for no information. The union is deduped, which also means a
+ * card both signals nominated — the interesting case — is fetched once.
+ */
+async function hydrateEvidence(
+  priorMatches: readonly PriorMatch[],
+  vectorMatches: readonly VectorMatch[],
+  port: CatalogPort,
+): Promise<Evidence> {
   const distance = new Map<string, number>();
   for (const p of priorMatches) {
     const prev = distance.get(p.cardId);
     if (prev == null || p.distance < prev) distance.set(p.cardId, p.distance);
   }
-  if (distance.size === 0) return { distance, cards: [], best: null };
+  const similarity = new Map<string, number>();
+  for (const v of vectorMatches) {
+    const prev = similarity.get(v.cardId);
+    if (prev == null || v.similarity > prev) similarity.set(v.cardId, v.similarity);
+  }
 
-  const rows = await port.byIds([...distance.keys()]);
-  // A prior naming a card the catalogue does not have is dropped rather than
+  const ids = [...new Set([...distance.keys(), ...similarity.keys()])];
+  if (ids.length === 0) {
+    return { priors: { distance, cards: [], best: null }, similarity, vectorCards: [] };
+  }
+
+  const rows = await port.byIds(ids);
+  // A signal naming a card the catalogue does not have is dropped rather than
   // faked: it is a stale client or a re-keyed set, and inventing a row for it
   // would put a card id in the response that resolves to nothing.
-  const cards = rank(rows, distance);
-  return { distance, cards, best: cards[0] ?? null };
+  const byId = new Map(rows.map((r) => [r.cardId, r]));
+
+  // 🔴 `priors.cards` and `priors.best` must stay EXACTLY what they were before
+  // the vector existed: `priorsContradict` reads `best`, and letting a
+  // vector-only card become the "best prior" would make the hash appear to
+  // contradict something it never saw. So the priors are built from the phash
+  // ids alone, and `rank` is given no similarity map for that ordering.
+  const priorRows = [...distance.keys()].map((id) => byId.get(id)).filter((r): r is CatalogCard => r != null);
+  const cards = rank(priorRows, distance, EMPTY_SIMILARITY);
+
+  // The vector's own order, which is the search's: descending similarity.
+  const vectorCards = vectorMatches
+    .map((v) => byId.get(v.cardId))
+    .filter((r): r is CatalogCard => r != null);
+
+  return { priors: { distance, cards, best: cards[0] ?? null }, similarity, vectorCards };
 }
 
+const EMPTY_SIMILARITY: ReadonlyMap<string, number> = new Map();
+
 /**
- * Order the answer. Cards the priors nominated come first by ascending phash
- * distance — that is the "re-rank" half of composing with the existing matcher
- * — and everything the priors never saw follows in stable catalogue order, so
- * a key-only answer is still deterministic.
+ * Order the answer.
+ *
+ * WITH NO VECTOR EVIDENCE — every call before the embedding matcher existed,
+ * and every call while it is switched off — this is unchanged: cards the priors
+ * nominated come first by ascending phash distance, and everything the priors
+ * never saw follows in stable catalogue order, so a key-only answer is still
+ * deterministic.
+ *
+ * WITH VECTOR EVIDENCE, similarity sorts ahead of distance, and that is the
+ * demotion in `rank`'s own terms. Both signals are re-rankers over a set some
+ * key already chose; when both have an opinion about the same list, the better
+ * measured one goes first. On the 19-frame ground truth against a 6,464-card
+ * gallery the vector's top-1 was right 10 times out of 10 answerable and the
+ * hash's twice, so ordering by the hash while holding the vector's answer would
+ * be showing the reader the worse guess on purpose. The distance rules are
+ * untouched beneath it and still break ties among cards the vector never saw.
  */
-function rank(cards: readonly CatalogCard[], distance: ReadonlyMap<string, number>): RankedCard[] {
+function rank(
+  cards: readonly CatalogCard[],
+  distance: ReadonlyMap<string, number>,
+  similarity: ReadonlyMap<string, number> = EMPTY_SIMILARITY,
+): RankedCard[] {
   return cards
-    .map((c) => ({ ...c, distance: distance.get(c.cardId) ?? null }))
+    .map((c) => ({ ...c, distance: distance.get(c.cardId) ?? null, similarity: similarity.get(c.cardId) ?? null }))
     .sort((a, b) => {
+      if (a.similarity != null && b.similarity != null && a.similarity !== b.similarity) {
+        return b.similarity - a.similarity;
+      }
+      if (a.similarity != null && b.similarity == null) return -1;
+      if (a.similarity == null && b.similarity != null) return 1;
       if (a.distance != null && b.distance != null && a.distance !== b.distance) return a.distance - b.distance;
       if (a.distance != null && b.distance == null) return -1;
       if (a.distance == null && b.distance != null) return 1;

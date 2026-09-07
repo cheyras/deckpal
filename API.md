@@ -898,38 +898,123 @@ within the confidence threshold (9 — re-measured over 389 degraded scans, so
 hashes are indexed yet the response is `matched: false` with a `note` to run the
 scan indexer.
 
+### POST /deckpal/api/scan/embed
+
+The embedding matcher. **404 unless `SCAN_EMBED_MATCH=true`** — an unset flag
+means this deployment does not have this endpoint, and `GET /health` reports
+`scanEmbed`.
+
+**The body is the CROP, exactly like `POST /api/scan`:** the raw bytes of the
+rectified card, `Content-Type: image/*`, not multipart and not base64. The model
+runs SERVER-SIDE (owner ruling, 2026-09-05), so the phone downloads no model and
+computes no vector, and there is deliberately no way to send one — an endpoint
+that accepts an arbitrary point in the index is a broader capability than one
+that accepts a photograph of a card.
+
+```
+curl --data-binary @crop.jpg -H 'Content-Type: image/jpeg' \
+     'https://deckpal.app/api/scan/embed?k=5&margin=0.05'
+```
+
+| query | default | meaning |
+|---|---|---|
+| `k` | 5 | candidates to return, 1..25 |
+| `margin` | 0.05 | background beyond the card on EACH side, as a fraction of the card's own dimension — `rectify.ts`'s `CAPTURE_MARGIN`. Send `0` for a tight crop. Range 0..0.25. |
+
+`margin` is refused outside its range rather than clamped: the server cannot
+measure how much table is in a picture, and a wrong value yields a perfectly
+plausible vector of the wrong rectangle.
+
+A body this server cannot decode is a 400. A deployment with no checkpoint at
+`SCAN_EMBED_MODEL_PATH` is a 500 whose message names the missing file. A
+deployment that has not run migration 051 answers `indexSize: 0` with a `note`
+and never a 500 — "not migrated yet" is an operator state, not a fault.
+
+`stamp` in the response names the vector space that answered. Results from two
+stamps are not comparable, and a client comparing across a model change needs
+that and nothing else to know it.
+
+```json
+{ "stamp": "e1:clip-vit-b32-openai", "indexSize": 23546,
+  "identity": { "level": "confident", "cardId": "me04-024", "similarity": 0.783,
+                "margin": 0.1275, "modelId": "clip-vit-b32-openai" },
+  "variant":  { "level": "unknown", "reason": "no-variant-model",
+                "requiresUserChoice": true },
+  "matches": [ { "cardId": "me04-024", "name": "Avalugg", "number": "024",
+                 "setId": "me04", "setName": "Chaos Rising", "rarity": null,
+                 "seriesId": "me", "images": { "low": "...", "high": "..." },
+                 "similarity": 0.783, "variantCount": 3 } ] }
+```
+
+**There is no `matched` and no `confidence`,** deliberately. Identity and
+variant carry separate verdicts and are never blended (owner ruling,
+2026-09-04); a client asking "is this settled" reads
+`identity.level === 'confident' && !variant.requiresUserChoice`, which is two
+decisions because there are two. `identity.level` is `confident` / `uncertain` /
+`none`; `none` still reports the similarity it rejected, and still returns the
+candidates, because declining to claim is not refusing to show the work.
+`variant.level` is `unknown` in every response this build can produce — nothing
+here measures a printing — and `requiresUserChoice` is what the verify UI must
+branch on.
+
+When nothing is embedded yet the response is `indexSize: 0` with a `note` to run
+`tools/embed-catalog`.
+
 ---
 
 ### POST /deckpal/api/scan/resolve
 The OCR resolution ladder: printed-text fields read off a captured card ->
 identity. JSON body: `{ "fields": { "name"?, "number"?, "denominator"?,
 "setCode"?, "bodyLines"?: string[] }, "priorMatches"?: [{ "cardId", "distance"
-}] }`. All fields optional; an ABSENT denominator is meaningful (some sets
-print none) and an empty `bodyLines` must be omitted, not sent. `bodyLines`
-(<= 24 lines, <= 200 chars each) is the whole-card escalation: the client
-sends it only when name and number extraction both failed; the family-text
-rung (rung 9) runs last and can never override a rung that resolved from
-name/number/badge.
+}], "vectorMatches"?: [{ "cardId", "similarity" }] }`. All fields optional; an
+ABSENT denominator is meaningful (some sets print none) and an empty
+`bodyLines` must be omitted, not sent. `bodyLines` (<= 24 lines, <= 200 chars
+each) is the whole-card escalation: the client sends it only when name and
+number extraction both failed; the family-text rung (rung 9) runs last and can
+never override a rung that resolved from name/number/badge.
+
+`vectorMatches` is `POST /api/scan/embed`'s `matches`, fed back as evidence
+exactly the way `priorMatches` is `POST /api/scan`'s — same bounds (50 max),
+`similarity` in -1..1. **It is IGNORED unless `SCAN_EMBED_MATCH=true`**, and
+with the flag off this endpoint returns byte-for-byte what it returned before
+the embedding matcher existed: same keys, no `similarity` field on a match,
+same ordering.
 
 Response: `{ "matched", "confident", "resolvedBy":
-"badge+number"|"number+denominator"|"name+number"|"family-text"|"prior-only",
-"matches": [...same card shape as /scan...] }`. Two contract deviations from
+"badge+number"|"number+denominator"|"name+number"|"family-text"|"vector"|"corroborated"|"prior-only",
+"matches": [...same card shape as /scan...] }`. Contract deviations from
 /scan: `distance`/`confidence` are `number|null` (a card resolved by its
 printed key was never nominated by phash — null means "no phash opinion",
-where 0 would claim an identical hash), and for `resolvedBy: "family-text"`
-a `matched: false` response CARRIES a non-empty `matches` list when body text
-resolved a multi-printing family — the candidates for the picker; never
-auto-add one. `confident` is an identity claim only; variant/printing
-confidence is a separate dimension and never appears here. A badge whose
-printed denominator contradicts the read one is rejected (falls down the
-ladder); sets that print no denominator are eliminated when a denominator WAS
-read. 400 on malformed shapes with specific messages. Read-only.
+where 0 would claim an identical hash); a `similarity` field (`number|null`)
+appears on each match ONLY when the flag is on; and for
+`resolvedBy: "family-text"` a `matched: false` response CARRIES a non-empty
+`matches` list when body text resolved a multi-printing family — the candidates
+for the picker; never auto-add one. `confident` is an identity claim only;
+variant/printing confidence is a separate dimension and never appears here. A
+badge whose printed denominator contradicts the read one is rejected (falls
+down the ladder); sets that print no denominator are eliminated when a
+denominator WAS read. 400 on malformed shapes with specific messages.
+Read-only.
+
+**The two vector verdicts.** `"vector"` means the image answered alone, on the
+calibrated gate (similarity >= 0.74 AND top1-top2 margin >= 0.02 for
+`clip-vit-b32-openai`); it is the LAST rung that can name a card, below every
+rung that read something printed. `"corroborated"` means two independent
+signals named one card while neither was sufficient alone — the `014/198`
+Steenee-or-Floragato case, where the printed key genuinely cannot choose and the
+vector's own top-1 is one of the two. A confident OCR rung is never reviewed by
+the vector: where they disagree, the printed key wins and the response is
+identical to the flag being off. A phash distance <= 2 can CONFIRM the vector
+and can never substitute for it.
 
 Note: `setCode` here is the code PRINTED on 2023+ cards (SVI, DRI, ...) — a
 different namespace from PTCGL codes (`PR-SV` vs `SVP`), see
 `apps/api/src/scan/data/printed-set-code.json`. Rung 9 needs `card_text`
 populated (migrations 049/050 + a catalog sync); until then it skips silently
-and every other rung behaves identically.
+and every other rung behaves identically. The vector rung needs `card_embedding`
+(migration 051 + `tools/embed-catalog`) and skips the same way — a missing table
+or a missing `vector` extension is one log line and the pre-vector ladder, not a
+500.
 
 
 ---

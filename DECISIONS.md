@@ -14646,3 +14646,342 @@ a multi-printing family is matched:false WITH candidates (a family is not a
 card). Storage: card.flavor_text + card_text token bags (migrations 049/050,
 files only), maintained by the importer in the same transaction as the child
 tables; the rung skips silently until prod runs migrations + a sync.
+## 2026-09-04 — Identity becomes an on-device embedding, and the model was chosen on headroom
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras, implementing the owner's
+2026-09-04 MATCHING ARCHITECTURE RULING (roadmap/plans/card-scanner-redesign/PLAN.md).
+
+**Decision:** the scanner's identity matcher becomes a 768-dimension image
+embedding compared against catalogue vectors in pgvector, computed on-device
+from open weights. The checkpoint is **CLIP ViT-B/32
+(`vit_base_patch32_clip_224.openai`, Apache-2.0 as re-hosted by timm, MIT
+upstream, 87.5M parameters)**. dHash is demoted to a prefilter and stays.
+
+**The bakeoff.** 18 configurations across 15 open checkpoints, evaluated on the
+19 hand-labelled ground-truth crops from p2-work/phase0b against a gallery of
+catalogue renders. Method and full table: `p2-work/embed-spike/NOTES.md`.
+
+A finding that reframes the gate: THREE of the ten distinct truth cards
+(`mep-058`, `mep-059`, `mep-060`) have no art in ANY approved source — `mep` is
+a documented 49-card gap (research/CARD-ART-SOURCES.md; p2-work/art-sweep/SWEEP.md,
+re-confirmed 2026-09-04). Nine of the 19 frames therefore have no correct answer
+available to any matcher, phash included, and the 2/19 dHash baseline was
+measured against a corpus in which nine were unwinnable. The honest denominator
+is the 10 answerable frames. Both are reported everywhere.
+
+| checkpoint | params | dim | top-1 /10 | headroom | int8 MB / ORT CPU-1T |
+|---|---|---|---|---|---|
+| **CLIP ViT-B/32 (openai)** | 87.5M | 768 | **10** | **0.0731** | 88.2 / 57 ms |
+| TinyCLIP ViT-betwixt/32 | 61.1M | 640 | 10 | 0.0685 | 61.7 / 45 ms |
+| CLIP RN50 (openai) | 36.2M | 2048 | 10 | 0.0554 | disqualified, see below |
+| ViTamin-S (datacomp1b) | 21.9M | 384 | 10 | 0.0455 | 22.8 / 496 ms |
+| SigLIP ViT-B/16 | 92.9M | 768 | 10 | 0.0346 | — |
+| TinyCLIP ViT-M/32 | 39.4M | 512 | 9 | 0.0620 | 40.0 / 34 ms |
+| DINOv2 ViT-S/14 | 22.1M | 384 | 8 | 0.0435 | — |
+| ResNet-18 (in1k) | 11.2M | 512 | 5 | 0.0061 | — |
+| dHash (shipped) | — | 64 bits | **2**, plus 4 confidently wrong | — | — |
+
+"Headroom" is the gap between the strongest impossible top-1 and the weakest
+true match a zero-false-accept similarity threshold still admits. It is the
+column that decided this, and the reason is the second finding.
+
+**THE GALLERY SIZE CHANGED THE ANSWER, AND THAT IS THE RESULT.** Round 1 used
+2,608 catalogue renders and made ViTamin-S look like the clear winner: it was
+the only checkpoint that separated PERFECTLY, weakest true match 0.7659 against
+strongest impossible top-1 0.7533. Round 2 doubled the gallery to 6,464 and that
+separation vanished — ViTamin's strongest impossible rose to 0.8056, past its
+weakest true match. CLIP ViT-B/32's two numbers did not move at all, to four
+decimal places.
+
+Why the negatives got stronger is good news about the models and bad news for
+any narrow calibration: the added sets contain XY-era Chespin, Fennekin and
+Froakie, and the nine unanswerable frames photograph exactly those three
+Pokémon. What they now retrieve is ANOTHER PRINTING OF THE SAME POKÉMON
+(`xy1-12` Chespin, `xy8-25` Fennekin, `xy8-46` Froakie). dHash's answer to the
+same frames was "Earthen Vessel". So the embedding fails in the best available
+way — and the gate must still reject it, because a different printing is a
+different card in somebody's collection.
+
+**Applied gate:** `similarity >= 0.74 AND margin >= 0.02` — thresholds placed at
+the MIDPOINT of each gap rather than just above the negatives, because a cut
+fitted to the last sample is what round 1 would have shipped. Result on the
+19-frame corpus: **9 of 10 true matches accepted, 0 of 9 negatives accepted.**
+The matcher it replaces accepted 4 and was wrong 4 times.
+
+**Two more things the spike settled by measurement:**
+
+* The input transform is a SQUASH of the whole card into the model's square, not
+  timm's stock resize-and-centre-crop. Same model, same corpus: 7/10 top-5
+  squashed, 4/10 centre-cropped. The centre crop discards the name bar and the
+  set/number strip.
+* Every candidate exports to ONNX opset 17 with a torch-vs-ORT cosine of 1.0, so
+  "WASM-shippable" is verified rather than assumed. Sizes and int8 costs are in
+  `p2-work/embed-spike/onnx-probe.json` — including ViTamin-S's, whose int8
+  graph is 4.5x SLOWER than its own fp32 under ORT's CPU kernels.
+* The SHIPPING ARRANGEMENT was measured end to end, not inferred from that
+  table: the real input spec, fp32 vectors for the catalogue and an int8 graph
+  for the query, which are two different functions of the same image. It still
+  returns 10/10 top-1, and the gate's 0.74 clears that pairing's strongest
+  negative (0.7094) by 0.031. The catalogue embed is an eight-minute CPU job for
+  all 23,546 cards, which is what makes a later model change cheap.
+
+**`resnet50_clip.openai` is disqualified by pgvector, not by its score.** HNSW
+and IVFFlat both cap at 2,000 dimensions; its features are 2,048 wide. An
+unindexable column means a sequential scan over every vector on every scan.
+
+**Why:** the shipped matcher is not merely noisy, it is confidently wrong. On
+the same 19 crops its `matched: true` gate fired four times and every one was a
+different card (0-for-4 precision, DECISIONS 2026-09-04 above). A matcher whose
+"I am sure" means nothing cannot be tuned into one whose does.
+
+**Implications:**
+- Catalogue and device MUST use the same checkpoint and the same input spec.
+  That is what `packages/matching` and the stamp on every stored vector exist to
+  enforce; see the schema entry below.
+- **The on-device latency and download budget is NOT yet measured on a phone.**
+  88 MB of int8 weights on the scan route is a product decision as much as a
+  technical one. That probe is a required gate before this ships, in the shape
+  of the phase-0b endurance run. If it rejects this checkpoint, **TinyCLIP
+  ViT-betwixt/32** is the pre-measured fallback (10/10, headroom 0.0685, 61.7 MB
+  at 45 ms) and its thresholds are already in
+  `packages/matching/src/confidence.ts`.
+- Re-embedding the catalogue costs well under an hour, so a later model change
+  is cheap. This decision is reversible; the schema shape it implies is not,
+  which is why that is decided separately and carefully.
+- The 19-frame corpus is small, single-session, and the gallery is 27% of the
+  live index. Round 1 vs round 2 is the standing warning about how much that
+  last number matters. Every figure above should be re-measured against the
+  flywheel's own data once there is any.
+
+## 2026-09-04 — The matching schema: one stamped index, and a flywheel that stores vectors rather than photographs
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras, implementing the owner's
+2026-09-04 MATCHING ARCHITECTURE RULING and its sleeve-invariance addendum
+(roadmap/plans/card-scanner-redesign/PLAN.md).
+
+**Decision:** migrations 048/049/050, `packages/matching`, and a matcher route
+that is off by default.
+
+**048 — `card_embedding`.** `vector(768)`, keyed on `(card_id, quality, stamp)`.
+The stamp is `e<input-spec-version>:<model-id>` and it is in the PRIMARY KEY,
+not beside it. That is contract B5's corollary — `card_image_phash` carries
+`algo` so a stale row is invisible rather than silently wrong — taken one step
+further: two generations can coexist, so a new model can be embedded across the
+whole catalogue while the old one keeps serving and the cutover is a change of
+one string. The HNSW index is PARTIAL on the current stamp, because an
+unfiltered index over two generations would choose a neighbour from the wrong
+one and let the query's `WHERE` filter it out afterwards — fewer than k rows,
+or none, with nothing in the plan to say why.
+
+**049 — `scan_exemplar` + `scan_exemplar_frame`.** The addendum's three
+commitments, which it says explicitly cannot be retrofitted, are the shape of
+these tables rather than a note on them:
+
+1. MULTI-FRAME. Frames are their own table, 2-3 per verified scan, each with
+   its own vector. One vector per scan would be cheaper today and would make
+   the sleeve problem permanently unsolvable with the data it collected —
+   sleeve gloss and card foil are separable across tilts and indistinguishable
+   within one frame.
+2. SLEEVE, nullable, `none|penny|matte|gloss|toploader` as TEXT + CHECK rather
+   than a Postgres ENUM: `ALTER TYPE ... ADD VALUE` cannot run inside a
+   transaction block, and this project's runner wraps every migration in one.
+   NULL means "nobody has said" and is deliberately NOT `none`; collapsing them
+   would poison the stratification the addendum asks for.
+3. STRATIFICATION, as an index on `(variant_id, sleeve)` — the finish x sleeve
+   grid is a query, not a spreadsheet somebody maintains.
+
+The table also stores what the MATCHER claimed before the reader confirmed or
+corrected it. That pair is the calibration dataset for the confidence gate: the
+question p2-work/phash-on-crops answered by hand for dHash (0 correct out of 4
+confident) becomes a continuous measurement that costs nobody a photo shoot.
+
+**The opt-in crop tier is enforced, not intended.** The ruling says the
+flywheel stores embeddings by default with crop retention opt-in. So a retained
+crop with no recorded consent is made UNREPRESENTABLE — the same move contract
+B1 makes with `image_object`'s foreign key to `image_asset`. A trigger, not a
+CHECK, because the consent lives on the exemplar and the reference lives on the
+frame and a CHECK cannot see another table. Withdrawing consent while crops are
+still referenced RAISES: the caller must delete the objects first. A row that
+says "no consent" while the bytes are still in the bucket is the one state this
+tier must not be able to reach.
+
+**050 — RLS.** SELECT and DELETE for the reader's own rows; INSERT and UPDATE
+denied. 044's reasoning ("you may withdraw it, you may not revise it") with a
+sharper edge, because this is training data: a client that could insert could
+manufacture labelled examples indistinguishable afterwards from real ones, and
+a subject who could update could rewrite the matcher's own claim, which is
+exactly the half being measured.
+
+**`packages/matching` — ONE versioned input spec, with cross-runtime bit
+parity.** The ruling asks for one spec, PIPELINE_VERSION stamped on every
+vector, and coordination with the detector's canonical frame rather than a copy
+of it. Delivered as:
+
+- a pure TypeScript module and a pure Python mirror that produce BIT-IDENTICAL
+  tensors, checked by both test suites against one committed golden digest.
+  Achieved rather than approximated: the resampler is an exact area-average
+  with a fixed loop order, because IEEE-754 float64 add and multiply are
+  correctly rounded and the same operations in the same order give the same
+  bits in both languages. (The first version of the pgvector text codec used 7
+  significant digits and the round-trip test caught it — float32 needs 9.)
+- NO copy of the detector's `PIPELINE_VERSION`. `apps/web/src/scan/engine/frame.ts`
+  owns that number; this package formats whatever it is handed, and a test
+  asserts the constant appears nowhere in the module. A catalogue vector
+  carries no frame version at all, because a catalogue render never went
+  through a camera and stamping it would be a false claim about provenance.
+
+**The matcher route returns two confidences and no third.** `POST /api/scan/embed`
+answers with an `identity` block and a `variant` block and deliberately nothing
+that could be mistaken for their average — no `matched`, no `confidence`. A
+test asserts those fields are ABSENT. `variantConfidence()` has exactly one
+inhabitant today, `unknown`, because nothing in this build measures a printing;
+what it does compute is whether that unknown BLOCKS the commit, which is the
+ruling's "no silent default-to-primary" as a field the UI cannot ignore by
+accident.
+
+**Why:** every one of these is a shape that is cheap now and impossible later.
+
+**Implications:**
+- `SCAN_EMBED_MATCH` is unset by default and the route 404s; the dHash path is
+  untouched. Merging changes nothing about the running product.
+- `pgvector` becomes a prerequisite of migration 048. 048 checks for it and
+  raises a message naming the package rather than letting Postgres answer
+  "could not open extension control file". DEPLOYMENT.md carries the note.
+- NOT DONE, and each needs the owner: apply the migrations, run
+  `tools/embed-catalog` against the real database, set the flag, and provide
+  the Google Drive service-account credential the export tool refuses to run
+  without.
+- The verify UI still has to USE `variant.requiresUserChoice`. Until it does,
+  the ruling's immediate consequence — multi-variant cards must require an
+  explicit printing at verify — is available and unexercised.
+
+## 2026-09-06 — The vector runs on the server, and joins the ladder as evidence rather than as a second opinion
+
+**Decided by:** Claude Opus 5 on behalf of @cheyras, merging
+`feat/matching-embeddings` into `dev/scan-harness` under the owner's 2026-09-05
+and 2026-09-06 rulings.
+
+**What the rulings changed about the branch as written.** It shipped the CLIP
+model to the PHONE — an 88 MB int8 download before the scan route could identify
+anything — and it exposed the matcher as `POST /api/scan/embed`, a second
+endpoint with its own verdict beside `/resolve`'s. Both are now wrong: *"it's ok
+if we run that server-side"* (09-05) and *"ensure that the image vector match is
+still a point of data in the match"* (09-06). So `apps/web/src/scan/engine/
+embed.ts` is DELETED, the endpoint takes the crop instead of a vector, and the
+vector became a rung of the one resolver.
+
+**The runtime, decided by measurement and not by the obvious import.**
+`onnxruntime-node@1.29.0` is disqualified twice over. It unpacks to **296 MB** —
+one tarball carrying `bin/napi-v6/{linux,darwin,win32}/{x64,arm64}`, no optional
+per-platform packages to prune — against Vercel's **250 MB** uncompressed
+function ceiling, so it does not fit before a model is added. And it would not
+run if it did: the binding is loaded as
+``require(`../bin/napi-v6/${process.platform}/${process.arch}/…node`)``, which
+@vercel/nft either wildcards (all 296 MB) or resolves to the 0.39 MB `.node`
+while missing `libonnxruntime.so.1` — 44.7 MB that the `.node` `dlopen`s and no
+static tracer can see. The second outcome deploys green and 500s on the first
+scan.
+
+The runtime shipped instead is the **ORT-web WASM build this repo already
+vendors** for the detector (`apps/web/public/scan-assets/`), read off disk by
+the API. No native component, nothing to trace. Verified under plain Node
+against `lc050.onnx` in this repo: session created in 370 ms, inference in
+23 ms, correct output shapes. Two things make it work headless and both are in
+`queryEmbed.ts`: the `.wasm` is handed over as BYTES (`env.wasm.wasmBinary`,
+because the browser build would `fetch()` a URL Node cannot fetch), and threads
+are off (ORT's threaded path wants a `Worker`, and a function is one CPU).
+
+**The bundle, measured 2026-09-06 on this repo:**
+
+| | size |
+|---|---|
+| `api/index.mjs` today (127 packages; sharp's Linux libvips is 17.4 MB) | 62.8 MB |
+| ORT-web WASM runtime + loader | 13.3 MB |
+| CLIP ViT-B/32, int8 | 88.2 MB |
+| **total** | **~164 MB**, ~86 MB under the ceiling |
+
+**So the full checkpoint ships and TinyCLIP is not needed.** It stays the
+pre-measured fallback — 61.7 MB, thresholds already in `confidence.ts`, 6% less
+similarity headroom (0.0685 against 0.0731) plus a 640-wide column and a full
+re-embed. Cold start is a load and not a download: session creation measures
+~7.5 ms/MB after a one-off ~360 ms runtime init, so ~1.0-1.5 s on an instance's
+first request, then nothing.
+
+**The fusion rules, in `apps/api/src/scan/fuse.ts`, consulted from
+`resolve.ts`.** Not a weighted score, for the reason the ladder is a ladder: a
+printed set code is unique across 20,444 physical cards with ZERO collisions and
+a cosine is a number whose meaning depends on what else was in the gallery.
+Three rules about AGREEMENT:
+
+1. **A key that resolved is never reviewed.** OCR wins a disagreement; the
+   vector cannot demote a confident rung to uncertain either, so the feature
+   cannot make the product worse than it was.
+2. **Corroboration.** Where a key narrowed the world to candidates it cannot
+   choose between — `014/198` is Steenee or Floragato, different pictures, and
+   the printed key genuinely cannot say — and the vector's OWN top-1 is one of
+   them at `>= simFloor`, the agreement is the answer:
+   `resolvedBy: 'corroborated'`, confident, the runner-up kept. Rung 9 routes
+   through the same rule, which is the best case in the design: body text
+   identifies the words every reprint shares, the vector identifies the picture
+   no two printings share.
+3. **Alone, the calibrated gate.** `similarity >= 0.74 AND margin >= 0.02` for
+   `clip-vit-b32-openai` — the spike's applied gate, unchanged, accepting 9 of
+   10 true matches and 0 of 9 impossible ones. Below decisive but showable, the
+   candidates go back with `matched: true, confident: false`. The vector is the
+   LAST rung that can name a card, above rungs 6/7/8 only because those hand the
+   hash's list back filtered and the hash was right 2 times out of 10 where the
+   vector was right 10.
+
+**The hash is demoted, not deleted, and the demotion has a sharp edge.** Inside
+the near-exact band (distance <= 2) it may CONFIRM the vector; it may never
+speak alone, and `corroborate()` requires the vector to be one of the two
+signals. This was a real finding rather than a preference: allowing the hash to
+corroborate by itself made the flag's arrival change answers BEFORE the
+catalogue was embedded, which is a switch nobody can roll back cleanly — and it
+would hand back the power the ruling took off it, when the measured wrong top-1s
+are same-art reprints at distance 1-6, INSIDE that band. `scan_exemplar` gains
+`resolved_by` and `phash_distance` so *"does the hash ever change an outcome"*
+is a `GROUP BY` rather than an afternoon; that query is what retires it.
+
+**Migrations renumbered, and one of them was wrong.** The branch's 048/049/050
+collided with this line's `set_abbreviation`/`card_text`/`card_text_rls` and
+became **051_card_embedding, 052_scan_exemplar, 053_scan_exemplar_rls**, order
+preserved, every cross-reference updated. The semantic collision was worse than
+the numeric one: `scan_exemplar_frame.embedding` was declared `vector(384)` —
+ViTamin-S's width, the checkpoint that won the spike's FIRST gallery and stopped
+separating when it doubled — while the catalogue's vectors are 768. A flywheel
+storing query vectors in a space the catalogue does not live in cannot be
+compared to anything; it would have accumulated for months and been worth
+nothing, silently. Now 768, pinned to `EMBED_DIM` like 051.
+
+**Verified without a database, because there is not one here.** All 53
+migrations apply in order on PGlite; 051 refuses with exactly the actionable
+sentence it was written to produce (*"pgvector is not available on this server.
+Install it before migrating: … apt install postgresql-18-pgvector"*), and with
+the vector type shimmed the remaining SQL — constraints, both consent triggers,
+indexes, comments, and 053's RLS policies — applies clean, 16 behavioural checks
+passing over it: the consent trigger refuses a retained crop with no recorded
+consent, withdrawal refuses while keys are still referenced and succeeds after
+the two-step, a delete cascades its frames, and two stamps coexist for one card.
+`tools/embed-catalog` was then run END TO END against that schema over a PGlite
+socket with a three-card fixture catalogue and a stub checkpoint of the right
+signature: dry-run, `--local-out`, the real batched upsert, resumability
+(`0 card(s) to embed` on a second run), `--force`, and the `--set` filter. The
+runbook for the production run is in `tools/embed-catalog/README.md`.
+
+**And the flag means what it says.** With `SCAN_EMBED_MATCH` unset, `/resolve`
+ignores `vectorMatches` entirely, reports no `similarity` key, and is asserted
+byte-identical to the pre-vector ladder across every fixture case — and with the
+flag ON and the index still empty it is identical again, so migrate → embed →
+flag has no step that changes answers early.
+
+**Tests:** 206 api pure (79 new across `fuse.test.ts` and the reworked
+`embedMatch.test.ts`), 555 web scan, 27 matching, 91 drive-export. Full
+workspace typecheck and the production build chain pass.
+
+**NOT DONE, and each needs the owner:** apply 051/052/053, run
+`tools/embed-catalog` against the real database, place the int8 checkpoint at
+`SCAN_EMBED_MODEL_PATH`, and set the flag — in Preview first. The exemplar
+WRITER is still unwired: the tables and their columns are here because the
+2026-09-04 addendum says the schema commitments cannot be retrofitted, but
+nothing yet writes a row at verify time.
