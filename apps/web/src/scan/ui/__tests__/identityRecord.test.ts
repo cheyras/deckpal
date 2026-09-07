@@ -165,11 +165,80 @@ describe('identityRecord', () => {
       ocr: 'roi',
       bodyLines: null,
       ocrMs: 340,
+      // No `embed` on this event, so both columns are null — the shape a capture
+      // records on a build, or a backend, where the image rung is not in play.
+      embedMs: null,
+      embedOutcome: null,
       resolvedBy: 'badge+number',
       confident: true,
       cardId: 'sv10-161',
       msToResolve: 2_100,
     })
+  })
+
+  it('RECORDS WHAT THE IMAGE RUNG COST AND WHETHER IT ANSWERED', () => {
+    // `resolvedBy: 'vector'` and `'corroborated'` flow through by themselves —
+    // the record passes the endpoint's own word along and never interprets it.
+    // What round 10 could NOT see, and what these two columns exist for, is the
+    // other half: how long the vector took, and — when it did not contribute —
+    // which of the four reasons that was.
+    const record = identityRecord(
+      run([
+        { type: 'phash', res: TIED },
+        { type: 'read', read: read({ number: '057', denominator: '182' }) },
+        {
+          type: 'resolve',
+          resolved: resolveRes({ resolvedBy: 'corroborated' }),
+          embed: { vectorMatches: [{ cardId: 'sv10-057', similarity: 0.7718 }], outcome: 'ok', ms: 1_329 },
+        },
+      ]),
+      2_400,
+    )?.identity as Record<string, unknown>
+    assert.equal(record.resolvedBy, 'corroborated', 'passed straight through from the endpoint')
+    assert.equal(record.embedOutcome, 'ok')
+    assert.equal(record.embedMs, 1_329)
+  })
+
+  it('and tells the four failures APART, because they are different facts', () => {
+    // "This deployment has no matcher", "the phone gave up waiting" and "we never
+    // asked" all produce the same absent vector. A single boolean would collapse
+    // them and leave the next session unable to say whether the rung is off or
+    // merely slow.
+    const withEmbed = (embed: { outcome: 'timeout' | 'unavailable' | 'error'; ms: number | null }) =>
+      identityRecord(
+        run([
+          { type: 'phash', res: TIED },
+          { type: 'read', read: null },
+          { type: 'resolve', resolved: null, embed: { vectorMatches: [], ...embed } },
+        ]),
+        9_000,
+      )?.identity as Record<string, unknown>
+
+    assert.equal(withEmbed({ outcome: 'timeout', ms: 8_000 }).embedOutcome, 'timeout')
+    assert.equal(withEmbed({ outcome: 'timeout', ms: 8_000 }).embedMs, 8_000, 'the wait is recorded even though it bought nothing')
+    assert.equal(withEmbed({ outcome: 'error', ms: 240 }).embedOutcome, 'error')
+    // The latched capture: no call was made, so there is no duration to report —
+    // which is a different fact from "it took no time" and is recorded as one.
+    const latched = withEmbed({ outcome: 'unavailable', ms: null })
+    assert.equal(latched.embedOutcome, 'unavailable')
+    assert.equal(latched.embedMs, null)
+  })
+
+  it('keeps the embed columns across the READER’s later answer', () => {
+    // The second post comes from a list row minutes later, reduced against the
+    // state the row carried down. "The vector timed out and the reader picked the
+    // phash runner-up" is one row of evidence, and it only exists if the embed
+    // half survives the `pick`.
+    const settled = run([
+      { type: 'phash', res: TIED },
+      { type: 'read', read: null },
+      { type: 'resolve', resolved: null, embed: { vectorMatches: [], outcome: 'timeout', ms: 8_000 } },
+    ])
+    const record = identityRecord(reduceIdentity(settled, { type: 'pick', match: match('sv10-058', 7) }), 31_000)
+      ?.identity as Record<string, unknown>
+    assert.equal(record.identityOutcome, 'picked')
+    assert.equal(record.embedOutcome, 'timeout')
+    assert.equal(record.embedMs, 8_000)
   })
 
   it('leaves the ladder columns null when no answer was ever in flight', () => {
@@ -303,6 +372,11 @@ describe('identityRecord', () => {
       'bodyLines',
       'cardId',
       'confident',
+      // The image rung's two, and they are COLUMNS OF THE SAME RECORD rather
+      // than a sixth outcome: what named the card is still one of five, and a
+      // vector that helped says so through `resolvedBy`, which was already here.
+      'embedMs',
+      'embedOutcome',
       'identityOutcome',
       'msToResolve',
       'ocr',

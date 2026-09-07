@@ -1,4 +1,24 @@
-// THE OCR NARROWING PASS — a second, later answer that re-ranks the first one.
+// THE NARROWING PASS — a second, later answer that re-ranks the first one.
+//
+// ── IT IS TWO EVIDENCE LANES NOW, NOT ONE ──────────────────────────────────
+//
+// The file is still called `ocrNarrow` because that is what it was when the
+// second answer had one source. It now has two, and they are gathered the same
+// way and spent in the same request:
+//
+//   readCardFields   ON DEVICE. The 15.6 MB OCR lane, behind `OCR_ENABLED`,
+//                    projected at 1.8-3.4 s.
+//   embedCapture     ON THE SERVER. The crop goes up as bytes and a cosine
+//                    ranking comes back — 733-824 ms warm, 4.6-7.6 s cold.
+//   resolveWithOcr   posts whichever of the two produced anything, with phash's
+//                    priors, and gets the ladder's verdict.
+//
+// The image rung is Wave 3 and was, until this commit, unreachable from the
+// app: the API shipped `/scan/embed` and `vectorMatches`, and no client ever
+// sent one (E2E-REPORT.md finding 42). Round 10 measured what it is worth
+// through a harness that had to invent this call sequence — 21/25 confident on
+// the owner's own misses against the baseline's 19/25, zero wrong — and this is
+// that sequence, shipped.
 //
 // ── THE SHAPE, AND WHY IT IS THIS SHAPE ─────────────────────────────────────
 //
@@ -13,6 +33,11 @@
 // lands in the feed exactly when it did, and this runs alongside — arriving,
 // when it arrives, to correct a row the reader is already looking at. If it
 // never arrives, nothing waited for it.
+//
+// The embed lane joined on those terms and no others. It starts at the shutter
+// beside the read, the capture path never awaits it, and it carries a budget of
+// its own (`vectorEvidence.ts`) so a cold function instance can delay the
+// narrowing by at most eight seconds and then be dropped.
 //
 // ── WHAT IT IS ALLOWED TO CHANGE ────────────────────────────────────────────
 //
@@ -30,19 +55,30 @@
 //    for cards phash never nominated, and rendering "distance —" beside real
 //    distances would make the popover lie about what it is ranking by.
 
-import { ApiError, api, type ScanMatch, type ScanResolveResponse } from '../../lib/api'
+import { ApiError, api, type ScanMatch, type ScanResolveResponse, type ScanVectorMatch } from '../../lib/api'
 import type { OcrRead } from '../ocr'
+import { deadlineSignal } from './deadline'
 import { resolvedIdentity } from './identity'
-import { hasAnySignal, toResolveFields } from './resolveFields'
+import { toResolveBody } from './resolveFields'
 import type { FeedEntry } from './types'
+import { EMBED_K, EMBED_TIMEOUT_MS, embedEvidence, type EmbedEvidence } from './vectorEvidence'
 
-// THE WIRE SHAPE lives in `./resolveFields`, not here, and that file's header
-// says why: this module imports `lib/api` (and, behind it, `import.meta.env`),
-// so anything sharing a file with it cannot be loaded by a node test process.
-// The rule about what may be asserted to a server is exactly the kind of rule
-// that has to be testable, so it moved next door. Re-exported so callers still
-// have one import — the same arrangement `flags.ts` has with `eventPost.ts`.
-export { hasAnySignal, toResolveFields } from './resolveFields'
+// THE WIRE SHAPE lives in `./resolveFields` and the EMBED POLICY in
+// `./vectorEvidence`, not here, and the first file's header says why: this
+// module imports `lib/api` (and, behind it, `import.meta.env`), so anything
+// sharing a file with it cannot be loaded by a node test process. The rule about
+// what may be asserted to a server, and the rule about how long to wait and
+// which failures latch, are exactly the kind of rules that have to be testable,
+// so they live next door. Re-exported so callers still have one import — the
+// same arrangement `flags.ts` has with `eventPost.ts`.
+export { hasAnySignal, toResolveBody, toResolveFields } from './resolveFields'
+export {
+  EMBED_NOT_ASKED,
+  EMBED_TIMEOUT_MS,
+  latchesUnavailable,
+  type EmbedEvidence,
+  type EmbedOutcome,
+} from './vectorEvidence'
 
 /** How long the whole narrowing pass may take before it is abandoned. Generous
  *  on purpose — it is the one thing in the scanner nothing is waiting for — but
@@ -87,29 +123,78 @@ export async function readCardFields(blob: Blob): Promise<OcrRead | null> {
 }
 
 /**
- * STEP TWO — ask the endpoint to narrow, with the phash result as priors.
+ * STEP ONE AND A HALF — ask the SERVER what the picture looks like.
+ *
+ * Fired at the shutter, beside `readCardFields` and beside the identify, and
+ * awaited by nothing on the capture path. Unlike the OCR read this costs the
+ * phone nothing but an upload: the CLIP model runs server-side (2026-09-05 owner
+ * ruling), so the crop goes up as bytes and a ranking comes back — the same
+ * bytes `api.scan` already posts, which is why one capture can feed both
+ * matchers without preparing anything twice.
+ *
+ * Never throws, for the reason `readCardFields` never throws: an optional
+ * enrichment that can take down a capture is worse than no enrichment. The four
+ * ways it can fail are told apart only for the record — see `EmbedOutcome`.
+ *
+ * The budget is enforced twice on purpose, and they are not the same guarantee:
+ * `deadlineSignal` releases the SOCKET, `embedEvidence`'s `withTimeout` ends the
+ * AWAIT. A fetch that ignores its abort would otherwise still be holding this
+ * capture's resolve open at 20 s.
+ */
+export async function embedCapture(blob: Blob): Promise<EmbedEvidence> {
+  const { signal, done } = deadlineSignal(EMBED_TIMEOUT_MS)
+  try {
+    return await embedEvidence(async () => {
+      const bytes = await blob.arrayBuffer()
+      return api.scanEmbed(bytes, blob.type || 'image/jpeg', EMBED_K, signal)
+    })
+  } finally {
+    done()
+  }
+}
+
+/**
+ * STEP TWO — ask the endpoint to narrow, with the phash result as priors and the
+ * vector, when one arrived in time, as evidence beside them.
  *
  * Deliberately separate from the read, and deliberately AFTER the identify has
  * answered: `priorMatches` is what the endpoint re-ranks, and re-ranking an
- * empty list throws away the evidence that is usually right. So the read runs
- * beside the identify, and this runs behind both.
+ * empty list throws away the evidence that is usually right. So the read and the
+ * embed run beside the identify, and this runs behind all three.
+ *
+ * ── THE LATE VECTOR IS DROPPED, AND THERE IS NO SECOND ATTEMPT ─────────────
+ *
+ * `vectorMatches` is whatever the embed had produced by the time this is called
+ * — empty when the budget ran out. It is NOT awaited here, and an answer that
+ * arrives afterwards is discarded rather than sent in a follow-up resolve.
+ *
+ * A second request was considered and is not worth what it costs. It would have
+ * to re-enter the identity machine, whose `resolve` event is documented as
+ * arriving EXACTLY ONCE per capture; it would patch the feed row a second time,
+ * through the picker-open guard and the merge rules, for a row the reader may
+ * by then be holding; and it would make the telemetry's `resolvedBy` ambiguous
+ * about which attempt it describes. What it would buy is the cold-start capture
+ * — the first of a session — and that capture already gets the vector whenever
+ * the embed lands inside eight seconds, which round 10's slowest of twenty-five
+ * requests (7 595 ms) did. The drop is recorded as `embedOutcome: 'timeout'`, so
+ * how often it actually happens is a number the next session can read rather
+ * than a thing we guessed at here.
  */
 export async function resolveWithOcr(
-  read: OcrRead,
+  read: OcrRead | null,
   priorMatches: readonly ScanMatch[],
+  vectorMatches: readonly ScanVectorMatch[] = [],
   signal?: AbortSignal,
 ): Promise<OcrResolveResult> {
-  if (!hasAnySignal(read)) {
-    // Nothing was read. Not worth a round trip: the endpoint would fall through
-    // to `prior-only` and hand back the list we already have.
+  const body = toResolveBody(read, priorMatches, vectorMatches)
+  if (!body) {
+    // Nothing was read and no vector arrived. Not worth a round trip: the
+    // endpoint would fall through to `prior-only` and hand back the list we
+    // already have.
     return { resolved: null, unavailable: false }
   }
   try {
-    const resolved = await api.scanResolve(
-      toResolveFields(read),
-      priorMatches.map((m) => ({ cardId: m.cardId, distance: m.distance })),
-      signal,
-    )
+    const resolved = await api.scanResolve(body, signal)
     return { resolved, unavailable: false }
   } catch (e) {
     // 404 means the endpoint is not deployed on this backend. The API lane ships

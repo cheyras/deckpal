@@ -12,7 +12,7 @@
 //
 // `ocrNarrow.ts` re-exports both, so callers still have one import.
 
-import type { ScanResolveFields } from '../../lib/api'
+import type { ScanResolveBody, ScanResolveFields, ScanVectorMatch } from '../../lib/api'
 import type { OcrRead } from '../ocr/pipeline'
 
 /**
@@ -60,4 +60,57 @@ export function toResolveFields(read: OcrRead): ScanResolveFields {
  */
 export function hasAnySignal(read: OcrRead): boolean {
   return Boolean(read.name || read.number || read.denominator || read.setCode || read.bodyLines?.length)
+}
+
+/**
+ * THE WHOLE REQUEST, or null when there is nothing to ask about.
+ *
+ * One function so the SERIALISED body is a testable object rather than three
+ * arguments assembled inside the API client, and there is a specific property
+ * that needs it: with `SCAN_EMBED_MATCH` off this client must send the request
+ * it sent before the matcher existed, character for character. That is a fact
+ * about `JSON.stringify` of this return value, and `__tests__/resolveFields`
+ * asserts it as one.
+ *
+ * ── THE THIRD KEY IS ABSENT, NOT EMPTY ─────────────────────────────────────
+ *
+ * The same rule the four OCR fields already follow, one level up. `vectorMatches:
+ * []` would be a new key on every request — a client change visible to every
+ * deployment, including the ones with no embedding matcher — asserting that the
+ * image rung looked and found nothing, when the truth is usually that it was
+ * never asked or never answered. It goes on the wire only when there is
+ * something to put in it. (The endpoint's own `shapeResolved` makes the mirror
+ * of this call for `similarity` on the way back, and states the same reason.)
+ *
+ * ── WHY A VECTOR ALONE IS WORTH A ROUND TRIP ───────────────────────────────
+ *
+ * `hasAnySignal` used to be the whole gate, and against an OCR-only ladder it
+ * was right: a read that produced nothing would come back `prior-only` with the
+ * list we already had. The image rung inverts that. A crop OCR cannot read is
+ * precisely the crop the vector answers — round 10's m05 (`prior-only`
+ * unconfident → `vector` confident, and the card was right) and m10 (no OCR
+ * signal at all, posted anyway, correctly refused) are both in
+ * `E2E-REPORT.md` §3 — so declining the call there would switch the new rung
+ * off in the case it exists for. The harness that measured it made exactly this
+ * departure from the shipped client and flagged it; this is that departure,
+ * shipped.
+ *
+ * Nothing widens when the matcher is off: with no `/scan/embed` there are no
+ * `vectorMatches`, the gate falls back to `hasAnySignal` alone, and a silent
+ * read makes no request — today's behaviour, unchanged.
+ */
+export function toResolveBody(
+  read: OcrRead | null,
+  priorMatches: readonly { cardId: string; distance: number }[],
+  vectorMatches: readonly ScanVectorMatch[] = [],
+): ScanResolveBody | null {
+  const fields = read ? toResolveFields(read) : {}
+  const worthAsking = (read != null && hasAnySignal(read)) || vectorMatches.length > 0
+  if (!worthAsking) return null
+  const body: ScanResolveBody = {
+    fields,
+    priorMatches: priorMatches.map((m) => ({ cardId: m.cardId, distance: m.distance })),
+  }
+  if (vectorMatches.length > 0) body.vectorMatches = vectorMatches.map((m) => ({ ...m }))
+  return body
 }

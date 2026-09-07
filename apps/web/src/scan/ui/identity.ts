@@ -77,6 +77,7 @@
 import type { ScanMatch, ScanResolveMatch, ScanResponse, ScanResolveResponse } from '../../lib/api'
 import type { OcrRead } from '../ocr/pipeline'
 import { gateScanResponse } from './tieGate'
+import type { EmbedEvidence } from './vectorEvidence'
 
 /**
  * Where one capture's thumbnail is.
@@ -151,6 +152,22 @@ export interface IdentityState {
    * it arrives empty (no OCR, nothing read, no such endpoint).
    */
   resolveVerdict: { resolvedBy: ScanResolveResponse['resolvedBy']; confident: boolean } | null
+  /**
+   * WHAT THE IMAGE RUNG COST AND WHETHER IT ANSWERED — for the RECORD, like
+   * `resolveVerdict`, and read by nothing that decides anything.
+   *
+   * It rides the `resolve` event rather than arriving as one of its own, because
+   * that event is already the one the caller promises to send exactly once per
+   * capture on EVERY path — including the paths where no call was made. A vector
+   * that timed out on a capture whose OCR was also silent produces no resolve
+   * request at all, and this is still the place its four seconds get written
+   * down.
+   *
+   * Null until that event lands. `outcome: 'unavailable'` with `ms: null` is the
+   * capture that never asked, because an earlier one in the session already
+   * found out this backend has no `/scan/embed`.
+   */
+  embed: { outcome: EmbedEvidence['outcome']; ms: number | null } | null
 }
 // NO `engaged` FIELD, AND THAT IS THE 2026-09-06 REVERSAL SHOWING THROUGH.
 //
@@ -180,8 +197,14 @@ export type IdentityEvent =
    * from a backend without the endpoint. `resolved: null` is how those say "no
    * answer is coming", and without it the pair above never completes and the
    * thumbnail waits for the deadline instead of flipping the moment it can.
+   *
+   * `embed` is what the image rung did for this capture, carried on the same
+   * event for the same reason — it is telemetry, it must be recorded on the
+   * paths where no request went out, and this is the one event guaranteed to
+   * reach the machine on all of them. Optional, so the fifty-odd existing tests
+   * that drive this reducer keep meaning what they meant.
    */
-  | { type: 'resolve'; resolved: ScanResolveResponse | null }
+  | { type: 'resolve'; resolved: ScanResolveResponse | null; embed?: EmbedEvidence }
   /** `IDENTITY_DEADLINE_MS` elapsed with nothing named. */
   | { type: 'deadline' }
   /**
@@ -227,6 +250,7 @@ export function initialIdentity(): IdentityState {
     phashSettled: false,
     resolveSettled: false,
     resolveVerdict: null,
+    embed: null,
   }
 }
 
@@ -305,6 +329,7 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
         resolveVerdict: e.resolved
           ? { resolvedBy: e.resolved.resolvedBy, confident: e.resolved.confident }
           : s.resolveVerdict,
+        embed: e.embed ? { outcome: e.embed.outcome, ms: e.embed.ms } : s.embed,
       }
       const top = resolvedIdentity(e.resolved)
       if (top) return { ...next, phase: 'confident', match: identityFromResolve(top), by: 'printing' }
@@ -432,6 +457,18 @@ export function identityRecord(s: IdentityState, msToResolve: number): Record<st
       // rescue a key, or did it fall through to the prose?
       bodyLines: s.read?.bodyLines?.length ?? null,
       ocrMs: s.read ? Math.round(s.read.ms) : null,
+      // THE IMAGE RUNG'S TWO COLUMNS, riding the record exactly as `ocrMs`
+      // does. `resolvedBy` already reports `vector` and `corroborated` when the
+      // ladder answers on them — it is a passthrough of whatever the endpoint
+      // said — so what was missing was the other half: how long the vector took
+      // and, when it did not contribute, WHY. Round 10 could not distinguish
+      // "the deployment has no matcher" from "the phone gave up waiting" from
+      // "we never asked", and all three produce the same absent `similarity`.
+      //
+      // Null on both when no resolve event has landed yet, which is the same
+      // convention `resolvedBy` and `confident` already use here.
+      embedMs: s.embed?.ms ?? null,
+      embedOutcome: s.embed?.outcome ?? null,
       resolvedBy: s.resolveVerdict?.resolvedBy ?? null,
       confident: s.resolveVerdict?.confident ?? null,
       cardId: s.match?.cardId ?? null,

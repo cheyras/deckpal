@@ -333,12 +333,99 @@ export interface ScanResolveResponse {
    *  result — see CROSSWALK §7.3 for what each rung is worth. */
   confident: boolean
   /** Which rung answered. `family-text` is the escalation rung's — reached only
-   *  from `fields.bodyLines`, and only on a backend that has it. A backend
-   *  without it simply never returns the value, which is why nothing on this
-   *  side switches exhaustively on this union: it is recorded and displayed,
-   *  never branched on. */
-  resolvedBy: 'badge+number' | 'number+denominator' | 'name+number' | 'family-text' | 'prior-only'
+   *  from `fields.bodyLines`, and only on a backend that has it. `vector` and
+   *  `corroborated` are the IMAGE rung's, reached only when `vectorMatches` was
+   *  sent AND that backend has `SCAN_EMBED_MATCH` on. A backend without either
+   *  simply never returns those values, which is why nothing on this side
+   *  switches exhaustively on this union: it is recorded and displayed, never
+   *  branched on. */
+  resolvedBy:
+    | 'badge+number'
+    | 'number+denominator'
+    | 'name+number'
+    | 'family-text'
+    | 'vector'
+    | 'corroborated'
+    | 'prior-only'
   matches: ScanResolveMatch[]
+}
+
+/**
+ * THE WHOLE BODY OF `POST /scan/resolve`, built by one function
+ * (`scan/ui/resolveFields.ts`'s `toResolveBody`) rather than assembled from
+ * arguments here.
+ *
+ * It moved out of `api.scanResolve`'s parameter list when `vectorMatches`
+ * arrived, and the reason is the one the flag turns on: with the matcher OFF the
+ * request this client sends must be BYTE-IDENTICAL to the one it sent before the
+ * matcher was written — `{"fields":…,"priorMatches":…}`, no third key, not even
+ * an empty array. That is a property of the serialised object, so the object is
+ * built and tested in one pure place and this signature just posts it.
+ */
+export interface ScanResolveBody {
+  fields: ScanResolveFields
+  priorMatches: { cardId: string; distance: number }[]
+  /** ABSENT, never `[]`, when there is no image evidence. See above. */
+  vectorMatches?: ScanVectorMatch[]
+}
+
+// ── POST /scan/embed — the image rung (Wave 3, `SCAN_EMBED_MATCH`) ───────────
+//
+// Takes the RAW crop bytes exactly as `POST /scan` does — deliberately the same
+// input, so one capture feeds both matchers — and answers with a cosine ranking
+// out of the embedding index plus TWO confidences that must not be blended.
+// 404 when the deployment does not have the matcher, which is the honest answer
+// and the one `scan/ui/vectorEvidence.ts` latches on.
+
+/** The client's read of `identityConfidence` (packages/matching). Declared here
+ *  rather than imported: that package is a devDependency of this app (a test
+ *  aid), and the shipped bundle must not gain a workspace runtime import to
+ *  borrow three string literals. */
+export interface ScanEmbedIdentity {
+  level: 'confident' | 'uncertain' | 'none'
+  cardId: string | null
+  similarity: number
+  /** Top-1 minus top-2. Null when there was only one candidate, which is NOT a
+   *  margin of zero. */
+  margin: number | null
+  modelId: string
+}
+export interface ScanEmbedVariant {
+  level: 'unknown'
+  reason: 'no-variant-model'
+  requiresUserChoice: boolean
+}
+export interface ScanEmbedMatch {
+  cardId: string
+  name: string
+  number: string
+  setId: string
+  setName: string
+  seriesId: string
+  rarity: string | null
+  images: { low: string; high: string }
+  /** Cosine similarity in [-1, 1]. */
+  similarity: number
+  variantCount: number
+}
+export interface ScanEmbedResponse {
+  /** Which vector space answered. Results across a model change are not
+   *  comparable and this is the only field that says so. */
+  stamp: string
+  indexSize: number
+  identity: ScanEmbedIdentity
+  variant: ScanEmbedVariant
+  matches: ScanEmbedMatch[]
+  note?: string
+}
+
+/** The image evidence as `/scan/resolve` accepts it: the same shape and the same
+ *  role as `priorMatches`, one matcher along. `similarity`, not `distance` —
+ *  the endpoint validates the range (-1..1) and a value outside it "did not come
+ *  from POST /scan/embed". */
+export interface ScanVectorMatch {
+  cardId: string
+  similarity: number
 }
 
 // Response of POST /collection/cards/:cardId/have (tile-level Have/Need toggle).
@@ -1271,11 +1358,36 @@ export const api = {
    * and this call is fired from a capture that has already completed, so nothing
    * downstream is holding a deadline over it. Callers pass one.
    */
-  scanResolve: (
-    fields: ScanResolveFields,
-    priorMatches: readonly { cardId: string; distance: number }[],
+  scanResolve: (body: ScanResolveBody, signal?: AbortSignal) =>
+    send<ScanResolveResponse>('POST', '/scan/resolve', body, signal),
+
+  /**
+   * The image rung — the same raw crop bytes `scan` takes, a cosine ranking out.
+   *
+   * Runs in PARALLEL with the OCR read and, like it, is never on the capture
+   * path: round 10 measured this route at 733-824 ms warm and 4.6-7.6 s COLD on
+   * a fresh function instance, and a route with that profile cannot be waited on
+   * by anything a reader is watching. `scan/ui/vectorEvidence.ts` holds the
+   * budget that gives up on it.
+   *
+   * 404 on a deployment without `SCAN_EMBED_MATCH`, which is the ordinary case
+   * against the live backend and is latched for the session rather than
+   * rediscovered per capture.
+   */
+  scanEmbed: async (
+    bytes: ArrayBuffer,
+    contentType: string,
+    k = 5,
     signal?: AbortSignal,
-  ) => send<ScanResolveResponse>('POST', '/scan/resolve', { fields, priorMatches }, signal),
+  ): Promise<ScanEmbedResponse> => {
+    const auth = await authHeaders()
+    return request<ScanEmbedResponse>(`/scan/embed?k=${k}`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType || 'application/octet-stream', ...auth },
+      body: bytes,
+      signal,
+    })
+  },
 
   // The scanner's evidence channel — a captured frame + its detection state,
   // for the fix bench. Same endpoint `/dev/scan-harness`'s `uploadFlag()`

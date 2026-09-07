@@ -14,7 +14,16 @@ import { SwipeReview } from '../scan/ui/SwipeReview'
 import { HelpModal } from '../scan/ui/HelpModal'
 import { commitFeed } from '../scan/ui/commit'
 import { OCR_ENABLED, uploadScanFlag, recordCaptureEvent, recordIdentityEvent, recordLockEvent } from '../scan/ui/flags'
-import { narrowedIdentity, OCR_NARROW_TIMEOUT_MS, readCardFields, resolveWithOcr } from '../scan/ui/ocrNarrow'
+import {
+  EMBED_NOT_ASKED,
+  type EmbedEvidence,
+  embedCapture,
+  latchesUnavailable,
+  narrowedIdentity,
+  OCR_NARROW_TIMEOUT_MS,
+  readCardFields,
+  resolveWithOcr,
+} from '../scan/ui/ocrNarrow'
 import {
   identityOutcome,
   identityRecord,
@@ -299,6 +308,12 @@ export function Scan() {
     }),
   )
   const ocrUnavailableRef = useRef(false)
+  // THE SECOND LATCH, and it works exactly like the one above it. `/scan/embed`
+  // 404s on every deployment without `SCAN_EMBED_MATCH` — which is the default,
+  // and which `pnpm dev`'s live backend may well be — so the FIRST capture of a
+  // session finds out and no later one asks again. One upload to learn the
+  // answer, not one per card.
+  const embedUnavailableRef = useRef(false)
   useEffect(() => {
     ocrStageRef.current.update({ enabled: OCR_ENABLED, detectorReady: engineStatus === 'ready' })
   }, [engineStatus])
@@ -772,6 +787,29 @@ export function Scan() {
         ? withTimeout(readCardFields(result.blob), OCR_NARROW_TIMEOUT_MS, 'ocr').catch(() => null)
         : Promise.resolve(null)
 
+      // ── AND THE IMAGE RUNG, BESIDE IT, ON THE SAME TERMS ──────────────────
+      //
+      // Started at the same instant and awaited in the same place: nothing on
+      // the capture path touches this promise either. It is the OCR read's
+      // opposite in cost — the model runs on the SERVER (2026-09-05 ruling), so
+      // the phone pays an upload and no download at all, which is why it is not
+      // behind `OCR_ENABLED`. That flag guards 15.6 MB of ONNX weights and a
+      // second WASM session on a runtime with live iOS crash reports; none of
+      // that applies here, and tying the two would switch the vector off in
+      // production, which is the deployment it was built for.
+      //
+      // What DOES guard it is the deployment's own answer: no matcher, a 404,
+      // the latch above, and every capture after the first behaves exactly as it
+      // did before this existed.
+      //
+      // `embedCapture` never throws and holds its own 8 s budget
+      // (`vectorEvidence.ts`), so there is no `.catch` and no `withTimeout`
+      // wrapper here — both would be a second copy of a guarantee the function
+      // already makes.
+      const embedPromise: Promise<EmbedEvidence> = embedUnavailableRef.current
+        ? Promise.resolve(EMBED_NOT_ASKED)
+        : embedCapture(result.blob)
+
       // ── THE RACE, AND IT IS DETACHED FROM THE CAPTURE PATH ────────────────
       //
       // This is the structural half of the 2026-09-05 ruling. It used to be
@@ -792,6 +830,10 @@ export function Scan() {
       )
       void (async () => {
         let res: ScanResponse | null = null
+        // Hoisted so the `catch` below can still report what the image rung did.
+        // A capture that failed somewhere in this block is exactly the capture
+        // whose telemetry wants to say whether the vector was part of the story.
+        let embed: EmbedEvidence | undefined
         try {
           res = await identifyPromise
           // Hand the verdict to the capture record, which has been holding its
@@ -808,19 +850,43 @@ export function Scan() {
           dispatchIdentity(stackItem.id, { type: 'read', read })
 
           // EVERY PATH BELOW REPORTS THE RESOLVE EVENT EXACTLY ONCE, including
-          // the paths where no call is made at all — OCR off, nothing read, the
-          // endpoint already known missing. `resolved: null` is how the machine
-          // hears "no second answer is coming", and without it a thumbnail that
-          // could flip to needs-you immediately would instead sit spinning until
-          // the deadline for an answer that was never in flight.
-          if (!read || ocrUnavailableRef.current) {
-            dispatchIdentity(stackItem.id, { type: 'resolve', resolved: null })
+          // the paths where no call is made at all — the endpoint already known
+          // missing, or NEITHER rung producing anything to ask about.
+          // `resolved: null` is how the machine hears "no second answer is
+          // coming", and without it a thumbnail that could flip to needs-you
+          // immediately would instead sit spinning until the deadline for an
+          // answer that was never in flight.
+          //
+          // The `if (!read)` that used to stand here is gone, not weakened:
+          // "nothing to ask about" is now one decision in one place
+          // (`toResolveBody`), because a silent read and an absent vector are
+          // two conditions and only their conjunction means no request.
+          //
+          // THE VECTOR, COLLECTED HERE AND WAITED FOR ONLY IN WHAT IS LEFT OF
+          // ITS OWN BUDGET. It has been running since the shutter, alongside the
+          // read that just landed, so in the warm case (733-824 ms, round 10)
+          // this await is already settled and costs nothing. In the cold case
+          // (4.6-7.6 s) it is the remainder of eight seconds and then the
+          // evidence is DROPPED — `resolveWithOcr`'s header says why there is no
+          // second attempt.
+          embed = await embedPromise
+          // Only a 404 latches — `latchesUnavailable` holds the reason, which is
+          // that a slow request and an absent endpoint are not the same fact.
+          if (latchesUnavailable(embed.outcome)) embedUnavailableRef.current = true
+
+          if (ocrUnavailableRef.current) {
+            dispatchIdentity(stackItem.id, { type: 'resolve', resolved: null, embed })
             return
           }
           const { signal, done } = deadlineSignal(OCR_NARROW_TIMEOUT_MS)
           let outcome
           try {
-            outcome = await resolveWithOcr(read, res?.matches ?? [], signal)
+            // `read` may be NULL here now, and that is the image rung's whole
+            // point: a crop OCR could not read is the crop the vector answers.
+            // `toResolveBody` is the one place that decides whether the pair is
+            // worth a round trip, and with no vector it decides exactly what
+            // this line used to decide on its own.
+            outcome = await resolveWithOcr(read, res?.matches ?? [], embed.vectorMatches, signal)
           } finally {
             done()
           }
@@ -828,7 +894,7 @@ export function Scan() {
           // does not, and asking again every capture would spend a round trip
           // per card to learn the same thing.
           if (outcome.unavailable) ocrUnavailableRef.current = true
-          dispatchIdentity(stackItem.id, { type: 'resolve', resolved: outcome.resolved })
+          dispatchIdentity(stackItem.id, { type: 'resolve', resolved: outcome.resolved, embed })
 
           // AND THE OLD JOB, UNCHANGED: a row that already landed on PHASH's
           // answer can still be corrected by this. The race consumed the same
@@ -867,7 +933,7 @@ export function Scan() {
           // An enrichment that can break a capture is worse than no enrichment —
           // the same rule the capture recorder is written under. But the machine
           // must still be told, or the pair never completes.
-          dispatchIdentity(stackItem.id, { type: 'resolve', resolved: null })
+          dispatchIdentity(stackItem.id, { type: 'resolve', resolved: null, embed })
         } finally {
           window.clearTimeout(deadlineTimer)
         }
