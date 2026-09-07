@@ -113,10 +113,22 @@ function unixToIso(secs: number | null | undefined): string | null {
  *
  * ── THE METADATA CHECK IS NOT DECORATION ─────────────────────────────────────
  *
- * `stripe_customer_id` is a pointer into Stripe, and migration 054 is what
- * stops a browser writing one. This is the second lock on the same door: even
- * if a customer id reached the row by some route nobody has thought of yet, it
- * is only used when the customer itself names this account. The failure mode it
+ * ⚠️ THIS CHECK IS THE CONTROL. DO NOT DELETE IT — the twin of the one in
+ * `webhook.ts`, which carries the same warning for the same reason.
+ *
+ * An earlier version of this comment said migration 054 "is what stops a
+ * browser writing one" and called this "the second lock on the same door".
+ * Both halves are false. 054 is the migration that CREATES the browser-
+ * reachable write: `billing_apply_stripe` accepts a `stripe_customer_id` key
+ * and is `GRANT EXECUTE … TO authenticated`, so it is callable over PostgREST
+ * with the anon key the SPA ships. 059's pin makes a REPOINT deliberate and
+ * two-step, and the UNIQUE index blocks an id another row currently holds —
+ * neither stops a FIRST write of an unheld id into a NULL row, which is one
+ * RPC call.
+ *
+ * So there is no second lock to fall back on. `stripe_customer_id` is a pointer
+ * into Stripe, and what makes it safe to follow is this: it is only used when
+ * the customer ITSELF names this account. The failure mode it
  * forecloses is the serious one — reading a stranger's card summary, or billing
  * a stranger's card — and a stale or mismatched pointer is cheap to recover
  * from (make a fresh customer) so there is no reason to be lenient about it.

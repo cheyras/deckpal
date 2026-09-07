@@ -231,7 +231,16 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 
 Nothing in DeckPal is gated on payment — there is no entitlement column and no
 locked feature — so switching this on adds a way to give money and changes
-nothing else. It is off until all four `STRIPE_*` variables above are set.
+nothing else.
+
+⚠️ **It takes no cards until `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` and
+`STRIPE_SUPPORT_PRODUCT_ID` are set — and it MUST NOT take a real card until
+`STRIPE_WEBHOOK_SECRET` is set too.** Those are different thresholds, and an
+earlier version of this line said "off until all four", which is the dangerous
+reading: with three of four, `billingAvailable()` is true, the prompt renders,
+cards are taken and subscriptions are created — and nothing is ever heard back
+about a renewal, a failure or a cancellation. `/health` calls that state
+`partial` and the API warns about it by name on boot. Three of four is not off.
 
 **Do the whole of this in TEST mode first.** Every step below has a test-mode
 twin, the app shows a "Test mode — no real charge" badge whenever the secret

@@ -6,9 +6,17 @@
 -- THE CONFLICT 059 CREATED
 -- ══════════════════════════════════════════════════════════════════════════════
 --
--- 059 pinned `stripe_customer_id` write-once, which closed a real disclosure:
--- the column is reachable from the browser via `billing_apply_stripe`, and the
--- webhook used to resolve an account from it, so repointing your row at a
+-- 059 pinned `stripe_customer_id` write-once as DEPTH behind the disclosure fix.
+-- (An earlier version of this line said the pin "closed a real disclosure". It
+-- does not, and this migration is the reason why: release-to-NULL plus a set is
+-- two permitted calls that reach any customer id no other row holds. What closes
+-- it is the ownership check `ensureCustomer` and `syncCustomer` ask of Stripe.
+-- Corrected in place because 060 is unapplied; see 059's header, which had the
+-- same sentence, and DECISIONS §33 on why the reason for leaving them was
+-- itself false.)
+--
+-- The hole: the column is reachable from the browser via `billing_apply_stripe`,
+-- and the webhook used to resolve an account from it, so pointing your row at a
 -- stranger's customer harvested their card summary.
 --
 -- But `ensureCustomer` (apps/api/src/billing/service.ts) has a legitimate

@@ -16548,6 +16548,39 @@ of the machine, with its own frozen-attempt exit — and `identity.ts` described
 `currentUserEmail`'s single caller when there are two, the second being the
 `receipt_email` that §24 made load-bearing.
 
+### 34. Round thirty-one: the correction that landed on three of seven copies
+
+Round thirty corrected the "either fix alone closes the disclosure" claim in
+`webhook.ts`, 059 and SECURITY.md, and said "all three copies are corrected".
+There were seven. The four it missed:
+
+`service.ts`, directly above `ensureCustomer`'s metadata check — the TWIN of
+the one `webhook.ts` now labels "THIS CHECK IS THE CONTROL. DO NOT DELETE IT."
+— said migration 054 "is what stops a browser writing one" and called the
+check "the second lock on the same door". Both halves are false, and 054 is in
+fact the migration that CREATES the browser-reachable write: `billing_apply_
+stripe` takes a `stripe_customer_id` and is executable by `authenticated`.
+Verified in Postgres: one RPC call puts any unheld customer id into a NULL row,
+no release needed. A refactorer reading "second lock" deletes the check as
+redundant, and `POST /portal` then opens a Stripe billing portal on a stranger's
+customer — invoice history, billing address, card management.
+
+`routes/billing.ts` and API.md carry the same denial, and they are two of the
+three copies of the inventory whose own instruction is "if you change one,
+change all three" — the third, SECURITY.md, was the accurate one. And 060's
+opening still credited the pin with closing the disclosure, in the migration
+whose release-to-NULL is the reason it does not.
+
+Separately, a runbook line that could have cost real money: "It is off until all
+four `STRIPE_*` variables above are set." `billingAvailable()` requires THREE.
+With three of four the tier is live — the prompt renders, cards are taken,
+subscriptions are created — and nothing is ever heard back about a renewal, a
+failure or a cancellation, which DEPLOYMENT itself calls the worst state this
+feature has. An owner working the list top-to-bottom would have taken a real
+card into it. The two thresholds are now named as two. (API.md had the same
+conflation in one word, "configured", which means three variables for the routes
+and four for `/health`.)
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

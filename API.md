@@ -419,8 +419,12 @@ shape.
 
 ## Billing — the pay-what-you-want tier
 
-Cloud only, and only when Stripe is configured (`billingGate: "configured"` on
-`/health`). `GET /me/billing`, `/visit`, `/prompt-ack` and `/refresh` all
+Cloud only, and only when Stripe is configured. ⚠️ "Configured" has two
+meanings here and they are not the same: the ROUTES come alive on three
+variables (secret key, publishable key, product id), while `/health`'s
+`billingGate: "configured"` requires a fourth, the webhook secret. Three of four
+is `billingGate: "partial"` — the tier takes cards and never hears back. See
+DEPLOYMENT.md. `GET /me/billing`, `/visit`, `/prompt-ack` and `/refresh` all
 answer the same shape, and on a deployment with no Stripe that shape is
 `{ "available": false, … }` rather than an error, because "is there a billing
 tier here" is a legitimate question with a legitimate negative answer.
@@ -450,9 +454,16 @@ change all three:
 It never sends a customer id, a subscription id, a price, a payment-method id or
 a status: every one of those is resolved server-side from the authenticated
 user. `/refresh` accepts an `amountCents` and deliberately IGNORES it, recording
-what Stripe says the subscription bills. `billing_account` is SELECT-only to
-`authenticated` (migration 054), so the row that holds the customer id is not
-writable through PostgREST either.
+what Stripe says the subscription bills.
+
+`billing_account` is SELECT-only to `authenticated` (migration 054), so the row
+cannot be written with a direct `UPDATE`. ⚠️ It CAN be written through the
+`SECURITY DEFINER` functions 054 grants, and one of them takes a
+`stripe_customer_id` — so an account can put an arbitrary, unheld customer id
+in its own row. What makes that safe is not the column: every reader of it asks
+Stripe whether the customer's metadata names this account before using it. The
+write-once pin (059) and the UNIQUE index are depth behind that check. SECURITY.md
+carries the full account.
 
 **No card data is stored or transits this API.** The card is typed into
 Stripe's own cross-origin iframe (Payment Element); DeckPal receives a brand,

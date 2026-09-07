@@ -30,10 +30,18 @@
  * It never sends a customer id, a subscription id, a price, a payment-method id
  * or a status: every one of those is resolved server-side from the
  * authenticated user. `/refresh` accepts an `amountCents` and deliberately
- * IGNORES it, recording what Stripe says the subscription bills. Migration 054
- * is the other lock — the row that holds the customer id is not writable by
- * the anon key. SECURITY.md and API.md carry the same inventory; if you change
- * one, change all three.
+ * IGNORES it, recording what Stripe says the subscription bills.
+ *
+ * ⚠️ `stripe_customer_id` IS an exception, and this paragraph used to deny it:
+ * `billing_apply_stripe` (054) accepts that key and is executable by
+ * `authenticated`, so the browser CAN write one over PostgREST. What makes
+ * that safe is not a lock on the column — it is that every reader of the
+ * column asks Stripe whether the customer names this account first
+ * (`ensureCustomer`, `syncCustomer`). 059's pin and the UNIQUE index are depth
+ * behind that check, not substitutes for it. SECURITY.md has the full account.
+ *
+ * SECURITY.md and API.md carry the same inventory; if you change one, change
+ * all three.
  *
  * ── THE VISIT COUNTER IS A POST, DELIBERATELY ────────────────────────────────
  *
