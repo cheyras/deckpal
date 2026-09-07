@@ -16293,6 +16293,42 @@ no_charge.
 And §25 cited the wrong section for its own correction — §17 rather than §12
 — in the entry written to correct a wrong sentence. Eight rounds now.
 
+### 27. Round twenty-four: the branch that KNEW, and the one that guessed
+
+The subscription's `processing` branch — where the bank has accepted the
+payment and `handleNextAction` says so — was the only outcome branch in
+`commit()` not firing `onAnswered`. Its strictly MORE ambiguous sibling, where
+the status is null and the code cannot tell settling from refused, already did.
+So `PUT /subscription` recorded no `chose` (the subscription is `incomplete`, so
+`settled` was false), the branch never asked again, and dismissing — the only
+live control once `inFlight` disables the rest — posted a `dismissed` for a
+reader whose money was on its way. That biases whichever arm attracts more
+challenge-then-`processing` payments, which is the bias `/one-time/confirm` was
+built to prevent.
+
+The `onAnswered` docstring said FIVE places and the tree had six: round
+twenty-two added the gift's proved-landed branch and left the sentence, one
+round after §22 corrected the same sentence for the same reason. It says seven
+now, lists them, and says to keep the list in step or delete the count. Ninth
+instance in this branch.
+
+The done screen's $0 copy is not context-aware, and the profile card is one of
+its two render sites: choosing $0 there produced "if you ever want to chip in,
+it is on your profile page under Supporting DeckPal" — rendered inside that
+section, on that page, under a button offering to take you back to where you
+already were. Both are gated on `context` now.
+
+And a deploy-sequencing hazard the runbook did not name. It warns about 059
+without 060; it did not warn about 059 without THE CODE. `billing_release_
+customer` is called from `customerFor`, which ships with this deploy, so between
+the migration run and the deploy the running code writes a replacement customer
+id straight through — and 059 raises "cannot be repointed" on every request
+for any account whose stored id is unusable, minting an orphan Stripe customer
+each time. By the runbook's own account that is every account that touched the
+test-mode preview. Running the cleanup SQL BEFORE the migrations removes the
+hazard rather than mitigating it: with no stored id there is no replacement path
+to take.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

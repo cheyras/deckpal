@@ -129,19 +129,23 @@ export interface SupportFlowProps {
    * closed the sheet recorded NEITHER a `chose` nor a `dismissed`: the exposure
    * simply vanished from the experiment.
    *
-   * It fires wherever an answer exists, which is FIVE places — an earlier
-   * version of this comment said two, and the tree had three:
+   * It fires wherever an answer exists, which is SEVEN places. Earlier versions
+   * of this comment said two, then five; the tree had three, then six. Keep the
+   * list and the call sites in step, or delete the count:
    *
    *   1. an amount settled, including $0, which is a real answer;
    *   2. a dunning card replaced and the outstanding invoice collected;
    *   3. a gift that landed;
    *   4. the browser lost the bank's challenge but the intent says the
    *      subscription is paying;
-   *   5. the same, seen through a subscription status that has not caught up.
+   *   5. the same, seen through a subscription status that has not caught up;
+   *   6. the same for a GIFT — the retrieve proved it landed after the browser
+   *      lost the challenge;
+   *   7. a first payment the bank has accepted and is still `processing`.
    *
-   * The last two are answers as surely as the first. Leaving them out recorded
-   * a DISMISSAL on top of a conversion the moment the sheet was closed — the
-   * both-outcomes-per-exposure overlap this signal exists to end.
+   * Everything after the second is an answer as surely as the first. Leaving
+   * one out records a DISMISSAL on top of a conversion the moment the sheet is
+   * closed — the both-outcomes-per-exposure overlap this signal exists to end.
    */
   onAnswered?: () => void
   /** Called once the flow has finished and the frame may close itself. */
@@ -380,6 +384,23 @@ export function SupportFlow({
           // first is still settling. The server refuses that now
           // (`firstPaymentInFlight`), and this stops the reader reaching for it.
           setInFlight(true)
+          // ⚠️ AND IT IS AN ANSWER. `PUT /subscription` recorded no `chose` —
+          // the subscription is `incomplete`, so `settled` was false — and this
+          // branch is a dead end that never asks again. Without this, dismissing
+          // (the only live control once `inFlight` disables the rest) posts a
+          // `dismissed` for a reader whose money is on its way, and no `chose`
+          // ever. Its strictly MORE ambiguous sibling below, where the status is
+          // unknown, already did this; the branch that KNOWS the payment is
+          // settling did not.
+          //
+          // That biases whichever arm attracts more challenge-then-`processing`
+          // payments, which is the same bias `/one-time/confirm` exists to
+          // prevent. The server records only what Stripe agrees is paying, so
+          // this is a no-op until it settles and is never a false positive.
+          onAnswered?.()
+          void api
+            .refreshBilling({ amountCents: amount, context: analyticsContext ?? context })
+            .catch(() => {/* the payment is settling; the analytics row is not worth an error */})
           setError(
             'Your bank is still processing this. Do not try again — it will complete on its own, and your profile will show the subscription once it does.',
           )
@@ -862,6 +883,15 @@ export function SupportFlow({
               <span className="font-semibold text-text-primary">{formatAmount(committed ?? 0)} a month</span>. Stripe
               will email you a receipt, and you can change or stop it any time from your profile.
             </>
+          ) : context === 'settings' ? (
+            // ⚠️ NOT "it is on your profile page under Supporting DeckPal" —
+            // this screen renders INSIDE that section, on that page. Pointing
+            // somebody at where they already are is the kind of copy that reads
+            // as a mistake, because it is one.
+            <>
+              Nothing changes — every feature works exactly as it did, and it always will. The amount is here whenever
+              you want to change it.
+            </>
           ) : (
             <>
               Nothing changes — every feature works exactly as it did, and it always will. If you ever want to chip in,
@@ -871,7 +901,9 @@ export function SupportFlow({
         </p>
         {onDone && (
           <div className="mt-[18px]">
-            <Button onClick={onDone}>Back to DeckPal</Button>
+            {/* In the profile card there is nothing to go back TO — the panel
+                closes onto the page the reader is already on. */}
+            <Button onClick={onDone}>{context === 'settings' ? 'Done' : 'Back to DeckPal'}</Button>
           </div>
         )}
       </div>

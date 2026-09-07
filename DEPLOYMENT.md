@@ -315,6 +315,19 @@ CVC is a card that works.
    analysis query excludes them — so it does not block going live. It does
    need to be gone before the $1 result is read for real.
 
+   ⚠️ **Apply them and deploy adjacently, and run the cleanup SQL FIRST.**
+   059 pins `stripe_customer_id` write-once, and the code that copes with that
+   — `billing_release_customer`, called from `customerFor` — arrives with THIS
+   deploy. In the window between the migration run and the deploy, the running
+   code writes a replacement customer id straight through: for any account whose
+   stored id is unusable, 059 raises "cannot be repointed" on every billing
+   request while a fresh orphan Stripe customer is minted each time. Per the
+   go-live section below, that is EVERY account that touched the test-mode
+   preview. Running the cleanup `UPDATE billing_account SET stripe_customer_id =
+   NULL …` before the migrations removes the hazard entirely: with no stored id
+   there is no replacement path to take. It self-clears on deploy either way,
+   and no money moves.
+
    ⚠️ **All of them, in order, in one run.** The deployed code hard-requires
    every one of 058—063 — without 063 the webhook handler reads columns that
    do not exist and every delivery 500s until Stripe disables the endpoint: `billing_ensure_row` (059),
