@@ -481,8 +481,10 @@ has them, not from an agent session):
     removes the 059 hazard rather than mitigating it: with no stored customer id
     there is no repoint path for the pin to refuse.
 13. `pnpm --filter @deckpal/db build && pnpm --filter @deckpal/db migrate`,
-    then `pnpm --filter @deckpal/db migrate:status` and confirm **058-063 all
-    show applied**. ⚠️ Verify with `migrate:status`, not with the runner's own
+    then `pnpm --filter @deckpal/db migrate:status` and confirm **057-063 all
+    show applied** (⚠️ SEVEN, not six — production is at 056, not 057; this was
+    checked against the live database rather than assumed, and every earlier
+    version of this file said 057 was already applied). ⚠️ Verify with `migrate:status`, not with the runner's own
     output. ⚠️ The run is **not atomic** — each migration file is its own
     transaction on one connection, so a failure at 062 leaves 058-061
     committed. The recovery is to fix the cause and re-run: the runner resumes

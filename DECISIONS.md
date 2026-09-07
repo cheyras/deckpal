@@ -17088,10 +17088,31 @@ drifted forward one heading per round and ended up asserting that a round which
 shipped no migrations had shipped three. §44 added 061—063; nothing since has
 added any.
 
-Migrations 053—057 are applied to production; **058—063 are not**. They must
-be applied together and in order, after the go-live cleanup SQL and adjacent to
-the deploy — 059 without 060 is worse than neither, because it recreates the
-orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
+⚠️ **CORRECTED 2026-09-07, by asking production instead of asserting.** Every
+round from thirty-four onward was told "053—057 applied, 058—063 pending",
+and both docs said it. `migrate:status` against the production database, run
+from this branch's worktree (the main checkout has none of these files, which is
+why nobody had checked), says otherwise:
+
+**053—056 are applied. 057—063 are pending — SEVEN, not six.**
+
+057 is the one that widens `billing_ab_event`'s `kind` CHECK to admit
+`chose_one_time`. Without it every one-time gift's analytics write violates the
+constraint, is swallowed by `recordAbEvent`'s savepoint, and is lost with a
+console warning while the charge stands. So the one-time analytics path has
+never once written a row against the real database — every test gift taken on
+the preview was silently unrecorded. Harmless in itself (the cutover deletes
+every experiment row anyway) but it means that path's only executions have been
+in harnesses.
+
+The sequential runner applies whatever is pending, so "run the migrations" was
+always going to pick 057 up. What was wrong was the REASONING every round did on
+top of a false premise — including a cutover rehearsal that seeded its database
+as 053—057 and therefore never exercised the real 056—063 upgrade.
+
+They must be applied together and in order, after the go-live cleanup SQL and
+adjacent to the deploy — 059 without 060 is worse than neither, because it
+recreates the orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the
 cutover.
 
 ### 53. Sweep B: a charge that existed only at Stripe, and a pool that one person could drain
