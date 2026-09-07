@@ -16816,6 +16816,65 @@ was the CITED REASON another file used to deprioritise its own known gap. A
 false sentence about a mechanism is worse than no sentence, because it is load-
 bearing for decisions made elsewhere.
 
+⚠️ **§41 corrects two claims in this entry.** "So a suspended tab loses neither
+the row nor the conversion" is not what `commitRequestTx` achieves — it covers
+a failing cleanup COMMIT, not a disconnect, because `res.on('close')` destroys
+the connection before the handler reaches it. And the webhook sweep as written
+here cancelled the wrong subscription.
+
+### 41. Round thirty-eight: my fix cancelled the subscription that was paying
+
+Round thirty-seven pointed the webhook at `cancelStraySubscriptions` with the
+keeper taken from `row.subscription_id`. That is `pullState`'s choice: the
+NEWEST subscription in `LIVE_STATUSES` — a set containing `incomplete` and
+`paused` — falling back to the newest of ANY status, `canceled` included. A
+display choice, promoted to a mandate to cancel and refund.
+
+Executed through the product's own routes and its own webhook: a reader paying
+$5 for months, plus an abandoned `incomplete` $10 attempt left by a suspended
+tab — R37's own premise — which is NEWER. The next renewal's `invoice.paid`
+kept the ghost, refunded every month the real subscription had collected, and
+cancelled it. Three variants do the same behind a `paused` keeper, behind a
+`canceled` one, and for a manual invoice carrying no subscription at all. And it
+ran on EVERY renewal for EVERY supporter, outside the request transaction and
+therefore outside the advisory lock every money route takes. I closed a gap
+reachable by a race and opened one reachable by a renewal.
+
+`sweepDuplicatePayingSubscriptions` is the narrow replacement, and every clause
+is load-bearing: one snapshot, so the keeper is chosen from the same list the
+strays are filtered out of (R37's version left an UPDATE and a SELECT between
+the two, and a subscription created in that ~200ms gap was refunded while the
+request creating it still ran); PAYING-only on both sides, so a keeper that is
+not collecting is not a keeper and a stray with nothing to refund is left to
+expire; and NOTHING HAPPENS unless two paying support subscriptions exist on one
+customer, which no correct sequence produces. The row's subscription wins if it
+is paying, else the OLDEST does — "newest wins" is right for the create path,
+where the last write is the chosen amount, and exactly wrong for a sweep.
+
+Second: §40 said `commitRequestTx` means "a suspended tab loses neither the row
+nor the conversion". It does not. `res.on('close')` fires at the disconnect and
+DESTROYS the connection, so the next query throws and the commit is never
+reached — executed: charge landed, `support_cents` 0, no events, identical to
+before. What it does cover is a cleanup COMMIT that fails at `res.on('finish')`,
+which is real and worth having. Both sentences are corrected; the disconnect
+case is open, and closing it is a change to the middleware's lifetime model.
+
+Third, and the most instructive: I added the commit to the two routes that
+CHARGE and to none of the four that record an outcome. The justification was
+measurement bias — and committing only the paying answers makes that bias
+worse and directional. The $0 branch is the answer most people give, by the
+route's own comment, and lost its `chose` AND its prompt ack, bringing the
+onboarding modal back for somebody who had just answered it and been told 200.
+`/prompt-ack` lost dismissals, the experiment's other outcome. `/prompt-shown`
+lost exposures, its denominator. `/one-time/confirm` lost 3-D-Secure gifts —
+the endpoint that exists BECAUSE losing those "would have quietly biased
+whichever arm attracted more of them". All six commit now.
+
+**Three rounds, three fixes of mine that were themselves defective** (§31's
+missed copies, §39's overlapping branches, and this). The pattern is not
+carelessness about the diagnosis; it is that a fix is written against the case
+that prompted it and shipped without asking what ELSE now reaches the new code.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

@@ -393,7 +393,12 @@ billingRouter.post(
     const dismissed = req.body?.dismissed !== false;
     const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : kind;
     if (dismissed) await recordAbEvent(userId, 'dismissed', context);
-    res.json(shape(await ackPrompt(userId, kind === 'onboarding')));
+    const acked = await ackPrompt(userId, kind === 'onboarding');
+    // Durably, before responding — see `PUT /subscription`. `dismissed` is
+    // the experiment's OTHER outcome, and committing only the conversions
+    // would bias the very number the experiment produces.
+    await commitRequestTx(userId);
+    res.json(shape(acked));
   }),
 );
 
@@ -419,6 +424,10 @@ billingRouter.post(
     }
     const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'unknown';
     await recordAbEvent(userId, 'shown', context);
+    // The exposure is the DENOMINATOR. Losing one while keeping its answer
+    // would overstate that arm's conversion rate — the opposite failure to
+    // losing the answer, and just as directional.
+    await commitRequestTx(userId);
     res.json({ recorded: true });
   }),
 );
@@ -478,7 +487,18 @@ billingRouter.put(
       if (amountCents === 0 && !row.stripe_customer_id && !setupIntentId) {
         const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'settings';
         if (!context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, 0);
-        res.json(shape(await ackPrompt(userId, row.onboarded_at === null)));
+        const acked0 = await ackPrompt(userId, row.onboarded_at === null);
+        // ⚠️ EVERY PATH THAT RECORDS AN OUTCOME, not only the ones that charge.
+        // Round thirty-seven committed the two money routes and left this one,
+        // which the comment above calls the answer most people give — so a
+        // failing cleanup commit lost the `chose` AND the prompt ack, bringing
+        // the onboarding modal back for somebody who had just answered it and
+        // been told 200. Committing only the paying answers also makes the
+        // measurement bias the fix was FOR worse and directional: paid
+        // conversions durable, $0 answers not, and the $1 arm produces more of
+        // the former.
+        await commitRequestTx(userId);
+        res.json(shape(acked0));
         return;
       }
 
@@ -508,18 +528,24 @@ billingRouter.put(
       if (settled && !context.includes('payment_issue')) await recordAbEvent(userId, 'chose', context, amountCents);
       // Asking is now settled however this went: they answered the question.
       const acked = await ackPrompt(userId, fresh.onboarded_at === null);
-      // ⚠️ COMMIT BEFORE RESPONDING, because money has moved.
+      // ⚠️ COMMIT BEFORE RESPONDING, and know exactly which failure that
+      // covers — an earlier version of this comment claimed a broader one.
       //
-      // The RLS middleware commits on `res.on('finish')` and ROLLS BACK on
-      // `res.on('close')` or the watchdog. A reader whose tab is suspended
-      // between the Stripe call and the response therefore had the charge land
-      // and every database row — the cached amount, the `chose`, the prompt
-      // ack — discarded. The row heals from the next webhook;
-      // `billing_ab_event` never does, and the loss is biased toward slow
-      // networks and mobile, so it does not cancel between arms.
+      // COVERED: the middleware's own `COMMIT` failing at `res.on('finish')`,
+      // after the response has flushed. The reader used to hold a 200 for
+      // writes that never landed. Now they land first.
       //
-      // `commitRequestTx` opens a fresh transaction with the same claims, so
-      // the rest of the request still runs under RLS. It also ends the advisory
+      // NOT COVERED: a disconnect. `res.on('close')` fires the moment the
+      // socket drops, ROLLBACKs and DESTROYS the connection while the handler
+      // is still running — so the next query throws and this line is never
+      // reached. Executed in round thirty-eight: charge landed,
+      // `support_cents` 0, no event rows, exactly as before the fix. Closing
+      // that needs the writes to land before the connection can be reclaimed,
+      // which is a change to the middleware's lifetime model, not to this
+      // route. §41 records it as open.
+      //
+      // `commitRequestTx` re-opens a transaction with the same claims, so the
+      // rest of the request still runs under RLS. It also ends the advisory
       // lock, which is correct here: the create it was serialising is done.
       await commitRequestTx(userId);
       res.json(shape(acked, { clientSecret }));
@@ -711,6 +737,12 @@ billingRouter.post(
         // Keyed to the intent (061), so replaying this endpoint — deliberately
         // or as a browser retry — records the gift exactly once.
         await recordAbEvent(userId, 'chose_one_time', context, intent.amount, `once:${intent.id}`);
+        // ⚠️ THE ENDPOINT THAT EXISTS TO STOP THIS LOSS. Its whole reason is
+        // that 3-D-Secure gifts were missing from the experiment, and step-up
+        // rates vary by issuer and country — so losing them again to a failed
+        // cleanup commit would bias whichever arm attracts more of them, which
+        // is the exact wording of its own header.
+        await commitRequestTx(userId);
       }
       const fresh = await applyStripe(userId, await pullState(stripe, customerId));
       res.json({ ...shape(fresh), paid });
@@ -767,6 +799,9 @@ billingRouter.post(
         PAYING.has(fresh.subscription_status ?? '')
       ) {
         await recordAbEvent(userId, 'chose', context, fresh.support_cents);
+        // The confirmed outcome of a bank challenge — the one this endpoint
+        // exists to record. Committed before responding, as everywhere else.
+        await commitRequestTx(userId);
       }
       res.json(shape(fresh));
     } catch (err) {

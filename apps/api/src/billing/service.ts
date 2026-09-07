@@ -714,11 +714,85 @@ export async function setSupport(
  * that could not be cancelled is a support ticket, not a reason to fail the
  * request that just succeeded.
  */
-export async function cancelStraySubscriptions(
+/**
+ * Refund and cancel a DUPLICATE that is genuinely collecting money.
+ *
+ * ── WHY THIS IS NOT `cancelStraySubscriptions` ──────────────────────────────
+ *
+ * The create path knows which subscription it just made, so "everything else
+ * that is live" is a safe definition of a stray there. The webhook knows
+ * nothing: it fires on every renewal for every supporter, outside the request
+ * transaction and therefore outside the advisory lock every money route takes.
+ *
+ * Round thirty-seven pointed it at `cancelStraySubscriptions` with the keeper
+ * taken from `row.subscription_id`, which is `pullState`'s choice — the NEWEST
+ * subscription in `LIVE_STATUSES`, a set that includes `incomplete` and
+ * `paused`, falling back to the newest of ANY status including `canceled`.
+ * That is a display choice, and promoting it to a mandate to cancel and refund
+ * destroyed accounts in the mirror of the case it was written for. Executed:
+ * a reader paying $5 for months, plus an abandoned `incomplete` $10 attempt
+ * from a suspended tab, which is NEWER — the next renewal's `invoice.paid`
+ * kept the ghost, refunded every month the real subscription had collected, and
+ * cancelled it. Variants did the same behind a `paused` keeper, behind a
+ * `canceled` one, and for a manual invoice carrying no subscription at all.
+ *
+ * So this function is deliberately narrow, and every clause is load-bearing:
+ *
+ *  • ONE snapshot. The keeper is chosen from the same list the strays are
+ *    filtered out of. Round thirty-seven's version took the keeper from an
+ *    earlier list with an UPDATE and a SELECT in between — two cross-region
+ *    round trips, ~200ms — and a subscription created inside that gap was
+ *    refunded while the request that created it was still running.
+ *  • PAYING only, both sides. A keeper that is not collecting is not a keeper,
+ *    and a stray that is not collecting has nothing to refund: an `incomplete`
+ *    expires by itself within a day, and a `paused` one was paused from the
+ *    dashboard and is not ours to touch.
+ *  • TWO OR MORE, or nothing happens. One paying subscription is the ordinary
+ *    state of every supporter in the product; only a second one is evidence of
+ *    a duplicate. This is what keeps a renewal from being an event that can
+ *    cancel anything.
+ *  • The row's own subscription wins if it is paying — it is the reader's
+ *    last expressed choice — and otherwise the OLDEST paying one does.
+ *    "Newest wins" is right for the create path, where the last write is the
+ *    chosen amount, and exactly wrong here, where it would refund the
+ *    long-lived subscription and keep the seconds-old one.
+ */
+export async function sweepDuplicatePayingSubscriptions(
   stripe: Stripe,
   customerId: string,
-  keepId: string,
+  preferId: string | null,
 ): Promise<void> {
+  try {
+    const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
+    const paying = list.data.filter(
+      (s) => s.metadata?.[SUPPORT_METADATA_KEY] === 'true' && PAYING_STATUSES.has(s.status),
+    );
+    if (paying.length < 2) return;
+
+    const oldest = paying.reduce((a, b) => (a.created <= b.created ? a : b));
+    const keeper = paying.find((s) => s.id === preferId) ?? oldest;
+    console.warn('[deckpal-api] billing: two paying support subscriptions on one customer; refunding the duplicate');
+    for (const s of paying) {
+      if (s.id === keeper.id) continue;
+      const refunded = await refundStraySubscription(stripe, s);
+      await stripe.subscriptions.cancel(s.id);
+      if (!refunded) {
+        console.error(
+          '[deckpal-api] billing: MONEY OWED — cancelled duplicate subscription %s without refunding it in full. Refund by hand in the Stripe dashboard.',
+          s.id,
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[deckpal-api] billing: could not sweep duplicate subscriptions —', (err as Error).message);
+  }
+}
+
+// Not exported. Round thirty-seven exported this so the webhook could call it;
+// the webhook now calls `sweepDuplicatePayingSubscriptions` instead, because
+// "everything else that is live" is only a safe definition of a stray for the
+// caller that just created the keeper. Kept private so nothing else adopts it.
+async function cancelStraySubscriptions(stripe: Stripe, customerId: string, keepId: string): Promise<void> {
   try {
     const list = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 20 });
     const strays = list.data.filter(
@@ -747,35 +821,29 @@ export async function cancelStraySubscriptions(
       // ⚠️ THE WEBHOOK REVISITS IT — and it is the only actor that can.
       //
       // This used to say "NOTHING REVISITS IT", and the reason mattered: this
-      // sweep ran only from `setSupport`'s CREATE path, and a stray only exists
-      // beside a live subscription we kept, so the next amount change finds
-      // that one and takes the UPDATE branch, which never sweeps. The $0 branch
-      // is worse: it cancels the modifiable subscription only, so "stop my
-      // support" leaves the stray billing for ever.
-      //
-      // The gap was deprioritised because it needed the advisory lock to have
-      // failed AND a card left `processing`. Round thirty-seven showed the first
-      // precondition is one suspended tab: the RLS transaction — and with it
-      // this lock — ends when the RESPONSE ends, not when the handler does, so
-      // a dropped connection releases it mid-create while the handler runs on.
-      //
-      // `webhook.ts` now sweeps on `invoice.paid`, which is the one moment a
-      // `processing` charge has settled and somebody is guaranteed to be
-      // looking. This branch still skips it here, because here it genuinely
-      // cannot be refunded yet. A stray only exists alongside a live subscription we kept
-      // — so on the next amount change `managedSubscription` finds that live
-      // one, `modifiable` is non-null, and `setSupport` takes the UPDATE
-      // branch, which never sweeps. The $0 branch is worse: it sets
+      // sweep runs only from `setSupport`'s CREATE path, and a stray only
+      // exists beside a live subscription we kept — so the next amount change
+      // finds that one, `modifiable` is non-null, and `setSupport` takes the
+      // UPDATE branch, which never sweeps. The $0 branch is worse: it sets
       // `cancel_at_period_end` on the modifiable subscription only, so a reader
       // who says "stop my support" goes on being billed by the stray.
       //
-      // An earlier version of this comment said the stray was "picked up on the
-      // account's next amount change", which is not true of any path, and
-      // understating a known gap is how it gets deprioritised. Reaching it
-      // needs the advisory lock to have already failed AND a card left
-      // `processing`; the honest close is a sweep where all three paths
-      // converge, or on the webhook's `invoice.paid`, and adding one late in a
-      // review loop is how rounds six and seven went wrong.
+      // The gap was deprioritised because it needed the advisory lock to have
+      // failed AND a card left `processing`. Round thirty-seven showed the
+      // first precondition is one suspended tab: the RLS transaction — and
+      // with it the lock — ends when the RESPONSE ends, not when the handler
+      // does, so a dropped connection releases it mid-create while the handler
+      // runs on.
+      //
+      // `webhook.ts` closes it on `invoice.paid`, the one moment such a charge
+      // has settled and can be given back. NOT with this function: round
+      // thirty-seven pointed the webhook here and it refunded and cancelled the
+      // subscription that was actually paying, because "everything else that is
+      // live" is only a safe definition of a stray for the caller that just
+      // created the keeper. See `sweepDuplicatePayingSubscriptions`.
+      //
+      // This branch still skips it, because here it genuinely cannot be
+      // refunded yet.
       if (s.status === 'incomplete' && (await firstPaymentInFlight(stripe, s))) {
         console.warn('[deckpal-api] billing: leaving a duplicate subscription alone — its first payment is settling');
         continue;
