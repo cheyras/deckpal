@@ -139,6 +139,15 @@ export function SupportSettings() {
 
   const { support, card } = state
   const supporting = support.cents > 0
+  /**
+   * Winding down: still paying for the month they have, nothing renewing after.
+   *
+   * The distinction the no-card warning below needs. `supporting` stays true
+   * through the wind-down month, so it cannot be the test for "a payment is
+   * coming that will fail" — there is no next payment.
+   */
+  const winding = supporting && support.cancelAtPeriodEnd
+  const needsCard = supporting && !support.cancelAtPeriodEnd
   const note = statusNote(support.status, {
     cents: support.cents,
     cancelAtPeriodEnd: support.cancelAtPeriodEnd,
@@ -235,12 +244,46 @@ export function SupportSettings() {
                 ? `Enter the card you would like to use instead. Your ${brandLabel(card.brand)} ending ${card.last4} stays in place until the new one is saved.`
                 : 'Add a card so DeckPal can bill your monthly amount. It goes straight to Stripe.'}
             </p>
+            {!state.publishableKey && (
+              // ⚠️ A WAY OUT. Only the paragraph above renders without a
+              // publishable key, and "Change amount"/"Chip in" is hidden while
+              // a panel is open — so this was a dead end with no control at
+              // all. Unreachable today (`available: true` implies a key), which
+              // is exactly why `SupportFlow` gives its identical branch a Close
+              // and a Reload: an unreachable dead end is one deploy
+              // configuration away from being a reachable one.
+              <div className="flex flex-col-reverse gap-[8px] sm:flex-row sm:justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setPanel('none')}>
+                  Close
+                </Button>
+                <Button size="sm" onClick={() => window.location.reload()}>
+                  Reload
+                </Button>
+              </div>
+            )}
             {state.publishableKey && (
               <CardForm
                 stripePromise={stripeFor(state.publishableKey)}
                 mode={state.mode}
                 submitLabel={card ? 'Use this card' : 'Save card'}
                 cancelLabel="Cancel"
+                // ⚠️ THIS PANEL WRITES TOO, and round forty-two guarded only the
+                // amount panel. `writing` stayed false for the whole of the
+                // bank's `confirmSetup` AND the whole of
+                // `replacePaymentMethod` — which runs `retryOpenInvoice`, i.e.
+                // `stripe.invoices.pay`. So "Open billing portal" five lines
+                // below stayed live, and it is a full page navigation.
+                //
+                // Executed in round forty-three: a `past_due` supporter reads
+                // "updating your card will put it right", opens this panel, and
+                // during the bank's modal presses the button labelled
+                // "Invoices, receipts and billing details". Navigating during
+                // `confirmSetup` means no card is ever attached and the invoice
+                // is never retried — dunning runs to `unpaid` and the
+                // subscription cancels, for somebody who thought they had fixed
+                // it. Navigating during `replacePaymentMethod` loses the
+                // `settled: false` warning while the charge has already landed.
+                onBusy={setWriting}
                 onCancel={() => setPanel('none')}
                 onComplete={async (setupIntentId) => {
                   // NOT `setSupport(support.cents, …)`. That re-sent the amount
@@ -291,10 +334,21 @@ export function SupportSettings() {
                 to act, and the renewal fails. Also reachable via a Link or
                 bank-debit method, which `service.ts` documents as reading "no
                 card on file". */}
-            <p className={`text-[14px] ${supporting ? 'text-warning' : 'text-text-muted'}`}>
-              {supporting
+            {/* ⚠️ AND NOT WHILE THEY ARE WINDING DOWN. `supporting` is
+                `cents > 0`, which is still true through the month a cancelling
+                supporter has already paid for — so this said "your next
+                payment will fail" directly beneath the note saying support
+                stops on the 3rd. There is no next payment. It is false, and it
+                solicits somebody who has explicitly cancelled, which
+                `offerOneTime`'s comment says this product does not do. Same
+                adjacent-contradiction shape as the defect this warning was
+                added to fix, mirrored. */}
+            <p className={`text-[14px] ${needsCard ? 'text-warning' : 'text-text-muted'}`}>
+              {needsCard
                 ? 'No card on file, so your next payment will fail. Add one to keep your support running.'
-                : 'No card on file — none is needed while you are on $0.'}
+                : winding
+                  ? 'No card on file. Nothing further will be charged.'
+                  : 'No card on file — none is needed while you are on $0.'}
             </p>
             <Button variant="ghost" size="sm" disabled={writing} onClick={() => setPanel('card')}>
               <Icon name="plus" size={15} />

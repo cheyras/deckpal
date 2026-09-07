@@ -39,6 +39,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { useRouterState } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { api, type BillingState, type SupportPromptKind } from '../../lib/api'
 import { isCloudMode, supabase } from '../../lib/supabase'
 import { readSession } from '../../lib/authSession'
@@ -175,6 +176,7 @@ export function SupportPrompt() {
    * asks the server afresh, which is where the decision belongs.
    */
   const closedHere = useRef(false)
+  const queryClient = useQueryClient()
   /**
    * Is a write in flight right now?
    *
@@ -293,6 +295,9 @@ export function SupportPrompt() {
    * outcomes overlap: every conversion also logged a walk-away.
    */
   function close(dismissed = true) {
+    // The dismissal path writes too (`ackPrompt` stamps the clock, and a $0
+    // answer settles the amount), so the card must re-read here as well.
+    void queryClient.invalidateQueries({ queryKey: ['billing'] })
     // ⚠️ NOT WHILE MONEY IS MOVING. The flow reports its own writes through
     // `onBusy`, including the card step's `confirmSetup`, which lives inside
     // `CardFields` and is otherwise invisible from here. Refusing the close is
@@ -348,7 +353,26 @@ export function SupportPrompt() {
           // screen must change — including after a failure — so inferring an
           // answer from it recorded neither outcome for a reader who tried,
           // failed and closed the sheet. `onAnswered` is the signal.
-          onState={setState}
+          onState={(next) => {
+            setState(next)
+            // ⚠️ THE PROFILE CARD IS THE SAME ACCOUNT, and it holds its own
+            // copy: `SupportSettings` reads `useQuery(['billing'])` with a 60s
+            // `staleTime`, this sheet reads `api.billingVisit()` into local
+            // state, and nothing connected them. On /profile — where the
+            // modal renders directly over that card, and where `payment_issue`
+            // is shown to people who ARE paying — answering the modal left
+            // the card underneath reading "$0 / month, you are on $0, which is
+            // a perfectly good answer" and still offering "Chip in".
+            //
+            // Executed in round forty-three: the reader presses it, the flow
+            // opens against stale state, re-sends the same amount (no double
+            // charge — the update branch is idempotent) and the route records
+            // a SECOND `chose`, attributed to `settings` with no matching
+            // exposure. `chose` carries no dedupe key by design (061), so that
+            // is a phantom conversion in the numerator of the number deciding
+            // whether the $1 rung ships.
+            void queryClient.invalidateQueries({ queryKey: ['billing'] })
+          }}
           onAnswered={() => {
             answered.current = true
           }}

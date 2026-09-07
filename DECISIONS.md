@@ -17080,7 +17080,55 @@ deciding what a REJECTED lookup scores — every answer to which is the
 `.catch(() => [])` round forty-one removed. A comment arguing for the change
 that re-opens the bug it sits on is the worst kind this file produces.
 
-**Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
-058—063 are not. They must be applied together and in order — 059 without 060
-is worse than neither, because it recreates the orphan-minting loop 060 exists
-to fix.
+### Deploy state (standing — update it, do not move it)
+
+⚠️ This block belongs to the FEATURE, not to whichever round is last. Rounds
+forty-one through forty-three each inserted their narrative above it, so it
+drifted forward one heading per round and ended up asserting that a round which
+shipped no migrations had shipped three. §44 added 061—063; nothing since has
+added any.
+
+Migrations 053—057 are applied to production; **058—063 are not**. They must
+be applied together and in order, after the go-live cleanup SQL and adjacent to
+the deploy — 059 without 060 is worse than neither, because it recreates the
+orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
+cutover.
+
+### 46. Round forty-three: the panel that was not guarded, and the card that did not listen
+
+Round forty-two's fixes held. Its guard did not reach far enough: `writing` was
+wired to the amount panel and not to the CARD panel, which is the other write on
+that surface and the more dangerous one. `writing` stayed false for the whole of
+the bank's `confirmSetup` AND the whole of `replacePaymentMethod` — which runs
+`retryOpenInvoice`, i.e. `stripe.invoices.pay` — so "Open billing portal"
+stayed live, and that button is a full page navigation.
+
+Executed: a `past_due` supporter reads "updating your card will put it right",
+opens the panel, and during the bank's modal presses the button five lines below
+labelled "Invoices, receipts and billing details". Navigate during
+`confirmSetup` and no card is ever attached, the invoice is never retried,
+dunning runs to `unpaid` and the subscription cancels — for somebody who
+thought they had fixed it. Navigate during `replacePaymentMethod` and the charge
+lands while the `settled: false` warning is lost.
+
+**And the two mount sites did not know about each other.** `SupportPrompt` holds
+local state from `api.billingVisit()`; `SupportSettings` holds
+`useQuery(['billing'])` with a 60-second `staleTime`; nothing connected them. On
+/profile — where the modal renders directly over that card, and where
+`payment_issue` is shown to people who ARE paying — answering the modal left
+the card underneath reading "$0 / month, you are on $0, which is a perfectly
+good answer" and still offering "Chip in". Press it and the flow opens against
+stale state, re-sends the amount (no double charge, the update branch is
+idempotent) and records a SECOND `chose`, attributed to `settings`, with no
+matching exposure and no dedupe key. A phantom conversion in the numerator of
+the number that decides whether the $1 rung ships. The sheet invalidates the
+shared cache now, on both the answer and the close.
+
+Also: the new no-card warning fired during the wind-down month, telling somebody
+who had explicitly cancelled that "your next payment will fail" directly beneath
+the note saying support stops on the 3rd — the same adjacent-contradiction
+shape it was added to fix, mirrored, and a solicitation aimed at someone who has
+said no. And the card panel had no way out when a publishable key is missing;
+`SupportFlow`'s identical branch has had a Close and a Reload since round one,
+for the reason it states: an unreachable dead end is one deploy configuration
+away from being a reachable one.
