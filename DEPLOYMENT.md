@@ -390,12 +390,21 @@ UPDATE billing_account
        card_brand = NULL, card_last4 = NULL, card_exp_month = NULL, card_exp_year = NULL,
        stripe_synced_at = NULL;
 
--- 2. Start the $1 experiment from zero. Test-mode exposures and answers cannot
+-- 2. Forget the prompt bookkeeping preview testing wrote. Without this, an
+--    account that was shown or dismissed the modal during the test-mode
+--    preview gets up to 30 days of silence after go-live — and `?prompt=`
+--    cannot be used to check, because it is inert under live keys. Visit
+--    counts and `onboarded_at` are deliberately KEPT: 053's backfill exists so
+--    an existing account gets the check-in rather than the welcome, and
+--    resetting `onboarded_at` would undo that.
+UPDATE billing_account SET prompt_last_shown_at = NULL;
+
+-- 3. Start the $1 experiment from zero. Test-mode exposures and answers cannot
 --    be told apart from real ones, and an experiment seeded with your own
 --    testing is worse than one with no data.
 DELETE FROM billing_ab_event;
 
--- 3. The webhook ledger refers to test-mode event ids that will never recur.
+-- 4. The webhook ledger refers to test-mode event ids that will never recur.
 DELETE FROM billing_event;
 ```
 

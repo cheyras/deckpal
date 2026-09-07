@@ -16329,6 +16329,52 @@ test-mode preview. Running the cleanup SQL BEFORE the migrations removes the
 hazard rather than mitigating it: with no stored id there is no replacement path
 to take.
 
+### 28. Round twenty-five: a card the profile showed and nothing would charge
+
+`defaultCard` deliberately falls back to any ATTACHED card when the customer has
+no invoice default — somebody who entered a card and closed the tab still has
+one on file, and pretending otherwise invites them to type it twice. So
+`pullState` writes "Visa ···· 4242" onto a row whose customer Stripe would
+refuse to bill, and `setup_intent.succeeded` makes that happen without the
+reader coming back at all.
+
+`chargeOnce` was fixed for exactly this, in round ten, with a comment reading
+"the same card `defaultCard` displays, or the profile is lying". `setSupport`
+was not. A returning reader whose row shows a card skips the card step, so no
+`setupIntentId` is sent, so `adoptSetupIntent` — the only thing that sets the
+invoice default — never runs; the subscription is created with no payment
+method, and `finishFirstPayment` confirms an intent that has nothing to confirm
+with. That is a `StripeInvalidRequestError`, not a card error, so there is no
+reader-facing copy: a 502 saying "check whether it went through" when nothing
+could have, identically on every retry. They can never subscribe from that flow,
+and the only escape is a button on the profile card nothing points them to.
+
+The recovery is one helper now, called from both charging paths, so the display
+fallback and the two chargers cannot disagree again. That is the fix this
+feature has needed ten times over: put it where the paths converge.
+
+Three smaller. The gift's `processing` branch has the same analytics gap as the
+subscription's — it settles minutes later with nobody there, `/one-time`
+records only a succeeded intent, and no webhook records gifts because a
+standalone PaymentIntent produces no invoice. The subscription side was named in
+§17 and the gift side was named nowhere; it is named now, where the branch is.
+
+060's header said an abusive release "inconvenienced nobody". Detaching a PAYING
+row is real self-harm: the subscription keeps charging, the app shows $0,
+`/portal` refuses, and re-subscribing bills twice. SECURITY.md already had the
+accurate version and `routes/billing.ts` already flagged that 059's and 060's
+headers overstate things; 060 is unapplied, so B4 permits correcting it in place
+and it is corrected.
+
+And the go-live cleanup cleared the Stripe cache and the experiment but not the
+prompt clock, so an account shown the modal during the preview would have got up
+to thirty days of silence after cutover — unverifiable, because `?prompt=` is
+inert under live keys. A statement resets `prompt_last_shown_at`; `visit_count`
+and `onboarded_at` are deliberately kept, because 053's backfill exists to give
+an existing account the check-in rather than the welcome. Verified against real
+Postgres in the order the runbook now prescribes: cleanup on the 053—057
+schema, then 058—063 on top.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

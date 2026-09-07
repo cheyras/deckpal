@@ -690,6 +690,20 @@ export function SupportFlow({
       } else if (res.status === 'processing') {
         // Frozen for the same reason as the challenge path above.
         setFrozenAmount(onceAmount)
+        // ⚠️ KNOWN GAP, same as the subscription's: this gift settles minutes
+        // later with nobody on the page, and nothing records it. `/one-time`
+        // records only a `succeeded` intent; calling `/one-time/confirm` here
+        // would be a no-op because the intent is still `processing`; and no
+        // webhook records gifts — a standalone PaymentIntent produces no
+        // invoice, and `payment_intent.succeeded` is not in HANDLED. So the
+        // conversion is absent from `billing_ab_event`.
+        //
+        // The money is correct and the receipt is real; only the measurement
+        // misses it. Closing it needs a webhook-side recorder that knows the
+        // prompt context, which the webhook does not have — and building one
+        // in the twenty-fifth round of a review loop is what DECISIONS §12
+        // warns against. The subscription side of this gap is named in §17; the
+        // gift side was not named anywhere, which is why it is here.
         // ⚠️ THE SAME TRUTH ON THE PATH WITH NO CHALLENGE. `chargeOnce` returns
         // `paid: false` for a `processing` intent as well as for a refusal, and
         // the branch below both says "nothing has been charged" AND mints a new

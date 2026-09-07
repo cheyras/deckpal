@@ -514,6 +514,53 @@ export class SubscriptionPausedError extends ApiError {
   }
 }
 
+/**
+ * Make the card the profile DISPLAYS the card Stripe will CHARGE.
+ *
+ * ── WHY THIS EXISTS ─────────────────────────────────────────────────────────
+ *
+ * `defaultCard` deliberately falls back to any ATTACHED card when the customer
+ * has no `invoice_settings.default_payment_method`: somebody who entered a card
+ * and then closed the tab before choosing an amount still has a card on file,
+ * and pretending otherwise invites them to type it twice. `pullState` therefore
+ * writes "Visa ···· 4242" onto the row for a customer with no invoice default,
+ * and `setup_intent.succeeded` — which IS handled — makes that happen without
+ * the reader coming back at all.
+ *
+ * `adoptSetupIntent` is the only thing that sets the invoice default, and it
+ * runs only when the browser sends a `setupIntentId`. A returning reader whose
+ * row already shows a card skips the card step entirely, so it never runs, and
+ * the subscription is created with no payment method: `finishFirstPayment`
+ * confirms an intent that has nothing to confirm with, which is a
+ * `StripeInvalidRequestError` — not a card error, so no reader-facing copy —
+ * and a 502 telling them to check whether it went through when nothing could
+ * have. Every retry does the same. They can never subscribe from that flow.
+ *
+ * `chargeOnce` was fixed for exactly this and `setSupport` was not, which is
+ * this feature's oldest shape. One helper now, called from both, so the display
+ * fallback and both charging paths cannot disagree again.
+ *
+ * Returns the payment method id, or null when there genuinely is no card.
+ */
+async function ensureDefaultPaymentMethod(stripe: Stripe, customerId: string): Promise<string | null> {
+  const customer = await stripe.customers.retrieve(customerId, {
+    expand: ['invoice_settings.default_payment_method'],
+  });
+  if (customer.deleted) throw new Error('customer is deleted');
+  const pm = customer.invoice_settings?.default_payment_method;
+  const existing = typeof pm === 'string' ? pm : pm?.id;
+  if (existing) return existing;
+
+  // `type: 'card'` matches `defaultCard`, and matching it is the point. See
+  // DEPLOYMENT.md on why a bank-debit method must not be enabled without
+  // teaching both of them about it.
+  const attached = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+  const recovered = attached.data[0]?.id;
+  if (!recovered) return null;
+  await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: recovered } });
+  return recovered;
+}
+
 export async function setSupport(
   stripe: Stripe,
   customerId: string,
@@ -542,6 +589,17 @@ export async function setSupport(
     if (existing?.status === 'incomplete') await stripe.subscriptions.cancel(existing.id);
     return { clientSecret: null };
   }
+
+  // ⚠️ BEFORE ANYTHING IS CREATED OR REPRICED. A paying answer needs a card
+  // Stripe will actually bill, and the row may be showing one that was attached
+  // but never adopted — see `ensureDefaultPaymentMethod`. Without this the
+  // subscription is created with no payment method and `finishFirstPayment`
+  // confirms an intent that has nothing to confirm with, which 502s identically
+  // on every retry.
+  //
+  // Above the $0 branch would be wasted work: stopping needs no card. Here, so
+  // it covers both the create and the update path.
+  await ensureDefaultPaymentMethod(stripe, customerId);
 
   // See MODIFIABLE_STATUSES: an unpaid, finalized first invoice cannot be
   // repriced, so the abandoned attempt is thrown away and a fresh subscription
@@ -876,28 +934,9 @@ export async function chargeOnce(
   // real charge.
   attemptId: string,
 ): Promise<{ clientSecret: string | null; paid: boolean; status: string | null; intentId: string | null }> {
-  const customer = await stripe.customers.retrieve(customerId, {
-    expand: ['invoice_settings.default_payment_method'],
-  });
-  if (customer.deleted) throw new Error('customer is deleted');
-  const pm = customer.invoice_settings?.default_payment_method;
-  let paymentMethod = typeof pm === 'string' ? pm : pm?.id;
-  if (!paymentMethod) {
-    // ⚠️ THE SAME CARD `defaultCard` DISPLAYS, or the profile is lying.
-    //
-    // Display falls back to any attached card, because one that was added and
-    // then abandoned mid-flow is still theirs and still on file. Charging did
-    // not, so a reader whose adopt step had failed saw "Visa ···· 4242 on file"
-    // and got an upstream error when they used it. Promote the attached card to
-    // the invoice default here and the two agree from then on, for renewals as
-    // well as for this charge.
-    const attached = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
-    const recovered = attached.data[0]?.id;
-    if (recovered) {
-      await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: recovered } });
-      paymentMethod = recovered;
-    }
-  }
+  // See `ensureDefaultPaymentMethod`: the card the profile displays must be the
+  // card Stripe charges.
+  const paymentMethod = await ensureDefaultPaymentMethod(stripe, customerId);
   if (!paymentMethod) {
     // The route collects a card first, so this is a wiring error rather than a
     // reader error — and it must not become a silent no-op.

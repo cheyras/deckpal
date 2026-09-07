@@ -30,8 +30,16 @@
 --
 -- This function can only ever set the column to NULL. It cannot be pointed at a
 -- value, so it cannot be aimed at anybody. The worst an abusive caller achieves
--- is detaching THEIR OWN row from THEIR OWN customer — after which the next
--- request creates them a fresh empty one and they have inconvenienced nobody.
+-- is detaching THEIR OWN row from THEIR OWN customer.
+--
+-- ⚠️ That is not the same as "inconvenienced nobody", which is what this said
+-- before. Detaching a PAYING row is real self-harm: the subscription goes on
+-- charging at Stripe, the app then shows $0, `/portal` refuses because the row
+-- has no customer, and re-subscribing bills a second time. It is self-harm with
+-- no reach into anybody else's data, which is why it is accepted — but it is
+-- accepted, not harmless. SECURITY.md carries the same account, and
+-- `routes/billing.ts` already notes that 059's and 060's headers overstate the
+-- guarantee. Corrected here while 060 is still unapplied and B4 permits it.
 -- The disclosure 059 closed needs the ability to name a target, and naming a
 -- target is exactly what is still forbidden.
 --
