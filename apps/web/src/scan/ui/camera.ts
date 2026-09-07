@@ -52,7 +52,16 @@ export function useCamera(videoRef: React.RefObject<HTMLVideoElement | null>, ac
         return
       }
       video.srcObject = stream
-      await video.play().catch(() => {})
+      // BOUNDED, like every await on this surface (scan/ui/deadline.ts's
+      // rule). A real camera settles play() in tens of ms; a play() that
+      // never settles is the labeler's round-9b hang wearing a different
+      // stream, and it would park the capture stage on a spinner forever.
+      // Past the budget we optimistically go live — the <video> renders
+      // frames regardless once the track produces them.
+      await Promise.race([
+        video.play().catch(() => {}),
+        new Promise<void>((r) => window.setTimeout(r, 2_000)),
+      ])
       setCamState('live')
     } catch (e) {
       const name = (e as Error).name

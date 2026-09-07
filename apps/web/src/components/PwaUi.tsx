@@ -109,12 +109,22 @@ function OfflineBanner() {
 
 /** Single fixed overlay host for all PWA affordances. */
 export function PwaUi() {
+  // The scan and labeler surfaces put working controls in the bottom-left
+  // corner (the labeler's TL/rotate cluster sits exactly under the Install
+  // pill — 2026-09-07 readiness pass screenshots). Full-screen working
+  // surfaces suppress the pill; it returns everywhere else, and the
+  // bottom-right toasts are unaffected.
+  const suppressInstall =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.startsWith('/scan') || window.location.pathname.startsWith('/dev/quad-labeler'))
   return (
     <>
       {/* bottom-left: install */}
-      <div className="pointer-events-none fixed bottom-[16px] left-[16px] z-(--z-toast) nav:left-[98px]">
-        <InstallButton />
-      </div>
+      {!suppressInstall && (
+        <div className="pointer-events-none fixed bottom-[16px] left-[16px] z-(--z-toast) nav:left-[98px]">
+          <InstallButton />
+        </div>
+      )}
       {/* bottom-right: offline banner stacked above the update toast */}
       <div className="pointer-events-none fixed bottom-[16px] right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px]">
         <OfflineBanner />
