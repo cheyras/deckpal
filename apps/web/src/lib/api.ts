@@ -1515,8 +1515,10 @@ export const api = {
    * when the modal actually mounts, not when the state is fetched: most loads
    * show no modal at all.
    */
-  supportPromptShown: (context: string) =>
-    send<{ recorded: boolean }>('POST', '/me/billing/prompt-shown', { context }),
+  supportPromptShown: (kind: SupportPromptKind, context: string) =>
+    // `kind` as well as `context`: showing the ask is what SETTLES it, so the
+    // server needs to know whether this was the onboarding one. See the route.
+    send<{ recorded: boolean }>('POST', '/me/billing/prompt-shown', { kind, context }),
   /** A SetupIntent for the Payment Element. The secret reaches the browser by design. */
   billingSetupIntent: () =>
     send<{ clientSecret: string; publishableKey: string; mode: string }>('POST', '/me/billing/setup-intent'),

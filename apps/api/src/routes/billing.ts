@@ -413,6 +413,26 @@ billingRouter.post(
  *
  * The arm is read server-side inside `billing_record_ab_event`, so the only
  * thing the client is trusted with is WHERE the ask appeared.
+ *
+ * ── SHOWING THE ASK IS WHAT SETTLES IT ──────────────────────────────────────
+ *
+ * This also stamps `prompt_last_shown_at`, which used to be written only by
+ * `/prompt-ack` — i.e. only if the reader touched the sheet. DECISIONS §17
+ * called that defensible: "an unanswered ask was not settled". It is not,
+ * because ignoring a modal is not rare. Reload, navigate, or close the tab and
+ * nothing was written, so the next page load asked again. Executed in round
+ * forty-one against the real migrations: twelve page loads, twelve `shown`
+ * events, `prompt_last_shown_at` still NULL, `promptDue` still `checkin`.
+ *
+ * Two harms, and the second is worse. The reader is nagged on every page load
+ * where the spec says "once, then monthly". And `cents_per_exposure` — the
+ * number that decides whether the $1 rung ships — gets a denominator
+ * dominated by whoever reloads most, a self-selecting population converting at
+ * zero, with 062's 200/day ceiling silently truncating the worst offenders so
+ * the distortion is not even linear.
+ *
+ * A shown prompt is a shown prompt. The OUTCOME is recorded separately, and
+ * "shown and ignored" is a real outcome the cadence should respect.
  */
 billingRouter.post(
   '/prompt-shown',
@@ -423,7 +443,16 @@ billingRouter.post(
       return;
     }
     const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 40) : 'unknown';
+    const kind = typeof req.body?.kind === 'string' ? req.body.kind : '';
     await recordAbEvent(userId, 'shown', context);
+    // ⚠️ AND THE CLOCK STARTS HERE, not on the ack. See the header.
+    //
+    // `onboarding` is passed through so the once-ever stamp lands too: without
+    // it `promptDue` returns `onboarding` regardless of the clock, and the
+    // welcome would still repeat on every load. A reader who ignores the
+    // welcome simply joins the ordinary monthly cadence, which is the right
+    // place for somebody who has now seen the ask.
+    await ackPrompt(userId, kind === 'onboarding');
     // The exposure is the DENOMINATOR. Losing one while keeping its answer
     // would overstate that arm's conversion rate — the opposite failure to
     // losing the answer, and just as directional.

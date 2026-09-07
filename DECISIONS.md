@@ -16004,6 +16004,10 @@ arm from the row and does not know the prompt context. It is analytics only,
 roughly arm-neutral, and building a webhook-side experiment recorder in the
 fourteenth round of a review loop is exactly what §12 warns against.
 
+⚠️ **§44 reverses the decision below.** 053's header was right and this entry
+was wrong: `prompt_last_shown_at` is stamped when the ask is SHOWN, and
+`/prompt-shown` does it now.
+
 Also noted, not editable: 053's header says `prompt_last_shown_at` is stamped
 when the re-ask "has been shown". It is stamped on `/prompt-ack`, i.e. when the
 sheet is closed, so a reader who kills the tab with the modal open is re-asked
@@ -16978,6 +16982,60 @@ history" — while none was derived from what the rest of the system actually
 does with the answer. The reviewer's `managedSubscription` observation is one
 line of code, and it settles the question outright. Derive the invariant from
 the code that consumes it; do not reason about which rule sounds fairer.
+
+### 44. Round forty-one: treating an absence of information as a fact
+
+Sixth defective fix in six rounds, and this time the shape is one sentence:
+**an absence of information was recorded as a fact.** Three separate places, one
+mistake.
+
+`.catch(() => [])` on the keeper rule turned "I could not read the invoices"
+into "there are none" — the one reading a rule built on collected money must
+never make. It is asymmetrically dangerous: whichever subscription's lookup
+fails is scored zero and therefore ALWAYS loses. Stripe's 429s concentrate on
+renewal days, which is exactly when this sweep runs. Executed: a 429 on the
+twelve-month subscription's invoice list cancelled the reader's real
+subscription, kept the stray, refunded nothing (the same call was broken), and
+logged MONEY OWED about the one it had just destroyed. The twin `.catch` on the
+create-path guard did the mirror: it re-opened round forty's protective refusal
+into a cancel. The keeper rule now lets the read throw — the outer catch then
+leaves both subscriptions alone, which is the safe direction — and the guard
+fails CLOSED, because the question it asks is "may I destroy this?".
+
+`managedSubscription` was `find(LIVE_STATUSES)`, and `LIVE_STATUSES` contains
+`incomplete`. So a newer ABANDONED attempt outranked a subscription Stripe was
+actually billing, `pullState` refused to report an incomplete's price, and the
+row read $0. Executed against the real migrations: a reader billed $5 a month
+for twelve months saw $0 on their profile and was shown the recurring check-in
+— the ONE invariant this feature exists to guarantee, broken by an ordering
+choice made for the UI. Their next answer then found `modifiable === null`, took
+the CREATE path, and built a second live subscription beside the one already
+billing, which is where every sweep defect of the last five rounds gets its
+material. Paying is preferred now, then merely live, then most recent.
+
+And the `since` floor compared against a bare clock reading with a strict `<`,
+so the losing tab's invoice was excluded whenever that tab simply started first
+— the ordinary shape of the race the sweep exists for — leaving both
+subscriptions billing. It carries a minute of tolerance now: generous for a race
+measured in seconds, four orders of magnitude short of a billing cycle.
+
+**Separately, and not my fix: the prompt was re-shown on every page load.**
+`prompt_last_shown_at` was stamped only by `/prompt-ack`, i.e. only if the
+reader touched the sheet. §17 called that defensible — "an unanswered ask was
+not settled" — on the assumption that ignoring a modal is rare. It is not:
+reload, navigate away, or close the tab and nothing was written. Executed:
+twelve page loads, twelve `shown` events, the clock still NULL, `promptDue`
+still `checkin`. The reader is nagged where the spec says "once, then monthly",
+and `cents_per_exposure` — the number that decides whether the $1 rung ships
+— gets a denominator dominated by whoever reloads most, a population
+converting at zero, with 062's 200/day ceiling truncating the worst offenders so
+the distortion is not even linear. `/prompt-shown` stamps the clock now,
+including the once-ever flag for onboarding. §17 is marked reversed.
+
+Two tests, both checked against the old behaviour. And the superseded keeper
+derivations are DELETED rather than left stacked: rounds thirty-seven to
+thirty-nine kept reintroducing each other's rule from comments that had outlived
+their code.
 
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060

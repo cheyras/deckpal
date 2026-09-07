@@ -242,10 +242,26 @@ async function managedSubscription(stripe: Stripe, customerId: string): Promise<
   // 500; throwing removes it. A route answers 502 (check your profile), and the
   // webhook 500s so Stripe retries — both honest, neither a wrong row.
   if (hitLimit) throw new Error('too many subscriptions to identify the support subscription');
-  // Prefer a live one; fall back to the most recent so a just-cancelled
-  // subscription still reports its end date rather than vanishing from the UI.
+  // ⚠️ PAYING FIRST, then merely live, then the most recent.
+  //
+  // This was `find(LIVE_STATUSES)` alone, and `LIVE_STATUSES` contains
+  // `incomplete` — so a newer ABANDONED attempt outranked a subscription
+  // Stripe was actually billing. `pullState` then refuses to report an
+  // incomplete's price, so the row read `support_cents: 0`, and `isContributing`
+  // reads only that row. Executed in round forty-one against the real
+  // migrations: a reader being billed $5 a month for twelve months, with a
+  // newer abandoned $25 attempt, had their profile show $0 and `promptDue`
+  // return `checkin`. That is the ONE invariant this feature exists to
+  // guarantee — a contributor is never asked again — broken by an
+  // ordering choice made for the UI.
+  //
+  // It got worse downstream: their next answer found `modifiable === null`,
+  // took the CREATE path, and built a second live subscription beside the one
+  // already billing. The last fallback stays: a just-cancelled subscription
+  // should still report its end date rather than vanish from the profile.
+  const paying = ours.find((s) => PAYING_STATUSES.has(s.status));
   const live = ours.find((s) => LIVE_STATUSES.has(s.status));
-  return live ?? ours[0] ?? null;
+  return paying ?? live ?? ours[0] ?? null;
 }
 
 /**
@@ -643,7 +659,18 @@ export async function setSupport(
   // The floor for anything this request is allowed to undo. Read BEFORE the
   // first Stripe call, so a subscription that existed when we started is
   // provably not one we made. See `cancelStraySubscriptions`' `since`.
-  const startedAt = Math.floor(Date.now() / 1000);
+  // ⚠️ A TOLERANCE, because the question is "older than this race?", not
+  // "older than my clock". The losing tab's first invoice is created BEFORE the
+  // winner's `startedAt` whenever it simply started first — the ordinary
+  // shape of the race this sweep exists for — and unconditionally under a
+  // couple of seconds of host-versus-Stripe skew, since the comparison is a
+  // strict `<` with no slack. Executed in round forty-one: two seconds early
+  // and both subscriptions were left billing.
+  //
+  // A minute is generous for a race measured in seconds and still excludes a
+  // prior billing cycle by four orders of magnitude, so it cannot re-open the
+  // "refunded a year of support" defect it sits between.
+  const startedAt = Math.floor(Date.now() / 1000) - 60;
   const existing = await managedSubscription(stripe, customerId);
   const modifiable = existing && MODIFIABLE_STATUSES.has(existing.status) ? existing : null;
 
@@ -827,52 +854,47 @@ export async function sweepDuplicatePayingSubscriptions(
     const paying = ours.filter((s) => PAYING_STATUSES.has(s.status));
     if (paying.length < 2) return;
 
-    // ⚠️ THE OLDEST. NO PREFERENCE ARGUMENT. NOT THE ROW'S.
-    //
-    // This took a `preferId` from `row.subscription_id` and kept it when
-    // paying, which read as "respect the reader's last choice". It is not that:
-    // `row.subscription_id` is `pullState`'s DISPLAY choice, and `pullState`
-    // picks the NEWEST live subscription. So the preference matched the newest
-    // whenever the newest was paying, the `?? oldest` fallback was dead, and
-    // this function shipped doing the exact thing its own header said was
-    // "exactly wrong for a sweep". Executed in round thirty-nine: a six-month
-    // supporter with a day-old duplicate had all six months refunded and the
-    // six-month subscription cancelled; twelve months against a `past_due`
-    // duplicate the same; and a reader who had answered $0 had their own
-    // winding-down subscription cancelled and four months given back while the
-    // stray was kept.
-    //
-    // There is no reader intent to respect here. Both subscriptions are
-    // charging, one of them is an accident, and the only fact that reliably
-    // separates them is age: the older one has history, renewals and a billing
-    // date the reader recognises. Refunding it is the expensive mistake, and
-    // refunding the younger one is the cheap one. So: oldest, always, with no
-    // parameter for a caller to get wrong.
     // ⚠️ COLLECTED HISTORY DECIDES, NOT AGE. Third rule in three rounds, so the
-    // derivation matters more than the rule:
+    // derivation matters more than the rule — and the two superseded ones are
+    // deleted rather than left stacked above it, because rounds thirty-seven to
+    // thirty-nine kept reintroducing each other's rule from comments that
+    // outlived their code.
     //
-    // `managedSubscription` is `ours.find(LIVE)` over a NEWEST-FIRST list, so
-    // the app always addresses the NEWEST live subscription — the profile
-    // card, `billing_account.subscription_id`, `setSupport`'s `modifiable`, and
-    // the `cancel_at_period_end` that "stop my support" sets. It follows that
-    // whenever two are both paying, the one the app CANNOT see is always the
-    // OLDER one; if the stray were newer, the profile would be showing it.
+    // `managedSubscription` prefers a PAYING subscription and then the newest
+    // LIVE one, and the app addresses whatever it returns — the profile card,
+    // `billing_account.subscription_id`, `setSupport`'s `modifiable`, and the
+    // `cancel_at_period_end` that "stop my support" sets.
     //
-    // So round thirty-eight kept the newest (`preferId` was the display choice
-    // in disguise) and refunded six and twelve months of real support; round
-    // thirty-nine kept the oldest and did the mirror — executed: a reader
-    // pressed "stop my support", had four months of their own $5 refunded, and
-    // was left on an ACTIVE $25 subscription with no cancellation pending, on
-    // the one the app has no UI for.
+    // Round thirty-eight kept the newest and refunded six and twelve months of
+    // real support. Round thirty-nine kept the oldest and did the mirror:
+    // executed, a reader pressed "stop my support", had four months of their
+    // own $5 refunded, and was left on an ACTIVE $25 subscription with no
+    // cancellation pending. Neither age answers it, because age is not the
+    // question. The question is which subscription is REAL, and the evidence is
+    // money already collected. Most PAID invoices wins; on a tie the NEWEST,
+    // because that is the one every other part of the system addresses, so what
+    // survives is what the profile, the amount and the stop button point at.
+    // ⚠️ NO `.catch(() => [])`. THIS RULE'S WHOLE PREMISE IS THAT COLLECTED
+    // MONEY IS THE EVIDENCE, and swallowing the lookup turns "I could not find
+    // out" into "there is none" — the one reading it must never make. The
+    // failure is asymmetric: whichever subscription's lookup fails is scored 0
+    // and therefore ALWAYS loses. Executed in round forty-one with a 429 on the
+    // twelve-month subscription's invoice list: the reader's real subscription
+    // was cancelled, the stray kept, and the same broken call meant no refund
+    // either — while the log line claimed money was owed on the one that had
+    // just been destroyed.
     //
-    // Neither age answers it, because age is not the question. The question is
-    // which one is real, and the evidence for that is money already collected.
-    // Most PAID invoices wins; on a tie the NEWEST wins, because that is the
-    // one every other part of the system addresses, so keeping it leaves the
-    // profile, the amount and the stop button all pointing at what survived.
-    const withHistory = await Promise.all(
-      paying.map(async (s) => ({ sub: s, paid: (await paidInvoices(stripe, s.id).catch(() => [])).length })),
+    // Stripe 429s concentrate on renewal days, which is exactly when this runs.
+    // Letting it throw hands the outer catch a sweep that does nothing, leaves
+    // both subscriptions alone, and lets the next `invoice.paid` try again.
+    // `allSettled` so a second concurrent rejection is not unhandled.
+    const settled = await Promise.all(
+      paying.map(async (s) => {
+        const invoices = await paidInvoices(stripe, s.id);
+        return { sub: s, paid: invoices.length };
+      }),
     );
+    const withHistory = settled;
     const keeper = withHistory.reduce((a, b) =>
       b.paid > a.paid || (b.paid === a.paid && b.sub.created > a.sub.created) ? b : a,
     ).sub;
@@ -990,10 +1012,15 @@ async function cancelStraySubscriptions(
       // an account with two live subscriptions IS wrong and somebody has to
       // look. The webhook's sweep handles the genuine duplicate case, where
       // both are collecting, without needing to guess.
-      const history = await paidInvoices(stripe, s.id).catch(() => []);
-      if (history.some((i) => i.created < since)) {
+      // ⚠️ FAILS CLOSED. An unreadable history means "assume old money": the
+      // question this guard asks is "may I destroy this?", and the safe answer
+      // to "I do not know" is no. Round forty had `.catch(() => [])` here, so a
+      // 429 turned the protective `continue` back into a cancel on a year-old
+      // active subscription — executed.
+      const history = await paidInvoices(stripe, s.id).catch(() => null);
+      if (history === null || history.some((i) => i.created < since)) {
         console.error(
-          '[deckpal-api] billing: NOT sweeping subscription %s — it has paid invoices older than this request. Two live subscriptions on one account; look at it by hand.',
+          '[deckpal-api] billing: NOT sweeping subscription %s — it has paid invoices older than this request, or its history could not be read. Two live subscriptions on one account; look at it by hand.',
           s.id,
         );
         continue;

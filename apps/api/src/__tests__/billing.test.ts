@@ -26,7 +26,7 @@ import {
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
 import { ApiError, errorMiddleware } from '../http.js';
 import { stripeFailure } from '../routes/billing.js';
-import { sweepDuplicatePayingSubscriptions } from '../billing/service.js';
+import { pullState, sweepDuplicatePayingSubscriptions } from '../billing/service.js';
 import { PaymentInFlightError, SubscriptionPausedError } from '../billing/service.js';
 
 const NOW = Date.parse('2026-09-05T12:00:00.000Z');
@@ -686,5 +686,88 @@ describe('the duplicate sweep keeps the subscription with collected history', ()
       { id: 'sub_c', created: 1_000, status: 'unpaid', paid: 2 },
     ]);
     assert.deepEqual(cancelled.sort(), ['sub_a', 'sub_c']);
+  });
+});
+
+/**
+ * Two invariants round forty-one found broken by execution, pinned here.
+ *
+ * Both are about the same mistake in different clothes: treating an ABSENCE of
+ * information as a FACT. `managedSubscription` treated "not paying yet" as
+ * eligible to represent the account; the sweep treated "could not read the
+ * invoices" as "there are none". Each turned a missing answer into a confident
+ * wrong one, and each cost a real supporter their subscription.
+ */
+describe('the billing state never invents an answer it does not have', () => {
+  const OURS = { deckpal_support: 'true' } as const;
+
+  test('a subscription Stripe is billing outranks a newer abandoned attempt', async () => {
+    // ⚠️ THE FEATURE'S ONE INVARIANT. `LIVE_STATUSES` contains `incomplete`,
+    // so a newer abandoned attempt used to win — and because `pullState`
+    // refuses to report an incomplete's price, the row read $0. Executed
+    // against the real migrations in round forty-one: a reader billed $5 a
+    // month for twelve months saw $0 on their profile and was shown the
+    // recurring check-in. Their next answer then took the CREATE path and
+    // built a second live subscription beside the one already billing.
+    const stripe = {
+      subscriptions: {
+        list: async () => ({
+          has_more: false,
+          data: [
+            // Newest first, as Stripe returns them.
+            { id: 'sub_ghost', created: 9_000, status: 'incomplete', metadata: OURS, items: { data: [] } },
+            {
+              id: 'sub_real',
+              created: 1_000,
+              status: 'active',
+              metadata: OURS,
+              cancel_at_period_end: false,
+              items: { data: [{ price: { unit_amount: 500, currency: 'usd' }, quantity: 1 }] },
+            },
+          ],
+        }),
+      },
+      customers: { retrieve: async () => ({ deleted: false, invoice_settings: {} }) },
+      paymentMethods: { list: async () => ({ data: [] }) },
+    } as unknown as Parameters<typeof pullState>[0];
+
+    const state = await pullState(stripe, 'cus_1');
+    assert.equal(state.subscription_id, 'sub_real', 'the account is represented by what it actually pays');
+    assert.equal(state.subscription_status, 'active');
+    assert.equal(state.support_cents, 500, 'a paying supporter must never read as $0 — that is what re-asks them');
+  });
+
+  test('an unreadable invoice history cancels nothing', async () => {
+    // The keeper rule's whole premise is that collected money is the evidence.
+    // A 429 on one lookup used to score that subscription 0, so it always lost
+    // — and Stripe's 429s land on renewal days, which is exactly when this
+    // sweep runs. Executed: the reader's year-old subscription cancelled, the
+    // stray kept, and no refund either, because the same call was broken.
+    const cancelled: string[] = [];
+    const stripe = {
+      subscriptions: {
+        list: async () => ({
+          has_more: false,
+          data: [
+            { id: 'sub_b', created: 9_000, status: 'active', metadata: OURS },
+            { id: 'sub_a', created: 1_000, status: 'active', metadata: OURS },
+          ],
+        }),
+        cancel: async (id: string) => {
+          cancelled.push(id);
+          return { id };
+        },
+      },
+      invoices: {
+        list: async ({ subscription }: { subscription: string }) => {
+          if (subscription === 'sub_a') throw new Error('rate limit');
+          return { data: [{ id: 'in_b', created: 9_001, status: 'paid', amount_paid: 500 }] };
+        },
+      },
+      refunds: { create: async () => undefined },
+    } as unknown as Parameters<typeof sweepDuplicatePayingSubscriptions>[0];
+
+    await sweepDuplicatePayingSubscriptions(stripe, 'cus_1');
+    assert.deepEqual(cancelled, [], 'not knowing is not the same as knowing there is nothing');
   });
 });

@@ -263,7 +263,7 @@ export function SupportPrompt() {
             // never blocks the thing being measured.
             if (exposed.current) return
             exposed.current = true
-            api.supportPromptShown(forced ? `forced-${due}` : due).catch(() => { /* not worth a word */ })
+            api.supportPromptShown(due, forced ? `forced-${due}` : due).catch(() => { /* not worth a word */ })
           }, SETTLE_MS)
         }
       } catch {
