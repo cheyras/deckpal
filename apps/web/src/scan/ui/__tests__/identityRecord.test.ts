@@ -169,6 +169,11 @@ describe('identityRecord', () => {
       // records on a build, or a backend, where the image rung is not in play.
       embedMs: null,
       embedOutcome: null,
+      // The 2026-09-07 columns, on the ordinary capture: false and false. A
+      // healthy session records nothing else, which is what makes a `true` in
+      // either of them worth going and looking at.
+      backstopped: false,
+      lateAnswerDropped: false,
       resolvedBy: 'badge+number',
       confident: true,
       cardId: 'sv10-161',
@@ -288,20 +293,49 @@ describe('identityRecord', () => {
     assert.equal(record.msToResolve, 912)
   })
 
-  it('follows a LATE confident answer onto a thumbnail the reader had not touched', () => {
-    // `identity.ts`: a confident answer promotes whenever it lands, deadline or
-    // no deadline. The record has to say `confident-resolve` for that capture,
-    // because the escalation rung is exactly the thing that makes answers late.
-    const late = run([
+  it('WAITS FOR A SLOW ANSWER INSTEAD OF RECORDING TWO — 2026-09-07', () => {
+    // This test used to be called "follows a LATE confident answer onto a
+    // thumbnail the reader had not touched", and it drove `deadline` between the
+    // read and the resolve to prove the promotion happened. Round 10b showed
+    // what that produced in the field: `r10bs59` capture 3 posted `needs-you` at
+    // +91.7 s and `confident-resolve` at +92.0 s — one capture, two machine
+    // records, and a row the reader watched change its mind. The owner ruled
+    // against it, so the escalation rung's slowness is absorbed by WAITING.
+    //
+    // Same events, minus the clock that used to interrupt them. One record.
+    const slow = run([
       { type: 'phash', res: TIED },
       { type: 'read', read: read({ pass: 'escalated', bodyLines: ['Deceit'] }) },
-      { type: 'deadline' },
       { type: 'resolve', resolved: resolveRes() },
     ])
-    assert.equal(identityOutcome(late), 'confident-resolve')
-    const record = identityRecord(late, 18_400)?.identity as Record<string, unknown>
+    assert.equal(identityOutcome(slow), 'confident-resolve')
+    const record = identityRecord(slow, 18_400)?.identity as Record<string, unknown>
     assert.equal(record.ocr, 'escalated')
     assert.equal(record.msToResolve, 18_400)
+    assert.equal(record.backstopped, false, 'it finished trying; nothing cut it off')
+    assert.equal(record.lateAnswerDropped, false)
+  })
+
+  it('AND WHEN THE FUSE DOES BLOW, THE RECORD SAYS SO ON BOTH COLUMNS', () => {
+    // The other half, and the one round 10b's telemetry could not see: a capture
+    // whose embed timed out recorded `embedOutcome: null` and was indistinguish-
+    // able from one that settled cleanly (§2, unknown 49). `backstopped` is the
+    // fault; `lateAnswerDropped` is what the fault cost.
+    const cut = run([
+      { type: 'phash', res: TIED },
+      { type: 'read', read: read({ pass: 'escalated', bodyLines: ['Deceit'] }) },
+      { type: 'backstop' },
+      { type: 'resolve', resolved: resolveRes(), embed: { vectorMatches: [], outcome: 'timeout', ms: 8_000 } },
+    ])
+    assert.equal(identityOutcome(cut), 'needs-you', 'FINAL — the answer arrived too late to be used')
+    const record = identityRecord(cut, 12_400)?.identity as Record<string, unknown>
+    assert.equal(record.backstopped, true)
+    assert.equal(record.lateAnswerDropped, true)
+    assert.equal(record.cardId, null, 'and the card it named is not on the row')
+    // The dropped answer's own telemetry is dropped with it, which is correct:
+    // the resolve event never reached a state that could absorb it.
+    assert.equal(record.resolvedBy, null)
+    assert.equal(record.embedOutcome, null)
   })
 
   it('and records the READER as the answer when they give one', () => {
@@ -369,6 +403,12 @@ describe('identityRecord', () => {
     )
     const record = identityRecord(run(stuck), 900)?.identity as Record<string, unknown>
     assert.deepEqual(Object.keys(record).sort(), [
+      // The 2026-09-07 pair, and they are not a sixth outcome either. They say
+      // whether `needs-you` was reached the honest way — every started signal
+      // reported and none named the card — or whether the 12 s fuse cut one off
+      // and threw an answer away. Same record, same five outcomes, one more
+      // question answerable about each of them.
+      'backstopped',
       'bodyLines',
       'cardId',
       'confident',
@@ -378,6 +418,7 @@ describe('identityRecord', () => {
       'embedMs',
       'embedOutcome',
       'identityOutcome',
+      'lateAnswerDropped',
       'msToResolve',
       'ocr',
       'ocrMs',

@@ -29,12 +29,26 @@
 // list row this reducer has already let go of — so the field is gone and the
 // protection it gave lives where the reader now is. See the last test in "the
 // reader" for the shape of what replaced it.
+//
+// ── AND WHAT THE 2026-09-07 RULING DID ─────────────────────────────────────
+//
+// This one is policy, and it is the reason half the orderings below now assert
+// the opposite of what they asserted. "It should NOT land as needs you and then
+// upgrade itself. If it isn't totally resolved, it stays in the side."
+//
+// So the file's job changed shape. It used to prove that a late answer was
+// HONOURED — that a confident resolve at 7 s rescued a thumbnail the 6 s
+// deadline had already flipped. It now proves that the situation cannot arise:
+// settlement waits for every started signal, so there is no thumbnail to rescue,
+// and if the 12 s fuse ever does cut one off the late answer is DROPPED and the
+// drop is recorded. The tests that used to be about the rescue are the tests
+// about the wait, which is the same ordering asked from the other side.
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import type { ScanMatch, ScanResponse, ScanResolveResponse } from '../../../lib/api'
 import type { OcrRead } from '../../ocr/pipeline'
-import { IDENTITY_DEADLINE_MS } from '../deadline'
+import { IDENTITY_BACKSTOP_MS, RESOLVE_RTT_TAIL_MS } from '../deadline'
 import {
   initialIdentity,
   ocrHintLabel,
@@ -44,6 +58,7 @@ import {
   type IdentityState,
 } from '../identity'
 import { TIE_MARGIN } from '../tieGate'
+import { EMBED_TIMEOUT_MS, type EmbedEvidence } from '../vectorEvidence'
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -104,6 +119,37 @@ function run(events: IdentityEvent[], from: IdentityState = initialIdentity()): 
   return events.reduce(reduceIdentity, from)
 }
 
+function embed(over: Partial<EmbedEvidence> = {}): EmbedEvidence {
+  return { vectorMatches: [], outcome: 'ok', ms: 1_100, ...over }
+}
+
+/**
+ * REPLAY A TIMELINE, WITH THE SHIPPING FUSE IN IT.
+ *
+ * Milliseconds since the shutter, and `IDENTITY_BACKSTOP_MS` is inserted for
+ * free — exactly as `Scan.tsx` schedules it at capture time — so a test cannot
+ * accidentally describe a world where the backstop does not exist. Reports WHEN
+ * the capture left `pending`, which since 2026-09-07 is the only question worth
+ * asking about the machine's timing: it is the moment the reader's thumbnail
+ * stops spinning, and there is no second moment.
+ */
+function drive(timeline: Array<[number, IdentityEvent]>): { leftAt: number | null; state: IdentityState } {
+  const fused: Array<[number, IdentityEvent]> = [...timeline, [IDENTITY_BACKSTOP_MS, { type: 'backstop' }]]
+  fused.sort((a, b) => a[0] - b[0])
+  let state = initialIdentity()
+  let leftAt: number | null = null
+  for (const [t, e] of fused) {
+    state = reduceIdentity(state, e)
+    if (leftAt === null && state.phase !== 'pending') leftAt = t
+  }
+  return { leftAt, state }
+}
+
+/** What the deadline this ruling deleted used to be, kept as a NUMBER so the
+ *  "the common case got faster" claims below are measured against it rather than
+ *  asserted about it. Nothing in the app reads 6 000 any more. */
+const OLD_DEADLINE_MS = 6_000
+
 // ── the race ────────────────────────────────────────────────────────────────
 
 describe('the identity race', () => {
@@ -119,7 +165,7 @@ describe('the identity race', () => {
     // Everything that lands afterwards is the LIST's business now, through
     // `narrowedIdentity`, which can see whether a human has touched the row.
     // The thumbnail is already flying and must not change its mind mid-flight.
-    const later = run([{ type: 'resolve', resolved: resolveRes() }, { type: 'deadline' }], afterPhash)
+    const later = run([{ type: 'resolve', resolved: resolveRes() }, { type: 'backstop' }], afterPhash)
     assert.equal(later, afterPhash, 'a confident state is terminal for the reducer')
   })
 
@@ -219,6 +265,9 @@ describe('the identity race', () => {
   })
 
   it('one answer alone is not enough — it waits', () => {
+    // And since 2026-09-07 it waits for as long as that takes. There is no
+    // longer a 6 s deadline behind this to end the wait on the machine's behalf:
+    // "if it isn't totally resolved, it stays in the side."
     const onlyPhash = run([{ type: 'phash', res: TIED }])
     assert.equal(onlyPhash.phase, 'pending')
     const onlyResolve = run([{ type: 'resolve', resolved: resolveRes({ confident: false }) }])
@@ -226,43 +275,198 @@ describe('the identity race', () => {
   })
 })
 
-// ── the deadline ────────────────────────────────────────────────────────────
+// ── settlement, on a clock ──────────────────────────────────────────────────
+//
+// THE 2026-09-07 RULING, DRIVEN. Every test here used to have a 6 s deadline in
+// it deciding the answer; the deadline is gone and the SIGNALS decide, so these
+// assert two things the old file could not: WHEN a capture leaves the stack, and
+// that it never leaves twice.
 
-describe('the deadline', () => {
-  it('flips a still-waiting capture to needs-you', () => {
-    const s = run([{ type: 'phash', res: TIED }, { type: 'deadline' }])
-    assert.equal(s.phase, 'needs-you')
-  })
-
-  it('is a no-op once the card has been named', () => {
-    const s = run([{ type: 'phash', res: CLEAR }, { type: 'deadline' }])
-    assert.equal(s.phase, 'confident')
-    assert.equal(s.match?.cardId, 'sv10-057')
-  })
-
-  it('does not stop a late confident answer from rescuing the thumbnail', () => {
-    // The deadline is a projection's headroom, not a verdict. A card the ladder
-    // names at 7 s is still that card, and nobody is looking at the thumbnail.
-    const s = run([
-      { type: 'phash', res: TIED },
-      { type: 'deadline' },
-      { type: 'resolve', resolved: resolveRes() },
+describe('when a capture leaves the stack', () => {
+  it('EVERYTHING SETTLES EARLY — needs-you well before the 6 s deadline it replaced', () => {
+    // The ordinary failure, on the ordinary clock: identify back at 1.2 s, the
+    // read at 2.1 s, the narrowing at 2.6 s, and all three said no. The old
+    // machine reached the same verdict at the same instant — `settleOrWait` was
+    // always the fast path — and the deadline only ever mattered when it fired
+    // FIRST. What changed is that this is now the only way to get here.
+    const { leftAt, state } = drive([
+      [1_200, { type: 'phash', res: TIED }],
+      [2_100, { type: 'read', read: read() }],
+      [2_600, { type: 'resolve', resolved: resolveRes({ confident: false }), embed: embed({ ms: 1_100 }) }],
     ])
-    assert.equal(s.phase, 'confident')
-    assert.equal(s.by, 'printing')
+    assert.equal(state.phase, 'needs-you')
+    assert.equal(leftAt, 2_600, 'it leaves when the last signal reports, not when a clock says so')
+    assert.ok(leftAt !== null && leftAt < OLD_DEADLINE_MS, 'the common case is FASTER than the old deadline')
+    assert.equal(state.backstopped, false, 'settled by its own signals')
+    assert.equal(state.lateAnswerDropped, false, 'and nothing arrived afterwards to throw away')
   })
 
-  it('is longer than the slow branch it is waiting on', () => {
-    // The sizing, as an assertion rather than only as prose in deadline.ts:
-    // OCR read (REPORT.md §8.3's 1.8-3.4 s projection, stated as a FLOOR) plus a
-    // resolve round trip of the same class as identify (~1-2 s). Firing inside
-    // that band would flip cards that were about to identify themselves.
-    const SLOWEST_OCR_READ_MS = 3_400
-    const RESOLVE_RTT_MS = 2_000
+  it('AN EMBED STILL IN FLIGHT AT 6 s KEEPS IT PENDING — this is the defect', () => {
+    // Round 10b §3.3: six of thirty-one captures were here, and the old machine
+    // flipped every one of them to needs-you with the answer still on the wire.
+    // At six seconds this capture has phash (tied) and a read that found nothing,
+    // and the vector is still coming.
+    const atSixSeconds = run([
+      { type: 'phash', res: TIED },
+      { type: 'read', read: read() },
+    ])
+    assert.equal(atSixSeconds.phase, 'pending', 'the system has not finished trying, so it is not needs-you')
+    assert.equal(atSixSeconds.resolveSettled, false)
+  })
+
+  it('…AND THE 9 s VECTOR LANDS AS AN IDENTIFIED ROW, never as needs-you first', () => {
+    // The same capture, followed through. `r10bs59`'s third capture is this one:
+    // `needs-you` at +91.7 s, `confident-resolve` at +92.0 s, two machine records
+    // and a row that changed its mind in front of the reader. It leaves ONCE now,
+    // three seconds later, already named.
+    const { leftAt, state } = drive([
+      [1_400, { type: 'phash', res: TIED }],
+      [3_100, { type: 'read', read: read() }],
+      [9_000, { type: 'resolve', resolved: resolveRes(), embed: embed({ ms: 5_992 }) }],
+    ])
+    assert.equal(leftAt, 9_000, 'one departure, and it is the confident one')
+    assert.equal(state.phase, 'confident')
+    assert.equal(state.by, 'printing')
+    assert.equal(state.match?.cardId, 'sv10-116')
+    assert.equal(state.backstopped, false)
+    assert.equal(state.lateAnswerDropped, false)
+  })
+
+})
+
+// ── the fuse ────────────────────────────────────────────────────────────────
+
+describe('the backstop', () => {
+  it('IS THE ONLY CLOCK LEFT, and it settles the capture FINALLY', () => {
+    const { leftAt, state } = drive([
+      [1_500, { type: 'phash', res: TIED }],
+      [3_000, { type: 'read', read: read() }],
+      // The resolve never comes — a wedged round trip, the case the fuse is for.
+    ])
+    assert.equal(leftAt, IDENTITY_BACKSTOP_MS)
+    assert.equal(state.phase, 'needs-you')
+    assert.equal(state.backstopped, true, 'and the record says it was cut off, not finished')
+    // "Whatever is unsettled is treated as failed" — in the STATE, not just the
+    // phase, so `identityRecord` cannot describe a leg as still in flight on a
+    // capture that has already left the camera.
+    assert.equal(state.resolveSettled, true)
+  })
+
+  it('DROPS A LATE ANSWER AND WRITES THE DROP DOWN', () => {
+    // The whole ruling in one assertion. The answer is confident, it names a
+    // card, and it arrives 400 ms after the fuse blew — and the capture stays
+    // needs-you, because by then the reader has been told the scanner gave up.
+    const { state } = drive([
+      [1_500, { type: 'phash', res: TIED }],
+      [3_000, { type: 'read', read: read() }],
+      [IDENTITY_BACKSTOP_MS + 400, { type: 'resolve', resolved: resolveRes(), embed: embed({ outcome: 'timeout' }) }],
+    ])
+    assert.equal(state.phase, 'needs-you', 'it does NOT upgrade itself — 2026-09-07')
+    assert.equal(state.match, null)
+    assert.equal(state.by, null)
+    assert.equal(state.lateAnswerDropped, true)
+    assert.equal(state.backstopped, true)
+  })
+
+  it('the drop is recorded ONCE, however many answers turn up late', () => {
+    const settled = run([{ type: 'phash', res: TIED }, { type: 'backstop' }])
+    const once = reduceIdentity(settled, { type: 'resolve', resolved: resolveRes() })
+    assert.equal(once.lateAnswerDropped, true)
+    // Identity, not a new object: `dispatchIdentity` skips the re-render and the
+    // second telemetry post on `next === prev`.
+    assert.equal(reduceIdentity(once, { type: 'phash', res: CLEAR }), once)
+  })
+
+  it('a late READ is not an answer, and does not trip the alarm', () => {
+    // It is a hint chip's worth of text and could never have named the card.
+    // Counting it would blunt the one signal that says the fuse cost something.
+    const settled = run([{ type: 'phash', res: TIED }, { type: 'backstop' }])
+    const late = reduceIdentity(settled, { type: 'read', read: read({ number: '116', denominator: '182' }) })
+    assert.equal(late, settled)
+    assert.equal(late.lateAnswerDropped, false)
+  })
+
+  it('is a no-op on a capture that already settled honestly', () => {
+    // `Scan.tsx` clears the timer in a `finally`, but a fuse that survives its
+    // own race must not be able to re-decide anything or forge a `backstopped`.
+    const named = run([{ type: 'phash', res: CLEAR }])
+    assert.equal(run([{ type: 'backstop' }], named), named)
+    const settled = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
+    assert.equal(run([{ type: 'backstop' }], settled), settled)
+    assert.equal(settled.backstopped, false)
+  })
+
+  it('COVERS THE WORST HONEST CHAIN — the arithmetic, as an assertion', () => {
+    // `deadline.ts`'s sizing, from round 10b's measured tails, checked against
+    // the constants it is made of rather than left as prose beside them:
+    //
+    //   the embed    EMBED_TIMEOUT_MS, 8 s, anchored at the SHUTTER. Round 10b
+    //                §3.1: 29 in-app embeds, p50 4 202 ms, max 6 363 ms of wall
+    //                latency (telemetry `embedMs` max 5 992), 2 of 31 over.
+    //   the resolve  RESOLVE_RTT_TAIL_MS, 4 s, and it cannot start until the
+    //                embed has settled. Round 10b's msToResolve ran p50
+    //                4 283-6 001 ms against those embeds — a remainder of about
+    //                1-2 s — and §3.2 measured /api/scan itself reaching
+    //                4 847 ms once the two routes share a function instance.
+    //
+    // Firing inside that sum would put the deadline back under another name.
     assert.ok(
-      IDENTITY_DEADLINE_MS >= SLOWEST_OCR_READ_MS + RESOLVE_RTT_MS,
-      `${IDENTITY_DEADLINE_MS}ms would pre-empt the OCR branch's own worst case`,
+      IDENTITY_BACKSTOP_MS >= EMBED_TIMEOUT_MS + RESOLVE_RTT_TAIL_MS,
+      `${IDENTITY_BACKSTOP_MS}ms would cut off a chain that was still inside its own budgets`,
     )
+    assert.equal(IDENTITY_BACKSTOP_MS, 12_000)
+    // And it is not a deadline in disguise: it must clear the old 6 s by enough
+    // that the captures round 10b caught crossing it are nowhere near it.
+    assert.ok(IDENTITY_BACKSTOP_MS >= 2 * OLD_DEADLINE_MS)
+  })
+})
+
+// ── nothing waits on a request that was never made ─────────────────────────
+//
+// THE TRAP IN THIS DESIGN, and the reason the machine has two settlement bits
+// and not four. Every leg of the second answer can be skipped entirely — OCR off
+// for the session, a read that produced nothing, an embed latched unavailable
+// after one 404, a backend with no `/scan/resolve` — and a tracker that counted
+// legs rather than the LEG would sit waiting for a call nobody made until the
+// fuse blew. Twelve seconds of spinner for a capture that was decided at one.
+
+describe('the flag-off paths settle promptly', () => {
+  it('OCR OFF — the read is null, the resolve event still arrives, and it is over', () => {
+    const { leftAt, state } = drive([
+      [900, { type: 'phash', res: TIED }],
+      [900, { type: 'read', read: null }],
+      [1_050, { type: 'resolve', resolved: null, embed: embed({ ms: 860 }) }],
+    ])
+    assert.equal(state.phase, 'needs-you')
+    assert.equal(leftAt, 1_050)
+    assert.equal(state.backstopped, false, 'it did not wait out the fuse for a read nobody took')
+  })
+
+  it('NO EMBED EITHER — the latched 404 path, where the whole leg is skipped', () => {
+    // `EMBED_NOT_ASKED`'s shape: `unavailable`, `ms: null`, no request made. The
+    // machine must not distinguish it from an answer, because from here they are
+    // the same fact — the leg is done.
+    const { leftAt, state } = drive([
+      [800, { type: 'phash', res: TIED }],
+      [800, { type: 'read', read: null }],
+      [820, { type: 'resolve', resolved: null, embed: embed({ outcome: 'unavailable', ms: null }) }],
+    ])
+    assert.equal(leftAt, 820)
+    assert.equal(state.phase, 'needs-you')
+    assert.equal(state.embed?.ms, null, 'and "never asked" is still recorded as a different fact')
+  })
+
+  it('AN EMBED-FREE BUILD SETTLES TOO — `embed` is optional and is not a signal', () => {
+    // The fifty-odd tests that predate the image rung drive the reducer with no
+    // `embed` at all. If settlement required one, every one of them would be
+    // describing a capture that hangs.
+    const { leftAt, state } = drive([
+      [1_000, { type: 'phash', res: TIED }],
+      [1_400, { type: 'resolve', resolved: resolveRes({ confident: false }) }],
+    ])
+    assert.equal(leftAt, 1_400)
+    assert.equal(state.phase, 'needs-you')
+    assert.equal(state.embed, null)
   })
 })
 
@@ -306,13 +510,21 @@ describe('the reader', () => {
     const needsYou = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: null }])
     assert.equal('engaged' in needsYou, false, 'the stack-only field is gone, not merely unused')
 
-    // What that means for the machine: a late confident answer ALWAYS promotes,
-    // with no second condition to satisfy. The protection did not disappear —
-    // `Scan.tsx` withholds the narrowing patch from a row whose picker is open —
-    // it just is not the reducer's job any more.
+    // AND THE DOOR IT LOCKED IS BRICKED UP, 2026-09-07. This assertion used to
+    // read "a late confident answer ALWAYS promotes, with no second condition to
+    // satisfy" — which is exactly the behaviour the owner ruled against once the
+    // vector lane made it common. A settled capture is settled: the answer is
+    // dropped and the drop is recorded, and `engaged` is not needed to protect a
+    // reader from a promotion that can no longer happen to anyone.
     const late = reduceIdentity(needsYou, { type: 'resolve', resolved: resolveRes() })
-    assert.equal(late.phase, 'confident')
-    assert.equal(late.by, 'printing')
+    assert.equal(late.phase, 'needs-you')
+    assert.equal(late.match, null)
+    assert.equal(late.by, null)
+    assert.equal(late.lateAnswerDropped, true)
+    // …and this state was reached WITHOUT the fuse, which is the tell that this
+    // ordering is only reachable in a test: the caller sends one resolve per
+    // capture, so a second one is a contract violation and not a race.
+    assert.equal(late.backstopped, false)
   })
 
   it('and their own answer beats a late one, by arriving first', () => {

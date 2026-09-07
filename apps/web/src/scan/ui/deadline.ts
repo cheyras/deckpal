@@ -46,52 +46,96 @@ export const CAPTURE_TIMEOUT_MS = 25_000
  *  proceeds. A missed frame costs an animation's start pose, never a capture. */
 export const FRAME_TIMEOUT_MS = 500
 
+// ── THE 6 s DEADLINE THAT USED TO LIVE HERE, AND THE RULING THAT ENDED IT ───
+//
+// `IDENTITY_DEADLINE_MS = 6_000` stood in this file until 2026-09-07. It decided
+// when a thumbnail that was still waiting stopped waiting and ASKED THE READER,
+// it was sized as headroom over the OCR branch's projected 2.8-5.4 s, and its
+// own doc said in as many words that it was "NOT final": a confident answer
+// arriving at 7 s still promoted the thumbnail and flew it down.
+//
+// Round 10b measured what that costs once the image rung is actually in the loop
+// (`p2-work/e2e-drive/E2E-REPORT.md` §3.3). `msToResolve` p50 moved from round
+// 10's 678-1 269 ms to 4 283-6 001 ms, and SIX OF THIRTY-ONE CAPTURES crossed
+// the 6 s deadline while their embed was still in flight. Each one flipped to
+// needs-you, flew down as an amber "needs your input" row — and then upgraded
+// itself when the late answer landed. `r10bs59`'s third capture did exactly
+// that: `needs-you` at +91.7 s, `confident-resolve` at +92.0 s, two machine
+// records for one capture, and a row the reader watched change its mind.
+//
+// The owner ruled on it, verbatim: "it should NOT [land] as needs you and then
+// upgrade itself. If it isn't totally resolved, it stays in the side. That's the
+// point of the side."
+//
+// So needs-you is not a timeout any more. It means THE SYSTEM IS FINISHED
+// TRYING, and `identity.ts` settles on "every signal that was actually started
+// has reported, and none of them named the card". In the ordinary failure — a
+// card back, a blurred crop — that is reached WELL INSIDE the old 6 s, because
+// both answers are already in and both said no; the common case got faster, not
+// slower. What is left in this file is the other half of the old constant's job,
+// and only that half: the guarantee that a hung request cannot park a thumbnail
+// on the camera forever.
+
 /**
- * THE ONE DEADLINE IN THIS FILE THAT IS NOT A RECOVERY DEADLINE.
+ * THE HARD BACKSTOP ON ONE CAPTURE'S IDENTITY RACE. A fuse, not a verdict.
  *
- * Everything above distinguishes "slow" from "never". This one decides when a
- * thumbnail that is still waiting stops waiting and ASKS THE READER — the
- * owner's 2026-09-05 flow ruling: "scan thumbnail stays on the side until the
- * card is resolved confidently by whatever means", and unresolvable identities
- * "flip to a needs-you state in the stack". A thumbnail that spins forever is
- * the failure this number prevents, so it is sized to fire just AFTER the slow
- * branch would have answered, never before it.
+ * Everything at the top of this file distinguishes "slow" from "never" for one
+ * await. This does it for the whole race: at `IDENTITY_BACKSTOP_MS` after the
+ * shutter, whatever has not reported is TREATED AS FAILED and the capture
+ * settles needs-you, finally. Nothing promotes it afterwards (`identity.ts`
+ * makes every settled phase terminal), so this is the one number that decides
+ * how long a thumbnail can spin.
  *
- * ── HOW 6 s WAS SIZED, FROM THE MEASUREMENTS THAT EXIST ─────────────────────
+ * ── THE ARITHMETIC, FROM ROUND 10b's MEASURED TAILS ─────────────────────────
  *
- * Two answers race, and the slower branch is three legs long:
+ * The worst HONEST chain is the second-answer leg, and it is two round trips
+ * deep because the narrowing cannot start until the vector has settled:
  *
- *   phash        ~1-2 s   the identify round trip on the owner's device (see
- *                         IDENTIFY_TIMEOUT_MS above, same measurement).
- *   OCR read     1.8-3.4 s  `p2-work/ocr/bakeoff/REPORT.md` §8.3's projection
- *                         for `paddle-roi-3x` on the owner's iPhone — and that
- *                         section says in as many words to "treat 1.8-3.4 s as
- *                         a floor", because it is scaled from LC050 rather than
- *                         measured on PP-OCRv4.
- *   /scan/resolve ~1-2 s  a second server call of the same class as identify,
- *                         and it cannot start until phash has answered (it
- *                         re-ranks phash's priors — see ocrNarrow.ts).
+ *   the embed      8 000 ms  `EMBED_TIMEOUT_MS` (vectorEvidence.ts), and it is
+ *                            anchored at the SHUTTER rather than at the moment
+ *                            the resolve is ready to fire. Round 10b §3.1
+ *                            measured 29 in-app embeds at min 860 / p50 4 202 /
+ *                            p90 6 071 / max 6 363 ms of wall latency (the
+ *                            telemetry's own `embedMs` max was 5 992), with 2 of
+ *                            31 blowing the budget outright. 8 s is therefore
+ *                            the longest this side will EVER hold for a vector —
+ *                            it is a client-side budget, not a hope.
+ *   the resolve    4 000 ms  `POST /scan/resolve`, which starts only once the
+ *                            embed above has settled. Round 10b's `msToResolve`
+ *                            ran p50 4 283-6 001 ms with a max of 6 255 ms
+ *                            against embeds whose own p50 was 4 202 ms, so the
+ *                            observed remainder is roughly 1-2 s; §3.2 measured
+ *                            `/api/scan` itself stretching to 4 847 ms once the
+ *                            two routes share a serverless instance. 4 s is that
+ *                            tail with the same "slowest we have seen" margin
+ *                            the embed budget was written under.
  *
- * So the OCR branch lands at roughly 2.8-5.4 s after the shutter. 6 s clears the
- * top of that band with a little headroom and nothing more: shorter, and the
- * scanner would be flipping cards to needs-you that were about to identify
- * themselves; much longer, and the reader is watching a spinner for a card the
- * evidence was never going to name.
+ *   8 000 + 4 000 = 12 000.
  *
- * TWO THINGS IT IS NOT.
+ * ── THE TWO THINGS IT DELIBERATELY DOES NOT FIT INSIDE ─────────────────────
  *
- *  * NOT a cancellation. Nothing is aborted here — `OCR_NARROW_TIMEOUT_MS`
- *    (ocrNarrow.ts, 20 s) is still the one thing that gives up on the work, for
- *    the reason stated there: a wedged read holds a WASM worker.
- *  * NOT final. A confident answer that arrives at 7 s still promotes the
- *    thumbnail and still flies it to the list — unless the reader has already
- *    opened the picker on it, at which point nothing overrules them. See
- *    `identity.ts`'s `engaged`.
+ *  * `IDENTIFY_TIMEOUT_MS` (15 s) is LONGER than this, on purpose. That is a
+ *    recovery deadline for a socket that may be dead; this is a promise to the
+ *    reader. A capture whose identify is still out at 12 s has already lost the
+ *    answer that would have mattered — round 10b's slowest `/api/scan` was
+ *    4 847 ms, a third of this — and the backstop is precisely what stops the
+ *    thumbnail waiting on it.
+ *  * `OCR_NARROW_TIMEOUT_MS` (ocrNarrow.ts, 20 s) is longer too, and it stays
+ *    that way for the reason stated there: it exists to release a WASM worker,
+ *    not to decide a thumbnail. This is still NOT a cancellation — nothing is
+ *    aborted here, the work is simply no longer being waited for.
  *
- * WHAT WOULD MOVE IT: a real device timing of the OCR lane. §8.3's number is a
- * projection, and this deadline is a projection's headroom.
+ * WHAT WOULD MOVE IT: another round's embed and resolve tails. This number is
+ * two measured budgets added together, so it moves when either one does.
  */
-export const IDENTITY_DEADLINE_MS = 6_000
+export const IDENTITY_BACKSTOP_MS = 12_000
+
+/**
+ * The resolve half of the sum above, named so the arithmetic is a thing a test
+ * can assert rather than prose that can drift from the constant beside it. See
+ * `__tests__/identity.test.ts`, "the backstop covers the worst honest chain".
+ */
+export const RESOLVE_RTT_TAIL_MS = 4_000
 
 export class TimeoutError extends Error {
   constructor(label: string, ms: number) {

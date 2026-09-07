@@ -38,13 +38,22 @@ import { TimeoutError, withTimeout } from './deadline'
  * straight off the measurement above: 7 595 ms was the worst of twenty-five
  * real requests, so 8 s is "the slowest thing we have ever seen, and no more".
  *
- * It is NOT sized against `IDENTITY_DEADLINE_MS` (6 s) and does not try to fit
- * inside it. The deadline decides when a thumbnail stops spinning and asks the
- * reader; it is explicitly "not a cancellation" and "not final", and a confident
- * answer that lands after it still promotes the row (`deadline.ts`). Cutting the
- * vector off at 6 s to protect a spinner would trade the answer for the
- * animation — and the crops this rung exists for are exactly the ones that
- * settle as needs-you without it.
+ * IT IS THE THING THE THUMBNAIL WAITS FOR, and since 2026-09-07 that is literal.
+ *
+ * This budget used to be defended against a 6 s `IDENTITY_DEADLINE_MS` — "cutting
+ * the vector off at 6 s to protect a spinner would trade the answer for the
+ * animation" — and the defence was that the deadline was "not final", so a
+ * vector landing at 7 s still promoted the row. Round 10b measured what that
+ * looked like in the app: six of thirty-one captures crossed the deadline with
+ * their embed still out, flipped to needs-you, and upgraded themselves when it
+ * landed. The owner ruled against the upgrade, so the deadline went instead of
+ * the budget (`deadline.ts`, `identity.ts`): a capture is `pending` until this
+ * budget is spent one way or the other, and needs-you now means the vector's
+ * eight seconds are UP, not merely late.
+ *
+ * So the eight seconds are load-bearing twice over — they are how long a reader
+ * may watch a spinner for the image rung, and `IDENTITY_BACKSTOP_MS` (12 s) is
+ * this number plus the resolve tail that follows it. Moving this moves that.
  *
  * It IS well under `OCR_NARROW_TIMEOUT_MS` (20 s), which is the outer bound on
  * the whole narrowing pass, so a stalled embed can never be the thing that holds

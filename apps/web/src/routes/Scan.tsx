@@ -40,7 +40,7 @@ import {
   CAPTURE_TIMEOUT_MS,
   deadlineSignal,
   IDENTIFY_TIMEOUT_MS,
-  IDENTITY_DEADLINE_MS,
+  IDENTITY_BACKSTOP_MS,
   nextFrameSafe,
   settleWithin,
   withTimeout,
@@ -269,9 +269,14 @@ export function Scan() {
   //                  never launch the second courier out of a thumbnail the
   //                  first one has not put on screen yet.
   //   landingRef     which captures have a flight scheduled. Exactly one per
-  //                  capture: a settled phase can be reached and then MOVED
-  //                  (a late confident answer overtaking a deadline), and a
-  //                  second flight is a second row for one card.
+  //                  capture. It was load-bearing until 2026-09-07, when a
+  //                  settled phase could still be MOVED (a late confident answer
+  //                  overtaking the 6 s deadline) and the second move scheduled
+  //                  a second flight — which is a second row for one card. Every
+  //                  settled phase is terminal now, so this is a belt beside the
+  //                  braces: kept because "exactly one flight per capture" is a
+  //                  property worth holding here rather than inferring from a
+  //                  reducer one module away.
   const identitiesRef = useRef(new Map<string, IdentityState>())
   const captureDataRef = useRef(new Map<string, StackItem>())
   const arrivalsRef = useRef(new Map<string, Promise<void>>())
@@ -542,13 +547,22 @@ export function Scan() {
       // Never fly out of a thumbnail the arrival courier has not delivered yet.
       await settleWithin(arrivalsRef.current.get(item.id) ?? Promise.resolve(), 3000)
       await new Promise<void>((r) => window.setTimeout(r, DURATION.confirmTick))
-      // THE VERDICT AS IT STANDS NOW, not as it stood when the flight was
-      // scheduled. There is a ~240 ms window between the two, and one ordering
-      // fits through it: the deadline flips a capture to needs-you, the resolve
-      // it was waiting for lands confident a moment later, and the row is
-      // written after that. Reading the state here means the late answer is
-      // honoured by the flight that is already in the air, instead of needing a
-      // second one — which is what would put the same capture in the list twice.
+      // THE VERDICT, READ FROM THE AUTHORITATIVE MAP rather than from the
+      // `StackItem` this callback closed over — which may be a render behind.
+      //
+      // Until 2026-09-07 this line did more than that: there is a ~240 ms window
+      // between scheduling a flight and writing the row, and one ordering fitted
+      // through it — the 6 s deadline flipped a capture to needs-you, the resolve
+      // it was still waiting for landed confident a moment later, and the row was
+      // written after that. The re-read meant the late answer was honoured by the
+      // flight already in the air instead of needing a second one.
+      //
+      // That ordering cannot happen now. A capture does not settle until every
+      // started signal has reported, so the phase read here is the phase that was
+      // there when the flight was scheduled — the ruling's "it leaves the stack
+      // exactly once, in a final state", seen from the courier's end. The re-read
+      // stays because reading the current map is right regardless, and because a
+      // silent revert to the stale closure is not a thing to leave lying about.
       const st = identitiesRef.current.get(item.id) ?? item.identity
       const rowId = addFeedEntry(st, item)
       await nextFrame()
@@ -607,7 +621,33 @@ export function Scan() {
       // second — `picked` or `retaken` — is the reader's, and by the time they
       // give it the capture is a row and this reducer has let go; see
       // `recordRowOutcome`.
-      if (identityOutcome(next) !== identityOutcome(cur)) {
+      //
+      // SINCE 2026-09-07 THE MACHINE'S HALF IS EXACTLY ONE RECORD. The outcome
+      // could change under the old rules — round 10b's `r10bs59` capture 3 posted
+      // `needs-you` at +91.7 s and `confident-resolve` at +92.0 s — and that pair
+      // was the visible form of the defect the owner ruled against. Settled
+      // phases are terminal, so the outcome cannot move again.
+      //
+      // `lateAnswerDropped` is the second trigger and it is the ALARM, not a
+      // second outcome: it fires when an answer arrived after the fuse had
+      // already settled the capture, which is the one thing this design claims
+      // cannot otherwise happen. Without it the drop would be invisible for the
+      // same reason round 10b's timed-out embeds were (§2, unknown 49) — the
+      // outcome does not change, so nothing re-posts.
+      //
+      // It is an UNDER-count and deliberately not more than that: the capture is
+      // dropped from `identitiesRef` once its flight lands (~560-640 ms, round
+      // 10b §5), and a dispatch after that finds nothing to reduce. So this
+      // catches an answer that arrives in the beat after the fuse blew and not
+      // one that arrives a second later. `backstopped` is the column that counts
+      // the faults; this one only says whether the fuse also threw away an
+      // answer, and buying the rest would mean keeping every capture's state
+      // alive after it has left the camera to record a thing that should never
+      // happen.
+      if (
+        identityOutcome(next) !== identityOutcome(cur) ||
+        (next.lateAnswerDropped && !cur.lateAnswerDropped)
+      ) {
         const item = captureDataRef.current.get(id)
         const record = item ? identityRecord(next, Date.now() - item.capturedAt) : null
         if (item && record) {
@@ -624,12 +664,17 @@ export function Scan() {
       // yet.
       //
       // ONCE PER CAPTURE, and `landingRef` is what makes that true rather than
-      // the phase comparison this used to do. Two things can now move a capture
-      // that is already on its way down — a late confident answer overtaking a
-      // deadline-driven needs-you, and an OCR read landing on a settled state —
-      // and either would have scheduled a second flight, which is a second row
-      // for one card. The flight reads the verdict for itself when it writes
-      // (see `landCapture`), so nothing is lost by refusing the second.
+      // the phase comparison this used to do. It was written for two orderings
+      // that could move a capture already on its way down — a late confident
+      // answer overtaking a deadline-driven needs-you, and an OCR read landing
+      // on a settled state — either of which scheduled a second flight, which is
+      // a second row for one card.
+      //
+      // The 2026-09-07 ruling removed the first ordering at the source: a
+      // capture reaches a settled phase once and stays there, so there is no
+      // second transition to schedule anything. The guard stays anyway, because
+      // "one flight per capture" is cheaper to hold here than to re-derive from
+      // the reducer's terminality every time either file changes.
       if ((next.phase === 'confident' || next.phase === 'needs-you') && !landingRef.current.has(id)) {
         const item = captureDataRef.current.get(id)
         if (item) {
@@ -817,16 +862,34 @@ export function Scan() {
       // row, fly to the list — all inside `handleCaptured`, which `runCapture`
       // awaits while holding `captureBusyRef`. Waiting for a CONFIDENT answer in
       // that position would have held the busy flag for up to
-      // IDENTITY_DEADLINE_MS and auto-capture with it, which is precisely the
+      // IDENTITY_BACKSTOP_MS and auto-capture with it, which is precisely the
       // thing the ruling forbids: "never blocks scanning".
       //
       // So the capture path now ends at the arrival flight, and everything that
       // decides what the thumbnail becomes runs out here, dispatching into the
       // machine. The reader may take the next card the moment the first one has
-      // landed on the stack.
-      const deadlineTimer = window.setTimeout(
-        () => dispatchIdentity(stackItem.id, { type: 'deadline' }),
-        IDENTITY_DEADLINE_MS,
+      // landed on the stack. That detachment is what makes the 2026-09-07 ruling
+      // affordable: a capture may now wait as long as its own signals need,
+      // because the only thing waiting with it is its own thumbnail.
+      //
+      // ── THE ONE CLOCK LEFT, AND IT IS A FUSE ──────────────────────────────
+      //
+      // This used to be `IDENTITY_DEADLINE_MS`, 6 s, and it DECIDED things: it
+      // flipped a still-waiting capture to needs-you and let a later answer
+      // promote it back. Round 10b measured six of thirty-one captures taking
+      // that path with their embed still in flight, and the owner ruled against
+      // the result ("it should NOT land as needs you and then upgrade itself").
+      //
+      // What is left fires at IDENTITY_BACKSTOP_MS (12 s = the embed's own 8 s
+      // budget plus a 4 s resolve tail; the arithmetic is in `deadline.ts`) and
+      // means only "a request has outlived the sum of its budgets". The machine
+      // treats what is still out as failed and settles the capture FINALLY. In a
+      // healthy session this timer is cleared in the `finally` below, unfired,
+      // every single time — which is the point: a fuse that blows regularly is a
+      // deadline wearing a different name.
+      const backstopTimer = window.setTimeout(
+        () => dispatchIdentity(stackItem.id, { type: 'backstop' }),
+        IDENTITY_BACKSTOP_MS,
       )
       void (async () => {
         let res: ScanResponse | null = null
@@ -933,9 +996,20 @@ export function Scan() {
           // An enrichment that can break a capture is worse than no enrichment —
           // the same rule the capture recorder is written under. But the machine
           // must still be told, or the pair never completes.
+          //
+          // TWO EVENTS, AND THE SECOND IS THE IMPORTANT ONE NOW. The `resolve`
+          // carries the embed telemetry and closes the second-answer leg; the
+          // `backstop` closes WHATEVER ELSE this throw skipped past. Before
+          // 2026-09-07 a phash that never dispatched was survivable — the 6 s
+          // deadline settled the capture regardless — and the `finally` below
+          // cancels the real fuse, so without this line a throw above the phash
+          // dispatch would leave a thumbnail spinning on the camera with no
+          // clock left to end it. The reducer makes it a no-op whenever the
+          // capture has already settled honestly.
           dispatchIdentity(stackItem.id, { type: 'resolve', resolved: null, embed })
+          dispatchIdentity(stackItem.id, { type: 'backstop' })
         } finally {
-          window.clearTimeout(deadlineTimer)
+          window.clearTimeout(backstopTimer)
         }
       })()
 

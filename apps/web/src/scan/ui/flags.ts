@@ -254,9 +254,10 @@ const IDENTITY_EVENT_LONG_SIDE = 160
  *  1. THE DEADLINE. `OUTCOME_WAIT_MS` is 15 s and its comment is explicit that
  *     it is a hard local cap: "a caller's promise must never be able to wedge
  *     the recorder and lose the capture record entirely. Late is acceptable;
- *     missing is not." The identity race runs to `IDENTITY_DEADLINE_MS` and the
- *     narrowing behind it to `OCR_NARROW_TIMEOUT_MS` (20 s) — and the escalation
- *     rung added to that budget. Hanging the capture record on it would trade a
+ *     missing is not." The identity race runs to `IDENTITY_BACKSTOP_MS` (12 s
+ *     since 2026-09-07, where it was a 6 s deadline before) and the narrowing
+ *     behind it to `OCR_NARROW_TIMEOUT_MS` (20 s) — and the escalation rung
+ *     added to that budget. Hanging the capture record on it would trade a
  *     record that always lands for one that sometimes does not, on exactly the
  *     slow captures worth recording.
  *

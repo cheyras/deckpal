@@ -35,16 +35,63 @@
 // reducer has finished with the capture. See `feed.ts` for the rules that took
 // over at the moment the thumbnail lands.
 //
+// ── AND WHAT NEEDS-YOU NOW MEANS, 2026-09-07 ───────────────────────────────
+//
+// The 2026-09-06 reversal said where a needs-you capture GOES. This one says
+// when it is allowed to be one at all, and it is the ruling that reshaped the
+// machine below.
+//
+// Round 10b put the image rung on the wire and measured the consequence
+// (`p2-work/e2e-drive/E2E-REPORT.md` §3.3): six of thirty-one captures crossed
+// the old 6 s `IDENTITY_DEADLINE_MS` while their embed was still in flight, so
+// six thumbnails flipped to needs-you, flew down as amber "needs your input"
+// rows, and then upgraded themselves when the answer they were still waiting for
+// arrived. The owner ruled on it, verbatim:
+//
+//   "it should NOT [land] as needs you and then upgrade itself. If it isn't
+//    totally resolved, it stays in the side. That's the point of the side."
+//
+// NEEDS-YOU MEANS THE SYSTEM IS FINISHED TRYING. Not "the clock ran out", not
+// "we are fairly sure by now" — finished. A capture stays `pending` on the
+// camera while ANY signal it actually started is still out: the phash round
+// trip, the OCR read, the embed call, the resolve round trip, cold starts
+// included. It leaves the stack exactly once, in a final state:
+//
+//   confident   something named it →  identified row.
+//   needs-you   everything that was started has reported and none of them named
+//               it →  needs-input row.
+//
+// Three consequences, and all three are structural below rather than promised:
+//
+//  1. THE DEADLINE IS GONE. Settlement is a property of the SIGNALS, not of a
+//     clock — `settleOrWait` was already computing it and the deadline was
+//     overriding it. In the ordinary failure the pair completes inside 2-3 s, so
+//     the common case got FASTER, not slower.
+//  2. `needs-you` IS TERMINAL, exactly as `confident` and `discarded` are. A
+//     late answer landing on a settled capture is dropped, not honoured, and
+//     that is the only way "never upgrades itself" can be a guarantee rather
+//     than a race the timing usually wins.
+//  3. THE FUSE IS THE ONLY CLOCK LEFT. `IDENTITY_BACKSTOP_MS` (deadline.ts,
+//     12 s = the embed's 8 s budget + a 4 s resolve tail) treats whatever is
+//     still out as failed and settles the capture FINALLY, so a hung request
+//     cannot park a thumbnail forever. It is a fuse, not a verdict: reaching it
+//     is a fault, and `backstopped` on the record says so.
+//
 // ── WHY A REDUCER AND NOT FOUR `useState`s IN THE ROUTE ─────────────────────
 //
-// Two independent async answers race for one thumbnail, a timer races both, and
+// Two independent async answers race for one thumbnail, a fuse races both, and
 // the reader can pre-empt all three. That is five inputs to one decision, and
-// the interesting cases are the ORDERINGS — a confident phash landing after the
-// deadline already flipped the card to needs-you, a reader picking while a
-// resolve is still in flight. Those are the cases a route component cannot be
-// driven through in a test and this can: every transition below is one function
-// call, so `__tests__/identity.test.ts` replays the orderings directly against
-// the shipping reducer.
+// the interesting cases are the ORDERINGS — an answer landing after the fuse has
+// already settled the capture, a reader picking a card from a row whose resolve
+// is somehow still out. Those are the cases a route component cannot be driven
+// through in a test and this can: every transition below is one function call,
+// so `__tests__/identity.test.ts` replays the orderings directly against the
+// shipping reducer.
+//
+// It is also why the 2026-09-07 ruling could be honoured by DELETING a branch
+// rather than by adding one. "Do not land as needs-you and then upgrade" is a
+// statement about orderings, the orderings live here, and the fix is one early
+// return — not a flag threaded through a 1,600-line component.
 //
 // ── WHAT "CONFIDENT" MEANS, AND WHERE THAT IS DECIDED ───────────────────────
 //
@@ -82,13 +129,21 @@ import type { EmbedEvidence } from './vectorEvidence'
 /**
  * Where one capture's thumbnail is.
  *
- *   pending    on the camera, spinner, both answers still out. NOTHING FLIES
- *              from here — the wait is the 2026-09-05 ruling's whole point.
+ *   pending    on the camera, spinner, AT LEAST ONE STARTED SIGNAL STILL OUT.
+ *              NOTHING FLIES from here — the wait is the 2026-09-05 ruling's
+ *              whole point, and since 2026-09-07 it is the whole of the wait:
+ *              this is the only phase a capture can be in while the system is
+ *              still trying, and the only one it can leave.
  *   confident  named. A brief tick, then the courier flies it to the list.
- *   needs-you  named by nobody. A brief amber marker — the tick's mirror — then
- *              the SAME courier, to the same list, as a "needs your input" row
- *              (2026-09-06: "they should still go down to the list").
+ *   needs-you  EVERY started signal reported and none of them named it. A brief
+ *              amber marker — the tick's mirror — then the SAME courier, to the
+ *              same list, as a "needs your input" row (2026-09-06: "they should
+ *              still go down to the list").
  *   discarded  the reader took the retake. It leaves without a row.
+ *
+ * ALL THREE SETTLED PHASES ARE TERMINAL. `pending` is the only one with an exit,
+ * and a capture takes it once. That is the 2026-09-07 ruling as a type: there is
+ * no state in this enum that means "provisionally needs you".
  */
 export type IdentityPhase = 'pending' | 'confident' | 'needs-you' | 'discarded'
 
@@ -137,10 +192,57 @@ export interface IdentityState {
   candidates: ScanMatch[]
   /** What OCR read off the card. Null until the read lands, and often after. */
   read: OcrRead | null
-  /** Each async answer reports in exactly once, confident or not — the pair is
-   *  what "both landed unconfident" is measured on. */
+  /**
+   * THE IN-FLIGHT LEDGER — the two bits the 2026-09-07 ruling turns on.
+   *
+   * Each async answer reports in exactly once, confident or not, and the PAIR
+   * being complete is now the entire definition of "the system is finished
+   * trying". Nothing else settles a capture; there is no clock left that can.
+   *
+   *   phashSettled    the identify round trip answered or failed.
+   *   resolveSettled  the WHOLE second-answer leg is done — the OCR read, the
+   *                   embed call, and the `/scan/resolve` round trip behind
+   *                   them. One bit for three legs, and that is deliberate: it
+   *                   is the trap this design has to avoid.
+   *
+   * WHY ONE BIT AND NOT THREE. A settlement tracker must only count requests
+   * that were ACTUALLY STARTED, or a capture waits out the backstop for a call
+   * nobody made. OCR off for the session, a read that produced nothing, a
+   * backend with no `/scan/embed`, a backend with no `/scan/resolve`, an embed
+   * latched unavailable after one 404 — on every one of those paths a leg is
+   * skipped entirely, and a per-leg flag would sit false forever. So the caller
+   * owns "was it started?" (it is the only thing that knows) and reports the
+   * whole leg's completion as ONE event it promises to send on every path,
+   * including the paths where nothing was sent. See the `resolve` event below,
+   * whose exactly-once contract is now load-bearing rather than merely tidy: it
+   * is what makes flag-off captures settle in milliseconds instead of at 12 s.
+   */
   phashSettled: boolean
   resolveSettled: boolean
+  /**
+   * THE FUSE BLEW — this capture was settled by `IDENTITY_BACKSTOP_MS` with a
+   * signal still out, rather than by its own signals reporting.
+   *
+   * For the RECORD, never for the decision, like the two verdict fields below.
+   * A `needs-you` row means "the system finished trying", and this is the column
+   * that says whether it finished or was cut off — which is the one distinction
+   * round 10b's telemetry could not draw and the reason six captures' embed
+   * outcomes went unrecorded (§2, unknown 49).
+   */
+  backstopped: boolean
+  /**
+   * AN ANSWER ARRIVED AFTER SETTLEMENT AND WAS THROWN AWAY.
+   *
+   * A `phash` or `resolve` event reaching a capture that has already settled.
+   * Under the rules above this should be UNREACHABLE except behind the
+   * backstop — settlement waits for every started signal, so there is nothing
+   * left to arrive late unless the fuse cut it off — and this field is how that
+   * claim gets checked on real hardware instead of asserted here.
+   *
+   * A late `read` does not set it. The read is a hint and cannot name a card;
+   * this counts answers.
+   */
+  lateAnswerDropped: boolean
   /**
    * WHICH RUNG OF THE LADDER ANSWERED, kept for the RECORD and never for the
    * decision — that is `resolvedIdentity`'s, taken the moment the event lands.
@@ -203,10 +305,27 @@ export type IdentityEvent =
    * paths where no request went out, and this is the one event guaranteed to
    * reach the machine on all of them. Optional, so the fifty-odd existing tests
    * that drive this reducer keep meaning what they meant.
+   *
+   * SINCE 2026-09-07 THE EXACTLY-ONCE PROMISE IS THE PRODUCT, not a nicety.
+   * This event is the machine's only word on whether the second-answer leg —
+   * read, embed and round trip together — is still out, and a thumbnail now
+   * waits for it with no clock to rescue it but the 12 s fuse. A caller that
+   * forgets it on one path parks a capture on the camera for twelve seconds.
    */
   | { type: 'resolve'; resolved: ScanResolveResponse | null; embed?: EmbedEvidence }
-  /** `IDENTITY_DEADLINE_MS` elapsed with nothing named. */
-  | { type: 'deadline' }
+  /**
+   * `IDENTITY_BACKSTOP_MS` elapsed with a signal still in flight — THE FUSE.
+   *
+   * The successor to `deadline`, and not a rename: that event flipped a capture
+   * to needs-you at 6 s and let a later answer promote it back out again, which
+   * is the behaviour the 2026-09-07 ruling removed. This one is FINAL. Whatever
+   * has not reported is treated as failed, both settlement bits are forced, and
+   * the capture leaves as a needs-input row that nothing can change afterwards.
+   *
+   * Reaching it is a FAULT, not a flow: it means a request outlived the sum of
+   * its own budgets. `backstopped` on the record is how often that happens.
+   */
+  | { type: 'backstop' }
   /**
    * The reader chose from the candidates.
    *
@@ -249,6 +368,8 @@ export function initialIdentity(): IdentityState {
     read: null,
     phashSettled: false,
     resolveSettled: false,
+    backstopped: false,
+    lateAnswerDropped: false,
     resolveVerdict: null,
     embed: null,
   }
@@ -285,15 +406,27 @@ export function identityFromResolve(m: ScanResolveMatch): Identity {
   }
 }
 
-/** Both answers are in and neither named the card — that IS needs-you. Reached
- *  before the deadline in the ordinary failure (a card back, a blurred crop):
- *  nothing is gained by making the reader watch a spinner run down a clock for
- *  an answer that has already arrived and said no. Under the 2026-09-06 ruling
- *  this is a departure, not a parking brake: the thumbnail marks itself amber
- *  and flies, and the question it could not answer is asked in the list. */
+/**
+ * THE WHOLE SETTLEMENT RULE, since 2026-09-07: every started signal has
+ * reported and none of them named the card — that IS needs-you, and it is the
+ * only thing that produces one short of the fuse.
+ *
+ * It used to be the fast path and the deadline was the fallback. It is now the
+ * ONLY path, which is what "if it isn't totally resolved, it stays in the side"
+ * means once written down: while either bit is false the system is still trying,
+ * and a capture that is still being tried is `pending` — spinner, on the camera,
+ * no row, no amber marker, nothing for the reader to react to and then watch
+ * change its mind.
+ *
+ * In the ordinary failure — a card back, a blurred crop, a caption of a card in
+ * a magazine — both answers are in at 2-3 s and say no, and the capture leaves
+ * then. That is EARLIER than the 6 s deadline it replaced, which is worth
+ * stating plainly: honouring the ruling made the common case faster and only the
+ * slow tail slower.
+ */
 function settleOrWait(s: IdentityState): IdentityState {
   if (!s.phashSettled || !s.resolveSettled) return s
-  return s.phase === 'needs-you' ? s : { ...s, phase: 'needs-you' }
+  return { ...s, phase: 'needs-you' }
 }
 
 /**
@@ -307,6 +440,38 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
   // goes through `narrowedIdentity` against the ROW, where it can see whether a
   // human has since touched it. A discarded one is gone.
   if (s.phase === 'confident' || s.phase === 'discarded') return s
+
+  // AND SO IS NEEDS-YOU, SINCE 2026-09-07 — this is the ruling, structurally.
+  //
+  // "It should NOT [land] as needs you and then upgrade itself." The old machine
+  // honoured a late confident answer here, because the old machine could reach
+  // needs-you while an answer was still in flight and would otherwise have
+  // thrown away a card it had. It cannot: settlement now waits for every started
+  // signal, so anything arriving after this point either lost a race it had
+  // already been given (impossible — the pair is complete) or was cut off by the
+  // fuse. Either way the row has flown and the reader has been told the scanner
+  // gave up, and taking that back is the behaviour the owner ruled against.
+  //
+  // Making it an EARLY RETURN rather than a condition inside each case is the
+  // point: there is no branch left in this function that can promote a settled
+  // capture, so the guarantee holds for events that do not exist yet.
+  if (s.phase === 'needs-you') {
+    // The reader's two, and only theirs. They arrive from the ROW's picker
+    // minutes later — `Scan.tsx`'s `recordRowOutcome` reduces the state the row
+    // carried down — so they are not late answers from the race; they are a
+    // human overruling it, which is the one thing allowed to.
+    if (e.type === 'pick') return { ...s, phase: 'confident', match: identityFromMatch(e.match), by: 'reader' }
+    if (e.type === 'retake') return { ...s, phase: 'discarded' }
+    // A late `read` is dropped SILENTLY: it is a hint, it could never have named
+    // the card, and counting it would blunt the alarm below. A `backstop` on a
+    // settled capture is not late either — it is a fuse whose timer outlived the
+    // race it was insuring, which is the ordinary way a fuse ends.
+    if (e.type === 'read' || e.type === 'backstop' || s.lateAnswerDropped) return s
+    // What is left is a `phash` or a `resolve`: an ANSWER, arriving too late to
+    // be used. Dropped, and written down once — see `lateAnswerDropped`, which
+    // is the alarm on the claim that this path is unreachable short of the fuse.
+    return { ...s, lateAnswerDropped: true }
+  }
 
   switch (e.type) {
     case 'phash': {
@@ -336,8 +501,14 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
       return settleOrWait(next)
     }
 
-    case 'deadline':
-      return s.phase === 'pending' ? { ...s, phase: 'needs-you' } : s
+    // THE FUSE. Only `pending` can reach here (every settled phase returned
+    // above), so this is unconditional: force both settlement bits, because
+    // "whatever is unsettled is treated as failed" has to be written into the
+    // STATE and not merely into the phase — `identityRecord` reads those bits,
+    // and a record claiming a leg is still in flight on a capture that has left
+    // the camera would be the same lie the deadline used to tell.
+    case 'backstop':
+      return { ...s, phase: 'needs-you', phashSettled: true, resolveSettled: true, backstopped: true }
 
     case 'pick':
       return { ...s, phase: 'confident', match: identityFromMatch(e.match), by: 'reader' }
@@ -398,8 +569,12 @@ export function ocrHintLabel(read: OcrRead | null): string | null {
  *                      stand.
  *   confident-resolve  the printed key named it — the OCR lane's whole purpose,
  *                      and the number this telemetry exists to produce.
- *   needs-you          both answers landed and neither named it (or the deadline
- *                      ran out first). It goes to the list as a needs-input row.
+ *   needs-you          every started signal reported and none named it. Since
+ *                      2026-09-07 that is the whole of it — "or the deadline ran
+ *                      out first" used to be part of this line and is not any
+ *                      more, which is the ruling in one clause. The fuse can
+ *                      still produce one, and `backstopped` on the record says
+ *                      when it did. It goes to the list as a needs-input row.
  *   picked             the reader chose from the candidates.
  *   retaken            the reader discarded the capture.
  *
@@ -469,6 +644,23 @@ export function identityRecord(s: IdentityState, msToResolve: number): Record<st
       // convention `resolvedBy` and `confident` already use here.
       embedMs: s.embed?.ms ?? null,
       embedOutcome: s.embed?.outcome ?? null,
+      // THE TWO COLUMNS THE 2026-09-07 RULING ADDED, and they are the audit of
+      // it rather than decoration. `needs-you` now asserts "the system finished
+      // trying"; these say whether that is true of THIS capture.
+      //
+      //   backstopped        false on every honest settlement. True means the
+      //                      12 s fuse cut a request off, which is a fault — and
+      //                      the one round 10b could not see, because a capture
+      //                      whose embed timed out recorded `embedOutcome: null`
+      //                      and looked identical to one that settled cleanly
+      //                      (§2, unknown 49).
+      //   lateAnswerDropped  an answer arrived after settlement and was thrown
+      //                      away. Should be false on every capture that was not
+      //                      also backstopped; a row with this true and
+      //                      `backstopped` false is the machine's claim about
+      //                      itself failing, and worth finding out about.
+      backstopped: s.backstopped,
+      lateAnswerDropped: s.lateAnswerDropped,
       resolvedBy: s.resolveVerdict?.resolvedBy ?? null,
       confident: s.resolveVerdict?.confident ?? null,
       cardId: s.match?.cardId ?? null,
