@@ -71,6 +71,30 @@ const SELECT = `
  */
 const ROW_LIMIT = 250;
 
+/**
+ * `card.name_normalized`, folded the rest of the way to what
+ * `normalizeCardName` produces from a read: accents off (`unaccent`, migration
+ * 017) and TCGdex's trailing disambiguating parenthetical off.
+ *
+ * `\s` and `\(` survive into Postgres as themselves because
+ * `standard_conforming_strings` is on, which is the default and has been since
+ * 9.1 — the doubling below is JavaScript's, not SQL's.
+ */
+const FOLDED_NAME = `regexp_replace(unaccent(c.name_normalized), '\\s*\\([^)]*\\)\\s*$', '')`;
+
+/**
+ * A LIKE prefix pattern out of a folded name.
+ *
+ * The escaping is not decoration: this string starts life as OCR output off a
+ * photograph anyone can post to `/scan/resolve`, and an unescaped `%` would turn
+ * a prefix filter into a full scan that returns the catalogue. Backslash is the
+ * default LIKE escape character, so no ESCAPE clause is needed for it to mean
+ * this.
+ */
+function likePrefix(prefix: string): string {
+  return `${prefix.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
 // The rung-9 lookups need two columns the four above do not — `tokens` and the
 // family key — and they enter from `card_text` rather than from `card`, so they
 // compose their own statement out of these three pieces instead of extending
@@ -124,6 +148,52 @@ export const pgCatalogPort: CatalogPort = {
     const rows = await q<CardRow>(
       `${SELECT} AND c.tcgdex_id = ANY($1::text[]) LIMIT ${ROW_LIMIT}`,
       [[...cardIds]],
+    );
+    return rows.map(shape);
+  },
+
+  // Rung 5b. A SUPERSET generator: the tiers are `nameTier`'s and are applied to
+  // these rows in `resolve.ts`, so nothing about what counts as the same name is
+  // decided in SQL. Two predicates, because they catch two different things and
+  // neither subsumes the other:
+  //
+  //   FOLDED_NAME LIKE 'charizard%'   the exact and suffix-dropped reads
+  //     (tiers 0 and 1), in BOTH directions — a read of "Charizard" has to find
+  //     "Charizard ex" and a read of "Charizard ex" has to find "Charizard", and
+  //     a prefix of the suffix-stripped read is the one predicate that does
+  //     both. This is the guaranteed half: it cannot miss a name the ladder
+  //     would have accepted at tier 0 or 1.
+  //   name_normalized % 'floragato'   the MISREAD (tier 2). pg_trgm's `%`, the
+  //     operator index I6 (`card_name_trgm`, migration 012) exists for, at its
+  //     default 0.3 similarity floor. Heuristic on purpose — it is a
+  //     neighbourhood, and the edit budget that actually decides is applied in
+  //     JS afterwards.
+  //
+  // FOLDED_NAME re-folds `name_normalized`, which the importer only casefolds
+  // and apostrophe-folds (`normalizeName`, apps/sync). The two divergences §5
+  // names are the accents (492 cards PRINT them) and TCGdex's trailing
+  // parenthetical (13 cards, printed by none of them), so both are folded here
+  // to match what `normalizeCardName` did to the read.
+  //
+  // 🔴 THIS ONE SCANS `card`, and that is a considered trade rather than an
+  // oversight. The prefix half is a functional expression, so no index can serve
+  // it (017 declines to index unaccent() for the same reason), and an OR with an
+  // indexable half is still a scan. It is 23.5k rows of three cheap functions,
+  // it runs ONLY on a request where every printed key has already failed, and
+  // the alternative — trusting the trigram floor alone — would make an exact
+  // name read depend on a similarity heuristic. Correctness on the rung's own
+  // key beats a scan the capture path never waits for.
+  //
+  // ORDER BY similarity, for the same reason `byTextTokens` orders by overlap:
+  // an unordered LIMIT discards an arbitrary subset, and the subset it must
+  // never discard is the family that would have won.
+  async byName(probe) {
+    const rows = await q<CardRow>(
+      `${SELECT}
+         AND (${FOLDED_NAME} LIKE $1 OR c.name_normalized % $2::text)
+       ORDER BY similarity(c.name_normalized, $2::text) DESC, c.name_normalized, c.tcgdex_id
+       LIMIT ${ROW_LIMIT}`,
+      [likePrefix(probe.prefix), probe.normalized],
     );
     return rows.map(shape);
   },

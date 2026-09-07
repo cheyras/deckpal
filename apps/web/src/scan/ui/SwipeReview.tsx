@@ -13,6 +13,7 @@ import { RarityMark } from '../../components/RarityMark'
 import { Icon } from '../../components/Icon'
 import { fmtNumber } from '../../lib/format'
 import type { ScanMatch } from '../../lib/api'
+import { toPickedMatch } from './identity'
 import { flingOut, prefersReducedMotion, springBack } from './motion'
 import type { FeedEntry } from './types'
 
@@ -400,7 +401,10 @@ function CorrectionPanel({
             key={m.cardId}
             type="button"
             disabled={m.cardId === entry.cardId}
-            onClick={() => onPick(m)}
+            // The row's dialect, not the wire's — see `toPickedMatch`. A
+            // candidate the resolve ladder found by name has no phash distance,
+            // and `-1`/`0` is what this feed has always written for that.
+            onClick={() => onPick(toPickedMatch(m))}
             className={`flex w-full items-center gap-[10px] rounded-lg p-[8px] text-left ${
               m.cardId === entry.cardId ? 'bg-halo-neutral' : 'hover:bg-surface-tertiary'
             }`}
@@ -414,9 +418,13 @@ function CorrectionPanel({
                 {m.setName} · {fmtNumber(m.number)}
               </div>
             </div>
-            <span className="shrink-0 text-[12px] font-extrabold tabular-nums text-text-secondary">
-              {Math.round(m.confidence * 100)}%
-            </span>
+            {/* No percentage for a candidate no hash ever saw: 0 % would read
+                as "certainly not this one" about a card the printed name found. */}
+            {m.confidence != null && (
+              <span className="shrink-0 text-[12px] font-extrabold tabular-nums text-text-secondary">
+                {Math.round(m.confidence * 100)}%
+              </span>
+            )}
           </button>
         ))}
       </div>

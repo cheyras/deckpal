@@ -17,16 +17,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MAX_MATCHES,
+  MAX_NAME_FAMILIES,
+  MAX_NAME_PRINTINGS,
+  MIN_NAME_PROBE,
   nameTier,
   narrowByName,
   normalizeCardName,
   parseNumber,
+  planNameProbe,
   resolveCard,
   type CatalogCard,
   type CatalogPort,
   type OcrFields,
   type PriorMatch,
 } from '../resolve.js';
+import { THRESHOLDS } from '@deckpal/matching';
+import type { VectorMatch } from '../fuse.js';
 
 // ── Fixture catalogue ───────────────────────────────────────────────────────
 
@@ -78,6 +84,13 @@ const CARD_SEED: [setId: string, localId: string, name: string][] = [
   ['svp', '500', 'Sprigatito'],
   // The single non-numeric local id in the whole printed era.
   ['mep', 'Museum', 'Museum'],
+  // THE 2026-09-07 CASE. One name, four printings, four sets — the shape of
+  // every staple Trainer in the real catalogue (Ultra Ball has ~40) and the one
+  // a toploadered card produces: the title reads, the bottom strip does not.
+  ['sv01', '196', 'Ultra Ball'],
+  ['sv03.5', '182', 'Ultra Ball'],
+  ['sv04', '196', 'Ultra Ball'],
+  ['swsh6', '150', 'Ultra Ball'],
 ];
 
 const CARDS: CatalogCard[] = CARD_SEED.map(([setId, localId, name]) => {
@@ -97,6 +110,30 @@ const CARDS: CatalogCard[] = CARD_SEED.map(([setId, localId, name]) => {
 
 const officialOf = (setId: string): number | null => SETS.find((s) => s.setId === setId)?.official ?? null;
 
+/**
+ * pg_trgm's `%`, near enough for a fixture: 3-grams over a space-padded string,
+ * Jaccard, default 0.3 floor.
+ *
+ * Present so `byName` below is the SUPERSET its contract describes rather than
+ * "the catalogue, filtered by the thing under test". A fixture that returned
+ * every card would pass this file while a port that returned only exact matches
+ * would too, and the difference between those is the whole tier-2 rung.
+ */
+function trigramSimilarity(a: string, b: string): number {
+  const grams = (s: string): Set<string> => {
+    const padded = `  ${s} `;
+    const out = new Set<string>();
+    for (let i = 0; i + 3 <= padded.length; i++) out.add(padded.slice(i, i + 3));
+    return out;
+  };
+  const A = grams(a);
+  const B = grams(b);
+  let shared = 0;
+  for (const t of A) if (B.has(t)) shared++;
+  return shared / (A.size + B.size - shared);
+}
+const TRGM_FLOOR = 0.3;
+
 const fixturePort: CatalogPort = {
   async bySetAndNumber(setId, numeric) {
     return CARDS.filter((c) => c.setId === setId && c.numberNumeric === numeric);
@@ -110,11 +147,33 @@ const fixturePort: CatalogPort = {
   async byIds(cardIds) {
     return CARDS.filter((c) => cardIds.includes(c.cardId));
   },
+  // Rung 5b, in the shape `catalogPort.ts` implements in SQL: a prefix of the
+  // FOLDED name (tiers 0 and 1, both directions) OR a trigram neighbourhood
+  // (tier 2, the misread). Nothing here decides what matches — `narrowByName`
+  // does, on the way back.
+  async byName(probe) {
+    return CARDS.filter(
+      (c) =>
+        normalizeCardName(c.name).startsWith(probe.prefix) ||
+        trigramSimilarity(normalizeCardName(c.name), probe.normalized) >= TRGM_FLOOR,
+    );
+  },
 };
+
+/** The same catalogue with no name lookup — a port that predates rung 5b. */
+const noNamePort: CatalogPort = { ...fixturePort, byName: undefined };
 
 // The scan endpoint's measured "phash is sure of itself" threshold.
 const run = (fields: OcrFields, priorMatches: PriorMatch[] = []) =>
   resolveCard(fields, priorMatches, fixturePort, { phashConfidentMax: 9 });
+
+/** …with the embedding matcher on, which is the only way `fuse.ts` is consulted. */
+const MODEL = 'clip-vit-b32-openai';
+const runWithVector = (fields: OcrFields, vectorMatches: VectorMatch[], priorMatches: PriorMatch[] = []) =>
+  resolveCard(fields, priorMatches, fixturePort, {
+    phashConfidentMax: 9,
+    fusion: { vectorMatches, modelId: MODEL },
+  });
 
 const ids = (matches: { cardId: string }[]): string[] => matches.map((m) => m.cardId);
 
@@ -370,6 +429,222 @@ test('rung 5 catches a misread denominator by dropping it', async () => {
   assert.deepEqual(ids(r.matches), ['me05-039']);
 });
 
+// ── Rung 5b — the name as a FAMILY, which is the 2026-09-07 defect ─────────
+//
+// Owner, with a screenshot: a toploadered Ultra Ball landed needs-input, the row
+// said `read "Ultra Ball"`, and the five candidates under it were phash's
+// near-random junk — Binding Mochi at 81 %. "As silly as it gets."
+//
+// The bug was not the hash. It was that a read name could only FILTER the hash's
+// list, so a hash that had already failed took the name down with it. These
+// tests are the fix stated as behaviour: the catalogue knows every Ultra Ball,
+// so a name that resolves to a name family returns that family.
+
+/** The failure exactly as reported: a good name, no number, and junk priors. */
+const JUNK_PRIORS: PriorMatch[] = [
+  { cardId: 'sv01-014', distance: 11 },
+  { cardId: 'me05-039', distance: 12 },
+  { cardId: 'svp-500', distance: 13 },
+];
+
+test('rung 5b: a name and junk priors produce the NAME’S cards, not the junk', async () => {
+  const r = await run({ name: 'Ultra Ball' }, JUNK_PRIORS);
+  assert.equal(r.resolvedBy, 'name-family');
+  // A family is not a card: four printings, and the endpoint claims none of them.
+  assert.equal(r.matched, false);
+  assert.equal(r.confident, false);
+  assert.deepEqual(
+    ids(r.matches).sort(),
+    ['sv01-196', 'sv03.5-182', 'sv04-196', 'swsh6-150'],
+    'every Ultra Ball in the catalogue, whether or not phash had heard of it',
+  );
+  // And the junk is GONE rather than demoted — it was never evidence about a
+  // card called Ultra Ball, and leaving it below the real candidates would still
+  // be offering it.
+  for (const junk of JUNK_PRIORS) {
+    assert.equal(ids(r.matches).includes(junk.cardId), false, `${junk.cardId} must not be offered`);
+  }
+  // The candidates phash never nominated say so, which is how the client knows
+  // this list is not ranked by distance.
+  assert.deepEqual(r.matches.map((m) => m.distance), [null, null, null, null]);
+});
+
+test('rung 5b: a phash agreement inside the family sorts to the top and stays honest', async () => {
+  // The hash is not silenced — it just no longer decides which cards are ON the
+  // list. Where it did see one of them, it orders them.
+  const r = await run({ name: 'Ultra Ball' }, [...JUNK_PRIORS, { cardId: 'sv04-196', distance: 4 }]);
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.confident, false, 'a hash agreeing with a family is not a printing');
+  assert.equal(ids(r.matches)[0], 'sv04-196');
+  assert.equal(r.matches[0]!.distance, 4);
+});
+
+test('rung 5b: a name with exactly one printing, read exactly, is a card', async () => {
+  // The one shape a bare name may be sure about. "Miriam" is one card in this
+  // catalogue, so the 4.7-candidate objection that keeps rung 7 from ever naming
+  // anything simply does not apply.
+  const r = await run({ name: 'Miriam' });
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.matched, true);
+  assert.equal(r.confident, true);
+  assert.deepEqual(ids(r.matches), ['sv01-245']);
+});
+
+test('rung 5b: a rule-box suffix the name line lost still finds the card', async () => {
+  // Tier 1 — the `ex` sits in a stylised face over artwork and OCR routinely
+  // drops it (CROSSWALK §5). One printing, and tier 1 is still an exact read of
+  // the letters that were there.
+  const r = await run({ name: 'Iron Valiant' });
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.confident, true);
+  assert.deepEqual(ids(r.matches), ['sv04-182']);
+});
+
+test('rung 5b: a FUZZY name never names a card, however few printings it has', async () => {
+  // Tier 2 is the edit budget — a guess about what the letters were. It may put
+  // candidates in front of a person; it may not identify one, even when it lands
+  // on a family of exactly one printing, because "the only card within two edits
+  // of what I think I read" is a different claim from "the card I read".
+  const r = await run({ name: 'Fioragato' });
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.confident, false);
+  assert.deepEqual(ids(r.matches), ['sv01-014']);
+  // And not `matched` either. `matched` is the claim that a CARD was identified,
+  // and a read the ladder had to spend its edit budget on has not identified
+  // one — it has produced the best candidate it can and handed it over.
+  assert.equal(r.matched, false);
+});
+
+test('rung 5b: phash confidently naming something else refuses the certainty', async () => {
+  // The same contradiction test rungs 3-5 use. Phash is sure of a card the name
+  // family does not contain and never nominated ours, so the sole printing is
+  // offered and not asserted.
+  const r = await run({ name: 'Miriam' }, [{ cardId: 'sv01-014', distance: 2 }]);
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.confident, false);
+  assert.deepEqual(ids(r.matches), ['sv01-245']);
+});
+
+test('rung 5b: one name that is TWO cards shows both and is sure of neither', async () => {
+  // The ambiguity guard. Both cards PRINT "Boss's Orders"; only TCGdex tells
+  // them apart, with a parenthetical neither card carries. Folding the
+  // parenthetical away — which §5 requires, or the read would match nothing —
+  // means the read is genuinely two cards, and the families are keyed on the RAW
+  // catalogue name so the guard can see that.
+  const r = await run({ name: "Boss's Orders" });
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.matched, false);
+  assert.equal(r.confident, false);
+  assert.deepEqual(ids(r.matches).sort(), ['sv01-172', 'swsh6-172']);
+});
+
+test('rung 5b: several families are capped, and every one of them is represented', async () => {
+  // The real shape this produces: a bare species name reaching every rule-box
+  // card built on it at TIER 1, because each of those strips to the same stem.
+  // Five families of five printings is past both caps in both directions, which
+  // the eighteen-card fixture cannot be without becoming a different fixture.
+  const FAMILIES = ['Charizard ex', 'Charizard VMAX', 'Charizard V', 'Charizard-GX', 'Charizard VSTAR'];
+  const many: CatalogCard[] = [];
+  FAMILIES.forEach((name, f) => {
+    for (let p = 0; p < 5; p++) {
+      many.push({
+        cardId: `set${f}-${p}`,
+        name,
+        number: String(p),
+        numberNumeric: p,
+        setId: `set${f}`,
+        setName: `Set ${f}`,
+        seriesId: 'sv',
+        rarity: null,
+      });
+    }
+  });
+  const port: CatalogPort = { ...fixturePort, async byName() { return many; } };
+  const r = await resolveCard({ name: 'Charizard' }, [], port, { phashConfidentMax: 9 });
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.confident, false);
+  const names = new Set(r.matches.map((m) => m.name));
+  assert.equal(names.size, MAX_NAME_FAMILIES, 'the best few families, and no more');
+  for (const name of names) {
+    assert.ok(
+      r.matches.filter((m) => m.name === name).length <= MAX_NAME_PRINTINGS,
+      'no family may fill the answer and crowd the others out',
+    );
+  }
+});
+
+test('rung 5b: a name too short to be a filter is not looked up at all', async () => {
+  // `m%` is thousands of cards. Below the floor the rung declines and the ladder
+  // falls through exactly as it did before the rung existed.
+  assert.equal(planNameProbe('Ho'), null);
+  assert.equal(planNameProbe(' '), null);
+  assert.equal(planNameProbe('Mew')?.prefix, 'mew');
+  assert.equal(MIN_NAME_PROBE, 3);
+  const r = await run({ name: 'Ho' }, [{ cardId: 'sv01-014', distance: 3 }]);
+  assert.equal(r.resolvedBy, 'prior-only');
+  assert.deepEqual(ids(r.matches), ['sv01-014']);
+});
+
+test('rung 5b: a suffix-only read is a prefix of everything, and is refused', async () => {
+  // "ex" strips to nothing, and an empty prefix is `LIKE '%'`. `planNameProbe`
+  // falls back to the unstripped read, which is then too short.
+  assert.equal(planNameProbe('ex'), null);
+  assert.equal(planNameProbe('Charizard ex')?.prefix, 'charizard');
+});
+
+test('rung 5b never overrules a printed key', async () => {
+  // The name is read on every one of these and the ladder answers from the key
+  // anyway, because 5b sits BELOW every rung that has a number to join on.
+  assert.equal((await run({ setCode: 'SVI', number: '196', name: 'Ultra Ball' })).resolvedBy, 'badge+number');
+  assert.equal((await run({ number: '196', denominator: '198', name: 'Ultra Ball' })).resolvedBy, 'number+denominator');
+  // Rung 5: 182 is Iron Valiant ex and an Ultra Ball, and the name separates
+  // them — which a name-family lookup could not have done, since it never sees
+  // the number at all.
+  const five = await run({ number: '182', name: 'Ultra Ball' });
+  assert.equal(five.resolvedBy, 'name+number');
+  assert.deepEqual(ids(five.matches), ['sv03.5-182']);
+});
+
+test('rung 5b is skipped entirely by a port that has no name lookup', async () => {
+  // The graceful-skip contract `byTextTokens` established: no `byName`, no rung,
+  // and every other rung unchanged.
+  const r = await resolveCard({ name: 'Ultra Ball' }, JUNK_PRIORS, noNamePort, { phashConfidentMax: 9 });
+  assert.equal(r.resolvedBy, 'prior-only');
+  assert.deepEqual(ids(r.matches), ids(await run({}, JUNK_PRIORS).then((x) => x.matches)));
+});
+
+// ── Rung 5b composed with the image vector ─────────────────────────────────
+
+test('a vector top-1 INSIDE the name family is the corroboration that names the card', async () => {
+  // The whole point of a family: "it is one of these four Ultra Balls" and "the
+  // closest picture in the entire index is that one" are two signals covering
+  // each other's exact blind spot. Neither is sufficient alone — the vector is
+  // showable, not decisive — and together they answer.
+  const showable = (THRESHOLDS[MODEL]!.simFloor + THRESHOLDS[MODEL]!.simMin) / 2;
+  const r = await runWithVector({ name: 'Ultra Ball' }, [
+    { cardId: 'sv04-196', similarity: showable },
+    { cardId: 'sv01-196', similarity: showable - 0.01 },
+  ]);
+  assert.equal(r.resolvedBy, 'corroborated');
+  assert.equal(r.matched, true);
+  assert.equal(r.confident, true);
+  assert.equal(ids(r.matches)[0], 'sv04-196');
+  // The rest are kept: a reader who disagrees with a confident answer still
+  // needs the list they would have been shown a moment ago.
+  assert.equal(r.matches.length, 4);
+});
+
+test('a vector pointing OUTSIDE the family corroborates nothing and claims nothing', async () => {
+  // Two independent signals disagreeing is not a tie to be broken by whichever
+  // is louder — a cosine and a printed name are not comparable — so the
+  // candidates go to the reader unclaimed. Silence over lies.
+  const showable = (THRESHOLDS[MODEL]!.simFloor + THRESHOLDS[MODEL]!.simMin) / 2;
+  const r = await runWithVector({ name: 'Ultra Ball' }, [{ cardId: 'sv01-014', similarity: showable }]);
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.confident, false);
+  assert.equal(ids(r.matches).includes('sv01-014'), false);
+});
+
 // ── Composing with the priors ──────────────────────────────────────────────
 
 test('a sole candidate the priors never saw, while phash was sure of another, is not confident', async () => {
@@ -415,13 +690,21 @@ test('rung 6: a number alone filters the priors and never names a card', async (
   assert.deepEqual(ids(r.matches), ['me05-039', 'sv01-039']);
 });
 
-test('rung 7: a name alone filters the priors and never names a card', async () => {
-  // A name alone leaves a mean of 4.7 prints and up to 114 (Pikachu).
-  const r = await run({ name: 'Pikachu' }, [
-    { cardId: 'sv01-014', distance: 2 },
-    { cardId: 'svp-001', distance: 4 },
-    { cardId: 'sv03.5-025', distance: 6 },
-  ]);
+test('rung 7 is what is left when the name is not a lookup key at all', async () => {
+  // A name alone leaves a mean of 4.7 prints and up to 114 (Pikachu), so it can
+  // still never NAME a card. What changed on 2026-09-07 is where the candidates
+  // come from: with a `byName` port the name is a lookup (rung 5b, below), and
+  // this rung is reached only by a port that has none — the graceful-skip path.
+  const r = await resolveCard(
+    { name: 'Pikachu' },
+    [
+      { cardId: 'sv01-014', distance: 2 },
+      { cardId: 'svp-001', distance: 4 },
+      { cardId: 'sv03.5-025', distance: 6 },
+    ],
+    noNamePort,
+    { phashConfidentMax: 9 },
+  );
   assert.equal(r.resolvedBy, 'prior-only');
   assert.equal(r.confident, false);
   assert.deepEqual(ids(r.matches), ['svp-001', 'sv03.5-025']);
@@ -455,8 +738,13 @@ test('a filter that would empty the answer hands the priors back unfiltered', as
 });
 
 test('a non-numeric number falls past every rung that needs a numeric key', async () => {
+  // `mep-Museum` has no `local_id_numeric`, so rungs 1, 3, 5 and 6 are all
+  // unreachable and only the name is left. Before rung 5b that meant the phash
+  // list, filtered; it now means the name's own family — which here is a single
+  // card, so the ladder can be sure of it.
   const r = await run({ number: 'Museum', name: 'Museum' }, [{ cardId: 'mep-Museum', distance: 5 }]);
-  assert.equal(r.resolvedBy, 'prior-only');
+  assert.equal(r.resolvedBy, 'name-family');
+  assert.equal(r.confident, true);
   assert.deepEqual(ids(r.matches), ['mep-Museum']);
 });
 

@@ -46,14 +46,17 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { ScanMatch, ScanResponse, ScanResolveResponse } from '../../../lib/api'
+import type { ScanMatch, ScanResolveMatch, ScanResponse, ScanResolveResponse } from '../../../lib/api'
 import type { OcrRead } from '../../ocr/pipeline'
 import { IDENTITY_BACKSTOP_MS, RESOLVE_RTT_TAIL_MS } from '../deadline'
 import {
   initialIdentity,
+  mergeCandidates,
   ocrHintLabel,
+  readCandidates,
   reduceIdentity,
   resolvedIdentity,
+  toPickedMatch,
   type IdentityEvent,
   type IdentityState,
 } from '../identity'
@@ -222,7 +225,10 @@ describe('the identity race', () => {
       { type: 'resolve', resolved: resolveRes({ confident: false }) },
     ])
     assert.equal(s.phase, 'needs-you')
-    assert.deepEqual(s.candidates.map((m) => m.cardId), ['sve-004', 'sve-003', 'sve-002'])
+    // The ladder's candidate first — it narrowed the world with a printed key,
+    // which is a stronger claim than a Hamming distance — then the tie-gated
+    // hash ranking. See the 2026-09-07 block at the end of this file.
+    assert.deepEqual(s.candidates.map((m) => m.cardId), ['sv10-116', 'sve-004', 'sve-003', 'sve-002'])
     assert.equal(ocrHintLabel(s.read), 'read 116/182')
     // And the verdict is still on it, so the row's eventual pick can be recorded
     // beside what the ladder had said (`identityRecord`).
@@ -239,18 +245,25 @@ describe('the identity race', () => {
     )
   })
 
-  it('does NOT put the resolve endpoint’s own matches in the picker', () => {
-    // ocrNarrow.ts's standing rule: those carry `distance: null` for cards phash
-    // never nominated, and a list that ranks by distance must not contain
-    // entries that have none. What OCR contributes here is its READ, as a hint.
+  it('PUTS THE LADDER’S OWN MATCHES IN THE PICKER, above the hash’s', () => {
+    // This test used to assert the opposite, on ocrNarrow.ts's standing rule:
+    // the ladder's matches carry `distance: null` for cards phash never
+    // nominated, and a list ranked by distance must not hold entries that have
+    // none. The rule is still true; the conclusion was the 2026-09-07 defect.
+    // They are not merged into one ranking — they are the group above it, and
+    // `from` is what the popover draws the seam from.
     const s = run([
       { type: 'phash', res: TIED },
       { type: 'read', read: read({ number: '116', denominator: '182' }) },
       { type: 'resolve', resolved: resolveRes({ confident: false }) },
     ])
-    assert.equal(
-      s.candidates.some((m) => m.cardId === 'sv10-116'),
-      false,
+    assert.equal(s.candidates[0]?.cardId, 'sv10-116')
+    assert.equal(s.candidates[0]?.from, 'read')
+    assert.equal(s.candidates[0]?.distance, null, 'and it still says it has no phash opinion')
+    assert.deepEqual(
+      s.candidates.slice(1).map((m) => m.from),
+      [undefined, undefined, undefined],
+      'the hash’s entries are not relabelled as something OCR found',
     )
     assert.equal(ocrHintLabel(s.read), 'read 116/182')
   })
@@ -567,6 +580,133 @@ describe('the OCR hint chip', () => {
   it('says nothing when nothing was read', () => {
     assert.equal(ocrHintLabel(read()), null)
     assert.equal(ocrHintLabel(null), null)
+  })
+})
+
+// ── WHAT THE PICKER IS OFFERED. 2026-09-07 ─────────────────────────────────
+//
+// The owner scanned an Ultra Ball in a toploader: the name read, the bottom
+// strip did not, and the needs-input row said `read "Ultra Ball"` above five
+// cards that were not Ultra Balls — Binding Mochi at 81 %. "As silly as it
+// gets." The API half of the fix is rung 5b (the catalogue knows every Ultra
+// Ball); this is the half that gets those candidates onto the screen.
+//
+// The property under test is not "the list is longer". It is that TWO RANKINGS
+// STAY TWO: what the read found comes first and is marked, what the hash found
+// follows and keeps its distances, and neither borrows the other's meaning.
+
+/** The endpoint's answer for the reported case: a name family, claiming nothing. */
+function ultraBalls(over: Partial<ScanResolveResponse> = {}): ScanResolveResponse {
+  const printing = (cardId: string, setName: string): ScanResolveMatch => ({
+    cardId,
+    name: 'Ultra Ball',
+    number: '196',
+    setId: cardId.split('-')[0]!,
+    setName,
+    rarity: 'Common',
+    images: { low: `${cardId}.low`, high: `${cardId}.high` },
+    // A family the catalogue knows and the hash never nominated.
+    distance: null,
+    confidence: null,
+  })
+  return {
+    matched: false,
+    confident: false,
+    resolvedBy: 'name-family',
+    matches: [printing('sv01-196', 'Scarlet & Violet'), printing('sv03.5-182', '151')],
+    ...over,
+  }
+}
+
+describe('the picker’s candidates', () => {
+  it('THE ULTRA BALL CASE: a name read puts Ultra Balls on top of the junk', () => {
+    const s = run([
+      { type: 'phash', res: TIED },
+      { type: 'read', read: read({ name: 'Ultra Ball' }) },
+      { type: 'resolve', resolved: ultraBalls() },
+    ])
+    assert.equal(s.phase, 'needs-you', 'a family is not a card, so the reader is still asked')
+    assert.deepEqual(
+      s.candidates.map((m) => m.cardId),
+      ['sv01-196', 'sv03.5-182', 'sve-004', 'sve-003', 'sve-002'],
+      'the cards named on the chip come first; the hash’s guesses are still offered, below',
+    )
+    assert.equal(ocrHintLabel(s.read), 'read “Ultra Ball”')
+  })
+
+  it('is ORDER-BLIND — the two answers race and the list comes out the same', () => {
+    // The reducer's whole design principle, and the one this merge could most
+    // easily have broken: a phash answer landing second must not overwrite the
+    // ladder's candidates with its own list.
+    const first = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: ultraBalls() }])
+    const second = run([{ type: 'resolve', resolved: ultraBalls() }, { type: 'phash', res: TIED }])
+    assert.deepEqual(
+      second.candidates.map((m) => m.cardId),
+      first.candidates.map((m) => m.cardId),
+    )
+    assert.deepEqual(second.candidates.map((m) => m.from), first.candidates.map((m) => m.from))
+  })
+
+  it('does not offer the same card twice, and the read’s copy is the one kept', () => {
+    // The interesting agreement: both signals nominated it. The endpoint ranks
+    // its own matches by the priors it was sent, so the read's copy carries the
+    // distance anyway and nothing is lost by dropping the hash's duplicate.
+    const agreed = ultraBalls({
+      matches: [{ ...ultraBalls().matches[0]!, cardId: 'sve-003', distance: 7, confidence: 1 - 7 / 64 }],
+    })
+    const s = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: agreed }])
+    assert.deepEqual(s.candidates.map((m) => m.cardId), ['sve-003', 'sve-004', 'sve-002'])
+    assert.equal(s.candidates[0]?.from, 'read')
+    assert.equal(s.candidates[0]?.distance, 7)
+  })
+
+  it('never re-offers the hash’s own list as something OCR found', () => {
+    // `prior-only` means "OCR added no key, here is the hash's list, possibly
+    // filtered". Marking those `from: 'read'` would credit the read with a list
+    // it did not produce and draw a seam through one ranking.
+    const s = run([
+      { type: 'phash', res: TIED },
+      { type: 'resolve', resolved: ultraBalls({ resolvedBy: 'prior-only', matches: [] }) },
+    ])
+    assert.deepEqual(s.candidates.map((m) => m.cardId), ['sve-004', 'sve-003', 'sve-002'])
+    assert.deepEqual(s.candidates.map((m) => m.from), [undefined, undefined, undefined])
+  })
+
+  it('a CONFIDENT answer fills no picker, because there is no question left', () => {
+    const s = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: resolveRes() }])
+    assert.equal(s.phase, 'confident')
+    assert.deepEqual(readCandidates(resolveRes()), [])
+  })
+
+  it('mergeCandidates is the whole ordering rule, and it is two lines', () => {
+    const a = { ...match('a', 1), from: 'read' as const }
+    const b = match('b', 2)
+    const dupe = match('a', 9)
+    assert.deepEqual(mergeCandidates([a], [b, dupe]).map((m) => m.cardId), ['a', 'b'])
+    assert.deepEqual(mergeCandidates([], [b]).map((m) => m.cardId), ['b'])
+    assert.deepEqual(mergeCandidates([a], []).map((m) => m.cardId), ['a'])
+  })
+
+  it('the reader may pick a card phash never saw, and the row gets a shape it understands', () => {
+    // `toPickedMatch` translates the wire's "no opinion" (null) into the feed
+    // row's long-standing -1/0, which is what `FeedEntryCard` reads to draw
+    // provenance instead of a meter reading 0 %.
+    const s = run([
+      { type: 'phash', res: TIED },
+      { type: 'resolve', resolved: ultraBalls() },
+    ])
+    const picked = reduceIdentity(s, { type: 'pick', match: s.candidates[0]! })
+    assert.equal(picked.phase, 'confident')
+    assert.equal(picked.by, 'reader')
+    assert.equal(picked.match?.cardId, 'sv01-196')
+    assert.equal(picked.match?.distance, null, 'the identity keeps the honest null')
+
+    const forTheRow = toPickedMatch(s.candidates[0]!)
+    assert.equal(forTheRow.distance, -1)
+    assert.equal(forTheRow.confidence, 0)
+    assert.equal('from' in forTheRow, false, 'provenance is a picker concern and stops here')
+    // A candidate that DID have a distance keeps it, untouched.
+    assert.equal(toPickedMatch(s.candidates[2]!).distance, 7)
   })
 })
 

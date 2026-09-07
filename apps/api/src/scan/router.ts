@@ -285,12 +285,31 @@ scanRouter.post(
  *                        99.6% unique with a denominator, 94.3% without. The
  *                        two share a label because they share a shape; the
  *                        distinction the caller cares about is `confident`.
+ *   'name-family'        rung 5b — a NAME and no usable number, which is what a
+ *                        card in a toploader gives you. `matches` is every
+ *                        printing of the catalogue name that was read, best
+ *                        first, and `confident` is true only when that name has
+ *                        exactly one printing and the read was exact. See the
+ *                        note below: like 'family-text' this rung can return
+ *                        `matched: false` WITH candidates.
  *   'family-text'        rung 9 — the text in the MIDDLE of the card. See the
- *                        escalation note below; this is the one rung that can
- *                        return `matched: false` WITH candidates.
+ *                        escalation note below; the other rung that can return
+ *                        `matched: false` WITH candidates.
  *   'prior-only'         OCR added no key, only a filter. The answer is the
  *                        existing phash path's, possibly narrowed to a set or a
  *                        number, and `confident` is always false.
+ *
+ * ── WHEN `matched` IS FALSE AND `matches` IS NOT EMPTY ─────────────────────
+ *
+ * Two rungs do this — 'name-family' and 'family-text' — and both mean the same
+ * thing: we know WHICH CARD and not WHICH PRINTING OF IT, or (for a name that is
+ * two different cards) which of a small number of cards. Put those in front of a
+ * person; never auto-add one.
+ *
+ * A caller MUST NOT merge these matches into a distance ranking. Most carry
+ * `distance: null` because phash never nominated them, and a list sorted by
+ * distance cannot honestly hold entries that have none — show them as their own
+ * group, ahead of the hash's, which is what the app does.
  *
  * ── fields.bodyLines: WHEN TO SEND IT, AND WHAT COMES BACK ─────────────────
  *

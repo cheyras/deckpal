@@ -50,10 +50,33 @@
 //    merged into it (so the row is two captures, and this narrowing describes
 //    one) or the reader used the stepper. Either way its identity is no longer
 //    this capture's alone.
-//  * NOT the alternates list. The popover shows the phash top-5 with their
-//    Hamming distances; the resolve endpoint's matches carry `distance: null`
-//    for cards phash never nominated, and rendering "distance —" beside real
-//    distances would make the popover lie about what it is ranking by.
+//  * NOT the alternates list, in the sense that a confident answer REPLACES an
+//    identity and never quietly reorders a picker. What goes in the picker is
+//    decided by `identity.ts` (`readCandidates` / `mergeCandidates`) off the
+//    same response, and it is not a merge into one ranking — see below.
+//
+// ── AND WHAT THE PICKER GOT, 2026-09-07 ────────────────────────────────────
+//
+// This header used to end the third bullet with "NOT the alternates list. The
+// popover shows the phash top-5 with their Hamming distances; the resolve
+// endpoint's matches carry `distance: null` for cards phash never nominated, and
+// rendering 'distance —' beside real distances would make the popover lie about
+// what it is ranking by."
+//
+// The reasoning survives; the conclusion did not. The owner scanned an Ultra Ball
+// in a toploader — name legible, bottom strip under plastic — and got a
+// needs-input row whose chip said `read "Ultra Ball"` above five cards that were
+// not Ultra Balls, because the ladder's answer had been withheld from the one
+// place it was needed. Protecting the ranking by throwing away the better
+// evidence is not protecting the reader.
+//
+// So the popover holds both, as TWO GROUPS and not one ranking: the ladder's
+// candidates first (they narrowed the world with a printed name, which is a
+// stronger claim than a Hamming distance), then the phash top-5 that are not
+// already there, under a seam that says what the second group is. No entry is
+// given a percentage it did not earn. The rule that a distance-ranked list may
+// not contain distance-less entries is still true — it is now satisfied by not
+// putting them in the same list.
 
 import { ApiError, api, type ScanMatch, type ScanResolveResponse, type ScanVectorMatch } from '../../lib/api'
 import type { OcrRead } from '../ocr'

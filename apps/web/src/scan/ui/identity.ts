@@ -121,7 +121,7 @@
 // API client (and, behind it, a Supabase client) into a pure reducer to borrow
 // one three-line judgement is the wrong way round. The judgement moved here
 // instead, and that file calls it.
-import type { ScanMatch, ScanResolveMatch, ScanResponse, ScanResolveResponse } from '../../lib/api'
+import type { ScanCandidate, ScanMatch, ScanResolveMatch, ScanResponse, ScanResolveResponse } from '../../lib/api'
 import type { OcrRead } from '../ocr/pipeline'
 import { gateScanResponse } from './tieGate'
 import type { EmbedEvidence } from './vectorEvidence'
@@ -182,19 +182,35 @@ export interface IdentityState {
   match: Identity | null
   by: IdentitySource | null
   /**
-   * What the picker offers once this capture is a needs-input ROW: the
-   * TIE-GATED phash ranking, best first. Carried down by the flight as the
-   * row's `alternates`.
+   * What the picker offers once this capture is a needs-input ROW. Carried down
+   * by the flight as the row's `alternates`.
    *
-   * NOT merged with the resolve endpoint's own matches, and that is the same
-   * call `ocrNarrow.ts`'s header already made for the feed-row popover: those
-   * carry `distance: null` for cards phash never nominated, and a list that
-   * ranks by distance must not contain entries with no distance. What OCR
-   * contributes to this screen is its READ, shown as a hint chip beside the
-   * candidates (`ocrHintLabel`), which is evidence the reader can use rather
-   * than a rank the list cannot honour.
+   * ── BOTH SIGNALS NOW, IN TWO GROUPS. 2026-09-07 ───────────────────────────
+   *
+   * This used to be the TIE-GATED PHASH RANKING and nothing else, on the rule
+   * `ocrNarrow.ts` still states: the resolve endpoint's matches carry
+   * `distance: null` for cards phash never nominated, and a list ranked by
+   * distance must not hold entries that have none.
+   *
+   * The rule was right and the conclusion was wrong, and the owner found out
+   * with a screenshot: a toploadered Ultra Ball landed needs-input, the chip
+   * read `read "Ultra Ball"`, and the five candidates beneath it were the hash's
+   * near-random list — Binding Mochi at 81 %. "As silly as it gets." Withholding
+   * the ladder's candidates did not protect the ranking; it threw away the only
+   * evidence on the screen that knew what the card was called.
+   *
+   * So the list holds both, ordered and LABELLED rather than interleaved:
+   *
+   *   1. the ladder's candidates, in the order the endpoint returned them,
+   *      marked `from: 'read'`;
+   *   2. then the tie-gated phash ranking, minus anything already above.
+   *
+   * Neither ranking is polluted: the popover draws them as two groups, and a
+   * card with no distance is never given a percentage it did not earn.
+   * `mergeCandidates` is where the order is decided and `readCandidates` is
+   * where the policy about which responses may contribute lives.
    */
-  candidates: ScanMatch[]
+  candidates: ScanCandidate[]
   /** What OCR read off the card. Null until the read lands, and often after. */
   read: OcrRead | null
   /**
@@ -339,8 +355,14 @@ export type IdentityEvent =
    * the row carried with it so the reader's answer is still attributed to the
    * capture that asked the question; see `identityRecord` below, which is the
    * only reason this event still exists.
+   *
+   * A `ScanCandidate` and not a `ScanMatch`, because the picker now offers both
+   * kinds and the reader is allowed to choose a card phash never nominated —
+   * which is the entire point of putting the ladder's candidates in front of
+   * them. `Identity.distance` has always been nullable, so nothing downstream
+   * has to learn anything new.
    */
-  | { type: 'pick'; match: ScanMatch }
+  | { type: 'pick'; match: ScanCandidate }
   /** The reader discarded the capture. Same picker, same list row, and the row
    *  goes with it. */
   | { type: 'retake' }
@@ -362,6 +384,53 @@ export type IdentityEvent =
 export function resolvedIdentity(resolved: ScanResolveResponse | null): ScanResolveMatch | null {
   if (!resolved?.confident || !resolved.matched) return null
   return resolved.matches[0] ?? null
+}
+
+/**
+ * WHICH OF THE LADDER'S MATCHES THE PICKER MAY OFFER — the 2026-09-07 half of
+ * the fix, and the only place that policy is written down.
+ *
+ * Two exclusions, both of which would otherwise be a lie about provenance:
+ *
+ *  * A CONFIDENT response. The ladder named the card, `resolvedIdentity` has
+ *    already taken it, and the capture is going to the list identified. There is
+ *    no picker to fill.
+ *  * `prior-only`. That rung's matches ARE the phash priors — the same cards,
+ *    possibly filtered to a set or a number — so offering them as a separate
+ *    group headed by what OCR read would show the reader the same list twice and
+ *    credit the read with a list it did not produce.
+ *
+ * Everything else contributes: `name-family` and `family-text` (a family is not
+ * a card, and its printings are exactly what a person is being asked to choose
+ * between), the multi-candidate `number+denominator` and `name+number` cases
+ * (`014/198` is Steenee or Floragato and the print genuinely cannot say), and
+ * the unconfident `vector`. All of them narrowed the world with something other
+ * than a Hamming distance, which is what earns the top of the list.
+ */
+export function readCandidates(resolved: ScanResolveResponse | null): ScanCandidate[] {
+  if (!resolved || resolved.confident) return []
+  if (resolved.resolvedBy === 'prior-only') return []
+  return resolved.matches.map((m) => ({ ...m, from: 'read' as const }))
+}
+
+/**
+ * The two groups into one list: what the read found, then what the hash found
+ * and the read did not.
+ *
+ * Deduped on `cardId` with the READ's entry winning, which is not arbitrary —
+ * the ladder's copy of a card the hash also nominated carries the hash's
+ * distance anyway (the endpoint ranks its own matches by the priors it was
+ * sent), so nothing is lost and the agreement shows up where the reader is
+ * looking first.
+ *
+ * Pure, exported and order-independent so the reducer can rebuild it from
+ * whichever event lands second — the phash answer and the resolve answer race,
+ * and a merge that only worked in one order would be a bug the timing usually
+ * hides.
+ */
+export function mergeCandidates(read: readonly ScanCandidate[], phash: readonly ScanCandidate[]): ScanCandidate[] {
+  const seen = new Set(read.map((m) => m.cardId))
+  return [...read, ...phash.filter((m) => !seen.has(m.cardId))]
 }
 
 export function initialIdentity(): IdentityState {
@@ -396,6 +465,30 @@ export function identityFromMatch(m: ScanMatch): Identity {
     images: m.images,
     distance: m.distance,
     confidence: m.confidence,
+  }
+}
+
+/**
+ * A candidate the reader picked, in the shape the FEED ROW takes.
+ *
+ * `-1` and `0` are the row's own encoding of "no phash opinion" — `Scan.tsx`
+ * already writes exactly those when the printed-number ladder names a card, and
+ * `FeedEntryCard` reads the -1 and draws provenance instead of a meter. So this
+ * is a translation into an existing convention rather than an invented distance:
+ * the nullable pair belongs to the WIRE, where "null" and "distance 64" have to
+ * stay different facts, and the row has always spoken the other dialect.
+ */
+export function toPickedMatch(c: ScanCandidate): ScanMatch {
+  return {
+    cardId: c.cardId,
+    name: c.name,
+    number: c.number,
+    setId: c.setId,
+    setName: c.setName,
+    rarity: c.rarity,
+    images: c.images,
+    distance: c.distance ?? -1,
+    confidence: c.confidence ?? 0,
   }
 }
 
@@ -467,7 +560,7 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
     // minutes later — `Scan.tsx`'s `recordRowOutcome` reduces the state the row
     // carried down — so they are not late answers from the race; they are a
     // human overruling it, which is the one thing allowed to.
-    if (e.type === 'pick') return { ...s, phase: 'confident', match: identityFromMatch(e.match), by: 'reader' }
+    if (e.type === 'pick') return { ...s, phase: 'confident', match: identityFromResolve(e.match), by: 'reader' }
     if (e.type === 'retake') return { ...s, phase: 'discarded' }
     // A late `read` is dropped SILENTLY: it is a hint, it could never have named
     // the card, and counting it would blunt the alarm below. A `backstop` on a
@@ -485,7 +578,20 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
       const gated = gateScanResponse(e.res)
       // The evidence survives the gate even when the claim does not — the
       // ranked list IS the picker, so a demoted result still fills it.
-      const next: IdentityState = { ...s, candidates: gated?.matches ?? s.candidates, phashSettled: true }
+      //
+      // MERGED, NOT ASSIGNED. The resolve answer may already be in (the events
+      // race, and the reducer is order-blind by design), and overwriting the
+      // list would drop the ladder's candidates whenever phash happened to
+      // answer second. The read group is recovered from the list itself, which
+      // is what `from` is on it for.
+      const next: IdentityState = {
+        ...s,
+        candidates: mergeCandidates(
+          s.candidates.filter((m) => m.from === 'read'),
+          gated?.matches ?? s.candidates.filter((m) => m.from !== 'read'),
+        ),
+        phashSettled: true,
+      }
       const top = gated?.matched ? gated.matches[0] : undefined
       if (top) return { ...next, phase: 'confident', match: identityFromMatch(top), by: 'phash' }
       return settleOrWait(next)
@@ -497,6 +603,13 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
     case 'resolve': {
       const next: IdentityState = {
         ...s,
+        // The ladder's own candidates go to the TOP of the picker, ahead of
+        // whatever the hash had. `readCandidates` decides which responses are
+        // entitled to contribute; this only decides where they sit.
+        candidates: mergeCandidates(
+          readCandidates(e.resolved),
+          s.candidates.filter((m) => m.from !== 'read'),
+        ),
         resolveSettled: true,
         resolveVerdict: e.resolved
           ? { resolvedBy: e.resolved.resolvedBy, confident: e.resolved.confident }
@@ -518,7 +631,7 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
       return { ...s, phase: 'needs-you', phashSettled: true, resolveSettled: true, backstopped: true }
 
     case 'pick':
-      return { ...s, phase: 'confident', match: identityFromMatch(e.match), by: 'reader' }
+      return { ...s, phase: 'confident', match: identityFromResolve(e.match), by: 'reader' }
 
     case 'retake':
       return { ...s, phase: 'discarded' }

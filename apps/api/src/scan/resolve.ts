@@ -27,7 +27,7 @@
  * not drag down a certain identity. There is deliberately no variant field in
  * anything this module returns.
  *
- * ── ONE RUNG ANSWERS A WEAKER QUESTION ON PURPOSE ──────────────────────────
+ * ── TWO RUNGS ANSWER A WEAKER QUESTION ON PURPOSE ──────────────────────────
  *
  * Rung 9 reads the text in the MIDDLE of the card — attacks, ability, rules
  * text, flavour line — and it is an escalation the device only reaches for when
@@ -37,6 +37,25 @@
  * when the family it lands on has exactly one printing, and otherwise returns
  * `matched: false` carrying the family's printings as candidates. `familyText.ts`
  * holds the reasoning and the measurements.
+ *
+ * RUNG 5b IS THE SAME RULE KEYED ON THE NAME, and it is the 2026-09-07 owner
+ * report made structural. A card in a toploader shows its title and hides its
+ * bottom strip, so OCR reads a NAME and no number — and until this rung existed
+ * the name could only FILTER the phash priors (rung 7). When phash's top-25 held
+ * no card of that name, which is the ordinary case for a hash that has already
+ * failed, the name evidence was DISCARDED and the reader was shown the hash's
+ * near-random list under a chip that said `read "Ultra Ball"`. The owner's words:
+ * "as silly as it gets."
+ *
+ * The catalogue knows every card called Ultra Ball. A name that resolves to a
+ * catalogue name family therefore returns that family's printings as SHOWABLE
+ * candidates — `matched: false`, best first — exactly as rung 9 does with the
+ * text family, because it is exactly the same fact: a family is not a card. It
+ * is confident only when the family has ONE printing and the read was exact.
+ *
+ * Both rungs compose with the vector the same way, through `corroborate`: a
+ * family the print narrowed to a handful, plus a vector top-1 inside it, is two
+ * signals covering each other's blind spot and becomes 'corroborated'.
  *
  * ── AND ONE RUNG DOES NOT READ THE CARD AT ALL ─────────────────────────────
  *
@@ -119,6 +138,21 @@ export interface CatalogPort {
   byIds(cardIds: readonly string[]): Promise<CatalogCard[]>;
 
   /**
+   * rung 5b: every catalogue card whose name could be the one that was read.
+   *
+   * A SUPERSET, deliberately. The port answers with what an index can cheaply
+   * find — a prefix of the folded name, plus a trigram neighbourhood for the
+   * misread — and `narrowByName` then applies §5's tiers to what comes back, so
+   * the decision about what counts as the same name lives in ONE place (here,
+   * pure, tested without a database) rather than being half-expressed in SQL.
+   *
+   * OPTIONAL for the same reason `byTextTokens` is: a port that cannot answer
+   * simply does not implement it, this rung never runs, and every other rung
+   * behaves exactly as it did before the rung existed.
+   */
+  byName?(probe: NameProbe): Promise<CatalogCard[]>;
+
+  /**
    * rung 9, coarse prefilter: cards whose `card_text.tokens` share at least
    * `minOverlap` of `probeTokens`, with a family key and a bag to score.
    *
@@ -183,6 +217,20 @@ export type ResolvedBy =
   | 'badge+number'
   | 'number+denominator'
   | 'name+number'
+  /**
+   * Rung 5b — the read name resolved to a catalogue NAME FAMILY, and what came
+   * back is that family's printings.
+   *
+   * A LABEL OF ITS OWN AND EMPHATICALLY NOT 'prior-only', which is what this
+   * case used to report. The two say opposite things: 'prior-only' means "OCR
+   * added no key, here is the hash's list", and a caller that reads it knows the
+   * candidates are ranked by Hamming distance. These candidates are not — they
+   * are every card of that name, most carry `distance: null` because the hash
+   * never nominated them, and a client that merged them into a distance ranking
+   * on the strength of a `prior-only` would be ranking by a field half of them
+   * do not have.
+   */
+  | 'name-family'
   | 'family-text'
   /**
    * The image vector answered ALONE, on a decisive margin in vector space, with
@@ -396,6 +444,105 @@ export function narrowByName(cands: readonly CatalogCard[], read: string): Catal
   return scored.filter((s) => s.tier === best).map((s) => s.card);
 }
 
+// ── Rung 5b: the name as a lookup key, and the caps that keep it one ─────────
+
+/**
+ * What the catalogue is asked for when the name is all there is.
+ *
+ * Two strings and not one, because the port needs both halves of what `nameTier`
+ * is about to do: `normalized` is the read folded by §5 (what a catalogue name
+ * must EQUAL at tier 0, and the centre of the fuzzy neighbourhood at tier 2),
+ * and `prefix` is that with the rule-box suffix removed — which every catalogue
+ * name reachable at tier 0 or tier 1 must START WITH, in both directions. A read
+ * of `Charizard` has to find `Charizard ex`; a read of `Charizard ex` has to
+ * find `Charizard`; `charizard%` is the one predicate that does both.
+ */
+export interface NameProbe {
+  /** The read, folded by `normalizeCardName`. */
+  normalized: string;
+  /** …and with `OPTIONAL_SUFFIX` stripped. Never empty. */
+  prefix: string;
+}
+
+/**
+ * The shortest folded name this rung will look up.
+ *
+ * A prefix query is only a filter while it is longer than the alphabet's
+ * shoulder: `m%` is thousands of cards and would turn a rung into a catalogue
+ * dump, and no English card in this catalogue is named in fewer than three
+ * letters anyway (`Mew`, `Bea`, `Ivy` are the floor). Below it the rung declines
+ * and the ladder falls through exactly as it did before the rung existed — which
+ * is also the right answer for the case this actually catches, an OCR read that
+ * decayed to one or two glyphs.
+ */
+export const MIN_NAME_PROBE = 3;
+
+/**
+ * How many DISTINCT name families a read may put in front of a reader.
+ *
+ * Three. The real ambiguities this rung produces are small and known: a printed
+ * name TCGdex disambiguates two ways (`Boss's Orders (Giovanni)` and
+ * `(Lysandre)` — the card prints neither parenthetical), and a species name that
+ * is also the stem of several rule-box cards (`Charizard`, `Charizard ex`,
+ * `Charizard VMAX` all match a read of "Charizard" at tier 1). Three covers
+ * those with room, and past three a picker has stopped being a choice.
+ */
+export const MAX_NAME_FAMILIES = 3;
+
+/**
+ * …and how many printings of EACH, once there is more than one family.
+ *
+ * A per-family cap and not just the global `MAX_MATCHES`, because the global one
+ * is not a cap on ambiguity: 25 slots filled by the first family's 40 printings
+ * would show the reader a screenful of one card and hide the other candidate
+ * entirely, which is the failure this rung exists to stop. With ONE family
+ * there is nothing to crowd out and every printing is offered, up to
+ * `MAX_MATCHES`.
+ */
+export const MAX_NAME_PRINTINGS = 5;
+
+/** The probe for a read, or null when it is too short to be one. */
+export function planNameProbe(read: string): NameProbe | null {
+  const normalized = normalizeCardName(read);
+  if (normalized.length < MIN_NAME_PROBE) return null;
+  // `|| normalized` because a name that is ENTIRELY a rule-box suffix — a read
+  // that caught the `ex` and nothing else — strips to the empty string, and an
+  // empty prefix is `LIKE '%'`.
+  const prefix = stripOptionalSuffix(normalized) || normalized;
+  if (prefix.length < MIN_NAME_PROBE) return null;
+  return { normalized, prefix };
+}
+
+/**
+ * Keep the best few families, and the best few printings of each, WITHOUT
+ * disturbing the order they were ranked in.
+ *
+ * The input is already in `rank`'s order — vector agreement first, then phash
+ * distance, then catalogue order — and that order is what decides which family
+ * is "best": the one owning the highest-ranked card. So this filters rather than
+ * regroups, and a family whose printings are scattered through the list stays
+ * scattered through it. Re-sorting into family blocks would have quietly
+ * promoted whichever family happened to be alphabetically first over the one an
+ * independent signal actually pointed at.
+ *
+ * Families are keyed on the RAW catalogue name and not the folded one, which is
+ * the entire point of the guard: `Boss's Orders (Giovanni)` and
+ * `Boss's Orders (Lysandre)` fold to one string and are two different cards.
+ */
+function capNameFamilies<T extends CatalogCard>(ranked: readonly T[]): T[] {
+  const kept = new Map<string, number>();
+  const out: T[] = [];
+  for (const card of ranked) {
+    const seen = kept.get(card.name);
+    if (seen == null && kept.size >= MAX_NAME_FAMILIES) continue;
+    const n = seen ?? 0;
+    if (n >= MAX_NAME_PRINTINGS) continue;
+    kept.set(card.name, n + 1);
+    out.push(card);
+  }
+  return out;
+}
+
 // ── Field parsing ───────────────────────────────────────────────────────────
 
 /**
@@ -509,6 +656,51 @@ export async function resolveCard(
     return { matched: true, confident: false, resolvedBy, matches, badge };
   };
 
+  /**
+   * Finish a rung that produced a FAMILY rather than a card — rung 5b's name
+   * family and rung 9's text family, which differ in how they were found and in
+   * nothing else that matters here.
+   *
+   * `sole` is the one printing this evidence identifies, or null. Null is the
+   * ordinary case and it is not a failure: it is the honest report that the
+   * family has several printings, or that the read was too approximate to be
+   * sure which family it even was.
+   *
+   * 🔴 `matched: false` with a non-empty `matches` comes out of here and out of
+   * nowhere else in this module. It is the literal truth — no CARD was matched,
+   * and here is the short list a human can finish from — and it is what keeps an
+   * auto-add path from banking a printing nobody chose.
+   */
+  const familyDone = (
+    resolvedBy: ResolvedBy,
+    cards: readonly CatalogCard[],
+    sole: CatalogCard | null,
+  ): ResolveOutcome => {
+    const matches = rank(cards, priors.distance, evidence.similarity).slice(0, MAX_MATCHES);
+    // Exactly one printing, and nothing arguing against it. This is the whole of
+    // what a family is allowed to be sure about.
+    if (sole && matches.length > 0 && !priorsContradict(sole, priors, opts)) {
+      return { matched: true, confident: true, resolvedBy, matches, badge };
+    }
+    // A FAMILY THAT IS NOT A CARD IS THE BEST CORROBORATION CASE THERE IS.
+    // The print identifies the WORDS or the NAME, which every reprint shares;
+    // the vector identifies the PICTURE, which no two printings share. "It is
+    // one of these six Pikachus" plus "the closest image in the whole index is
+    // that one" is two signals covering each other's exact blind spot.
+    const winner = corroborate(matches.map((m) => m.cardId), signals);
+    if (winner) {
+      const lead = matches.find((m) => m.cardId === winner)!;
+      return {
+        matched: true,
+        confident: true,
+        resolvedBy: 'corroborated',
+        matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
+        badge,
+      };
+    }
+    return { matched: sole != null && matches.length > 0, confident: false, resolvedBy, matches, badge };
+  };
+
   // ── Rung 1 — badge + number. 20,444 keys, zero collisions. ────────────────
   // Accepted on its own evidence: §7.4 says a rung-1 hit should skip phash
   // entirely or use it only as a consistency assertion, so the priors get to
@@ -577,6 +769,57 @@ export async function resolveCard(
     }
   }
 
+  // ── Rung 5b — the NAME ALONE, as a family rather than as a filter ─────────
+  //
+  // THE 2026-09-07 DEFECT, and the whole of the fix. A toploadered card shows
+  // its title and hides its bottom strip, so this is the read the ladder gets
+  // most often when it gets an incomplete one: a name, no number, no
+  // denominator, no badge. Every rung above needs a numeric key and declines.
+  //
+  // What used to happen next was rung 7 — filter the phash priors by the name —
+  // and a filter can only ever hand back cards the HASH already nominated. When
+  // the hash has failed (which is why we are down here at all) its top-25 holds
+  // no card of that name, the filter empties, and the reader was shown the
+  // hash's near-random list under a hint chip reading `read "Ultra Ball"`.
+  //
+  // The catalogue knows every card named Ultra Ball. So the name is used as a
+  // LOOKUP and not as a sieve, and what it finds is a family, which is not a
+  // card — same rule as rung 9, same shape, same `matched: false`:
+  //
+  //   one family, one printing, read at tier 0 or 1  → confident.
+  //   anything else                                  → its printings, best
+  //                                                    first, claiming nothing.
+  //
+  // WHY THE TIER MATTERS FOR CONFIDENCE AND NOWHERE ELSE. Tier 2 is the fuzzy
+  // budget — an edit or two on a long name — and it is a guess about what the
+  // letters WERE. A guess may put candidates in front of a person; it may not
+  // name a card, even when it happens to land on a family with a single
+  // printing, because "the only card within two edits of what I think I read"
+  // is not the same claim as "the card whose name I read".
+  //
+  // AND WHY IT SITS ABOVE THE VECTOR RUNG. For the reason rungs 3, 4 and 5 do:
+  // once a printed field has produced a candidate set, that set is the answer
+  // and the vector's contribution to it is agreement (`corroborate`), not a
+  // competing list. A vector that likes one of these Ultra Balls makes the
+  // answer confident; a vector that likes something else is a disagreement, and
+  // §7.4's rule for a disagreement is silence — the candidates go to the reader
+  // unclaimed.
+  if (nameRead && port.byName) {
+    const probe = planNameProbe(nameRead);
+    if (probe) {
+      const narrowed = narrowByName(await port.byName(probe), nameRead);
+      if (narrowed.length > 0) {
+        // Every survivor is at the same tier — that is `narrowByName`'s
+        // contract — so any of them reports it.
+        const tier = nameTier(nameRead, narrowed[0]!.name);
+        const families = new Set(narrowed.map((c) => c.name)).size;
+        const ranked = rank(narrowed, priors.distance, evidence.similarity);
+        const sole = families === 1 && narrowed.length === 1 && tier != null && tier <= 1 ? narrowed[0]! : null;
+        return familyDone('name-family', families > 1 ? capNameFamilies(ranked) : ranked, sole);
+      }
+    }
+  }
+
   // ── Rung 9 — the card's own body text. Escalation, and never a printing. ──
   //
   // Last of the rungs that can name anything, and it runs only because every
@@ -597,43 +840,10 @@ export async function resolveCard(
   // is a different escalation with a different ceiling, and it is numbered 9
   // because the ladder is append-only.
   const family = await resolveFamilyText(fields.bodyLines, port);
-  if (family) {
-    const matches = rank(family, priors.distance, evidence.similarity).slice(0, MAX_MATCHES);
-    // Exactly one printing, or nothing certain. This is the whole rung.
-    const sole = family.length === 1 ? family[0]! : null;
-    if (sole && matches.length > 0 && !priorsContradict(sole, priors, opts)) {
-      return { matched: true, confident: true, resolvedBy: 'family-text', matches, badge };
-    }
-    // A FAMILY THAT IS NOT A CARD IS THE BEST CORROBORATION CASE THERE IS, and
-    // it is why this rung routes through the same rule the others do. Body text
-    // identifies the WORDS, which every reprint shares; the vector identifies
-    // the PICTURE, which no two printings share. "It is one of these six
-    // Pikachus" plus "the closest image in the whole index is that one" is two
-    // signals covering each other's exact blind spot.
-    const winner = corroborate(matches.map((m) => m.cardId), signals);
-    if (winner) {
-      const lead = matches.find((m) => m.cardId === winner)!;
-      return {
-        matched: true,
-        confident: true,
-        resolvedBy: 'corroborated',
-        matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
-        badge,
-      };
-    }
-    return {
-      // 🔴 `matched: false` with a non-empty `matches` is deliberate here and
-      // nowhere else. A family with several printings means we know WHICH CARD
-      // and not WHICH ONE OF THESE, and the client's needs-you picker is the
-      // right place for that — not a `matched: true` that would let an
-      // auto-add path bank a printing nobody chose.
-      matched: sole != null && matches.length > 0,
-      confident: false,
-      resolvedBy: 'family-text',
-      matches,
-      badge,
-    };
-  }
+  // Exactly one printing, or nothing certain. That is the whole rung, and it is
+  // `familyDone`'s rule verbatim — the same one rung 5b answers by, because the
+  // two rungs are the same fact found two ways.
+  if (family) return familyDone('family-text', family, family.length === 1 ? family[0]! : null);
 
   // ── The image rung — the vector, with nothing to lean on ──────────────────
   //
@@ -670,6 +880,13 @@ export async function resolveCard(
   // Pikachu). Neither is ever sufficient, so neither gets to name a card: they
   // narrow the phash candidates and nothing more, and the answer stays the
   // existing scan path's, unchanged and unconfident.
+  //
+  // Rung 7 — the name filter — is REACHED FAR LESS OFTEN since rung 5b, and the
+  // cases left to it are the ones where the name really did contribute nothing:
+  // a read no catalogue name comes within two edits of, a read shorter than
+  // `MIN_NAME_PROBE`, or a port with no `byName`. Those are exactly the cases in
+  // which filtering the priors is all a name is worth, so the rung stays and
+  // keeps its old meaning rather than being deleted along with the defect.
   let filtered = priors.cards;
   if (numeric != null) filtered = filtered.filter((c) => c.numberNumeric === numeric);
   if (nameRead) filtered = filtered.filter((c) => nameTier(nameRead, c.name) != null);

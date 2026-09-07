@@ -3,7 +3,7 @@
 // in ../engine/contract.ts and are never redeclared here — every file in this
 // directory imports them from there directly, so there is exactly one
 // definition of the engine boundary to keep in step with.
-import type { ScanMatch } from '../../lib/api'
+import type { ScanCandidate } from '../../lib/api'
 import type { IdentityState } from './identity'
 
 /**
@@ -145,11 +145,17 @@ export interface FeedEntry {
    *  NOTHING SETS THIS TODAY and nothing may until that service is wired: the
    *  ruling's own words are "no dead spinner shown today". */
   detectingPrinting: boolean
-  /** Top-k matches from the identify call that produced this row, best
-   *  first. Feeds the "wrong card? / pick a match" popover; for a "needs
-   *  your input" row these are the closest guesses, none confident enough to
-   *  auto-select. */
-  alternates: ScanMatch[]
+  /**
+   * What the "wrong card? / pick a match" popover offers, best first — the
+   * settled race's `candidates`, carried down by the flight.
+   *
+   * TWO GROUPS SINCE 2026-09-07, in this order: cards the resolve ladder found
+   * out of what OCR read (marked `from: 'read'`, and usually carrying no phash
+   * distance at all), then the tie-gated phash ranking minus anything already
+   * above. `identity.mergeCandidates` builds it and the popover draws the seam;
+   * nothing interleaves the two, because only one of them is ranked by distance.
+   */
+  alternates: ScanCandidate[]
   /** When the SHUTTER fired, not when the row landed — the two are seconds
    *  apart now that a capture waits for its identity, and `identityRecord`'s
    *  `msToResolve` is measured from the first. */

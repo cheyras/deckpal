@@ -327,22 +327,47 @@ export interface ScanResolveMatch extends Omit<ScanMatch, 'distance' | 'confiden
   distance: number | null
   confidence: number | null
 }
+
+/**
+ * A CARD THE PICKER MAY OFFER, from either signal.
+ *
+ * The same shape as `ScanResolveMatch` — nullable distance and confidence —
+ * because since 2026-09-07 the picker holds both kinds: the ladder's own
+ * candidates, which have no phash opinion attached, and phash's ranking, which
+ * is all distance. `ScanMatch` is assignable to this, so the hash's entries need
+ * no conversion and keep their numbers.
+ *
+ * `from` is PROVENANCE and not a rank. The two kinds are shown as two groups
+ * rather than interleaved, because a list sorted by Hamming distance cannot
+ * honestly hold entries that have none — the rule `scan/ui/ocrNarrow.ts` has
+ * always stated, now satisfied by two groups instead of by discarding the
+ * ladder's candidates.
+ */
+export interface ScanCandidate extends ScanResolveMatch {
+  /** 'read' — the resolve ladder put this card here, out of what OCR read off
+   *  the card. Absent — it came from the phash ranking. */
+  from?: 'read'
+}
 export interface ScanResolveResponse {
   matched: boolean
   /** The ladder is sure. Only then may a caller present this over the phash
    *  result — see CROSSWALK §7.3 for what each rung is worth. */
   confident: boolean
-  /** Which rung answered. `family-text` is the escalation rung's — reached only
-   *  from `fields.bodyLines`, and only on a backend that has it. `vector` and
+  /** Which rung answered. `name-family` is a NAME with no usable number — what a
+   *  card in a toploader gives you — and its matches are every printing of that
+   *  name. `family-text` is the escalation rung's, reached only from
+   *  `fields.bodyLines` and only on a backend that has it. `vector` and
    *  `corroborated` are the IMAGE rung's, reached only when `vectorMatches` was
    *  sent AND that backend has `SCAN_EMBED_MATCH` on. A backend without either
    *  simply never returns those values, which is why nothing on this side
-   *  switches exhaustively on this union: it is recorded and displayed, never
-   *  branched on. */
+   *  switches exhaustively on this union: it is recorded and displayed, and the
+   *  one thing branched on is `prior-only` (see `readCandidates`, which must not
+   *  re-offer the hash's own list as though OCR had found it). */
   resolvedBy:
     | 'badge+number'
     | 'number+denominator'
     | 'name+number'
+    | 'name-family'
     | 'family-text'
     | 'vector'
     | 'corroborated'
