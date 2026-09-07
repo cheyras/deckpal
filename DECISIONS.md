@@ -17094,6 +17094,55 @@ the deploy — 059 without 060 is worse than neither, because it recreates the
 orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
 cutover.
 
+### 50. Rounds forty-seven and forty-eight: the money paths held; the gate lied
+
+Forty-seven found nothing — the first clean round in fourteen. It drove the
+wind-down and dunning lifecycle over months of webhook traffic: $X to $0 sets
+`cancel_at_period_end` rather than cancelling outright, the paid month is still
+displayed, **no prompt reaches anyone while they are winding down**, the
+period-end pair lands them on $0/canceled, nothing is charged for the month
+after they stopped, and the ex-supporter rejoins the ordinary monthly check-in.
+Replacing a card mid-wind-down does not un-cancel the subscription, which is the
+reason `/payment-method` exists as its own route.
+
+Forty-eight re-verified that independently and found the previous round's
+evidence weaker than it looked: the fake invoices in the lifecycle harness
+carried no `customer`, so every `invoice.paid` delivery had been a silent no-op
+and `sweepDuplicatePayingSubscriptions` had never actually run in any of them.
+Corrected, everything still passes, plus a randomised long-run — four accounts,
+fourteen months, ten seeds, 1,120 invariant checkpoints — with no violation and
+no spurious refund. **A harness that cannot fail is the same defect as a test
+that cannot fail, and it hid inside a round that reported success.**
+
+Its own finding was in the configuration gate, and in both halves it was the
+same mistake: a sentence that was true of one state printed for several.
+
+`billingGateWarning()` appended "a deployment with a secret key but no webhook
+secret takes cards and then never hears about a renewal" to EVERY partial
+state. A deployment missing only the secret key cannot take a card at all —
+`billingAvailable()` is false and every money route 400s — and was told it was
+charging people and losing their renewals. An operator who believes it rolls
+back a deployment that was safely off; one who learns to discount it discounts
+it in the one case where it is true. The sentence is now chosen by the state.
+
+And both this module and `lib/billing.ts` claimed that serving the publishable
+key from the same process as the secret key made a live/test disagreement
+"unreachable". It removes the build-time half of the split, not the
+disagreement: the two remain independent runtime variables. Executed —
+`sk_live_…` beside `pk_test_…` reported `configured`, warned about nothing, and
+answered every route 200, while the browser loaded Stripe.js on the test account
+and every confirmation failed against a live client secret. The tier was
+entirely dead and the deployment said it was healthy. `/health` now reports
+`mode-mismatch`, and the API warns on boot.
+
+**Reported, not enforced.** The mismatch does NOT turn billing off. Turning the
+tier off on a prefix comparison is a severe action, and a false positive would
+be a worse outcome than the state it prevents; an unfamiliar prefix (a
+restricted key, a future format) is never called a mismatch. B11 asks that the
+state be visible from outside, and it now is. Two keys from different accounts
+in the SAME mode remain invisible to the gate — cutover step 6, pay once with a
+real card, is still the only thing that catches that, and DEPLOYMENT.md says so.
+
 ### 49. Round forty-six: two fixes that fixed the example and not the defect
 
 Both findings this round were mine, both from the round before, and both have

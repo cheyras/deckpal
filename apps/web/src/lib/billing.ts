@@ -22,7 +22,14 @@
  * independently-settable values, and the failure mode of them disagreeing is a
  * live key in the browser talking to a test key on the server, which presents
  * to the reader as "my card was declined for no reason". `GET /me/billing`
- * serves both halves from the same process, so that state is unreachable.
+ * serves both halves from the same process, which removes the BUILD-TIME half
+ * of that split.
+ *
+ * ⚠️ It does not make the state unreachable, which this used to claim. Both
+ * keys are still independent runtime variables and can still disagree —
+ * executed, and the deployment reported itself healthy while every confirmation
+ * failed. The server names it: `billingGateStatus()` returns `mode-mismatch`,
+ * `/health` reports it and the API warns on boot.
  */
 import { loadStripe, type Stripe, type StripeElementsOptions } from '@stripe/stripe-js'
 

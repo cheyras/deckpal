@@ -423,8 +423,15 @@ Cloud only, and only when Stripe is configured. ⚠️ "Configured" has two
 meanings here and they are not the same: the ROUTES come alive on three
 variables (secret key, publishable key, product id), while `/health`'s
 `billingGate: "configured"` requires a fourth, the webhook secret. Three of four
-is `billingGate: "partial"` — the tier takes cards and never hears back. See
-DEPLOYMENT.md. `GET /me/billing`, `/visit`, `/prompt-ack` and `/refresh` all
+is `billingGate: "partial"` — and read the boot warning, which says which of the
+two partials it is: with the secret key present the tier takes cards and never
+hears back, without it the tier is simply off. A fifth value,
+`billingGate: "mode-mismatch"`, means the secret key and the publishable key
+name different Stripe MODES: every route answers 200 and every card
+confirmation fails, because the browser is on one account and the server on the
+other. It is reported, not enforced — the tier stays available, because turning
+billing off on a prefix comparison would be a worse fault than the one it
+prevents. See DEPLOYMENT.md. `GET /me/billing`, `/visit`, `/prompt-ack` and `/refresh` all
 answer the same shape, and on a deployment with no Stripe that shape is
 `{ "available": false, … }` rather than an error, because "is there a billing
 tier here" is a legitimate question with a legitimate negative answer.

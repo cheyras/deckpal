@@ -78,7 +78,15 @@ export function supportProductId(): string {
  * are two independently-settable values, and the failure mode of them
  * disagreeing is a LIVE key in the browser talking to a TEST key on the server
  * (or the reverse), which presents as "the card was declined for no reason".
- * Serving both halves from the same process makes that state unreachable.
+ *
+ * ⚠️ THAT REMOVES THE BUILD/RUNTIME SPLIT. IT DOES NOT REMOVE THE DISAGREEMENT.
+ * This used to claim serving both halves from one process made the state
+ * unreachable; it does not, because the two are still independent runtime
+ * variables. Executed: `sk_live_…` beside `pk_test_…` reported `configured`,
+ * warned about nothing, and answered every route 200 — while the browser loaded
+ * Stripe.js on the test account and every confirmation failed against a live
+ * client secret. The tier was completely dead and the deployment said it was
+ * fine. `billingGateStatus` names that state now; see `mode-mismatch` below.
  */
 export function publishableKey(): string {
   return (process.env.STRIPE_PUBLISHABLE_KEY ?? process.env.VITE_STRIPE_PUBLISHABLE_KEY ?? '').trim();
@@ -98,6 +106,34 @@ export function stripeMode(): 'test' | 'live' | 'unknown' {
   return 'unknown';
 }
 
+/**
+ * `test` or `live` for the PUBLISHABLE key, read off its own prefix.
+ *
+ * Separate from `stripeMode()`, which reads the secret key: the whole point is
+ * that the two can disagree.
+ */
+function publishableMode(): 'test' | 'live' | 'unknown' {
+  const k = publishableKey();
+  if (k.startsWith('pk_test_')) return 'test';
+  if (k.startsWith('pk_live_')) return 'live';
+  return 'unknown';
+}
+
+/**
+ * Do the two halves of the credential name the same Stripe MODE?
+ *
+ * Only ever true when both prefixes are recognised and differ — an unfamiliar
+ * prefix (a restricted key, a future format) is not evidence of anything, and
+ * this must never invent a fault on a deployment that works. It also cannot see
+ * two keys from DIFFERENT ACCOUNTS in the same mode; cutover step 6 (pay once
+ * with a real card) is what catches that, and remains the only thing that can.
+ */
+function modesDisagree(): boolean {
+  const s = stripeMode();
+  const p = publishableMode();
+  return s !== 'unknown' && p !== 'unknown' && s !== p;
+}
+
 /** Is the hosted billing tier available on this deployment at all? */
 export function billingAvailable(): boolean {
   return SUPABASE_MODE && !!secretKey() && !!supportProductId() && !!publishableKey();
@@ -107,10 +143,17 @@ export function billingAvailable(): boolean {
  * What `/health` reports. Never a key, never a fragment of one — only which of
  * the four states this deployment is in. See the module header for `partial`.
  */
-export function billingGateStatus(): 'configured' | 'partial' | 'unset' | 'self-host' {
+export function billingGateStatus(): 'configured' | 'mode-mismatch' | 'partial' | 'unset' | 'self-host' {
   if (!SUPABASE_MODE) return 'self-host';
   const present = [secretKey(), supportProductId(), publishableKey(), webhookSecret()].filter(Boolean).length;
   if (present === 0) return 'unset';
+  // ⚠️ REPORTED, NOT ENFORCED. A mode mismatch does NOT make the tier
+  // unavailable, deliberately: turning billing off is a severe action to take
+  // on a prefix comparison, and a false positive would be a worse outcome than
+  // the thing it prevents. This makes the state VISIBLE — on `/health`, in the
+  // boot warning — which is the whole of contract B11's requirement. The state
+  // is otherwise completely silent and completely broken.
+  if (modesDisagree()) return 'mode-mismatch';
   return present === 4 ? 'configured' : 'partial';
 }
 
@@ -118,6 +161,12 @@ export function billingGateStatus(): 'configured' | 'partial' | 'unset' | 'self-
 export function billingGateWarning(): string | null {
   const status = billingGateStatus();
   if (status === 'self-host' || status === 'configured') return null;
+  if (status === 'mode-mismatch') {
+    return `[deckpal-api] billing: the secret key is ${stripeMode()} and the publishable key is `
+      + `${publishableMode()} — THESE MUST MATCH. The browser will load Stripe.js on one account `
+      + 'while this server creates intents on the other, so every card confirmation fails and the '
+      + 'tier is dead without saying so. Fix both keys (DEPLOYMENT.md) before taking a payment.';
+  }
   if (status === 'unset') {
     return '[deckpal-api] billing: STRIPE_SECRET_KEY unset — the pay-what-you-want tier is OFF. '
       + '/me/billing answers available:false and no card can be taken. This is a safe default; '
@@ -130,9 +179,21 @@ export function billingGateWarning(): string | null {
     ['STRIPE_SUPPORT_PRODUCT_ID', supportProductId()],
     ['STRIPE_WEBHOOK_SECRET', webhookSecret()],
   ].filter(([, v]) => !v).map(([n]) => n);
+  // ⚠️ THE SENTENCE MUST MATCH THE STATE IT IS PRINTED FOR. This appended the
+  // armed-and-deaf description unconditionally, so a deployment missing only
+  // the SECRET KEY — which cannot take a card at all, because
+  // `billingAvailable()` is false and every money route 400s — was told it was
+  // taking cards and losing webhooks. That is the B11 failure inverted: the
+  // state is observable and misdescribed. An operator who acts on it rolls back
+  // a deployment that was safely off, or learns to discount the line and then
+  // discounts it in the one case where it is true.
+  const armed = billingAvailable();
   return `[deckpal-api] billing: PARTIALLY configured — missing ${missing.join(', ')}. `
-    + 'A deployment with a secret key but no webhook secret takes cards and then never hears about '
-    + 'a renewal, a failure or a cancellation again. Fix before taking a real payment.';
+    + (armed
+      ? 'The tier is ARMED AND DEAF: it will take cards and then never hear about a renewal, a '
+        + 'failure or a cancellation again. Fix before taking a real payment.'
+      : 'The tier is OFF until all four are set — /me/billing answers available:false and no card '
+        + 'can be taken. That is safe, but it is not working.');
 }
 
 /**
