@@ -384,6 +384,103 @@ export function analyticsContext(req: Pick<Request, 'body'>, fallback: string): 
 }
 
 /**
+ * One ask is one row, however many tabs are looking at it.
+ *
+ * Two tabs restored at browser start-up both mount the prompt, both are told
+ * the check-in is due — neither has acked yet — and both record an exposure a
+ * second and a half later. That is two denominators for one question put once
+ * to one person, and if they then answer in one tab and dismiss in the other it
+ * is two mutually exclusive outcomes as well: the same overlap that splitting
+ * dismissal from completion was meant to end, arriving by a route that guard
+ * cannot see, because it is a `useRef` and they are different mounts.
+ *
+ * Keyed on the DAY rather than on `prompt_last_shown_at`, deliberately: the
+ * stamp is written by whichever tab gets there first, so the two tabs disagree
+ * about it precisely when they are milliseconds apart, which is the case this
+ * exists for. Nothing in the product legitimately shows the same surface twice
+ * in one day — the check-in is monthly, the dunning modal is every three days,
+ * onboarding is once ever — so a same-day repeat is always the same ask.
+ *
+ * 061's `(user_id, dedupe_key)` index does the work; the second insert is
+ * dropped, not raised.
+ *
+ * Test traffic is exempt: `forced-` contexts are the manual override, and
+ * suppressing the second look at a modal somebody is deliberately re-opening
+ * would make the override useless. The analysis excludes them anyway.
+ */
+export function askDedupeKey(kind: 'shown' | 'dismissed', context: string): string | undefined {
+  if (context.startsWith('forced-')) return undefined;
+  return `${kind}:${context}:${new Date().toISOString().slice(0, 10)}`;
+}
+
+/**
+ * Refuse an answer written against a view of the account that is no longer true.
+ *
+ * ── THE DEFECT THIS CLOSES ──────────────────────────────────────────────────
+ *
+ * Every guard against asking twice lives in a `useRef` scoped to ONE MOUNT.
+ * Two tabs are two mounts and nothing joined them. Executed over the real
+ * router: an account restored into two tabs at browser start-up, both told the
+ * check-in is due (neither has acked yet), both opening the modal. The reader
+ * answers $5 in tab A — a real subscription, really charged. Tab B is still
+ * showing the same one ask, rendered before any of that, with its primary
+ * button reading "Continue with $0". Pressing it set `cancel_at_period_end` on
+ * the subscription made seconds earlier and told them "your $0 is saved …
+ * nothing about your account changes". They had been charged and their support
+ * was scheduled to end, and the app said the opposite.
+ *
+ * The advisory lock and the idempotency keys do not cover this: those collapse
+ * CONCURRENT submits, and these two are sequential and minutes apart. What is
+ * wrong with the second is not that it raced — it is that it was composed
+ * against a state that no longer exists.
+ *
+ * ── WHY THE CLIENT STATES ITS EXPECTATION RATHER THAN THE SERVER GUESSING ────
+ *
+ * The server cannot tell a stale answer from a deliberate change of mind: both
+ * are "set my support to $0" from somebody who supports $5. Only the browser
+ * knows what it was showing when the reader pressed the button. So it says so,
+ * and disagreeing with the row is the definition of stale.
+ *
+ * OPTIONAL, deliberately: a caller that omits it behaves exactly as before.
+ * That keeps `/refresh` and any older client working, and means this can never
+ * refuse a request for want of a field somebody forgot to add.
+ *
+ * Both halves are checked because both are answers. `support_cents` alone would
+ * miss a tab that renders $5 while another schedules the stop — the amount is
+ * unchanged there and the pending stop is the whole of what changed.
+ */
+export function assertFresh(req: Pick<Request, 'body'>, row: BillingRow): void {
+  const cents = req.body?.expectedCents;
+  const cancel = req.body?.expectedCancelAtPeriodEnd;
+  if (cents !== undefined && cents !== null) {
+    if (typeof cents !== 'number' || !Number.isInteger(cents) || cents < 0) {
+      throw badRequest('expectedCents must be a whole, non-negative number of cents');
+    }
+    if (cents !== row.support_cents) throw staleState();
+  }
+  if (cancel !== undefined && cancel !== null) {
+    if (typeof cancel !== 'boolean') throw badRequest('expectedCancelAtPeriodEnd must be a boolean');
+    if (cancel !== row.cancel_at_period_end) throw staleState();
+  }
+}
+
+/**
+ * 409, and the message is shown to the reader verbatim.
+ *
+ * It has to do two things at once: say nothing was applied — which is true, the
+ * check runs before anything touches Stripe — and not accuse them of an error
+ * they did not make. Another tab, or another device, is the ordinary cause.
+ */
+function staleState(): ApiError {
+  return new ApiError(
+    409,
+    'stale_state',
+    'Your support was changed somewhere else — in another tab, or on another device — so this page '
+      + 'was out of date and nothing here was applied. It has been brought up to date; take another look.',
+  );
+}
+
+/**
  * The context of an event ABOUT A PROMPT — derived, never taken.
  *
  * A prompt's surface is its `kind`, which is validated on both endpoints that
@@ -459,7 +556,7 @@ billingRouter.post(
     // surface is `kind`. See `promptContext`.
     const dismissed = req.body?.dismissed !== false;
     const context = promptContext(req, kind);
-    if (dismissed) await recordAbEvent(userId, 'dismissed', context);
+    if (dismissed) await recordAbEvent(userId, 'dismissed', context, undefined, askDedupeKey('dismissed', context));
     const acked = await ackPrompt(userId, kind === 'onboarding');
     // Durably, before responding — see `PUT /subscription`. `dismissed` is
     // the experiment's OTHER outcome, and committing only the conversions
@@ -540,7 +637,7 @@ billingRouter.post(
     // context for an answer and never for an exposure, and posting it here
     // reproduced the same 25% separation. See `promptContext`.
     const context = promptContext(req, kind);
-    await recordAbEvent(userId, 'shown', context);
+    await recordAbEvent(userId, 'shown', context, undefined, askDedupeKey('shown', context));
     // ⚠️ AND THE CLOCK STARTS HERE, not on the ack. See the header.
     //
     // `onboarding` is passed through so the once-ever stamp lands too: without
@@ -602,6 +699,11 @@ billingRouter.put(
     // then see the first one's subscription, so it updates instead of creating.
     await lockAccount(userId);
     const row = await readRow(userId);
+    // ⚠️ AND THE LOCK IS NOT ENOUGH, because the second tab is not racing. It
+    // is answering a question that was already answered, minutes ago, from a
+    // screen that still shows the old state. See `assertFresh`. This runs
+    // BEFORE anything touches Stripe, so a refusal has moved no money.
+    assertFresh(req, row);
     try {
       // ⚠️ $0 WITH NOTHING ON FILE TOUCHES STRIPE AT ALL. Most people answer
       // $0, and creating a customer for each of them fills the dashboard with

@@ -127,6 +127,45 @@ describe('the billing gate names the state it is actually in', () => {
     });
   });
 
+  test('a mismatch that CANNOT take a card does not claim the browser is talking to Stripe', () => {
+    // The mismatch arm returned before the missing list was built, so it made
+    // the same mistake as the partial arm one round earlier: four states where
+    // the tier is OFF were told the browser was loading Stripe.js on the wrong
+    // account. Nothing loads Stripe.js on a deployment whose routes all 400.
+    withEnv({ STRIPE_SECRET_KEY: 'sk_live_x', STRIPE_PUBLISHABLE_KEY: 'pk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' }, () => {
+      assert.equal(billingGateStatus(), 'mode-mismatch');
+      assert.equal(billingAvailable(), false);
+      const w = String(billingGateWarning());
+      assert.match(w, /THESE MUST MATCH/);
+      assert.match(w, /The tier is OFF until all four are set/);
+      assert.doesNotMatch(w, /The tier is ARMED: it can take a card right now/);
+      assert.match(w, /Also missing: STRIPE_SUPPORT_PRODUCT_ID/);
+    });
+  });
+
+  test('...and a mismatch that is ALSO missing the webhook secret names it', () => {
+    // Otherwise a cutover fixes the keys, redeploys, and only then discovers
+    // the fourth variable — two round trips on the state DEPLOYMENT.md says
+    // not to go live without.
+    const env: Record<string, string> = { ...FULL, STRIPE_SECRET_KEY: 'sk_live_x', STRIPE_PUBLISHABLE_KEY: 'pk_test_x' };
+    delete env.STRIPE_WEBHOOK_SECRET;
+    withEnv(env, () => {
+      assert.equal(billingGateStatus(), 'mode-mismatch');
+      assert.equal(billingAvailable(), true);
+      const w = String(billingGateWarning());
+      assert.match(w, /The tier is ARMED: it can take a card right now/);
+      assert.match(w, /Also missing: STRIPE_WEBHOOK_SECRET/);
+    });
+  });
+
+  test('a fully-configured mismatch has nothing else to report', () => {
+    withEnv({ ...FULL, STRIPE_SECRET_KEY: 'sk_live_x', STRIPE_PUBLISHABLE_KEY: 'pk_test_x' }, () => {
+      const w = String(billingGateWarning());
+      assert.match(w, /The tier is ARMED/);
+      assert.doesNotMatch(w, /Also missing/);
+    });
+  });
+
   test('a mismatch is still reported when a fourth value is missing too', () => {
     // Mismatch outranks partial: both are true, and only one of them makes
     // every payment fail today.

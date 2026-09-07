@@ -25,7 +25,7 @@ import {
 } from '../billing/store.js';
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
 import { ApiError, errorMiddleware } from '../http.js';
-import { analyticsContext, promptContext, stripeFailure } from '../routes/billing.js';
+import { analyticsContext, askDedupeKey, assertFresh, promptContext, stripeFailure } from '../routes/billing.js';
 import { pullState, sweepDuplicatePayingSubscriptions } from '../billing/service.js';
 import { PaymentInFlightError, SubscriptionPausedError } from '../billing/service.js';
 
@@ -872,5 +872,90 @@ describe('promptContext — an exposure is filed under the surface it happened o
       // Even a forced label pointing somewhere else lands on the real surface.
       assert.equal(ctx({ context: 'forced-settings' }, 'onboarding'), 'forced-onboarding');
     });
+  });
+});
+
+// ── Two tabs, one ask ────────────────────────────────────────────────────────
+
+describe('assertFresh — an answer written against a state that has moved', () => {
+  const row = (over: Record<string, unknown> = {}) =>
+    ({ support_cents: 500, cancel_at_period_end: false, ...over }) as never;
+  const check = (body: unknown, r = row()) => assertFresh({ body } as never, r);
+
+  test('the two-tab reversal is refused with a 409, before anything touches Stripe', () => {
+    // Tab A answered $5. Tab B still shows the same ask with "Continue with $0"
+    // as its primary button; pressing it used to schedule the end of the
+    // subscription made seconds earlier and report that nothing had changed.
+    const err = (() => {
+      try {
+        check({ amountCents: 0, expectedCents: 0, expectedCancelAtPeriodEnd: false });
+        return null;
+      } catch (e) {
+        return e as ApiError;
+      }
+    })();
+    assert.ok(err instanceof ApiError);
+    assert.equal(err.status, 409);
+    assert.equal(err.code, 'stale_state');
+    assert.match(err.message, /nothing here was applied/);
+  });
+
+  test('a pending stop the other tab cannot see is staleness too', () => {
+    // `support_cents` is unchanged while a subscription winds down, so the
+    // amount alone would let a stale tab silently un-cancel it.
+    assert.throws(
+      () => check({ expectedCents: 500, expectedCancelAtPeriodEnd: false }, row({ cancel_at_period_end: true })),
+      (e: unknown) => e instanceof ApiError && e.status === 409,
+    );
+  });
+
+  test('an up-to-date screen passes, including a deliberate $0', () => {
+    // The negative control: the SAME request from a tab that is current is a
+    // change of mind, and must go through. The guard distinguishes them only by
+    // what the screen was showing.
+    assert.doesNotThrow(() => check({ amountCents: 0, expectedCents: 500, expectedCancelAtPeriodEnd: false }));
+  });
+
+  test('a caller that states no expectation behaves exactly as before', () => {
+    assert.doesNotThrow(() => check({ amountCents: 1000 }));
+    assert.doesNotThrow(() => check({ amountCents: 1000, expectedCents: null, expectedCancelAtPeriodEnd: null }));
+  });
+
+  test('a malformed expectation is a 400, not a silent pass', () => {
+    // Ignoring it would turn a client bug into an unguarded write.
+    for (const bad of ['500', 5.5, -1, Number.NaN]) {
+      assert.throws(
+        () => check({ expectedCents: bad }),
+        (e: unknown) => e instanceof ApiError && e.status === 400,
+        String(bad),
+      );
+    }
+    assert.throws(
+      () => check({ expectedCancelAtPeriodEnd: 'false' }),
+      (e: unknown) => e instanceof ApiError && e.status === 400,
+    );
+  });
+});
+
+describe('askDedupeKey — one ask is one row, however many tabs are open', () => {
+  test('the same surface on the same day is one key', () => {
+    assert.equal(askDedupeKey('shown', 'checkin'), askDedupeKey('shown', 'checkin'));
+    assert.match(String(askDedupeKey('shown', 'checkin')), /^shown:checkin:\d{4}-\d{2}-\d{2}$/);
+  });
+
+  test('the two outcomes and the two surfaces do not collide', () => {
+    assert.notEqual(askDedupeKey('shown', 'checkin'), askDedupeKey('dismissed', 'checkin'));
+    assert.notEqual(askDedupeKey('shown', 'checkin'), askDedupeKey('shown', 'onboarding'));
+  });
+
+  test('the manual override is exempt, or it could only ever be used once a day', () => {
+    assert.equal(askDedupeKey('shown', 'forced-checkin'), undefined);
+    assert.equal(askDedupeKey('dismissed', 'forced-onboarding'), undefined);
+  });
+
+  test('the key fits the column 062 truncates at 80', () => {
+    // A context is capped at 40, and a truncated key would collide with another
+    // truncated key — which would drop a legitimately different event.
+    assert.ok(String(askDedupeKey('dismissed', 'x'.repeat(40))).length <= 80);
   });
 });

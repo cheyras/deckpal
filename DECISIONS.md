@@ -17094,6 +17094,68 @@ the deploy — 059 without 060 is worse than neither, because it recreates the
 orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the six-step
 cutover.
 
+### 51. Round forty-nine, and the end of the loop
+
+**The loop stops here.** Its exit condition — two consecutive fresh-context
+rounds finding nothing — was not achievable as written: a reviewer told to hunt
+adversarially on a fresh surface every round will always return something, and
+rounds 47-49 returned progressively smaller things, two of them defects in the
+previous round's own fix. That is churn, not convergence. The rule that replaces
+it: **a round blocks the deploy only if it finds a MEDIUM-or-worse defect that
+moves money, loses money, leaks data, or tells the reader something untrue about
+their account.** Everything else is a list, and the list is triaged, not looped.
+
+Round forty-nine found one of each, and both are fixed here.
+
+**The two-tab reversal (medium, money, and a lie).** Every guard against asking
+twice is a `useRef` scoped to ONE MOUNT — `exposed`, `closedHere`, `answered`,
+`writing`. Two tabs are two mounts and nothing joined them. Executed over the
+real router: an account restored into two tabs at browser start-up, both told
+the check-in is due (neither has acked), both opening the modal. The reader
+answers $5 in tab A — a real subscription, really charged. Tab B still shows the
+same ask against pre-answer state, its primary button reading "Continue with
+$0". Pressing it set `cancel_at_period_end` on the subscription made seconds
+earlier and told them "your $0 is saved … nothing about your account changes".
+
+The advisory lock and the idempotency keys do not touch this: those collapse
+CONCURRENT submits, and these two are sequential and minutes apart. **What is
+wrong with the second request is not that it raced — it is that it was composed
+against a state that no longer exists**, and the server cannot tell that from a
+change of mind because both are "set my support to $0" from somebody who
+supports $5. Only the browser knows what it was showing. So it says so:
+`PUT /subscription` takes an optional `expectedCents` /
+`expectedCancelAtPeriodEnd`, disagreement is a 409 `stale_state` refused before
+anything touches Stripe, and the client reconciles and shows the true state
+rather than reporting a failure. Both halves are checked because a pending stop
+changes no amount, and the amount alone would let a stale tab silently
+un-cancel.
+
+Optional, deliberately: a caller that omits it behaves exactly as before, so
+this can never refuse a request for want of a field. The residual is a tab
+running the PREVIOUS bundle across the deploy — it cannot send what it does not
+know about, and it is unprotected until reloaded.
+
+**And one ask is now one row.** Both tabs recorded an exposure, so one question
+put once to one person produced two denominators, and answering in one tab while
+dismissing in the other produced two mutually exclusive outcomes — the same
+overlap §21/§22/§24/§27/§30 closed WITHIN a mount, arriving by a route a `useRef`
+cannot see. `shown` and `dismissed` now carry a dedupe key (061) built from the
+surface and the DAY. The day rather than `prompt_last_shown_at`, because that
+stamp is written by whichever tab gets there first, so the two tabs disagree
+about it exactly when they are milliseconds apart — which is the case this is
+for. Nothing legitimately shows the same surface twice in a day: the check-in is
+monthly, dunning every three days, onboarding once ever. `forced-` contexts are
+exempt or the manual override could be used once a day.
+
+**The gate regression (low).** Round forty-eight's `mode-mismatch` arm returned
+before the missing-variable list was built, which made it the very mistake it
+had just fixed one branch over: in the four states where the keys disagree and
+the product id is absent the tier is OFF — every money route 400s, Stripe.js
+never loads — and the operator was told the browser was talking to the wrong
+account. In the two where the webhook secret is also missing, nothing named it,
+so a cutover would fix the keys, redeploy, and only then meet the fourth
+variable. One warning now, every true thing in it.
+
 ### 50. Rounds forty-seven and forty-eight: the money paths held; the gate lied
 
 Forty-seven found nothing — the first clean round in fourteen. It drove the

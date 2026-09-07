@@ -1527,13 +1527,26 @@ export const api = {
    * where a card was just entered; the server validates it against the customer
    * it resolved from the session before doing anything with it.
    */
-  setSupport: (amountCents: number, setupIntentId?: string, context?: string) =>
+  /**
+   * `expected` is what the SCREEN was showing when the reader pressed the
+   * button, and the server refuses the write with a 409 if the account has
+   * moved on. Two tabs are two mounts and share no state: without this, a stale
+   * tab's "Continue with $0" scheduled the end of a subscription the other tab
+   * had just created and reported that nothing had changed.
+   */
+  setSupport: (
+    amountCents: number,
+    setupIntentId?: string,
+    context?: string,
+    expected?: { cents: number; cancelAtPeriodEnd: boolean },
+  ) =>
     send<BillingState>('PUT', '/me/billing/subscription', {
       amountCents,
       ...(setupIntentId ? { setupIntentId } : {}),
       // Where the answer came from, so a $1 rung that works in the welcome flow
       // and fails in the month-later check-in is visible rather than pooled.
       ...(context ? { context } : {}),
+      ...(expected ? { expectedCents: expected.cents, expectedCancelAtPeriodEnd: expected.cancelAtPeriodEnd } : {}),
     }),
   /**
    * A one-off contribution, charged to the card on file. `setupIntentId` only

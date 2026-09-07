@@ -161,12 +161,6 @@ export function billingGateStatus(): 'configured' | 'mode-mismatch' | 'partial' 
 export function billingGateWarning(): string | null {
   const status = billingGateStatus();
   if (status === 'self-host' || status === 'configured') return null;
-  if (status === 'mode-mismatch') {
-    return `[deckpal-api] billing: the secret key is ${stripeMode()} and the publishable key is `
-      + `${publishableMode()} — THESE MUST MATCH. The browser will load Stripe.js on one account `
-      + 'while this server creates intents on the other, so every card confirmation fails and the '
-      + 'tier is dead without saying so. Fix both keys (DEPLOYMENT.md) before taking a payment.';
-  }
   if (status === 'unset') {
     return '[deckpal-api] billing: STRIPE_SECRET_KEY unset — the pay-what-you-want tier is OFF. '
       + '/me/billing answers available:false and no card can be taken. This is a safe default; '
@@ -179,6 +173,27 @@ export function billingGateWarning(): string | null {
     ['STRIPE_SUPPORT_PRODUCT_ID', supportProductId()],
     ['STRIPE_WEBHOOK_SECRET', webhookSecret()],
   ].filter(([, v]) => !v).map(([n]) => n);
+  // ⚠️ THE MISSING LIST IS BUILT FIRST, AND BOTH BRANCHES USE IT. The mismatch
+  // arm returned before this in its first version, which made it the very
+  // mistake the branch below exists to fix, one round later: in the four states
+  // where the keys disagree AND the product id is absent, the tier is OFF —
+  // `billingAvailable()` is false, every money route 400s, Stripe.js never
+  // loads — and the operator was told the browser was talking to the wrong
+  // account. In the two where the webhook secret is also absent, the tier
+  // really is armed and deaf AND mismatched, and nothing named the missing
+  // variable, so a cutover would fix the keys, redeploy, and only then find out
+  // about the fourth. One warning, every true thing in it.
+  const armedNote = billingAvailable()
+    ? 'The tier is ARMED: it can take a card right now.'
+    : 'The tier is OFF until all four are set — /me/billing answers available:false and no card can be taken.';
+  const missingNote = missing.length ? ` Also missing: ${missing.join(', ')}.` : '';
+  if (status === 'mode-mismatch') {
+    return `[deckpal-api] billing: the secret key is ${stripeMode()} and the publishable key is `
+      + `${publishableMode()} — THESE MUST MATCH. The browser loads Stripe.js on one account while `
+      + 'this server creates intents on the other, so every card confirmation fails and the tier is '
+      + `dead without saying so. ${armedNote}${missingNote} Fix both keys (DEPLOYMENT.md) before `
+      + 'taking a payment.';
+  }
   // ⚠️ THE SENTENCE MUST MATCH THE STATE IT IS PRINTED FOR. This appended the
   // armed-and-deaf description unconditionally, so a deployment missing only
   // the SECRET KEY — which cannot take a card at all, because
@@ -187,9 +202,8 @@ export function billingGateWarning(): string | null {
   // state is observable and misdescribed. An operator who acts on it rolls back
   // a deployment that was safely off, or learns to discount the line and then
   // discounts it in the one case where it is true.
-  const armed = billingAvailable();
   return `[deckpal-api] billing: PARTIALLY configured — missing ${missing.join(', ')}. `
-    + (armed
+    + (billingAvailable()
       ? 'The tier is ARMED AND DEAF: it will take cards and then never hear about a renewal, a '
         + 'failure or a cancellation again. Fix before taking a real payment.'
       : 'The tier is OFF until all four are set — /me/billing answers available:false and no card '

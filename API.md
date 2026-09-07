@@ -446,6 +446,15 @@ tier is; nothing can quietly no-op a payment.
 change all three:
 
 - an `amountCents`, validated to whole dollars within the floor and ceiling;
+- an optional `expectedCents` / `expectedCancelAtPeriodEnd` on `PUT
+  /subscription` — what the SCREEN was showing when the reader pressed the
+  button. Disagreeing with the row is a **409 `stale_state`**, refused before
+  anything touches Stripe. It is optional so a caller that omits it behaves as
+  before; the shipping client always sends it. ⚠️ Without it, two tabs are two
+  mounts with no shared state: the reader answers $5 in one, and the other —
+  still showing the same ask, its primary button reading "Continue with $0" —
+  scheduled the end of the subscription just created and reported that nothing
+  had changed;
 - a `setupIntentId`, on the one leg where a card was just entered, checked to
   belong to this account's Stripe customer AND to have succeeded;
 - a `paymentIntentId` on `/one-time/confirm`, checked the same way plus the

@@ -303,7 +303,13 @@ export function SupportFlow({
     // status lags it, and the two disagree in exactly the window that matters.
     let lastIntent: string | null = null
     try {
-      let next = await api.setSupport(amount, setupIntentId, analyticsContext ?? context)
+      // What THIS screen was showing. The server refuses the write if the
+      // account has moved since — another tab, another device — because it
+      // cannot tell a stale answer from a change of mind and this screen can.
+      let next = await api.setSupport(amount, setupIntentId, analyticsContext ?? context, {
+        cents: state.support.cents,
+        cancelAtPeriodEnd: state.support.cancelAtPeriodEnd,
+      })
       if (next.clientSecret) {
         const stripe = await stripePromise
         if (!stripe) throw new Error('The payment library did not load. Please reload and try again.')
@@ -535,6 +541,18 @@ export function SupportFlow({
       // Only on $0, only once, and only where the ask belongs.
       setStep(amount === 0 && offerOneTime ? 'one-time' : 'done')
     } catch (e) {
+      // ⚠️ A 409 IS THE ONE FAILURE HERE THAT IS NOT A FAILURE. The server
+      // refused because this screen was out of date, before it touched Stripe —
+      // so nothing moved, and the honest thing is to show them what is actually
+      // true of their account rather than leave them looking at the answer they
+      // pressed. `refreshBilling` re-reads it; `onState` puts it on the screen
+      // and tells the frame this reader has been dealt with.
+      if (e instanceof ApiError && e.status === 409) {
+        const fresh = await api.refreshBilling().catch(() => null)
+        if (fresh) onState(fresh)
+        setError(e.message)
+        return
+      }
       // NOT "nothing has been charged". This catch sits after `setSupport`,
       // which can succeed at Stripe and then have a later step fail — the RLS
       // watchdog reclaiming the connection, a `pullState` that times out. The
