@@ -190,7 +190,8 @@ export function SupportPrompt() {
    * failure and ambiguous branches, because the card summary and the status
    * have to stay honest whatever happened. A reader trusting the old sentence
    * would conclude `onAnswered` is redundant and remove it, which re-opens the
-   * overlap four separate rounds went into closing.
+   * overlap five separate rounds went into closing (DECISIONS §21, §22, §24,
+   * §27, §30).
    */
   const answered = useRef(false)
 
@@ -332,7 +333,7 @@ export function SupportPrompt() {
           context={kind}
           analyticsContext={forced ? `forced-${kind}` : kind}
           // `!answered.current`, NOT an unconditional dismissal — the same
-          // reading the ✕ takes. Two branches leave the flow on `choose` AFTER
+          // reading the ✕ takes. THREE branches leave the flow on `choose` AFTER
           // an answer was recorded, with the chooser and submit disabled by
           // `inFlight`, so this button is the reader's only live control; a
           // flat `true` there posted a dismissal on top of the `chose`.

@@ -448,10 +448,13 @@ API can decide. Migration 054 makes it the database's decision instead:
   be able to execute them and the anon key is in the SPA by design. The inputs
   are therefore constrained in the FUNCTION, not in the route: the experiment
   arm is read from the caller's own row rather than accepted as a parameter, and
-  migration 058 refuses an `amount_cents` outside `0≤50000` (the product's own
-  ceiling) or an unrecognised event kind. A caller can still write a plausible
-  event about themselves; they cannot forge an arm, an amount the API would
-  reject, or anybody else's row.
+  the function refuses an `amount_cents` outside `0≤50000` (the product's own
+  ceiling), an unrecognised event kind, and more than 200 events from one
+  account in a day. Those live in **062**, not 058: 058 introduced the first two
+  and 062 drops its function outright and re-creates them alongside the ceiling
+  and the dedupe key, so a change to the cap belongs in 062. A caller can still
+  write a plausible event about themselves; they cannot forge an arm, an amount
+  the API would reject, or anybody else's row.
 - **Defence in depth in the API:** a stored customer id is only used when the
   Stripe customer's own `metadata.deckpal_user_id` names this account.
 
@@ -462,12 +465,15 @@ grant to either role.
 
 An amount, and a `setupIntentId` on the one leg where a card was just entered —
 that id being verified to belong to this account's customer, and to have
-succeeded, before it is used. Two more object references, both checked the same
-way: a `paymentIntentId` on `/one-time/confirm`, verified to belong to this
-account's customer AND to carry the metadata marking it a one-off this flow
-created; and an `attemptId`, a client-generated opaque string constrained to
-`[A-Za-z0-9_-]{8,64}` because it goes into a Stripe idempotency key — which is
-what makes a retried gift one charge rather than two.
+succeeded, before it is used. One more object reference, checked the same way:
+a `paymentIntentId` on `/one-time/confirm`, verified to belong to this account's
+customer AND to carry the metadata marking it a one-off this flow created.
+
+And an `attemptId`, which is NOT an object reference and gets no ownership check
+— correctly, because there is nothing at Stripe to check it against. It is a
+client-generated opaque string constrained to `[A-Za-z0-9_-]{8,64}` because it
+goes into a Stripe idempotency key, which is what makes a retried gift one
+charge rather than two. Its only power is over the caller's own retries.
 
 Customer ids, subscription ids, prices, payment-method ids and statuses are all
 resolved server-side and never accepted from a request. `/refresh` accepts an

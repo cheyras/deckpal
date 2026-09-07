@@ -16638,6 +16638,48 @@ fifteen rounds. The docstring is the one somebody reads first, and acting on it
 — concluding `onAnswered` is redundant — re-opens the both-outcomes overlap
 that §21, §22, §24, §27 and §30 went into closing.
 
+### 37. Round thirty-four: the code answered, executed rather than read
+
+Eight consecutive rounds had returned only prose defects, which is either
+convergence or a reviewer drifting toward the easy target. So this round was
+told to spend its budget on the code and the SQL and to report prose only if it
+was load-bearing. It did, and it did not find a code defect.
+
+What makes that worth recording is HOW it looked. It did not read the money
+paths — it ran them: the compiled `service.js` driven against an in-memory
+Stripe; the real `billingRouter` mounted on Express over PGlite; the real
+webhook handler over the real 053—063 with Stripe's own signature verifier.
+The scenarios it executed are the ones this loop has been arguing about in
+prose for thirty rounds: two tabs at different amounts (the lock serialises
+them; with the lock defeated, the sweep refunds all three months of the loser
+with per-invoice keys); a card that 3-D-Secures and then declines ($1 billed,
+not $25); Stripe transitioning a subscription between two of our reads
+(`PaymentInFlightError` on every amount including $0, nothing cancelled); a
+webhook arriving mid-request (its pre-commit snapshot resolves the old customer,
+whose ownership check then fails, so it writes nothing); a retry storm (409 for
+a live claim, takeover for a stale one, release-and-retry for a failure); and
+the disclosure attack end to end — a stranger's `cus_` planted through the RPC
+surface, then a genuinely signed `invoice.paid` delivered for it, and NOTHING of
+the victim's card reached the attacker's row. Flipping the customer's metadata
+makes it sync, which proves the ownership check is the thing doing the work.
+
+The RLS surface was tried rather than reasoned about, as `authenticated` and as
+`anon`: every write to all three tables is 42501, `billing_event` is unreadable,
+all six definer functions refuse `anon`, the pin refuses a repoint but not a
+release-then-set, and the daily ceiling returns rather than aborting — verified
+25P02 with and without `store.ts`'s savepoint, which is the difference between a
+gift charged-and-rolled-back and one recorded.
+
+Six prose defects came with it, and the one worth naming is the third copy of
+the three-versus-four threshold: the `STRIPE_SECRET_KEY` env row still said
+"what is NOT safe is having this and not the other three", sixteen lines above
+the note §34 added saying the opposite. The others: SECURITY.md credited 058
+with guards that live in 062 (which drops 058's function outright) and omitted
+the 200/day ceiling; the `attemptId` was listed among "object references, both
+checked the same way" when it is neither an object reference nor checkable;
+`SupportPrompt` said two branches lock where three do, and four rounds closed
+the overlap where five did.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists
