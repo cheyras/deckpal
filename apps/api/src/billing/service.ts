@@ -885,16 +885,18 @@ export async function sweepDuplicatePayingSubscriptions(
     // just been destroyed.
     //
     // Stripe 429s concentrate on renewal days, which is exactly when this runs.
-    // Letting it throw hands the outer catch a sweep that does nothing, leaves
-    // both subscriptions alone, and lets the next `invoice.paid` try again.
-    // `allSettled` so a second concurrent rejection is not unhandled.
-    const settled = await Promise.all(
-      paying.map(async (s) => {
-        const invoices = await paidInvoices(stripe, s.id);
-        return { sub: s, paid: invoices.length };
-      }),
+    // Letting it throw hands the caller a sweep that did nothing and left both
+    // subscriptions alone, which is the safe direction, and the webhook then
+    // 500s so Stripe retries within seconds rather than at the next renewal.
+    //
+    // ⚠️ NOT `allSettled`, and an earlier version of this comment recommended
+    // it. `allSettled` would mean deciding what a REJECTED lookup scores, and
+    // every answer to that is the `.catch(() => [])` this replaced. `Promise.all`
+    // attaches a handler to every input, so a second concurrent rejection is
+    // not unhandled either — verified in round forty-two.
+    const withHistory = await Promise.all(
+      paying.map(async (s) => ({ sub: s, paid: (await paidInvoices(stripe, s.id)).length })),
     );
-    const withHistory = settled;
     const keeper = withHistory.reduce((a, b) =>
       b.paid > a.paid || (b.paid === a.paid && b.sub.created > a.sub.created) ? b : a,
     ).sub;
@@ -913,7 +915,15 @@ export async function sweepDuplicatePayingSubscriptions(
       }
     }
   } catch (err) {
+    // ⚠️ RETHROWN, so the webhook 500s and Stripe retries in seconds.
+    //
+    // Swallowing it here answered 200, Stripe never came back, and the comment
+    // above claiming "the next `invoice.paid` tries again" meant the next
+    // RENEWAL — up to a month of a duplicate double-billing, from a 429 that
+    // would have cleared on a retry seconds later. `syncCustomer` has already
+    // run and committed, and it is a full re-read, so the retry is safe.
     console.error('[deckpal-api] billing: could not sweep duplicate subscriptions —', (err as Error).message);
+    throw err;
   }
 }
 

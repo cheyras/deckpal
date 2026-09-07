@@ -17037,6 +17037,49 @@ derivations are DELETED rather than left stacked: rounds thirty-seven to
 thirty-nine kept reintroducing each other's rule from comments that had outlived
 their code.
 
+### 45. Round forty-two: the first round where my own fixes held
+
+Six rounds running, the next review found the last one's fix defective. This
+time all four of round forty-one's held under execution — the reordered
+`managedSubscription` across thirteen subscription states, the throwing keeper
+rule under 429s on one, two and all lookups, the 60-second floor against a
+five-second race and a year-old subscription that renewed thirty seconds ago,
+and the prompt clock against the real migrations (thirteen loads, one exposure,
+one stamp). It also found a net improvement nobody had asked for: an active
+subscription with a newer `paused` one used to throw `SubscriptionPausedError`
+and lock the reader out of changing their own live amount, and now does not.
+
+The defects were on `SupportSettings` — `SupportFlow`'s OTHER mount site, the
+only surface a supporter uses after onboarding, and the one nothing had ever
+executed.
+
+**"No card on file — none is needed while you are on $0" was unconditional.**
+A supporter at $5 a month who removes their card in Stripe's own portal — the
+one THIS CARD LINKS TO eight lines below — saw "Next payment of $5 on the 4th"
+and "none is needed while you are on $0" at the same time. In `past_due` it was
+worse: "updating your card will put it right" directly above "none is needed".
+The reader is told not to act, and the renewal fails. Also reachable through a
+Link or bank-debit method, which `service.ts` already documents as reading "no
+card on file".
+
+**And the settings card's own controls stayed live during a charge.** §39 closed
+exactly this on the prompt — the `writing` ref that refuses to close the sheet
+mid-payment — and the other mount site never got it. Worse here, because "Use
+a different card" does not merely close a sheet: `{panel === 'amount' &&
+<SupportFlow …>}` means pressing it UNMOUNTS the flow. Executed: the charge
+landed, `onState` and the refetch never fired, and the card went on reading "$0
+/ month — you are on $0, which is a perfectly good answer". A bank step-up in
+flight was simply dropped.
+
+Two smaller, both mine. The sweep's `catch` swallowed the keeper-rule throw and
+then answered 200, so Stripe never retried and my own comment's "the next
+`invoice.paid` tries again" meant the next RENEWAL — up to a month of
+double-billing from a 429 that would have cleared in seconds. It rethrows. And
+that comment recommended `Promise.allSettled`, which cannot be adopted without
+deciding what a REJECTED lookup scores — every answer to which is the
+`.catch(() => [])` round forty-one removed. A comment arguing for the change
+that re-opens the bug it sits on is the worst kind this file produces.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

@@ -767,7 +767,12 @@ describe('the billing state never invents an answer it does not have', () => {
       refunds: { create: async () => undefined },
     } as unknown as Parameters<typeof sweepDuplicatePayingSubscriptions>[0];
 
-    await sweepDuplicatePayingSubscriptions(stripe, 'cus_1');
+    // It THROWS as well as cancelling nothing, and both halves matter: the
+    // webhook's catch then releases the claim and 500s, so Stripe retries
+    // within seconds. Swallowing it answered 200, and the next attempt was the
+    // next RENEWAL — a month of a duplicate double-billing from a 429 that
+    // would have cleared immediately.
+    await assert.rejects(() => sweepDuplicatePayingSubscriptions(stripe, 'cus_1'), /rate limit/);
     assert.deepEqual(cancelled, [], 'not knowing is not the same as knowing there is nothing');
   });
 });

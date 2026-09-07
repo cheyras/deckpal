@@ -53,6 +53,15 @@ export function SupportSettings() {
   const [state, setState] = useState<BillingState | null>(null)
   const [panel, setPanel] = useState<Panel>('none')
   const [portalBusy, setPortalBusy] = useState(false)
+  /**
+   * Is the amount editor mid-write?
+   *
+   * State, not a ref, because these controls are RENDERED disabled rather than
+   * refusing on click — the reader should see that there is nothing to press,
+   * not press it and be ignored. `SupportPrompt`'s equivalent is a ref because
+   * it guards an event handler (`close`) instead.
+   */
+  const [writing, setWriting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /**
    * Does the error on screen CONTRADICT the status note?
@@ -266,15 +275,28 @@ export function SupportSettings() {
         ) : card ? (
           <div className="flex flex-wrap items-center justify-between gap-[12px]">
             <CardChip brand={card.brand} last4={card.last4} expiry={expiry} warning={expiryWarning} />
-            <Button variant="ghost" size="sm" onClick={() => setPanel('card')}>
+            <Button variant="ghost" size="sm" disabled={writing} onClick={() => setPanel('card')}>
               <Icon name="credit-card" size={15} />
               Use a different card
             </Button>
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-[12px]">
-            <p className="text-[14px] text-text-muted">No card on file — none is needed while you are on $0.</p>
-            <Button variant="ghost" size="sm" onClick={() => setPanel('card')}>
+            {/* ⚠️ "NONE IS NEEDED" IS ONLY TRUE AT $0. This was unconditional, so
+                a supporter who removed their card in Stripe's own portal — the
+                one THIS CARD LINKS TO eight lines below — saw "Next payment of
+                $5 on the 4th" and "none is needed while you are on $0" at once.
+                In `past_due` it was worse: "updating your card will put it
+                right" directly above "none is needed". The reader is told not
+                to act, and the renewal fails. Also reachable via a Link or
+                bank-debit method, which `service.ts` documents as reading "no
+                card on file". */}
+            <p className={`text-[14px] ${supporting ? 'text-warning' : 'text-text-muted'}`}>
+              {supporting
+                ? 'No card on file, so your next payment will fail. Add one to keep your support running.'
+                : 'No card on file — none is needed while you are on $0.'}
+            </p>
+            <Button variant="ghost" size="sm" disabled={writing} onClick={() => setPanel('card')}>
               <Icon name="plus" size={15} />
               Add a card
             </Button>
@@ -291,6 +313,16 @@ export function SupportSettings() {
               setState(next)
               void query.refetch()
             }}
+            // ⚠️ THE SAME GUARD `SupportPrompt` HAS, ON THE OTHER MOUNT SITE.
+            // This card's own controls sit outside the flow, so "Use a
+            // different card" and "Open billing portal" stayed live while a
+            // charge was in flight — and the card button UNMOUNTS the flow
+            // (`panel === 'amount' && <SupportFlow …>`). Executed in round
+            // forty-two: the charge landed, `onState` and the refetch never
+            // fired, and the card went on reading "$0 / month — you are on
+            // $0, which is a perfectly good answer". A bank step-up in flight
+            // was simply dropped, leaving the subscription `incomplete`.
+            onBusy={setWriting}
             context="settings"
             onDismiss={() => setPanel('none')}
             dismissLabel="Cancel"
@@ -312,7 +344,7 @@ export function SupportSettings() {
             variant="ghost"
             size="sm"
             loading={portalBusy}
-            disabled={!card && !supporting}
+            disabled={writing || (!card && !supporting)}
             onClick={() => void openPortal()}
           >
             <Icon name="external" size={15} />
