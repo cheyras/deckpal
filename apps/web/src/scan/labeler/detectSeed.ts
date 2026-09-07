@@ -116,7 +116,15 @@ export async function seedQuad(canonical: HTMLCanvasElement): Promise<SeedResult
     video.muted = true
     video.playsInline = true
     video.srcObject = stream
-    await video.play().catch(() => {})
+    // play() on a captureStream can simply never settle on the production
+    // bundle (round 9b traced the labeler's forever-spinner to exactly this
+    // await — every downstream ceiling sat behind it). It gets a hard 1.5 s
+    // budget; a video that hasn't started by then is handed to
+    // waitForFirstFrame anyway, whose own timeout still fences the total.
+    await Promise.race([
+      video.play().catch(() => {}),
+      new Promise<void>((r) => window.setTimeout(r, 1_500)),
+    ])
     await waitForFirstFrame(video)
 
     const quad = await new Promise<Quad | null>((resolve) => {
