@@ -265,6 +265,12 @@ export function SupportPrompt() {
    * outcomes overlap: every conversion also logged a walk-away.
    */
   function close(dismissed = true) {
+    // ⚠️ RE-ENTRY GUARD, not just a flag for `boot`. Two presses of the dismiss
+    // button inside one commit window posted `ackSupportPrompt` twice, and
+    // `dismissed` rows carry no dedupe key — two walk-aways against one
+    // exposure, the same shape as the double `chose` §31 records. The ref was
+    // already being SET here; it was simply never read here.
+    if (closedHere.current) return
     closedHere.current = true
     setOpen(false)
     if (!kind) return

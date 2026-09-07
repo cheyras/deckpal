@@ -506,6 +506,13 @@ function time(v: Date | string | null): number | null {
  *     it to end (`cancel_at_period_end`), who has effectively answered $0 and
  *     rejoins the ordinary cadence — after the current period, so we are not
  *     asking them to reconsider a decision they made this morning.
+ *  2b. **A PAUSED subscription is not asked either.** It reports zero cents, so
+ *     it falls straight through the test above — and every answer to the
+ *     modal is refused, because an amount change would build a second
+ *     subscription beside the paused one and $0 would silently do nothing
+ *     (`SubscriptionPausedError`). Asking a question whose every answer is an
+ *     error is worse than not asking. Nothing in this app pauses a
+ *     subscription; the owner did it from the dashboard.
  *  3. **Onboarding is once, ever**, and it is not subject to the visit
  *     threshold — it IS the first visit.
  *  4. **Then the threshold, then the month.** A NULL `prompt_last_shown_at`

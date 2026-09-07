@@ -16473,6 +16473,38 @@ all three. All three were also missing a seventh input: `dismissed` on
 is inside SECURITY.md's already-accepted "an account can write a plausible event
 about itself", but a list that says "and no more" has to be right.
 
+### 32. Round twenty-nine: numbers beside lists have an expiry date
+
+No money defect. Four small things, and three of them are the same lesson.
+
+The input inventory's header said "Six things, and no more" above a list of
+seven: round twenty-eight added `dismissed` to the list and left the word. The
+security inventory told a reviewer the surface was smaller than the code
+accepts. That is the third count-versus-list mismatch this feature has shipped
+— the `onAnswered` docstring said two, five and seven while the tree had
+three, six and seven — so the count is simply gone. A number beside a list is
+a fact with an expiry date, and nothing checks it.
+
+`promptDue`'s header listed four tests over a body of five. The missing one is
+the `paused` gate: a dashboard-paused subscription reports zero cents, falls
+straight through "anyone paying is never asked again", and every answer to the
+modal it would then see is refused. The inline comments were complete; only the
+summary a reader starts from was short.
+
+`settled` in `commit()` had become write-only. It seeded `provenSafe` and was
+then reassigned by a line nothing read — because `settled` earns its name in
+the one-off twin, where it gates rotating the attempt id and thawing the frozen
+amount, and a subscription has neither. A variable named like a guard that
+guards nothing is worse than no variable; there is one now, and it says why the
+twins differ.
+
+And `close()` set `closedHere` without reading it, so two presses of the dismiss
+button inside one commit window posted the ack twice — two `dismissed` rows
+for one exposure, with no dedupe key. Exactly the shape §31 records for `chose`,
+on the other outcome. The ref was already there; it was simply never tested at
+the point that needed it, which is §21's "a guard on the door and not on the
+timer" for the third time.
+
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060
 is worse than neither, because it recreates the orphan-minting loop 060 exists

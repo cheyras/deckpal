@@ -301,12 +301,16 @@ export function SupportFlow({
           // from the intent is how a refusal ended up described as "we could
           // not confirm what your bank decided" when the intent said plainly
           // that it was refused.
-          let settled = actionError.type === 'card_error'
-          // Hoisted for the same reason as the one-off twin: the LOCK and the
-          // SENTENCE are two decisions about one fact. A card error is proof on
-          // its own that nothing was taken, so it starts true.
-          let provenSafe = settled
-          if (!settled) {
+          // ONE variable, because this flow makes one decision from this fact.
+          //
+          // It was two: a `settled` that seeded `provenSafe` and was then
+          // re-assigned by a line nothing read. `settled` earns its name in the
+          // one-off twin, where it gates rotating the attempt id and thawing the
+          // frozen amount — a subscription has neither, so here the same name
+          // was a guard that guarded nothing. A card error is proof on its own
+          // that nothing was taken, so it starts true.
+          let provenSafe = actionError.type === 'card_error'
+          if (!provenSafe) {
             const { paymentIntent: after } = await stripe.retrievePaymentIntent(next.clientSecret)
             lastIntent = after?.status ?? null
             // ⚠️ UNKNOWN LOCKS — the same inversion as the one-off twin, and
@@ -322,7 +326,15 @@ export function SupportFlow({
               lastIntent === 'canceled' ||
               lastIntent === 'requires_action' ||
               lastIntent === 'requires_confirmation'
-            if (lastIntent === 'requires_payment_method' || lastIntent === 'canceled') settled = true
+            // ⚠️ NO `settled` HERE, deliberately, and the one-off twin is not
+            // the same. `settled` exists to decide two things: rotate the
+            // attempt id, and thaw the frozen amount. This flow has neither —
+            // a subscription has no per-attempt idempotency key, and its lock
+            // (`inFlight`) is intentionally never cleared without a reload. So
+            // an assignment here would be write-only: `provenSafe` already
+            // decides the lock and the sentence, and it is a superset of the
+            // two statuses this line used to test. Removed rather than left
+            // looking like a guard.
 
             // ⚠️ ONE BRANCH PER OUTCOME, and `else if` is load-bearing.
             //

@@ -3,8 +3,13 @@
  *
  * ── WHAT THE CLIENT IS TRUSTED WITH ─────────────────────────────────────────
  *
- * Six things, and no more. A future reviewer reads this list as the inventory
- * of the input surface, so it is kept exact rather than tidy:
+ * This list, and no more. ⚠️ It deliberately carries NO COUNT: the previous
+ * version said "six things" and round twenty-eight added a seventh to the list
+ * without touching the word, so the designated security inventory told a
+ * reviewer the surface was smaller than the code accepts. A number beside a
+ * list is a fact with an expiry date, and this file has now shipped three of
+ * them. A future reviewer reads this as the inventory, so it is kept exact
+ * rather than tidy:
  *
  *   • an AMOUNT — `normalizeAmountCents` (`stripe.ts`): whole dollars, within
  *     the floor and the ceiling, refused rather than coerced;
