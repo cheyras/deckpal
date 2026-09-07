@@ -34,17 +34,29 @@
 -- ══════════════════════════════════════════════════════════════════════════════
 --
 -- This migration is the database half: `stripe_customer_id` may be set ONCE,
--- while it is NULL, and after that only re-asserted to the same value. There is
--- no legitimate flow that repoints a live customer — `ensureCustomer` only
--- writes it when it changes from NULL or when the old one is genuinely gone,
--- and the gone case is rare enough to be worth a manual `UPDATE` by the owner.
+-- while it is NULL, and after that only re-asserted to the same value.
 --
--- The API half is in `webhook.ts`: `syncCustomer` now verifies the Stripe
--- customer's own metadata names the account it is about to write. Either fix
--- alone closes the disclosure; both together mean it stays closed if one is
--- refactored away.
+-- ⚠️ TWO CORRECTIONS TO WHAT THIS HEADER ORIGINALLY CLAIMED. It is unapplied,
+-- so B4 permits fixing it in place rather than leaving a wrong sentence for
+-- somebody to act on:
 --
--- Everything else about the function is unchanged.
+--   • "the gone case is rare enough to be worth a manual UPDATE by the owner"
+--     — no. `ensureCustomer` takes that path by itself when Stripe says the
+--     stored customer is deleted, and with only this migration applied it
+--     raised "cannot be repointed" on EVERY request while minting a fresh
+--     orphan customer each time. Migration 060 adds `billing_release_customer`
+--     for exactly that, and `customerFor` calls it.
+--
+--   • "either fix alone closes the disclosure" — no. 060 permits releasing the
+--     column to NULL, so release-then-set is two permitted calls that together
+--     reach any customer id no other row holds. The control that closes the
+--     disclosure is the ownership check `syncCustomer` and `ensureCustomer` ask
+--     of Stripe; THIS PIN IS DEPTH BEHIND IT, making a repoint deliberate,
+--     two-step, card-summary-wiping and logged rather than a single silent
+--     write. SECURITY.md and `webhook.ts` carry the same account.
+--
+-- Besides the pin, this migration also clamps `support_cents` to the product's
+-- own ceiling; everything else about the function is unchanged.
 
 CREATE OR REPLACE FUNCTION public.billing_apply_stripe(p jsonb)
 RETURNS public.billing_account

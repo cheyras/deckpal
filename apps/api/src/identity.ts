@@ -115,9 +115,12 @@ export function currentUserId(req: Request): string {
  *
  * `null` is ordinary, not exceptional, and callers must treat it that way. A
  * personal access token resolves to a user id and no email at all (auth.ts),
- * and a self-host request has no JWT to carry one. The single caller today --
- * `routes/billing.ts`, filling in a Stripe customer so receipts have somewhere
- * to go -- passes it through when present and omits the field when it is not.
+ * and a self-host request has no JWT to carry one. Both callers today are in
+ * `routes/billing.ts`: filling in a Stripe customer, and naming
+ * `receipt_email` on a one-off charge — which matters, because a standalone
+ * PaymentIntent produces no invoice, so for a gift the receipt is the ONLY
+ * record the reader gets, and the flow's recovery copy points at it. Both pass
+ * it through when present and omit the field when it is not.
  * Nothing may *depend* on it: an email is a convenience here, never an
  * identity. The identity is the uuid.
  */

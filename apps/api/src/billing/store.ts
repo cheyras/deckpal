@@ -495,30 +495,37 @@ function time(v: Date | string | null): number | null {
 /**
  * Which ask, if any, is due for this row right now.
  *
- * The order of the tests is the product decision, so read it as one:
+ * The order of the tests is the product decision, so read it as one. ⚠️ NO
+ * NUMBERS: the body's inline comments are the source, and a numbered summary
+ * beside them drifts — this list said four while the body did five, and its
+ * "3" and "4" named different tests from the body's. Same order as the code,
+ * one bullet each:
  *
- *  1. **A broken payment outranks everything.** Someone whose card expired is
- *     already paying and already trying; showing them a "would you consider
- *     supporting us" modal instead of "your card needs updating" would be both
- *     useless and slightly insulting.
- *  2. **Anyone actually paying is never asked again.** Not once a year, not
- *     "just to check". They answered. The only exception is someone who has set
- *     it to end (`cancel_at_period_end`), who has effectively answered $0 and
- *     rejoins the ordinary cadence — after the current period, so we are not
- *     asking them to reconsider a decision they made this morning.
- *  2b. **A PAUSED subscription is not asked either.** It reports zero cents, so
- *     it falls straight through the test above — and every answer to the
- *     modal is refused, because an amount change would build a second
- *     subscription beside the paused one and $0 would silently do nothing
- *     (`SubscriptionPausedError`). Asking a question whose every answer is an
- *     error is worse than not asking. Nothing in this app pauses a
- *     subscription; the owner did it from the dashboard.
- *  3. **Onboarding is once, ever**, and it is not subject to the visit
- *     threshold — it IS the first visit.
- *  4. **Then the threshold, then the month.** A NULL `prompt_last_shown_at`
- *     with enough visits is the first check-in; after that it is the interval.
+ *  • **A broken payment outranks everything.** Someone whose card expired is
+ *    already paying and already trying; showing them a "would you consider
+ *    supporting us" modal instead of "your card needs updating" would be both
+ *    useless and slightly insulting. It has its own, faster cadence.
+ *  • **Anyone actually paying is never asked again.** Not once a year, not
+ *    "just to check". They answered.
+ *  • **A PAUSED subscription is not asked either.** It reports zero cents, so
+ *    it falls straight through the test above — and every answer to the modal
+ *    is refused, because an amount change would build a second subscription
+ *    beside the paused one and $0 would silently do nothing
+ *    (`SubscriptionPausedError`). Asking a question whose every answer is an
+ *    error is worse than not asking. Nothing in this app pauses a
+ *    subscription; the owner did it from the dashboard.
+ *  • **A subscription set to end is left alone until it ends.** They have
+ *    effectively answered $0 and rejoin the ordinary cadence afterwards, so we
+ *    are not asking them to reconsider a decision they made this morning. A
+ *    NULL `current_period_end` means we do not know when it ends, and the safe
+ *    reading of "do not know" is DO NOT ASK — that was the one way a
+ *    cancelling contributor could be shown the check-in on their way out.
+ *  • **Onboarding is once, ever**, and it is not subject to the visit
+ *    threshold — it IS the first visit.
+ *  • **Then the threshold, then the month.** A NULL `prompt_last_shown_at`
+ *    with enough visits is the first check-in; after that it is the interval.
  *
- * Everything below the first two tests is reached only by an account paying
+ * Everything below the first four tests is reached only by an account paying
  * nothing, which is the entire population this feature is addressed to.
  */
 export function promptDue(row: BillingRow, now: number = Date.now()): PromptKind | null {

@@ -15599,6 +15599,14 @@ logged, rather than a single silent write. SECURITY.md carries the accurate
 version; the two migration headers are left as shipped, because they are applied
 migrations and correcting them in place is what B4 forbids.
 
+⚠️ **That last clause was wrong, and §33 acts on it.** 059 and 060 are NOT
+applied — they are in the 058—063 batch the owner has still to run — so B4
+never forbade correcting them, and the sentence left two headers claiming
+"either fix alone closes the disclosure" for twenty-five rounds, directly above
+the check a refactorer would delete. Both are corrected in place now, along with
+`webhook.ts`'s copy of the same claim. The lesson is the one this branch keeps
+relearning: a reason not to do something is a factual claim, and it expires.
+
 ### 8. Round five: a JavaScript catch does not undo a Postgres raise
 
 The first review to come back GO, and it still found something worth the round.
@@ -16504,6 +16512,41 @@ for one exposure, with no dedupe key. Exactly the shape §31 records for `chose`
 on the other outcome. The ref was already there; it was simply never tested at
 the point that needed it, which is §21's "a guard on the door and not on the
 timer" for the third time.
+
+### 33. Round thirty: a reason not to act, which had expired
+
+No money defect. The one worth reading is why a wrong sentence survived
+twenty-five rounds.
+
+`webhook.ts` and 059's header both said the metadata check and the write-once
+pin were independent — "either fix alone closes the disclosure; both together
+mean it stays closed if one is refactored away". §7 established in round three
+that this is false: 060 permits release-to-NULL, so release-then-set reaches any
+unheld customer id, and only the ownership check closes the cross-account
+disclosure. §7 then declined to fix the headers, giving a reason: they are
+applied migrations, and B4 forbids it.
+
+They are not applied. 059 and 060 are in the 058—063 batch still waiting to be
+run. So the sentence sat directly above the check a refactorer would delete,
+inviting exactly that deletion, protected by a justification that was never
+true. **A reason not to act is a factual claim, and it expires.** All three
+copies are corrected, and `webhook.ts`'s now opens "THIS CHECK IS THE CONTROL.
+DO NOT DELETE IT."
+
+Two more counts, in the fourth and fifth places this feature keeps them.
+`stripe.ts` — the module that OWNS the configuration gate — said "billing
+needs three values and the interesting failure is having two", above a gate
+reading `present === 4` and beside its own example of the dangerous state, which
+is a deployment missing only the webhook secret. And `customerFor`'s docstring
+said "the same three things" over a two-item list, missing item one: the
+ownership check itself. Both fixed; `promptDue`'s summary, which said four over
+a body of five and numbered two of them differently from the code, is now
+un-numbered like the input inventory, for the reason §32 gives.
+
+Also: `SupportFlow`'s own state diagram omitted the one-time step — a quarter
+of the machine, with its own frozen-attempt exit — and `identity.ts` described
+`currentUserEmail`'s single caller when there are two, the second being the
+`receipt_email` that §24 made load-bearing.
 
 **Implications:** migrations 061, 062 and 063 are new; 053—057 are applied,
 058—063 are not. They must be applied together and in order — 059 without 060

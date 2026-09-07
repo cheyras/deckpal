@@ -221,8 +221,16 @@ async function syncCustomer(stripe: Stripe, customerId: string, deleted: boolean
   // Every route already refuses a customer whose metadata does not name the
   // caller (`ensureCustomer`). The webhook had no such check, which is exactly
   // why it was the way in: the guard sat in the path nobody was attacking.
-  // Migration 059 pins the column write-once as well; either fix closes this,
-  // and both together mean it stays closed if one is refactored away.
+  // ⚠️ THIS CHECK IS THE CONTROL. DO NOT DELETE IT.
+  //
+  // Migration 059 pins the column write-once as well, and an earlier version of
+  // this comment called them independent — "either fix closes this, and both
+  // together mean it stays closed if one is refactored away". That is not true.
+  // 060 permits releasing the column to NULL, so release-then-set is two
+  // permitted calls that together reach any customer id no other row holds. The
+  // pin makes a repoint deliberate, two-step and logged; it does not prevent
+  // one. What closes the disclosure is the ownership question asked of Stripe,
+  // here and in `ensureCustomer`. SECURITY.md carries the same account.
   if (!deleted) {
     const customer = await stripe.customers.retrieve(customerId);
     const claims = !customer.deleted && customer.metadata?.deckpal_user_id === owner.user_id;

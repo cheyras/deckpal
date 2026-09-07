@@ -7,7 +7,9 @@
  *
  * ── THE STEPS ────────────────────────────────────────────────────────────────
  *
- *   choose → (card, only when an amount is picked and none is on file) → done
+ *   choose → (one-time, only after $0 and only outside the profile card)
+ *          → (card, only when an amount is picked and none is on file)
+ *          → done
  *
  * Somebody choosing $0 never sees a card field. That is not an optimisation, it
  * is the promise: "$0 is a real answer" is falsified the moment answering it

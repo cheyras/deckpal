@@ -15,8 +15,13 @@
  *
  * ── WHAT "PARTIAL" MEANS AND WHY IT IS ITS OWN STATUS ────────────────────────
  *
- * Billing needs three values, and the interesting failure is having two. A
- * deployment with a secret key but no webhook secret will happily take a card
+ * Billing needs FOUR values — secret key, publishable key, product id,
+ * webhook secret — and the interesting failure is having three. (This said
+ * "three, and the failure is having two", which is off by one in the module
+ * that owns the gate: the count below is `present === 4`, and its own example
+ * of the dangerous state is a deployment missing only the webhook secret.)
+ *
+ * A deployment with a secret key but no webhook secret will happily take a card
  * and create a subscription, and then never hear about a renewal, a failure or
  * a cancellation again — it looks like it works, and it is silently the worst
  * of the three states. `partial` names it. `unset` is honest and safe; the

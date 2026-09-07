@@ -186,7 +186,10 @@ export function SupportPrompt() {
    */
   const answered = useRef(false)
 
-  // The boot call. Once per page load, and only for somebody who is signed in.
+  // The boot call — only for somebody who is signed in, and NOT once per page
+  // load, whatever an earlier version of this line said: it re-registers on
+  // `SIGNED_IN`, which supabase-js re-fires when a tab regains focus. That is
+  // what `exposed` and `closedHere` above are for.
   useEffect(() => {
     if (!isCloudMode) return
     let alive = true

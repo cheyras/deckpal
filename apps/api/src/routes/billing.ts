@@ -280,15 +280,19 @@ export function stripeFailure(
 /**
  * Resolve this account's Stripe customer, and leave the row able to record it.
  *
- * Every money route needs the same three things in the same order and got them
+ * Every money route needs the same things in the same order and got them
  * subtly differently before, which is how `/portal` ended up opening a portal
  * on a customer the row had never heard of.
  *
- *  1. `releaseCustomer` when Stripe says the stored id is unusable. Migration
+ *  1. `ensureCustomer`: find the stored customer, ASK STRIPE whether its
+ *     metadata names this account, and make a new one only when it does not.
+ *     This is the check that closes the cross-account disclosure — see
+ *     `webhook.ts`, which asks the same question on the other path.
+ *  2. `releaseCustomer` when Stripe said the stored id is unusable. Migration
  *     059 pins the column write-once, so without this the follow-up write
  *     raises "cannot be repointed" — on every request, while minting a fresh
  *     orphan customer each time.
- *  2. Persist the id, so the webhook can find this account again.
+ *  3. Persist the id, so the webhook can find this account again.
  */
 async function customerFor(req: Request, userId: string, row: BillingRow, stripe: Stripe): Promise<string> {
   const { customerId, replaced } = await ensureCustomer(stripe, userId, currentUserEmail(req), row.stripe_customer_id);
