@@ -1195,7 +1195,32 @@ async function finishFirstPayment(stripe: Stripe, sub: Stripe.Subscription): Pro
     const current = await stripe.paymentIntents.retrieve(intentId);
     const confirmed =
       current.status === 'requires_confirmation' || current.status === 'requires_payment_method'
-        ? await stripe.paymentIntents.confirm(intentId, { off_session: true })
+        // ⚠️ ON-SESSION. NOT `off_session: true`, AND THIS IS NOT A STYLE
+        // CHOICE — Stripe refuses the call outright:
+        //
+        //   "You cannot confirm with `off_session=true` when
+        //    `setup_future_usage` is also set on the PaymentIntent. The
+        //    customer needs to be on-session to perform the steps which may be
+        //    required to set up the PaymentMethod for future usage."
+        //
+        // Stripe sets `setup_future_usage` on a subscription's first invoice
+        // itself — that is how the card becomes usable for renewals — so this
+        // intent ALWAYS has it and `off_session` was ALWAYS rejected. It shipped
+        // that way and broke the first live payment: a 400
+        // `invalid_request_error`, a subscription left `incomplete` with an
+        // invoice never attempted, and a reader told their bank had asked for a
+        // confirmation nobody had requested.
+        //
+        // On-session is also the truthful statement, which is the deeper point:
+        // the reader just pressed a button and is sitting there. `chargeOnce`
+        // says `off_session: true` for the opposite and equally true reason —
+        // its intent is ours, carries no `setup_future_usage`, and leans on the
+        // mandate the SetupIntent collected earlier.
+        //
+        // A step-up now comes back as a `requires_action` STATUS rather than an
+        // error, which is the branch below, and the browser finishes it exactly
+        // as it always did.
+        ? await stripe.paymentIntents.confirm(intentId)
         : current;
     // The only state the browser can do anything about.
     return { clientSecret: confirmed.status === 'requires_action' ? confirmed.client_secret : null };
