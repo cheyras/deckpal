@@ -105,11 +105,23 @@ export default defineConfig(async ({ command }) => {
 
   return {
     base: basePath,
+    // Which Vercel tier this BUILD is for — 'production' | 'preview' | '' (not
+    // Vercel: local build, self-host, CI). Baked at build time because the
+    // preview allowance on the /scan and /dev/quad-labeler route gates must
+    // not key on hostname: production carries *.vercel.app ALIASES
+    // (deckpal-deck-pal.vercel.app), so a hostname test opens owner-only
+    // surfaces to any signed-in account that finds the alias — round 12's
+    // finding. A preview BUILD is a preview everywhere it is served; a
+    // production build is production even on its vercel.app alias.
+    define: {
+      'import.meta.env.VITE_VERCEL_ENV': JSON.stringify(process.env.VERCEL_ENV ?? ''),
+    },
     // Only injected when the dev server derived these itself. On `vite build`
     // both are undefined and Vite's ordinary .env handling applies untouched.
     ...(isDevServer && live
       ? {
           define: {
+            'import.meta.env.VITE_VERCEL_ENV': JSON.stringify(process.env.VERCEL_ENV ?? ''),
             'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
             'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnon),
             // Drives the in-app LIVE ribbon (src/components/DevBackendRibbon.tsx).

@@ -301,12 +301,14 @@ const scanRoute = createRoute({
     if (import.meta.env.DEV) return
     // Self-host has exactly one user (the owner) behind their own auth proxy.
     if (!isCloudMode) return
-    // Preview deployments are open, same allowance (and same reasoning) as
-    // the quad labeler's: the e2e acceptance drives sign in as QA per
-    // AGENTS.md B12, and gating previews would blind every machine gate this
-    // scanner ships through. The owner-only claim is about PRODUCTION
-    // (deckpal.app), where the check below still fails closed.
-    if (window.location.hostname.endsWith('.vercel.app')) return
+    // Preview BUILDS are open, same allowance (and same reasoning) as the
+    // quad labeler's: the e2e acceptance drives sign in as QA per AGENTS.md
+    // B12, and gating previews would blind every machine gate this scanner
+    // ships through. Keyed on the BUILD TIER, not the hostname — production
+    // carries *.vercel.app aliases, so a hostname test would open this to any
+    // signed-in account that finds one (round 12). A production build ends at
+    // me.owner below on every hostname it is served from, fail-closed.
+    if (import.meta.env.VITE_VERCEL_ENV === 'preview') return
     try {
       const me = await api.me()
       if (me.owner) return
@@ -629,13 +631,15 @@ const quadLabelerRoute = createRoute({
   beforeLoad: async () => {
     if (import.meta.env.DEV) return
     if (!isCloudMode) return
-    // Preview deployments are open: the labeler writes to the SAME recorder
-    // whose server gate is already "non-production unconditional"
+    // Preview BUILDS are open: the labeler writes to the SAME recorder whose
+    // server gate is already "non-production unconditional"
     // (apps/api/src/dev/scanFlags.ts), and the owner labels signed in as QA
     // per AGENTS.md B12 — an owner-only gate here locked out the only person
     // who uses the surface (round 9 measured the resulting "Not Found").
-    // Production (deckpal.app) stays owner-only below, same as ever.
-    if (window.location.hostname.endsWith('.vercel.app')) return
+    // Keyed on the BUILD TIER, not the hostname — production carries
+    // *.vercel.app aliases (round 12). Production stays owner-only below on
+    // every hostname, same as ever.
+    if (import.meta.env.VITE_VERCEL_ENV === 'preview') return
     try {
       const me = await api.me()
       if (me.owner) return

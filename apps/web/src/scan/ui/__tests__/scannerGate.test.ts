@@ -118,7 +118,7 @@ test('the /scan guard is /dev/decke plus EXACTLY the preview allowance — nothi
     assert.ok(m, `could not read the beforeLoad body for ${path}`)
     return norm(m[1]!)
   }
-  const allowance = "if (window.location.hostname.endsWith('.vercel.app')) return "
+  const allowance = "if (import.meta.env.VITE_VERCEL_ENV === 'preview') return "
   const scan = bodyOf('/scan')
   assert.ok(scan.includes(allowance), '/scan lost its preview allowance')
   assert.equal(
@@ -145,7 +145,7 @@ test('the quad labeler keeps its *.vercel.app preview allowance — do not "tidy
   const guard = routeGuardFor(code(MAIN), '/dev/quad-labeler')
   assert.match(
     guard,
-    /hostname\.endsWith\(\s*'\.vercel\.app'\s*\)/,
+    /VITE_VERCEL_ENV === 'preview'/,
     'the labeler lost its preview allowance. It is there because the owner labels signed in as QA ' +
       '(AGENTS.md B12) and the recorder it writes to is already non-production-unconditional ' +
       '(apps/api/src/dev/scanFlags.ts) — an owner-only gate here locked out the only person who ' +
@@ -158,7 +158,7 @@ test('the SCANNER keeps its preview allowance — the machine gates depend on it
   // would have blinded the e2e rig (QA login) for every future round. The
   // owner-only claim is about PRODUCTION and the test above pins that half.
   const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.match(guard, /hostname\.endsWith\(\s*'\.vercel\.app'\s*\)/, '/scan lost its preview allowance')
+  assert.match(guard, /VITE_VERCEL_ENV === 'preview'/, '/scan lost its preview allowance')
 })
 
 // ── 3 · the nav ─────────────────────────────────────────────────────────────
