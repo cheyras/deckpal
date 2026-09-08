@@ -137,11 +137,22 @@ export function Sheet({
   size = 'md',
   ariaLabel,
   headerSlot,
+  headerRight,
   contentClassName = '',
 }: {
   /** Rendered as the sheet's heading and used as its accessible name. */
   title: string
-  onClose: () => void
+  /**
+   * Close the sheet — or REFUSE, by returning `false`.
+   *
+   * ⚠️ Refusing is why this returns anything. The exit is played optimistically
+   * (see `requestClose`), so a caller that declines to unmount leaves a panel
+   * and a full-screen scrim animated to `opacity: 0 forwards` and still
+   * mounted: an invisible, pointer-eating, focus-trapped overlay. Returning
+   * `false` tells the sheet to put itself back. The billing sheet does this
+   * while a payment is in flight; almost nothing else should need to.
+   */
+  onClose: () => void | boolean
   children: ReactNode
   /** Pinned below the scroll area — actions stay reachable on a short screen. */
   footer?: ReactNode
@@ -154,6 +165,20 @@ export function Sheet({
    * grab handle and a floating close button in place of a heading.
    */
   headerSlot?: ReactNode
+  /**
+   * A small mark or control sitting between the title and the close button.
+   *
+   * Distinct from `headerSlot`, which REPLACES the whole bar and makes the
+   * caller responsible for the close button and the mobile grab handle. This is
+   * for the common case of wanting one badge in the corner without inheriting
+   * all of that — the billing prompt puts "Powered by Stripe" here, where a
+   * payment surface expects it, rather than spending a horizontal rule and a
+   * centred line in the body to say four words.
+   *
+   * It is given `shrink-0` and the title `min-w-0`, so a long title wraps
+   * rather than crushing the accessory.
+   */
+  headerRight?: ReactNode
   contentClassName?: string
 }) {
   const titleId = useId()
@@ -173,7 +198,36 @@ export function Sheet({
       return
     }
     setClosing(true)
-    closeTimer.current = window.setTimeout(onClose, EXIT_MS)
+    // ⚠️ THE LATCH MUST CLEAR ITSELF, because `onClose` MAY REFUSE.
+    //
+    // This used to leave `closeTimer.current` set for ever and never undo
+    // `closing`, on the assumption that the caller always unmounts a frame
+    // after the exit animation — the invariant `theme.css` states. The
+    // billing sheet made that false: it refuses to close while a payment is in
+    // flight (`SupportPrompt`'s `writing` ref). So pressing Escape during a
+    // bank challenge faded the panel AND the full-screen scrim to
+    // `opacity: 0 forwards`, left them mounted, and dead-latched every
+    // subsequent Escape, ✕ and backdrop click. The reader was left under an
+    // invisible, pointer-eating, focus-trapped `fixed inset-0` overlay until
+    // they reloaded — and reloading loses the done screen that is a one-off's
+    // only in-app record (057).
+    //
+    // ⚠️ AND `setClosing(false)` ONLY ON A REFUSAL. Round forty-four cleared it
+    // unconditionally, which is invisible where `onClose` unmounts by a plain
+    // `setState` (React batches the two) and NOT invisible where it unmounts
+    // through TanStack Router, which commits navigation inside
+    // `startTransition` after an async `router.load()`. There the restore lands
+    // as its own painted frame with the panel still mounted and no longer
+    // closing, so `animation-name` flips back to `sheet-panel-up` — and a
+    // name change RESTARTS the animation. The card sheet, on five routes, read
+    // as "slide out, slide back in, vanish".
+    //
+    // A refusal is the only case that needs the restore, and the caller is the
+    // only thing that knows: `onClose` returns `false` to say so.
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null
+      if (onClose() === false) setClosing(false)
+    }, EXIT_MS)
   }, [onClose])
 
   useEffect(
@@ -286,18 +340,21 @@ export function Sheet({
             <div className="flex justify-center pt-[8px] nav:hidden">
               <span className="h-[4px] w-[40px] rounded-full bg-surface-tertiary" />
             </div>
-            <div className="flex items-center justify-between px-[20px] py-[12px] nav:px-[24px] nav:py-[18px]">
-              <h2 id={titleId} className="text-[18px] font-bold text-text-primary">
+            <div className="flex items-center justify-between gap-[12px] px-[20px] py-[12px] nav:px-[24px] nav:py-[18px]">
+              <h2 id={titleId} className="min-w-0 text-[18px] font-bold text-text-primary">
                 {title}
               </h2>
-              <button
-                type="button"
-                onClick={requestClose}
-                aria-label="Close"
-                className="-mr-[6px] flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary"
-              >
-                <Icon name="close" size={22} />
-              </button>
+              <div className="flex shrink-0 items-center gap-[10px]">
+                {headerRight}
+                <button
+                  type="button"
+                  onClick={requestClose}
+                  aria-label="Close"
+                  className="-mr-[6px] flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary"
+                >
+                  <Icon name="close" size={22} />
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -148,7 +148,14 @@ jobs:
       # Mass Entry line building (product-id lines, the all-or-nothing URL
       # split), idempotency key derivation, batch folding, and the source guard
       # that keeps every card_list/deck read filtering deleted_at.
-      - name: Cart, idempotency, batch-fold and soft-delete guards (pure, no DB)
+      # Also carries the billing suite: when this product asks somebody for
+      # money (`promptDue`) and how much it is allowed to charge
+      # (`normalizeAmountCents`). Both fail SILENTLY when wrong -- a cadence bug
+      # nags instead of throwing, an amount bug bills instead of throwing -- so
+      # they are the two parts of billing that must be pinned in CI. Everything
+      # else in src/billing is a round trip to Stripe and is verified against
+      # Stripe, not here.
+      - name: Cart, idempotency, batch-fold, soft-delete and billing guards (pure, no DB)
         run: pnpm --filter deckpal-api test:pure
 
       # The storage package's own pure suites:

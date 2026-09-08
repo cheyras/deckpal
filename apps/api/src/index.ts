@@ -35,6 +35,9 @@ import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
 import { oauthRouter } from './routes/oauth.js';
 import { mountOAuthServer } from './oauthServer.js';
+import { billingRateLimit, billingRouter } from './routes/billing.js';
+import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
+import { mountStripeWebhook } from './billing/webhook.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -77,6 +80,14 @@ export function createApp(): express.Express {
   // separately so the louder message cannot hide the quieter one.
   const approvalWarning = deckeApprovalWarning();
   if (approvalWarning) console.warn(approvalWarning);
+
+  // And for the tier that takes actual money. The interesting state is not
+  // "off" -- off is safe and says so -- but PARTIAL: a secret key with no
+  // webhook secret takes cards happily and then never hears about a renewal, a
+  // failure or a cancellation again. B11 again, with the highest stakes of the
+  // four gates above it.
+  const billingWarning = billingGateWarning();
+  if (billingWarning) console.warn(billingWarning);
 
   // ── AND WHETHER THE MODELS WE ARE CONFIGURED TO CALL ACTUALLY EXIST ──────
   //
@@ -129,6 +140,22 @@ export function createApp(): express.Express {
       next();
     });
   }
+  // Base path: /api on Vercel, /deckpal/api on self-host (nginx sub-path).
+  // Read here rather than beside `app.use(basePath, api)` below because the
+  // Stripe webhook needs it BEFORE the JSON parser is installed.
+  const basePath = process.env.API_BASE_PATH ?? '/deckpal/api';
+
+  // ── The Stripe webhook, and it MUST be mounted here ──────────────────────
+  //
+  // Signature verification hashes the exact bytes Stripe sent, so this route
+  // takes `express.raw()` and has to be registered ahead of the global JSON
+  // parser on the next line. Re-serialising a parsed body produces different
+  // bytes and every signature fails -- the ordering below is load-bearing, not
+  // stylistic. It is also outside the `/api` router on purpose: a Stripe
+  // delivery carries no session and must not meet resolveIdentity or the RLS
+  // middleware. See billing/webhook.ts.
+  mountStripeWebhook(app, basePath);
+
   // 12mb accommodates the bug reporter's screenshot dataURL; every other route
   // posts tiny JSON, so the raised ceiling only ever matters for /bugs.
   app.use(express.json({ limit: '12mb' }));
@@ -146,7 +173,8 @@ export function createApp(): express.Express {
 
   // JWT verification runs on every request (extracts req.user from Bearer token).
   // It never rejects — user-scoped routers are gated by resolveIdentity below,
-  // and the session-only ones (/tokens, /avatar, /oauth) by requireSession too.
+  // and the session-only ones (/me/billing, /tokens, /avatar, /oauth) by
+  // requireSession too.
   api.use(authMiddleware);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
@@ -332,6 +360,12 @@ export function createApp(): express.Express {
         // had measured it would be worse than reporting the setting and saying
         // which it is — see DECISIONS.md for why this is the honest half of
         // B11 rather than a shortcut.
+        // Whether this deployment can take money, and in which Stripe mode --
+        // never a key, never part of one. `partial` is the state worth having a
+        // word for: enough configuration to charge a card, not enough to hear
+        // what happened next. B11.
+        billingGate: billingGateStatus(),
+        stripeMode: stripeMode(),
         deckeLimits: {
           maxTurnsPerDay: maxTurnsPerDay(),
           maxDeepCallsPerDay: maxDeepCallsPerDay(),
@@ -382,6 +416,11 @@ export function createApp(): express.Express {
         'PATCH /decks/:id/logs/:logId', 'DELETE /decks/:id/logs/:logId',
         '/decks/:id/pdf', '/lists/:id/pdf', '/sets/:setId/checklist.pdf',
         'POST /scan',
+        '/me/billing', 'POST /me/billing/visit', 'POST /me/billing/prompt-ack',
+        'POST /me/billing/setup-intent', 'PUT /me/billing/subscription',
+        'POST /me/billing/refresh', 'POST /me/billing/one-time', 'POST /me/billing/one-time/confirm',
+        'POST /me/billing/payment-method',
+        'POST /me/billing/prompt-shown', 'POST /me/billing/portal', 'POST /stripe/webhook',
         '/tokens', 'POST /tokens', 'DELETE /tokens/:id',
         '/avatar', 'POST /avatar', 'DELETE /avatar',
         '/oauth/client', 'POST /oauth/authorize/decision',
@@ -425,6 +464,23 @@ export function createApp(): express.Express {
   // on deployment. See identity.ts.
   api.use(resolveIdentity);
 
+  // Mounted ahead of `/me` so the two-segment path resolves here; meRouter has
+  // no `/billing` route, so nothing is shadowed either way, but the order says
+  // which router owns the path.
+  //
+  // ⚠️ `requireSession`, ON THE SAME REASONING AS /tokens AND /avatar. A
+  // personal access token (`dsk_…`) resolves to a user exactly as a session
+  // does, so without this every billing route accepted one — and these are
+  // tokens minted specifically to hand to third-party AI clients. A leaked or
+  // over-trusted token could set somebody's monthly amount, charge a one-off
+  // against their saved card, cancel their support, and open a Stripe portal
+  // session exposing their invoice history, billing address and card
+  // management. A token reads a collection; it does not spend money or
+  // administer the account. Both web surfaces use sessions, so nothing
+  // legitimate loses access.
+  // `billingRateLimit` bounds how often ONE account can ask; see its header for
+  // what a per-process limiter does and does not promise on serverless.
+  api.use('/me/billing', requireSession, billingRateLimit, billingRouter);
   api.use('/me', meRouter);
 
   // Deck-E's transcript history. Mounted under `/decke` so the feature's routes
@@ -465,8 +521,6 @@ export function createApp(): express.Express {
   // never be able to approve minting another one.
   api.use('/oauth', requireSession, oauthRouter);
 
-  // Base path: /api on Vercel, /deckpal/api on self-host (nginx sub-path).
-  const basePath = process.env.API_BASE_PATH ?? '/deckpal/api';
   app.use(basePath, api);
 
   // Serve the built SPA. On self-host the sub-path is /deckpal/; on Vercel the

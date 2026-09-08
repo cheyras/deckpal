@@ -51,6 +51,12 @@ self-hosters.
   is reversible -- *Recently deleted* on each index restores it.
 - **PWA** -- installable, offline-capable (tiered: app shell always; visited
   art LRU-cached; owned cards opt-in).
+- **Pay what you want** — the hosted deckpal.app asks what you would like to pay
+  per month and takes **$0** for an answer. Nothing is gated on it: there is no
+  entitlement column in the schema and no locked feature anywhere in the app.
+  Cards are handled entirely by Stripe (the number never touches DeckPal), and
+  the amount is changeable or stoppable from your profile at any time. Self-host
+  builds have no billing tier at all.
 - **Multi-user with row-level security** -- Supabase Auth (email + OAuth) with
   per-user RLS policies on all collection data. Catalog and pricing data is
   shared and world-readable.

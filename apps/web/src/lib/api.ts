@@ -1029,6 +1029,71 @@ export interface UserSettings {
   seriesGroupOwned: boolean
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Billing — the pay-what-you-want tier (migration 053; apps/api/src/billing)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Note what this shape does NOT contain: no Stripe customer id, no subscription
+// id, no payment-method id. Those are server-side handles and the browser has
+// no use for them. The card is four digits, a brand and an expiry -- the same
+// display summary Stripe hands back -- and nothing else about an instrument
+// ever reaches this app, because the card itself is typed into Stripe's own
+// iframe and never touches DeckPal's DOM.
+
+/** Which ask is due, if any. `null` is by far the commonest answer. */
+export type SupportPromptKind = 'onboarding' | 'checkin' | 'payment_issue'
+
+export interface BillingState {
+  /**
+   * False on a deployment with no Stripe -- self-host, or a preview build with
+   * no keys. Not an error: the UI renders nothing at all and says nothing.
+   */
+  available: boolean
+  /** `test` shows a badge, so "why did my real card do nothing" has an answer. */
+  mode: 'test' | 'live' | 'unknown'
+  /**
+   * Served at runtime rather than baked in at build time, so the key in the
+   * browser and the key on the server are always from the same Stripe account
+   * and the same mode. See apps/api/src/billing/stripe.ts.
+   */
+  publishableKey: string | null
+  /**
+   * The one-tap amounts, in cents. NOT a constant: which ladder you get is the
+   * $1 experiment's arm, decided server-side and sticky per account
+   * (migration 055). Render what arrives; never hard-code a ladder here, or the
+   * control and the copy can disagree about what was offered.
+   */
+  presetsCents: number[]
+  /**
+   * The ladder for a one-off gift, offered after somebody answers $0. Higher
+   * anchors and no $0 rung — declining is a button, not an amount. Identical in
+   * both experiment arms on purpose: one variable at a time.
+   */
+  oneTimePresetsCents: number[]
+  /** Which arm, for support tickets and debugging. Never sent back up. */
+  abVariant: 'with_1' | 'without_1' | null
+  minCents: number
+  maxCents: number
+  support: {
+    cents: number
+    currency: string
+    /** Stripe's own vocabulary, verbatim: active | past_due | canceled | … */
+    status: string | null
+    currentPeriodEnd: string | null
+    cancelAtPeriodEnd: boolean
+  }
+  card: { brand: string | null; last4: string; expMonth: number | null; expYear: number | null } | null
+  prompt: { due: SupportPromptKind | null }
+  /**
+   * Present only on a write, and only when the bank wants the reader to
+   * authenticate the first charge. Confirming it in the browser completes the
+   * subscription; ignoring it leaves an `incomplete` subscription that Stripe
+   * expires within a day, having charged nobody anything.
+   */
+  clientSecret?: string | null
+}
+
 /** One featured card on the profile (user_showcase; slot is 1-based). */
 export interface ShowcaseSlot {
   slot: number
@@ -1416,6 +1481,122 @@ export const api = {
   // localStorage-only `deckpal.showcase.v1`. PUT replaces the whole set; the
   // server resolves each card id to its primary variant.
   showcase: (signal?: AbortSignal) => get<{ showcase: ShowcaseSlot[] }>('/me/showcase', signal),
+
+  // ── Billing ──────────────────────────────────────────────────────────────
+  // `billing()` is the pure read (the profile page). `billingVisit()` is the
+  // same body plus a counted session, which is why it is a POST -- a GET with
+  // a side effect gets fired by anything that prefetches, and the side effect
+  // here decides when somebody is asked for money. Called once per app boot.
+  billing: (signal?: AbortSignal) => get<BillingState>('/me/billing', signal),
+  billingVisit: () => send<BillingState>('POST', '/me/billing/visit'),
+  /**
+   * Stamp "we asked". `dismissed` distinguishes walking away from answering:
+   * both buy the same month of quiet, but only one is a dismissal, and
+   * recording both against the same exposure made the experiment's outcomes
+   * overlap. `context` carries the `forced-` label under the testing override.
+   */
+  ackSupportPrompt: (kind: SupportPromptKind, opts: { dismissed: boolean; context?: string }) =>
+    send<BillingState>('POST', '/me/billing/prompt-ack', {
+      kind,
+      dismissed: opts.dismissed,
+      ...(opts.context ? { context: opts.context } : {}),
+    }),
+  /**
+   * Replace the card and settle whatever failed. Separate from `setSupport` on
+   * purpose: changing a card is not changing an amount, and conflating them
+   * un-cancelled pending stops and logged card fixes as conversions.
+   * `settled` says whether the outstanding invoice actually went through.
+   */
+  replacePaymentMethod: (setupIntentId: string) =>
+    send<BillingState & { settled: boolean }>('POST', '/me/billing/payment-method', { setupIntentId }),
+  /**
+   * The ask was displayed. This is the experiment's denominator -- without it
+   * there is no conversion rate, only a count of people who said yes. Fired
+   * when the modal actually mounts, not when the state is fetched: most loads
+   * show no modal at all.
+   */
+  supportPromptShown: (kind: SupportPromptKind, context: string) =>
+    // `kind` as well as `context`: showing the ask is what SETTLES it, so the
+    // server needs to know whether this was the onboarding one. See the route.
+    send<{ recorded: boolean }>('POST', '/me/billing/prompt-shown', { kind, context }),
+  /** A SetupIntent for the Payment Element. The secret reaches the browser by design. */
+  billingSetupIntent: () =>
+    send<{ clientSecret: string; publishableKey: string; mode: string }>('POST', '/me/billing/setup-intent'),
+  /**
+   * The one number the client chooses. `setupIntentId` is sent only on the leg
+   * where a card was just entered; the server validates it against the customer
+   * it resolved from the session before doing anything with it.
+   */
+  /**
+   * `expected` is what the SCREEN was showing when the reader pressed the
+   * button, and the server refuses the write with a 409 if the account has
+   * moved on. Two tabs are two mounts and share no state: without this, a stale
+   * tab's "Continue with $0" scheduled the end of a subscription the other tab
+   * had just created and reported that nothing had changed.
+   */
+  setSupport: (
+    amountCents: number,
+    setupIntentId?: string,
+    context?: string,
+    expected?: { cents: number; cancelAtPeriodEnd: boolean },
+  ) =>
+    send<BillingState>('PUT', '/me/billing/subscription', {
+      amountCents,
+      ...(setupIntentId ? { setupIntentId } : {}),
+      // Where the answer came from, so a $1 rung that works in the welcome flow
+      // and fails in the month-later check-in is visible rather than pooled.
+      ...(context ? { context } : {}),
+      ...(expected ? { expectedCents: expected.cents, expectedCancelAtPeriodEnd: expected.cancelAtPeriodEnd } : {}),
+    }),
+  /**
+   * A one-off contribution, charged to the card on file. `setupIntentId` only
+   * on the leg where a card was just entered, exactly as the subscription call.
+   * `paid` is false when the issuer wants the reader to confirm — `clientSecret`
+   * then carries the challenge.
+   */
+  giveOnce: (amountCents: number, opts: { setupIntentId?: string; context?: string; attemptId: string }) =>
+    // `status` is the PaymentIntent's own, and the reason it is here is that
+    // `paid: false` alone cannot be spoken: `processing` means the money may
+    // still leave, and telling somebody "nothing has been charged" then invites
+    // a second payment.
+    send<BillingState & { paid: boolean; status: string | null }>('POST', '/me/billing/one-time', {
+      amountCents,
+      ...(opts.setupIntentId ? { setupIntentId: opts.setupIntentId } : {}),
+      ...(opts.context ? { context: opts.context } : {}),
+      // ONE id per user-initiated attempt, held across every retry of it. This
+      // is what makes a network retry or a double click a single charge: the
+      // server puts it in the Stripe idempotency key. A new id is minted only
+      // when the reader deliberately starts again.
+      attemptId: opts.attemptId,
+    }),
+  /**
+   * Report a one-off that needed the bank's confirmation.
+   *
+   * The charge call returns without recording anything when the issuer steps
+   * in, because nothing has been paid at that moment. This hands back the
+   * intent so the server can read its real status — re-posting the original
+   * request would not work, since its idempotency key would replay the
+   * original "needs confirmation" answer rather than the settled one.
+   */
+  confirmOneTime: (paymentIntentId: string, context: string) =>
+    send<BillingState & { paid: boolean }>('POST', '/me/billing/one-time/confirm', { paymentIntentId, context }),
+  /**
+   * Re-read Stripe after an authentication challenge completed in the browser.
+   *
+   * `context` reports the CONFIRMED outcome: the write that started the
+   * challenge deliberately recorded nothing, because at that moment nothing had
+   * been paid. Passing it here records the answer exactly once, and only if the
+   * subscription really is paying now.
+   *
+   * `amountCents` is sent for symmetry with that write and is IGNORED by the
+   * server, which records `support_cents` as Stripe reports it — the client
+   * naming its own amount was the one number an account could have set to
+   * anything without going near Stripe.
+   */
+  refreshBilling: (confirmed?: { amountCents: number; context: string }) =>
+    send<BillingState>('POST', '/me/billing/refresh', confirmed ?? {}),
+  /** Stripe's hosted portal: invoices, receipts, the long tail of card management. */
+  billingPortal: () => send<{ url: string }>('POST', '/me/billing/portal'),
   setShowcase: (cards: (string | null)[]) => send<{ showcase: ShowcaseSlot[] }>('PUT', '/me/showcase', { cards }),
 
   // Insights / gamification (Phase 6)

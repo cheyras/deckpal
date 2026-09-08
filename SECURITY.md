@@ -345,6 +345,197 @@ proxy is the sole ingress point.
 4. Set `MCP_ALLOWED_HOSTS` to only the hosts that should reach the MCP server.
 5. Never commit `.env` or other files containing credentials.
 
+## Payments
+
+DeckPal's hosted tier asks each account what it would like to pay per month and
+accepts **$0** as a real answer. Nothing in the product is gated on the number:
+there is no entitlement column and no locked feature, which is worth stating in
+a security document because it means a forged "I am a supporter" claim would buy
+an attacker nothing at all.
+
+### No card data reaches this system, and none could be stored
+
+The card number, expiry and CVC are typed into **Stripe's own cross-origin
+iframe** (the Payment Element, served from `js.stripe.com`). They are entered
+into Stripe's document, not DeckPal's: no React state in this app ever holds a
+digit of a card, no request to this API ever carries one, and there is no column
+in `billing_account` (migration 053) that could hold one. What DeckPal receives
+and caches is the display summary Stripe hands back for a saved instrument —
+brand, last four digits, expiry month and year — and nothing else.
+
+That is what keeps this deployment within PCI SAQ-A. It is a property of the
+code rather than a promise: self-hosting Stripe.js would break the iframe origin
+and is therefore forbidden, not merely discouraged.
+
+### The webhook's signature is its only authentication, and there is no fallback
+
+`POST /api/stripe/webhook` is unauthenticated by necessity — Stripe holds no
+session. The `Stripe-Signature` check is therefore the entire access control on
+the endpoint that decides which accounts are recorded as paying. If
+`STRIPE_WEBHOOK_SECRET` is unset the route answers **503 and processes nothing**;
+it never falls back to trusting the body, which would make "mark yourself a
+supporter" a public endpoint.
+
+The route is mounted on the bare Express app ahead of the JSON parser (the
+signature covers the exact bytes sent) and outside the RLS middleware (a Stripe
+delivery has no identity to resolve).
+
+### The Stripe customer id is a capability, and the database treats it as one
+
+`billing_account.stripe_customer_id` is a pointer into Stripe. If an account
+could write it, it could point its own row at somebody else's customer — the
+row-ownership check would still pass, it is still their own row — and then read
+back that stranger's card summary or start a subscription billed to their card.
+
+Supabase exposes PostgREST to anyone holding the anon key, and the anon key is
+in the SPA bundle by design, so "only the API writes this" is not something the
+API can decide. Migration 054 makes it the database's decision instead:
+
+- **RLS:** `SELECT` on your own row. No INSERT, UPDATE or DELETE policy.
+- **Privileges:** `REVOKE ALL — GRANT SELECT`, because Supabase's bootstrap
+  grants `authenticated` write privileges on new public tables by default. A
+  write then fails loudly with `42501` rather than quietly affecting zero rows,
+  and keeps failing even if a future migration adds a permissive policy.
+- **Writes go through six `SECURITY DEFINER` functions** —
+  `billing_touch_visit`, `billing_ack_prompt`, `billing_apply_stripe` (054),
+  `billing_record_ab_event` (056), `billing_ensure_row` and
+  `billing_release_customer` (059/060) — which derive the row from
+  `auth.uid()` and never from an argument, each writing only the columns its
+  name describes. There is no user id to forge.
+- **The webhook verifies ownership with Stripe, and that is the control that
+  closes the disclosure.** Before writing, `syncCustomer` retrieves the Stripe
+  customer and checks its own `metadata.deckpal_user_id` names the account it is
+  about to update; every API route does the same through `ensureCustomer`. The
+  hole it closes: `billing_apply_stripe` is reachable from the browser over
+  PostgREST with the anon key the SPA ships, the webhook used to resolve an
+  account from `stripe_customer_id` alone, and customer ids are not secrets —
+  so planting a stranger's `cus_—` in your own row would have synced their card
+  brand, last four, expiry and subscription state onto it.
+- **`stripe_customer_id` is write-once at the database level** (059), as depth
+  behind that check rather than as a second independent lock. It may be set
+  while NULL and re-asserted to the same value; a direct repoint is refused.
+  ⚠️ Read that precisely: 060 permits releasing it to NULL, and release-then-set
+  is two permitted calls that together reach any customer id no other row is
+  currently holding. What the pin actually buys is that a repoint cannot happen
+  silently or by accident — it takes a deliberate two-step, the row's card
+  summary is wiped in between, and the server logs it (`customerFor`). Earlier
+  headers in 059 and 060 described the two halves as independent, such that
+  either alone would hold. That was wrong, and the ownership check above is
+  load-bearing on its own.
+- **The write-once pin permits the FIRST write to any value.** There is no
+  ownership check at write time — the RPC cannot ask Stripe — so an account
+  whose `stripe_customer_id` is still NULL can plant an arbitrary `cus_—`. The
+  disclosure stays closed, because the webhook and every route verify the
+  customer's metadata names the row owner before reading anything from it. What
+  remains is a nuisance: the column is UNIQUE, so squatting an id that another
+  account will LATER legitimately store turns that account's billing requests
+  into unique-violation errors until an operator clears the row. It needs
+  knowing a live customer id before its owner's row records it — a window
+  measured in the seconds between `ensureCustomer` and `applyStripe` — and
+  recovery is one UPDATE. Accepted, and named so it is diagnosable rather than
+  mysterious.
+- **`billing_release_customer` can be called by the account it belongs to**
+  (060), and deliberately carries no "not while you are subscribed" check. Such
+  a check would read the row's CACHED subscription status to decide, and the one
+  time it matters is when that cache is wrong — which is the state that sent
+  this feature into a 502 loop once already (DECISIONS §6). Detaching your own
+  row from your own paying subscription is self-harm with no reach into anybody
+  else's data: the subscription keeps charging at Stripe, the app shows $0, and
+  re-subscribing bills a second time. Accepted, and named here rather than
+  patched with a constraint that would recreate a real outage to prevent a
+  self-inflicted one.
+- **Those functions are reachable over PostgREST**, because `authenticated` must
+  be able to execute them and the anon key is in the SPA by design. The inputs
+  are therefore constrained in the FUNCTION, not in the route: the experiment
+  arm is read from the caller's own row rather than accepted as a parameter, and
+  the function refuses an `amount_cents` outside `0≤50000` (the product's own
+  ceiling), an unrecognised event kind, and more than 200 events from one
+  account in a day. Those live in **062**, not 058: 058 introduced the first two
+  and 062 drops its function outright and re-creates them alongside the ceiling
+  and the dedupe key, so a change to the cap belongs in 062. A caller can still
+  write a plausible event about themselves; they cannot forge an arm, an amount
+  the API would reject, or anybody else's row.
+- **Defence in depth in the API:** a stored customer id is only used when the
+  Stripe customer's own `metadata.deckpal_user_id` names this account.
+
+`billing_event` (the webhook's replay ledger) has RLS enabled, no policy, and no
+grant to either role.
+
+### What the browser may send
+
+An amount, and a `setupIntentId` on the one leg where a card was just entered —
+that id being verified to belong to this account's customer, and to have
+succeeded, before it is used. One more object reference, checked the same way:
+a `paymentIntentId` on `/one-time/confirm`, verified to belong to this account's
+customer AND to carry the metadata marking it a one-off this flow created.
+
+And an `attemptId`, which is NOT an object reference and gets no ownership check
+— correctly, because there is nothing at Stripe to check it against. It is a
+client-generated opaque string constrained to `[A-Za-z0-9_-]{8,64}` because it
+goes into a Stripe idempotency key, which is what makes a retried gift one
+charge rather than two. Its only power is over the caller's own retries.
+
+Customer ids, subscription ids, prices, payment-method ids and statuses are all
+resolved server-side and never accepted from a request. `/refresh` accepts an
+`amountCents` and deliberately ignores it: the recorded figure is what Stripe
+says the subscription bills.
+
+It also sends three analytics values: the prompt `kind`, validated against
+`onboarding|checkin|payment_issue`; a `context`, checked against the four
+surfaces the analysis knows and replaced with `settings` otherwise — and not
+read at all on the two prompt endpoints, where the exposure is filed under its
+validated `kind`; and a `dismissed` boolean on `/prompt-ack` that decides which
+of the two exposure outcomes is written. The `forced-` prefix marking test
+traffic is the server's to write: a client sending one is honoured only in
+Stripe test mode.
+
+⚠️ The `context` was free text until round forty-six, and that was not the
+harmless field it looks like. Every CTE of the analysis filters `context IN
+('onboarding','checkin')`, so an unrecognised string removed the account from
+the denominator and a client-written `forced-` removed its answer from the
+numerator — either one moved a level twenty-account cohort by 25% when
+executed. None of them touches money, and all three remain inside the accepted
+limit below: an account can still write a plausible event about itself through
+the RPC directly, which is why the validation is hygiene rather than a
+boundary. The experiment ARM is the one field that would make the measurement
+forgeable, and it is deliberately not among them: `billing_record_ab_event`
+reads it from the caller's own row.
+
+`routes/billing.ts`'s module header and API.md carry the same inventory; if you
+change one, change all three.
+
+### A testing override that switches itself off
+
+`?prompt=onboarding|checkin|payment_issue` forces the support prompt open, so a
+surface designed to be hard to see twice can be tested at all. It works **only
+while `stripeMode` is `test`**, which is read server-side off the secret key's
+own prefix — so it stops working the moment live keys are configured, rather
+than relying on anyone remembering to remove it. It can force a modal; it cannot
+charge anything, and events recorded under it carry a `forced-` context so they
+are excluded from the experiment.
+
+### Logging
+
+Stripe error objects can carry a payment method and a customer. In
+`stripeFailure` — the funnel every route's Stripe call passes through, and the
+only one that can see a decline — the API logs the error **type** and the
+Stripe **request id**, and nothing else from them: a decline's message is the
+reader's own copy and does not belong in a server log.
+
+Writers outside that funnel do log a Stripe message: the webhook's
+processing failure, the webhook's signature-verification failure (the message
+alone, never the body or the signature — it is what tells a wrong secret from a
+replay), and the three lines in the duplicate-subscription refund sweep. Their
+calls are reads, cancels and refunds — never a confirm or a charge, which is
+where a decline can arise — so the messages are of the "No such customer" kind.
+The sweep in particular is the one place where a silent failure means money kept
+by mistake. It DOES log the message of an error that is not Stripe's,
+because the same funnel catches our own throws and reducing "no payment method
+on file for a one-time charge" to `type: unknown` hid the wiring failure it
+exists to expose. Keys are never logged, and `/health` reports only which of four configuration states the
+deployment is in (`configured` / `partial` / `unset` / `self-host`) plus the
+mode read off the key's prefix.
+
 ## Data retention: deleted lists and decks
 
 Since 2026-08-19 (migration 038), deleting a list or a deck is **reversible and

@@ -417,6 +417,257 @@ primary variant, exactly as the list bulk-add does) or `null` for an empty
 slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
 shape.
 
+## Billing — the pay-what-you-want tier
+
+Cloud only, and only when Stripe is configured. ⚠️ "Configured" has two
+meanings here and they are not the same: the ROUTES come alive on three
+variables (secret key, publishable key, product id), while `/health`'s
+`billingGate: "configured"` requires a fourth, the webhook secret. Three of four
+is `billingGate: "partial"` — and read the boot warning, which says which of the
+two partials it is: with the secret key present the tier takes cards and never
+hears back, without it the tier is simply off. A fifth value,
+`billingGate: "mode-mismatch"`, means the secret key and the publishable key
+name different Stripe MODES: every route answers 200 and every card
+confirmation fails, because the browser is on one account and the server on the
+other. It is reported, not enforced — the tier stays available, because turning
+billing off on a prefix comparison would be a worse fault than the one it
+prevents. See DEPLOYMENT.md. `GET /me/billing`, `/visit`, `/prompt-ack` and `/refresh` all
+answer the same shape, and on a deployment with no Stripe that shape is
+`{ "available": false, … }` rather than an error, because "is there a billing
+tier here" is a legitimate question with a legitimate negative answer.
+(`/prompt-shown` is the exception on purpose: it records an experiment exposure
+and answers `{ "recorded": true | false }`, which is the whole of what its
+caller needs.) The endpoints that would move money say so instead:
+`400 "Billing is not configured on this deployment."` A page can ask what the
+tier is; nothing can quietly no-op a payment.
+
+**What the browser is trusted with**, in full — the same inventory
+`routes/billing.ts`'s header and SECURITY.md carry, and if you change one,
+change all three:
+
+- an `amountCents`, validated to whole dollars within the floor and ceiling;
+- an optional `expectedCents` / `expectedCancelAtPeriodEnd` on `PUT
+  /subscription` — what the SCREEN was showing when the reader pressed the
+  button. Disagreeing with the row is a **409 `stale_state`**, refused before
+  anything touches Stripe. It is optional so a caller that omits it behaves as
+  before; the shipping client always sends it. ⚠️ Without it, two tabs are two
+  mounts with no shared state: the reader answers $5 in one, and the other —
+  still showing the same ask, its primary button reading "Continue with $0" —
+  scheduled the end of the subscription just created and reported that nothing
+  had changed;
+- a `setupIntentId`, on the one leg where a card was just entered, checked to
+  belong to this account's Stripe customer AND to have succeeded;
+- a `paymentIntentId` on `/one-time/confirm`, checked the same way plus the
+  metadata marking it a one-off this flow created;
+- an `attemptId`, an opaque `[A-Za-z0-9_-]{8,64}` string, REQUIRED, because it
+  goes into a Stripe idempotency key — which is what makes a retried gift one
+  charge;
+- a prompt `kind`, validated against `onboarding|checkin|payment_issue` and
+  400'd otherwise, and a `dismissed` boolean on `/prompt-ack`;
+- a `context` on the routes that record an outcome, checked against the four
+  surfaces the analysis knows (`onboarding|checkin|payment_issue|settings`) and
+  replaced with `settings` otherwise. On `/prompt-shown` and `/prompt-ack` it is
+  not read at all: an exposure is filed under its validated `kind`. The
+  `forced-` prefix that marks test traffic is the SERVER's to write — a client
+  sending one is honoured only when the deployment is in Stripe test mode.
+  ⚠️ Free text here was not harmless: every CTE of the experiment's analysis
+  filters `context IN ('onboarding','checkin')`, so an unrecognised string
+  removed that account from the denominator and a client-written `forced-`
+  removed its answer from the numerator. Executed over twenty identical
+  accounts, either one moved a level cohort by 25%.
+
+  None of this touches money, and none of it is a boundary: SECURITY.md's "an
+  account can write a plausible event about itself" still covers what the RPC
+  grant permits directly.
+
+It never sends a customer id, a subscription id, a price, a payment-method id or
+a status: every one of those is resolved server-side from the authenticated
+user. `/refresh` accepts an `amountCents` and deliberately IGNORES it, recording
+what Stripe says the subscription bills.
+
+`billing_account` is SELECT-only to `authenticated` (migration 054), so the row
+cannot be written with a direct `UPDATE`. ⚠️ It CAN be written through the
+`SECURITY DEFINER` functions 054 grants, and one of them takes a
+`stripe_customer_id` — so an account can put an arbitrary, unheld customer id
+in its own row. What makes that safe is not the column: every reader of it asks
+Stripe whether the customer's metadata names this account before using it. The
+write-once pin (059) and the UNIQUE index are depth behind that check. SECURITY.md
+carries the full account.
+
+**No card data is stored or transits this API.** The card is typed into
+Stripe's own cross-origin iframe (Payment Element); DeckPal receives a brand,
+four digits and an expiry, which is what these responses carry.
+
+The common shape:
+
+```json
+{ "available": true, "mode": "test", "publishableKey": "pk_test_…",
+  "presetsCents": [0, 300, 500, 1000, 2500], "oneTimePresetsCents": [300, 500, 1000, 2500],
+  "abVariant": "without_1", "minCents": 100, "maxCents": 50000,
+  "support": { "cents": 500, "currency": "USD", "status": "active",
+               "currentPeriodEnd": "2026-10-05T12:00:00.000Z",
+               "cancelAtPeriodEnd": false },
+  "card": { "brand": "visa", "last4": "4242", "expMonth": 9, "expYear": 2028 },
+  "prompt": { "due": null } }
+```
+
+`presetsCents` is NOT a constant: which ladder an account sees is the $1
+experiment's arm (migration 055), assigned once and sticky per account, and
+`abVariant` names it. Render what arrives. `oneTimePresetsCents` is the ladder
+for the one-off follow-up — higher anchors, no $0 rung, and identical in both
+arms, because one variable at a time.
+
+`prompt.due` is `onboarding` | `checkin` | `payment_issue` | `null`, decided
+server-side from a row the browser cannot edit (`promptDue()` in
+`apps/api/src/billing/store.ts`). **An account that is currently contributing is
+never shown the check-in** — not monthly, not ever. A broken payment still
+surfaces, because that is help rather than an ask. There is no client-side "have I shown this"
+flag: clearing site data must not restart the cadence, and signing in on a
+second device must not re-ask a question already answered.
+
+### GET /deckpal/api/me/billing
+The shape above. Pure read — no visit is counted.
+
+### POST /deckpal/api/me/billing/visit
+The same body, and counts a session. A POST *because* it has a side effect: a
+GET that counts gets fired by anything that prefetches, and this counter decides
+when somebody is asked for money. At most one count per six hours, enforced in
+SQL, so a reload or a second tab is free. The app calls this once per page load.
+
+### POST /deckpal/api/me/billing/prompt-ack
+`{ "kind": "onboarding" | "checkin" | "payment_issue", "dismissed": true,
+"context": "checkin" }` — records that the ask was PUT. Both a dismissal and a
+completed answer buy the same full month of quiet; `dismissed` distinguishes
+them for the experiment, because recording both against one exposure made the
+two outcomes overlap. `context` carries the `forced-` label under the testing
+override. Returns the common shape.
+
+### POST /deckpal/api/me/billing/prompt-shown
+`{ "context": "checkin" }` → `{ "recorded": true }`. The experiment's
+DENOMINATOR, recorded when the modal actually mounts — not when the state is
+fetched, because most loads show no modal at all. The arm is read server-side;
+the client is trusted only with where the ask appeared.
+
+### POST /deckpal/api/me/billing/payment-method
+`{ "setupIntentId": "seti_—" }` → the common shape plus `settled`.
+
+Replaces the card and settles whatever failed: it sets the customer default,
+CLEARS any subscription-level pin (Stripe charges the subscription's own method
+in preference to the customer's, so without this a replaced card was never the
+one charged), and pays the outstanding invoice rather than leaving it on
+Stripe's multi-day retry clock. `settled` is the honest answer to "did that fix
+it" — a new card can be declined too.
+
+Deliberately NOT `PUT /subscription` with the same amount, which is what this
+used to be: that path sets `cancel_at_period_end: false`, so replacing an
+expiring card during the wind-down month after choosing $0 silently un-cancelled
+the stop, and it recorded a fresh `chose` event for what was only a card fix.
+
+### POST /deckpal/api/me/billing/one-time
+`{ "amountCents": 2500, "setupIntentId": "seti_—", "context": "checkin",
+"attemptId": "…" }` —
+the common shape plus `paid` and `status`. A single charge against the card on
+file, offered as the follow-up when somebody answers $0. No subscription is
+created. Recorded as `chose_one_time`, never `chose` — folding a one-off into
+the recurring number overstates that account by 12x (migration 057).
+
+`attemptId` is required and load-bearing: an opaque client string matching
+`[A-Za-z0-9_-]{8,64}` that goes into the Stripe idempotency key alongside the
+customer and the amount. The browser holds ONE of these across every retry of a
+single press, so a network retry or a double click is one charge — and mints a
+new one only after a settled outcome, because Stripe replays a stored response
+(declines included) for 24 hours and a retry under the old id would never reach
+the bank. Changing the amount changes the key, which is why the client freezes
+the amount while an attempt is unresolved.
+
+`paid` is false when the issuer wants the reader to confirm; `clientSecret` then
+carries the challenge, and the browser must check the intent's own status
+afterwards rather than assuming success. ⚠️ `paid: false` is also returned for a
+`processing` intent, where the money may still leave — which is what `status`
+is for. Treat `status: "processing"` as "do not pay again"; only a settled
+refusal may be offered a retry.
+
+### POST /deckpal/api/me/billing/one-time/confirm
+`{ "paymentIntentId": "pi_—", "context": "checkin" }` — the common shape plus
+`paid`. Called by the browser after it has completed a bank challenge on a
+one-off. The server retrieves the intent itself and records the gift only if
+Stripe says it succeeded; the client's word is not taken for anything.
+
+Three checks, each of which has to be there: the intent must belong to this
+account's Stripe customer, its metadata must mark it a one-off this flow created
+(otherwise a subscriber could post their own first-invoice intent and have a
+recurring charge counted as one-time support), and the event carries the intent
+id as a `dedupe_key`, so replaying the call — deliberately, or as a browser
+retry — records the gift exactly once (migrations 061/062).
+
+Why it exists rather than re-posting `/one-time`: that request's idempotency key
+would replay the original `requires_action` response instead of the settled one,
+so the whole class of challenged gifts would be missing from the experiment —
+and step-up rates vary by issuer and country, so it would have biased whichever
+arm attracted more of them.
+
+### POST /deckpal/api/me/billing/setup-intent
+`{ "clientSecret": "seti_…_secret_…", "publishableKey": "pk_…", "mode": "test" }`
+— a Stripe SetupIntent for the Payment Element, created against this account's
+customer (made on first use). `usage: off_session`, so the bank collects any
+strong-authentication challenge while the reader is looking at the page rather
+than failing a renewal three weeks later.
+
+### PUT /deckpal/api/me/billing/subscription
+`{ "amountCents": 500, "setupIntentId": "seti_…" }` — `setupIntentId` only on
+the leg where a card was just entered. Whole dollars; `0` is valid and means
+"stop", which cancels at the period end rather than immediately (they have paid
+for the month they are in). An amount change uses `proration_behavior: none`, so
+it takes effect on the next billing date and nothing is charged or refunded
+today. Below `minCents`, not a multiple of 100, above `maxCents`, or missing →
+`400` with a message written for a person. A declined card → `400` carrying
+Stripe's own decline copy.
+
+Two more `400`s, both refusals rather than failures. `payment_in_flight`: the
+existing subscription is `incomplete` and its first payment is still settling.
+Replacing it would cancel the subscription the money is on its way to — so the
+charge lands where the stray sweep will never look for it — and bill a fresh
+first month on top. `subscription_paused`: the subscription was paused from the
+Stripe dashboard, which nothing in this app does. It is not modifiable, so any
+amount change would build a second subscription beside it (double billing the
+day it resumes) and `0` would silently do nothing while reporting success.
+
+Returns the common shape, plus `clientSecret` when the bank wants the first
+charge authenticated — the subscription exists as `incomplete` and confirming
+that secret in the browser completes it. Ignoring it charges nobody anything;
+Stripe expires the subscription within a day.
+
+### POST /deckpal/api/me/billing/refresh
+Re-reads Stripe and returns the common shape. Called after an authentication
+challenge completed in the browser, where the subscription went from
+`incomplete` to `active` without any request reaching this server.
+
+### POST /deckpal/api/me/billing/portal
+`{ "url": "https://billing.stripe.com/…" }` — a Stripe-hosted billing portal
+session for invoices, receipts and card management. The return URL is built
+server-side and never taken from the request. `400` when there is nothing to
+manage yet, and a `400` naming the missing dashboard configuration when the
+portal has never been set up for the Stripe account.
+
+### POST /api/stripe/webhook
+**Not part of the `/api` router.** Mounted on the bare app ahead of the JSON
+parser, because signature verification hashes the exact bytes Stripe sent, and
+outside the RLS middleware, because a Stripe delivery carries no session.
+Authenticated solely by the `Stripe-Signature` header; `503` when
+`STRIPE_WEBHOOK_SECRET` is unset (never a fallback to trusting the body), `400`
+on a bad signature. Every handler is a full re-sync from Stripe rather than a
+delta, so out-of-order delivery is harmless and a missed event repairs itself on
+the next one.
+
+`billing_event` is a two-phase ledger (063), not a seen-set. A replay of a
+FINISHED event is a `200` no-op; a delivery arriving while another is still
+processing the same event gets `409`, so Stripe comes back rather than being
+told "done" about work that may yet fail; and a claim left behind by an attempt
+that died is reclaimable after five minutes. The distinction matters for the
+terminal events — there is no next event after
+`customer.subscription.deleted` on an immediate cancel, so a delivery dropped
+there would leave the row claiming a payment that is not happening.
+
 ## Collection — mutation & activity log
 
 The only writers against `collection_item`. Each mutation runs in
