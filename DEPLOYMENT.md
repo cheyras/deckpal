@@ -480,7 +480,12 @@ the test-mode equivalents do not carry over):
 
 **Environment** (Vercel → Project → Settings → Environment Variables):
 
-7. ⚠️ **Add all four `STRIPE_*` variables to PRODUCTION.** The existing ones
+7. ⚠️ **Add the three secret `STRIPE_*` variables to PRODUCTION.** Use
+   **`bash scripts/set-stripe-live-env.sh`** — it prompts for each one without
+   echoing it, refuses a test key on production, refuses a secret/publishable
+   pair from different modes, sends each value to `vercel env add` on stdin so
+   it never appears in argv or shell history, and verifies by listing NAMES
+   only. (`STRIPE_SUPPORT_PRODUCT_ID` and `PUBLIC_APP_ORIGIN` are already set.) The existing ones
    are **Preview only, git-branch-scoped to `feat/pwyw-billing`** — that scope
    stops matching the moment the branch is merged, and Production was never
    configured, so the tier comes up silently OFF. The previous version of this
