@@ -287,21 +287,33 @@ function idempotencyKey(kind: string, customerId: string, amountCents: number, a
   return `${kind}:${customerId}:${amountCents}:${Math.floor(Date.now() / 60_000)}`;
 }
 
-/** The card summary Stripe shows for a customer's default instrument. */
-async function defaultCard(stripe: Stripe, customerId: string): Promise<Stripe.PaymentMethod.Card | null> {
+/**
+ * What to show for the instrument Stripe will actually bill.
+ *
+ * Returns the card summary when the default IS a card, and the method's TYPE
+ * either way. A `type: 'link'` default has no brand and no last four — there is
+ * nothing card-shaped to print — but the reader still has a payment method, and
+ * "no card on file" beside a subscription that is happily renewing is a lie the
+ * profile used to tell.
+ */
+async function defaultMethod(
+  stripe: Stripe,
+  customerId: string,
+): Promise<{ card: Stripe.PaymentMethod.Card | null; type: string | null }> {
   const customer = await stripe.customers.retrieve(customerId, {
     expand: ['invoice_settings.default_payment_method'],
   });
-  if (customer.deleted) return null;
+  if (customer.deleted) return { card: null, type: null };
   const pm = customer.invoice_settings?.default_payment_method;
-  if (pm && typeof pm !== 'string' && pm.card) return pm.card;
+  if (pm && typeof pm !== 'string') return { card: pm.card ?? null, type: pm.type ?? null };
 
   // No default set — but a card may still be attached (the reader added one and
   // then closed the tab before choosing an amount). Showing it is right: it is
   // theirs, it is on file, and pretending otherwise invites them to enter it
   // twice.
   const attached = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
-  return attached.data[0]?.card ?? null;
+  const first = attached.data[0];
+  return { card: first?.card ?? null, type: first ? 'card' : null };
 }
 
 /**
@@ -315,7 +327,8 @@ async function defaultCard(stripe: Stripe, customerId: string): Promise<Stripe.P
  * app says I have a card on file and I do not".
  */
 export async function pullState(stripe: Stripe, customerId: string): Promise<StripePatch> {
-  const [sub, card] = await Promise.all([managedSubscription(stripe, customerId), defaultCard(stripe, customerId)]);
+  const [sub, method] = await Promise.all([managedSubscription(stripe, customerId), defaultMethod(stripe, customerId)]);
+  const card = method.card;
 
   const item = sub?.items.data[0];
   const price = item?.price;
@@ -353,7 +366,14 @@ export async function pullState(stripe: Stripe, customerId: string): Promise<Str
     // at runtime here, which would show every supporter a missing renewal date.
     current_period_end: unixToIso(item?.current_period_end),
     cancel_at_period_end: sub?.cancel_at_period_end ?? false,
-    card_brand: card?.brand ?? null,
+    // ⚠️ THE METHOD'S TYPE WHEN THERE IS NO CARD TO DESCRIBE. A `link` default
+    // has no brand and no last four, and writing nulls for both made the
+    // profile say "no card on file" to somebody whose subscription was renewing
+    // perfectly well off it. The brand column carries the type instead, and
+    // `shape()` no longer requires a last four to admit that a method exists —
+    // which needs no migration, because "what to call the instrument" is
+    // exactly what this column is for.
+    card_brand: card?.brand ?? (method.type && method.type !== 'card' ? method.type : null),
     card_last4: card?.last4 ?? null,
     card_exp_month: card?.exp_month ?? null,
     card_exp_year: card?.exp_year ?? null,
@@ -628,27 +648,37 @@ async function ensureDefaultPaymentMethod(stripe: Stripe, customerId: string): P
   });
   if (customer.deleted) throw new Error('customer is deleted');
   const pm = customer.invoice_settings?.default_payment_method;
-  // ⚠️ A CARD DEFAULT, exactly as `defaultCard` requires one. Its test is
-  // `pm.card`, so a NON-card invoice default — a bank debit, or a Link
-  // PaymentMethod that is not card-backed — falls through there to the
-  // attached-card list. Returning it here would have made the two disagree
-  // again, inverted: the profile showing a card while Stripe charged something
-  // else, which is the same lie this helper exists to stop.
+  // ⚠️ ANY CHARGEABLE DEFAULT, NOT ONLY A CARD — and this used to require
+  // `pm.card`, which refused a payment method Stripe would have billed happily.
   //
-  // The two now take the same three steps in the same order, and neither can
-  // reach an instrument the other cannot see. If an account somehow has ONLY a
-  // non-card method, both answer "no card": the profile says so and the charge
-  // fails loudly with a named wiring error, which is the right way round. See
-  // DEPLOYMENT.md on why a bank-debit method must not be enabled without
-  // teaching both of them about it first.
-  const existing = pm && typeof pm !== 'string' && pm.card ? pm.id : null;
-  if (existing) return existing;
+  // Verified live on go-live night: paying through Link attaches a PaymentMethod
+  // of `type: 'link'`. It has no `card` object, it becomes the customer's
+  // invoice default, and Stripe charges it off-session for renewals without
+  // complaint. This helper rejected it, fell through to the attached-CARD list,
+  // and for anybody who had used Link and never separately typed a card, found
+  // nothing and returned null — so `setSupport` threw "no payment method on
+  // file for a subscription charge" and the reader could not subscribe at all.
+  // DeckPal was the only thing refusing. The account this was found on happened
+  // to have a card attached as well, which masked it entirely.
+  //
+  // The old comment argued this had to match `defaultCard`'s card-only test so
+  // the two could not disagree. That symmetry was real and the conclusion was
+  // backwards: the answer is to teach BOTH about non-card methods, not to make
+  // both refuse money. `defaultCard` is a DISPLAY helper — brand and last four
+  // — and a method it cannot describe is still a method that pays.
+  if (pm && typeof pm !== 'string') return pm.id;
 
-  const attached = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
-  const recovered = attached.data[0]?.id;
-  if (!recovered) return null;
-  await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: recovered } });
-  return recovered;
+  // No default at all. Prefer a card, because that is what the UI can describe,
+  // but take anything attached rather than refuse the payment.
+  const cards = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+  const any = cards.data[0] ?? (await stripe.paymentMethods.list({ customer: customerId, limit: 1 })).data[0];
+  if (!any) return null;
+  // ⚠️ Only ever promotes into an EMPTY default. It used to overwrite a
+  // perfectly good non-card default with a card, so giving a one-off or
+  // changing an amount silently moved somebody's renewals from Link to a card
+  // they had not chosen, with nothing saying so.
+  await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: any.id } });
+  return any.id;
 }
 
 export async function setSupport(

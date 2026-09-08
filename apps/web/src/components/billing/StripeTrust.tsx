@@ -190,7 +190,14 @@ export function CardChip({
   warning,
 }: {
   brand: string | null
-  last4: string
+  /**
+   * Null for a method that has no digits to show — a Link default, say.
+   *
+   * ⚠️ NOT `string`, which is what it was: the profile then printed
+   * "•••• null" for anyone paying through Link, or said "no card on file"
+   * beside a subscription that was renewing perfectly well off it.
+   */
+  last4: string | null
   expiry: string | null
   warning?: 'expired' | 'soon' | null
 }) {
@@ -200,8 +207,11 @@ export function CardChip({
         <Icon name="credit-card" size={16} className="text-icon-muted" />
         <span className="text-[14px] font-semibold text-text-primary">{brandLabel(brand)}</span>
         {/* The bullets are literal, not a mask over hidden data: these four
-            digits are the entire number this app has ever had. */}
-        <span className="font-mono text-[14px] tracking-[0.12em] text-text-secondary">•••• {last4}</span>
+            digits are the entire number this app has ever had. Absent for a
+            method that has none — the brand label alone carries it then. */}
+        {last4 && (
+          <span className="font-mono text-[14px] tracking-[0.12em] text-text-secondary">•••• {last4}</span>
+        )}
       </span>
       {expiry && (
         <span className={`text-[13px] ${warning ? 'font-semibold text-warning' : 'text-text-muted'}`}>

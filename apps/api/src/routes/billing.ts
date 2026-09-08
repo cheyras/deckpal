@@ -164,14 +164,18 @@ function shape(row: BillingRow, extra: { clientSecret?: string | null } = {}) {
       currentPeriodEnd: iso(row.current_period_end),
       cancelAtPeriodEnd: row.cancel_at_period_end,
     },
-    card: row.card_last4
-      ? {
-          brand: row.card_brand,
-          last4: row.card_last4,
-          expMonth: row.card_exp_month,
-          expYear: row.card_exp_year,
-        }
-      : null,
+    // ⚠️ A METHOD WITH NO LAST FOUR IS STILL A METHOD. This gated on
+    // `card_last4` alone, so a Link default — brand `link`, no digits — read as
+    // "no card on file" beside a subscription that was renewing off it.
+    card:
+      row.card_last4 || row.card_brand
+        ? {
+            brand: row.card_brand,
+            last4: row.card_last4,
+            expMonth: row.card_exp_month,
+            expYear: row.card_exp_year,
+          }
+        : null,
     prompt: { due: promptDue(row) },
     ...(extra.clientSecret !== undefined ? { clientSecret: extra.clientSecret } : {}),
   };
