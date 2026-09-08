@@ -611,6 +611,32 @@ The experiment arm (`ab_presets`) is deliberately NOT cleared: it is a coin
 flip, it carries no Stripe state, and re-flipping it would re-bucket everyone
 who had already been assigned.
 
+### Before changing anything in the billing code: the contract check
+
+```
+stripe switch context <acct_…>      # TEST mode — no --live
+pnpm --filter deckpal-api test:stripe-contract
+```
+
+⚠️ **Run this on any change to `billing/service.ts`.** The pure suite and the
+PGlite harnesses test our logic against a Stripe stand-in *we wrote*, so they can
+only ever confirm our own understanding of the API. Fifty rounds of review did
+exactly that and agreed with themselves, and the first live payment then failed
+instantly on a call real Stripe rejects:
+
+> You cannot confirm with `off_session=true` when `setup_future_usage` is also
+> set on the PaymentIntent.
+
+A subscription's first invoice **always** carries `setup_future_usage` — it is
+how the card becomes usable for renewals — so that path could never have worked
+for anybody, and nothing in the repo could see it.
+
+`scripts/stripe-contract-check.mjs` is the missing half. It drives the Stripe
+CLI (so it needs no key and none can leak), makes the same calls the app makes,
+asserts Stripe accepts them, and **reproduces the go-live bug on demand** on a
+fresh customer so the guard is falsifiable rather than decorative. It refuses to
+run in live mode and cleans up after itself.
+
 ### If the first real payment goes wrong: rolling back
 
 ⚠️ **The migrations are not reversible.** 062 drops the three-argument
