@@ -1,7 +1,7 @@
 /**
  * Gallery for Icon.tsx — the 42-glyph hand-authored line-icon set.
  */
-import { Icon, BrandMark, type IconName } from './Icon'
+import { Icon, BrandLogo, BrandD, type IconName } from './Icon'
 import type { GalleryMeta } from '../routes/design/galleryTypes'
 
 const ALL_ICONS: IconName[] = [
@@ -70,15 +70,35 @@ export const iconSingleGallery = {
   },
 } satisfies GalleryMeta<{ name: IconName; size?: number; strokeWidth?: number }>
 
-export const brandMarkGallery = {
-  name: 'BrandMark',
+export const brandLogoGallery = {
+  name: 'BrandLogo',
   source: 'apps/web/src/components/Icon.tsx',
   section: 'primitive',
-  description: 'App logo glyph sourced from brand-icon.png.',
-  component: BrandMark,
+  description:
+    'The full DeckPal wordmark (public/logo/deckpal-logo-white.svg). Sized by height; the width follows the artwork. White because the app is dark-only — the dark-on-light variant ships alongside it for the README.',
+  component: BrandLogo,
+  defaults: { height: 30 },
+  variants: [
+    { label: 'sidebar (30)', props: { height: 30 } },
+    { label: 'mobile header (22)', props: { height: 22 } },
+    { label: 'auth (32)', props: { height: 32 } },
+    { label: 'large (64)', props: { height: 64 } },
+  ],
+  knobs: {
+    height: { kind: 'number', min: 12, max: 120, step: 2 },
+  },
+} satisfies GalleryMeta<{ height?: number }>
+
+export const brandDGallery = {
+  name: 'BrandD',
+  source: 'apps/web/src/components/Icon.tsx',
+  section: 'primitive',
+  description:
+    'The D monogram (public/logo/deckpal-d-white.svg), for rails too narrow for the wordmark. Today that is the collapsed sidebar and nothing else.',
+  component: BrandD,
   defaults: { size: 33 },
   variants: [
-    { label: 'default (33)', props: { size: 33 } },
+    { label: 'collapsed rail (33)', props: { size: 33 } },
     { label: 'small (20)', props: { size: 20 } },
     { label: 'large (64)', props: { size: 64 } },
   ],

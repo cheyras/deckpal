@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Icon, BrandMark, type IconName } from './Icon'
+import { Icon, BrandLogo, BrandD, type IconName } from './Icon'
 import { NavIcon } from './NavIcon'
 import { useSkin } from '../lib/useSkin'
 import { AvatarDisc, useAvatar } from './Avatar'
@@ -321,7 +321,7 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
             className="group relative flex h-full w-full items-center justify-center"
           >
             <span className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0">
-              <BrandMark size={33} />
+              <BrandD size={33} />
             </span>
             <span className="absolute inset-0 flex items-center justify-center text-icon-default opacity-0 transition-opacity duration-150 group-hover:text-icon-hover group-hover:opacity-100 group-focus-visible:opacity-100">
               <Icon name="chevron-right" size={20} />
@@ -329,9 +329,8 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
           </button>
         ) : (
           <>
-            <BrandMark size={33} />
             <span className="flex-1">
-              <span className="brand-wordmark text-[21px] leading-none">DeckPal</span>
+              <BrandLogo height={30} />
             </span>
             <button
               onClick={onToggle}
@@ -477,9 +476,8 @@ function Header({ onBurger, drawerOpen, signedIn }: { onBurger: () => void; draw
         >
           <Icon name={drawerOpen ? 'close' : 'menu'} size={24} />
         </button>
-        <span className="flex min-w-0 items-center gap-[8px] nav:hidden">
-          <BrandMark size={30} />
-          <span className="brand-wordmark text-[18px] leading-none">DeckPal</span>
+        <span className="flex min-w-0 items-center nav:hidden">
+          <BrandLogo height={22} />
         </span>
 
         {/* search — desktop submits to /search; mobile is a link to the same page.

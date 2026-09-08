@@ -16,7 +16,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { BrandMark } from '../../components/Icon'
+import { BrandLogo } from '../../components/Icon'
 import { Button, buttonClass } from '../../components/ui/Button'
 import '../landing/landing.css'
 
@@ -65,11 +65,10 @@ export function AuthPage({ children }: { children: ReactNode }) {
         <div className="w-full max-w-[420px]">
           <Link
             to="/"
-            className="mx-auto mb-[26px] flex w-fit items-center gap-[10px] rounded-lg"
+            className="mx-auto mb-[26px] flex w-fit items-center rounded-lg"
             aria-label="DeckPal home"
           >
-            <BrandMark size={34} />
-            <span className="brand-wordmark text-[22px] leading-none">DeckPal</span>
+            <BrandLogo height={32} />
           </Link>
           {children}
         </div>

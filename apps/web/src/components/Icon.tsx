@@ -337,17 +337,71 @@ export function Icon({
   )
 }
 
-// The brand mark: the card-scanner app icon (public/brand-icon.png, 128px with
-// baked rounded corners + alpha). Same art as the favicon.
-export function BrandMark({ size = 33 }: { size?: number }) {
+/*
+ * The logomark. Two lockups of one mark, both owner-supplied vector under
+ * `public/logo/` (provenance in `public/ICONS-NOTICE.md`):
+ *
+ *   <BrandLogo>  the full wordmark — "DeckPal" set as artwork, with the two
+ *                cards standing in for the K's diagonals. This is the mark for
+ *                anywhere the product introduces itself by name.
+ *   <BrandD>     the D monogram, for rails too narrow for the wordmark. The
+ *                only such rail today is the collapsed sidebar.
+ *
+ * These replaced a lockup of the app icon beside the name in live text — a
+ * `.brand-wordmark` rule that skewed Figtree 900 and clipped a cyan gradient to
+ * the glyphs. The name is drawn now rather than typeset, so that rule had no
+ * remaining caller and went with it, and the app icon no longer appears in app
+ * chrome at all. The icon is still the favicon, the PWA icon, the apple-touch
+ * icon and half of the link-preview card, so `brand-icon.png`, its source and
+ * its generator all stay exactly where they were.
+ *
+ * Served as <img>, deliberately, rather than inlined as JSX. Every one of these
+ * four files carries its own <style> block written against generic `.cls-N`
+ * selectors, plus gradients with ids like `linear-gradient-2`. Inline SVG puts
+ * both in the HOST document's scope, so any two of them on one page would
+ * silently repaint each other — and the wordmark and the D do share a page the
+ * moment the sidebar animates between states. An <img> is its own document, so
+ * they cannot collide. It also means the mark cannot inherit `currentColor`;
+ * that is what the White/Dark pair below is for.
+ *
+ * The white variants are the ones the app ships, because the app is dark-only
+ * (theme.css: `deckpalDark` is the only scheme). The dark-on-light pair sits in
+ * the same directory, unreferenced by the app, for the README and for any light
+ * surface a later theme introduces.
+ */
+
+// Each mark's own viewBox, so callers size by height and the width follows.
+const LOGO_ASPECT = 450.12 / 94.11
+const D_ASPECT = 96.85 / 89.92
+
+/** The full DeckPal wordmark. Carries the product name as its accessible text. */
+export function BrandLogo({ height = 34, className }: { height?: number; className?: string }) {
   return (
     <img
-      src={`${import.meta.env.BASE_URL}brand-icon.png`}
-      width={size}
+      src={`${import.meta.env.BASE_URL}logo/deckpal-logo-white.svg`}
+      width={Math.round(height * LOGO_ASPECT)}
+      height={height}
+      alt="DeckPal"
+      className={className}
+      style={{ display: 'block', height, width: 'auto' }}
+    />
+  )
+}
+
+/**
+ * The D monogram. Decorative by default: every site that uses it today sits
+ * inside a control that already carries its own label, and a second "DeckPal"
+ * announced beside "Expand navigation" is noise.
+ */
+export function BrandD({ size = 33 }: { size?: number }) {
+  return (
+    <img
+      src={`${import.meta.env.BASE_URL}logo/deckpal-d-white.svg`}
+      width={Math.round(size * D_ASPECT)}
       height={size}
       alt=""
       aria-hidden="true"
-      style={{ display: 'block', borderRadius: '22%' }}
+      style={{ display: 'block', height: size, width: 'auto' }}
     />
   )
 }
