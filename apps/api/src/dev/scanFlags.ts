@@ -1,4 +1,4 @@
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router } from 'express';
 import {
   hasStorageEnv,
   listObjectsRecursive,
@@ -7,8 +7,8 @@ import {
   putUnmanifestedObject,
   unknownProvenance,
 } from '@deckpal/storage';
-import { SUPABASE_MODE } from '../db.js';
 import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
+import { ownerOnlyInProduction } from '../ownerGate.js';
 
 /**
  * Scan-harness "Flag frame" capture — POST/GET /dev/scan-flags.
@@ -47,40 +47,6 @@ const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 const MAX_COMMENT_BYTES = 4 * 1024;
 
 /**
- * Same identity this deployment already uses for every other owner-only
- * surface (`/me`'s `isOwner`, `/design`, `/dev/decke`): self-host is always
- * the owner (one user, behind their own reverse proxy); cloud is only the
- * account named by DESIGN_EDITOR_USER_ID. Duplicated rather than imported
- * because `isOwner` in routes/me.ts is not exported — same env var, same
- * fail-closed shape, kept in sync by hand.
- */
-function isOwner(userId: string | undefined): boolean {
-  if (!SUPABASE_MODE) return true;
-  const owner = process.env.DESIGN_EDITOR_USER_ID;
-  return !!owner && !!userId && userId === owner;
-}
-
-/**
- * Non-production Vercel deployments (preview, and unset for self-host/local
- * `pnpm dev`) are already fronted by Vercel SSO or have no auth boundary at
- * all, so they pass through unconditionally. Production requires the verified
- * JWT subject (authMiddleware already ran; req.user is never client-supplied)
- * to be the owner. Mounted ahead of resolveIdentity in index.ts specifically
- * so a preview deployment is not additionally forced through its 401.
- */
-function ownerGate(req: Request, res: Response, next: NextFunction): void {
-  if (process.env.VERCEL_ENV !== 'production') {
-    next();
-    return;
-  }
-  if (isOwner(req.user?.id)) {
-    next();
-    return;
-  }
-  res.status(403).json({ error: { code: 'forbidden', message: 'Owner only.' } });
-}
-
-/**
  * The comment TEXT for one flag, or null if it has none / the fetch failed.
  * Best-effort: a corrupt or unreachable comment object must not break the
  * list, since every other field in that entry is still good.
@@ -97,7 +63,14 @@ async function readComment(objectPath: string): Promise<string | null> {
 }
 
 export const scanFlagsRouter: Router = Router();
-scanFlagsRouter.use(ownerGate);
+// Owner-only on production; open on preview and self-host. Mounted ahead of
+// resolveIdentity in index.ts specifically so a preview deployment is not
+// ALSO forced through its 401 for having no app session. `forbidden` rather
+// than `not-found`: this is a documented operator tool, and saying "you may
+// not" to the wrong account is more useful than pretending the route is
+// absent — the opposite of the scanner's gate, which is meant to be invisible.
+// See ../ownerGate.ts.
+scanFlagsRouter.use(ownerOnlyInProduction('forbidden'));
 
 // ── POST / — upload a flagged frame ─────────────────────────────────────────
 scanFlagsRouter.post(

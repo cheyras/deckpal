@@ -219,7 +219,10 @@ const ROUTE_SHAPES: ReadonlyArray<{ shape: string; what: string }> = [
   { shape: '/pokedex', what: 'the dex' },
   { shape: '/pokedex/<speciesId>', what: 'one species' },
   { shape: '/insights', what: 'collection figures' },
-  { shape: '/scan', what: 'the card scanner' },
+  // `/scan` left this list on 2026-09-07 with its `ROUTE_ALLOWLIST` entry — the
+  // scanner is owner-only and Deck-E is not, so the shape would have named a
+  // destination `isAllowedRoute` now refuses. The invariant above ("every shape
+  // must begin with an allowlist entry") is what makes these two edits one edit.
   { shape: '/search?q=<text>', what: 'global search' },
 ]
 
@@ -269,7 +272,10 @@ export const ALLOWED_STATES: readonly string[] = MODEL_STATES.map((s) => s.state
  * with the reader watching.
  */
 const ADDRESSING_LINES: readonly string[] = [
-  '`[data-decke-nav="<route>"]` — a sidebar row. `/lists`, `/decks`, `/pokedex`, `/insights` and `/scan` each have one.',
+  // `/scan` is absent from this list on purpose (2026-09-07): its sidebar row
+  // is drawn only for the owner now, so for anybody else the landmark simply
+  // is not in the document and a journey aimed at it could only time out.
+  '`[data-decke-nav="<route>"]` — a sidebar row. `/lists`, `/decks`, `/pokedex` and `/insights` each have one.',
   '`[data-decke-series="<seriesSlug>"]` — a series card on `/series`.',
   '`[data-decke-set="<setId>"]` — a set row on `/series/<seriesSlug>`.',
 ]

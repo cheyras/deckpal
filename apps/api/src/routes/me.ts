@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import type pg from 'pg';
 import { isDeckeEntitled } from '../decke/entitlement.js';
-import { cardImages, q, q1, SUPABASE_MODE, withTx } from '../db.js';
+import { cardImages, q, q1, withTx } from '../db.js';
 import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
+import { isOwner, ownerGateStatus } from '../ownerGate.js';
 
 /**
  * GET /me — the caller's own account identity. Currently just `username`
@@ -23,44 +24,13 @@ interface UsernameRow {
   username: string;
 }
 
-/**
- * Is this account the deployment's owner?
- *
- * Cloud: only the account named by DESIGN_EDITOR_USER_ID (a Supabase auth
- * UUID, set in the Vercel env) — unset means NOBODY, so an owner-only surface
- * can never open up by accident, only fail closed. Self-host: always, because
- * a self-host deployment has exactly one user (the owner) and sits behind the
- * owner's own auth proxy.
- *
- * This lives here, server-side, so the owner's identity is verified against
- * the JWT and never baked into the public JS bundle. A client-side check would
- * be a suggestion, not a gate.
- *
- * The env var keeps its original name because it is already set in production
- * and renaming it would silently close both surfaces on the next deploy. What
- * it means is "the owner"; `designEditor` was simply the first thing that
- * needed one.
- */
-function isOwner(userId: string): boolean {
-  if (!SUPABASE_MODE) return true;
-  const owner = process.env.DESIGN_EDITOR_USER_ID;
-  return !!owner && userId === owner;
-}
-
-/**
- * Whether an owner is configured at all — NOT who it is.
- *
- * Exported so `/health` can report it and boot can warn about it. "Unset means
- * nobody" is the right default, but it used to be a SILENT default: `/design`
- * shipped gated on this variable on 2026-08-14, the variable was never set in
- * Vercel, and nothing anywhere said so. It was found four days later only
- * because `/dev/decke` reused the same gate and someone went looking. See
- * AGENTS.md B11.
- */
-export function ownerGateStatus(): 'configured' | 'unset' | 'self-host' {
-  if (!SUPABASE_MODE) return 'self-host';
-  return process.env.DESIGN_EDITOR_USER_ID ? 'configured' : 'unset';
-}
+// `isOwner` and `ownerGateStatus` used to be defined here, and `dev/scanFlags.ts`
+// carried a hand-synced copy of the first. They now live in `../ownerGate.js`,
+// which is also where the middleware that keeps a ROUTE to the owner lives —
+// one definition, so the flag this endpoint reports and the gates that refuse a
+// request cannot drift apart. Re-exported because `/health` imports
+// `ownerGateStatus` from here.
+export { ownerGateStatus };
 
 meRouter.get(
   '/',

@@ -11,6 +11,7 @@ import { api } from '../lib/api'
 import { isCloudMode } from '../lib/supabase'
 import { isChromelessPathname } from '../lib/landingRoute'
 import { useSignedIn } from '../lib/session'
+import { useOwnerEntitled } from '../lib/ownerSurface'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
 
@@ -84,6 +85,14 @@ interface NavItem {
   soon?: boolean
   /** Needs an account. Signed out, the row links to /auth instead of a dead end. */
   gated?: boolean
+  /**
+   * Owner-only. UNLIKE `gated`, this row does not survive in a locked form —
+   * it is not rendered at all for anybody else, because "an account unlocks
+   * this" is a true and useful thing to say about My Lists and a false one
+   * about a surface exactly one account will ever have. See `ownerOnly` in
+   * `visibleNav` below.
+   */
+  ownerOnly?: boolean
 }
 
 // Rail order per UI-SPEC §3.1. Single-user English-TCG build:
@@ -94,8 +103,29 @@ const NAV: NavItem[] = [
   { label: 'Deck Builder', icon: 'deck', to: '/decks', gated: true },
   { label: 'Pokédex', icon: 'pokedex', to: '/pokedex' },
   { label: 'Insights', icon: 'chart', to: '/insights', gated: true },
-  { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true },
+  // Owner-only since 2026-09-07 — the route (main.tsx) and the API
+  // (apps/api/src/scan/router.ts) both refuse everyone else on production, so a
+  // row here for anybody else would lead to a Not Found. See `ownerOnly` above.
+  { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true, ownerOnly: true },
 ]
+
+/**
+ * The rows this visitor may see.
+ *
+ * `owner === undefined` means the answer has not arrived yet, and it counts as
+ * NO. A row that flashes in and then vanishes tells every visitor that a
+ * scanner exists, which is precisely what the gate is for; a row that appears a
+ * tick late costs the one account that has it nothing. Hidden-by-default is
+ * also what survives the failure modes — a `/me` that never answers leaves this
+ * at `undefined` forever, and forever-hidden is the fail-closed direction.
+ *
+ * One definition, called by the rail and the drawer both: they render the same
+ * `NAV` array and have drifted apart once already (issue #52), and a visibility
+ * rule only one of them applied would be that bug with a leak attached.
+ */
+function visibleNav(owner: boolean | undefined): NavItem[] {
+  return NAV.filter((item) => !item.ownerOnly || owner === true)
+}
 
 // Whether a nav row points at the page you are on. One definition, because the
 // rail and the mobile drawer render the same NAV array and drifted apart once
@@ -157,6 +187,28 @@ function NavRow({
   if (locked) {
     return (
       <Link to="/auth" search={{ mode: 'signup' } as never} className="block">
+        {body}
+      </Link>
+    )
+  }
+  // An OWNER-ONLY row is invisible to Deck-E, and that is the same rule the
+  // `locked` branch above follows: a Link carrying none of the three
+  // `data-decke-*` attributes is not reachable, not pointable and not pressable.
+  //
+  // He is entitled to MORE ACCOUNTS THAN THIS ROW IS. `DECKE_ENTITLED_USER_IDS`
+  // deliberately includes the QA account (apps/api/src/decke/entitlement.ts), so
+  // "everyone who can ask him" is a strictly larger set than "everyone who can
+  // open the scanner" — and `/scan` is off `ROUTE_ALLOWLIST` for exactly that
+  // reason. Marking the row would be asking the audit test in
+  // `character/host/__tests__/uiTools.test.ts` to approve a pressable link to a
+  // route he may not navigate to.
+  //
+  // It also matches every other owner-only surface: `/design` and the `/dev`
+  // review routes are absent from his world entirely rather than
+  // present-but-refused.
+  if (item.to && item.ownerOnly) {
+    return (
+      <Link to={item.to} className="block">
         {body}
       </Link>
     )
@@ -294,7 +346,17 @@ function ExpandableNavRow({
   )
 }
 
-function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onToggle: () => void; signedOut: boolean }) {
+function Sidebar({
+  collapsed,
+  onToggle,
+  signedOut,
+  owner,
+}: {
+  collapsed: boolean
+  onToggle: () => void
+  signedOut: boolean
+  owner: boolean | undefined
+}) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
     <aside
@@ -344,7 +406,7 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
         )}
       </div>
       <nav className="flex-1 overflow-y-auto py-[6px]">
-        {NAV.map((item) => {
+        {visibleNav(owner).map((item) => {
           if (item.expandable) {
             return <ExpandableNavRow key={item.label} item={item} collapsed={collapsed} />
           }
@@ -363,7 +425,17 @@ function Sidebar({ collapsed, onToggle, signedOut }: { collapsed: boolean; onTog
   )
 }
 
-function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () => void; signedIn: boolean | undefined }) {
+function MobileDrawer({
+  open,
+  onClose,
+  signedIn,
+  owner,
+}: {
+  open: boolean
+  onClose: () => void
+  signedIn: boolean | undefined
+  owner: boolean | undefined
+}) {
   // The drawer's "View Profile" button is the ONLY identity surface on mobile —
   // the header chip is desktop-only (`nav:flex`). So the photo belongs here too,
   // or a phone user never sees the avatar they just uploaded outside /profile.
@@ -424,7 +496,7 @@ function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () 
           )}
         </div>
         <nav>
-          {NAV.map((item) =>
+          {visibleNav(owner).map((item) =>
             item.expandable ? (
               // Self-manages its toggle + sub-links; closes the drawer on a sub-item tap.
               <ExpandableNavRow key={item.label} item={item} collapsed={false} onNavigate={onClose} />
@@ -440,7 +512,17 @@ function MobileDrawer({ open, onClose, signedIn }: { open: boolean; onClose: () 
   )
 }
 
-function Header({ onBurger, drawerOpen, signedIn }: { onBurger: () => void; drawerOpen: boolean; signedIn: boolean | undefined }) {
+function Header({
+  onBurger,
+  drawerOpen,
+  signedIn,
+  owner,
+}: {
+  onBurger: () => void
+  drawerOpen: boolean
+  signedIn: boolean | undefined
+  owner: boolean | undefined
+}) {
   const navigate = useNavigate()
   const [term, setTerm] = useState('')
   // Submitting hands the term to /search, which owns the query from there on.
@@ -510,17 +592,24 @@ function Header({ onBurger, drawerOpen, signedIn }: { onBurger: () => void; draw
           <Icon name="search" size={20} />
         </Link>
 
-        {/* scan shortcut — camera CTA into the card scanner. The scanner writes
-            to a collection, so signed out it leads to the sign-up form. */}
-        <Link
-          to={signedIn === false ? '/auth' : '/scan'}
-          {...(signedIn === false ? { search: { mode: 'signup' } as never } : {})}
-          aria-label="Scan a card"
-          className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-[8px] nav:px-[16px]"
-        >
-          <Icon name="camera" size={20} />
-          <span className="hidden text-[14px] font-semibold text-text-primary nav:inline">Scan</span>
-        </Link>
+        {/* scan shortcut — camera CTA into the card scanner. OWNER-ONLY since
+            2026-09-07, so unlike the other header controls there is no
+            signed-out variant of it: it used to send a signed-out visitor to
+            the sign-up form, and that promise ("make an account and you can
+            scan") stopped being true the moment the route and the API both
+            started refusing everyone but the owner. `owner !== true` covers
+            signed out, signed in as somebody else, AND the tick before the
+            answer arrives — see `useOwnerEntitled`. */}
+        {owner === true && (
+          <Link
+            to="/scan"
+            aria-label="Scan a card"
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-[8px] nav:px-[16px]"
+          >
+            <Icon name="camera" size={20} />
+            <span className="hidden text-[14px] font-semibold text-text-primary nav:inline">Scan</span>
+          </Link>
+        )}
 
         {/* report-a-bug — captures a screenshot of the current view + a comment.
             The reporter posts as a user, so it is signed-in only. */}
@@ -547,6 +636,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // persisted session in a tick. Drives which identity affordance the chrome
   // shows AND which authenticated queries are allowed to mount at all.
   const signedIn = useSignedIn()
+  // Owner-only chrome (today: the scanner's rail row and its camera button).
+  // Asked ONCE here and handed down, so the rail, the header and the drawer
+  // cannot disagree about it — the same reason `isNavActive` is one function.
+  // `undefined` until `/me` answers, and every consumer reads that as "hide".
+  const owner = useOwnerEntitled()
 
   // Chrome-free paths: every auth surface and the marketing landing at `/` —
   // see isChromelessPathname. Rendering the full nav on /auth fired
@@ -565,9 +659,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-surface-primary">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} signedOut={signedIn === false} />
-      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} />
-      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} />
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((c) => !c)}
+        signedOut={signedIn === false}
+        owner={owner}
+      />
+      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} owner={owner} />
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} owner={owner} />
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>

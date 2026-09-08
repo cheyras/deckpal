@@ -108,8 +108,11 @@ export function uiToolArgs(input: unknown): Record<string, unknown> | undefined 
   return out
 }
 
-/** Routes he may navigate to. MIRRORS the server's allowlist deliberately. */
-const ROUTE_ALLOWLIST = ['/series', '/lists', '/decks', '/pokedex', '/insights', '/scan', '/search']
+/** Routes he may navigate to. MIRRORS the server's allowlist deliberately.
+ *  `/scan` left both lists on 2026-09-07 — the scanner is owner-only and
+ *  Deck-E is not, so it named a destination that answers Not Found for the
+ *  entitled non-owner accounts. See `apps/api/src/decke/tools.ts`. */
+const ROUTE_ALLOWLIST = ['/series', '/lists', '/decks', '/pokedex', '/insights', '/search']
 
 /**
  * DEFENCE IN DEPTH, not belt and braces.

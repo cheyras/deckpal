@@ -281,20 +281,58 @@ test('every sidebar route a marked nav row can reach is on the allowlist', () =>
     fileURLToPath(new URL('../../../components/AppShell.tsx', import.meta.url)),
     'utf8',
   )
+  //
+  // ── THE INVARIANT IS A DISJUNCTION, NOT A FILTER ─────────────────────────
+  //
+  // Since 2026-09-07 one `NAV` entry is `ownerOnly` (the scanner), and Deck-E
+  // is entitled to MORE ACCOUNTS than that row is — `DECKE_ENTITLED_USER_IDS`
+  // deliberately includes the QA account. So `/scan` is deliberately off
+  // `ROUTE_ALLOWLIST`, and `NavRow` renders owner-only rows with none of the
+  // three `data-decke-*` attributes, exactly as it already does for the
+  // signed-out `locked` branch.
+  //
+  // Every nav route must therefore satisfy ONE of two things, and the test
+  // checks both halves rather than skipping the awkward one — an exemption that
+  // asserts nothing is how a row ends up both unmarked in intent and marked in
+  // fact.
   const m = src.match(/const NAV: NavItem\[\] = \[([\s\S]*?)\n\]/)
   assert.ok(m, 'could not find the NAV array in components/AppShell.tsx')
-  const routes = [...m[1]!.matchAll(/\bto:\s*'([^']*)'/g)].map((x) => x[1]!)
+  const entries = [...m[1]!.matchAll(/\{[^{}]*\bto:\s*'([^']*)'[^{}]*\}/g)].map((x) => ({
+    route: x[1]!,
+    ownerOnly: /ownerOnly:\s*true/.test(x[0]),
+  }))
 
   // A finder that finds nothing passes vacuously, which reads exactly like
   // "every route is fine". Pin the count so a rename of NAV or a switch to
   // double quotes fails loudly instead of silently approving.
-  assert.ok(routes.length >= 6, `found only ${routes.length} nav routes; the matcher is broken`)
-  for (const route of routes) {
+  assert.ok(entries.length >= 6, `found only ${entries.length} nav routes; the matcher is broken`)
+
+  // The unmarked branch must exist, or "owner-only rows are not pressable" is a
+  // claim about a code path that is not there.
+  assert.match(
+    src,
+    /if \(item\.to && item\.ownerOnly\) \{[\s\S]*?<Link to=\{item\.to\} className="block">/,
+    'NavRow no longer has an unmarked branch for owner-only rows, so an owner-only entry would ' +
+      'inherit data-decke-clickable and become pressable — pointing at a route that is off the ' +
+      'allowlist on purpose.',
+  )
+
+  for (const { route, ownerOnly } of entries) {
+    if (ownerOnly) {
+      assert.ok(
+        !routeAllowed(route),
+        `${route} is an ownerOnly nav row AND on ROUTE_ALLOWLIST. Pick one: either it is a normal ` +
+          'destination Deck-E may walk any entitled account to (drop ownerOnly), or it is ' +
+          'owner-only and he must not know about it (drop it from both allowlists). Right now an ' +
+          'entitled non-owner could be navigated to a page that answers Not Found.',
+      )
+      continue
+    }
     assert.ok(
       routeAllowed(route),
       `NavRow marks its <Link> data-decke-clickable, so Deck-E may press this row — but ` +
         `${route} is not on ROUTE_ALLOWLIST. Either the route belongs on the allowlist, or ` +
-        `this nav row must not be pressable.`,
+        `this nav row must be marked ownerOnly (which makes it unpressable).`,
     )
   }
 })
@@ -400,6 +438,24 @@ function markedAddressableFiles(root: string): string[] {
 }
 
 /** Block comments, then line comments — `://` spared so a URL survives. */
+/**
+ * Comments out, so a MENTION of a marking is never mistaken for a marking.
+ *
+ * ── ITS ONE SHARP EDGE, WHICH HAS DRAWN BLOOD ────────────────────────────────
+ *
+ * Block comments are stripped first and non-greedily, so a `/` immediately
+ * followed by `*` ANYWHERE — including inside a `//` line comment, where it is
+ * not a block comment at all — opens one, and everything up to the next `*​/`
+ * disappears. Writing a path glob like `/dev/` + `*` in a line comment in
+ * `AppShell.tsx` therefore deleted the whole of `NavRow` from the stripped text
+ * and dropped the file off the audit list (2026-09-07).
+ *
+ * That failure is LOUD — the audit's `deepEqual` reports the missing file — so
+ * this is left as it is rather than made cleverer: a real tokenizer here would
+ * be a lot of machinery guarding a mistake the next run already announces. If
+ * you are reading this because a file vanished from the audit, look for a `/`
+ * and `*` adjacent inside a comment in that file, and reword it.
+ */
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 }

@@ -1014,6 +1014,18 @@ dex id or the slug. `404` when no such species. Returns the
 
 ## Scan — perceptual-hash card matcher
 
+> **OWNER-ONLY ON PRODUCTION (since 2026-09-07).** Every endpoint in this
+> section answers **`404 not_found`** on `deckpal.app` unless the verified JWT
+> subject is `DESIGN_EDITOR_USER_ID`. Preview deployments, local dev and
+> self-host are unrestricted — the gate keys off `VERCEL_ENV === 'production'`
+> (`apps/api/src/ownerGate.ts`). 404 rather than 403 is deliberate and matches
+> the `/scan` route guard in the web app: a 403 would tell a prober that
+> deckpal.app has a scanner behind a door, and the pair would leak whatever
+> either half gives away. The endpoints are also absent from `GET /api`'s
+> public index for the same reason. This is why the scanner does not appear in
+> the nav for anybody else, and it is the half of that pair which is a control
+> rather than a decoration.
+
 ### POST /deckpal/api/scan
 Offline card scanner: image → catalog match. Send the **raw image bytes** as the
 request body with an `image/*` Content-Type — **not** multipart, **not** base64

@@ -8,6 +8,7 @@ import { scanEmbedGate } from './embedGate.js';
 import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
 import { DEFAULT_CAPTURE_MARGIN, embedCrop } from './queryEmbed.js';
 import type { VectorMatch } from './fuse.js';
+import { ownerOnlyInProduction } from '../ownerGate.js';
 import { EMBED_MODEL_ID } from '@deckpal/matching';
 
 /**
@@ -45,6 +46,35 @@ import { EMBED_MODEL_ID } from '@deckpal/matching';
  */
 
 export const scanRouter: Router = Router();
+
+/**
+ * ── OWNER-ONLY ON PRODUCTION (2026-09-07) ────────────────────────────────────
+ *
+ * All three scanner endpoints — `POST /scan`, `POST /scan/resolve`,
+ * `POST /scan/embed` — answer only the owner on deckpal.app. Preview, local
+ * dev and self-host are unrestricted, exactly as they were.
+ *
+ * **This closes the old public scanner, and that is the point rather than a
+ * side effect.** The owner's directive was "remove the scanner entirely for
+ * anyone that isn't me… just like is the case for Deck-E", and Deck-E's
+ * lesson (`decke/entitlement.ts`) is that a client-side gate decides whether
+ * to draw a button while the endpoint decides what actually happens. Gating
+ * only the route in `main.tsx` would leave `POST /api/scan` answering anyone
+ * who found the path — which is what it does today, and what an owner-only
+ * feature must not do.
+ *
+ * The refusal is **404, not 403**. A 403 tells a prober that deckpal.app has a
+ * scanner behind a door; the web route gate throws `notFound()` for the same
+ * reason, and the two must agree or the pair leaks what either one hides. See
+ * `../ownerGate.ts`.
+ *
+ * Mounted on the router rather than per-route so a fourth scanner endpoint
+ * cannot be added outside the gate by forgetting to repeat it.
+ *
+ * Reopening the scanner is deleting this one line — not unpicking a gate from
+ * three handlers.
+ */
+scanRouter.use(ownerOnlyInProduction('not-found'));
 
 // dHash bit-distance below which we call it a real match. Re-measured against
 // the live v3 cloud index (2026-08, 60 cards spread across the catalog × 7

@@ -397,7 +397,12 @@ export function createApp(): express.Express {
         '/decks/:id/logs', 'POST /decks/:id/logs', '/decks/:id/logs/:logId',
         'PATCH /decks/:id/logs/:logId', 'DELETE /decks/:id/logs/:logId',
         '/decks/:id/pdf', '/lists/:id/pdf', '/sets/:setId/checklist.pdf',
-        'POST /scan', 'POST /scan/resolve',
+        // The scanner endpoints are DELIBERATELY absent from this list. They are
+        // owner-only on production (scan/router.ts) and answer 404 to everyone
+        // else, so advertising them from an unauthenticated index would both
+        // leak the surface the gate exists to hide and promise a route that does
+        // not answer. They stay documented in API.md, which is read by whoever
+        // is allowed to use them. Put them back when the scanner reopens.
         '/tokens', 'POST /tokens', 'DELETE /tokens/:id',
         '/avatar', 'POST /avatar', 'DELETE /avatar',
         '/oauth/client', 'POST /oauth/authorize/decision',

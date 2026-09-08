@@ -209,7 +209,7 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `API_BASE_PATH` | `/api` | |
 | `NODE_ENV` | `production` | |
 | `DECKE_VERCEL_AI_GATEWAY_KEY` | `<Vercel AI Gateway key>` | **Deck-E's brain. Unset = his chat is off.** The credential `POST /api/chat` uses to reach the Vercel AI Gateway. **Unset means every chat request 503s** and the client hides the character's entry point — fail-closed, and reported rather than silent: the API warns on boot and returns `deckeGate` on `GET /health` (`configured` / `unset` / `borrowed`). **It must be a key with paid credits attached.** A free-tier key authenticates fine and lists every model, then returns a bare `429` — no `retry-after`, no `x-ratelimit-*` headers — on *every* model, so a model fallback does not help and retrying only burns budget. **Deliberately separate from `AI_GATEWAY_API_KEY`**, which belongs to the marketing image generator (`scripts/gen-marketing-images.mjs`): two keys means Deck-E's per-user spend is legible on its own and revocable without breaking a build script. Local development falls back to `AI_GATEWAY_API_KEY` when this is unset; **production never falls back**, because quietly billing the wrong key is worse than being off. |
-| `DESIGN_EDITOR_USER_ID` | `<auth.users UUID>` | **Set this, or two features are dead.** Gates two surfaces. It names the deployment's **owner**: the one account allowed to open the read-only `/design` design-system reference and the `/dev/decke` character preview in production (`GET /me` returns `designEditor: true` and `owner: true` for it). **Unset = nobody**, so both fail closed — which is correct, but was silent until 2026-08-18: `/design` shipped gated on this and the variable was never set, so the route was shut to its only user for four days. The API now warns on boot and reports `ownerGate` on `GET /health` when it is missing (AGENTS.md B11). The name is historical — it means "the owner", and `/design` was simply the first thing that needed one. Editing the design system always requires the local dev server; this only gates viewing. |
+| `DESIGN_EDITOR_USER_ID` | `<auth.users UUID>` | **Set this, or the scanner and two review surfaces are dead.** It names the deployment's **owner**: the one account allowed, in production, to open the read-only `/design` design-system reference, the `/dev/*` review routes (`/dev/decke`, `/dev/decke-compare`, `/dev/chat-ui`, `/dev/scan-harness`, `/dev/quad-labeler`) — and, **since 2026-09-07, the card scanner**. `GET /me` returns `designEditor: true` and `owner: true` for it. The scanner is gated in three places off this one flag: the `/scan` route (`main.tsx`), the nav row and camera button (`AppShell.tsx` via `lib/ownerSurface.ts`), and — the one that is a control rather than a decoration — **all three `/api/scan*` endpoints** (`apps/api/src/ownerGate.ts`), which answer **404** to a non-owner on production. `/dev/scan-flags` is gated the same way but answers 403; see that file for why the two refusals differ. **Unset = nobody**, so every one of them fails closed — which is correct, but was silent until 2026-08-18: `/design` shipped gated on this and the variable was never set, so the route was shut to its only user for four days. The API now warns on boot and reports `ownerGate` on `GET /health` when it is missing (AGENTS.md B11). The name is historical — it means "the owner", and `/design` was simply the first thing that needed one. **Preview deployments and self-host are unrestricted** on the API side (the gate keys off `VERCEL_ENV === 'production'`), and the `/dev/quad-labeler` route additionally opens on `*.vercel.app` so the QA account can label; the `/scan` route itself does not, so previews show the scanner only to the owner. Editing the design system always requires the local dev server; this only gates viewing. |
 | `DECKE_ENTITLED_USER_IDS` | `<uuid>,<uuid>` | **Who may talk to Deck-E, beyond the owner.** Comma-separated `auth.users` UUIDs. `POST /api/chat` refuses anything not on this list and not `DESIGN_EDITOR_USER_ID` with **403**, checked server-side before the body is parsed. Until 2026-08-21 there was no server-side check at all — the gate lived in the browser, so any signed-in account could `curl` a full model turn onto the owner's Gateway key (verified against the deployed endpoint, not hypothesised). **Unset means owner-only**, which is a real intended configuration rather than a failure, so `GET /health` reports `deckeEntitlement.status` as `owner-only` — or `nobody` when `DESIGN_EDITOR_USER_ID` is also unset, which shuts Deck-E to everybody and warns on boot. Health reports the STATUS and a COUNT, never the ids: `/health` is unauthenticated. **This is also what makes the feature verifiable**: the QA account (`.qa-account`, AGENTS.md B12) is deliberately an ordinary user, and the browser gates for Deck-E include ones that write, which may never run as the owner. Put the QA account's UUID here. |
 | `DECKE_MAX_TURNS_PER_DAY` | `120` (default) | Per-account daily cap on Deck-E conversation, enforced in Postgres (`decke_usage`, migration 039). **One "turn" is one BILLED MODEL REQUEST, not one thing the reader typed** — a client-side tool ends the server turn, so a journey ("take me to that set") spends up to four. At a measured $0.000143 a turn the default is under two cents a day per account. Over cap returns **429** with a spoken refusal, not a 500. Empty falls back to the default; an explicit `0` switches the tier off. |
 | `DECKE_MAX_DEEP_CALLS_PER_DAY` | `10` (default) | The same, for the analysis/research tier (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Capped **separately and far tighter** because it is ~250x the price: `models.ts` measures one analysis call at $0.0356, and a realistic `plan_deck` — large collection context plus research plus thinking — at $0.50-$1. Owner's standing decision: Claude Sonnet by default, Opus only on an explicit ask. |
@@ -254,7 +254,7 @@ being theoretical. Measured 2026-09-06 on this repo:
 |---|---|---|
 | the function today | 62.8 MB | 127 packages; `sharp`'s Linux libvips is 17.4 MB of it |
 | ONNX Runtime (WASM) | 13.3 MB | `ort-wasm-simd-threaded.wasm` + a 50 KB loader, already in the repo |
-| CLIP ViT-B/32, int8 | 88.2 MB | `SCAN_EMBED_MODEL_PATH`, placed by hand |
+| CLIP ViT-B/32, int8 | 88.2 MB | `SCAN_EMBED_MODEL_PATH`, fetched at build time — see below |
 | **total** | **~164 MB** | ~86 MB of headroom |
 
 Two consequences worth knowing before somebody "simplifies" this:
@@ -272,6 +272,62 @@ Two consequences worth knowing before somebody "simplifies" this:
   (0.0685 against 0.0731). It needs a re-embed of the catalogue and a migration
   for the 640-wide column, because a different width is a different vector
   space.
+
+#### How the model actually gets into a cloud build
+
+`includeFiles` can only carry a file that is ON DISK when Vercel traces the
+function, and the checkpoint is gitignored — so on a cloud builder, which clones
+the repo and nothing else, there was never anything to carry. "Placed by hand"
+described the owner's laptop and no deployment that has ever happened.
+
+`scripts/fetch-embed-model.mjs` closes that. It is the **first** command in
+`vercel.json`'s `buildCommand`, downloads the model from object storage, and
+writes it to `apps/api/assets/embed/<EMBED_MODEL_ID>.onnx` — exactly where
+`SCAN_EMBED_MODEL_PATH` defaults to and `includeFiles` looks.
+
+| what | value |
+|---|---|
+| bucket | `CARD_ART_BUCKET`, default `card-art` — the bucket the image tier already uses |
+| key | `models/<EMBED_MODEL_ID>.onnx.part0`, `.part1`, … |
+| credentials | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (already set for the image tier; **no new variable**) |
+| integrity | sha256 pinned in the script, verified over the assembled file before it is written |
+
+**It is staged in PARTS because one 88 MB object was refused** (413
+`EntityTooLarge`). The script reads `.part0`, `.part1`, … in order and stops at
+the first one that is missing, so a future re-stage at a different chunk size
+needs no code change. A missing `.part0` is a hard error, not an empty
+download: with credentials present, the operator believes this deployment has a
+model.
+
+**No credentials → it logs loudly and exits 0.** A fork's CI, a self-host build
+and a contributor's laptop must not be broken by an asset they were never going
+to use: with `SCAN_EMBED_MATCH` off — the default — `POST /api/scan/embed`
+answers 404 and `/scan/resolve` ignores vector evidence, which is exactly the
+state a missing model file produces anyway. **A digest mismatch is the opposite
+and fails the build.** A model that is present and wrong yields query vectors
+that are not comparable with the catalogue's, so the scanner would rank
+confidently and rank nonsense — the same reasoning `tools/embed-catalog` records
+for refusing to run without its checkpoint.
+
+**Replacing the model is a two-part change, always.** Re-stage the parts, update
+`MODEL_SHA256` in the script, AND re-run `tools/embed-catalog` for the current
+stamp. Doing the first two without the third gives a scanner whose query vectors
+live in a different space from its index.
+
+`apps/api/src/scan/__tests__/fetchEmbedModel.test.ts` pins the digest gate, the
+part loop, the constants the script has to duplicate, and the two lines of
+`vercel.json` this depends on.
+
+#### `@deckpal/matching` must be BUILT, not just installed
+
+It is in `vercel.json`'s build chain and it has to stay there. Its package
+`exports` resolve to `dist/index.js` at **runtime**, and
+`apps/api/src/scan/router.ts` imports `EMBED_MODEL_ID` from it at module scope —
+so an unbuilt `@deckpal/matching` makes `api/index.mjs` throw
+`ERR_MODULE_NOT_FOUND` on cold start and **500s the whole API**, not merely the
+scanner. Nothing else catches this: the package's `types` condition points at
+`src/`, so `tsc --noEmit` is perfectly happy without a `dist/`. That is why the
+CI workflow builds it too, and why the test above asserts the build order.
 
 Cold start is a model load, not a download: session creation measures ~7.5 ms
 per MB after a one-off ~360 ms runtime init, so an 88 MB graph is roughly

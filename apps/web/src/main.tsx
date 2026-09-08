@@ -249,12 +249,56 @@ const profileAliasRoute = createRoute({
 
 // `?card=<cardId>` opens the card-detail bottom-sheet over the scanner match list
 // without tearing down the camera/result state.
+//
+// ── OWNER-ONLY ON PRODUCTION (2026-09-07) ────────────────────────────────────
+//
+// The scanner ships to production but is OWNER-ONLY, the same shape and the
+// same three lines as `/design` and `/dev/decke` below: `beforeLoad` checks the
+// server-verified `owner` flag on `/me` and throws `notFound()` for everyone
+// else, so for any other visitor — signed in, signed out, or poking at URLs —
+// this route is indistinguishable from one that never existed. The identity
+// check lives server-side (`DESIGN_EDITOR_USER_ID`); nothing about who the
+// owner is appears in this bundle, and if that variable is unset the answer is
+// nobody. **It fails closed**, which is the only posture an owner gate may
+// have: a network blip or a lapsed session lands in the `catch` and refuses.
+//
+// The owner's directive was "remove the scanner entirely for anyone that isn't
+// me… just like is the case for Deck-E", so the PUBLIC scanner dies here. That
+// is the instruction, not a regression.
+//
+// **THIS ROUTE GATE IS HALF THE ANSWER AND NOT THE INTERESTING HALF.** It
+// decides what renders; `apps/api/src/scan/router.ts` decides what the server
+// will actually do, and it is gated on the same identity for the same reason.
+// Deck-E's postmortem (`apps/api/src/decke/entitlement.ts`) is the record of
+// what happens when only one of those two exists: an ordinary signed-in account
+// got a full model turn by asking the endpoint directly, while the client gate
+// cheerfully drew nothing. Do not remove one of these without the other, and do
+// not let them disagree about who the owner is — they read the same flag from
+// the same server so they cannot.
+//
+// COST: nothing extra. Unlike `/dev/decke` this route was already shipping to
+// every visitor, and the scan engine's 19 MB of runtime was already route-lazy
+// and already excluded from the service worker's precache manifest
+// (`vite.config.ts`'s `globIgnores`, whose note explains why). Gating the route
+// only narrows who ever fetches it.
 const scanRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/scan',
   validateSearch: (raw: Record<string, unknown>): { card?: string } => ({
     card: typeof raw.card === 'string' && raw.card ? raw.card : undefined,
   }),
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    // Self-host has exactly one user (the owner) behind their own auth proxy.
+    if (!isCloudMode) return
+    try {
+      const me = await api.me()
+      if (me.owner) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
   component: Scan,
 })
 

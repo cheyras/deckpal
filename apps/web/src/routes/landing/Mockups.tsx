@@ -635,7 +635,17 @@ export function DeckMockup() {
   )
 }
 
-/* ── 5 · scanner ──────────────────────────────────────────────────────────── */
+/* ── 5 · scanner ──────────────────────────────────────────────────────────────
+ *
+ * PARKED, NOT DEAD. Nothing imports this today: the landing page's card-scanner
+ * feature block was removed on 2026-09-07, when the scanner became owner-only.
+ * That page is what signed-out visitors see, and an advertisement for a feature
+ * none of them can reach is the exact "trace" the gate exists to remove — see
+ * the note in `Landing.tsx` where the block used to sit. Rollup tree-shakes an
+ * unimported export, so keeping it costs the bundle nothing, and keeping it is
+ * what makes reopening the scanner one import and one `<Feature>` rather than a
+ * redraw from scratch.
+ */
 
 export function ScanMockup() {
   return (

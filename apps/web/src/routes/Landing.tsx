@@ -17,12 +17,14 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Link } from '@tanstack/react-router'
 import { BrandMark, Icon } from '../components/Icon'
 import { buttonClass } from '../components/ui/Button'
+// `ScanMockup` is deliberately not imported. The card-scanner feature block it
+// illustrated was removed from this page on 2026-09-07, when the scanner became
+// owner-only — see the note where that block used to sit, below.
 import {
   AgentMockup,
   BinderMockup,
   DeckMockup,
   ProgressMockup,
-  ScanMockup,
   ValueMockup,
 } from './landing/Mockups'
 import './landing/landing.css'
@@ -965,20 +967,21 @@ export function Landing() {
           mockup={<DeckMockup />}
         />
 
-        <Feature
-          flip
-          eyebrow="Card scanner"
-          title="Point your camera at the card."
-          body="Line a card up inside the frame and hold still. DeckPal matches it against the catalog by perceptual hash — no shutter button, no typing set codes — and adds it to your collection in a tap. No camera to hand? Drop in a photo instead."
-          bullets={[
-            'Fires on its own once two frames agree',
-            'Ranked matches with a confidence score, not a single guess',
-            'JPEG, PNG or WebP upload as a fallback',
-          ]}
-          mockup={<ScanMockup />}
-        />
+        {/* THE CARD-SCANNER FEATURE BLOCK USED TO SIT HERE, and it is gone on
+            purpose (2026-09-07). The scanner became owner-only that day — the
+            route, the nav and all three API endpoints refuse everybody else on
+            production — and this page is the surface signed-out visitors see.
+            An advertisement for a feature nobody who reads it can reach is
+            worse than silence: it is the exact "trace" the gate exists to
+            remove, and it promised behaviour ("matches it against the catalog
+            by perceptual hash") that the rebuilt scanner no longer has anyway.
+            `ScanMockup` is still in `landing/Mockups.tsx`, unimported, so this
+            block can come back as one import and one <Feature> when the
+            scanner reopens. The narrative order above still reads correctly
+            without it: tracking → value → decks → lists. */}
 
         <Feature
+          flip
           eyebrow="Lists, binders & Pokédex"
           title="Lay it out the way you'd shelve it."
           body="Static lists for cards you picked by hand, dynamic lists that keep themselves current, and Pokédex binders that lay out all 1,025 species in order. Flip through 4-, 9-, 12- or 16-pocket pages and see the gaps exactly where they'd sit in the real binder."

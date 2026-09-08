@@ -47,7 +47,13 @@ const ROUTE_ALLOWLIST = [
   '/decks',
   '/pokedex',
   '/insights',
-  '/scan',
+  // `/scan` was here until 2026-09-07. The scanner is owner-only now, and
+  // Deck-E is NOT owner-only: `DECKE_ENTITLED_USER_IDS` deliberately includes
+  // the QA account (decke/entitlement.ts), so leaving the entry here meant he
+  // could walk an entitled non-owner to a page that answers Not Found. An
+  // allowlist entry is a promise that the destination exists for whoever is
+  // being taken there. Put it back when the scanner reopens, together with its
+  // `ROUTE_SHAPES` line and its `data-decke-nav` landmark in `prompt.ts`.
   '/search',
 ] as const
 

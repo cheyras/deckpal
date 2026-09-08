@@ -25,8 +25,13 @@
     <title>DeckPal — Connect Claude to your Pokémon TCG collection</title>
     <meta
       name="description"
-      content="Connect Claude to your own Pokémon TCG collection over MCP and ask what you can build from the cards you own, what is losing you games, and what to buy next. DeckPal tracks all 20,964 English cards down to the printing — set completion, price history, a PTCG Live deck builder and a camera scanner. Free and open source."
+      content="Connect Claude to your own Pokémon TCG collection over MCP and ask what you can build from the cards you own, what is losing you games, and what to buy next. DeckPal tracks all 20,964 English cards down to the printing — set completion, price history and a PTCG Live deck builder. Free and open source."
     />
+    <!-- "a camera scanner" was in that sentence until 2026-09-07, and the JSON-LD
+         below said "a perceptual-hash card scanner". The scanner became
+         owner-only that day, so both were advertising to search engines and
+         social crawlers a feature that answers Not Found for every reader who
+         could arrive from them. Restore both phrases when it reopens. -->
     <link rel="canonical" href="https://deckpal.app/" />
 
     <meta property="og:type" content="website" />
@@ -59,7 +64,7 @@
         "url": "https://deckpal.app/",
         "applicationCategory": "UtilitiesApplication",
         "operatingSystem": "Web",
-        "description": "Open-source Pokémon TCG collection tracker with an MCP server: connect your own Claude to your collection, decks, prices and battle logs through 21 tools. Per-printing collection tracking with set completion goals, daily price history and collection value over time, a deck builder with PTCG Live import/export and version history, battle-log parsing, a perceptual-hash card scanner, binders, lists and a Pokédex.",
+        "description": "Open-source Pokémon TCG collection tracker with an MCP server: connect your own Claude to your collection, decks, prices and battle logs through 21 tools. Per-printing collection tracking with set completion goals, daily price history and collection value over time, a deck builder with PTCG Live import/export and version history, battle-log parsing, binders, lists and a Pokédex.",
         "license": "https://www.gnu.org/licenses/agpl-3.0.html",
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
