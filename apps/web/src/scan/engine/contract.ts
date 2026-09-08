@@ -73,6 +73,59 @@ export interface EngineState {
   reticle: { x: number; y: number; w: number; h: number }
   /** Presence-head value for the latest inference (raw, ungated). */
   hasObj: number
+  /**
+   * ── THE DIAGNOSTIC CHANNEL (added 2026-09-08) ─────────────────────────────
+   *
+   * What the detector PROPOSED this tick, before the tracker had an opinion —
+   * for the quad training surface's live sweep, where the question is not
+   * "what did the scanner lock onto" but "what does this model think is
+   * card-like, and which stage threw it away". `stable`/`pending` below cannot
+   * answer that: the tracker drops a quad outside the reticle before a track
+   * ever exists (tracker.passesReticle), so the false positives most worth
+   * labelling are exactly the ones missing from them.
+   *
+   * NOTHING IN THE PRODUCT READS THESE. They are two values the tick already
+   * computed, published rather than discarded; the detect path, the gate, the
+   * tracker and the lock policy are untouched by their presence. That is the
+   * whole reason this is a field and not a second engine — a diagnostic view
+   * that runs different code from the shipping one measures itself.
+   *
+   * `observed` — the presence-gated, sub-pixel-refined quad the tracker was
+   * actually offered (empty when the gate was shut, or the model's points did
+   * not form a quad). Canonical coordinates, like everything else here.
+   */
+  observed: Quad[]
+  /**
+   * The model's own quad for this tick REGARDLESS of the presence gate — the
+   * corners it emits on every frame, including the ones it scores 0.4 and the
+   * product therefore never draws. Null only when the points do not decode to
+   * a quad at all.
+   *
+   * Unrefined on purpose: the refiner is a polish step whose cost is paid for
+   * quads that will be used, and running it on every rejected frame would
+   * change the tick's cost profile — a diagnostic that slows the thing it is
+   * measuring is reporting on a different system.
+   */
+  ungated: Quad | null
+  /**
+   * The thresholds this run is ACTUALLY judging by — defaults, or whatever
+   * `EngineOptions` overrode them with.
+   *
+   * Reported for the reason `labeler/types.ts` already gives for recording
+   * `seedAcquireThreshold` on every row: a re-tune later must not retroactively
+   * change what a recorded observation meant. A diagnostic readout that prints
+   * a constant it imported separately is a second copy of the truth, and the
+   * two drift the first time someone passes an option.
+   */
+  thresholds: {
+    acquire: number
+    hold: number
+    /** The lock's card-signature floor (index.DEFAULT_LOCK_MIN_SATURATION). */
+    minSaturation: number
+    lockAspectTol: number
+    lockParallelMin: number
+    cardAspect: number
+  }
   /** Gated + tracked quads: what the UI may draw. */
   stable: TrackedQuad[]
   pending: TrackedQuad[]

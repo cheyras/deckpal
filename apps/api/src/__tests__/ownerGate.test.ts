@@ -29,14 +29,27 @@
  */
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import type { NextFunction, Request, Response } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { ApiError } from '../http.js';
-import { isOwner, ownerGateStatus, ownerOnlyInProduction } from '../ownerGate.js';
+import {
+  isLabelerEntitled,
+  isOwner,
+  labelerEntitlementStatus,
+  labelerOnlyInProduction,
+  ownerGateStatus,
+  ownerOnlyInProduction,
+} from '../ownerGate.js';
 
 const OWNER = '11111111-2222-3333-4444-555555555555';
 const SOMEBODY_ELSE = '99999999-8888-7777-6666-555555555555';
 
-const ENV_KEYS = ['VERCEL_ENV', 'DESIGN_EDITOR_USER_ID', 'SUPABASE_MODE'] as const;
+const ENV_KEYS = [
+  'VERCEL_ENV',
+  'DESIGN_EDITOR_USER_ID',
+  'SUPABASE_MODE',
+  'DECKE_ENTITLED_USER_IDS',
+  'LABELER_ENTITLED_USER_IDS',
+] as const;
 const saved = new Map<string, string | undefined>();
 for (const k of ENV_KEYS) saved.set(k, process.env[k]);
 
@@ -69,7 +82,7 @@ interface Called {
 }
 
 /** Drive the middleware with a caller identity and report what it did. */
-function run(handler: ReturnType<typeof ownerOnlyInProduction>, userId: string | undefined): Called {
+function run(handler: RequestHandler, userId: string | undefined): Called {
   const out: Called = { nexted: false };
   const req = { user: userId ? { id: userId } : undefined } as unknown as Request;
   const res = {
@@ -233,4 +246,123 @@ test('"development" is not "production" — only the exact string closes the gat
       `VERCEL_ENV=${JSON.stringify(env)} unexpectedly closed the gate`,
     );
   }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// The labeler set — the owner PLUS the QA account (2026-09-08 owner ruling)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// These matter more than their size suggests. The quad training surface has TWO
+// gates that must agree — the route guard in `apps/web/src/main.tsx` and this
+// middleware on POST /dev/scan-flags, which is the only path a saved label
+// takes. When they disagreed in one direction the surface was invisible to the
+// only account allowed to drive it (round 9); disagreeing in the other gives
+// the QA account a page that labels happily and 403s on every save. Both
+// failures are silent from the surface itself, so they are pinned here.
+
+const QA = '77777777-6666-5555-4444-333333333333';
+
+test('cloud: the labeler set is the owner plus the named list', () => {
+  cloud();
+  process.env.DESIGN_EDITOR_USER_ID = OWNER;
+  process.env.LABELER_ENTITLED_USER_IDS = QA;
+  assert.equal(isLabelerEntitled(OWNER), true);
+  assert.equal(isLabelerEntitled(QA), true);
+  assert.equal(isLabelerEntitled(SOMEBODY_ELSE), false);
+  assert.equal(isLabelerEntitled(undefined), false);
+});
+
+test("cloud: with no dedicated list, Deck-E's list is inherited", () => {
+  cloud();
+  process.env.DESIGN_EDITOR_USER_ID = OWNER;
+  delete process.env.LABELER_ENTITLED_USER_IDS;
+  process.env.DECKE_ENTITLED_USER_IDS = ` ${QA} , `;
+  assert.equal(isLabelerEntitled(QA), true, 'the inherited list is parsed the same way');
+  assert.equal(isLabelerEntitled(SOMEBODY_ELSE), false);
+  assert.equal(labelerEntitlementStatus(), 'owner-plus-decke-list');
+});
+
+test('a dedicated list REPLACES the inherited one — that is the decoupling', () => {
+  cloud();
+  process.env.DESIGN_EDITOR_USER_ID = OWNER;
+  process.env.DECKE_ENTITLED_USER_IDS = SOMEBODY_ELSE;
+  process.env.LABELER_ENTITLED_USER_IDS = QA;
+  assert.equal(isLabelerEntitled(QA), true);
+  assert.equal(
+    isLabelerEntitled(SOMEBODY_ELSE),
+    false,
+    "Deck-E's list must not leak through once the labeler has its own",
+  );
+  assert.equal(labelerEntitlementStatus(), 'owner-plus-list');
+});
+
+test('an EMPTY dedicated list is a typo, not a decision to shut the surface', () => {
+  cloud();
+  process.env.DESIGN_EDITOR_USER_ID = OWNER;
+  process.env.DECKE_ENTITLED_USER_IDS = QA;
+  for (const v of ['', '   ', ',', ' , ,']) {
+    process.env.LABELER_ENTITLED_USER_IDS = v;
+    assert.equal(
+      isLabelerEntitled(QA),
+      true,
+      `LABELER_ENTITLED_USER_IDS=${JSON.stringify(v)} should fall back, not lock out`,
+    );
+  }
+});
+
+test('cloud: no owner and no list anywhere means nobody', () => {
+  cloud();
+  delete process.env.DESIGN_EDITOR_USER_ID;
+  delete process.env.LABELER_ENTITLED_USER_IDS;
+  delete process.env.DECKE_ENTITLED_USER_IDS;
+  assert.equal(isLabelerEntitled(OWNER), false);
+  assert.equal(labelerEntitlementStatus(), 'nobody');
+});
+
+test('self-host: one user, always entitled', () => {
+  selfHost();
+  assert.equal(isLabelerEntitled(SOMEBODY_ELSE), true);
+  assert.equal(isLabelerEntitled(undefined), true);
+  assert.equal(labelerEntitlementStatus(), 'self-host');
+});
+
+test('labelerOnlyInProduction: 403s a stranger and passes the QA account', () => {
+  cloud();
+  process.env.VERCEL_ENV = 'production';
+  process.env.DESIGN_EDITOR_USER_ID = OWNER;
+  process.env.LABELER_ENTITLED_USER_IDS = QA;
+
+  assert.equal(run(labelerOnlyInProduction(), OWNER).nexted, true);
+  assert.equal(run(labelerOnlyInProduction(), QA).nexted, true);
+
+  const refused = run(labelerOnlyInProduction(), SOMEBODY_ELSE);
+  assert.equal(refused.nexted, false);
+  assert.equal(refused.status, 403);
+
+  const anon = run(labelerOnlyInProduction(), undefined);
+  assert.equal(anon.nexted, false);
+  assert.equal(anon.status, 403);
+});
+
+test('labelerOnlyInProduction steps aside off production, like its sibling', () => {
+  cloud();
+  process.env.DESIGN_EDITOR_USER_ID = OWNER;
+  delete process.env.LABELER_ENTITLED_USER_IDS;
+  delete process.env.DECKE_ENTITLED_USER_IDS;
+  for (const env of ['preview', 'development', undefined]) {
+    if (env === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = env;
+    assert.equal(run(labelerOnlyInProduction(), SOMEBODY_ELSE).nexted, true);
+  }
+});
+
+test('the scanner gate did NOT widen — /scan stays owner-only', () => {
+  cloud();
+  process.env.VERCEL_ENV = 'production';
+  process.env.DESIGN_EDITOR_USER_ID = OWNER;
+  process.env.LABELER_ENTITLED_USER_IDS = QA;
+  const refused = run(ownerOnlyInProduction('not-found'), QA);
+  assert.equal(refused.nexted, false);
+  assert.ok(refused.error instanceof ApiError);
+  assert.equal((refused.error as ApiError).status, 404);
 });

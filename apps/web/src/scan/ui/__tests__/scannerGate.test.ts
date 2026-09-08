@@ -131,14 +131,39 @@ test('the /scan guard is /dev/decke plus EXACTLY the preview allowance — nothi
 
 // ── 2 · the quad labeler keeps its gate AND its preview allowance ────────────
 
-test('the quad labeler is still owner-only on production', () => {
+test('the quad labeler gates on the LABELER flag on production, and fails closed', () => {
+  // WIDENED 2026-09-08 (owner ruling): the training surface is live for the
+  // owner AND the QA account, while /scan stays owner-only — the test below
+  // pins that half, and this one pins which flag the widening reads.
+  //
+  // `me.labeler`, NOT `me.owner`, and the distinction is the whole point: the
+  // flag is computed by the same `isLabelerEntitled` that guards
+  // POST /dev/scan-flags (apps/api/src/ownerGate.ts), which is where a saved
+  // label actually goes. Reading `me.owner` here would draw a Not Found at the
+  // account the server was already accepting writes from — the two-gate
+  // disagreement this file exists to prevent, just pointing the other way.
   const guard = routeGuardFor(code(MAIN), '/dev/quad-labeler')
-  assert.match(guard, /me\.owner/, '/dev/quad-labeler must still end at the owner flag on production')
+  assert.match(guard, /me\.labeler/, '/dev/quad-labeler must gate on the labeler flag on production')
+  assert.doesNotMatch(
+    guard,
+    /me\.owner/,
+    'the labeler must not ALSO consult me.owner — one flag, or the two can disagree',
+  )
   assert.match(
     guard,
     /catch\s*\{[^}]*\}\s*throw\s+notFound\(\)/,
     '/dev/quad-labeler must still fail closed to notFound()',
   )
+})
+
+test('the SCANNER did not widen with it — /scan still ends at me.owner', () => {
+  // The 2026-09-07 ruling ("remove the scanner entirely for anyone that isn't
+  // me") is untouched by the 2026-09-08 one. Pinned here because the two
+  // surfaces sit twenty lines apart in main.tsx and share a shape, which is
+  // exactly the distance at which a widening gets copied by accident.
+  const guard = routeGuardFor(code(MAIN), '/scan')
+  assert.match(guard, /me\.owner/, '/scan must still gate on the owner flag')
+  assert.doesNotMatch(guard, /me\.labeler/, '/scan must NOT have inherited the labeler widening')
 })
 
 test('the quad labeler keeps its *.vercel.app preview allowance — do not "tidy" this away', () => {

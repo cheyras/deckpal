@@ -1168,6 +1168,18 @@ export interface MeResponse {
    * cannot drift again.
    */
   decke?: boolean
+  /**
+   * True when this account may open `/dev/quad-labeler` and write labels.
+   *
+   * A THIRD answer, for `decke`'s exact reason one surface over. The quad
+   * training surface is the owner PLUS the QA account (2026-09-08 owner
+   * ruling), so a route guard reading `owner` would hide it from the account
+   * AGENTS.md B12 requires browser verification to use — and the server's own
+   * gate on POST /dev/scan-flags would already have said yes. Computed
+   * server-side by the same function that gate calls (`ownerGate.ts`), so the
+   * two cannot drift.
+   */
+  labeler?: boolean
 }
 /**
  * The account's settings row (user_settings + migration 049's UI columns).

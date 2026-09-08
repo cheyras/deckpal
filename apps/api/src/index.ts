@@ -5,6 +5,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
+import { labelerEntitlementStatus } from './ownerGate.js';
 import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
 import { checkModels, modelCheckStatus, modelCheckWarning, type ModelCheck } from './decke/modelCheck.js';
 import {
@@ -362,6 +363,13 @@ export function createApp(): express.Express {
           status: deckeEntitlementStatus(),
           extraAccounts: deckeEntitledCount(),
         },
+        // WHO may open the quad training surface and write labels. Reported
+        // for B11's reason and no other: `owner-plus-decke-list` is a real,
+        // intended state (no dedicated variable is set, so Deck-E's list is
+        // inherited — see ownerGate.ts) and it is otherwise invisible from
+        // outside, which is precisely the class of configuration fact that
+        // cost /design four silent days. Status only, never the ids.
+        labelerEntitlement: labelerEntitlementStatus(),
         // Whether every configured model id is real. NAMES the missing ones,
         // unlike the entitlement block above — a model id is a public product
         // name, and "one model is wrong" without saying which is a puzzle

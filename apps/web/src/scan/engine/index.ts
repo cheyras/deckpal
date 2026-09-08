@@ -430,7 +430,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
    *  this is the one number a new TCG supplies. */
   const cardAspect = opts.cardAspect ?? DEFAULT_CARD_ASPECT
 
-  const gate = createPresenceGate(opts.acquire ?? DEFAULT_ACQUIRE, opts.hold ?? DEFAULT_HOLD)
+  const acquire = opts.acquire ?? DEFAULT_ACQUIRE
+  const hold = opts.hold ?? DEFAULT_HOLD
+  const minSaturation = opts.minSaturation ?? DEFAULT_LOCK_MIN_SATURATION
+  const gate = createPresenceGate(acquire, hold)
   const tracker = createTracker()
 
   const listeners = new Set<(s: EngineState) => void>()
@@ -449,8 +452,11 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     lockAspectTol,
     lockParallelMin,
     cardAspect,
-    minSaturation: opts.minSaturation,
+    minSaturation,
   })
+  /** Frozen once: these cannot change for the life of an engine, and rebuilding
+   *  the object every tick would allocate for nothing. */
+  const thresholds = { acquire, hold, minSaturation, lockAspectTol, lockParallelMin, cardAspect }
   /** Latest card signature per track id — see DEFAULT_LOCK_MIN_SATURATION. */
   const saturations = new Map<number, number>()
 
@@ -635,9 +641,15 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     const quads: Quad[] = []
     /** This tick's card signature for the detected quad, if there was one. */
     let tickSaturation: number | null = null
+    // Decoded ONCE, before the gate, and reused inside it. The model emits four
+    // corners on every frame whatever its presence head says, so this costs a
+    // decode that used to happen only when the gate was open — and buys the
+    // diagnostic channel (EngineState.ungated) its answer for the frames the
+    // product throws away, which are the frames the training surface is for.
+    const decoded = modelPointsToCanonicalQuad(points)
     if (gate.update(hasObj)) {
       // A model fraction IS a canonical fraction — no letterbox padding to undo.
-      const raw = modelPointsToCanonicalQuad(points)
+      const raw = decoded
       if (raw) {
         const q = (workImg && refine(workImg, raw)) ?? raw
         quads.push(q)
@@ -710,6 +722,11 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       stream: { width: v.videoWidth, height: v.videoHeight },
       reticle: { ...rect },
       hasObj,
+      // The two diagnostic fields. `observed` is `quads` — the same array the
+      // tracker was handed, copied so a subscriber cannot mutate the engine's.
+      observed: [...quads],
+      ungated: decoded,
+      thresholds,
       stable,
       pending,
       locked,

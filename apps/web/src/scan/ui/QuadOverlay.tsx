@@ -9,16 +9,34 @@
 // FIELD-TEST-1.md calls for — "not so dang exact", forgiving on rotation and
 // perspective, gating detection rather than cropping capture.
 import { useMemo } from 'react'
-import type { EngineState, TrackedQuad } from '../engine/contract'
+import type { EngineState, Quad, TrackedQuad } from '../engine/contract'
 import { canonicalSquareMap, framePointToCss, reticleToCss } from './coords'
 
 export function QuadOverlay({
   state,
   box,
+  diagnostic = false,
 }: {
   state: EngineState | null
   /** The rendered video box's own CSS size — the SVG fills it 1:1. */
   box: { width: number; height: number }
+  /**
+   * ── THE SWEEP LAYER (labeler only, default OFF) ───────────────────────────
+   *
+   * Also draws what the product THREW AWAY: the presence-gated proposal the
+   * scanner never shows, and the refined quad the tracker dropped for sitting
+   * outside the reticle. Both are already on `EngineState` (contract.ts's
+   * diagnostic channel) and both are invisible in the product for good reason
+   * — a scanner that outlines the doorframe behind the card is a worse
+   * scanner.
+   *
+   * It is a prop rather than a second component because the alignment maths
+   * here is the part that has been wrong before (see the note on `map` below,
+   * and overlay-alignment.test.ts): a diagnostic view drawing its quads
+   * through a second copy of that mapping could disagree with the product by
+   * 53 px and look entirely plausible while doing it.
+   */
+  diagnostic?: boolean
 }) {
   // THE DISPLAY READS THE CANONICAL FRAME, NEVER THE REVERSE (contract.ts's
   // working-frame invariant) — but it has to read it through the mapping the
@@ -44,7 +62,12 @@ export function QuadOverlay({
 
   if (!state || !map) return null
 
-  const toPoints = (q: TrackedQuad['quad']) => q.map(([x, y]) => framePointToCss(map, x, y).join(',')).join(' ')
+  const toPoints = (q: Quad) => q.map(([x, y]) => framePointToCss(map, x, y).join(',')).join(' ')
+
+  // Drawn UNDER the tracked quads, so a real lock is never obscured by the
+  // diagnosis of a near-miss. Order in SVG is paint order.
+  const rejected = diagnostic ? state.observed : []
+  const nearMiss = diagnostic && !state.observed.length ? state.ungated : null
 
   const r = reticleToCss(map, state.reticle, state.frame.width, state.frame.height)
 
@@ -61,6 +84,15 @@ export function QuadOverlay({
         strokeWidth={1.5}
         strokeDasharray="7 6"
       />
+      {/* The presence head found corners and the gate refused them — the row a
+          room sweep is FOR. Dotted and dim: this is not something the product
+          would ever draw, and it must not read as though it were. */}
+      {nearMiss && <QuadShape points={toPoints(nearMiss)} tone="near-miss" />}
+      {/* Through the gate, refined, and dropped by the tracker's reticle
+          post-filter. Detected — just not aimed at. */}
+      {rejected.map((q, i) => (
+        <QuadShape key={`o${i}`} points={toPoints(q)} tone="off-reticle" />
+      ))}
       {state.pending.map((q) => (
         <QuadShape key={`p${q.id}`} points={toPoints(q.quad)} tone="pending" />
       ))}
@@ -82,15 +114,31 @@ function QuadShape({
   faint = false,
 }: {
   points: string
-  tone: 'pending' | 'stable' | 'locked'
+  tone: 'pending' | 'stable' | 'locked' | 'off-reticle' | 'near-miss'
   faint?: boolean
 }) {
-  const stroke = tone === 'locked' ? 'var(--color-success)' : 'var(--color-action-primary-strong)'
+  // Raw hex for the two diagnostic tones rather than a theme token: these are
+  // instrument colours in a dark tool, and they have to stay distinguishable
+  // from the product's own cyan/green at a glance while the phone is moving.
+  const stroke =
+    tone === 'locked'
+      ? 'var(--color-success)'
+      : tone === 'off-reticle'
+        ? '#f5a524'
+        : tone === 'near-miss'
+          ? '#f4406a'
+          : 'var(--color-action-primary-strong)'
   // Coasting is a PREDICTION, not an observation — contract.ts requires the
   // UI to render it visually distinct. Pending (not yet stable) is fainter
   // still and dashed: it never gets to claim a lock's solid confidence.
-  const opacity = tone === 'pending' ? 0.35 : faint ? 0.4 : 1
-  const glow = tone === 'locked' ? 'drop-shadow(0 0 7px rgba(0,212,146,0.55))' : 'drop-shadow(0 0 5px rgba(83,234,253,0.32))'
+  const opacity =
+    tone === 'near-miss' ? 0.5 : tone === 'off-reticle' ? 0.75 : tone === 'pending' ? 0.35 : faint ? 0.4 : 1
+  const glow =
+    tone === 'locked'
+      ? 'drop-shadow(0 0 7px rgba(0,212,146,0.55))'
+      : tone === 'off-reticle' || tone === 'near-miss'
+        ? 'none'
+        : 'drop-shadow(0 0 5px rgba(83,234,253,0.32))'
   const verts = points.split(' ').map((p) => p.split(',').map(Number) as [number, number])
   return (
     <g style={{ transition: 'opacity 160ms ease' }} opacity={opacity}>
@@ -98,12 +146,12 @@ function QuadShape({
         points={points}
         fill="none"
         stroke={stroke}
-        strokeWidth={tone === 'locked' ? 3 : 2}
-        strokeDasharray={tone === 'pending' ? '5 4' : undefined}
+        strokeWidth={tone === 'locked' ? 3 : tone === 'near-miss' ? 1.5 : 2}
+        strokeDasharray={tone === 'pending' ? '5 4' : tone === 'near-miss' ? '2 5' : tone === 'off-reticle' ? '9 5' : undefined}
         strokeLinejoin="round"
         style={{ filter: glow }}
       />
-      {tone !== 'pending' &&
+      {(tone === 'stable' || tone === 'locked') &&
         verts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={tone === 'locked' ? 3.5 : 2.5} fill={stroke} />)}
     </g>
   )

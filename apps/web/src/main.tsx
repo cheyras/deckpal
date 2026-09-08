@@ -637,12 +637,17 @@ const quadLabelerRoute = createRoute({
     // per AGENTS.md B12 — an owner-only gate here locked out the only person
     // who uses the surface (round 9 measured the resulting "Not Found").
     // Keyed on the BUILD TIER, not the hostname — production carries
-    // *.vercel.app aliases (round 12). Production stays owner-only below on
-    // every hostname, same as ever.
+    // *.vercel.app aliases (round 12).
     if (import.meta.env.VITE_VERCEL_ENV === 'preview') return
+    // On PRODUCTION: the labeler set, not the owner alone (2026-09-08 owner
+    // ruling — the training surface is live for the owner and the QA account,
+    // while /scan itself stays owner-only). `me.labeler` is computed by the
+    // same `isLabelerEntitled` that guards POST /dev/scan-flags, which is
+    // where a saved label actually goes; reading `me.owner` here would draw a
+    // surface the server was already willing to accept writes from.
     try {
       const me = await api.me()
-      if (me.owner) return
+      if (me.labeler) return
     } catch {
       // Signed out, or /me unavailable — fall through to not-found.
     }

@@ -352,6 +352,36 @@ interface QuadLabelBase {
     /** Wall time the seed took, ms — model load included on the first frame of
      *  a session. Diagnostic only. */
     seedMs?: number
+    /**
+     * WHAT THE LIVE DETECTOR WAS SAYING when the shutter fired, present only on
+     * rows captured with the sweep mode on (CaptureStage's `live`).
+     *
+     * A DIFFERENT MEASUREMENT FROM `hasObj` ABOVE, and both are worth keeping.
+     * `hasObj` is the seed's — one inference on the frozen square, no tracker,
+     * no hysteresis, single-frame acquire. This one is the shipping pipeline's,
+     * mid-motion, with the gate latched by the frames before it. A negative
+     * mined from a room sweep is interesting precisely when the two disagree:
+     * `sweep.stage: 'tracked'` with `seedFallback: 'no_object'` is a false
+     * positive that only the LIVE path produces, and no still-frame corpus
+     * could have found it.
+     *
+     * Shape is `sweep.ts`'s `SweepVerdict`, spelled structurally rather than
+     * imported so this schema file stays free of the engine's types — a label
+     * row is data at rest and must not need the detector to be read.
+     */
+    sweep?: {
+      stage: 'none' | 'proposed' | 'gated' | 'tracked' | 'locked'
+      rejectedBy: 'no-quad' | 'presence-gate' | 'reticle' | 'lock' | null
+      hasObj: number
+      acquire: number
+      hold: number
+      saturation: number | null
+      minSaturation: number
+      observed: number
+      tracked: number
+      detectMs: number
+      hz: number
+    }
   }
   savedAt: string
 }
