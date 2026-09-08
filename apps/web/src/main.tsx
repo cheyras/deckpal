@@ -291,6 +291,12 @@ const scanRoute = createRoute({
     if (import.meta.env.DEV) return
     // Self-host has exactly one user (the owner) behind their own auth proxy.
     if (!isCloudMode) return
+    // Preview deployments are open, same allowance (and same reasoning) as
+    // the quad labeler's: the e2e acceptance drives sign in as QA per
+    // AGENTS.md B12, and gating previews would blind every machine gate this
+    // scanner ships through. The owner-only claim is about PRODUCTION
+    // (deckpal.app), where the check below still fails closed.
+    if (window.location.hostname.endsWith('.vercel.app')) return
     try {
       const me = await api.me()
       if (me.owner) return

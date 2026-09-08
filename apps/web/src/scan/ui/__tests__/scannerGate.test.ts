@@ -102,7 +102,14 @@ test('/scan opens for local dev and for self-host, exactly like every other owne
   assert.match(guard, /!isCloudMode/, 'self-host has one user behind their own auth proxy — it stays open')
 })
 
-test('the /scan guard is the same shape as /dev/decke — the precedent it was copied from', () => {
+test('the /scan guard is /dev/decke plus EXACTLY the preview allowance — nothing else', () => {
+  // The guards were deliberately identical when copied. They now differ by ONE
+  // documented line: /scan admits *.vercel.app hostnames, because the e2e
+  // acceptance drives sign in as QA (AGENTS.md B12) and an owner-only preview
+  // would blind every machine gate this scanner ships through — the same
+  // reasoning, measured on the same rig, that gave the labeler its allowance.
+  // Deck-E keeps the strict form (nothing machine-gates him on previews).
+  // Production is unaffected: deckpal.app still ends at me.owner, fail-closed.
   const src = code(MAIN)
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
   const bodyOf = (path: string) => {
@@ -111,12 +118,14 @@ test('the /scan guard is the same shape as /dev/decke — the precedent it was c
     assert.ok(m, `could not read the beforeLoad body for ${path}`)
     return norm(m[1]!)
   }
+  const allowance = "if (window.location.hostname.endsWith('.vercel.app')) return "
+  const scan = bodyOf('/scan')
+  assert.ok(scan.includes(allowance), '/scan lost its preview allowance')
   assert.equal(
-    bodyOf('/scan'),
+    scan.replace(allowance, ''),
     bodyOf('/dev/decke'),
-    'the /scan guard has drifted from /dev/decke. They are deliberately identical: one owner gate, ' +
-      'copied, so that a fix or a widening applies to both rather than to whichever one somebody ' +
-      'remembered. If they must differ now, say why here and delete this assertion.',
+    'the /scan guard has drifted from /dev/decke beyond the one documented allowance. ' +
+      'Everything else is deliberately identical so a fix applies to both.',
   )
 })
 
@@ -144,12 +153,12 @@ test('the quad labeler keeps its *.vercel.app preview allowance — do not "tidy
   )
 })
 
-test('the SCANNER does not get the labeler’s preview allowance', () => {
-  // Not an oversight — a decision. `/scan` was gated "exactly like Deck-E",
-  // which is owner-only on every cloud deployment including previews. The
-  // labeler needs QA to reach it; the scanner does not.
+test('the SCANNER keeps its preview allowance — the machine gates depend on it', () => {
+  // Reversed on 2026-09-07, the day it was written: gating previews owner-only
+  // would have blinded the e2e rig (QA login) for every future round. The
+  // owner-only claim is about PRODUCTION and the test above pins that half.
   const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.doesNotMatch(guard, /vercel\.app/, '/scan picked up a preview allowance it was not given')
+  assert.match(guard, /hostname\.endsWith\(\s*'\.vercel\.app'\s*\)/, '/scan lost its preview allowance')
 })
 
 // ── 3 · the nav ─────────────────────────────────────────────────────────────
