@@ -36,7 +36,13 @@ param(
     [string]$LinkedCheckout = 'E:\users\cheyr\deckpal'
 )
 
-$ErrorActionPreference = 'Stop'
+# ⚠️ NOT 'Stop'. In Windows PowerShell 5.1 anything a native executable writes
+# to stderr comes back wrapped in an ErrorRecord (NativeCommandError), and the
+# vercel CLI writes its own version banner there. Under 'Stop' that banner is a
+# fatal error before a single key has been read. Native exit codes are checked
+# with $LASTEXITCODE below instead, which is the only reliable signal here —
+# $? is false whenever a native command wrote to stderr, exit code 0 or not.
+$ErrorActionPreference = 'Continue'
 
 # The npm global bin is not always on PATH in a fresh shell.
 if (-not (Get-Command vercel -ErrorAction SilentlyContinue)) {
@@ -101,15 +107,15 @@ try {
 
         # `vercel env add` refuses a name that already exists on the target.
         # A failure here is usually just "it did not exist".
-        vercel env rm $Name $Target --yes *> $null
+        $null = & vercel env rm $Name $Target --yes 2>&1
 
         # The value goes to vercel on STDIN, so it never becomes an argv entry
         # and cannot be read out of the process list.
-        $plain | vercel env add $Name $Target *> $null
-        if ($?) {
+        $null = $plain | & vercel env add $Name $Target 2>&1
+        if ($LASTEXITCODE -eq 0) {
             Write-Host "    OK set" -ForegroundColor Green
         } else {
-            Write-Host "    X vercel rejected it. Check 'vercel whoami' and that you are linked." -ForegroundColor Red
+            Write-Host "    X vercel rejected it (exit $LASTEXITCODE). Check 'vercel whoami' and that you are linked." -ForegroundColor Red
         }
 
         # Do not leave it lying in the session.
@@ -135,7 +141,7 @@ try {
     Write-Host ""
     Write-Host "On $Target now (names only - values are never displayed):"
     $names = @('STRIPE_SECRET_KEY','STRIPE_PUBLISHABLE_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_SUPPORT_PRODUCT_ID','PUBLIC_APP_ORIGIN')
-    $listing = vercel env ls 2>$null
+    $listing = & vercel env ls 2>&1 | ForEach-Object { "$_" }
     $found = @()
     foreach ($line in $listing) {
         foreach ($n in $names) {
