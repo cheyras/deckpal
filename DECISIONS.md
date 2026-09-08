@@ -17094,7 +17094,27 @@ and both docs said it. `migrate:status` against the production database, run
 from this branch's worktree (the main checkout has none of these files, which is
 why nobody had checked), says otherwise:
 
-**053—056 are applied. 057—063 are pending — SEVEN, not six.**
+**053—056 were applied. 057—063 were pending — SEVEN, not six.**
+
+**✅ RESOLVED 2026-09-07: all seven are now applied. `migrate:status` reports
+0 pending, 63 total.** Verified by asking the schema rather than the runner:
+`billing_ensure_row()`, `billing_release_customer()` and the FOUR-argument
+`billing_record_ab_event(text, text, integer, text)` all exist (the three-arg
+version is gone, as 062 intends); `billing_event.claimed_at` is `NOT NULL` and
+`processed_at` exists; `billing_ab_event.dedupe_key` and its partial unique
+index exist; and 057's CHECK now admits `chose_one_time`.
+
+⚠️ **The cleanup SQL has NOT been run.** The documented order is cleanup first,
+and the reason is 059's write-once pin: code without `billing_release_customer`
+writes a replacement customer id and gets "cannot be repointed" on every
+request. That hazard does not exist here, and the order was inverted knowingly:
+production's billing tier is OFF (no Stripe keys in the Production
+environment), so no production code path touches these rows at all, and the
+only code that does — the branch preview — is the new code, which has 060. The
+cleanup is still REQUIRED before go-live, for the reasons it always was: one
+account still carries a cached test-mode subscription that would read as a
+fictional "$N a month", and thirteen test-mode experiment rows would seed the
+$1 result with the owner's own testing.
 
 057 is the one that widens `billing_ab_event`'s `kind` CHECK to admit
 `chose_one_time`. Without it every one-time gift's analytics write violates the
