@@ -1,5 +1,5 @@
 {
-  "buildCommand": "node scripts/fetch-embed-model.mjs && pnpm --filter @deckpal/db build && pnpm --filter @deckpal/matching build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-mcp build && pnpm --filter deckpal-web build",
+  "buildCommand": "node scripts/vercel-build.mjs",
   "regions": [
     "sfo1"
   ],
@@ -26,13 +26,19 @@
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     },
     {
       "source": "/models/decke/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=3600, stale-while-revalidate=86400" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, stale-while-revalidate=86400"
+        }
       ]
     }
   ],
