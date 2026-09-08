@@ -204,12 +204,23 @@ export function statusNote(
     case 'incomplete':
       return {
         tone: 'warn',
-        // Not "nothing has been charged": a first invoice whose payment is
-        // still `processing` also reads as `incomplete` here, and choosing an
-        // amount again REPLACES the subscription rather than resuming it — so
-        // the old wording invited a second first month for money already in
-        // flight. This says what is true in both cases.
-        text: 'Your bank asked for confirmation and the subscription has not started yet. If you were in the middle of confirming, give it a minute and reload before trying again — otherwise choose an amount to start afresh.',
+        // ⚠️ DOES NOT CLAIM A BANK ASKED FOR ANYTHING. `incomplete` means only
+        // that the first invoice has not been paid, and it covers three
+        // different situations: a genuine step-up waiting on the reader, a
+        // payment still `processing`, and — the one that actually happened on
+        // go-live night — a first payment the server never managed to confirm
+        // at all, with `next_action: null` and the invoice never even
+        // attempted. The old wording asserted the first of those every time,
+        // so the profile told a reader their bank had asked for a confirmation
+        // that had never been requested, right after an error telling them to
+        // come here and find out what happened.
+        //
+        // Still not "nothing has been charged" flatly: a `processing` first
+        // payment reads as `incomplete` too, and choosing an amount again
+        // REPLACES the subscription rather than resuming it, so that wording
+        // would invite a second first month for money already in flight. This
+        // says what is true in all three, and what to do in each.
+        text: 'This subscription has not started. If your bank asked you to confirm a payment, finish that and reload — otherwise choose an amount to try again, which replaces this attempt rather than adding to it.',
       }
     case 'paused':
       // Nothing in this app pauses a subscription, so this one was paused from
