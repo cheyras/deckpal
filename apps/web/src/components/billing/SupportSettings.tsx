@@ -272,7 +272,9 @@ export function SupportSettings() {
           <div>
             <p className="mb-[14px] text-[14px] leading-[1.6] text-text-secondary">
               {card
-                ? `Enter the card you would like to use instead. Your ${brandLabel(card.brand)} ending ${card.last4} stays in place until the new one is saved.`
+                ? card.last4
+                  ? `Enter the card you would like to use instead. Your ${brandLabel(card.brand)} ending ${card.last4} stays in place until the new one is saved.`
+                  : `Enter the card you would like to use instead. Your ${brandLabel(card.brand)} stays in place until the new one is saved.`
                 : 'Add a card so DeckPal can bill your monthly amount. It goes straight to Stripe.'}
             </p>
             {!state.publishableKey && (

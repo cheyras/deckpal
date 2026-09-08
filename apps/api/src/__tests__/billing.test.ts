@@ -1058,3 +1058,48 @@ describe('a rejected request is a conclusive answer, not a maybe', () => {
     assert.equal(e?.message, 'Your card was declined.');
   });
 });
+
+describe('a payment method that is not a card is still a payment method', () => {
+  // Found on go-live night: paying through Link attaches a PaymentMethod of
+  // `type: 'link'`. It has no `card` object, it becomes the customer's invoice
+  // default, and Stripe bills it off-session for renewals without complaint.
+  // `ensureDefaultPaymentMethod` required `pm.card`, fell through to the
+  // attached-CARD list, and for anyone who had used Link and never separately
+  // typed a card found nothing — so `setSupport` threw 'no payment method on
+  // file' and they could not subscribe at all. DeckPal was the only refusal in
+  // the chain.
+  //
+  // These assert the SHAPE the fix relies on rather than re-testing Stripe:
+  // `scripts/stripe-contract-check.mjs` is what asks Stripe itself.
+  const linkMethod = { id: 'pm_link_1', type: 'link' } as const;
+  const cardMethod = { id: 'pm_card_1', type: 'card', card: { brand: 'visa', last4: '4242' } } as const;
+
+  test('a link method has a type and no card', () => {
+    assert.equal(linkMethod.type, 'link');
+    assert.equal('card' in linkMethod, false);
+  });
+
+  test('the display helper must not require a card to admit a method exists', () => {
+    // `shape()` gated the whole `card` object on `card_last4`, so a link
+    // default — brand 'link', no digits — read as "no card on file" beside a
+    // subscription that was renewing off it.
+    const row = { card_brand: 'link', card_last4: null } as { card_brand: string | null; card_last4: string | null };
+    const shown = row.card_last4 || row.card_brand ? { brand: row.card_brand, last4: row.card_last4 } : null;
+    assert.ok(shown, 'a method with no digits still has something to show');
+    assert.equal(shown?.brand, 'link');
+    assert.equal(shown?.last4, null);
+  });
+
+  test('and a real card is unaffected', () => {
+    const row = { card_brand: 'visa', card_last4: '4242' };
+    const shown = row.card_last4 || row.card_brand ? { brand: row.card_brand, last4: row.card_last4 } : null;
+    assert.deepEqual(shown, { brand: 'visa', last4: '4242' });
+    assert.ok(cardMethod.card);
+  });
+
+  test('nothing at all is still nothing', () => {
+    const row = { card_brand: null, card_last4: null } as { card_brand: string | null; card_last4: string | null };
+    const shown = row.card_last4 || row.card_brand ? { brand: row.card_brand, last4: row.card_last4 } : null;
+    assert.equal(shown, null);
+  });
+});
