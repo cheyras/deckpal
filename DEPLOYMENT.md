@@ -484,11 +484,14 @@ the test-mode equivalents do not carry over):
    already set — it was taken from the endpoint-creation response and handed to
    Vercel by a script, never displayed. These two have no equivalent path:
    Stripe exposes no API that returns your secret or publishable key, so they
-   come from the dashboard (Developers → API keys, **live** mode). Use
-   **`powershell -ExecutionPolicy Bypass -File scripts\set-stripe-live-env.ps1`**,
-   from a real PowerShell window (`Read-Host` needs a terminal; a pipe or an
-   agent session's `!` prefix makes every prompt return empty and the run looks
-   like a success that changed nothing) — it prompts for each one without
+   come from the dashboard (Developers → API keys, **live** mode). **Done 2026-09-07.** They were entered
+   through a single-use PowerShell script that prompted without echoing, refused
+   a test key on production, refused a secret/publishable pair from different
+   modes, and passed each value to `vercel env add` on stdin so neither reached
+   argv or a history buffer. The script has been deleted — it existed only for
+   this one cutover, and a file that pastes credentials into infrastructure is
+   not something to leave lying in a repo. If you ever need it again, the shape
+   is in this commit's history — it prompts for each one without
    echoing it, refuses a test key on production, refuses a secret/publishable
    pair from different modes, sends each value to `vercel env add` on stdin so
    it never appears in argv or shell history, and verifies by listing NAMES
