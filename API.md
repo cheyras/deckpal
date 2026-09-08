@@ -511,6 +511,19 @@ The common shape:
   "prompt": { "due": null } }
 ```
 
+⚠️ **`card` describes whatever Stripe will bill, which is not always a card.**
+`last4`, `expMonth` and `expYear` are **nullable**, and `brand` carries the
+PAYMENT METHOD TYPE when there is no card to describe — `"brand": "link"` with
+`"last4": null` for a supporter paying through Link. `card` is `null` only when
+there is genuinely nothing on file.
+
+That distinction is not cosmetic. Until 2026-09-08 this object was gated on
+`last4` alone, so a Link supporter whose subscription was renewing perfectly
+well read as "no card on file"; and the server refused their payment outright,
+because two helpers required a `card` object where Stripe requires only a
+chargeable method. A client rendering this must not assume digits exist —
+`brandLabel(brand)` alone is the correct display when they do not.
+
 `presetsCents` is NOT a constant: which ladder an account sees is the $1
 experiment's arm (migration 055), assigned once and sticky per account, and
 `abVariant` names it. Render what arrives. `oneTimePresetsCents` is the ladder

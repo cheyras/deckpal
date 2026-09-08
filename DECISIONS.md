@@ -17135,6 +17135,79 @@ adjacent to the deploy — 059 without 060 is worse than neither, because it
 recreates the orphan-minting loop 060 exists to fix. DEPLOYMENT.md carries the
 cutover.
 
+### 54. Go-live, and the two bugs a Stripe we wrote could not contain
+
+**2026-09-08. The tier is live.** Migrations 057-063 applied (production was at
+056, not 057 — see below), live Stripe objects created, five Production
+variables set, cleanup run, a real signed webhook delivery verified end to end,
+and the owner paying $1 a month.
+
+**The premise everyone had been reasoning from was wrong.** Every round from
+thirty-four on, and both docs, said `053`-`057` were applied to production. They
+were not: `057` had never been applied. Nobody caught it because a
+`migrate:status` from the main checkout — which has none of these files — reports
+a tidy "0 pending, 52 total". It took asking the actual database from the
+branch's own worktree. `057` widens `billing_ab_event`'s `kind` CHECK to admit
+`chose_one_time`, so every one-time gift's analytics write had been violating the
+constraint and being swallowed by `recordAbEvent`'s savepoint. **Ask the
+database. Documentation about the database is not the database.**
+
+**Then the first live payment failed, and the reason is the lesson of the whole
+project.** From Stripe's own request log:
+
+> You cannot confirm with `off_session=true` when `setup_future_usage` is also
+> set on the PaymentIntent.
+
+Stripe sets `setup_future_usage` on a subscription's first invoice itself — it is
+how the card becomes usable for renewals — so `finishFirstPayment`'s intent
+ALWAYS carried it and `off_session` was ALWAYS rejected. **That path could never
+have worked for anybody.** Fifty rounds of review, every PGlite harness, every
+adversarial sweep: all of them ran against a Stripe stand-in written from our own
+understanding of the API, and a stand-in can only ever confirm the understanding
+that built it. The one line that could only fail against real Stripe was the one
+line nothing tested.
+
+A second of the same family surfaced the moment Link was tried: paying through
+Link attaches a PaymentMethod of `type: 'link'` with no `card` object.
+`ensureDefaultPaymentMethod` required `pm.card` and refused it, so a supporter
+who used Link and never separately typed a card could not subscribe at all —
+Stripe would have billed them without complaint; DeckPal was the only refusal in
+the chain. The profile compounded it by reading "no card on file" beside a
+renewing subscription, because `shape()` gated the whole object on `last4`.
+
+**The correction is `scripts/stripe-contract-check.mjs`**, wired up as
+`pnpm --filter deckpal-api test:stripe-contract`. It drives the Stripe CLI
+against TEST mode, asserts the calls this app makes are calls Stripe accepts, and
+reproduces the go-live bug on demand on a fresh customer so the guard is
+falsifiable rather than decorative. It found two false passes in itself while
+being written — a refusal case on a second subscription, which carries no
+`setup_future_usage` and therefore had nothing to refuse, and a `catch` that
+never fired because the Stripe CLI exits 0 and prints API errors as JSON.
+**Run it on any change to `billing/service.ts`.**
+
+**Honesty defects, fixed in the same pass**, because they turned one failure into
+three:
+
+- `stripeFailure` logged only `type` and `requestId` for Stripe errors,
+  withholding the message to keep decline copy out of a shared log. But
+  `StripeCardError` is caught and returned *before* that line, so everything
+  reaching it is operational text. The caution cost the diagnosis: the only
+  trace was `unknown`, in a log window that had already rolled.
+- A `StripeInvalidRequestError` is conclusive — Stripe refused the call, so
+  nothing was charged — and the reader was told "check whether it went through".
+  That branch now outranks even the gift branch: pointing somebody at a receipt
+  for a charge that never happened leaves them waiting for an email that will
+  never arrive.
+- The profile described `incomplete` as "your bank asked for confirmation".
+  It covers three situations and the one that happened involved no bank at all
+  (`next_action: null`, invoice never attempted).
+
+**Also recorded, because it was observed rather than theorised:** aggressive
+polling of `/api/health` during a deploy exhausted the Supabase pooler —
+`EMAXCONN, limit: 200` — and every route 500'd, not just billing. That is §53's
+outstanding connection-per-request finding, reproduced accidentally. It cleared
+on its own once the polling stopped, and it remains the top item on the list.
+
 ### 53. Sweep B: a charge that existed only at Stripe, and a pool that one person could drain
 
 The fourth reviewer in the parallel sweep found the worst defect of the whole
