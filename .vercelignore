@@ -38,3 +38,8 @@
 # public/ wholesale and would ship 3.3 MB of them.
 apps/web/public/models/decke/decke.orig.glb
 apps/web/public/models/decke/decke.min.glb
+
+# The embed model NEVER rides up from a local tree - every build takes
+# scripts/fetch-embed-model.mjs's verified-download path (round 12b: a CLI
+# deploy carried the local file and silently bypassed the sha256 check).
+apps/api/assets/embed/*.onnx
