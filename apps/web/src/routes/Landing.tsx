@@ -15,7 +15,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { BrandMark, Icon } from '../components/Icon'
+import { BrandLogo, Icon } from '../components/Icon'
 import { buttonClass } from '../components/ui/Button'
 import {
   AgentMockup,
@@ -224,9 +224,8 @@ function Nav({ scrolled }: { scrolled: boolean }) {
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
       <nav className="ls-wrap flex h-[66px] items-center gap-[10px]" aria-label="Primary">
-        <a href="#top" className="flex items-center gap-[9px] rounded-lg">
-          <BrandMark size={30} />
-          <span className="brand-wordmark text-[19px] leading-none">DeckPal</span>
+        <a href="#top" className="flex items-center rounded-lg">
+          <BrandLogo height={27} />
         </a>
         <span className="flex-1" />
         {/* Below 480px the four items do not fit; the GitHub icon is the one to
@@ -829,9 +828,8 @@ function Footer() {
       <div className="ls-wrap py-[42px]">
         <div className="flex flex-col gap-[32px] md:flex-row md:justify-between">
           <div className="max-w-[320px]">
-            <span className="flex items-center gap-[9px]">
-              <BrandMark size={28} />
-              <span className="brand-wordmark text-[18px] leading-none">DeckPal</span>
+            <span className="flex items-center">
+              <BrandLogo height={26} />
             </span>
             <p className="mt-[12px] text-[14px] leading-[1.6] text-text-muted">
               An open-source Pokémon TCG collection tracker. Track, build, and master your collection.
