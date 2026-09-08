@@ -289,8 +289,11 @@ chevron-left, chevron-right, star-outline, star-filled, external, menu, close, l
 minus, plus, check, check-circle, alert, copy, shuffle, download, cart, chart, user,
 gear, sparkle, camera, printer, bug, book, history, logout, mail, key`. The `Icon`
 component itself takes `name`, `size` (default 24), `className`, `strokeWidth`
-(default 1.75). The same file also exports `BrandMark` — the app's logo glyph, sourced
-from a static PNG (`public/brand-icon.png`), not a vector icon.
+(default 1.75). The same file also exports the two brand lockups, neither of
+them a vector *icon*: `BrandLogo` (the full wordmark) and `BrandD` (the D
+monogram), each an `<img>` onto owner-supplied artwork in `public/logo/`. Until
+2026-09-07 this was a single `BrandMark` onto a static PNG
+(`public/brand-icon.png`) shown beside the name in live text.
 
 ### 2.3 `apps/web/src/components/EnergyIcon.tsx` (211 lines) — read in full
 

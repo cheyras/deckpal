@@ -220,8 +220,8 @@ The file is highly regular (verified by reading it in full): two blocks
 `/* ── section ── */` headers giving human grouping. The plugin parses with a
 small line-based scanner (no CSS-parser dependency): track which block it is
 in, capture the most recent section header, emit one `TokenInfo` per
-declaration. Anything below the `:root` block (the base styles, `.brand-wordmark`,
-etc.) is out of scope and never touched.
+declaration. Anything below the `:root` block (the base styles, the focus
+ring, etc.) is out of scope and never touched.
 
 ### 2.2 Control per category (what actually exists — no invented categories)
 

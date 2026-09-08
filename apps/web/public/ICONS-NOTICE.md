@@ -1,10 +1,56 @@
-# App icon provenance
+# Brand artwork provenance
+
+Three pieces of artwork, three pipelines: the logomark, the app icon, the
+favicon. Only the icon and the favicon are rendered from a source by a script;
+the logomark ships as the vector it was drawn as.
+
+## The logomark
+
+`logo/` holds the DeckPal logomark, supplied by the project owner as vector on
+2026-09-07 and committed **byte-for-byte as exported** — there is no generator
+for these and nothing downsamples or re-exports them:
+
+| File | Lockup | viewBox |
+|---|---|---|
+| `logo/deckpal-logo-white.svg` | full wordmark, light-on-dark | `0 0 450.12 94.11` |
+| `logo/deckpal-logo-dark.svg` | full wordmark, dark-on-light | `0 0 450.12 94.11` |
+| `logo/deckpal-d-white.svg` | D monogram, light-on-dark | `0 0 96.85 89.92` |
+| `logo/deckpal-d-dark.svg` | D monogram, dark-on-light | `0 0 96.85 89.92` |
+
+**These live here rather than in `assets/brand/` on purpose.** That directory
+holds *sources a script renders into this one*. Vector has no render step, so a
+copy in both places would be the same bytes twice with nothing checking they
+stayed equal. One copy, in the place the app serves it from.
+
+**Not to be confused with `brand/`**, one level over, which is the opposite
+thing: *other people's* trademarks, used under their brand guidelines. This
+directory is DeckPal's own mark.
+
+**The app ships the white pair only**, because it is dark-only (`theme.css`:
+`deckpalDark` is the only scheme). The dark-on-light pair is here for the
+README's light mode and for any light surface a later theme introduces, and is
+excluded from the service worker's precache in `apps/web/vite.config.ts` so
+nobody downloads a mark this build never draws.
+
+Rendered by `<BrandLogo>` and `<BrandD>` in `src/components/Icon.tsx`, as
+`<img>` rather than inline SVG — each file carries its own `<style>` block
+written against generic `.cls-N` selectors and `linear-gradient` gradient ids,
+which would collide document-wide the moment two of them shared a page. The
+same white wordmark is drawn into the link-preview card by
+`scripts/gen-og-image.mjs`, so the social card and the app cannot disagree
+about the mark.
+
+Replacing the artwork means replacing these files from a new export. Do not
+recolour or restretch one variant to stand in for another — take the variant
+from the source.
+
+## The app icon and favicon
 
 Replaced 2026-08-15. Two pieces of artwork, two pipelines.
 
 ## The app icon
 
-`brand-icon.png` (the top-bar mark), `apple-touch-icon.png`, `pwa-192.png`,
+`brand-icon.png`, `apple-touch-icon.png`, `pwa-192.png`,
 `pwa-512.png`, `pwa-maskable-192.png`, `pwa-maskable-512.png` and the MCP
 connector icon (`apps/mcp/assets/icon-{128,512}.png`) are all rendered from one
 source supplied by the project owner:
@@ -16,6 +62,10 @@ source, because the two icon classes are masked differently:
 
 - **tight** — apple-touch, brand mark, `any` PWA icons. Shown as-is or under a
   gentle squircle, so the crop is pulled in to keep the face legible small.
+  `brand-icon.png` stopped being the top-bar mark on 2026-09-07, when the
+  logomark above took over app chrome; it is still the favicon's sibling at
+  128px and the icon half of the link-preview card, so the crop and the
+  generator are unchanged.
 - **full frame** — the `maskable` PWA icons. Android crops these to a circle
   inscribed in the central 80%; the full frame keeps the face inside that
   circle, the tight crop does not.

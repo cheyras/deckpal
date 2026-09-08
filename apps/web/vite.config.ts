@@ -208,7 +208,13 @@ export default defineConfig(async ({ command }) => {
           // into EVERY visitor's cache on first load, for a route exactly one
           // account can open. The route is lazy, so with them the cost is paid
           // only by whoever actually opens it.
-          globIgnores: ['models/**', 'assets/Decke-*.js', 'dev-assets/**', 'scan-assets/**'],
+          //
+          //   logo/*-dark.svg  the dark-on-light pair of the logomark. The app
+          //   is dark-only and renders the white pair exclusively; these two
+          //   ship so the README (and any later light surface) has them, and
+          //   are excluded here so nobody downloads a mark this build never
+          //   draws. Same reasoning as above, three orders of magnitude smaller.
+          globIgnores: ['models/**', 'assets/Decke-*.js', 'dev-assets/**', 'scan-assets/**', 'logo/*-dark.svg'],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         // Leave this off. Turning it on would put the service worker in front of

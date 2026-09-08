@@ -157,12 +157,21 @@ test('vercel.json runs the fetch step, and builds @deckpal/matching before the A
     buildCommand: string;
     functions: Record<string, { includeFiles?: string }>;
   };
-  const cmd = vercel.buildCommand;
+  // The chain lives in scripts/vercel-build.mjs since 2026-09-07 —
+  // projectSettings.buildCommand caps at 256 characters and the inline chain
+  // reached 299, which the CLI rejects outright. vercel.json must point at
+  // the script, and the SCRIPT must carry the steps this test guards.
+  assert.match(
+    vercel.buildCommand,
+    /node scripts\/vercel-build\.mjs/,
+    'vercel.json no longer runs the build script — nothing fetches the model or builds the workspace.',
+  );
+  const cmd = readFileSync(new URL('scripts/vercel-build.mjs', `file://${ROOT}`), 'utf8');
 
   assert.match(
     cmd,
     /node scripts\/fetch-embed-model\.mjs/,
-    'vercel.json no longer runs the model fetch — a cloud build has no 88 MB checkpoint to include, ' +
+    'the build script no longer runs the model fetch — a cloud build has no 88 MB checkpoint to include, ' +
       'so includeFiles below would carry nothing and POST /api/scan/embed would 500 on the first scan.',
   );
 

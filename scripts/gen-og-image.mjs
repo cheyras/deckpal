@@ -11,15 +11,22 @@
  * an actual promo card — the app icon, the wordmark, the one-line pitch.
  *
  * ── Why it renders in a browser ──────────────────────────────────────────────
- * The wordmark is not a picture. It is Figtree 900, skewed -6deg, with a
- * four-stop cyan gradient clipped to the glyphs (`.brand-wordmark`, theme.css).
- * Reproducing that by hand in SVG would be a second copy that drifts the first
- * time anyone retunes the gradient. So the card is real HTML pointed at the
- * REAL built stylesheet and the REAL woff2 files, screenshotted at 1200×630.
- * Change the brand colours and this card follows on the next run.
+ * It used to be because the wordmark was NOT a picture: it was Figtree 900,
+ * skewed −6°, with a four-stop cyan gradient clipped to the glyphs
+ * (the `.brand-wordmark` rule, since deleted from theme.css), and hand-rolling
+ * that in SVG would have been a second copy that drifted the first time anyone
+ * retuned the gradient.
+ *
+ * That is no longer true. The wordmark IS a picture now —
+ * `logo/deckpal-logo-white.svg`, the very file the app's own chrome renders, so
+ * the card and the app cannot disagree about the mark. The card still renders
+ * in a browser for everything else on it: the pitch's display face, the pill,
+ * and every colour here still resolve from the REAL built stylesheet and the
+ * REAL woff2 files, screenshotted at 1200×630. Retune the brand colours and
+ * this card still follows on the next run.
  *
  * That is also why it needs `pnpm --filter deckpal-web build` first: it reads
- * apps/web/dist, not src.
+ * apps/web/dist, not src — including the copy of the logo it draws.
  *
  * NOTE: this script reads `PLAYWRIGHT_PATH` — a require() specifier handed
  * straight to createRequire below — while every other script in this repo
@@ -88,7 +95,10 @@ const html = `<!doctype html>
     width: 268px; height: 268px; border-radius: 22%; display: block;
     box-shadow: 0 40px 90px -20px rgb(0 0 0 / 0.85), 0 0 0 1px rgb(255 255 255 / 0.06);
   }
-  .wordmark { font-size: 104px; line-height: 1; }
+  /* Sized by height, width following the artwork's own 450.12×94.11 box. 100px
+     lands it a shade taller than the 104px type it replaced, which is what
+     keeps it in balance with a 268px icon. */
+  .wordmark { display: block; height: 100px; width: auto; }
   .pitch {
     font-family: var(--font-display);
     font-size: 40px; line-height: 1.18; font-weight: 600;
@@ -114,7 +124,7 @@ const html = `<!doctype html>
   <div id="card">
     <img class="icon" src="/pwa-512.png" alt="">
     <div>
-      <span class="brand-wordmark wordmark">DeckPal</span>
+      <img class="wordmark" src="/logo/deckpal-logo-white.svg" alt="DeckPal">
       <p class="pitch">Ask Claude what you can build from the cards you own.</p>
       <div class="meta">
         <span class="pill"><span class="dot"></span>21 tools over MCP</span>
@@ -143,7 +153,15 @@ const server = createServer((req, res) => {
     return;
   }
   const type =
-    { '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png', '.js': 'text/javascript' }[
+    {
+      '.css': 'text/css',
+      '.woff2': 'font/woff2',
+      '.png': 'image/png',
+      // Without this the logo is served as application/octet-stream and the
+      // card screenshots a broken image rather than the wordmark.
+      '.svg': 'image/svg+xml',
+      '.js': 'text/javascript',
+    }[
       path.extname(file)
     ] ?? 'application/octet-stream';
   res.writeHead(200, { 'content-type': type });

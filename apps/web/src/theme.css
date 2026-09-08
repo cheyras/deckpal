@@ -374,31 +374,6 @@ button {
   outline-offset: 2px;
 }
 
-/* App logotype — "DeckPal" in the top chrome. Live text, series-logo inspired:
-   heavy weight + slight forward skew, a light-to-dark gradient within the
-   action-primary hue family (all 4 stops, so recoloring action-primary never
-   leaves a foreign-hue fringe at the top/bottom of the glyphs — see
-   DECISIONS.md 2026-08-11) clipped to the glyphs, and a layered drop-shadow for
-   the chunky outlined depth. drop-shadow (not text-shadow) so the shadow
-   tracks the gradient-clipped glyphs. */
-.brand-wordmark {
-  display: inline-block;
-  font-weight: 900;
-  letter-spacing: -0.015em;
-  transform: skewX(-6deg);
-  background: linear-gradient(
-    180deg,
-    var(--color-brand-primary-100) 0%,
-    var(--color-action-primary-strong) 34%,
-    var(--color-action-primary) 62%,
-    var(--color-brand-primary-700) 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 1px 0 rgb(0 0 0 / 0.55)) drop-shadow(0 2px 5px rgb(0 0 0 / 0.35));
-  user-select: none;
-}
 
 /* Filled button variants (Button.tsx primary/secondary/danger).
  *

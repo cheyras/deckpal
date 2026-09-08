@@ -1,4 +1,12 @@
-# DeckPal
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="apps/web/public/logo/deckpal-logo-white.svg">
+  <source media="(prefers-color-scheme: light)" srcset="apps/web/public/logo/deckpal-logo-dark.svg">
+  <img src="apps/web/public/logo/deckpal-logo-dark.svg" alt="DeckPal" width="440">
+</picture>
+
+</div>
 
 An open-core Pokemon TCG collection and agentic strategy platform. Browse a full card catalog, track your
 collection across printings, see prices, connect to Claude or GPT to collaboratively build decks with
