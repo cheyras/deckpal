@@ -10,6 +10,7 @@
 
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 
 import type { Quad } from '../contract'
@@ -19,7 +20,22 @@ import { judgeTie, gateScanResponse, TIE_MARGIN } from '../../ui/tieGate'
 import { createCapturedRegions, REGION_DEPARTURE_MS } from '../../ui/regions'
 import type { ScanMatch, ScanResponse } from '../../../lib/api'
 
-const DRIVE = 'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/e2e-drive/'
+// ── WHY THE FIXTURES ARE IN THE REPO ────────────────────────────────────────
+//
+// This path used to be an absolute one on the author's laptop
+// (`E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/...`), pointing
+// into a directory that is not tracked. The `if (!existsSync) return []` guard
+// below reads as graceful degradation and was not: the suite then asserts the
+// artifacts ARE present, so on any other machine — GitHub Actions included —
+// this file could only fail. It did, on every CI run since the scanner landed
+// on main, and the regressions it pins have therefore never once been checked
+// by CI.
+//
+// The recorded sessions are gigabytes of frames and crops and stay out of git.
+// The JSON the assertions actually read is a few hundred KB, so it lives here,
+// addressed relative to this file. The guard is kept: it is now the honest
+// thing it always claimed to be.
+const DRIVE = fileURLToPath(new URL('./fixtures/e2e-drive/', import.meta.url))
 
 function load(rel: string): unknown | null {
   const p = DRIVE + rel

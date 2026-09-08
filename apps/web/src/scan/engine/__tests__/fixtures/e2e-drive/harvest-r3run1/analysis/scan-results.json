@@ -1,0 +1,695 @@
+[
+  {
+    "id": "1788512143264",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Fighting Energy",
+          "set": "mee",
+          "num": "006",
+          "d": 8
+        },
+        {
+          "name": "Fighting Energy",
+          "set": "sve",
+          "num": "014",
+          "d": 9
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 9
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 9
+        },
+        {
+          "name": "Psychic Energy",
+          "set": "sve",
+          "num": "013",
+          "d": 9
+        }
+      ]
+    },
+    "mine": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Memory Capsule",
+          "set": "swsh4",
+          "num": "202",
+          "d": 13
+        },
+        {
+          "name": "Raichu & Alolan Raichu GX",
+          "set": "sm11",
+          "num": "241",
+          "d": 14
+        },
+        {
+          "name": "Custom Catcher",
+          "set": "sm8",
+          "num": "231",
+          "d": 14
+        },
+        {
+          "name": "Gumshoos GX",
+          "set": "sm1",
+          "num": "145",
+          "d": 15
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 15
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512168185",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Psychic Energy",
+          "set": "swsh12.5",
+          "num": "156",
+          "d": 8
+        },
+        {
+          "name": "Grass Energy",
+          "set": "swsh12.5",
+          "num": "152",
+          "d": 9
+        },
+        {
+          "name": "Cheren",
+          "set": "me02.5",
+          "num": "258",
+          "d": 10
+        },
+        {
+          "name": "Fire Energy",
+          "set": "swsh12.5",
+          "num": "153",
+          "d": 10
+        },
+        {
+          "name": "Water Energy",
+          "set": "swsh12.5",
+          "num": "154",
+          "d": 10
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Psychic Energy",
+          "set": "swsh12.5",
+          "num": "156",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "swsh12.5",
+          "num": "154",
+          "d": 10
+        },
+        {
+          "name": "Grass Energy",
+          "set": "swsh12.5",
+          "num": "152",
+          "d": 10
+        },
+        {
+          "name": "Fire Energy",
+          "set": "swsh12.5",
+          "num": "153",
+          "d": 10
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sm1",
+          "num": "167",
+          "d": 10
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512171705",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Metal Energy",
+          "set": "ex9",
+          "num": "88",
+          "d": 9
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 10
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 11
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 11
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 11
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Metal Energy",
+          "set": "ex9",
+          "num": "88",
+          "d": 9
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 11
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 11
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 11
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 11
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512184766",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 9
+        },
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 10
+        },
+        {
+          "name": "Fighting Energy",
+          "set": "sve",
+          "num": "006",
+          "d": 11
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "001",
+          "d": 11
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 11
+        }
+      ]
+    },
+    "mine": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 10
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 10
+        },
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 11
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 11
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 12
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512200762",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Fire Energy",
+          "set": "mee",
+          "num": "002",
+          "d": 7
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 8
+        },
+        {
+          "name": "Fighting Energy",
+          "set": "sve",
+          "num": "014",
+          "d": 8
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "002",
+          "d": 9
+        },
+        {
+          "name": "Rainbow Brush",
+          "set": "sm7",
+          "num": "182",
+          "d": 10
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Fighting Energy",
+          "set": "sve",
+          "num": "014",
+          "d": 9
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 9
+        },
+        {
+          "name": "Fire Energy",
+          "set": "mee",
+          "num": "002",
+          "d": 10
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 11
+        },
+        {
+          "name": "Grass Energy",
+          "set": "mee",
+          "num": "001",
+          "d": 11
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512221019",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Psychic Energy",
+          "set": "swsh12.5",
+          "num": "156",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "swsh12.5",
+          "num": "154",
+          "d": 10
+        },
+        {
+          "name": "Fire Energy",
+          "set": "swsh12.5",
+          "num": "153",
+          "d": 10
+        },
+        {
+          "name": "Grass Energy",
+          "set": "swsh12.5",
+          "num": "152",
+          "d": 10
+        },
+        {
+          "name": "Darkness Energy",
+          "set": "swsh12.5",
+          "num": "158",
+          "d": 11
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Psychic Energy",
+          "set": "swsh12.5",
+          "num": "156",
+          "d": 8
+        },
+        {
+          "name": "Fire Energy",
+          "set": "swsh12.5",
+          "num": "153",
+          "d": 10
+        },
+        {
+          "name": "Grass Energy",
+          "set": "swsh12.5",
+          "num": "152",
+          "d": 10
+        },
+        {
+          "name": "Water Energy",
+          "set": "swsh12.5",
+          "num": "154",
+          "d": 10
+        },
+        {
+          "name": "Darkness Energy",
+          "set": "swsh12.5",
+          "num": "158",
+          "d": 11
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512233979",
+    "app": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 10
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 10
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "swsh7",
+          "num": "235",
+          "d": 11
+        },
+        {
+          "name": "Dhelmise V",
+          "set": "swsh4.5",
+          "num": "9",
+          "d": 12
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 12
+        }
+      ]
+    },
+    "mine": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "swsh7",
+          "num": "235",
+          "d": 11
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 11
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 11
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 12
+        },
+        {
+          "name": "Raichu & Alolan Raichu GX",
+          "set": "sm11",
+          "num": "241",
+          "d": 12
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512241093",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 8
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 10
+        },
+        {
+          "name": "Fighting Energy",
+          "set": "sve",
+          "num": "014",
+          "d": 10
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "001",
+          "d": 10
+        },
+        {
+          "name": "Cornerstone Mask Ogerpon ex",
+          "set": "sv08.5",
+          "num": "160",
+          "d": 10
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 8
+        },
+        {
+          "name": "Fighting Energy",
+          "set": "sve",
+          "num": "014",
+          "d": 9
+        },
+        {
+          "name": "Fire Energy",
+          "set": "sve",
+          "num": "010",
+          "d": 9
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "001",
+          "d": 10
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 11
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512259771",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 7
+        },
+        {
+          "name": "Psychic Energy",
+          "set": "sve",
+          "num": "013",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 8
+        },
+        {
+          "name": "Psychic Energy",
+          "set": "sve",
+          "num": "005",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "003",
+          "d": 9
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Psychic Energy",
+          "set": "sve",
+          "num": "013",
+          "d": 7
+        },
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 7
+        },
+        {
+          "name": "Psychic Energy",
+          "set": "sve",
+          "num": "005",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 8
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 9
+        }
+      ]
+    }
+  }
+]

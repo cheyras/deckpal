@@ -1,0 +1,9497 @@
+[
+  {
+    "type": "lock-event",
+    "epochMs": 1788622689318,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        114.87364017990619,
+        80.96615340232445
+      ],
+      [
+        279.9535036807831,
+        83.10882888433486
+      ],
+      [
+        294.27616307816294,
+        338.7553131555872
+      ],
+      [
+        97.89736845534748,
+        332.17446648123547
+      ]
+    ],
+    "trackId": 1,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9986900687217712,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 358,
+      "height": 358
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.509501597527507,
+      "jitterPx": 7.334750450246252
+    },
+    "wouldCapture": true,
+    "regionCount": 0,
+    "suppressedByRegion": false,
+    "regionsExpired": 0,
+    "sinceRegionExpiryMs": null,
+    "saturation": 0.21,
+    "id": 1788622690971,
+    "comment": null,
+    "rawPngBytes": 554533,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622690807,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        107.55317497253418,
+        72.59042072296143
+      ],
+      [
+        275.76349698295775,
+        74.33921560969948
+      ],
+      [
+        289.93660657859795,
+        330.5762420396329
+      ],
+      [
+        95.41084623336792,
+        326.9825019836426
+      ]
+    ],
+    "trackId": 1,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9986900687217712,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 358,
+      "height": 358
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.509501597527507,
+      "jitterPx": 7.334750450246252
+    },
+    "saturation": 0.21,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sm6-5",
+        "setId": "sm6",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv03-144",
+      "alternates": [
+        {
+          "cardId": "sv03-144",
+          "distance": 12
+        },
+        {
+          "cardId": "B1a-090",
+          "distance": 13
+        },
+        {
+          "cardId": "sv10-043",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH100",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622691583,
+    "comment": null,
+    "rawPngBytes": 554533,
+    "hasRectified": true,
+    "rectifiedBytes": 150700
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622695833,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        81.39680540232304,
+        58.97293594955424
+      ],
+      [
+        285.4506493323412,
+        65.89177807657047
+      ],
+      [
+        288.03003742617534,
+        356.9528539995057
+      ],
+      [
+        78.12317654073237,
+        355.63605967617036
+      ]
+    ],
+    "trackId": 2,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.999783992767334,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.507501227393071,
+      "jitterPx": 2.5213924851307836
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 0,
+    "sinceRegionExpiryMs": null,
+    "saturation": 0.281,
+    "id": 1788622696397,
+    "comment": null,
+    "rawPngBytes": 552033,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622696314,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        83.07465368494914,
+        62.79877527594428
+      ],
+      [
+        282.0966419219772,
+        69.22387971333923
+      ],
+      [
+        286.7628747372625,
+        356.9503985096857
+      ],
+      [
+        79.96470499038696,
+        356.7538776397705
+      ]
+    ],
+    "trackId": 2,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.999783992767334,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.507501227393071,
+      "jitterPx": 2.5213924851307836
+    },
+    "saturation": 0.281,
+    "match": {
+      "matchedRaw": true,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-047",
+        "setId": "sv10",
+        "distance": 8,
+        "confidence": 0.875
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv04.5-134",
+      "alternates": [
+        {
+          "cardId": "sv04.5-134",
+          "distance": 9
+        },
+        {
+          "cardId": "swsh4.5sv-SV104",
+          "distance": 11
+        },
+        {
+          "cardId": "sv04.5-143",
+          "distance": 11
+        },
+        {
+          "cardId": "swshp-SWSH145",
+          "distance": 12
+        }
+      ]
+    },
+    "id": 1788622696788,
+    "comment": null,
+    "rawPngBytes": 552033,
+    "hasRectified": true,
+    "rectifiedBytes": 155173
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622706859,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        86.16981605088188,
+        46.73097241183024
+      ],
+      [
+        295.7033069953164,
+        45.60548963377738
+      ],
+      [
+        304.0711023351767,
+        355.9190796083307
+      ],
+      [
+        76.80836392998695,
+        350.13584762096406
+      ]
+    ],
+    "trackId": 3,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9982526302337646,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.49669533933907,
+      "jitterPx": 7.011167813639559
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 1,
+    "sinceRegionExpiryMs": 4132,
+    "saturation": 0.26,
+    "id": 1788622707462,
+    "comment": null,
+    "rawPngBytes": 576364,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622707360,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        92.28156573608373,
+        40.78783058464472
+      ],
+      [
+        299.0218448638916,
+        42.03336143493652
+      ],
+      [
+        308.0668108025995,
+        347.30765600490605
+      ],
+      [
+        82.83017587661743,
+        340.4762554168701
+      ]
+    ],
+    "trackId": 3,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9982526302337646,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.49669533933907,
+      "jitterPx": 7.011167813639559
+    },
+    "saturation": 0.26,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "A3b-100",
+        "setId": "A3b",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 1,
+      "rivalCardId": "swsh8-262",
+      "alternates": [
+        {
+          "cardId": "swsh8-262",
+          "distance": 12
+        },
+        {
+          "cardId": "swsh5-95",
+          "distance": 12
+        },
+        {
+          "cardId": "sv01-123",
+          "distance": 13
+        },
+        {
+          "cardId": "A1-018",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622708041,
+    "comment": null,
+    "rawPngBytes": 576364,
+    "hasRectified": true,
+    "rectifiedBytes": 166054
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622711960,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        76.4015600234755,
+        44.0760264317188
+      ],
+      [
+        282.87569244292456,
+        47.85438838235048
+      ],
+      [
+        279.2712591358493,
+        351.69326651463194
+      ],
+      [
+        63.74688728841372,
+        343.744095073749
+      ]
+    ],
+    "trackId": 5,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9992299675941467,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.000000000007276,
+      "hz": 7.5165938882572165,
+      "jitterPx": 7.230079310309604
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 2,
+    "sinceRegionExpiryMs": 2803,
+    "saturation": 0.314,
+    "id": 1788622712407,
+    "comment": null,
+    "rawPngBytes": 582495,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622713100,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        86.03815274955497,
+        53.655674890145896
+      ],
+      [
+        299.84118843078613,
+        61.349552154541016
+      ],
+      [
+        298.33571572190004,
+        371.10855680434304
+      ],
+      [
+        86.62474155426025,
+        362.03433418273926
+      ]
+    ],
+    "trackId": 5,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9997217655181885,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 10,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 31.999999999992724,
+      "hz": 7.512329371736544,
+      "jitterPx": 4.719481518269166
+    },
+    "saturation": 0.192,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-050",
+        "setId": "sv10",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 0,
+      "rivalCardId": "svp-082",
+      "alternates": [
+        {
+          "cardId": "svp-082",
+          "distance": 11
+        },
+        {
+          "cardId": "sv04.5-122",
+          "distance": 12
+        },
+        {
+          "cardId": "sv04.5-127",
+          "distance": 12
+        },
+        {
+          "cardId": "me02-027",
+          "distance": 12
+        }
+      ]
+    },
+    "id": 1788622713613,
+    "comment": null,
+    "rawPngBytes": 619986,
+    "hasRectified": true,
+    "rectifiedBytes": 164848
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622717942,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        96.14801120758057,
+        104.41807746887207
+      ],
+      [
+        345.11465644836426,
+        109.20738410949707
+      ],
+      [
+        339.3218002319336,
+        403.3777847290039
+      ],
+      [
+        93.00474898231393,
+        384.56303727757546
+      ]
+    ],
+    "trackId": 6,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9898501634597778,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.498811304423521,
+      "jitterPx": 28.12950236925331
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 2,
+    "sinceRegionExpiryMs": 8785,
+    "saturation": 0.267,
+    "id": 1788622719405,
+    "comment": null,
+    "rawPngBytes": 561435,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622720074,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        97.665243766332,
+        74.76848229974799
+      ],
+      [
+        324.62608494853976,
+        73.94002719318867
+      ],
+      [
+        318.58464643303523,
+        373.3657101848476
+      ],
+      [
+        101.50853437939443,
+        359.7990214195974
+      ]
+    ],
+    "trackId": 6,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.997201144695282,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.506868730162226,
+      "jitterPx": 4.654866093975032
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 2,
+    "sinceRegionExpiryMs": 10917,
+    "saturation": 0.178,
+    "id": 1788622723695,
+    "comment": null,
+    "rawPngBytes": 585213,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622722473,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        72.51351737976074,
+        79.59740877151489
+      ],
+      [
+        281.42664105537403,
+        86.8823611650995
+      ],
+      [
+        285.0131141193033,
+        374.8546498708026
+      ],
+      [
+        62.26036113332117,
+        376.0368653124281
+      ]
+    ],
+    "trackId": 6,
+    "age": 39,
+    "coasting": false,
+    "hasObj": 0.9993801712989807,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.496658128785245,
+      "jitterPx": 66.99139575518177
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 3,
+    "sinceRegionExpiryMs": 1999,
+    "saturation": 0.184,
+    "id": 1788622724661,
+    "comment": null,
+    "rawPngBytes": 604419,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622724580,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        121.78818523338667,
+        124.26236332175877
+      ],
+      [
+        332.5845846930697,
+        115.19581186240566
+      ],
+      [
+        348.2962485881854,
+        380.8312298039785
+      ],
+      [
+        121.32024955749512,
+        381.3650550842285
+      ]
+    ],
+    "trackId": 6,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.998557984828949,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 44,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.499240947991446,
+      "jitterPx": 15.789551530483465
+    },
+    "saturation": 0.153,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "A2-012",
+        "setId": "A2",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv06-003",
+      "alternates": [
+        {
+          "cardId": "sv06-003",
+          "distance": 12
+        },
+        {
+          "cardId": "sv06-041",
+          "distance": 13
+        },
+        {
+          "cardId": "sv01-150",
+          "distance": 13
+        },
+        {
+          "cardId": "sv10.5w-032",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622725023,
+    "comment": null,
+    "rawPngBytes": 571276,
+    "hasRectified": true,
+    "rectifiedBytes": 142436
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622731098,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        82.43133803375746,
+        57.17504663200183
+      ],
+      [
+        282.42804369373226,
+        57.32984187069996
+      ],
+      [
+        287.57073585990315,
+        351.8230092665788
+      ],
+      [
+        69.11526405045815,
+        339.47160165692753
+      ]
+    ],
+    "trackId": 7,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9998812079429626,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 29,
+      "hz": 7.5105844370556865,
+      "jitterPx": 4.214697450360713
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 4,
+    "sinceRegionExpiryMs": 5335,
+    "saturation": 0.285,
+    "id": 1788622732891,
+    "comment": null,
+    "rawPngBytes": 602898,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622732621,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        83.88946245042959,
+        63.78323058615833
+      ],
+      [
+        282.6744728088379,
+        63.60798501968384
+      ],
+      [
+        288.39138593221963,
+        354.5672671856018
+      ],
+      [
+        71.02286577224731,
+        343.7569274902344
+      ]
+    ],
+    "trackId": 7,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9998812079429626,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 29,
+      "hz": 7.5105844370556865,
+      "jitterPx": 4.214697450360713
+    },
+    "saturation": 0.285,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "B2-225",
+        "setId": "B2",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "swsh4.5sv-SV015",
+      "alternates": [
+        {
+          "cardId": "swsh4.5sv-SV015",
+          "distance": 13
+        },
+        {
+          "cardId": "sma-SV30",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH176",
+          "distance": 13
+        },
+        {
+          "cardId": "sv04.5-191",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622733650,
+    "comment": null,
+    "rawPngBytes": 602898,
+    "hasRectified": true,
+    "rectifiedBytes": 159389
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622736806,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        100.68620209485461,
+        73.87244819343861
+      ],
+      [
+        324.36796925667124,
+        74.58203307064028
+      ],
+      [
+        318.5970569348534,
+        387.56094428039324
+      ],
+      [
+        95.292446188851,
+        381.72451078044395
+      ]
+    ],
+    "trackId": 8,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9921668171882629,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 36,
+      "hz": 7.49933469321167,
+      "jitterPx": 3.6010731294262897
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 5,
+    "sinceRegionExpiryMs": 135,
+    "saturation": 0.223,
+    "id": 1788622739697,
+    "comment": null,
+    "rawPngBytes": 593521,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622738918,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        105.82016458007982,
+        96.63883813890875
+      ],
+      [
+        332.84458308603035,
+        82.95445169536445
+      ],
+      [
+        327.24419134269755,
+        391.4882109225987
+      ],
+      [
+        103.37776977807044,
+        385.02482526944
+      ]
+    ],
+    "trackId": 8,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9984368085861206,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.610249083292198,
+      "jitterPx": 3.048367023484561
+    },
+    "wouldCapture": false,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 5,
+    "sinceRegionExpiryMs": 2247,
+    "saturation": 0.171,
+    "id": 1788622739877,
+    "comment": null,
+    "rawPngBytes": 601053,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622739753,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        101.2380256652832,
+        142.80503273010254
+      ],
+      [
+        333.3209185189271,
+        119.7128875824313
+      ],
+      [
+        324.4589614868164,
+        394.4799575805664
+      ],
+      [
+        104.1429380176763,
+        384.43184833258766
+      ]
+    ],
+    "trackId": 8,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9975612163543701,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 17,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 36,
+      "hz": 7.506130654543381,
+      "jitterPx": 17.6981119255666
+    },
+    "saturation": 0.161,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "ex8-90",
+        "setId": "ex8",
+        "distance": 15,
+        "confidence": 0.766
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv04.5-101",
+      "alternates": [
+        {
+          "cardId": "sv04.5-101",
+          "distance": 15
+        },
+        {
+          "cardId": "sm7-181",
+          "distance": 15
+        },
+        {
+          "cardId": "swsh8-273",
+          "distance": 15
+        },
+        {
+          "cardId": "sv08.5-136",
+          "distance": 15
+        }
+      ]
+    },
+    "id": 1788622740279,
+    "comment": null,
+    "rawPngBytes": 603695,
+    "hasRectified": true,
+    "rectifiedBytes": 151039
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622746083,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        75.03838058673445,
+        33.44020296940938
+      ],
+      [
+        266.7570511389629,
+        35.15864804849304
+      ],
+      [
+        263.6628704071045,
+        308.5141201019287
+      ],
+      [
+        76.46536363209026,
+        300.41652480170643
+      ]
+    ],
+    "trackId": 9,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9995131492614746,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.5057460804182945,
+      "jitterPx": 18.492859589409143
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 6,
+    "sinceRegionExpiryMs": 1870,
+    "saturation": 0.273,
+    "id": 1788622747452,
+    "comment": null,
+    "rawPngBytes": 530900,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622747262,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        75.03838058673445,
+        33.44020296940938
+      ],
+      [
+        266.7570511389629,
+        35.15864804849304
+      ],
+      [
+        263.6628704071045,
+        308.5141201019287
+      ],
+      [
+        76.46536363209026,
+        300.41652480170643
+      ]
+    ],
+    "trackId": 9,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9995131492614746,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.5057460804182945,
+      "jitterPx": 18.492859589409143
+    },
+    "saturation": 0.273,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "swsh9-113",
+        "setId": "swsh9",
+        "distance": 13,
+        "confidence": 0.797
+      },
+      "tieMargin": 0,
+      "rivalCardId": "swsh1-37",
+      "alternates": [
+        {
+          "cardId": "swsh1-37",
+          "distance": 13
+        },
+        {
+          "cardId": "A4-237",
+          "distance": 13
+        },
+        {
+          "cardId": "A4-023",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh3-132",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622749636,
+    "comment": null,
+    "rawPngBytes": 530900,
+    "hasRectified": true,
+    "rectifiedBytes": 151893
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622753314,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        106.80643105315364,
+        63.60512702159361
+      ],
+      [
+        284.9389540615705,
+        57.92543309468277
+      ],
+      [
+        273.53247599372276,
+        310.2644969636869
+      ],
+      [
+        115.54973964220521,
+        306.2232931610201
+      ]
+    ],
+    "trackId": 17,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9996731281280518,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.99999999998545,
+      "hz": 7.499684567253757,
+      "jitterPx": 1.9783027490559983
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 7,
+    "sinceRegionExpiryMs": 1867,
+    "saturation": 0.199,
+    "id": 1788622755652,
+    "comment": null,
+    "rawPngBytes": 548740,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622755428,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        74.6656084060669,
+        107.5611343383789
+      ],
+      [
+        179.33785247802734,
+        108.4897518157959
+      ],
+      [
+        189.46714973449707,
+        302.8375301361084
+      ],
+      [
+        57.50889461892733,
+        305.30943375261535
+      ]
+    ],
+    "trackId": 17,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9727965593338013,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 30.999999999985448,
+      "hz": 7.565221944890563,
+      "jitterPx": 49.92559037068866
+    },
+    "wouldCapture": false,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 7,
+    "sinceRegionExpiryMs": 3981,
+    "saturation": 0.218,
+    "id": 1788622756661,
+    "comment": null,
+    "rawPngBytes": 483590,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622756213,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        100.43770405071372,
+        83.51718500994208
+      ],
+      [
+        295.7507269007563,
+        79.76758555178507
+      ],
+      [
+        287.678186416626,
+        357.6872310638428
+      ],
+      [
+        98.89088167172329,
+        358.1644108587845
+      ]
+    ],
+    "trackId": 17,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9999203085899353,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 14,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.49688939313033,
+      "jitterPx": 17.17729214612234
+    },
+    "saturation": 0.212,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv04.5-162",
+        "setId": "sv04.5",
+        "distance": 14,
+        "confidence": 0.781
+      },
+      "tieMargin": 0,
+      "rivalCardId": "swsh4.5sv-SV049",
+      "alternates": [
+        {
+          "cardId": "swsh4.5sv-SV049",
+          "distance": 14
+        },
+        {
+          "cardId": "B1-012",
+          "distance": 14
+        },
+        {
+          "cardId": "sv01-062",
+          "distance": 14
+        },
+        {
+          "cardId": "sv04.5-168",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622757055,
+    "comment": null,
+    "rawPngBytes": 534674,
+    "hasRectified": true,
+    "rectifiedBytes": 151059
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622760361,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        77.4520014056754,
+        12.69813054173313
+      ],
+      [
+        331.05430030822754,
+        35.86320400238037
+      ],
+      [
+        305.19837885208716,
+        380.5200945885629
+      ],
+      [
+        63.06560134887695,
+        368.9641647338867
+      ]
+    ],
+    "trackId": 18,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9999638795852661,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.506183529717399,
+      "jitterPx": 22.519650446991076
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 8,
+    "sinceRegionExpiryMs": 1066,
+    "saturation": 0.363,
+    "id": 1788622760997,
+    "comment": null,
+    "rawPngBytes": 543593,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622760860,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        77.4520014056754,
+        12.69813054173313
+      ],
+      [
+        331.05430030822754,
+        35.86320400238037
+      ],
+      [
+        305.19837885208716,
+        380.5200945885629
+      ],
+      [
+        63.06560134887695,
+        368.9641647338867
+      ]
+    ],
+    "trackId": 18,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9999638795852661,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.506183529717399,
+      "jitterPx": 22.519650446991076
+    },
+    "saturation": 0.363,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-201",
+        "setId": "sv10",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv10-070",
+      "alternates": [
+        {
+          "cardId": "sv10-070",
+          "distance": 12
+        },
+        {
+          "cardId": "sm3-41",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh3-145",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH220",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622761446,
+    "comment": null,
+    "rawPngBytes": 543593,
+    "hasRectified": true,
+    "rectifiedBytes": 157541
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622767275,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        84.67789764330817,
+        105.13583247946303
+      ],
+      [
+        328.03417689880587,
+        101.2890038299413
+      ],
+      [
+        318.77523040771484,
+        398.7962398529053
+      ],
+      [
+        86.95379392804868,
+        386.4657442193457
+      ]
+    ],
+    "trackId": 19,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.976906418800354,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.00000000001455,
+      "hz": 7.494834462458158,
+      "jitterPx": 26.141664188625647
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": false,
+    "regionsExpired": 8,
+    "sinceRegionExpiryMs": 7980,
+    "saturation": 0.267,
+    "id": 1788622770532,
+    "comment": null,
+    "rawPngBytes": 543461,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622770280,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        84.67789764330817,
+        105.13583247946303
+      ],
+      [
+        328.03417689880587,
+        101.2890038299413
+      ],
+      [
+        318.77523040771484,
+        398.7962398529053
+      ],
+      [
+        86.95379392804868,
+        386.4657442193457
+      ]
+    ],
+    "trackId": 19,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.976906418800354,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32.00000000001455,
+      "hz": 7.494834462458158,
+      "jitterPx": 26.141664188625647
+    },
+    "saturation": 0.267,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "A4-064",
+        "setId": "A4",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sm12-102",
+      "alternates": [
+        {
+          "cardId": "sm12-102",
+          "distance": 11
+        },
+        {
+          "cardId": "sv06-090",
+          "distance": 12
+        },
+        {
+          "cardId": "B1-041",
+          "distance": 12
+        },
+        {
+          "cardId": "A1-006",
+          "distance": 12
+        }
+      ]
+    },
+    "id": 1788622771502,
+    "comment": null,
+    "rawPngBytes": 543461,
+    "hasRectified": true,
+    "rectifiedBytes": 156643
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622774838,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        92.2288153519426,
+        65.3354115213254
+      ],
+      [
+        329.0516764884717,
+        57.728654043137595
+      ],
+      [
+        332.94673039744214,
+        397.428065884123
+      ],
+      [
+        98.43176155022925,
+        395.9602799218861
+      ]
+    ],
+    "trackId": 20,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9609266519546509,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.5074158761503735,
+      "jitterPx": 12.442049899546756
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 10,
+    "sinceRegionExpiryMs": 1334,
+    "saturation": 0.296,
+    "id": 1788622775634,
+    "comment": null,
+    "rawPngBytes": 545288,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622776950,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        98.36344186582575,
+        42.80298524617732
+      ],
+      [
+        321.0998851637372,
+        47.38693784189601
+      ],
+      [
+        315.5654298370754,
+        370.1409152818202
+      ],
+      [
+        100.73159835595087,
+        371.4707651224595
+      ]
+    ],
+    "trackId": 20,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9999495148658752,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.5327326790574975,
+      "jitterPx": 1.5255922055874198
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 10,
+    "sinceRegionExpiryMs": 3446,
+    "saturation": 0.253,
+    "id": 1788622777740,
+    "comment": null,
+    "rawPngBytes": 547092,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622779071,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        105.9170114933263,
+        39.5492198650018
+      ],
+      [
+        323.0453328700504,
+        45.11952755606062
+      ],
+      [
+        313.4048121806,
+        361.44482975815066
+      ],
+      [
+        109.76395949596106,
+        358.14774362210744
+      ]
+    ],
+    "trackId": 20,
+    "age": 37,
+    "coasting": false,
+    "hasObj": 0.9998950958251953,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.56241255638129,
+      "jitterPx": 1.8590995642505712
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 10,
+    "sinceRegionExpiryMs": 5567,
+    "saturation": 0.24,
+    "id": 1788622779589,
+    "comment": null,
+    "rawPngBytes": 547660,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622781203,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        110.69081629635845,
+        58.827998468199105
+      ],
+      [
+        305.2086327004469,
+        61.61737170785044
+      ],
+      [
+        306.5657607370846,
+        344.7929221330222
+      ],
+      [
+        108.77451629852472,
+        341.17726393690504
+      ]
+    ],
+    "trackId": 20,
+    "age": 53,
+    "coasting": false,
+    "hasObj": 0.9994277954101562,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.99999999998545,
+      "hz": 7.507281456507592,
+      "jitterPx": 4.591799874857536
+    },
+    "wouldCapture": false,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 11,
+    "sinceRegionExpiryMs": 804,
+    "saturation": 0.279,
+    "id": 1788622781718,
+    "comment": null,
+    "rawPngBytes": 513623,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622781414,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        112.02879862089652,
+        80.03784872667691
+      ],
+      [
+        312.1120618098338,
+        66.52970793019442
+      ],
+      [
+        318.5904788970947,
+        363.0896816253662
+      ],
+      [
+        103.2076821815368,
+        358.09539264765533
+      ]
+    ],
+    "trackId": 20,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9998065233230591,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 47,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.509677954226521,
+      "jitterPx": 4.5490208956024665
+    },
+    "saturation": 0.255,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "swsh2-77",
+        "setId": "swsh2",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 2,
+      "rivalCardId": "swsh3-63",
+      "alternates": [
+        {
+          "cardId": "swsh3-63",
+          "distance": 13
+        },
+        {
+          "cardId": "A4-082",
+          "distance": 13
+        },
+        {
+          "cardId": "B1-028",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh9-066",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622782635,
+    "comment": null,
+    "rawPngBytes": 543436,
+    "hasRectified": true,
+    "rectifiedBytes": 159130
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622783436,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        105.92242375576816,
+        63.735099882507825
+      ],
+      [
+        220.2329751647521,
+        33.02168164624958
+      ],
+      [
+        278.72028314273604,
+        102.02279369991993
+      ],
+      [
+        151.7726493901408,
+        132.06659001162606
+      ]
+    ],
+    "trackId": 22,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9446189403533936,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.509719703838009,
+      "jitterPx": 2.6384365399940175
+    },
+    "saturation": 0.309,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "ex9-36",
+        "setId": "ex9",
+        "distance": 13,
+        "confidence": 0.797
+      },
+      "tieMargin": 1,
+      "rivalCardId": "bwp-BW89",
+      "alternates": [
+        {
+          "cardId": "bwp-BW89",
+          "distance": 14
+        },
+        {
+          "cardId": "me03-070",
+          "distance": 14
+        },
+        {
+          "cardId": "ex16-88",
+          "distance": 14
+        },
+        {
+          "cardId": "xy7-84",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622784643,
+    "comment": null,
+    "rawPngBytes": 575242,
+    "hasRectified": true,
+    "rectifiedBytes": 137317
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622786152,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        88.7222479661045,
+        33.53245459162296
+      ],
+      [
+        323.98067818864456,
+        30.312907928881128
+      ],
+      [
+        321.93853460428505,
+        369.4642112854537
+      ],
+      [
+        84.69973528482737,
+        370.4244175500736
+      ]
+    ],
+    "trackId": 23,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9990598559379578,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 35,
+      "hz": 7.506172059744901,
+      "jitterPx": 2.98572870014393
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 11,
+    "sinceRegionExpiryMs": 5753,
+    "saturation": 0.363,
+    "id": 1788622786696,
+    "comment": null,
+    "rawPngBytes": 553455,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622788153,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        101.45355085335973,
+        31.43038983669403
+      ],
+      [
+        328.3142588987929,
+        39.8221299558742
+      ],
+      [
+        307.79097452443426,
+        355.8510976305193
+      ],
+      [
+        92.83315091805929,
+        346.63731573313675
+      ]
+    ],
+    "trackId": 23,
+    "age": 20,
+    "coasting": false,
+    "hasObj": 0.9936428666114807,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 35,
+      "hz": 7.504890963895053,
+      "jitterPx": 5.783295332671187
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 11,
+    "sinceRegionExpiryMs": 7754,
+    "saturation": 0.357,
+    "id": 1788622788602,
+    "comment": null,
+    "rawPngBytes": 554908,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622790287,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        108.0822755771781,
+        40.91228070260702
+      ],
+      [
+        317.5570422268744,
+        41.94925394525302
+      ],
+      [
+        311.80211082212253,
+        350.5940364903089
+      ],
+      [
+        105.17938927879601,
+        346.9191728326975
+      ]
+    ],
+    "trackId": 23,
+    "age": 36,
+    "coasting": false,
+    "hasObj": 0.998470664024353,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 37,
+      "hz": 7.507608032899746,
+      "jitterPx": 2.948324679784086
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 11,
+    "sinceRegionExpiryMs": 9888,
+    "saturation": 0.353,
+    "id": 1788622791609,
+    "comment": null,
+    "rawPngBytes": 547843,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622792419,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        104.89506283193886,
+        36.560805509262956
+      ],
+      [
+        328.25936383341366,
+        35.55546189358658
+      ],
+      [
+        323.12568340301516,
+        359.7650532722473
+      ],
+      [
+        102.82632021903991,
+        356.1271321296692
+      ]
+    ],
+    "trackId": 23,
+    "age": 52,
+    "coasting": false,
+    "hasObj": 0.999467134475708,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 36,
+      "hz": 7.501096853073877,
+      "jitterPx": 2.4465179998882243
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 11,
+    "sinceRegionExpiryMs": 12020,
+    "saturation": 0.349,
+    "id": 1788622792749,
+    "comment": null,
+    "rawPngBytes": 538951,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622794349,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        128.2643688316964,
+        84.3853694273803
+      ],
+      [
+        313.1757887399245,
+        91.58513371181267
+      ],
+      [
+        319.0424270629883,
+        375.72238540649414
+      ],
+      [
+        103.70318680060488,
+        370.11239593068973
+      ]
+    ],
+    "trackId": 23,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9999690055847168,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 60,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.505703465153098,
+      "jitterPx": 23.140315790028975
+    },
+    "saturation": 0.33,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-093",
+        "setId": "sv10",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv04-026",
+      "alternates": [
+        {
+          "cardId": "sv04-026",
+          "distance": 12
+        },
+        {
+          "cardId": "sv02-229",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh11-054",
+          "distance": 14
+        },
+        {
+          "cardId": "sv04-011",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622794780,
+    "comment": null,
+    "rawPngBytes": 536338,
+    "hasRectified": true,
+    "rectifiedBytes": 153685
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622795064,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        119.12659748621145,
+        61.75355881163256
+      ],
+      [
+        229.4287680460004,
+        33.00352263402563
+      ],
+      [
+        277.0878610608858,
+        96.12849397148865
+      ],
+      [
+        151.5761323519024,
+        122.64984527681197
+      ]
+    ],
+    "trackId": 25,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.5555235743522644,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.37119973088951,
+      "jitterPx": 2.393382562336597
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 13,
+    "sinceRegionExpiryMs": 260,
+    "saturation": 0.356,
+    "id": 1788622795487,
+    "comment": null,
+    "rawPngBytes": 551129,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622796405,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        123.17237671183312,
+        62.96532284561406
+      ],
+      [
+        228.40687317466873,
+        35.594345578070225
+      ],
+      [
+        278.3396231547336,
+        98.6415898099507
+      ],
+      [
+        152.64570999145508,
+        124.2019739151001
+      ]
+    ],
+    "trackId": 25,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.5555235743522644,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.37119973088951,
+      "jitterPx": 2.393382562336597
+    },
+    "saturation": 0.356,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sm1-166",
+        "setId": "sm1",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "xy7-84",
+      "alternates": [
+        {
+          "cardId": "xy7-84",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh7-235",
+          "distance": 13
+        },
+        {
+          "cardId": "bw8-135",
+          "distance": 13
+        },
+        {
+          "cardId": "sm1-171",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622796822,
+    "comment": null,
+    "rawPngBytes": 551129,
+    "hasRectified": true,
+    "rectifiedBytes": 133391
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622801429,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        65.70561088164767,
+        89.69105572603624
+      ],
+      [
+        319.8341179602138,
+        80.93645328481892
+      ],
+      [
+        323.2419389430819,
+        390.48217871612906
+      ],
+      [
+        74.07035053824654,
+        380.96857968694803
+      ]
+    ],
+    "trackId": 26,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.7949007153511047,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.497405023153673,
+      "jitterPx": 4.281769541870231
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 13,
+    "sinceRegionExpiryMs": 6625,
+    "saturation": 0.38,
+    "id": 1788622801939,
+    "comment": null,
+    "rawPngBytes": 525466,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622803562,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        81.99405316872637,
+        62.54442781313351
+      ],
+      [
+        320.9180401569776,
+        62.29865661530605
+      ],
+      [
+        325.30291226568977,
+        388.9479540467464
+      ],
+      [
+        89.92338800933821,
+        389.9683886895043
+      ]
+    ],
+    "trackId": 26,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9492411613464355,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.506249022507712,
+      "jitterPx": 1.930480786099975
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 13,
+    "sinceRegionExpiryMs": 8758,
+    "saturation": 0.358,
+    "id": 1788622803928,
+    "comment": null,
+    "rawPngBytes": 555225,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622805691,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        94.31020022683668,
+        67.63904469590062
+      ],
+      [
+        324.6491656362815,
+        62.954399103338865
+      ],
+      [
+        325.3595054223002,
+        386.57572629365956
+      ],
+      [
+        94.01329026184679,
+        386.3519225107757
+      ]
+    ],
+    "trackId": 26,
+    "age": 37,
+    "coasting": false,
+    "hasObj": 0.9901588559150696,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.499284526955268,
+      "jitterPx": 1.481640487758068
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 13,
+    "sinceRegionExpiryMs": 10887,
+    "saturation": 0.367,
+    "id": 1788622806033,
+    "comment": null,
+    "rawPngBytes": 550513,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622807345,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        108.37504768371582,
+        77.55074834823608
+      ],
+      [
+        308.57807592349224,
+        85.22675131391463
+      ],
+      [
+        309.6604987002883,
+        368.5919481948573
+      ],
+      [
+        101.77691346866149,
+        370.30225731761374
+      ]
+    ],
+    "trackId": 26,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9781641960144043,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 44,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 30,
+      "hz": 7.501130697778246,
+      "jitterPx": 4.775483604958904
+    },
+    "saturation": 0.355,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "A2-028",
+        "setId": "A2",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv10.5b-110",
+      "alternates": [
+        {
+          "cardId": "sv10.5b-110",
+          "distance": 12
+        },
+        {
+          "cardId": "swshp-SWSH009",
+          "distance": 13
+        },
+        {
+          "cardId": "smp-SM130",
+          "distance": 13
+        },
+        {
+          "cardId": "sv04-036",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622807969,
+    "comment": null,
+    "rawPngBytes": 542327,
+    "hasRectified": true,
+    "rectifiedBytes": 163473
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622812076,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        77.65335556728499,
+        79.94942786456497
+      ],
+      [
+        273.18241675699136,
+        85.62885693364224
+      ],
+      [
+        270.6259107522223,
+        363.3734422358892
+      ],
+      [
+        78.83152547420131,
+        363.2276137129914
+      ]
+    ],
+    "trackId": 29,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9972596168518066,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.50198368049419,
+      "jitterPx": 6.2577413727255315
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 15,
+    "sinceRegionExpiryMs": 4525,
+    "saturation": 0.469,
+    "id": 1788622813603,
+    "comment": null,
+    "rawPngBytes": 533111,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622814077,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        112.65563398485284,
+        86.93578310733436
+      ],
+      [
+        304.8321484535615,
+        79.77307048653729
+      ],
+      [
+        300.4378701162831,
+        350.0263653586928
+      ],
+      [
+        113.3820027759797,
+        354.1090181244689
+      ]
+    ],
+    "trackId": 29,
+    "age": 20,
+    "coasting": false,
+    "hasObj": 0.9886492490768433,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 35,
+      "hz": 7.503273127197849,
+      "jitterPx": 1.5106761570723535
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 15,
+    "sinceRegionExpiryMs": 6526,
+    "saturation": 0.486,
+    "id": 1788622814593,
+    "comment": null,
+    "rawPngBytes": 538380,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622816209,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        107.45181183627585,
+        84.53942525857163
+      ],
+      [
+        307.3838023842482,
+        81.75640085347594
+      ],
+      [
+        299.79983232704114,
+        369.09709061342227
+      ],
+      [
+        103.8074906796661,
+        368.56482513727724
+      ]
+    ],
+    "trackId": 29,
+    "age": 36,
+    "coasting": false,
+    "hasObj": 0.9994810223579407,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.497581277802562,
+      "jitterPx": 2.3007964101925436
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 15,
+    "sinceRegionExpiryMs": 8658,
+    "saturation": 0.447,
+    "id": 1788622816955,
+    "comment": null,
+    "rawPngBytes": 540216,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622818342,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        106.01999128040205,
+        72.03724228992272
+      ],
+      [
+        313.92626180492726,
+        68.8971012149908
+      ],
+      [
+        309.13491693885845,
+        368.8169922209988
+      ],
+      [
+        105.28194433467634,
+        366.1199877896624
+      ]
+    ],
+    "trackId": 29,
+    "age": 52,
+    "coasting": false,
+    "hasObj": 0.9989661574363708,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 36,
+      "hz": 7.508601974454399,
+      "jitterPx": 1.8540845780974433
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 15,
+    "sinceRegionExpiryMs": 10791,
+    "saturation": 0.429,
+    "id": 1788622818783,
+    "comment": null,
+    "rawPngBytes": 544292,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622820270,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        123.3748485718847,
+        80.88082197606381
+      ],
+      [
+        333.22839736938477,
+        95.45591831207275
+      ],
+      [
+        316.02885246276855,
+        376.59734535217285
+      ],
+      [
+        110.66342596042728,
+        369.91439678882443
+      ]
+    ],
+    "trackId": 29,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9989551305770874,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 63,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.507727534521135,
+      "jitterPx": 4.002174759298252
+    },
+    "saturation": 0.443,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "bw11-RC21",
+        "setId": "bw11",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv06-061",
+      "alternates": [
+        {
+          "cardId": "sv06-061",
+          "distance": 12
+        },
+        {
+          "cardId": "svp-076",
+          "distance": 13
+        },
+        {
+          "cardId": "sv04.5-119",
+          "distance": 14
+        },
+        {
+          "cardId": "swsh4.5sv-SV086",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622821656,
+    "comment": null,
+    "rawPngBytes": 543681,
+    "hasRectified": true,
+    "rectifiedBytes": 162413
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622820512,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        117.01797704745185,
+        82.42973484370525
+      ],
+      [
+        328.3616099712109,
+        90.15696789867326
+      ],
+      [
+        318.06559431222064,
+        377.3707386987481
+      ],
+      [
+        111.1095389398703,
+        372.7406730868135
+      ]
+    ],
+    "trackId": 29,
+    "age": 68,
+    "coasting": false,
+    "hasObj": 0.9960107207298279,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 27,
+      "hz": 7.121411530880812,
+      "jitterPx": 1.5743875468936315
+    },
+    "wouldCapture": false,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 16,
+    "sinceRegionExpiryMs": 706,
+    "saturation": 0.448,
+    "id": 1788622822902,
+    "comment": null,
+    "rawPngBytes": 540806,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622827423,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        98.20138475647771,
+        66.36690385204831
+      ],
+      [
+        297.7239883377408,
+        65.01351159485928
+      ],
+      [
+        290.143658268371,
+        345.5340435171171
+      ],
+      [
+        103.30023175854396,
+        344.3757960514906
+      ]
+    ],
+    "trackId": 31,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9985345602035522,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 36,
+      "hz": 7.5078409539720194,
+      "jitterPx": 3.273811951122071
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 16,
+    "sinceRegionExpiryMs": 7617,
+    "saturation": 0.511,
+    "id": 1788622829776,
+    "comment": null,
+    "rawPngBytes": 527339,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622829553,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        110.54622286809564,
+        71.52659200775247
+      ],
+      [
+        301.22139729724006,
+        65.40028752700688
+      ],
+      [
+        297.8412449991969,
+        336.53939938134846
+      ],
+      [
+        118.99811326812701,
+        338.9202780858699
+      ]
+    ],
+    "trackId": 31,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9998558163642883,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.5045078268268615,
+      "jitterPx": 2.110141145465118
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 16,
+    "sinceRegionExpiryMs": 9747,
+    "saturation": 0.46,
+    "id": 1788622830271,
+    "comment": null,
+    "rawPngBytes": 527472,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622831668,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        126.10143803925865,
+        77.69387726772736
+      ],
+      [
+        307.1302993575913,
+        72.56110387616967
+      ],
+      [
+        304.0197277307501,
+        337.35857051568865
+      ],
+      [
+        127.9930410831164,
+        338.88279887250974
+      ]
+    ],
+    "trackId": 31,
+    "age": 37,
+    "coasting": false,
+    "hasObj": 0.9994819164276123,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.513282014578999,
+      "jitterPx": 0.770369441954532
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 16,
+    "sinceRegionExpiryMs": 11862,
+    "saturation": 0.451,
+    "id": 1788622832948,
+    "comment": null,
+    "rawPngBytes": 525471,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622833598,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        121.43930421297243,
+        71.09360742372087
+      ],
+      [
+        302.7798405290782,
+        72.11041589633128
+      ],
+      [
+        303.3421688079834,
+        339.34267807006836
+      ],
+      [
+        125.50575622735549,
+        342.9997168130343
+      ]
+    ],
+    "trackId": 31,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9987374544143677,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 48,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.506693120018597,
+      "jitterPx": 1.7941959017671283
+    },
+    "saturation": 0.43,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sm2-28",
+        "setId": "sm2",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sm8-144",
+      "alternates": [
+        {
+          "cardId": "sm8-144",
+          "distance": 12
+        },
+        {
+          "cardId": "sv04.5-105",
+          "distance": 12
+        },
+        {
+          "cardId": "sv10-109",
+          "distance": 13
+        },
+        {
+          "cardId": "B1a-019",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622834171,
+    "comment": null,
+    "rawPngBytes": 529188,
+    "hasRectified": true,
+    "rectifiedBytes": 152773
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622833850,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        117.62784228362774,
+        70.47859324492003
+      ],
+      [
+        296.99166530175415,
+        72.25855068368502
+      ],
+      [
+        297.3420709317391,
+        331.47324478327033
+      ],
+      [
+        122.82077045284203,
+        336.5385151288777
+      ]
+    ],
+    "trackId": 31,
+    "age": 53,
+    "coasting": false,
+    "hasObj": 0.9329265356063843,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 28,
+      "hz": 7.062197797808104,
+      "jitterPx": 5.998541589270252
+    },
+    "wouldCapture": false,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 17,
+    "sinceRegionExpiryMs": 715,
+    "saturation": 0.409,
+    "id": 1788622834660,
+    "comment": null,
+    "rawPngBytes": 488272,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622837916,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        102.91331984624621,
+        72.18156904508102
+      ],
+      [
+        297.6371916770935,
+        61.25153758525848
+      ],
+      [
+        296.45347090976196,
+        358.7507825292418
+      ],
+      [
+        101.24385664463043,
+        357.38110542297363
+      ]
+    ],
+    "trackId": 32,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9987913370132446,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.49767627691349,
+      "jitterPx": 3.598201350952795
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 17,
+    "sinceRegionExpiryMs": 4781,
+    "saturation": 0.235,
+    "id": 1788622838331,
+    "comment": null,
+    "rawPngBytes": 512349,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622840050,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        111.00252628439381,
+        99.10980529234313
+      ],
+      [
+        299.0271716225423,
+        85.33299781843371
+      ],
+      [
+        301.51283162414194,
+        353.2709776224079
+      ],
+      [
+        114.77710428509356,
+        356.5463127797356
+      ]
+    ],
+    "trackId": 32,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.999116063117981,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.496594387577183,
+      "jitterPx": 2.443041089793092
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 17,
+    "sinceRegionExpiryMs": 6915,
+    "saturation": 0.197,
+    "id": 1788622840512,
+    "comment": null,
+    "rawPngBytes": 513842,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622842181,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        114.3694301726198,
+        93.81944292307917
+      ],
+      [
+        300.9273734190151,
+        83.90264015398131
+      ],
+      [
+        301.0821152414926,
+        358.24070158615325
+      ],
+      [
+        119.01136081123117,
+        359.3306719918237
+      ]
+    ],
+    "trackId": 32,
+    "age": 37,
+    "coasting": false,
+    "hasObj": 0.9994794130325317,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.5057707294299325,
+      "jitterPx": 3.191286594399054
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 17,
+    "sinceRegionExpiryMs": 9046,
+    "saturation": 0.246,
+    "id": 1788622842976,
+    "comment": null,
+    "rawPngBytes": 520055,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622844182,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        136.1632773338545,
+        93.66119895961974
+      ],
+      [
+        310.15689588145693,
+        92.63952649612165
+      ],
+      [
+        307.986680807129,
+        343.4098353050725
+      ],
+      [
+        140.84615423751313,
+        338.3029975830511
+      ]
+    ],
+    "trackId": 32,
+    "age": 52,
+    "coasting": false,
+    "hasObj": 0.9816815853118896,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.496305933300997,
+      "jitterPx": 5.214464878621024
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 17,
+    "sinceRegionExpiryMs": 11047,
+    "saturation": 0.176,
+    "id": 1788622844713,
+    "comment": null,
+    "rawPngBytes": 503877,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622846296,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        96.92156874006047,
+        56.68306740483555
+      ],
+      [
+        321.3525673645823,
+        51.93260068846396
+      ],
+      [
+        319.34854835476744,
+        383.86128169493014
+      ],
+      [
+        98.39382121589452,
+        373.7810365902782
+      ]
+    ],
+    "trackId": 32,
+    "age": 68,
+    "coasting": false,
+    "hasObj": 0.9968540668487549,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 26,
+      "hz": 7.636633619891599,
+      "jitterPx": 2.2699833014617288
+    },
+    "wouldCapture": false,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 18,
+    "sinceRegionExpiryMs": 115,
+    "saturation": 0.22,
+    "id": 1788622846667,
+    "comment": null,
+    "rawPngBytes": 521683,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622846661,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        90.56077065612604,
+        54.72729820667649
+      ],
+      [
+        319.13972053781976,
+        49.740656122048975
+      ],
+      [
+        318.8286260562672,
+        383.56782811596537
+      ],
+      [
+        91.54044476353705,
+        371.1738505732657
+      ]
+    ],
+    "trackId": 32,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9984549283981323,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 67,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.513271699661247,
+      "jitterPx": 3.6956251285967285
+    },
+    "saturation": 0.223,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "bw4-35",
+        "setId": "bw4",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 0,
+      "rivalCardId": "g1-15",
+      "alternates": [
+        {
+          "cardId": "g1-15",
+          "distance": 11
+        },
+        {
+          "cardId": "bw8-10",
+          "distance": 12
+        },
+        {
+          "cardId": "dp7-39",
+          "distance": 12
+        },
+        {
+          "cardId": "bw1-43",
+          "distance": 12
+        }
+      ]
+    },
+    "id": 1788622847855,
+    "comment": null,
+    "rawPngBytes": 520750,
+    "hasRectified": true,
+    "rectifiedBytes": 153476
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622850591,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        62.46113648801129,
+        84.57264649176372
+      ],
+      [
+        257.21972266537364,
+        71.9853504187143
+      ],
+      [
+        262.95676679611205,
+        350.6649826049805
+      ],
+      [
+        70.72135426998139,
+        342.5231972694397
+      ]
+    ],
+    "trackId": 34,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.7084047794342041,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 30,
+      "hz": 7.502509412366743,
+      "jitterPx": 5.960884336158746
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 18,
+    "sinceRegionExpiryMs": 4410,
+    "saturation": 0.294,
+    "id": 1788622851013,
+    "comment": null,
+    "rawPngBytes": 519980,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622852599,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        110.72551512193333,
+        81.39545037324292
+      ],
+      [
+        294.976834614385,
+        79.2939382245418
+      ],
+      [
+        296.3706173246368,
+        356.77885207729844
+      ],
+      [
+        107.62488046772935,
+        358.85250540470633
+      ]
+    ],
+    "trackId": 34,
+    "age": 20,
+    "coasting": false,
+    "hasObj": 0.9997506141662598,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 35,
+      "hz": 7.472805680881095,
+      "jitterPx": 4.3813748345479615
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 18,
+    "sinceRegionExpiryMs": 6418,
+    "saturation": 0.274,
+    "id": 1788622853031,
+    "comment": null,
+    "rawPngBytes": 537671,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622854727,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        107.66190758583922,
+        86.19843969953803
+      ],
+      [
+        301.9928039093,
+        86.07525217214078
+      ],
+      [
+        301.1549851796968,
+        361.30599888482317
+      ],
+      [
+        112.85845745497977,
+        365.3687336192738
+      ]
+    ],
+    "trackId": 34,
+    "age": 36,
+    "coasting": false,
+    "hasObj": 0.9983607530593872,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33.000000000029104,
+      "hz": 7.500463704762176,
+      "jitterPx": 1.3630110124598294
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 18,
+    "sinceRegionExpiryMs": 8546,
+    "saturation": 0.231,
+    "id": 1788622855260,
+    "comment": null,
+    "rawPngBytes": 529269,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622856727,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        133.6737169881163,
+        148.79931155145525
+      ],
+      [
+        291.04648383966133,
+        140.56738804811906
+      ],
+      [
+        290.5329727861556,
+        368.1439757522737
+      ],
+      [
+        118.28599635047037,
+        369.85225790305043
+      ]
+    ],
+    "trackId": 34,
+    "age": 51,
+    "coasting": false,
+    "hasObj": 0.9684233665466309,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34.000000000029104,
+      "hz": 7.5092674511864015,
+      "jitterPx": 14.076004244372854
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 18,
+    "sinceRegionExpiryMs": 10546,
+    "saturation": 0.228,
+    "id": 1788622859734,
+    "comment": null,
+    "rawPngBytes": 512203,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622858846,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        86.03378562902755,
+        61.54683946821416
+      ],
+      [
+        300.1285762436657,
+        50.88265280417191
+      ],
+      [
+        305.0144599714083,
+        368.4259429679177
+      ],
+      [
+        88.11040896798434,
+        372.1747701959226
+      ]
+    ],
+    "trackId": 34,
+    "age": 67,
+    "coasting": false,
+    "hasObj": 0.9994853734970093,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.559323079342912,
+      "jitterPx": 2.1165314336968577
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 18,
+    "sinceRegionExpiryMs": 12665,
+    "saturation": 0.225,
+    "id": 1788622860825,
+    "comment": null,
+    "rawPngBytes": 546003,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622860909,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        97.42056866785235,
+        67.09373475899461
+      ],
+      [
+        301.868595123291,
+        63.99623966217041
+      ],
+      [
+        305.0800380706787,
+        370.1187686920166
+      ],
+      [
+        96.62736399185027,
+        376.9782351414436
+      ]
+    ],
+    "trackId": 34,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9997413158416748,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 71,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 36,
+      "hz": 7.545981838881479,
+      "jitterPx": 1.7675033123432016
+    },
+    "saturation": 0.199,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "ex13-34",
+        "setId": "ex13",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "exu-K",
+      "alternates": [
+        {
+          "cardId": "exu-K",
+          "distance": 13
+        },
+        {
+          "cardId": "bw5-43",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH058",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh2-87",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622861457,
+    "comment": null,
+    "rawPngBytes": 541850,
+    "hasRectified": true,
+    "rectifiedBytes": 162732
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622863928,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        99.66520595003944,
+        53.02139066198591
+      ],
+      [
+        288.77003172041753,
+        58.80168818777656
+      ],
+      [
+        289.230215739499,
+        335.7012625954472
+      ],
+      [
+        101.84439401795393,
+        331.9619599224919
+      ]
+    ],
+    "trackId": 37,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9989674091339111,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.480783990485219,
+      "jitterPx": 2.6134769088783183
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 19,
+    "sinceRegionExpiryMs": 4551,
+    "saturation": 0.302,
+    "id": 1788622865016,
+    "comment": null,
+    "rawPngBytes": 538216,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622864994,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        99.48526668548584,
+        52.667508125305176
+      ],
+      [
+        290.3389610162507,
+        58.43963549942622
+      ],
+      [
+        292.05982488057475,
+        337.9189964843854
+      ],
+      [
+        104.09816425508794,
+        338.7734760237222
+      ]
+    ],
+    "trackId": 37,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9989674091339111,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.480783990485219,
+      "jitterPx": 2.6134769088783183
+    },
+    "saturation": 0.302,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sm2-6",
+        "setId": "sm2",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv04.5-057",
+      "alternates": [
+        {
+          "cardId": "sv04.5-057",
+          "distance": 13
+        },
+        {
+          "cardId": "sv10-121",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh8-63",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh9-033",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622865467,
+    "comment": null,
+    "rawPngBytes": 538216,
+    "hasRectified": true,
+    "rectifiedBytes": 163682
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622869323,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        108.15433506343548,
+        44.65405590246889
+      ],
+      [
+        331.9838435773098,
+        33.4860501248674
+      ],
+      [
+        332.1687685613627,
+        352.9147642610208
+      ],
+      [
+        112.75518179761988,
+        350.0544071194946
+      ]
+    ],
+    "trackId": 40,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9506406784057617,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33.000000000029104,
+      "hz": 7.503572577765234,
+      "jitterPx": 3.2261753510079507
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": false,
+    "regionsExpired": 19,
+    "sinceRegionExpiryMs": 9946,
+    "saturation": 0.36,
+    "id": 1788622870765,
+    "comment": null,
+    "rawPngBytes": 537193,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622870561,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        107.62800295827864,
+        50.09975719781271
+      ],
+      [
+        331.79980361058466,
+        36.820861785970074
+      ],
+      [
+        332.45106961490376,
+        348.94502807745965
+      ],
+      [
+        114.67846199042816,
+        347.7759302290294
+      ]
+    ],
+    "trackId": 40,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9506406784057617,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33.000000000029104,
+      "hz": 7.503572577765234,
+      "jitterPx": 3.2261753510079507
+    },
+    "saturation": 0.36,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "swsh11-078",
+        "setId": "swsh11",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 0,
+      "rivalCardId": "swsh9-071",
+      "alternates": [
+        {
+          "cardId": "swsh9-071",
+          "distance": 11
+        },
+        {
+          "cardId": "A2b-021",
+          "distance": 11
+        },
+        {
+          "cardId": "swshp-SWSH114",
+          "distance": 12
+        },
+        {
+          "cardId": "swsh5-89",
+          "distance": 12
+        }
+      ]
+    },
+    "id": 1788622871145,
+    "comment": null,
+    "rawPngBytes": 537193,
+    "hasRectified": true,
+    "rectifiedBytes": 156500
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622874983,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        105.93575640675171,
+        42.21586759361636
+      ],
+      [
+        312.9326788754645,
+        34.59601706291731
+      ],
+      [
+        309.1663264234647,
+        355.6597976765615
+      ],
+      [
+        104.51700592365918,
+        346.52818173524423
+      ]
+    ],
+    "trackId": 41,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9872442483901978,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 30,
+      "hz": 7.498504612719072,
+      "jitterPx": 3.8481566047980307
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 20,
+    "sinceRegionExpiryMs": 2531,
+    "saturation": 0.358,
+    "id": 1788622876151,
+    "comment": null,
+    "rawPngBytes": 539291,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622876873,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        117.94420010455997,
+        59.591396950411884
+      ],
+      [
+        306.34408950805664,
+        56.03052616119385
+      ],
+      [
+        309.4392910003662,
+        339.9181823730469
+      ],
+      [
+        117.99554061889648,
+        334.7828540802002
+      ]
+    ],
+    "trackId": 41,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9998650550842285,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 15,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33.999999999970896,
+      "hz": 7.497296880365642,
+      "jitterPx": 4.025001705611778
+    },
+    "saturation": 0.32,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "swsh7-80",
+        "setId": "swsh7",
+        "distance": 13,
+        "confidence": 0.797
+      },
+      "tieMargin": 0,
+      "rivalCardId": "swsh7-87",
+      "alternates": [
+        {
+          "cardId": "swsh7-87",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh6-57",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH113",
+          "distance": 13
+        },
+        {
+          "cardId": "P-A-020",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622877303,
+    "comment": null,
+    "rawPngBytes": 523389,
+    "hasRectified": true,
+    "rectifiedBytes": 158293
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622883464,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        87.35103089809418,
+        42.48376545906067
+      ],
+      [
+        285.11594947260056,
+        49.78474443424881
+      ],
+      [
+        281.8044108080391,
+        334.65348630264054
+      ],
+      [
+        93.81124274456843,
+        351.6217946406562
+      ]
+    ],
+    "trackId": 43,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.993588924407959,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.504039825747836,
+      "jitterPx": 4.788485735013018
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 22,
+    "sinceRegionExpiryMs": 1062,
+    "saturation": 0.184,
+    "id": 1788622883976,
+    "comment": null,
+    "rawPngBytes": 515239,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622885471,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        108.9190443551637,
+        61.20612640085432
+      ],
+      [
+        301.89859915743864,
+        61.38700116367172
+      ],
+      [
+        303.764326008302,
+        347.0299451200521
+      ],
+      [
+        113.67710519263105,
+        354.21940620638213
+      ]
+    ],
+    "trackId": 43,
+    "age": 20,
+    "coasting": false,
+    "hasObj": 0.9957938194274902,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 35,
+      "hz": 7.505141004987689,
+      "jitterPx": 3.980534880055742
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 22,
+    "sinceRegionExpiryMs": 3069,
+    "saturation": 0.204,
+    "id": 1788622885973,
+    "comment": null,
+    "rawPngBytes": 532664,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622887599,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        101.3836646093151,
+        53.749975881599276
+      ],
+      [
+        304.4355372657877,
+        51.53789279572621
+      ],
+      [
+        307.4179427271008,
+        359.1230296798815
+      ],
+      [
+        100.49865130980578,
+        362.18453357473635
+      ]
+    ],
+    "trackId": 43,
+    "age": 36,
+    "coasting": false,
+    "hasObj": 0.9891601204872131,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.999999999970896,
+      "hz": 7.5029971160523905,
+      "jitterPx": 4.871371187853818
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 22,
+    "sinceRegionExpiryMs": 5197,
+    "saturation": 0.257,
+    "id": 1788622887969,
+    "comment": null,
+    "rawPngBytes": 511269,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622889698,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        109.47119373794419,
+        57.5206544490341
+      ],
+      [
+        313.18217589441014,
+        56.611425685865264
+      ],
+      [
+        318.4469537490368,
+        351.9498159502516
+      ],
+      [
+        112.00247977989896,
+        353.86511100115325
+      ]
+    ],
+    "trackId": 43,
+    "age": 52,
+    "coasting": false,
+    "hasObj": 0.9978779554367065,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.000000000029104,
+      "hz": 7.789567048142593,
+      "jitterPx": 1.1025075756054161
+    },
+    "wouldCapture": false,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 23,
+    "sinceRegionExpiryMs": 249,
+    "saturation": 0.241,
+    "id": 1788622892107,
+    "comment": null,
+    "rawPngBytes": 531610,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622891959,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        110.50165354655115,
+        58.74445322897111
+      ],
+      [
+        314.16675758361816,
+        57.81876754760742
+      ],
+      [
+        319.34418869018555,
+        352.1802177429199
+      ],
+      [
+        114.12607124185385,
+        352.4646632256766
+      ]
+    ],
+    "trackId": 43,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9935299158096313,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 50,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.64395492297921,
+      "jitterPx": 3.4844099145864966
+    },
+    "saturation": 0.231,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "neo4-106",
+        "setId": "neo4",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv03-132",
+      "alternates": [
+        {
+          "cardId": "sv03-132",
+          "distance": 12
+        },
+        {
+          "cardId": "sm9-181",
+          "distance": 12
+        },
+        {
+          "cardId": "swsh3-117",
+          "distance": 13
+        },
+        {
+          "cardId": "sm2-144",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622892398,
+    "comment": null,
+    "rawPngBytes": 531230,
+    "hasRectified": true,
+    "rectifiedBytes": 156188
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622895095,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        85.76250289017979,
+        50.03653437178233
+      ],
+      [
+        298.57713982294604,
+        48.77556198649198
+      ],
+      [
+        299.6877494805197,
+        354.9370753260565
+      ],
+      [
+        87.66702228591538,
+        356.6733405426149
+      ]
+    ],
+    "trackId": 44,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9842013120651245,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.489514765930105,
+      "jitterPx": 3.648707652477653
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 23,
+    "sinceRegionExpiryMs": 5646,
+    "saturation": 0.39,
+    "id": 1788622896886,
+    "comment": null,
+    "rawPngBytes": 522891,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622897226,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        106.13812641006993,
+        55.65639109055184
+      ],
+      [
+        314.7731876210415,
+        44.942967589375144
+      ],
+      [
+        319.68040899399716,
+        362.28538424669836
+      ],
+      [
+        105.13781589771183,
+        353.338321762401
+      ]
+    ],
+    "trackId": 44,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9914453029632568,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.504836005229343,
+      "jitterPx": 4.371162527861733
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": false,
+    "regionsExpired": 23,
+    "sinceRegionExpiryMs": 7777,
+    "saturation": 0.337,
+    "id": 1788622898861,
+    "comment": null,
+    "rawPngBytes": 533625,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622898686,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        111.66959285736084,
+        61.91283845901489
+      ],
+      [
+        315.16715812683105,
+        45.47229719161987
+      ],
+      [
+        325.58217837893227,
+        370.306409601864
+      ],
+      [
+        105.11993980407715,
+        355.7391700744629
+      ]
+    ],
+    "trackId": 44,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9914453029632568,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 21,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.504836005229343,
+      "jitterPx": 4.371162527861733
+    },
+    "saturation": 0.337,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-134",
+        "setId": "sv10",
+        "distance": 10,
+        "confidence": 0.844
+      },
+      "tieMargin": 2,
+      "rivalCardId": "sv02-128",
+      "alternates": [
+        {
+          "cardId": "sv02-128",
+          "distance": 12
+        },
+        {
+          "cardId": "sv04.5-058",
+          "distance": 12
+        },
+        {
+          "cardId": "sm11-137",
+          "distance": 13
+        },
+        {
+          "cardId": "sv03-206",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622899936,
+    "comment": null,
+    "rawPngBytes": 533625,
+    "hasRectified": true,
+    "rectifiedBytes": 154146
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622904178,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        107.892275148019,
+        104.38212687670077
+      ],
+      [
+        292.3486535115775,
+        100.4874833245634
+      ],
+      [
+        275.3184030937474,
+        375.4091343913884
+      ],
+      [
+        89.11701433876931,
+        361.6852867181463
+      ]
+    ],
+    "trackId": 46,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9861273765563965,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33.999999999970896,
+      "hz": 7.498944644536267,
+      "jitterPx": 6.552810238807291
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 24,
+    "sinceRegionExpiryMs": 1602,
+    "saturation": 0.072,
+    "id": 1788622904735,
+    "comment": null,
+    "rawPngBytes": 505897,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622906310,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        116.39194138047881,
+        63.17039586575592
+      ],
+      [
+        307.2180051407101,
+        69.22800471265242
+      ],
+      [
+        299.7675067010692,
+        368.5705154283222
+      ],
+      [
+        104.65293095342378,
+        369.62387113680137
+      ]
+    ],
+    "trackId": 46,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9871851205825806,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.501935671677354,
+      "jitterPx": 5.487366890795553
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 24,
+    "sinceRegionExpiryMs": 3734,
+    "saturation": 0.094,
+    "id": 1788622908030,
+    "comment": null,
+    "rawPngBytes": 533348,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622908441,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        102.49091266336677,
+        73.821819311863
+      ],
+      [
+        305.342032623291,
+        58.467133212089536
+      ],
+      [
+        324.47323807856975,
+        369.890990336963
+      ],
+      [
+        101.89840470838496,
+        375.62349548594767
+      ]
+    ],
+    "trackId": 46,
+    "age": 37,
+    "coasting": false,
+    "hasObj": 0.9998450875282288,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.000000000029104,
+      "hz": 7.505185622644959,
+      "jitterPx": 5.4604286377353475
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 24,
+    "sinceRegionExpiryMs": 5865,
+    "saturation": 0.081,
+    "id": 1788622909030,
+    "comment": null,
+    "rawPngBytes": 540363,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622910442,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        120.09597642954827,
+        62.48944274845165
+      ],
+      [
+        299.6710664893465,
+        79.53543265006306
+      ],
+      [
+        292.0276070595317,
+        347.18708240719394
+      ],
+      [
+        112.12520615761588,
+        359.74796162570993
+      ]
+    ],
+    "trackId": 46,
+    "age": 52,
+    "coasting": false,
+    "hasObj": 0.9977456331253052,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.507682491255816,
+      "jitterPx": 3.83212472649521
+    },
+    "wouldCapture": true,
+    "regionCount": 0,
+    "suppressedByRegion": false,
+    "regionsExpired": 25,
+    "sinceRegionExpiryMs": 0,
+    "saturation": 0.079,
+    "id": 1788622911171,
+    "comment": null,
+    "rawPngBytes": 523781,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622910942,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        118.03081845194562,
+        57.15380599565141
+      ],
+      [
+        294.8671865502511,
+        80.97375627977183
+      ],
+      [
+        289.2613225942359,
+        343.0375771372156
+      ],
+      [
+        109.60673464715913,
+        361.39977215839707
+      ]
+    ],
+    "trackId": 46,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9977456331253052,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 52,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.507682491255816,
+      "jitterPx": 3.83212472649521
+    },
+    "saturation": 0.079,
+    "match": {
+      "matchedRaw": true,
+      "matchedAfterTieGate": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-142",
+        "setId": "sv10",
+        "distance": 6,
+        "confidence": 0.906
+      },
+      "tieMargin": 6,
+      "rivalCardId": "sv07-100",
+      "alternates": [
+        {
+          "cardId": "sv07-100",
+          "distance": 12
+        },
+        {
+          "cardId": "sv01-141",
+          "distance": 12
+        },
+        {
+          "cardId": "sv10.5b-066",
+          "distance": 13
+        },
+        {
+          "cardId": "sma-SV43",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622913004,
+    "comment": null,
+    "rawPngBytes": 523781,
+    "hasRectified": true,
+    "rectifiedBytes": 147565
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622914974,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        94.07163333892822,
+        34.28433609008789
+      ],
+      [
+        289.9641444089093,
+        38.82504497011969
+      ],
+      [
+        294.9076827092617,
+        317.50425446659625
+      ],
+      [
+        87.9846578605271,
+        322.110916106683
+      ]
+    ],
+    "trackId": 47,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9915012121200562,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 35.000000000029104,
+      "hz": 7.493475367062517,
+      "jitterPx": 18.563663912621546
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 25,
+    "sinceRegionExpiryMs": 4532,
+    "saturation": 0.134,
+    "id": 1788622918024,
+    "comment": null,
+    "rawPngBytes": 526214,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622918229,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        115.76222052900629,
+        69.14961291001602
+      ],
+      [
+        322.91192459080935,
+        40.1695612011073
+      ],
+      [
+        319.009624144892,
+        361.8025604734201
+      ],
+      [
+        114.56710191653457,
+        342.73623005065906
+      ]
+    ],
+    "trackId": 47,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9953353404998779,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 12,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34.999999999970896,
+      "hz": 7.499912428649098,
+      "jitterPx": 18.11855326144298
+    },
+    "saturation": 0.109,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "dpp-DP55",
+        "setId": "dpp",
+        "distance": 13,
+        "confidence": 0.797
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sm5-9",
+      "alternates": [
+        {
+          "cardId": "sm5-9",
+          "distance": 13
+        },
+        {
+          "cardId": "me02-075",
+          "distance": 13
+        },
+        {
+          "cardId": "sv04-128",
+          "distance": 13
+        },
+        {
+          "cardId": "me02.5-157",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622918678,
+    "comment": null,
+    "rawPngBytes": 537861,
+    "hasRectified": true,
+    "rectifiedBytes": 144676
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622920854,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        109.67617495596564,
+        88.86713303207775
+      ],
+      [
+        268.7834474599739,
+        90.26392168113975
+      ],
+      [
+        269.80492210388184,
+        326.521032333374
+      ],
+      [
+        93.81313371658325,
+        331.3523178100586
+      ]
+    ],
+    "trackId": 48,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9632716774940491,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.487305244665775,
+      "jitterPx": 31.46251441363139
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 25,
+    "sinceRegionExpiryMs": 10412,
+    "saturation": 0.208,
+    "id": 1788622921205,
+    "comment": null,
+    "rawPngBytes": 513455,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622921753,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        48.74162212802162,
+        109.96529321300035
+      ],
+      [
+        203.2492387510536,
+        109.92553188849715
+      ],
+      [
+        214.60739712195593,
+        319.17942333701734
+      ],
+      [
+        48.24940639490776,
+        326.85953689399787
+      ]
+    ],
+    "trackId": 48,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.8130528926849365,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 6,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 30,
+      "hz": 7.493603594228861,
+      "jitterPx": 58.59304107397893
+    },
+    "saturation": 0.202,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "dp4-89",
+        "setId": "dp4",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 2,
+      "rivalCardId": "swsh9-027",
+      "alternates": [
+        {
+          "cardId": "swsh9-027",
+          "distance": 13
+        },
+        {
+          "cardId": "me02.5-182",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh7-174",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh7-183",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622924118,
+    "comment": null,
+    "rawPngBytes": 506691,
+    "hasRectified": true,
+    "rectifiedBytes": 130101
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622922888,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        148.0345714118444,
+        84.55404679196546
+      ],
+      [
+        335.5245132147421,
+        99.75496169702149
+      ],
+      [
+        315.73343801251565,
+        369.14569035707916
+      ],
+      [
+        125.82036180348992,
+        352.56825952145476
+      ]
+    ],
+    "trackId": 49,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9998052716255188,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.317155351999181,
+      "jitterPx": 2.8069302795623674
+    },
+    "wouldCapture": true,
+    "regionCount": 3,
+    "suppressedByRegion": false,
+    "regionsExpired": 25,
+    "sinceRegionExpiryMs": 12446,
+    "saturation": 0.222,
+    "id": 1788622924156,
+    "comment": null,
+    "rawPngBytes": 515257,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622924131,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        148.39042472839355,
+        79.13508367538452
+      ],
+      [
+        335.71718098966875,
+        94.96271358215111
+      ],
+      [
+        315.74673542960176,
+        366.90998377891896
+      ],
+      [
+        126.23764849173423,
+        351.37907826627327
+      ]
+    ],
+    "trackId": 49,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9998052716255188,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.317155351999181,
+      "jitterPx": 2.8069302795623674
+    },
+    "saturation": 0.222,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv03-009",
+        "setId": "sv03",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 0,
+      "rivalCardId": "svp-109",
+      "alternates": [
+        {
+          "cardId": "svp-109",
+          "distance": 11
+        },
+        {
+          "cardId": "sv10-004",
+          "distance": 11
+        },
+        {
+          "cardId": "sv03-145",
+          "distance": 12
+        },
+        {
+          "cardId": "sv10-144",
+          "distance": 12
+        }
+      ]
+    },
+    "id": 1788622924622,
+    "comment": null,
+    "rawPngBytes": 515257,
+    "hasRectified": true,
+    "rectifiedBytes": 141034
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622928252,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        94.49704967915102,
+        71.8051627595388
+      ],
+      [
+        301.14279478215275,
+        76.91312090092757
+      ],
+      [
+        305.92348289489746,
+        327.72497940063477
+      ],
+      [
+        116.38905834236826,
+        352.95156355320967
+      ]
+    ],
+    "trackId": 51,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9810262322425842,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.49481812632955,
+      "jitterPx": 24.139066108993518
+    },
+    "wouldCapture": true,
+    "regionCount": 3,
+    "suppressedByRegion": true,
+    "regionsExpired": 26,
+    "sinceRegionExpiryMs": 4716,
+    "saturation": 0.175,
+    "id": 1788622928713,
+    "comment": null,
+    "rawPngBytes": 523785,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622930380,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        102.6957735947913,
+        61.33273453744579
+      ],
+      [
+        294.1811351985544,
+        64.55095548837771
+      ],
+      [
+        294.5611479748716,
+        332.0883093770075
+      ],
+      [
+        112.83713396755257,
+        341.8384245208853
+      ]
+    ],
+    "trackId": 51,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9995080232620239,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.505536736579586,
+      "jitterPx": 2.9341021534189533
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 27,
+    "sinceRegionExpiryMs": 1461,
+    "saturation": 0.152,
+    "id": 1788622930795,
+    "comment": null,
+    "rawPngBytes": 526612,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622931797,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        128.8197946548462,
+        81.41142511367798
+      ],
+      [
+        305.80570247515465,
+        72.54504830870684
+      ],
+      [
+        299.1077117919922,
+        372.83430099487305
+      ],
+      [
+        109.91366004943848,
+        357.0219669342041
+      ]
+    ],
+    "trackId": 51,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9995257258415222,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 28,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 31.999999999941792,
+      "hz": 7.505156727987933,
+      "jitterPx": 4.024225033423886
+    },
+    "saturation": 0.109,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv04-055",
+        "setId": "sv04",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv10-142",
+      "alternates": [
+        {
+          "cardId": "sv10-142",
+          "distance": 13
+        },
+        {
+          "cardId": "me05-011",
+          "distance": 13
+        },
+        {
+          "cardId": "sv06-009",
+          "distance": 13
+        },
+        {
+          "cardId": "sv10-160",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622933434,
+    "comment": null,
+    "rawPngBytes": 528737,
+    "hasRectified": true,
+    "rectifiedBytes": 143180
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622936199,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        80.64957842647476,
+        45.44502964310352
+      ],
+      [
+        312.0023247462697,
+        46.70005389208419
+      ],
+      [
+        313.32953381598617,
+        370.22584833559296
+      ],
+      [
+        74.21652236558197,
+        372.46378894906843
+      ]
+    ],
+    "trackId": 52,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9999889135360718,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34.00000000005821,
+      "hz": 7.500614565505844,
+      "jitterPx": 2.8924632633277447
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 29,
+    "sinceRegionExpiryMs": 264,
+    "saturation": 0.261,
+    "id": 1788622938326,
+    "comment": null,
+    "rawPngBytes": 525961,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622938831,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        79.7441368671259,
+        25.141557895252124
+      ],
+      [
+        334.4329308894779,
+        26.405478956165073
+      ],
+      [
+        321.29842376708984,
+        372.2742443084717
+      ],
+      [
+        83.29928255081177,
+        367.1212863922119
+      ]
+    ],
+    "trackId": 52,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9998427033424377,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 14,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.507669078623828,
+      "jitterPx": 3.182627402321911
+    },
+    "saturation": 0.239,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv03.5-017",
+        "setId": "sv03.5",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv09-134",
+      "alternates": [
+        {
+          "cardId": "sv09-134",
+          "distance": 13
+        },
+        {
+          "cardId": "me03-069",
+          "distance": 13
+        },
+        {
+          "cardId": "sv02-230",
+          "distance": 13
+        },
+        {
+          "cardId": "sv04.5-146",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788622941192,
+    "comment": null,
+    "rawPngBytes": 521150,
+    "hasRectified": true,
+    "rectifiedBytes": 140425
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622942548,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        110.15865107496329,
+        39.75143800786668
+      ],
+      [
+        327.507845153043,
+        46.626759751562595
+      ],
+      [
+        314.42370814998674,
+        357.4930424240887
+      ],
+      [
+        104.89775557696086,
+        344.12199421151803
+      ]
+    ],
+    "trackId": 53,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9998278617858887,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33.00000000005821,
+      "hz": 7.506574982531953,
+      "jitterPx": 21.83452831374998
+    },
+    "wouldCapture": true,
+    "regionCount": 2,
+    "suppressedByRegion": true,
+    "regionsExpired": 29,
+    "sinceRegionExpiryMs": 6613,
+    "saturation": 0.138,
+    "id": 1788622944400,
+    "comment": null,
+    "rawPngBytes": 513583,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622944679,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        99.00706137887497,
+        51.70874892056103
+      ],
+      [
+        300.40479237811206,
+        50.6346292101826
+      ],
+      [
+        302.28236894804434,
+        340.44975505866273
+      ],
+      [
+        105.11031158102834,
+        342.1989695928755
+      ]
+    ],
+    "trackId": 53,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9999305009841919,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.503484193250755,
+      "jitterPx": 1.3264859127806776
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 30,
+    "sinceRegionExpiryMs": 133,
+    "saturation": 0.162,
+    "id": 1788622945215,
+    "comment": null,
+    "rawPngBytes": 532185,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622946679,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        96.62414157861566,
+        55.35630175157406
+      ],
+      [
+        309.5323299473042,
+        55.05102316170392
+      ],
+      [
+        298.66734877996174,
+        355.9298251323758
+      ],
+      [
+        101.85329147057625,
+        352.4600807792549
+      ]
+    ],
+    "trackId": 53,
+    "age": 36,
+    "coasting": false,
+    "hasObj": 0.9998263120651245,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.513343284189383,
+      "jitterPx": 4.182371156061882
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 30,
+    "sinceRegionExpiryMs": 2133,
+    "saturation": 0.184,
+    "id": 1788622947187,
+    "comment": null,
+    "rawPngBytes": 530985,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622948794,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        89.32770805160641,
+        42.402435545075384
+      ],
+      [
+        325.78815041483404,
+        49.92561576967518
+      ],
+      [
+        326.3529396279994,
+        372.27603392046046
+      ],
+      [
+        88.92753690388295,
+        372.3175353649061
+      ]
+    ],
+    "trackId": 53,
+    "age": 52,
+    "coasting": false,
+    "hasObj": 0.9998968839645386,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.616904869143061,
+      "jitterPx": 2.3627677486279106
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 30,
+    "sinceRegionExpiryMs": 4248,
+    "saturation": 0.164,
+    "id": 1788622949274,
+    "comment": null,
+    "rawPngBytes": 520759,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788622950911,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        96.34582551114697,
+        47.61680150386354
+      ],
+      [
+        324.0254741040211,
+        45.923057774979455
+      ],
+      [
+        324.7240603301541,
+        379.8979092437092
+      ],
+      [
+        91.96200041508969,
+        378.5626337723347
+      ]
+    ],
+    "trackId": 53,
+    "age": 68,
+    "coasting": false,
+    "hasObj": 0.9999868273735046,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 30,
+      "hz": 7.581840900646225,
+      "jitterPx": 1.0666867642242157
+    },
+    "wouldCapture": false,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 31,
+    "sinceRegionExpiryMs": 517,
+    "saturation": 0.157,
+    "id": 1788622951450,
+    "comment": null,
+    "rawPngBytes": 521627,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788622950971,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        91.13240097866807,
+        45.87630571424786
+      ],
+      [
+        325.54652281772826,
+        47.16941123974484
+      ],
+      [
+        324.71393449645564,
+        380.7975448739918
+      ],
+      [
+        91.63155460357666,
+        374.5978832244873
+      ]
+    ],
+    "trackId": 53,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9999821186065674,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 64,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33.99999999994179,
+      "hz": 7.509226970825598,
+      "jitterPx": 1.819845193716146
+    },
+    "saturation": 0.155,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "hgss3-30",
+        "setId": "hgss3",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "swsh9-130",
+      "alternates": [
+        {
+          "cardId": "swsh9-130",
+          "distance": 12
+        },
+        {
+          "cardId": "me02.5-182",
+          "distance": 13
+        },
+        {
+          "cardId": "sm6-37",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh3-121",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788622951632,
+    "comment": null,
+    "rawPngBytes": 523272,
+    "hasRectified": true,
+    "rectifiedBytes": 144296
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623021081,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        83.13612301301667,
+        25.265609605579726
+      ],
+      [
+        323.9989773222182,
+        29.440733295363515
+      ],
+      [
+        312.65465443345806,
+        363.9704452662276
+      ],
+      [
+        82.2701268340002,
+        361.5651643762736
+      ]
+    ],
+    "trackId": 56,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.997497022151947,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.00000000005821,
+      "hz": 7.499223910729328,
+      "jitterPx": 4.196354569936406
+    },
+    "wouldCapture": true,
+    "regionCount": 0,
+    "suppressedByRegion": false,
+    "regionsExpired": 32,
+    "sinceRegionExpiryMs": 57478,
+    "saturation": 0.102,
+    "id": 1788623022556,
+    "comment": null,
+    "rawPngBytes": 509343,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788623022991,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        77.2835128414932,
+        29.189011109736327
+      ],
+      [
+        314.7292722533199,
+        29.195794928012795
+      ],
+      [
+        310.62511253356934,
+        361.9338130950928
+      ],
+      [
+        83.1346494982725,
+        360.5658862325722
+      ]
+    ],
+    "trackId": 56,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.997497022151947,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32.00000000005821,
+      "hz": 7.499223910729328,
+      "jitterPx": 4.196354569936406
+    },
+    "saturation": 0.102,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "swsh8-216",
+        "setId": "swsh8",
+        "distance": 13,
+        "confidence": 0.797
+      },
+      "tieMargin": 0,
+      "rivalCardId": "A2-191",
+      "alternates": [
+        {
+          "cardId": "A2-191",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH272",
+          "distance": 13
+        },
+        {
+          "cardId": "sv06-068",
+          "distance": 13
+        },
+        {
+          "cardId": "bw7-5",
+          "distance": 13
+        }
+      ]
+    },
+    "id": 1788623023475,
+    "comment": null,
+    "rawPngBytes": 509343,
+    "hasRectified": true,
+    "rectifiedBytes": 142481
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623026994,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        90.97161083624744,
+        37.37221167034001
+      ],
+      [
+        334.5138553398769,
+        45.91044383733528
+      ],
+      [
+        321.5140209197998,
+        369.5624313354492
+      ],
+      [
+        90.89538908350002,
+        369.60721749246915
+      ]
+    ],
+    "trackId": 57,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9992002248764038,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.501118695640008,
+      "jitterPx": 24.07503837280906
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 32,
+    "sinceRegionExpiryMs": 63391,
+    "saturation": 0.168,
+    "id": 1788623028771,
+    "comment": null,
+    "rawPngBytes": 522339,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623028994,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        91.93104341730292,
+        48.10886095621666
+      ],
+      [
+        315.5272478588979,
+        41.345203978658816
+      ],
+      [
+        315.5374032081669,
+        354.49770007413866
+      ],
+      [
+        97.38814427952282,
+        359.3908559485951
+      ]
+    ],
+    "trackId": 57,
+    "age": 20,
+    "coasting": false,
+    "hasObj": 0.9998634457588196,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.502323380040554,
+      "jitterPx": 3.5166264128288636
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 32,
+    "sinceRegionExpiryMs": 65391,
+    "saturation": 0.207,
+    "id": 1788623029470,
+    "comment": null,
+    "rawPngBytes": 534249,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623031127,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        85.12685256093586,
+        41.26857573632045
+      ],
+      [
+        321.8376151474193,
+        34.417897948061814
+      ],
+      [
+        319.651184690937,
+        361.0642999019498
+      ],
+      [
+        91.49306587005186,
+        365.18103080486367
+      ]
+    ],
+    "trackId": 57,
+    "age": 36,
+    "coasting": false,
+    "hasObj": 0.9999700784683228,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.496842796213276,
+      "jitterPx": 1.3926452104761904
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 32,
+    "sinceRegionExpiryMs": 67524,
+    "saturation": 0.177,
+    "id": 1788623031538,
+    "comment": null,
+    "rawPngBytes": 529370,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623033241,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        101.80952137285271,
+        55.69437814314573
+      ],
+      [
+        306.0338709376247,
+        48.75763261229845
+      ],
+      [
+        311.7729684556003,
+        341.88889805286203
+      ],
+      [
+        102.67990417707297,
+        345.9253400897573
+      ]
+    ],
+    "trackId": 57,
+    "age": 52,
+    "coasting": false,
+    "hasObj": 0.9999741315841675,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.00000000005821,
+      "hz": 7.530023202313791,
+      "jitterPx": 2.0645184977170103
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 32,
+    "sinceRegionExpiryMs": 69638,
+    "saturation": 0.158,
+    "id": 1788623033674,
+    "comment": null,
+    "rawPngBytes": 532484,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788623034898,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        90.62713997121227,
+        44.975877881873004
+      ],
+      [
+        308.8132482350912,
+        36.98620025972006
+      ],
+      [
+        309.06294441223145,
+        339.8751621246338
+      ],
+      [
+        100.40134382247925,
+        343.596227645874
+      ]
+    ],
+    "trackId": 57,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.9999880790710449,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 60,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.511992928134194,
+      "jitterPx": 3.136722720776471
+    },
+    "saturation": 0.152,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "swsh9-147",
+        "setId": "swsh9",
+        "distance": 13,
+        "confidence": 0.797
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv05-193",
+      "alternates": [
+        {
+          "cardId": "sv05-193",
+          "distance": 13
+        },
+        {
+          "cardId": "svp-200",
+          "distance": 14
+        },
+        {
+          "cardId": "A4-206",
+          "distance": 14
+        },
+        {
+          "cardId": "sv07-105",
+          "distance": 14
+        }
+      ]
+    },
+    "id": 1788623035366,
+    "comment": null,
+    "rawPngBytes": 521593,
+    "hasRectified": true,
+    "rectifiedBytes": 142560
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623043973,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        54.817075942821845,
+        44.64236699836983
+      ],
+      [
+        293.55008639370527,
+        50.47221476076045
+      ],
+      [
+        290.3733927703074,
+        375.45159778159086
+      ],
+      [
+        53.438397102785665,
+        375.25521840657296
+      ]
+    ],
+    "trackId": 58,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9999097585678101,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 35,
+      "hz": 7.513928381309984,
+      "jitterPx": 3.6472925103931195
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 33,
+    "sinceRegionExpiryMs": 9665,
+    "saturation": 0.154,
+    "id": 1788623045256,
+    "comment": null,
+    "rawPngBytes": 527332,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623046107,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        77.4410216024703,
+        41.183200077064264
+      ],
+      [
+        311.9691090435655,
+        46.43880909881191
+      ],
+      [
+        306.13416402339936,
+        374.22868022918703
+      ],
+      [
+        76.42491037713017,
+        370.2495361087933
+      ]
+    ],
+    "trackId": 58,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9995603561401367,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 36,
+      "hz": 7.501938237382109,
+      "jitterPx": 3.217894503090634
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 33,
+    "sinceRegionExpiryMs": 11799,
+    "saturation": 0.157,
+    "id": 1788623046557,
+    "comment": null,
+    "rawPngBytes": 534153,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788623048067,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        67.07027613853589,
+        45.586337385563624
+      ],
+      [
+        301.88612883578423,
+        32.09880926029274
+      ],
+      [
+        312.94687655657725,
+        374.11460504735817
+      ],
+      [
+        78.96262429122658,
+        373.1486731213197
+      ]
+    ],
+    "trackId": 58,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.999848484992981,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 31,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 34,
+      "hz": 7.498814704517531,
+      "jitterPx": 3.312937868368866
+    },
+    "saturation": 0.151,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv01-170",
+        "setId": "sv01",
+        "distance": 10,
+        "confidence": 0.844
+      },
+      "tieMargin": 1,
+      "rivalCardId": "swsh4.5-63",
+      "alternates": [
+        {
+          "cardId": "swsh4.5-63",
+          "distance": 11
+        },
+        {
+          "cardId": "swsh7-141",
+          "distance": 11
+        },
+        {
+          "cardId": "swsh6-153",
+          "distance": 12
+        },
+        {
+          "cardId": "me01-131",
+          "distance": 12
+        }
+      ]
+    },
+    "id": 1788623049377,
+    "comment": null,
+    "rawPngBytes": 525832,
+    "hasRectified": true,
+    "rectifiedBytes": 138683
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623053933,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        61.13216763604026,
+        41.22699630644711
+      ],
+      [
+        310.2625277253432,
+        40.47055014852216
+      ],
+      [
+        304.04094939678765,
+        378.8311118866298
+      ],
+      [
+        62.448037494233446,
+        375.91534376613527
+      ]
+    ],
+    "trackId": 59,
+    "age": 5,
+    "coasting": false,
+    "hasObj": 0.9999926090240479,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.511617167235459,
+      "jitterPx": 5.826732543235249
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 34,
+    "sinceRegionExpiryMs": 6495,
+    "saturation": 0.082,
+    "id": 1788623055396,
+    "comment": null,
+    "rawPngBytes": 518251,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623056062,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        74.18888135839344,
+        46.23693482276109
+      ],
+      [
+        324.25323997668227,
+        42.46080227938322
+      ],
+      [
+        322.184615865744,
+        384.0656164014614
+      ],
+      [
+        80.1050783471694,
+        382.4038672665225
+      ]
+    ],
+    "trackId": 59,
+    "age": 21,
+    "coasting": false,
+    "hasObj": 0.9999881982803345,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 31,
+      "hz": 7.507562988319944,
+      "jitterPx": 2.7446516312692224
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 34,
+    "sinceRegionExpiryMs": 8624,
+    "saturation": 0.093,
+    "id": 1788623056526,
+    "comment": null,
+    "rawPngBytes": 516252,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623058065,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        86.1075342316437,
+        58.14370051203568
+      ],
+      [
+        312.07631624004,
+        49.60045616007577
+      ],
+      [
+        325.8615815524726,
+        382.9635464299074
+      ],
+      [
+        77.90892654422176,
+        381.033642070663
+      ]
+    ],
+    "trackId": 59,
+    "age": 36,
+    "coasting": false,
+    "hasObj": 0.999839186668396,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32,
+      "hz": 7.497499586251974,
+      "jitterPx": 5.325555788560527
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 34,
+    "sinceRegionExpiryMs": 10627,
+    "saturation": 0.088,
+    "id": 1788623058535,
+    "comment": null,
+    "rawPngBytes": 519635,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "lock-event",
+    "epochMs": 1788623060065,
+    "source": "scan-lock-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "quad": [
+      [
+        96.45160935743101,
+        61.34709221109446
+      ],
+      [
+        314.9172878638341,
+        56.3911386992711
+      ],
+      [
+        319.80436416664105,
+        376.9949560570834
+      ],
+      [
+        85.70831499076881,
+        371.8108221731987
+      ]
+    ],
+    "trackId": 59,
+    "age": 51,
+    "coasting": false,
+    "hasObj": 0.9999803900718689,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "perf": {
+      "detectMs": 32.99999999994179,
+      "hz": 7.506155244489184,
+      "jitterPx": 4.3436904894081225
+    },
+    "wouldCapture": true,
+    "regionCount": 1,
+    "suppressedByRegion": true,
+    "regionsExpired": 34,
+    "sinceRegionExpiryMs": 12627,
+    "saturation": 0.089,
+    "id": 1788623060490,
+    "comment": null,
+    "rawPngBytes": 526765,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "type": "capture-event",
+    "epochMs": 1788623061190,
+    "source": "scan-capture-event",
+    "stream": {
+      "width": 960,
+      "height": 1280
+    },
+    "pipelineVersion": 3,
+    "trigger": "auto",
+    "quad": [
+      [
+        92.97907324876418,
+        52.713920872566796
+      ],
+      [
+        296.6739807128906,
+        70.3053822517395
+      ],
+      [
+        300.3936824798584,
+        364.5899600982666
+      ],
+      [
+        82.9904727935791,
+        373.41588020324707
+      ]
+    ],
+    "trackId": 59,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "hasObj": 0.999948263168335,
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "cameraBox": {
+      "width": 319,
+      "height": 319
+    },
+    "track": {
+      "age": 55,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 33,
+      "hz": 7.504641264453286,
+      "jitterPx": 2.14218954180801
+    },
+    "saturation": 0.087,
+    "match": {
+      "matchedRaw": true,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-177",
+        "setId": "sv10",
+        "distance": 8,
+        "confidence": 0.875
+      },
+      "tieMargin": 0,
+      "rivalCardId": "me02.5-208",
+      "alternates": [
+        {
+          "cardId": "me02.5-208",
+          "distance": 8
+        },
+        {
+          "cardId": "sv02-192",
+          "distance": 9
+        },
+        {
+          "cardId": "me04-084",
+          "distance": 9
+        },
+        {
+          "cardId": "sv02-193",
+          "distance": 11
+        }
+      ]
+    },
+    "id": 1788623062569,
+    "comment": null,
+    "rawPngBytes": 529942,
+    "hasRectified": true,
+    "rectifiedBytes": 141081
+  },
+  {
+    "epochMs": 1788623133591,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "sv01-170",
+        "name": "Electric Generator",
+        "confidence": 0.844,
+        "distance": 10
+      },
+      {
+        "cardId": "swsh4.5-63",
+        "name": "Team Yell Towel",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "swsh7-141",
+        "name": "Aroma Lady",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "swsh6-153",
+        "name": "Siebold",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "me01-131",
+        "name": "Ultra Ball",
+        "confidence": 0.813,
+        "distance": 12
+      }
+    ],
+    "id": 1788623142773,
+    "comment": null,
+    "rawPngBytes": 468276,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623150915,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "swsh9-147",
+        "name": "Professor's Research",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv05-193",
+        "name": "Gengar ex",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "svp-200",
+        "name": "Eevee",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "A4-206",
+        "name": "Donphan ex",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "sv07-105",
+        "name": "Melmetal ex",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788623153662,
+    "comment": null,
+    "rawPngBytes": 487633,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623166293,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "swsh8-216",
+        "name": "Hawlucha",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "A2-191",
+        "name": "Team Galactic Grunt",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swshp-SWSH272",
+        "name": "Archeops",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv06-068",
+        "name": "Luxray ex",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "bw7-5",
+        "name": "Tangela",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788623167028,
+    "comment": null,
+    "rawPngBytes": 484149,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623173821,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "hgss3-30",
+        "name": "Metang",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "swsh9-130",
+        "name": "Barry",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "me02.5-182",
+        "name": "Anthea & Concordia",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sm6-37",
+        "name": "Helioptile",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh3-121",
+        "name": "Aron",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788623174937,
+    "comment": null,
+    "rawPngBytes": 494717,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623179688,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "sv03.5-017",
+        "name": "Pidgeotto",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv09-134",
+        "name": "Hop's Corvisquire",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "me03-069",
+        "name": "Antique Sail Fossil",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv02-230",
+        "name": "Forretress ex",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv04.5-146",
+        "name": "Kilowattrel",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788623180232,
+    "comment": null,
+    "rawPngBytes": 481692,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623192001,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "sv03-009",
+        "name": "Foongus",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "svp-109",
+        "name": "Ampharos",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "sv10-004",
+        "name": "Pineco",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "sv03-145",
+        "name": "Bronzong",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv10-144",
+        "name": "Steven's Metang",
+        "confidence": 0.813,
+        "distance": 12
+      }
+    ],
+    "id": 1788623192761,
+    "comment": null,
+    "rawPngBytes": 468606,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623203263,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "dp4-89",
+        "name": "Torchic",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "swsh9-027",
+        "name": "Simisear V",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "me02.5-182",
+        "name": "Anthea & Concordia",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh7-174",
+        "name": "Glaceon V",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh7-183",
+        "name": "Sylveon V",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788623203913,
+    "comment": null,
+    "rawPngBytes": 433413,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623212474,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "dpp-DP55",
+        "name": "Ultimate Zone",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sm5-9",
+        "name": "Torterra",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "me02-075",
+        "name": "Archaludon",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv04-128",
+        "name": "Ferrothorn",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "me02.5-157",
+        "name": "Noivern",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788623213110,
+    "comment": null,
+    "rawPngBytes": 486160,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623286367,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "neo4-106",
+        "name": "Shining Celebi",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv03-132",
+        "name": "Houndour",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sm9-181",
+        "name": "Sabrina’s Suggestion",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "swsh3-117",
+        "name": "Eternatus VMAX",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sm2-144",
+        "name": "Hau",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788623287036,
+    "comment": null,
+    "rawPngBytes": 550989,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623297477,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "swsh7-80",
+        "name": "Marshadow",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh7-87",
+        "name": "Boldore",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh6-57",
+        "name": "Gengar",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swshp-SWSH113",
+        "name": "Inteleon",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "P-A-020",
+        "name": "Haunter",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788623300036,
+    "comment": null,
+    "rawPngBytes": 549508,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788623307572,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "swsh11-078",
+        "name": "Malamar",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "swsh9-071",
+        "name": "Alcremie",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "A2b-021",
+        "name": "Tatsugiri",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "swshp-SWSH114",
+        "name": "Cresselia",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "swsh5-89",
+        "name": "Zubat",
+        "confidence": 0.813,
+        "distance": 12
+      }
+    ],
+    "id": 1788623308181,
+    "comment": null,
+    "rawPngBytes": 549117,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624051622,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "ex13-34",
+        "name": "Zangoose",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "exu-K",
+        "name": "Unown",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "bw5-43",
+        "name": "Galvantula",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swshp-SWSH058",
+        "name": "Alcremie",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh2-87",
+        "name": "Alcremie",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788624052201,
+    "comment": null,
+    "rawPngBytes": 569808,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624187310,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "bw4-35",
+        "name": "Jellicent",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "g1-15",
+        "name": "Rapidash",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "bw8-10",
+        "name": "Leavanny",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "dp7-39",
+        "name": "Grovyle",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "bw1-43",
+        "name": "Zebstrika",
+        "confidence": 0.813,
+        "distance": 12
+      }
+    ],
+    "id": 1788624189670,
+    "comment": null,
+    "rawPngBytes": 540322,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624201957,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "bw11-RC21",
+        "name": "Shaymin-EX",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv06-061",
+        "name": "Palafin ex",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "svp-076",
+        "name": "Sprigatito",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv04.5-119",
+        "name": "Starmie",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "swsh4.5sv-SV086",
+        "name": "Galarian Meowth",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788624202740,
+    "comment": null,
+    "rawPngBytes": 585566,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624207425,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "A2-028",
+        "name": "Monferno",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv10.5b-110",
+        "name": "Beartic",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "swshp-SWSH009",
+        "name": "Cinccino",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "smp-SM130",
+        "name": "Manectric",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv04-036",
+        "name": "Milotic",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788624208068,
+    "comment": null,
+    "rawPngBytes": 578672,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624209452,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "sm1-166",
+        "name": "Water Energy",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "xy7-84",
+        "name": "Sceptile EX",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh7-235",
+        "name": "Lightning Energy",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "bw8-135",
+        "name": "Colress",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sm1-171",
+        "name": "Metal Energy",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788624210102,
+    "comment": null,
+    "rawPngBytes": 428859,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624216637,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "ex9-36",
+        "name": "Marshtomp",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "bwp-BW89",
+        "name": "Vaporeon",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "me03-070",
+        "name": "Core Memory",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "ex16-88",
+        "name": "Metal Energy",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "xy7-84",
+        "name": "Sceptile EX",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788624217166,
+    "comment": null,
+    "rawPngBytes": 446617,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624230801,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "swsh2-77",
+        "name": "Xatu",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "swsh3-63",
+        "name": "Toxtricity",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "A4-082",
+        "name": "Xatu",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "B1-028",
+        "name": "Growlithe",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh9-066",
+        "name": "Sigilyph",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788624231321,
+    "comment": null,
+    "rawPngBytes": 563793,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624239061,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "A4-064",
+        "name": "Chinchou",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "sm12-102",
+        "name": "Lunala",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "sv06-090",
+        "name": "Slurpuff",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "B1-041",
+        "name": "Litwick",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "A1-006",
+        "name": "Metapod",
+        "confidence": 0.813,
+        "distance": 12
+      }
+    ],
+    "id": 1788624239614,
+    "comment": null,
+    "rawPngBytes": 538800,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624264560,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "sv04.5-162",
+        "name": "Ceruledge",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "swsh4.5sv-SV049",
+        "name": "Galarian Corsola",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "B1-012",
+        "name": "Breloom",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "sv01-062",
+        "name": "Tatsugiri",
+        "confidence": 0.781,
+        "distance": 14
+      },
+      {
+        "cardId": "sv04.5-168",
+        "name": "Houndstone",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788624265138,
+    "comment": null,
+    "rawPngBytes": 520197,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624274873,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "swsh9-113",
+        "name": "Druddigon",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh1-37",
+        "name": "Sizzlipede",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "A4-237",
+        "name": "Mismagius ex",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "A4-023",
+        "name": "Cherubi",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swsh3-132",
+        "name": "Copperajah",
+        "confidence": 0.781,
+        "distance": 14
+      }
+    ],
+    "id": 1788624275470,
+    "comment": null,
+    "rawPngBytes": 526082,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624282904,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "ex8-90",
+        "name": "Professor Cozmo's Discovery",
+        "confidence": 0.766,
+        "distance": 15
+      },
+      {
+        "cardId": "sv04.5-101",
+        "name": "Abomasnow",
+        "confidence": 0.766,
+        "distance": 15
+      },
+      {
+        "cardId": "sm7-181",
+        "name": "PokéNav",
+        "confidence": 0.766,
+        "distance": 15
+      },
+      {
+        "cardId": "swsh8-273",
+        "name": "Chili & Cilan & Cress",
+        "confidence": 0.766,
+        "distance": 15
+      },
+      {
+        "cardId": "sv08.5-136",
+        "name": "Eri",
+        "confidence": 0.766,
+        "distance": 15
+      }
+    ],
+    "id": 1788624284497,
+    "comment": null,
+    "rawPngBytes": 527447,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624289421,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "B2-225",
+        "name": "Flareon ex",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "swsh4.5sv-SV015",
+        "name": "Scorbunny",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sma-SV30",
+        "name": "Beldum",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "swshp-SWSH176",
+        "name": "Hoopa V",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv04.5-191",
+        "name": "Scizor",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788624290669,
+    "comment": null,
+    "rawPngBytes": 566148,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624299336,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "A2-012",
+        "name": "Torterra",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv06-003",
+        "name": "Pinsir",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv06-041",
+        "name": "Poliwag",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv01-150",
+        "name": "Staraptor",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "sv10.5w-032",
+        "name": "Zebstrika",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788624300191,
+    "comment": null,
+    "rawPngBytes": 483612,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  },
+  {
+    "epochMs": 1788624315463,
+    "source": "scan-feed-entry",
+    "cardId": null,
+    "matched": false,
+    "confidence": 0,
+    "distance": -1,
+    "alternates": [
+      {
+        "cardId": "A3b-100",
+        "name": "Ekans",
+        "confidence": 0.828,
+        "distance": 11
+      },
+      {
+        "cardId": "swsh8-262",
+        "name": "Schoolgirl",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "swsh5-95",
+        "name": "Houndour",
+        "confidence": 0.813,
+        "distance": 12
+      },
+      {
+        "cardId": "sv01-123",
+        "name": "Great Tusk ex",
+        "confidence": 0.797,
+        "distance": 13
+      },
+      {
+        "cardId": "A1-018",
+        "name": "Bellsprout",
+        "confidence": 0.797,
+        "distance": 13
+      }
+    ],
+    "id": 1788624316078,
+    "comment": null,
+    "rawPngBytes": 591083,
+    "hasRectified": false,
+    "rectifiedBytes": null
+  }
+]

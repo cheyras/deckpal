@@ -42,6 +42,7 @@
 // there to the next event of any kind. See section 3b.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 
 import type { Quad } from '../contract'
@@ -51,7 +52,22 @@ import { DEFAULT_LOCK_MIN_SATURATION } from '../index'
 import { orderQuadForCard } from '../rectify'
 import { createCapturedRegions, REGION_DEPARTURE_MS, REGION_SAME_IOU, type RegionTrack } from '../../ui/regions'
 
-const SESSION = 'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/owner-session-1/'
+// ── WHY THE FIXTURES ARE IN THE REPO ────────────────────────────────────────
+//
+// This path used to be an absolute one on the author's laptop
+// (`E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/...`), pointing
+// into a directory that is not tracked. The `if (!existsSync) return []` guard
+// below reads as graceful degradation and was not: the suite then asserts the
+// artifacts ARE present, so on any other machine — GitHub Actions included —
+// this file could only fail. It did, on every CI run since the scanner landed
+// on main, and the regressions it pins have therefore never once been checked
+// by CI.
+//
+// The recorded sessions are gigabytes of frames and crops and stay out of git.
+// The JSON the assertions actually read is a few hundred KB, so it lives here,
+// addressed relative to this file. The guard is kept: it is now the honest
+// thing it always claimed to be.
+const SESSION = fileURLToPath(new URL('./fixtures/owner-session-1/', import.meta.url))
 
 interface Ev {
   file: string

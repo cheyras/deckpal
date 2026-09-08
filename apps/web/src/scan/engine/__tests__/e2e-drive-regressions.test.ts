@@ -8,6 +8,7 @@
 
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 
 import type { Quad, TrackedQuad } from '../contract'
@@ -17,8 +18,22 @@ import { orderQuadForCard } from '../rectify'
 import { createTracker } from '../tracker'
 import { reticleForAspect, CANONICAL_SIZE } from '../frame'
 
-const HARVEST =
-  'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/e2e-drive/harvest-run1/events.json'
+// ── WHY THE FIXTURES ARE IN THE REPO ────────────────────────────────────────
+//
+// This path used to be an absolute one on the author's laptop
+// (`E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/...`), pointing
+// into a directory that is not tracked. The `if (!existsSync) return []` guard
+// below reads as graceful degradation and was not: the suite then asserts the
+// artifacts ARE present, so on any other machine — GitHub Actions included —
+// this file could only fail. It did, on every CI run since the scanner landed
+// on main, and the regressions it pins have therefore never once been checked
+// by CI.
+//
+// The recorded sessions are gigabytes of frames and crops and stay out of git.
+// The JSON the assertions actually read is a few hundred KB, so it lives here,
+// addressed relative to this file. The guard is kept: it is now the honest
+// thing it always claimed to be.
+const HARVEST = fileURLToPath(new URL('./fixtures/e2e-drive/harvest-run1/events.json', import.meta.url))
 
 interface CaptureEvent {
   id: number

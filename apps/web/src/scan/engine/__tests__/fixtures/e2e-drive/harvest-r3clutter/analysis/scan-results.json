@@ -1,0 +1,156 @@
+[
+  {
+    "id": "1788512366307",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 7
+        },
+        {
+          "name": "Psychic Energy",
+          "set": "sve",
+          "num": "013",
+          "d": 7
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 7
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 7
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 7
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Grass Energy",
+          "set": "sve",
+          "num": "009",
+          "d": 9
+        },
+        {
+          "name": "Power Tablet",
+          "set": "swsh8",
+          "num": "281",
+          "d": 10
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788512408196",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 9
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "003",
+          "d": 10
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 10
+        }
+      ]
+    },
+    "mine": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Toy Catcher",
+          "set": "swsh7",
+          "num": "233",
+          "d": 10
+        },
+        {
+          "name": "Alcremie V",
+          "set": "swsh4.5",
+          "num": "64",
+          "d": 10
+        },
+        {
+          "name": "Steelix V",
+          "set": "swsh4",
+          "num": "115",
+          "d": 12
+        },
+        {
+          "name": "Raichu V",
+          "set": "swsh9",
+          "num": "158",
+          "d": 13
+        },
+        {
+          "name": "Impostor Professor Oak",
+          "set": "base4",
+          "num": "102",
+          "d": 13
+        }
+      ]
+    }
+  }
+]

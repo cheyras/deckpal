@@ -1,0 +1,212 @@
+[
+  {
+    "id": 1788512366210,
+    "type": "lock-event",
+    "source": "scan-lock-event",
+    "epochMs": 1788512355667,
+    "trackId": 8,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 414.65625,
+      "height": 414.65625
+    },
+    "quad": [
+      [
+        71.8544865569552,
+        159.47850944032768
+      ],
+      [
+        277.0683765411377,
+        149.3722038269043
+      ],
+      [
+        301.1694558067556,
+        303.91977666562127
+      ],
+      [
+        87.54926180123866,
+        316.2252660271966
+      ]
+    ],
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "hasObj": 0.9998612403869629,
+    "perf": {
+      "detectMs": 14.600000023841858,
+      "hz": 8.007411905444986,
+      "jitterPx": 60.92306902309803
+    },
+    "wouldCapture": true,
+    "regionCount": 0,
+    "suppressedByRegion": false,
+    "rawPngBytes": 410438,
+    "rectifiedBytes": null,
+    "hasRectified": false
+  },
+  {
+    "id": 1788512366307,
+    "type": "capture-event",
+    "source": "scan-capture-event",
+    "trigger": "auto",
+    "epochMs": 1788512355833,
+    "trackId": 8,
+    "frame": {
+      "width": 640,
+      "height": 750
+    },
+    "cameraBox": {
+      "width": 414.65625,
+      "height": 414.65625
+    },
+    "quad": [
+      [
+        71.8544865569552,
+        159.47850944032768
+      ],
+      [
+        277.0683765411377,
+        149.3722038269043
+      ],
+      [
+        301.1694558067556,
+        303.91977666562127
+      ],
+      [
+        87.54926180123866,
+        316.2252660271966
+      ]
+    ],
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "hasObj": 0.9998612403869629,
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 14.600000023841858,
+      "hz": 8.007411905444986,
+      "jitterPx": 60.92306902309803
+    },
+    "rawPngBytes": 442320,
+    "rectifiedBytes": 139998,
+    "hasRectified": true
+  },
+  {
+    "id": 1788512408033,
+    "type": "lock-event",
+    "source": "scan-lock-event",
+    "epochMs": 1788512406710,
+    "trackId": 17,
+    "frame": {
+      "width": 416,
+      "height": 416
+    },
+    "cameraBox": {
+      "width": 414.65625,
+      "height": 390.796875
+    },
+    "quad": [
+      [
+        99.35053440465235,
+        148.85729855440752
+      ],
+      [
+        299.83149337768555,
+        143.35990715026855
+      ],
+      [
+        316.75750157292293,
+        285.9021585622451
+      ],
+      [
+        105.27384812594077,
+        297.6495051736658
+      ]
+    ],
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "hasObj": 0.9999701976776123,
+    "perf": {
+      "detectMs": 14.200000047683716,
+      "hz": 8.147709223821062,
+      "jitterPx": 36.082637671808854
+    },
+    "wouldCapture": true,
+    "regionCount": 0,
+    "suppressedByRegion": false,
+    "rawPngBytes": 411497,
+    "rectifiedBytes": null,
+    "hasRectified": false
+  },
+  {
+    "id": 1788512408196,
+    "type": "capture-event",
+    "source": "scan-capture-event",
+    "trigger": "auto",
+    "epochMs": 1788512406790,
+    "trackId": 17,
+    "frame": {
+      "width": 640,
+      "height": 750
+    },
+    "cameraBox": {
+      "width": 414.65625,
+      "height": 390.796875
+    },
+    "quad": [
+      [
+        99.35053440465235,
+        148.85729855440752
+      ],
+      [
+        299.83149337768555,
+        143.35990715026855
+      ],
+      [
+        316.75750157292293,
+        285.9021585622451
+      ],
+      [
+        105.27384812594077,
+        297.6495051736658
+      ]
+    ],
+    "reticle": {
+      "x": 0.185,
+      "y": 0.06,
+      "w": 0.63,
+      "h": 0.88
+    },
+    "hasObj": 0.9999701976776123,
+    "track": {
+      "age": 5,
+      "coasting": false
+    },
+    "step": "scan",
+    "perf": {
+      "detectMs": 14.200000047683716,
+      "hz": 8.147709223821062,
+      "jitterPx": 36.082637671808854
+    },
+    "rawPngBytes": 410438,
+    "rectifiedBytes": 131788,
+    "hasRectified": true
+  }
+]
