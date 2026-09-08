@@ -20,13 +20,15 @@
  * finishes the same thought: **someone who does not want him should be able to
  * say so once and have it stick.**
  *
- * ── PER-VIEWER, PER-BROWSER, AND HONEST ABOUT IT ────────────────────────────
+ * ── LOCAL CACHE OF AN ACCOUNT SETTING ───────────────────────────────────────
  *
- * `localStorage`, not the account. This is a display preference about one
- * screen, it must work before any request resolves — the launcher renders
- * immediately — and it must not become a column that needs a migration, an API
- * and a sync path. The cost is that hiding him on a laptop leaves him on a
- * phone, which is the ordinary behaviour of a per-device UI preference.
+ * Since migration 049 the durable copy is `user_settings.decke_hidden` on the
+ * ACCOUNT — the owner asked for "hiding him on a laptop leaves him on a
+ * phone" to stop being the deal. localStorage stays because the launcher
+ * renders before any request resolves: this module remains the synchronous
+ * reader, and `lib/settingsSync.ts` keeps it agreed with the server (applies
+ * the account's value on boot/sign-in; the toggle writes through both).
+ * Nothing here talks to the network, so this file stays dependency-free.
  *
  * **Every access is wrapped.** Reading `localStorage` THROWS, not returns null,
  * in a browser set to block site data, and in some embedded contexts. An

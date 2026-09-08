@@ -9,7 +9,7 @@ import { dirname } from 'node:path';
  * WHY THIS EXISTS. The cloud tier had no bulk warm path at all, and the gap was
  * invisible because each individual miss still "worked":
  *
- *   - `warm` / `warm:gaps` / `warm:pkmn` fill the SELF-HOST DISK cache. They write
+ *   - `warm` / `warm:gaps` fill the SELF-HOST DISK cache. They write
  *     through `store.ts putAsset` to `IMAGE_CACHE_ROOT`, which a Vercel deployment
  *     does not have and cannot read.
  *   - `storage:backfill` mirrors an EXISTING disk cache into the bucket. It is a
@@ -331,7 +331,8 @@ async function main(): Promise<void> {
     console.log(
       `[warm:cloud] ${residue.length} asset(s) upstream could not serve — written to ${args.residue}.\n` +
         `             These are REAL gaps, not a bug to route around: the placeholder is the honest\n` +
-        `             answer until a source for them exists (see warm:pkmn, and the fill-missing-assets skill).`,
+        `             answer until an APPROVED source covers them. The approved fallback for card art\n` +
+        `             is pokemontcg.io — see research/CARD-ART-SOURCES.md and the fill-missing-assets skill.`,
     );
     for (const [setId, n] of [...bySet].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
       console.log(`  ${setId.padEnd(14)} ${n}`);

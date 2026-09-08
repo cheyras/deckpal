@@ -10,11 +10,11 @@
 //   (holo:false / reverse:true, yet carries avg-holo/trend-holo).
 
 import { fetchJson } from './http.js';
-import { toMinor, type CardmarketFile, type CardmarketGuide, type Metrics } from './types.js';
+import { hasAnyMetric, toMinor, type CardmarketFile, type CardmarketGuide, type Metrics } from './types.js';
 import { FINISH_RANK } from '../catalog/transform.js';
 import {
   type Queryable, type PricePoint, appendObservations, upsertCurrent, ensureObservationPartition,
-  startRun, finishRun, lastOkStamp, tryLock, unlock,
+  countObservations, startRun, finishRun, lastOkStamp, tryLock, unlock,
 } from './db.js';
 
 const URL = 'https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json';
@@ -95,7 +95,11 @@ function route(vars: VarRef[]): { base?: VarRef; reverse?: VarRef } {
 
 export interface CardmarketResult {
   version: number; createdAt: string; guides: number; matchedProducts: number;
-  observations: number; pricedVariants: number; skipped: boolean;
+  /** Rows this run's INSERT appended. Legitimately 0 when the stamp was already ingested. */
+  observations: number;
+  /** Rows `price_observation` actually HOLDS for this stamp, read back after COMMIT. */
+  storedObservations: number;
+  pricedVariants: number; skipped: boolean;
 }
 export interface CardmarketOpts { sets?: string[]; force?: boolean; file?: CardmarketFile }
 
@@ -113,36 +117,88 @@ export async function ingestCardmarket(client: Queryable, opts: CardmarketOpts =
   try {
     if (!opts.force && !filter) {
       const last = await lastOkStamp(client, 'prices-cardmarket');
-      if (last === file.createdAt) return { version: file.version, createdAt: file.createdAt, guides: file.priceGuides.length, matchedProducts: 0, observations: 0, pricedVariants: 0, skipped: true };
+      if (last === file.createdAt) {
+        // A skip is a real, healthy outcome and it has to leave a trace. Without this row
+        // "the feed is current, upstream just has not republished" and "the scheduler has
+        // been dead for three weeks" are the same picture from the database — which is
+        // precisely how the 2026-08-09 → 2026-08-29 outage stayed invisible (DECISIONS.md
+        // 2026-08-29). `lastOkStamp` reads only 'ok'/'partial', so a 'skipped' row cannot
+        // change the skip decision it records. AGENTS.md B11.
+        const skipId = await startRun(client, 'prices-cardmarket', file.createdAt);
+        await finishRun(client, skipId, 'skipped', { itemsSeen: file.priceGuides.length });
+        return { version: file.version, createdAt: file.createdAt, guides: file.priceGuides.length, matchedProducts: 0, observations: 0, storedObservations: 0, pricedVariants: 0, skipped: true };
+      }
     }
     await assertFieldMap(client);
     const runId = await startRun(client, 'prices-cardmarket', file.createdAt);
-    await ensureObservationPartition(client, capturedAt);
-    const byProduct = await productVariants(client, filter);
-
-    const points: PricePoint[] = [];
-    let matchedProducts = 0;
-    for (const g of file.priceGuides) {
-      const vars = byProduct.get(g.idProduct);
-      if (!vars) continue;
-      matchedProducts++;
-      const { base, reverse } = route(vars);
-      if (base) points.push({ cardVariantId: base.cvId, sourceId: SOURCE_ID, sourceCode: SOURCE_CODE, currency: CURRENCY, metrics: metricsFrom(g, BASE_FIELDS) });
-      if (reverse) points.push({ cardVariantId: reverse.cvId, sourceId: SOURCE_ID, sourceCode: SOURCE_CODE, currency: CURRENCY, metrics: metricsFrom(g, REVERSE_FIELDS) });
-    }
-    let observations = 0;
+    // Everything from here on is inside the handler. Outside it, a throw from the partition
+    // DDL or the variant lookup left `sync_run` at status='running' forever — and the
+    // `sync_run_one_active` partial UNIQUE index (006) then makes EVERY later run fail in
+    // `startRun`. One transient error would have wedged the job permanently, silently.
+    let closed = false; // whether the sync_run row has already been given its final status
     try {
-      await client.query('BEGIN');
-      observations = await appendObservations(client, points, capturedAt, runId);
-      await upsertCurrent(client, points, capturedAt);
-      await client.query('COMMIT');
+      await ensureObservationPartition(client, capturedAt);
+      const byProduct = await productVariants(client, filter);
+
+      const points: PricePoint[] = [];
+      let matchedProducts = 0;
+      for (const g of file.priceGuides) {
+        const vars = byProduct.get(g.idProduct);
+        if (!vars) continue;
+        matchedProducts++;
+        const { base, reverse } = route(vars);
+        if (base) points.push({ cardVariantId: base.cvId, sourceId: SOURCE_ID, sourceCode: SOURCE_CODE, currency: CURRENCY, metrics: metricsFrom(g, BASE_FIELDS) });
+        if (reverse) points.push({ cardVariantId: reverse.cvId, sourceId: SOURCE_ID, sourceCode: SOURCE_CODE, currency: CURRENCY, metrics: metricsFrom(g, REVERSE_FIELDS) });
+      }
+      // The two writers are fed the SAME array and drop the same priceless points, so this
+      // is what BOTH of them must produce. It is the number the verification below tests.
+      const priced = points.filter((p) => hasAnyMetric(p.metrics)).length;
+
+      let observations = 0;
+      try {
+        await client.query('BEGIN');
+        observations = await appendObservations(client, points, capturedAt, runId);
+        await upsertCurrent(client, points, capturedAt);
+        await client.query('COMMIT');
+      } catch (err) {
+        try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+        throw err;
+      }
+
+      // ── The history half has to be PROVED, not assumed (B11, verification standard 3) ──
+      // This job writes two tables from one array: `price_current` (the hot snapshot the app
+      // reads) and `price_observation` (the append-only history the charts read). Reporting
+      // an in-process counter meant a run that filled the snapshot and appended NOTHING was
+      // indistinguishable from a healthy one — `status: ok`, a plausible `rows_written`, and
+      // an empty history table. Read the history back and let the count come from the
+      // database, so `rows_written` is a measurement rather than a claim.
+      const stored = await countObservations(client, SOURCE_ID, CURRENCY, capturedAt);
+      if (stored < priced) {
+        // 'failed', not 'partial', ON PURPOSE: `lastOkStamp` counts 'partial' as a success
+        // stamp, so calling this partial would make the next nightly run SKIP the very file
+        // whose history is missing, and the gap would be permanent. 'failed' leaves the
+        // stamp unclaimed, so the next run retries it without anyone typing --force.
+        const msg =
+          `price_observation holds ${stored} of ${priced} ${CURRENCY} rows for captured_at=${file.createdAt} — ` +
+          `the history half did not land (price_current was written with ${priced})`;
+        await finishRun(client, runId, 'failed', {
+          rowsWritten: stored, itemsSeen: matchedProducts, itemsFailed: priced - stored,
+          cursor: { appended: observations, priced }, error: msg,
+        });
+        closed = true;
+        throw new Error(msg);
+      }
+      await finishRun(client, runId, 'ok', {
+        rowsWritten: stored, itemsSeen: matchedProducts, cursor: { appended: observations, priced },
+      });
+      closed = true;
+      return { version: file.version, createdAt: file.createdAt, guides: file.priceGuides.length, matchedProducts, observations, storedObservations: stored, pricedVariants: points.length, skipped: false };
     } catch (err) {
-      try { await client.query('ROLLBACK'); } catch { /* ignore */ }
-      await finishRun(client, runId, 'failed', { error: (err as Error).message });
+      // Only for rows nothing else has closed — the verification branch above writes its own
+      // counts and message, which a blanket re-close here would flatten back to zeroes.
+      if (!closed) await finishRun(client, runId, 'failed', { error: (err as Error).message });
       throw err;
     }
-    await finishRun(client, runId, 'ok', { rowsWritten: observations, itemsSeen: matchedProducts });
-    return { version: file.version, createdAt: file.createdAt, guides: file.priceGuides.length, matchedProducts, observations, pricedVariants: points.length, skipped: false };
   } finally {
     await unlock(client, 'prices-cardmarket');
   }

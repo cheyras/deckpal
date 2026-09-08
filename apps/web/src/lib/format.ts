@@ -83,7 +83,8 @@ export function typeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] ?? '#7f8596'
 }
 
-// Set LVL from Complete-Set pct (verified against pkmn.gg): 0 if 0%, else 1+floor(pct/25), cap "Max".
+// Set LVL from Complete-Set pct: 0 if 0%, else 1 + floor(pct/25), cap "Max".
+// Mirrors setLevel() in apps/api/src/insights/trainerLevel.ts — keep them in step.
 export function setLevelLabel(pct: number): string {
   if (pct >= 100) return 'MAX'
   if (pct === 0) return '0'

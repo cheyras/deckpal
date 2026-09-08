@@ -933,7 +933,7 @@ the task's summary of it):
   `apps/web/src/character/decke/DeckE.ts` / `sustain.ts` / `playbook.ts`.
   Server side: `apps/api/src/decke/*` and `api/chat.mjs` (SSE stream, tool
   execution, prompt). Design tokens live in `apps/web/src/theme.css` (a
-  `@theme static` block, ~77 flat semantic color roles, dark-only "pkmnDark"
+  `@theme static` block, ~77 flat semantic color roles, dark-only "deckpalDark"
   theme, consumed as Tailwind utilities like `bg-surface-secondary`).
 - **Markdown:** confirmed **not** rendered in chat — `DeckeChat.tsx` renders
   `{m.text}` directly. `react-markdown` + `remark-gfm` are **already in the

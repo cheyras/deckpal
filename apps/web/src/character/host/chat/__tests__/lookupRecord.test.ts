@@ -17,7 +17,15 @@
  */
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { freshCalls, lookupRecord, TOOL_RECORD_PREFIX, type RecordedCall } from '../lookupRecord'
+import {
+  MAX_REPLAYED_FAILURES,
+  failureParts,
+  freshCalls,
+  lookupRecord,
+  TOOL_RECORD_PREFIX,
+  type FailedCall,
+  type RecordedCall,
+} from '../lookupRecord'
 
 const call = (over: Partial<RecordedCall> & { name: string }): RecordedCall => ({
   phase: 'ok',
@@ -35,6 +43,11 @@ test('a finished lookup becomes one line, prefixed so it cannot read as speech',
   assert.ok(rec, 'two finished calls are evidence')
   assert.equal(rec.type, 'text')
   assert.ok(rec.text.startsWith(TOOL_RECORD_PREFIX), 'marked as a record, not folded into his words')
+  // THE LITERAL IS A WIRE CONTRACT. The server's circuit breaker
+  // (apps/api/src/decke/failing.ts) replicates this exact string to read
+  // recoveries out of the replayed record — a browser module and a server
+  // module cannot import each other. Change one, change both.
+  assert.equal(TOOL_RECORD_PREFIX, '[lookups on that turn, for your own reference —')
   assert.match(rec.text, /decks: Slowking Toolbox \(v2\) — 60 cards/)
   assert.match(rec.text, /showScreen: panel drawn, 3 block\(s\)/)
 })
@@ -144,4 +157,59 @@ test('what freshCalls sends is what lookupRecord can use', () => {
   assert.ok(rec)
   assert.match(rec.text, /decks: s/)
   assert.deepEqual(mark, ['a'], 'the failure is neither recorded nor marked, so it cannot be lost')
+})
+
+// ── failureParts ────────────────────────────────────────────────────────────
+//
+// Each test below was run RED against a mutated implementation and restored:
+// the `phase === 'error'` filter widened to every chip, the summary-present
+// guard dropped, `MAX_REPLAYED_FAILURES` removed, and `args` stopped riding
+// along.
+
+/** A failed chip, in the shape `useDeckeChat`'s `ToolChip` really carries. */
+const failed = (over: Partial<FailedCall> & { name: string; id: string }): FailedCall => ({
+  phase: 'error',
+  summary: 'battle_logs failed: Internal server error',
+  ...over,
+})
+
+test('a failed call replays as the SDK\'s own output-error part, not as prose', () => {
+  // `battle_logs` 500ed on four turns of one conversation and was re-called on
+  // every one of them, because nothing carried the failure past the turn
+  // boundary. The part shape is what `convertToModelMessages` reads: it becomes
+  // a tool-call plus an error-text tool-result, so the model sees the failed
+  // call it made rather than a sentence about one.
+  const [part, ...rest] = failureParts([failed({ name: 'battle_logs', id: 'c1', args: { deck_id: 'd1' } })])
+  assert.equal(rest.length, 0)
+  assert.equal(part.type, 'tool-battle_logs')
+  assert.equal(part.toolCallId, 'c1')
+  assert.equal(part.state, 'output-error')
+  assert.equal(part.errorText, 'battle_logs failed: Internal server error')
+  // ARGS RIDE ALONG. A tool-call with no input is a call the model cannot
+  // recognise as the one it made.
+  assert.deepEqual(part.input, { deck_id: 'd1' })
+})
+
+test('only failures are replayed, and only ones that say something', () => {
+  const parts = failureParts([
+    failed({ name: 'battle_logs', id: 'c1' }),
+    failed({ name: 'decks', id: 'c2', phase: 'ok', summary: 'Slowking Toolbox (v3) — 60 cards' }),
+    failed({ name: 'decks', id: 'c3', phase: 'start', summary: undefined }),
+    // An error with no summary says nothing; replaying it as an empty failure
+    // is a fact with no content and costs the same tokens.
+    failed({ name: 'get_card', id: 'c4', summary: '   ' }),
+  ])
+  assert.deepEqual(parts.map((p) => p.type), ['tool-battle_logs'])
+})
+
+test('the payload is bounded — a turn that flailed cannot dominate the window', () => {
+  // Every part here is re-billed on every leg of every later turn. One failure
+  // per turn is already enough for the breaker, which counts distinct TURNS.
+  const many = Array.from({ length: 12 }, (_, i) => failed({ name: 'battle_logs', id: `c${i}` }))
+  assert.equal(failureParts(many).length, MAX_REPLAYED_FAILURES)
+})
+
+test('no failures means no parts at all', () => {
+  assert.deepEqual(failureParts([]), [])
+  assert.deepEqual(failureParts([failed({ name: 'decks', id: 'c1', phase: 'ok' })]), [])
 })

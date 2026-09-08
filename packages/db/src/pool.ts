@@ -225,6 +225,16 @@ export function makePool(opts?: number | MakePoolOptions): pg.Pool {
         `(${backend.transactionPooled ? 'transaction-pooled' : 'session'})`,
     );
   }
+  // A request pool against a POOLER has no reason to ration, and in SUPABASE_MODE
+  // its max IS the server's max concurrency — so a value under the role default
+  // is a throttle nobody asked for, and it fails as connect timeouts under load
+  // rather than as anything that names its cause. Say so at boot.
+  if (role === 'request' && backend.transactionPooled && max < defaultMax(role)) {
+    console.error(
+      `[db] WARNING: request pool max=${max} is below the pooled default ` +
+        `${defaultMax(role)} — PGPOOL_MAX_API is throttling concurrency (B2).`,
+    );
+  }
   // node-postgres docs: an idle client that errors out (e.g. a brief network
   // blip to the upstream Postgres) emits 'error' on the pool. Without a
   // listener here, that error is unhandled and the pool is left wedged —

@@ -52,7 +52,7 @@ Follow the `add-tcg` Step-4 contract exactly:
   `apps/images/src/index.ts` (validate inputs, bar traversal, 404→client placeholder).
 - **Warmer**: enumerate the work-list **from the DB** (not a source manifest); primary source →
   fallback; validate downloads (content-type + magic bytes, reject tiny bodies), polite rate
-  limit, resumable. Model on `apps/images/src/warmer.ts` / `apps/images/src/warmFromPkmn.ts`.
+  limit, resumable. Model on `apps/images/src/warmer.ts` / `apps/images/src/warmGaps.ts`.
 - **Write through the choke point** — never a bare `writeFile` or direct Storage upload.
   **Cloud:** use `packages/storage/src/put-asset.ts` (uploads to Supabase Storage + upserts
   `image_asset`). *(May not exist until Wave 2 code lands — mark the step clearly.)*

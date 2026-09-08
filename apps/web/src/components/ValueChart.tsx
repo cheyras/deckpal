@@ -6,7 +6,8 @@ import { fmtMoney } from '../lib/format'
 // for a value series, and it degrades honestly at the cold start:
 // with <2 points there is no trend to draw, so we render the single reading as a
 // lone marker on a flat baseline and let the caller show the "not enough history"
-// copy. We NEVER interpolate or pad the axis (matches pkmn.gg — pkmn.gg captures §14.4).
+// copy. We NEVER interpolate or pad the axis — an invented point is a claim about
+// a day nobody measured.
 //
 // ── One chart, two callers ─────────────────────────────────────────────────
 // Insights draws ONE series (collection value). The card modal's Price tab draws
@@ -14,12 +15,32 @@ import { fmtMoney } from '../lib/format'
 // the Normal and the Reverse Holofoil and showing one number for both is the
 // same conflation the `+N Variants` badge was making. Rather than fork a second
 // chart, `series` is the general shape and `points` is the one-series shorthand.
+//
+// ── The band ───────────────────────────────────────────────────────────────
+// A point may carry `low`/`high` as well as `value`. That is how price history
+// past its daily window arrives: since the retention tiers landed (migration
+// 048) an old point is a WEEK or a MONTH summarised as OHLC, and drawing only
+// its close would state a single price for a period that moved — 46.8% of real
+// weekly buckets close at or near an extreme of their own range, so the close
+// alone misleads the reader almost half the time.
+//
+// Daily points carry a band too, of zero height. That is deliberate: the band
+// is then ONE continuous polygon per series that simply narrows to the line
+// where the data is daily, instead of a special case at the seam.
 
 /** One line. `color` is any CSS colour; the caller owns the palette. */
 export interface ChartSeries {
   label: string
   color: string
-  points: readonly { date: string; value: number }[]
+  points: readonly {
+    date: string
+    value: number
+    /** Low/high of the period this point summarises. Omit for a plain series. */
+    low?: number
+    high?: number
+    /** Extra tooltip line — the caller's words, e.g. where the extremes fell. */
+    note?: string
+  }[]
 }
 
 function shortDate(iso: string): string {
@@ -43,16 +64,21 @@ function axisLabel(iso: string, spanDays: number): string {
 
 /** `n` evenly spaced day-numbers across [a, b], inclusive of both ends. */
 function spread(a: number, b: number, n: number): number[] {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return []
   if (b <= a) return [a]
   const step = (b - a) / (n - 1)
   return Array.from({ length: n }, (_, i) => Math.round(a + step * i))
 }
 
 function isoOfDay(day: number): string {
+  // `new Date(NaN).toISOString()` THROWS. Reached through `spread()`, one
+  // unparseable date anywhere in the data made every tick NaN and took the
+  // whole page down with a RangeError — see the guard on `lines` below.
+  if (!Number.isFinite(day)) return ''
   return new Date(day * 86_400_000).toISOString().slice(0, 10)
 }
 
-/** Days since epoch — the x scale's unit. */
+/** Days since epoch — the x scale's unit. NaN for anything unparseable. */
 function dayNumber(iso: string): number {
   return Math.floor(Date.parse(`${iso}T00:00:00Z`) / 86_400_000)
 }
@@ -113,10 +139,28 @@ export function ValueChart({
     return () => ro.disconnect()
   }, [])
 
-  const lines: ChartSeries[] =
+  // ── EVERY point is checked before it reaches the scales ────────────────────
+  //
+  // This is not defensive programming for its own sake. On 2026-08-30 the price
+  // response changed shape (a point became an OHLC bucket), and a PWA keeps the
+  // PREVIOUS bundle running until the user reloads — so the old chart received
+  // points with no `date` at all, `Date.parse(undefined)` gave NaN, and
+  // `isoOfDay` threw a RangeError that unmounted the entire card page. The API
+  // and the web ship in one commit and that is still not enough, because the
+  // client in the browser is not the client you deployed.
+  //
+  // A point this component cannot place is dropped. A short line is a legible
+  // failure; a blank page with "Something went wrong!" is not.
+  const raw: ChartSeries[] =
     series && series.length
       ? [...series]
       : [{ label: 'Your Collection', color: 'var(--color-action-primary)', points: points ?? [] }]
+  const lines: ChartSeries[] = raw.map((l) => ({
+    ...l,
+    points: l.points.filter(
+      (p) => Number.isFinite(dayNumber(p.date)) && typeof p.value === 'number' && Number.isFinite(p.value),
+    ),
+  }))
 
   const W = Math.max(320, Math.round(measured) || 640)
   const H = height
@@ -128,7 +172,9 @@ export function ValueChart({
   const plotH = H - padT - padB
 
   const all = lines.flatMap((l) => l.points)
-  const values = all.map((p) => p.value)
+  // The band, not just the line, decides the axis: an axis fitted to the closes
+  // would clip the very highs and lows the band exists to show.
+  const values = all.flatMap((p) => [p.value, ...(p.low != null ? [p.low] : []), ...(p.high != null ? [p.high] : [])])
   const rawMin = values.length ? Math.min(...values) : 0
   const rawMax = values.length ? Math.max(...values) : 0
   // Pad the value axis so a flat/near-flat series isn't a hairline on the floor.
@@ -179,9 +225,21 @@ export function ValueChart({
   const pathFor = (l: ChartSeries): string =>
     l.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.date)} ${y(p.value)}`).join(' ')
 
+  // A closed polygon: the highs left-to-right, then the lows back again.
+  const bandFor = (l: ChartSeries): string => {
+    const b = l.points.filter((p) => p.low != null && p.high != null)
+    if (b.length < 2 || !b.some((p) => p.high! > p.low!)) return ''
+    const top = b.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.date)} ${y(p.high!)}`).join(' ')
+    const bottom = [...b].reverse().map((p) => `L ${x(p.date)} ${y(p.low!)}`).join(' ')
+    return `${top} ${bottom} Z`
+  }
+  const bands = lines.map((l) => ({ l, d: bandFor(l) })).filter((b) => b.d)
+
   const single = lines.length === 1
+  // The gradient area is a single-series flourish and reads as a second band
+  // when there is a real one underneath it. The band wins: it means something.
   const areaPath =
-    single && lines[0]!.points.length >= 2
+    single && !bands.length && lines[0]!.points.length >= 2
       ? `${pathFor(lines[0]!)} L ${x(lines[0]!.points[lines[0]!.points.length - 1]!.date)} ${padT + plotH} L ${x(lines[0]!.points[0]!.date)} ${padT + plotH} Z`
       : ''
 
@@ -195,12 +253,12 @@ export function ValueChart({
   // window they must span the WINDOW (otherwise a 2-year axis is labelled with
   // six dates from one week in August); without one they thin the data dates as
   // before.
-  const tickDates = domain
-    ? spread(xMin, xMax, 6).map(isoOfDay)
+  const tickDates = (domain
+    ? spread(xMin, xMax, 6).map(isoOfDay).filter(Boolean)
     : dates.filter((_, i) => {
         const stepEvery = Math.max(1, Math.ceil(dates.length / 6))
         return dates.length <= 1 || i % stepEvery === 0 || i === dates.length - 1
-      })
+      }))
 
   const onMove = (e: React.MouseEvent<SVGSVGElement>): void => {
     if (dates.length === 0) return
@@ -276,6 +334,13 @@ export function ValueChart({
             that means nothing. */}
         {areaPath && <path d={areaPath} fill="url(#valArea)" />}
 
+        {/* Bands sit UNDER the lines: the close is the reading, the band is the
+            context it sat in. Low opacity so two printings' bands overlapping
+            stay readable as two bands rather than a third colour. */}
+        {bands.map(({ l, d }) => (
+          <path key={`band-${l.label}`} d={d} fill={l.color} fillOpacity={0.16} stroke="none" />
+        ))}
+
         {lines.map((l) =>
           l.points.length >= 2 ? (
             <path
@@ -290,18 +355,24 @@ export function ValueChart({
         )}
 
         {/* markers */}
+        {/* Markers only where they can be read. A two-year range at weekly
+            grain is ~100 points per printing, and a dot on every one over a
+            band is a solid bar. Thinned ONLY for banded series: a plain series
+            (the Insights value chart) keeps every marker it has always had.  */}
         {lines.map((l) =>
-          l.points.map((p) => (
-            <circle
-              key={`${l.label}-${p.date}`}
-              cx={x(p.date)}
-              cy={y(p.value)}
-              r={hover === p.date ? 5 : all.length === 1 ? 5 : 3}
-              fill={l.color}
-              stroke="var(--color-surface-primary)"
-              strokeWidth={2}
-            />
-          )),
+          l.points.map((p) =>
+            hover === p.date || !bands.length || all.length <= 60 ? (
+              <circle
+                key={`${l.label}-${p.date}`}
+                cx={x(p.date)}
+                cy={y(p.value)}
+                r={hover === p.date ? 5 : all.length === 1 ? 5 : 3}
+                fill={l.color}
+                stroke="var(--color-surface-primary)"
+                strokeWidth={2}
+              />
+            ) : null,
+          ),
         )}
 
         {/* x labels — ~6 across the window (or across the data, with no window) */}
@@ -353,6 +424,16 @@ export function ValueChart({
               </span>
             </div>
           ))}
+          {/* The caller's note — for price history, WHERE the extremes fell.
+              Without it a band invites the reader to imagine the path between
+              its edges, which is the one thing a bucket cannot support. */}
+          {readings.map(({ line, point }) =>
+            point!.note ? (
+              <div key={`note-${line.label}`} className="whitespace-nowrap text-text-muted">
+                {point!.note}
+              </div>
+            ) : null,
+          )}
           <div className="text-text-muted">{shortDate(hover)}</div>
         </div>
       )}

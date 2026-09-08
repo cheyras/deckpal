@@ -135,18 +135,19 @@ is unreachable in practice unless the variable-font `@import` fails.
 **There is no light theme.** This is deliberate, documented, and load-bearing — do not
 build toward one without reading this first:
 
-- `theme.css`'s own header comment: *"Dark-only theming (UI-SPEC §2): pkmnDark is the
-  only scheme shipped; the `data-theme="dark"` attribute on `<html>` is the
+- `theme.css`'s own header comment: *"Dark-only theming (UI-SPEC §2): deckpalDark is
+  the only scheme shipped; the `data-theme="dark"` attribute on `<html>` is the
   machine-readable switch."*
 - `apps/web/index.html` hardcodes both signals on the root element:
-  `<html lang="en" class="pkmnDark" data-theme="dark">`, plus
+  `<html lang="en" class="deckpalDark" data-theme="dark">`, plus
   `<meta name="color-scheme" content="dark">` and `theme-color` set to the exact
-  `--color-surface-primary` hex.
-- The project's wiki `UI-Spec.md` (§2, written from studying the reference product
-  pkmn.gg pre-build) is explicit that pkmn.gg itself ships no light theme either, but
-  is architecturally *provisioned* for one (asset paths reserve a `/dark/` segment,
-  there's a `pkmnDark` class implying a sibling class exists). The wiki's own
-  recommendation for DeckPal, if a light scheme is ever added: key it off
+  `--color-surface-primary` hex. (The class is a marker, not a selector — nothing in
+  the stylesheet keys off it. It exists so a second scheme could be introduced by
+  swapping it rather than by rewriting the root element's contract.)
+- The project's wiki `UI-Spec.md` (§2) records that the design research found no
+  light theme worth copying, but that the layout was architecturally *provisioned*
+  for one. The wiki's own recommendation for DeckPal, if a light scheme is ever
+  added: key it off
   `data-theme="dark"|"light"` on `<html>`, define tokens per-scheme under
   `@media (prefers-color-scheme: dark)` as the default with `:root[data-theme="..."]`
   overriding both directions — but explicitly says *"ship dark-only for v1... building
@@ -280,8 +281,8 @@ componentization gaps cataloged in §4.
 
 ### 2.2 `apps/web/src/components/Icon.tsx` (309 lines) — read in full
 
-A hand-authored, from-scratch line-icon set — the file's own comment: *"no pkmn.gg
-asset is lifted."* 24×24 viewBox, `stroke="currentColor"`, default `strokeWidth`
+A hand-authored, from-scratch line-icon set — the file's own comment: *"no third-party
+icon asset is copied or traced."* 24×24 viewBox, `stroke="currentColor"`, default `strokeWidth`
 1.75. **42 icon names** in the `IconName` union: `cards, lists, deck, pokedex,
 discord, merch, pro, search, sliders, grid, table, binder, chevron-down,
 chevron-left, chevron-right, star-outline, star-filled, external, menu, close, link,

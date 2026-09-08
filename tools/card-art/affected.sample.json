@@ -1,0 +1,526 @@
+{
+  "generatedAt": "2026-08-31T16:39:58.257Z",
+  "query": "SYNTHETIC TEST FIXTURE — not a real dump",
+  "summary": {
+    "affectedRows": 18
+  },
+  "manifestTotals": {},
+  "bySeries": {},
+  "bySet": {},
+  "byHost": {},
+  "rows": [
+    {
+      "cacheKey": "card:swsh9tg-TG01:low",
+      "kind": "card",
+      "relativePath": "images/en/swsh/swsh9tg/TG01.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "swsh9tg-TG01",
+      "localId": "TG01",
+      "cardName": "Flareon",
+      "rarity": null,
+      "setTcgdexId": "swsh9tg",
+      "setName": "swsh9tg",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:swsh9tg-TG01:high",
+      "kind": "card",
+      "relativePath": "images/en/swsh/swsh9tg/TG01.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "swsh9tg-TG01",
+      "localId": "TG01",
+      "cardName": "Flareon",
+      "rarity": null,
+      "setTcgdexId": "swsh9tg",
+      "setName": "swsh9tg",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:swsh9tg-TG30:low",
+      "kind": "card",
+      "relativePath": "images/en/swsh/swsh9tg/TG30.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "swsh9tg-TG30",
+      "localId": "TG30",
+      "cardName": "Whimsicott",
+      "rarity": null,
+      "setTcgdexId": "swsh9tg",
+      "setName": "swsh9tg",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:swsh9tg-TG30:high",
+      "kind": "card",
+      "relativePath": "images/en/swsh/swsh9tg/TG30.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "swsh9tg-TG30",
+      "localId": "TG30",
+      "cardName": "Whimsicott",
+      "rarity": null,
+      "setTcgdexId": "swsh9tg",
+      "setName": "swsh9tg",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:swsh12tg-TG01:low",
+      "kind": "card",
+      "relativePath": "images/en/swsh/swsh12tg/TG01.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "swsh12tg-TG01",
+      "localId": "TG01",
+      "cardName": "Braixen",
+      "rarity": null,
+      "setTcgdexId": "swsh12tg",
+      "setName": "swsh12tg",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:swsh12tg-TG01:high",
+      "kind": "card",
+      "relativePath": "images/en/swsh/swsh12tg/TG01.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "swsh12tg-TG01",
+      "localId": "TG01",
+      "cardName": "Braixen",
+      "rarity": null,
+      "setTcgdexId": "swsh12tg",
+      "setName": "swsh12tg",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:base1-4:low",
+      "kind": "card",
+      "relativePath": "images/en/base/base1/4.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "base1-4",
+      "localId": "4",
+      "cardName": "Charizard",
+      "rarity": null,
+      "setTcgdexId": "base1",
+      "setName": "base1",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "base",
+      "seriesName": "base",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:base1-4:high",
+      "kind": "card",
+      "relativePath": "images/en/base/base1/4.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "base1-4",
+      "localId": "4",
+      "cardName": "Charizard",
+      "rarity": null,
+      "setTcgdexId": "base1",
+      "setName": "base1",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "base",
+      "seriesName": "base",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:ex1-1:low",
+      "kind": "card",
+      "relativePath": "images/en/ex/ex1/1.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "ex1-1",
+      "localId": "1",
+      "cardName": "Aggron",
+      "rarity": null,
+      "setTcgdexId": "ex1",
+      "setName": "ex1",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "ex",
+      "seriesName": "ex",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:ex1-1:high",
+      "kind": "card",
+      "relativePath": "images/en/ex/ex1/1.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "ex1-1",
+      "localId": "1",
+      "cardName": "Aggron",
+      "rarity": null,
+      "setTcgdexId": "ex1",
+      "setName": "ex1",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "ex",
+      "seriesName": "ex",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:cel25cc-CC001:low",
+      "kind": "card",
+      "relativePath": "images/en/swsh/cel25cc/CC001.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "cel25cc-CC001",
+      "localId": "CC001",
+      "cardName": "Charizard",
+      "rarity": null,
+      "setTcgdexId": "cel25cc",
+      "setName": "cel25cc",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:cel25cc-CC001:high",
+      "kind": "card",
+      "relativePath": "images/en/swsh/cel25cc/CC001.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "cel25cc-CC001",
+      "localId": "CC001",
+      "cardName": "Charizard",
+      "rarity": null,
+      "setTcgdexId": "cel25cc",
+      "setName": "cel25cc",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "swsh",
+      "seriesName": "swsh",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:sv01-1:low",
+      "kind": "card",
+      "relativePath": "images/en/sv/sv01/1.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "sv01-1",
+      "localId": "1",
+      "cardName": "Pineco",
+      "rarity": null,
+      "setTcgdexId": "sv01",
+      "setName": "sv01",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "sv",
+      "seriesName": "sv",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:sv01-1:high",
+      "kind": "card",
+      "relativePath": "images/en/sv/sv01/1.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "sv01-1",
+      "localId": "1",
+      "cardName": "Pineco",
+      "rarity": null,
+      "setTcgdexId": "sv01",
+      "setName": "sv01",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "sv",
+      "seriesName": "sv",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:mfb-1:low",
+      "kind": "card",
+      "relativePath": "images/en/mc/mfb/1.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "mfb-1",
+      "localId": "1",
+      "cardName": "Pikachu",
+      "rarity": null,
+      "setTcgdexId": "mfb",
+      "setName": "mfb",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "mc",
+      "seriesName": "mc",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:mfb-1:high",
+      "kind": "card",
+      "relativePath": "images/en/mc/mfb/1.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "mfb-1",
+      "localId": "1",
+      "cardName": "Pikachu",
+      "rarity": null,
+      "setTcgdexId": "mfb",
+      "setName": "mfb",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "mc",
+      "seriesName": "mc",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:ecard2-50a:low",
+      "kind": "card",
+      "relativePath": "images/en/ecard/ecard2/50a.low.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "low",
+      "cardTcgdexId": "ecard2-50a",
+      "localId": "50a",
+      "cardName": "Pichu",
+      "rarity": null,
+      "setTcgdexId": "ecard2",
+      "setName": "ecard2",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "ecard",
+      "seriesName": "ecard",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    },
+    {
+      "cacheKey": "card:ecard2-50a:high",
+      "kind": "card",
+      "relativePath": "images/en/ecard/ecard2/50a.high.webp",
+      "contentType": "image/webp",
+      "byteSize": 12345,
+      "sourceUrl": null,
+      "sourceHost": null,
+      "etag": null,
+      "affectedReason": "null-source",
+      "quality": "high",
+      "cardTcgdexId": "ecard2-50a",
+      "localId": "50a",
+      "cardName": "Pichu",
+      "rarity": null,
+      "setTcgdexId": "ecard2",
+      "setName": "ecard2",
+      "setReleasedOn": null,
+      "seriesTcgdexId": "ecard",
+      "seriesName": "ecard",
+      "objectTiers": {
+        "object": {
+          "byteSize": 12345,
+          "contentType": "image/webp",
+          "etag": "deadbeef"
+        }
+      }
+    }
+  ],
+  "cardsWithNoAssetRow": [
+    {
+      "cardTcgdexId": "exu-!",
+      "localId": "!",
+      "cardName": "Unown",
+      "setTcgdexId": "exu",
+      "seriesTcgdexId": "ex"
+    }
+  ]
+}

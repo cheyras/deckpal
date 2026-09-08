@@ -50,10 +50,13 @@ Existing fillers to reuse rather than reinvent — both already write through th
   catalog by driving the deployed image tier's own lazy fill. This is the one that matters on
   deckpal.app; the disk warmers above cannot reach the bucket, and `storage:backfill` only
   mirrors a disk cache that a cloud box does not have (DECISIONS.md 2026-08-26).
-- ~~`warm:pkmn`~~ — **pkmn.gg is ruled out as a source** (owner's decision, 2026-08-26, on
-  legal grounds). `apps/images/src/warmFromPkmn.ts` still exists but must not be run, and
-  pkmn.gg must not be reintroduced as a fallback for a new gap. **TCGplayer images are also
-  ruled out**: their terms forbid automated collection outside the API, bar redistributing
+- **Only approved sources.** `research/CARD-ART-SOURCES.md` is the approved ladder; a
+  source absent from it is ruled out, and one warmer plus its script were deleted on
+  2026-08-31 for fetching from a source the owner rejected on legal grounds. The
+  enforcement is the upstream allow-list in `packages/storage/src/upstream.ts` — a host
+  that is not on it cannot be fetched from at all, so "just point the warmer at X" is not
+  a workaround. **TCGplayer images are the documented rejection**: their terms forbid
+  automated collection outside the API, bar redistributing
   content to end users, and new API access is not being granted. See
   `research/CARD-ART-SOURCES.md` for the full source evaluation, the approved candidate
   (pokemontcg.io), and the documented residue of cards no approved source covers.

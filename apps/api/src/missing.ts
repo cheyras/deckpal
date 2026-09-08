@@ -55,6 +55,10 @@ export interface MissingRow {
   name: string;
   local_id: string;
   set_tcgdex_id: string;
+  /** The series' tcgdex id — with set_tcgdex_id + local_id this is the full
+   *  cardImages() address, so a caller can render the row without a re-join
+   *  (added for smart-list covers/items; harmless to the other callers). */
+  serie_tcgdex_id: string;
   rarity: string | null;
   variant_kind_code: string | null;
   variant_name: string | null;
@@ -141,11 +145,13 @@ export async function missingForGoal(
           ORDER BY cv.card_id, (cv.tcgplayer_product_id IS NULL), price.cheap_minor ASC NULLS LAST, cv.sort_order
        )
        SELECT p.card_variant_id, m.id AS card_id, m.tcgdex_id AS card_tcgdex_id, m.name, m.local_id,
-              cs.tcgdex_id AS set_tcgdex_id, m.rarity, p.variant_kind_code, p.variant_name, p.tier,
+              cs.tcgdex_id AS set_tcgdex_id, ser.tcgdex_id AS serie_tcgdex_id,
+              m.rarity, p.variant_kind_code, p.variant_name, p.tier,
               p.product_id, p.token, p.cheap_minor
          FROM missing m
          JOIN picked p ON p.card_id = m.id
          JOIN card_set cs ON cs.id = $1
+         JOIN series ser ON ser.id = cs.series_id
         ORDER BY m.number_sort`,
       [setId, userId, rarity, rarityExclude, finishes, pricedOnly, maxMinor],
     );
@@ -166,7 +172,7 @@ export async function missingForGoal(
           SELECT 1 FROM collection_item ci
            WHERE ci.card_variant_id = req.card_variant_id AND ci.user_id = $2 AND ci.quantity > 0))
      SELECT cv.id AS card_variant_id, c.id AS card_id, c.tcgdex_id AS card_tcgdex_id, c.name, c.local_id,
-            cs.tcgdex_id AS set_tcgdex_id, c.rarity, cv.variant_kind_code,
+            cs.tcgdex_id AS set_tcgdex_id, ser.tcgdex_id AS serie_tcgdex_id, c.rarity, cv.variant_kind_code,
             COALESCE(cv.display_name, vk.display_name) AS variant_name, vtr.tier,
             cv.tcgplayer_product_id AS product_id, cv.tcgplayer_mass_entry AS token,
             price.cheap_minor
@@ -176,6 +182,7 @@ export async function missingForGoal(
        JOIN variant_tier_resolved vtr ON vtr.card_variant_id = cv.id
        JOIN card c      ON c.id = cv.card_id
        JOIN card_set cs ON cs.id = c.set_id
+       JOIN series ser  ON ser.id = cs.series_id
        ${cheapest}
       WHERE ($5::text[] IS NULL OR vk.finish = ANY($5))
         AND ($3::text[] IS NULL OR lower(c.rarity) = ANY($3))

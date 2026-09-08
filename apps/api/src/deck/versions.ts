@@ -24,6 +24,13 @@ export interface SnapshotEntry {
   tcgdexId: string;
   name: string;
   quantity: number;
+  /** Migration 051: which printing. ABSENT on snapshots taken before decks
+   *  were variant-scoped — readers must treat a missing variantId as "the
+   *  card's primary variant", never as a change, or every historical version
+   *  would appear to have swapped every card. */
+  variantId?: number;
+  /** Display name of the printing, for diff lines that need to say which. */
+  variantName?: string | null;
 }
 
 export interface DeckChangeResult {
@@ -33,16 +40,33 @@ export interface DeckChangeResult {
 
 /** The live deck_card list shaped for a deck_version.cards snapshot (engine sort order). */
 export async function loadSnapshotCards(client: pg.PoolClient, deckId: string): Promise<SnapshotEntry[]> {
-  const { rows } = await client.query<{ card_id: string; tcgdex_id: string; name: string; quantity: number }>(
-    `SELECT dc.card_id, c.tcgdex_id, c.name, dc.quantity
+  const { rows } = await client.query<{
+    card_id: string;
+    card_variant_id: string;
+    variant_name: string | null;
+    tcgdex_id: string;
+    name: string;
+    quantity: number;
+  }>(
+    `SELECT dc.card_id, dc.card_variant_id, c.tcgdex_id, c.name, dc.quantity,
+            COALESCE(cv.display_name, vk.display_name) AS variant_name
        FROM deck_card dc
        JOIN card c ON c.id = dc.card_id
+       JOIN card_variant cv ON cv.id = dc.card_variant_id
+       JOIN variant_kind vk ON vk.code = cv.variant_kind_code
       WHERE dc.deck_id = $1
       ORDER BY CASE c.category WHEN 'Pokemon' THEN 0 WHEN 'Trainer' THEN 1 ELSE 2 END,
-               c.name, c.number_sort`,
+               c.name, c.number_sort, cv.sort_order`,
     [deckId],
   );
-  return rows.map((r) => ({ cardId: Number(r.card_id), tcgdexId: r.tcgdex_id, name: r.name, quantity: r.quantity }));
+  return rows.map((r) => ({
+    cardId: Number(r.card_id),
+    tcgdexId: r.tcgdex_id,
+    name: r.name,
+    quantity: r.quantity,
+    variantId: Number(r.card_variant_id),
+    variantName: r.variant_name,
+  }));
 }
 
 /**

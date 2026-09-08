@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type CreateListBody, type ListKind, type ListSummary, type ListVisibility } from '../lib/api'
+import { ListRuleEditor, type RuleDraft } from './ListRuleEditor'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
@@ -34,8 +35,15 @@ export function Modal({
 }
 
 // ── Create / edit list form ──────────────────────────────────────────────────
-const KIND_LABEL: Record<ListKind, { title: string; blurb: string }> = {
-  dynamic: { title: 'Dynamic List', blurb: 'Trackable — checkboxes and a progress bar that sync with your collection.' },
+// 'smart' is a CHOICE here, not a fourth kind: it creates a dynamic list that
+// carries a rule (migration 050), so the schema stays three kinds while the
+// chooser presents the distinction the owner asked for — "it's not super
+// clear that there's a real difference between a static list and a dynamic
+// list", and a rule-backed list is the biggest difference of all.
+type KindChoice = ListKind | 'smart'
+const KIND_LABEL: Record<KindChoice, { title: string; blurb: string }> = {
+  smart: { title: 'Smart List', blurb: 'A saved search that stays live — cards leave the list as you collect them.' },
+  dynamic: { title: 'Dynamic List', blurb: 'You pick the cards; checkboxes and progress sync with your collection.' },
   static: { title: 'Static List', blurb: 'A fixed list. The same card can appear multiple times, each with its own quantity.' },
   pokedex_binder: { title: 'Pokédex Binder', blurb: 'One slot per Pokémon species, rendered as a binder.' },
 }
@@ -43,6 +51,7 @@ const KIND_LABEL: Record<ListKind, { title: string; blurb: string }> = {
 export function ListFormModal({
   mode,
   initial,
+  excluded,
   busy,
   error,
   onClose,
@@ -50,15 +59,20 @@ export function ListFormModal({
 }: {
   mode: 'create' | 'edit'
   initial?: Partial<ListSummary>
+  /** Smart lists only: hand-excluded cards, restorable from the rule editor. */
+  excluded?: { variantId: number; cardId: string; name: string; number: string }[]
   busy?: boolean
   error?: string | null
   onClose: () => void
   onSubmit: (body: CreateListBody & { isFavorite?: boolean }) => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
-  const [kind, setKind] = useState<ListKind>((initial?.kind as ListKind) ?? 'dynamic')
+  const [choice, setChoice] = useState<KindChoice>(initial?.rule ? 'smart' : ((initial?.kind as ListKind) ?? 'dynamic'))
+  const [rule, setRule] = useState<RuleDraft>(initial?.rule ?? {})
   const [description, setDescription] = useState(initial?.description ?? '')
   const [visibility, setVisibility] = useState<ListVisibility>((initial?.visibility as ListVisibility) ?? 'private')
+  const smart = choice === 'smart'
+  const kind: ListKind = smart ? 'dynamic' : choice
 
   const formId = 'list-form'
   return (
@@ -70,7 +84,7 @@ export function ListFormModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" form={formId} disabled={!name.trim()} loading={busy}>
+          <Button type="submit" form={formId} disabled={!name.trim() || (smart && !rule.setId)} loading={busy}>
             {busy ? 'Saving…' : mode === 'create' ? 'Create List' : 'Save'}
           </Button>
         </div>
@@ -81,7 +95,16 @@ export function ListFormModal({
         onSubmit={(e) => {
           e.preventDefault()
           if (!name.trim()) return
-          onSubmit({ name: name.trim(), kind, description: description.trim() || null, visibility })
+          if (smart && !rule.setId) return
+          onSubmit({
+            name: name.trim(),
+            kind,
+            description: description.trim() || null,
+            visibility,
+            // Only a smart submission carries a rule; an edit of a plain list
+            // must not send the field at all (undefined = leave it alone).
+            ...(smart ? { rule } : {}),
+          })
         }}
         className="flex flex-col gap-[18px]"
       >
@@ -101,10 +124,10 @@ export function ListFormModal({
           <div className="flex flex-col gap-[8px]">
             <span className="text-[14px] font-semibold text-text-secondary">Type</span>
             <div className="flex flex-col gap-[8px]">
-              {(Object.keys(KIND_LABEL) as ListKind[]).map((k) => {
-                const active = kind === k
+              {(Object.keys(KIND_LABEL) as KindChoice[]).map((k) => {
+                const active = choice === k
                 return (
-                  <SelectableCard key={k} active={active} onClick={() => setKind(k)}>
+                  <SelectableCard key={k} active={active} onClick={() => setChoice(k)}>
                     <div className="flex items-center justify-between">
                       <span className="text-[14px] font-bold text-text-primary">{KIND_LABEL[k].title}</span>
                       {active && <Icon name="star-filled" size={16} className="text-action-primary" />}
@@ -114,6 +137,13 @@ export function ListFormModal({
                 )
               })}
             </div>
+          </div>
+        )}
+
+        {smart && (
+          <div className="flex flex-col gap-[8px] rounded-xl border border-border-default bg-surface-primary/40 p-[14px]">
+            <span className="text-[14px] font-bold text-text-primary">Rule</span>
+            <ListRuleEditor value={rule} onChange={setRule} excluded={excluded} />
           </div>
         )}
 

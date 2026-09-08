@@ -102,8 +102,20 @@ exportRouter.get(
       [deckId, userId],
     );
 
+    // Since migration 051 deck_card is one row per PRINTING; the PDF (like
+    // the engine) is card-level, so merge rows of the same card first — the
+    // checklist wants "3× Shieldon", not a Normal line and a Reverse line.
+    const merged = new Map<number, DeckCardRow>();
+    for (const r of rows) {
+      const id = Number(r.card_id);
+      const cur = merged.get(id);
+      if (cur) cur.quantity = Math.min(60, cur.quantity + r.quantity);
+      else merged.set(id, { ...r });
+    }
+    const cardRows = [...merged.values()];
+
     // Card types (for the legality engine only).
-    const ids = rows.map((r) => Number(r.card_id));
+    const ids = cardRows.map((r) => Number(r.card_id));
     const typeMap = new Map<number, PokemonType[]>();
     if (ids.length) {
       const trows = await q<{ card_id: string; type: string }>(
@@ -121,7 +133,7 @@ exportRouter.get(
     // Build the engine model + run validation exactly as routes/decks.ts does.
     const facts: CardFacts[] = [];
     const entries: DeckEntry[] = [];
-    for (const r of rows) {
+    for (const r of cardRows) {
       const f: CardFacts = {
         id: Number(r.card_id),
         tcgdexId: r.tcgdex_id,
@@ -161,8 +173,8 @@ exportRouter.get(
       number: r.local_id,
       owned: Number(r.owned_qty),
     });
-    const byCat = (cat: DeckCardRow['category']): DeckLine[] => rows.filter((r) => r.category === cat).map(toLine);
-    const sum = (cat: DeckCardRow['category']): number => rows.filter((r) => r.category === cat).reduce((n, r) => n + r.quantity, 0);
+    const byCat = (cat: DeckCardRow['category']): DeckLine[] => cardRows.filter((r) => r.category === cat).map(toLine);
+    const sum = (cat: DeckCardRow['category']): number => cardRows.filter((r) => r.category === cat).reduce((n, r) => n + r.quantity, 0);
 
     sendPdfHeaders(res, `deck-${slug(meta.name, 'deck')}.pdf`);
     renderDeckPdf(res, {
@@ -175,11 +187,11 @@ exportRouter.get(
         .filter((v) => v.severity === 'error')
         .map((v) => v.message),
       counts: {
-        total: rows.reduce((n, r) => n + r.quantity, 0),
+        total: cardRows.reduce((n, r) => n + r.quantity, 0),
         pokemon: sum('Pokemon'),
         trainer: sum('Trainer'),
         energy: sum('Energy'),
-        distinctNames: new Set(rows.map((r) => r.name_normalized ?? r.name)).size,
+        distinctNames: new Set(cardRows.map((r) => r.name_normalized ?? r.name)).size,
       },
       pokemon: byCat('Pokemon'),
       trainer: byCat('Trainer'),

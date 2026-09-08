@@ -694,6 +694,10 @@ function planStructural(e: EventRow, _strategy: Strategy): PlanEntry {
       return { ...base, action: 'remove the added item' };
     case 'list.item.remove':
       return { ...base, action: 'put the removed item back' };
+    case 'list.rule.set':
+      return { ...base, action: e.before && (e.before as { rule?: unknown }).rule ? 'restore the previous rule' : 'detach the rule again' };
+    case 'list.rule.exclude':
+      return { ...base, action: 'un-exclude the removed card (the rule shows it again)' };
     case 'deck.delete':
       return { ...base, action: `restore the deleted deck ("${String(e.before?.name ?? '')}")` };
     case 'deck.restore':
@@ -754,6 +758,32 @@ async function applyStructural(
         [e.entity_id, userId],
       );
       return r.rowCount ? log(null, e.before, 'list.restore') : null;
+    }
+    case 'list.rule.set': {
+      // Put the previous rule back (or take the new one off, when the event
+      // attached a first rule). Rows materialised by a pin are left alone —
+      // they are ignored while a rule is present, and a pin must never be
+      // able to destroy anything, forwards or backwards.
+      const prev = (e.before as { rule?: unknown } | null)?.rule ?? null;
+      const r = await client.query(
+        `UPDATE card_list SET rule = $3::jsonb, rule_evaluated_at = NULL, updated_at = now()
+          WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL AND kind = 'dynamic'`,
+        [e.entity_id, userId, prev ? JSON.stringify(prev) : null],
+      );
+      return r.rowCount ? log(e.after, e.before, 'list.rule.set') : null;
+    }
+    case 'list.rule.exclude': {
+      // Un-exclude: restore the exclusion list from before the event. Only
+      // while a rule is still present — if the rule was since detached there
+      // is nothing to un-exclude from.
+      const prev = (e.before as { exclude?: unknown } | null)?.exclude;
+      if (!Array.isArray(prev)) return null;
+      const r = await client.query(
+        `UPDATE card_list SET rule = jsonb_set(rule, '{exclude}', $3::jsonb), updated_at = now()
+          WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL AND rule IS NOT NULL`,
+        [e.entity_id, userId, JSON.stringify(prev)],
+      );
+      return r.rowCount ? log(e.after, e.before, 'list.rule.exclude') : null;
     }
     case 'list.restore': {
       const r = await client.query(`UPDATE card_list SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [e.entity_id, userId]);

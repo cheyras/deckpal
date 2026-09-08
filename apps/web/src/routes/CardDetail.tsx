@@ -7,13 +7,14 @@ import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
-import { fmtPrice, fmtDate, fmtNumber, fmtRelative } from '../lib/format'
+import { fmtPrice, fmtDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta, seriesColors } from '../lib/variantStyle'
 
 import { ValueChart } from '../components/ValueChart'
 import { rangeWindow } from '../lib/insightsCaption'
+import { bucketDayLabel, bucketRangeLabel, chartPoints, grainCaption } from '../lib/priceGrain'
 import { Sheet, useSheetClose } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
 
@@ -338,6 +339,23 @@ const PRICE_RANGES: { key: ValueRange; label: string }[] = [
  * This tab read "Price history — coming soon" from the day it shipped while
  * `price_observation` accumulated the data the whole time; what was missing was
  * a reader, and (until 2026-08-29) a scheduled job to keep filling it.
+ *
+ * ── Why there is a band, and a caption under it ────────────────────────────
+ * Old history is no longer daily. Past ~30 days it is weekly OHLC buckets, past
+ * ~6 months monthly ones (migration 048), because daily-forever is ~6.6 GB a
+ * year and does not fit. So the line is each period's CLOSE and the band is its
+ * low-to-high range — 46.8% of real weekly buckets close at or near an extreme
+ * of their own range, so a close-only line would quietly flatten out half the
+ * movement it is being asked to show.
+ *
+ * The caption says which stretch is which grain. A chart whose left half is
+ * smoother than its right half, with nothing saying why, reads as the market
+ * having calmed down.
+ *
+ * Candlesticks are deliberately not this: a band plus the extremes' own dates
+ * in the tooltip carries what a bucket actually licenses, at a fraction of the
+ * ink, and the tooltip's wording is the same contract the endpoint's JSDoc
+ * spells out for agents.
  */
 function PriceTab({ cardId }: { cardId: string }) {
   const [range, setRange] = useState<ValueRange>('3m')
@@ -348,12 +366,26 @@ function PriceTab({ cardId }: { cardId: string }) {
 
   const drawable = (data?.series ?? []).filter((s) => s.points.length > 0)
   const colors = seriesColors(drawable)
+  const currency = data?.currency ?? 'USD'
+  const fmt = (v: number) => fmtMoney(v, currency, 2)
   const series = drawable.map((s, i) => ({
     label: s.displayName,
     color: colors[i]!,
-    points: s.points,
+    points: chartPoints(s.points).map((cp, j) => {
+      const src = s.points[j]!
+      const note = [bucketRangeLabel(src, fmt), bucketDayLabel(src)].filter(Boolean).join(' · ')
+      return note ? { ...cp, note } : cp
+    }),
   }))
   const total = series.reduce((n, s) => n + s.points.length, 0)
+  // The grain floors are global, so every printing is served the same tiers —
+  // but a printing that only started being priced last month has no month
+  // points, so read the caption off the LONGEST series rather than the first.
+  const caption = grainCaption(
+    drawable.reduce<typeof drawable[number]['points']>(
+      (best, s) => (s.points.length > best.length ? s.points : best), [],
+    ),
+  )
 
   return (
     <div className="mt-[16px]">
@@ -381,7 +413,15 @@ function PriceTab({ cardId }: { cardId: string }) {
           <ErrorState message={(error as Error).message} />
         ) : total >= 2 ? (
           <>
-            <ValueChart series={series} domain={rangeWindow(range)} currency={data!.currency} height={200} />
+            <ValueChart series={series} domain={rangeWindow(range)} currency={currency} height={200} />
+            {/* Which stretch of the line is which grain. Only rendered when the
+                series actually mixes grains — captioning an all-daily chart
+                "daily since …" would imply coarser history exists before it. */}
+            {caption && (
+              <p className="mt-[8px] text-[14px] text-text-muted">
+                {caption}. Band shows each period&apos;s low to high.
+              </p>
+            )}
             {/* One legend entry per printing. With a single printing the line
                 needs no label — the card above it is the label. */}
             {series.length > 1 && (

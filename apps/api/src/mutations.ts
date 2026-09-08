@@ -89,6 +89,8 @@ export const OPS = {
   listRename: 'list.rename',
   listItemAdd: 'list.item.add',
   listItemRemove: 'list.item.remove',
+  listRuleSet: 'list.rule.set',
+  listRuleExclude: 'list.rule.exclude',
   listDelete: 'list.delete',
   listRestore: 'list.restore',
   listPurge: 'list.purge',

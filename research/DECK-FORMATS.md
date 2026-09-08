@@ -1,9 +1,16 @@
 # DECK-FORMATS.md — deck legality and deck-list interchange, implementable spec
 
 **Written:** 2026-07-24. **All lists and windows in this document are stated "as of" that date.**
-**Scope:** everything the deck builder needs that is *not* pkmn.gg behaviour. For pkmn.gg's UI
-behaviour see `research/BEHAVIOR-SPEC.md` §8; this document extends it and, where evidence
-contradicts it, says so explicitly (see §0.3).
+**Scope:** everything the deck builder needs. The substance is the official Pokémon
+tournament rules (sources S1–S12 below), which is why this document survives on its
+own: the legality engine is specified against the published rulebook, ban lists and
+rotation announcements, not against anyone's implementation of them.
+
+**Companion-document note (2026-08-31).** `research/BEHAVIOR-SPEC.md`, cited
+throughout §0.3 and §5–§8 as the reference-behaviour record this spec extends and
+corrects, was removed — see `research/REMOVED-RESEARCH.md`. Its section pointers are
+left in place as dated provenance marks; read them as "this claim was evidenced when
+it was written," not as live links.
 
 ---
 
@@ -66,7 +73,7 @@ right to. Corrections, all now evidence-backed:
 | parser must tolerate a `* ` line prefix (PTCGO legacy) | 0 occurrences in 4,840 files. Harmless to tolerate; do not design for it. [O] |
 | `Basic {R} Energy` brace notation — "tolerate" | It is the **normal, required** spelling for basic Energy. Not an edge case. [O] |
 | ACE SPEC limit "changed over time" (task brief) | **No change found.** 1 per deck since Black & White. S5 Appendix 2 frames it as continuous. §3.5 |
-| pkmn.gg's `Not Legal` predicate | unchanged — but see §5.5 for the validation-result shape that can render it |
+| the reference tracker's `Not Legal` predicate | unchanged — but see §5.5 for the validation-result shape that can render it |
 | `Legal Status` at 0/60 is `Not Legal` | consistent with §3.1: deck size is part of the predicate |
 
 `BEHAVIOR-SPEC.md` §8.3's *policy* conclusions (legality is per-set/per-card data with an effective
@@ -530,7 +537,7 @@ tell Mass Entry that you don't mind which art you get, you just want it to be fr
 Maybe you don't even mind which set the card's from — just the quantity and card name will work
 fine, too."*
 
-**[O]** `BEHAVIOR-SPEC.md` §8.8 records pkmn.gg's card changelog carrying a field literally named
+**[O]** `BEHAVIOR-SPEC.md` §8.8 records the reference tracker's card changelog carrying a field literally named
 `TCGplayer Mass Entry` whose value is `1 Goldeen [ME05] 13`.
 
 ```ebnf
@@ -728,7 +735,7 @@ same card* (`Ghetsis 101/116 and 115/116`). Our alias/variant model must map bot
 
 ## 2.3 Gym Leader Challenge (GLC)
 
-A fan format; `gymleaderchallenge.com` is the authority and pkmn.gg supports it as a first-class
+A fan format; `gymleaderchallenge.com` is the authority and the reference tracker supports it as a first-class
 format tab (`BEHAVIOR-SPEC.md` §8.1).
 
 ### 2.3.1 The rules, verbatim
@@ -957,11 +964,11 @@ Exact wording, then the implementable form, then which formats it applies to.
 > cards!"*
 > **[D]** S6 (GLC): *"60 card decks are built."*
 
-`count == 60` **exactly**, all four formats. **[O]** `BEHAVIOR-SPEC.md` records pkmn.gg showing
+`count == 60` **exactly**, all four formats. **[O]** `BEHAVIOR-SPEC.md` records the reference tracker showing
 `Not Legal` at 0/60, so size is part of the predicate, not a separate progress indicator.
 
 *(For completeness: Limited formats are 40 cards with no copy limit and 4 prizes — **[D]** S1 §5.
-We do not support Limited; pkmn.gg does not either.)*
+We do not support Limited; the reference tracker does not either.)*
 
 ## 3.2 The 4-copy rule — by name, across printings
 
@@ -1117,7 +1124,7 @@ Applies to: Expanded, Unlimited (1 per name). Not in Standard (era). GLC: **bann
 
 # 4. Test hand / sample draw — what the game rules actually require
 
-`BEHAVIOR-SPEC.md` §8.5 could not determine pkmn.gg's mechanics and correctly declined to guess.
+`BEHAVIOR-SPEC.md` §8.5 could not determine the reference tracker's mechanics and correctly declined to guess.
 Here is what the **rules** require, so we can build a correct simulator regardless.
 
 ## 4.1 Setup, verbatim
@@ -1182,7 +1189,7 @@ until a Basic is found, set it aside, reshuffle, draw 6, add the Basic for a 7-c
 | Prizes | after a keepable hand, deal 6 from the remaining 53; offer a "peek prizes" toggle (a solitaire aid, not a game rule) |
 | Opponent draw | show `"your opponent would draw N extra cards"` where N = mulligan count. This is the single most useful output of a test hand and no prior-art project shows it |
 | Safety valve | cap auto-mulligans at 8 and then surface S1 §7.4.2's procedure, so a 1-Basic deck does not spin forever |
-| Statistics | **[I] recommended divergence:** run the draw 10,000 times headlessly and report P(mulligan), P(≥1 Basic), P(specific card in opening 7), P(dead-drawing a named combo). Cheap on a Pi, and strictly better than clicking "Test Hand" 40 times. pkmn.gg does not appear to do this. |
+| Statistics | **[I] recommended divergence:** run the draw 10,000 times headlessly and report P(mulligan), P(≥1 Basic), P(specific card in opening 7), P(dead-drawing a named combo). Cheap on a Pi, and strictly better than clicking "Test Hand" 40 times. the reference tracker does not appear to do this. |
 | Determinism | seed the RNG and put the seed in the URL, per `BEHAVIOR-SPEC.md` §16 item 1 — a shareable "this hand" link |
 
 Note the simulator needs `stage == 'Basic'`, which TCGdex provides directly, **plus** the special
@@ -1486,7 +1493,7 @@ Rules for the validator implementation:
 - `legal == (no violation with severity 'error')`. Warnings never make a deck illegal.
 - `deck_card_ids` and `card_ids` exist so the deck list can highlight in place rather than deleting —
   **[D]** `BEHAVIOR-SPEC.md` §8.4 item 4.
-- The copy cap is the one rule pkmn.gg *prevents* rather than reports (**[D]** A16, "we'll
+- The copy cap is the one rule the reference tracker *prevents* rather than reports (**[D]** A16, "we'll
   automatically ensure you don't go over max"). Keep `COPY_LIMIT` in the validator anyway — imports
   and rotation-driven reprint changes can produce an over-cap deck that the UI never let you build.
 - `rule_source` / `rule_url` on every violation is what makes the disclosure trustworthy instead of
@@ -1547,7 +1554,7 @@ Ranked by how much it hurts if I am wrong.
 | 9 | **`rule_box_kind` completeness.** TCGdex's `suffix` gave me `V, EX, ex, GX, TAG TEAM-GX, SP` across the sets I sampled; I never saw `VMAX`, `VSTAR` or `BREAK` as suffix values — in `swsh10` all 57 rule-box Pokémon came back as `suffix: 'V'` | Medium for GLC only | One query over a VMAX/VSTAR-heavy set checking `suffix` vs `name` |
 | 10 | **GLC's "cards that say 'cannot be used in official tournaments'"** (Zacian Lv.X, Dragapult Prime, Imakuni?'s Doduo). No field marks these | Low — tiny card pool, hand-list it | Manual |
 | 11 | **Spanish / Italian PTCGL section labels.** Not in my sample | Very low — §1.6's positional fallback handles it | One export in each language |
-| 12 | **pkmn.gg's own Test Hand mechanics.** Still unknown (`BEHAVIOR-SPEC.md` §15 item 11). §4 specifies what the *rules* require, which is what we should build regardless | None — this is a deliberate divergence | An authenticated session |
+| 12 | **the reference tracker's own Test Hand mechanics.** Still unknown (`BEHAVIOR-SPEC.md` §15 item 11). §4 specifies what the *rules* require, which is what we should build regardless | None — this is a deliberate divergence | An authenticated session |
 
 **Cleanup:** the two clones used for this research
 (`ptcgl-decklist-parser`, `codes4tcg-decks`) lived in the session scratchpad and have been removed.

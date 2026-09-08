@@ -152,6 +152,77 @@ export function lookupRecord(
 }
 
 /**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * AND THE FAILURES, WHICH THIS FILE USED TO THROW AWAY
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * `lookupRecord` above replays `ok` and `partial` only, which is right for a
+ * record of what was FOUND. The consequence was that a failure had no way out
+ * of its turn at all: the chip is transient, nothing else on the wire carried
+ * it, and so every turn began in a context where no tool had ever failed.
+ *
+ * Measured, 2026-08-29: `battle_logs` returned "Internal server error" on four
+ * turns of one conversation and was re-called, unprompted, on every one of them
+ * — including the turn straight after *"I won't keep hammering that tool."* It
+ * was not disobeying. It could not see.
+ *
+ * A FAILURE IS REPLAYED AS THE REAL THING, not as prose. `{type:'tool-<name>',
+ * state:'output-error', errorText}` is the AI SDK's own part shape:
+ * `convertToModelMessages` turns it into a `tool-call` plus an `error-text`
+ * `tool-result`, so the model reads it as the failed call it was rather than as
+ * a sentence about one — the same argument that made `declinedCalls` scan real
+ * `approval` parts instead of text. `failing.ts` counts them server-side.
+ *
+ * ARGS RIDE ALONG because the chip already carries them (`toolArgs.ts` — "sent
+ * on `start` only and carried forward"), and a `tool-call` with no input is a
+ * call the model cannot recognise as the one it made.
+ */
+
+/** What a replayed failure looks like on the wire. */
+export type FailurePart = {
+  type: string
+  toolCallId: string
+  input: Record<string, unknown>
+  state: 'output-error'
+  errorText: string
+}
+
+/**
+ * How many failures one turn may replay.
+ *
+ * THE PAYLOAD IS THE COST. Every part here is re-billed on every leg of every
+ * later turn, exactly like the landmark list, and a turn that flailed can hold
+ * a dozen error chips. Four is enough for the breaker to see a pattern
+ * (`CIRCUIT_BUDGET` is 2 distinct TURNS, so one is enough per turn) and small
+ * enough that a bad turn cannot dominate the window. The surplus is dropped
+ * silently; there is nothing sensible the model could do with a marker.
+ */
+export const MAX_REPLAYED_FAILURES = 4
+
+/** A chip, plus the two fields a replayed failure needs beyond `RecordedCall`. */
+export type FailedCall = RecordedCall & { id: string; args?: Record<string, unknown> }
+
+/**
+ * The failed calls of one turn, as wire parts.
+ *
+ * `summary` IS the error text — it is the first lines of the real result, from
+ * the server's own `summariseError`, never model prose (X2). A chip with no
+ * summary says nothing and is dropped rather than replayed as an empty failure.
+ */
+export function failureParts(chips: readonly FailedCall[]): FailurePart[] {
+  return chips
+    .filter((t) => t.phase === 'error' && typeof t.summary === 'string' && t.summary.trim().length > 0)
+    .slice(0, MAX_REPLAYED_FAILURES)
+    .map((t) => ({
+      type: `tool-${t.name}`,
+      toolCallId: t.id,
+      input: t.args ?? {},
+      state: 'output-error' as const,
+      errorText: t.summary as string,
+    }))
+}
+
+/**
  * The calls a leg added, given what earlier legs already carried forward.
  *
  * ONLY THE NEW ONES. Chips live on the reply message for the whole turn, so

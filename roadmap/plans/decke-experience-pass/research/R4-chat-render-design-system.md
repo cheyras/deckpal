@@ -702,7 +702,7 @@ in `theme.css`; every gap/padding/height in the codebase (including all of
 ### D.3 Light/dark theming mechanism
 
 **Dark-only, by design, no light theme exists.** `theme.css`'s own header
-(lines 8-12) states it: `"Dark-only theming (UI-SPEC §2): pkmnDark is the only
+(lines 8-12) states it: `"Dark-only theming (UI-SPEC §2): deckpalDark is the only
 scheme shipped; the data-theme="dark" attribute on <html> is the
 machine-readable switch."` No `@media (prefers-color-scheme)` branching exists
 for color tokens. The only "light" tokens are the `--color-surface-on-light-*`

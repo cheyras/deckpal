@@ -7,9 +7,14 @@
  * Everything here is read-only and parameterised. Uses its own pool clamped to a
  * SINGLE connection (the task's "prefer a single connection for tests"), created
  * on demand and closed by the caller — see prove.ts / the DB tests.
+ *
+ * Every function takes the queryable to run on rather than reaching for a pool
+ * of its own, so a route hands it the request's already-checked-out RLS client
+ * (`dbHandle()`, apps/api/src/db.ts) and a CLI hands it a pool. Taking a second
+ * connection while a request holds one is the deadlock B2 exists to prevent.
  */
 import pg from 'pg';
-import { loadEnv, makePool } from '@deckpal/db';
+import { loadEnv, makePool, type Queryable } from '@deckpal/db';
 import type { CardFacts, Deck, DeckEntry, FormatCode, PokemonType, ValidationWarning } from './types.js';
 import type { ParsedDeck, ParsedLine } from './ptcgl.js';
 import { normalizeName, BRACE_TO_TYPE } from './names.js';
@@ -46,7 +51,7 @@ const CARD_SELECT = `
          c.hp, c.retreat, c.regulation_mark, c.evolve_from, c.released_on
     FROM card c JOIN card_set s ON s.id = c.set_id`;
 
-async function typesFor(pool: pg.Pool, ids: number[]): Promise<Map<number, PokemonType[]>> {
+async function typesFor(pool: Queryable, ids: number[]): Promise<Map<number, PokemonType[]>> {
   const out = new Map<number, PokemonType[]>();
   if (ids.length === 0) return out;
   const { rows } = await pool.query<{ card_id: string; type: string }>(
@@ -89,14 +94,14 @@ function toFacts(row: CardRow, types: PokemonType[]): CardFacts {
   };
 }
 
-async function factsFromRows(pool: pg.Pool, rows: CardRow[]): Promise<CardFacts[]> {
+async function factsFromRows(pool: Queryable, rows: CardRow[]): Promise<CardFacts[]> {
   const typeMap = await typesFor(pool, rows.map((r) => Number(r.id)));
   return rows.map((r) => toFacts(r, typeMap.get(Number(r.id)) ?? []));
 }
 
 /** Load one card by (tcgdex set id, numeric collector number). */
 export async function loadBySetNumber(
-  pool: pg.Pool, setTcgdexId: string, number: string, offset = 0,
+  pool: Queryable, setTcgdexId: string, number: string, offset = 0,
 ): Promise<CardFacts | null> {
   const numeric = /^\d+$/.test(number) ? parseInt(number, 10) + offset : null;
   if (numeric !== null) {
@@ -117,7 +122,7 @@ export async function loadBySetNumber(
 /** Load one card by its catalogue id ('base1-60'). Exact, unlike splitting the
  *  id on '-': a set id may itself contain punctuation ('me02.5'), so the caller
  *  should never have to take the string apart. */
-export async function loadByTcgdexId(pool: pg.Pool, tcgdexId: string): Promise<CardFacts | null> {
+export async function loadByTcgdexId(pool: Queryable, tcgdexId: string): Promise<CardFacts | null> {
   const { rows } = await pool.query<CardRow>(
     `${CARD_SELECT} WHERE c.tcgdex_id = $1 AND c.lang='en' LIMIT 1`,
     [tcgdexId],
@@ -126,7 +131,7 @@ export async function loadByTcgdexId(pool: pg.Pool, tcgdexId: string): Promise<C
 }
 
 /** All prints of a normalized name (parenthetical-insensitive via LIKE prefilter + JS filter). */
-export async function loadByName(pool: pg.Pool, rawName: string): Promise<CardFacts[]> {
+export async function loadByName(pool: Queryable, rawName: string): Promise<CardFacts[]> {
   const nn = normalizeName(rawName);
   const { rows } = await pool.query<CardRow>(
     `${CARD_SELECT} WHERE c.name_normalized LIKE $1 AND c.lang='en'
@@ -138,7 +143,7 @@ export async function loadByName(pool: pg.Pool, rawName: string): Promise<CardFa
 }
 
 /** Basic Energy of a given type (for {brace}/`Energy` pseudo-set, §1.5 case 2/3). */
-async function loadBasicEnergyOfType(pool: pg.Pool, type: string): Promise<CardFacts | null> {
+async function loadBasicEnergyOfType(pool: Queryable, type: string): Promise<CardFacts | null> {
   const { rows } = await pool.query<CardRow>(
     `${CARD_SELECT}
       JOIN card_type t ON t.card_id = c.id
@@ -160,7 +165,7 @@ function braceType(name: string): string | null {
  * Returns the entry (with resolution provenance) or null if wholly unresolved.
  */
 export async function resolveLine(
-  pool: pg.Pool, line: ParsedLine, formatCode: FormatCode,
+  pool: Queryable, line: ParsedLine, formatCode: FormatCode,
 ): Promise<DeckEntry | null> {
   const provenance = {
     quantity: line.quantity,
@@ -221,7 +226,7 @@ export async function resolveLine(
 
 /** Resolve a whole parsed deck. Never drops a line silently (§1.7.2 step 5). */
 export async function resolveDeck(
-  pool: pg.Pool, parsed: ParsedDeck, formatCode: FormatCode, glcType?: PokemonType | null,
+  pool: Queryable, parsed: ParsedDeck, formatCode: FormatCode, glcType?: PokemonType | null,
 ): Promise<Deck> {
   const entries: DeckEntry[] = [];
   const warnings: ValidationWarning[] = [...parsed.warnings];
@@ -246,7 +251,7 @@ export async function resolveDeck(
 // ── Fingerprints + reprint oracle ─────────────────────────────────────────────
 
 /** Build FingerprintInputs for a set of card ids by joining the child tables. */
-export async function fingerprintInputs(pool: pg.Pool, ids: number[]): Promise<Map<number, FingerprintInput>> {
+export async function fingerprintInputs(pool: Queryable, ids: number[]): Promise<Map<number, FingerprintInput>> {
   const out = new Map<number, FingerprintInput>();
   if (ids.length === 0) return out;
   const { rows: base } = await pool.query<CardRow & { effect: string | null }>(
@@ -294,7 +299,7 @@ export async function fingerprintInputs(pool: pg.Pool, ids: number[]): Promise<M
   return out;
 }
 
-export async function computeFingerprints(pool: pg.Pool, ids: number[]): Promise<Map<number, string | null>> {
+export async function computeFingerprints(pool: Queryable, ids: number[]): Promise<Map<number, string | null>> {
   const inputs = await fingerprintInputs(pool, ids);
   const out = new Map<number, string | null>();
   for (const [id, inp] of inputs) out.set(id, playableFingerprint(inp));
@@ -316,7 +321,7 @@ export async function computeFingerprints(pool: pg.Pool, ids: number[]): Promise
  * Grookey are different cards with one name.
  */
 async function reprintOracleByCompute(
-  pool: pg.Pool, need: CardFacts[], legalMarks: string[],
+  pool: Queryable, need: CardFacts[], legalMarks: string[],
 ): Promise<Set<number>> {
   const legalIds = new Set<number>();
   const fpCache = await computeFingerprints(pool, need.map((c) => c.id));
@@ -380,7 +385,7 @@ async function reprintOracleByCompute(
  * than degrading quietly.
  */
 export async function buildReprintOracle(
-  pool: pg.Pool, cards: CardFacts[], legalMarks: string[],
+  pool: Queryable, cards: CardFacts[], legalMarks: string[],
 ): Promise<(card: CardFacts) => boolean> {
   const need = cards.filter((c) => !(c.regulationMark && legalMarks.includes(c.regulationMark)));
   if (need.length === 0) return () => false;

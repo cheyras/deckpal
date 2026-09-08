@@ -46,7 +46,7 @@ export function Insights() {
     <Content cap={1000}>
       <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Insights</h1>
 
-      {/* Overview | Trends sub-toggle (pkmn.gg captures §14.4) */}
+      {/* Overview | Trends sub-toggle */}
       <Tabs
         variant="pill"
         items={[

@@ -3,16 +3,18 @@
  *
  * A dismissal with no restore is a trap, and a restore nobody can find is the
  * same trap with extra steps. So the toggle lives beside the other account
- * settings, where a person looking for "how do I turn this off" looks — and it
- * states what the choice actually costs, because "hide the assistant" and "hide
- * the assistant on this device" are different promises and only one of them is
- * true.
+ * settings, where a person looking for "how do I turn this off" looks.
  *
- * See `character/deckePreference.ts` for why this is per-device and what the
- * measured cost of not having it at all is.
+ * The choice is saved on the ACCOUNT (user_settings.decke_hidden, migration
+ * 049) with localStorage as the offline cache, so hiding him holds on every
+ * device — the caption used to have to admit "remembered on this device
+ * only", and the owner asked for exactly that to stop being true. See
+ * `character/deckePreference.ts` for the measured cost of having no dismissal
+ * at all, and `lib/settingsSync.ts` for how the two copies stay agreed.
  */
 import { useEffect, useState } from 'react'
 import { deckeHidden, onDeckeVisibilityChange, setDeckeHidden } from '../character/deckePreference'
+import { pushSettings } from '../lib/settingsSync'
 import { Icon } from './Icon'
 
 export function DeckeVisibility() {
@@ -32,7 +34,7 @@ export function DeckeVisibility() {
               : 'Deck-E sits in the corner of every page. He only loads when you open him.'}
           </p>
           <p className="mt-[4px] text-[12px] text-text-muted">
-            This is remembered on this device only — signing in elsewhere shows him again.
+            Saved to your account — it applies everywhere you sign in.
           </p>
         </div>
 
@@ -41,7 +43,12 @@ export function DeckeVisibility() {
           // `aria-pressed` rather than a checkbox role: this is a control that
           // toggles a state, and the label already says which state it moves to.
           aria-pressed={hidden}
-          onClick={() => setDeckeHidden(!hidden)}
+          onClick={() => {
+            // Local first (instant, works offline), then the account — the
+            // account copy is what makes this hold on the next device.
+            setDeckeHidden(!hidden)
+            pushSettings({ deckeHidden: !hidden })
+          }}
           className="inline-flex shrink-0 items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] py-[8px] text-[14px] font-semibold text-text-primary hover:bg-action-default-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-action-primary"
         >
           <Icon name={hidden ? 'sparkle' : 'close'} size={16} className="text-action-primary" />

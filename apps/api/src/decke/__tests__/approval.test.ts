@@ -82,11 +82,21 @@ test('a write tool with NO dry_run always needs approval', () => {
   // which is why the rule is written the way it is. (`add_battle_log` and
   // `edit_battle_log` left this set in the 2026-08-29 agentic pass when they
   // gained a real dry_run — their previewability pins live in aisdk.test.ts.)
+  // THE WRITE SHAPE, which is what "every call is a real write" was ever about:
+  // `deck_strategy` writes only when it carries `markdown`. The markdown-LESS
+  // shape is a pure read by the tool's own contract — it returns the guide and
+  // returns before the PUT — and asking the reader to authorise a call that
+  // cannot write is misleading consent, so it left this rule on 2026-08-29.
+  // See `wouldMutate`'s carve-out and the read-shape pin in aisdk.test.ts.
   for (const n of ['deck_strategy']) {
     const d = get(n)
     assert.equal(d.inputSchema && 'dry_run' in d.inputSchema.shape, false, `${n} gained a dry_run`)
-    assert.equal(requiresApproval(d, {}), true)
-    assert.equal(requiresApproval(d, { dry_run: true }), true, `${n} has no dry_run to honour`)
+    assert.equal(requiresApproval(d, { deck_id: 'd1', markdown: '# Guide' }), true)
+    assert.equal(
+      requiresApproval(d, { deck_id: 'd1', markdown: '# Guide', dry_run: true }),
+      true,
+      `${n} has no dry_run to honour`,
+    )
   }
   // And the two that left the set: they HAVE a dry_run now (defaulting to TRUE),
   // so they classify exactly like log_cards — omitted dry_run is a PREVIEW

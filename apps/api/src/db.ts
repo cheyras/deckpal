@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
-import { loadEnv, makePool } from '@deckpal/db';
+import { loadEnv, makePool, type Queryable } from '@deckpal/db';
 import { pct } from './insights/trainerLevel.js';
 
 /**
@@ -49,6 +49,26 @@ export { SUPABASE_MODE };
 
 /** AsyncLocalStorage carrying the per-request RLS-enabled PoolClient. */
 export const rlsStore = new AsyncLocalStorage<pg.PoolClient>();
+
+/**
+ * The connection a caller must query on: the request's own client when one is
+ * active, the shared pool otherwise.
+ *
+ * 🔴 Anything reached from a route handler that takes a queryable as an
+ * argument MUST be handed this, never `pool`. In SUPABASE_MODE the RLS
+ * middleware holds one pooled client for the whole lifetime of the request, and
+ * `pool.query()` implicitly checks out a SECOND one — so N concurrent requests
+ * want 2N connections out of a pool of `max`. At max=2 two requests deadlock
+ * each other until connectionTimeoutMillis fires and both answer 500 (B2; that
+ * is the production incident of 2026-08-29). q()/q1()/withTx() already honour
+ * the store; this is for the helpers that receive a queryable instead.
+ *
+ * Outside a request (boot, workers, CLIs) there is no store and the pool is the
+ * right answer.
+ */
+export function dbHandle(): Queryable {
+  return rlsStore.getStore() ?? pool;
+}
 
 /**
  * Commit the per-request RLS transaction NOW, before the response is written.
@@ -216,7 +236,7 @@ interface ProgressDbRow {
  * return them shaped for the API. Must be called on a transaction client so the
  * recompute is atomic with the collection write that triggered it.
  *
- * Semantics (SCHEMA §5.3 / §9.2, pkmn.gg captures §4/§8/§11):
+ * Semantics (SCHEMA §5.3 / §9.2):
  *   • complete    — card fraction: a card counts owned if ANY variant qty ≥ 1.
  *   • master      — (card, standard-variant) pair fraction over master_required_variant
  *                   (standard-tier pairs + is_primary fallback for cards with no standard).
@@ -384,8 +404,8 @@ export function cardImages(serieTcgdexId: string, setTcgdexId: string, localId: 
 
 // ── TCGplayer buy URL ────────────────────────────────────────────────────────
 // Prefer the stored tcgplayer_url (present on tcgcsv-sourced variants); otherwise
-// compose from product_id + printing, matching the shape pkmn.gg links to
-// (ROUTE-MAP §1.11). Returns null when we have no TCGplayer mapping at all.
+// compose from product_id + printing, matching TCGplayer's own product-page URL
+// shape. Returns null when we have no TCGplayer mapping at all.
 
 export function tcgplayerUrl(
   storedUrl: string | null,

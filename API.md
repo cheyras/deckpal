@@ -7,7 +7,9 @@ Registered on the same app but documented elsewhere, not repeated here: OAuth
 2.1 + personal-access-token management (`/oauth`, `/tokens`) in
 `apps/mcp/SPEC.md`; Deck-E's history and owner-gate/account routes (`/decke`,
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
-the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10.
+the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
+itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
+`/me/showcase` sub-routes are frontend surface and documented here (§Account).
 
 **Deployment modes:**
 
@@ -234,6 +236,71 @@ Empty `prices` ⇒ render "no price". `buyUrl` is `null` when there is no TCGpla
 mapping at all. `quantity` is the requesting user's owned count of that variant (0 if
 unowned) — the initial value for the card-detail quantity stepper.
 
+## GET /deckpal/api/cards/:cardId/prices
+Observed market price over time, one series per PRINTING, at whatever GRAIN that
+stretch of history still exists in.
+
+| param | kind | notes |
+|---|---|---|
+| `range` | `30d`\|`3m`\|`6m`\|`1y`\|`18m`\|`2y` | default `3m`; same vocabulary as the Insights value chart |
+| `currency` | `USD`\|`EUR`\|`JPY` | default `USD` |
+
+```json
+{ "currency":"USD", "range":"2y",
+  "series":[ { "variantId":15, "kind":"holo-unlimited", "displayName":"Holofoil", "tier":"standard",
+               "points":[
+                 { "grain":"month","start":"2025-03-01","end":"2025-03-31",
+                   "open":780.10,"high":812.00,"low":749.55,"close":801.20,
+                   "highOn":"2025-03-09","lowOn":"2025-03-22",
+                   "mean":779.40,"median":781.00,"n":31 },
+                 { "grain":"week","start":"2026-02-23","end":"2026-03-01",
+                   "open":800.43,"high":806.10,"low":795.00,"close":802.75,
+                   "highOn":"2026-02-25","lowOn":"2026-02-28",
+                   "mean":800.90,"median":801.10,"n":7 },
+                 { "grain":"day","start":"2026-08-15","end":"2026-08-15",
+                   "open":812.34,"high":812.34,"low":812.34,"close":812.34,
+                   "highOn":"2026-08-15","lowOn":"2026-08-15",
+                   "mean":812.34,"median":812.34,"n":1 } ] } ] }
+```
+
+**Three tiers, one point shape.** Daily rows forever do not fit the disk
+(~6.6 GB/year at three TCGs), so history is kept daily for ~30 days, as weekly
+OHLC buckets for ~6 months, and as monthly buckets forever — see
+`research/SCHEMA.md` §7.5. A DAY is a **degenerate bucket**:
+`open = high = low = close`, `start = end = highOn = lowOn`, `n = 1`. A client
+that only wants a line reads `close` and never branches on `grain`.
+
+Points are ordered oldest first, month → week → day, and are contiguous — the
+rollup HALTS rather than rolling past a month it cannot finish, precisely so
+that the daily floor never jumps over a month whose rows would then be visible
+at no grain at all. The one edge that is not covered is the window's own left
+edge: a bucket that starts before `range` begins is excluded, so a 1y or 2y
+chart can begin up to a month after its nominal start. Two seams overlap by up
+to six days each — the tiers are not a clean tiling (a month
+bucket and its own week buckets describe the same days at two grains) and an
+overlap was chosen over a gap deliberately: a chart with a hole in it reads as
+missing data. `n` is the number of days actually observed in the bucket, so a
+week with `n: 5` had a two-day ingest gap.
+
+**What may be asserted from a bucket** — this is a CONTRACT, and it ships
+verbatim in the endpoint's JSDoc because rollup destroys real information:
+
+- **MAY**: open/close/high/low/mean/median of a bucket; the exact dates and
+  values of the period's high and low (`highOn`/`lowOn` are true daily facts
+  that survive the rollup); trend across buckets; volatility DERIVED from OHLC
+  (Parkinson / Garman-Klass — there is no stored variance, because
+  `corr(stddev, high-low) = 0.9878` measured over 633,431 real weekly buckets,
+  and no VWAP, because TCGCSV supplies no volume).
+- **MAY NOT**: any specific day's price inside a week or month bucket other than
+  the two extremes; the path between them; durations ("stayed under \$5 for
+  eleven days"); a second or third dip within one bucket.
+
+"It dipped to \$4.00 on the 12th" is licensed if and only if `lowOn` says the
+12th and `low` says \$4.00.
+
+No agent tool exposes price history today (`get_card` serves current prices
+only). Any that later does must carry the block above unchanged.
+
 ## GET /deckpal/api/search
 The 12-filter advanced search. AND across fields, OR within a multi-value field.
 
@@ -307,6 +374,48 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 ```
 
 ---
+
+## Account — settings & showcase
+
+Per-user, backed by `user_settings` (005 + 049) and `user_showcase` (005).
+These are the server-side home of what used to be device-only localStorage
+preferences; the client treats localStorage as an offline cache of them
+(`apps/web/src/lib/settingsSync.ts`).
+
+### GET /deckpal/api/me/settings
+The account's whole settings row, camel-cased. `skin`/`topbar` are `null`
+when the account never chose — the app default applies.
+```json
+{ "settings": { "defaultGoal": "complete", "displayCurrency": "USD",
+                "pricingEnabled": true, "showCollectionValue": true,
+                "binderPocketSize": 9, "binderStackVariants": true,
+                "binderAdditionalVariants": "inline",
+                "deckeHidden": false, "skin": null, "topbar": null,
+                "seriesSortKey": "recency", "seriesSortDir": "desc",
+                "seriesGroupOwned": true } }
+```
+
+### PATCH /deckpal/api/me/settings
+Any subset of the fields above; returns the full updated row in the same
+shape. Unknown values are a `400` (never a silent reset to the default);
+`displayCurrency` is validated against the `currency` table; `skin`/`topbar`
+accept `null` to mean "follow the app default". A body with no known field is
+a `400`.
+
+### GET /deckpal/api/me/showcase
+The profile's featured cards in slot order (`user_showcase`, slots 1-based,
+up to 8 — the profile UI uses 4).
+```json
+{ "showcase": [ { "slot": 1, "cardId": "base1-4", "name": "Charizard",
+                  "images": { "low": "…", "high": "…" } } ] }
+```
+
+### PUT /deckpal/api/me/showcase
+`{ "cards": ["base1-4", null, "swsh3-20"] }` — replaces the whole showcase in
+one transaction. Each entry is a card id (resolved server-side to the card's
+primary variant, exactly as the list bulk-add does) or `null` for an empty
+slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
+shape.
 
 ## Collection — mutation & activity log
 
@@ -401,7 +510,18 @@ static, pokedex_binder}`):
 - **dynamic** — an ordered set of `card_variant` references. Membership is the
   stored references; **ownership is read through from the collection at read
   time** and never stored on the list, so the progress cluster (owned/total,
-  copies) auto-syncs with the collection live. Mirrors pkmn.gg's Dynamic List.
+  copies) auto-syncs with the collection live.
+- **dynamic + rule** ("smart list", migration 050) — the dynamic list carries a
+  saved query instead of stored rows: the `addMissing` spec (`setId`, `goal`,
+  `finishes`, `rarity`, `rarityExclude`, `maxPriceUsd`, `pricedOnly`) plus
+  `exclude` (variant ids removed by hand) and a server-resolved `setName`.
+  Membership is re-evaluated on EVERY read via `missingForGoal` — own a card
+  and it leaves the list. Item add/bulk-add/reorder are refused with a 400
+  ("membership is its rule"); DELETE of the synthetic `rule-<variantId>` item
+  id records an exclusion instead of deleting a row. `PATCH { "rule": null }`
+  PINS the list: the current evaluation is materialised into stored rows and
+  the rule detached. Rule set/exclusion are undoable (`list.rule.set`,
+  `list.rule.exclude` in the mutation log).
 - **static** — an ordered **bag** of `card_variant` references; duplicates allowed,
   each row carries its own `static_quantity` (≥1). No collection tie, no progress.
 - **pokedex_binder** — one slot per dex species (`list_item.dex_id`). Read-through
@@ -421,9 +541,19 @@ summary aggregates.
                "itemCount": 12, "progress": { "owned": 3, "total": 12, "pct": 25, "copies": 4 },
                "marketValueUsd": 67.12,
                "coverImage": { "low": "…", "high": "…" },
+               "coverImages": [ { "low": "…", "high": "…" } ],
                "createdAt": "…", "updatedAt": "…" } ] }
 ```
-`progress` is `null` for `static` lists (no collection tie).
+`progress` is `null` for `static` lists (no collection tie) **and for smart
+lists** (owned is 0 by construction — an owned card is no longer missing, so
+it is no longer a member; their tiles show count + cost-to-finish instead).
+Summaries carry `rule` (the saved query, or `null`) and `ruleEvaluatedAt`;
+a smart list's `itemCount`/`marketValueUsd`/`coverImages` come from evaluating
+its rule at read time. `coverImages` is
+up to 8 DISTINCT CARDS in list order with the explicit cover pick first —
+the index tile's mosaic (distinct by card, because a static list holding four
+copies of one card is a quantity, not four tiles). `coverImage` remains the
+first-tile shorthand.
 
 ### GET /deckpal/api/lists/:id
 One list's summary plus its resolved items in position order. Card items carry
@@ -489,6 +619,23 @@ the list. Bumps the list's `updated_at`.
 ---
 
 ## Decks — builder, engine, intelligence
+
+**Variant-scoped since migration 051.** `deck_card` is one row per PRINTING
+(PK `(deck_id, card_variant_id)`; `card_id` kept denormalised, held honest by
+a composite FK) — "2 Normal + 1 Reverse Holofoil" is two rows. Deck cards
+carry `variantId` + `variant {kind, displayName, tier, isPrimary}`; `owned`
+and `price` are that printing's own numbers, not a rollup/representative.
+The card add/set/remove routes take an optional `variantId` (body, or
+`?variant=` on DELETE): omitted on add = the card's primary printing; omitted
+on PATCH targets the card's single deck row and 400s when several printings
+make it ambiguous; omitted on DELETE removes the whole card, every printing.
+Imports resolve to primary printings and say so (`import.variantNote`). The
+ENGINE (validation/legality) and PTCGL export aggregate rows to card level —
+game rules and Live lines are per card; the Mass Entry export stays per
+printing on purpose (each row has its own TCGplayer token). Version snapshots
+gain `variantId`/`variantName`; the version diff aggregates to card level
+(a pre-051 snapshot reads as "primary, never a change") and reports
+same-total printing swaps in its own `printings` array.
 
 Persistence + validation + interchange on top of the verified deck engine in
 `apps/api/src/deck`. `deck` is keyed by UUID; `deck_card` is **variant-agnostic**

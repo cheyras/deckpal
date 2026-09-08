@@ -213,6 +213,7 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DECKE_ENTITLED_USER_IDS` | `<uuid>,<uuid>` | **Who may talk to Deck-E, beyond the owner.** Comma-separated `auth.users` UUIDs. `POST /api/chat` refuses anything not on this list and not `DESIGN_EDITOR_USER_ID` with **403**, checked server-side before the body is parsed. Until 2026-08-21 there was no server-side check at all — the gate lived in the browser, so any signed-in account could `curl` a full model turn onto the owner's Gateway key (verified against the deployed endpoint, not hypothesised). **Unset means owner-only**, which is a real intended configuration rather than a failure, so `GET /health` reports `deckeEntitlement.status` as `owner-only` — or `nobody` when `DESIGN_EDITOR_USER_ID` is also unset, which shuts Deck-E to everybody and warns on boot. Health reports the STATUS and a COUNT, never the ids: `/health` is unauthenticated. **This is also what makes the feature verifiable**: the QA account (`.qa-account`, AGENTS.md B12) is deliberately an ordinary user, and the browser gates for Deck-E include ones that write, which may never run as the owner. Put the QA account's UUID here. |
 | `DECKE_MAX_TURNS_PER_DAY` | `120` (default) | Per-account daily cap on Deck-E conversation, enforced in Postgres (`decke_usage`, migration 039). **One "turn" is one BILLED MODEL REQUEST, not one thing the reader typed** — a client-side tool ends the server turn, so a journey ("take me to that set") spends up to four. At a measured $0.000143 a turn the default is under two cents a day per account. Over cap returns **429** with a spoken refusal, not a 500. Empty falls back to the default; an explicit `0` switches the tier off. |
 | `DECKE_MAX_DEEP_CALLS_PER_DAY` | `10` (default) | The same, for the analysis/research tier (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Capped **separately and far tighter** because it is ~250x the price: `models.ts` measures one analysis call at $0.0356, and a realistic `plan_deck` — large collection context plus research plus thinking — at $0.50-$1. Owner's standing decision: Claude Sonnet by default, Opus only on an explicit ask. |
+| `PGPOOL_MAX_API` | **unset** in cloud | Size of the Express API's `request` pool (`apps/api/src/db.ts`), and the ONE knob that can override contract B2's role/backend sizing. **Leave it unset here.** Unset means `makePool` picks the role default — **12** against the Supabase transaction pooler, hard-capped at 24 — which is the number the pooler's whole design assumes: it multiplexes, so clients need not ration. `2` is the DIRECT-Postgres self-host number and belongs only to that deployment; `.env.example` stopped shipping it on 2026-08-11 for exactly this reason (DECISIONS.md). **Setting it low in cloud is invisible until it isn't**: in SUPABASE_MODE the RLS middleware holds one pooled connection for the whole lifetime of every request, so this value IS the server's maximum concurrency, and exceeding it does not queue politely — requests block until `connectionTimeoutMillis` (10 s) and answer **500 `Internal server error`** with a bare `pg-pool` connect-timeout stack. Boot logs the chosen value (`[db] pool role=request … max=…`) and now warns when it is below the pooled default; `GET /health`'s pool census (`waiting > 0` with `idle: 0`) is the live symptom. |
 | `PGPOOL_MAX_CHAT` | `2` (default) | Size of the pool `api/chat.mjs` opens for the meter. **A separate process from the Express app**, so `/health`'s live pool census cannot see it and never will — health reports the configured value under `deckeLimits.chatPoolMaxConfigured` and says which it is. Two is enough because the connection is held for ONE statement before the stream starts and released immediately; nothing inside the stream touches the pool. Contract B2's `request` role. |
 | `DECKE_METER_TIMEOUT_MS` | `5000` (default) | Watchdog on the meter's connect and query. A database that has stopped answering must not turn every Deck-E request into a hung socket holding a pooled connection on an instance Vercel is about to freeze. On timeout the meter **fails open** and logs loudly — accounting fails open, access control does not, and they are separate checks for exactly that reason. |
 | `DECKE_PGRLS_MAX_HOLD_MS` | `10000` (default) | How long ONE Deck-E tool call may hold its pooled connection. Deliberately far below the API's 30 s `PGRLS_MAX_HOLD_MS`, because the unit differs: that budget covers a whole request, this one covers a single `search_cards`. A read taking ten seconds is not slow, it is stuck, and on a conversational path the reader gave up several seconds ago. On expiry the connection is **destroyed rather than pooled** — it may be mid-statement inside an open transaction carrying that turn's RLS claims, and returning it would let the next request race a still-running query from someone else's session. |
@@ -437,13 +438,15 @@ The script (`scripts/migrate-to-cloud.ts`):
 
 ### 6. GitHub Actions sync setup
 
-Three scheduled data workflows, all driven by the same five secrets below.
+Four data workflows, all driven by the same five secrets below. Three are
+scheduled; `price-rollup.yml` is dispatch-only until its first supervised run.
 
 | Workflow | Schedule | What it does |
 |---|---|---|
 | `catalog-refresh.yml` | Sundays 04:30 UTC | `card` / `card_set` in step with upstream TCGdex |
 | `price-refresh.yml` | every 15 min, plus 02:10 and 21:10 UTC | polls TCGCSV's `last-updated.txt` and ingests on change; nightly Cardmarket ingest, all-users value snapshot, set-progress reconcile |
 | `price-backfill.yml` | manual only | replays TCGCSV daily archives into `price_observation` for a past range |
+| `price-rollup.yml` | 3rd of the month, 04:20 UTC (armed 2026-08-30) | tiered retention: rolls old months into weekly/monthly OHLC `price_bucket` rows, verifies them against the source, then retires and later DROPS the daily partition |
 
 **`price-refresh.yml` is what keeps prices and the Insights charts alive on the
 cloud tier.** Until 2026-08-29 nothing did: `apps/sync` is a long-running
@@ -463,6 +466,40 @@ UTC), so `ingestTcgcsvPrices` checks `last-updated.txt` first and returns
 successful run per job, straight from `sync_run`. That block is what diagnosed
 the original outage and is the authoritative check — a green Actions run only
 says the workflow executed.
+
+**`price-rollup.yml` destroys data by design, so its `schedule:` shipped
+COMMENTED OUT and was armed only after a supervised first run.** Daily price rows
+forever are ~6.6 GB/year against a Supabase Pro allowance of 8 GB. The catch-up
+ran against the live database on 2026-08-30: 23 months oldest-first, every
+verification exact, **2.374 GiB → 0.495 GiB**. The order in the workflow's own
+header — backfill complete → `dry_run` → supervised chunks → record the
+before/after totals → then the cron — is the order to repeat if this ever has to
+be redone.
+
+Steady state is one small run a month. If a run goes red, read `haltedAt` and
+`notAttempted` in its summary first: the job stops at a month it cannot finish
+rather than rolling past it, and the months behind it are deliberately left
+alone.
+
+**There is a repair deadline, and it is finite.** A month with days nobody
+ingested is refused by the rollup (and the run HALTS there rather than rolling
+past it), so the normal outcome of an ingest outage is a red rollup naming the
+missing days — replay them with `price-backfill.yml` and re-run. The
+`allow_gaps` input exists for days TCGCSV genuinely never published; using it
+makes the hole permanent, because after the partition is dropped the buckets are
+the only copy. On the monthly cron the window between an outage and its month
+becoming eligible is roughly 35-65 days.
+
+One disclosed cost of the tiers, unrelated to outages: `prices snapshot-backfill`
+can honestly skip a small number of days just after a weekly quarter is dropped,
+where the nearest bucket close is older than the tier's window allows. Those days
+are reported by date, not silently omitted.
+
+Its retention windows (30 days daily / ~6 months weekly / monthly forever) are
+NAMED CONSTANTS in `apps/sync/src/prices/rollup.ts`, deliberately not environment
+variables — so per B11 there is no runtime configuration here that can be
+silently unset. If they ever become tunable they gain a row in the table below
+in the same commit.
 
 `price-backfill.yml` is manual because its range is a decision with a storage
 bill attached: one archived day is ~44k price rows, so a two-year replay is ~32M

@@ -14358,6 +14358,925 @@ defaults, `@pasted`, the 429, the 40-deck cap). Gate/probe runs and one
 live `get_card` call on a deployed preview remain owed before the prompt
 wording is iterated further.
 
+## 2026-08-29 — Price history: tiered retention, and a rollup that proves itself before it deletes
+
+**Decided by:** @cheyras (plan `roadmap/plans/price-retention-tiers.md`), implemented by Claude Opus 5
+
+**Decision:** `price_observation` stops being daily-forever. History is now
+tiered by age — daily rows for ~30 days, weekly OHLC buckets for ~6 months,
+monthly OHLC buckets forever — in a new `price_bucket` table (migration
+`048_price_bucket.sql`), written by a new `prices rollup` job
+(`apps/sync/src/prices/rollup.ts`, workflow `price-rollup.yml`). Each bucket
+stores `open, high, low, close, high_on, low_on, mean, median, n_obs` over
+`market_minor` only. The API serves all three tiers as one series in one point
+shape, a day presenting as a degenerate bucket.
+
+**Why:** Measured on the live database, not estimated: 28,622 Pokémon price rows
+a day join to a `card_variant`, at ~112 bytes each. With Magic (~103k matched
+rows/day) and Yu-Gi-Oh, daily-forever is **~6.6 GB/year against a Supabase Pro
+allowance of 8 GB**. The tiers are ~2.9 GB steady state growing ~0.27 GB/year,
+and the finished two-year Pokémon backfill (~2.5 GB) gives back ~2.2 GB.
+
+A bucket rather than a closing value, because over 633,431 real weekly buckets
+**close alone misleads 46.8% of the time** — that fraction of weeks close at or
+near an extreme of their own range. No variance column, because
+`corr(stddev, high-low) = 0.9878` makes it a second name for the range;
+volatility is derived on read (Parkinson/Garman-Klass, which the range estimates
+*better* per byte than close-to-close sampling). No VWAP column ever, because
+TCGCSV supplies no volume. All three facts are recorded in the migration so
+nobody rediscovers them.
+
+**How the deletion is made safe.** This job destroys the source it reads, so
+"the job ran" is not proof. Per month, in order: snapshot `n_obs`; upsert both
+grains; recompute the same aggregation into a TEMP table and `EXCEPT` it against
+what is stored in BOTH directions; check conservation (`sum(n_obs)` over the
+month buckets must equal the distinct `(variant, source, currency, day)` count
+in the partition, so a series that got no bucket at all cannot hide); check that
+no bucket SHRANK; only then `DETACH CONCURRENTLY` and rename to `…_retired`. The
+`DROP` happens one run later, after re-deriving the month bucket from the retired
+table itself. Any failure aborts with the partition untouched and the `sync_run`
+marked `failed`.
+
+**Implications:**
+
+- **Migration 048 also replaces `sync_run`'s `job` CHECK** to admit
+  `prices-rollup`, so `/api/health → syncs` reports it. B4 respected: 006 and
+  007 are untouched.
+- **`price_bucket` gets no `REVOKE UPDATE, DELETE`,** unlike `price_observation`.
+  That is the decision, not an oversight: an observation log must not be
+  rewritten, but a bucket is derived, recomputable state and the rollup upserts
+  it — which is what makes the job resumable (B8).
+- **`backfill.ts` now treats a day covered by a bucket as already ingested.**
+  Without that, a replay across a rolled-up range would re-download 30 archives
+  a run and `ensureObservationPartition` would rebuild the very partition the
+  rollup verified and retired — growing back the gigabytes the tiers exist to
+  reclaim, greenly. `--force` still overrides, and doing so obliges a
+  `rollup --month=… --force` afterwards to re-bucket and re-retire.
+- **`snapshot-backfill`'s staleness gate is now per-tier** (2 / 9 / 33 days,
+  `GRAIN_STALENESS`). At the old flat 2 days every day past the daily window
+  would be skipped with "no price observation", making the command useless for
+  exactly the range it repairs. The gate still refuses a price older than its own
+  tier can explain, so a real outage still reads as an outage — and the skip
+  message now names the tier so the two can never be confused. The cost is
+  disclosed in the command output (`grains`), never stored.
+- **`backfill` and `rollup` now share advisory locks.** A rollup during an
+  incomplete replay would bake a partial month into buckets, verify it against
+  the same partial source — every check passing — and drop the rest. The live
+  15-minute ingest is deliberately NOT in that set: it only writes the current
+  month, and blocking the price feed behind a rollup would be the worse bug.
+- **`CardPriceHistoryResponse` changed shape**; API and web ship together and the
+  endpoint has no third-party consumers today.
+- **The agent contract is in the endpoint's JSDoc and in API.md** and MUST ship
+  verbatim in any future `packages/agent-tools`/MCP tool exposing price history.
+  `high_on`/`low_on` survive rollup and are assertable to the day; the path
+  between the extremes, any other specific day inside a bucket, and durations
+  are exactly what rollup destroys.
+- **Two documented six-day seams, not one.** The plan anticipated the day-floor
+  seam; implementing the reader surfaced a second one at the week floor, where a
+  month bucket and that same month's week buckets describe the same days. Left
+  as written it drew a whole month twice. The month tier now hands over at a
+  `month_ceiling` and the week tier picks up from the first week ENDING after it
+  — six days of overlap instead of a month, and no gap. An overlap was chosen
+  over a gap at both seams deliberately: a hole reads as missing data.
+- **`price-rollup.yml` ships with its `schedule:` COMMENTED OUT** (B9). The first
+  two-year catch-up is owner-dispatched after the backfill chain reports
+  complete; the cron is armed in its own commit once that supervised run is
+  verified and the `pg_total_relation_size` before/after totals are recorded
+  here. The retention windows are constants in `rollup.ts`, not env vars, so
+  there is no B11 surface to declare.
+
+**Verification — what was and was not proved.** This machine has no Postgres
+(no server, no Docker, no `psql`) and the live database's credentials live in
+repo secrets, so the plan's live-DB gates could not be run here. Instead the
+whole pipeline was executed against a REAL Postgres 18 engine (PGlite/WASM):
+migration 048 applied verbatim, ~1,500 synthetic observations across 24 months,
+then the shipped `runRollup`, the shipped reader SQL extracted from
+`cards.ts` so it cannot drift, and the shipped `backfillValuePoints`. Bucket
+values were checked against an independent JavaScript computation, not against
+the SQL that produced them. Proved there: month and week OHLC exact; conservation
+exact; detach + rename; the one-cycle-later DROP with re-verification and a real
+byte reclaim; straddling weeks carrying their full span; the no-shrink guard
+aborting with the partition untouched and `sync_run` `failed`; a missing
+next-month partition SKIPPING that month (run `partial`) rather than failing the
+run; a quarter falling out of the weekly band being dropped while month grain
+survives unchanged; mixed grains from one endpoint with no gap at either floor;
+the all-daily path when nothing is rolled up; and the value backfill writing in
+the weekly and monthly bands while still refusing a genuine daily-band outage.
+
+Three real defects were found this way and fixed before anything shipped: a
+parameter/predicate mismatch that made every month past the weekly band fail on
+the wire (`bind message supplies 2 parameters`), a `$1`/`$3` gap in `dropRetired`
+("could not determine data type of parameter `$2`"), and the month-drawn-twice
+seam above. None were visible to typecheck or to the pure tests.
+
+**Still owed, and owed to a human:** the live catch-up run itself (done gate 2),
+the live endpoint returning mixed grains for a real card (gate 3), the live
+`snapshot-backfill` (gate 4), the browser pass on the QA account at desktop and
+390px (gate 5), and the before/after `pg_total_relation_size` totals (gate 6).
+None of them can be honestly signed off from this machine.
+
+## 2026-08-29 — What an adversarial review found in the retention tiers, before they shipped
+
+**Decided by:** @cheyras (asked for an independent check), review by Claude Fable 5, fixes by Claude Opus 5
+
+**Decision:** Eight defects found by a fresh reviewer against the same real-Postgres
+harness were fixed before anything was committed. The two that mattered:
+
+1. **`price_bucket` shipped with no RLS.** Every table since 021 carries the
+   world-readable / nobody-writable pair; 048 created this one bare. The API
+   serves `/cards/:id/prices` under `SET LOCAL role` = `anon`/`authenticated`,
+   and on Supabase those roles hold default CRUD grants on public-schema tables —
+   so RLS was the only thing between the public anon key and a table that, after
+   the rollup runs, is the ONLY copy of that history. Now enabled on the parent
+   AND each partition (Postgres does not apply a parent's policies to a partition
+   reached directly by name), including quarters created at runtime.
+
+2. **The rollup could bake an un-repaired ingest gap in permanently, then close
+   the repair path.** Every verification compares buckets to the PARTITION, so a
+   month missing eight days verifies perfectly — the checks cannot see what was
+   never ingested. Worse, `backfill.ts` treated any bucketed day as ingested, so
+   the archive replay (the plan's "ultimate backstop") would skip exactly the days
+   needing repair, reporting success. Demonstrated end to end on the harness with
+   the 2026-08-08 outage's shape. Fixed in two halves: the rollup REFUSES a month
+   with days carrying no observation (naming them, `--allow-gaps` to override),
+   and the replay guard now counts a day as covered only when some series'
+   `n_obs` equals its bucket's full span.
+
+**Also fixed:** a straddle-skipped month left a months-long hole in the chart,
+because rolling past it moved `day_floor` beyond a month whose rows are only
+served BELOW that floor — a refusal now HALTS the run and reports the months not
+attempted; `assertStraddleCoverage` checked that the next partition EXISTS rather
+than that it holds the straddle days, so an outage resuming mid-month could ship a
+two-day week as a whole one; `--limit=0` silently meant 3; a comment claimed a
+partition-name assertion that did not exist (the assertion now exists, since those
+names are interpolated into DETACH/RENAME); and the no-shrink check was vacuous on
+the drop path, where nothing writes between the snapshot and the comparison.
+
+**And two resumability gaps the reviewer raised as suspected:** a run killed
+between DETACH and RENAME orphaned a partition no later run would adopt, and an
+interrupted `DETACH … CONCURRENTLY` left a `inhdetachpending` child that was
+filtered out of the partition list and so never finalized. `adoptInterruptedDetaches`
+now completes both on the way in — safe because reaching either state means
+verification had already passed.
+
+**Why this is logged rather than folded into the entry above:** the review's
+whole value is that these were invisible to typecheck, to 1,100+ passing tests,
+and to the author's own harness, which had proved the things the author thought
+to doubt. Three of the eight are exactly the class this file exists to record —
+a check that reads as protection and cannot fail, a guard whose scope was one
+step too broad, and a table that inherited a security posture nobody restated.
+
+**Implications:** `--allow-gaps` (CLI) / `allow_gaps` (workflow input) is new and
+should be used only for days TCGCSV never published — DEPLOYMENT.md now states the
+repair deadline. A halted run exits non-zero and names both the month and the
+eligible months it did not attempt. `scratchpad/pgverify/guards.ts` proves each fix
+against real Postgres; the reviewer's own probes were kept alongside it.
+
+**Not fixed, deliberately:** `price_observation`'s runtime-created partitions have
+the same parent-only RLS gap (021 enables the parent alone). It is pre-existing, it
+sits on the ingest path, and widening this change to cover it would be scope this
+plan did not ask for. Flagged here so the next reader finds it.
+
+## 2026-08-30 — The retention catch-up on production, and the two things only production could show
+
+**Decided by:** @cheyras (asked for it done on prod end to end), executed by Claude Opus 5
+
+**Decision:** Migration 048 applied to the live Supabase project, the two-year
+catch-up rollup run under supervision, and `price-rollup.yml`'s monthly cron
+armed. The reclaim, which is the deliverable and therefore measured rather than
+assumed:
+
+| | Before | After |
+|---|---|---|
+| `price_observation` (attached) | 2.374 GiB | 0.216 GiB |
+| retired, awaiting DROP | — | 0.104 GiB |
+| `price_bucket` | 0 | 0.175 GiB |
+| **total** | **2.374 GiB** | **0.495 GiB** |
+| daily rows | 19,261,468 | 1,744,979 |
+| buckets | 0 | 601,035 month + 716,166 week |
+
+23 months rolled oldest-first. Every verification exact on every month —
+`storedNotRecomputed`, `recomputedNotStored` and `shrunk` all zero, conservation
+equal (e.g. 2026-06: 835,570 = 835,570). Preconditions checked first, not
+assumed: the archive backfill covers 2024-08-29 → 2026-08-29 with **zero** days
+carrying no observation.
+
+**Two things only production could show, both now fixed:**
+
+1. **Supabase ships `statement_timeout = 2min` on the database role**, and the
+   recompute-and-EXCEPT verification over a week-grain month (~24k variants x 5
+   weeks) takes longer than that. The catch-up died on 2025-11 with "canceling
+   statement due to statement timeout" — AFTER writing its buckets and BEFORE
+   detaching anything, which is the safe half of the failure and exactly what the
+   ordering was designed for: nothing was lost, and re-running resumed. The job
+   now raises its own timeout to 30 minutes for its session (a finite ceiling,
+   not 0: a statement stuck for half an hour is one to look at, and it holds
+   locks against the price ingest). No local harness could have found this —
+   PGlite has no such role setting.
+
+2. **A response-shape change breaks the CLIENTS ALREADY RUNNING, and this is a
+   PWA.** The plan's "API and web ship in the same commit" is necessary and not
+   sufficient: the browser keeps the previous bundle until the user reloads, and
+   the service worker caches API GETs for seven days (NetworkFirst). The old
+   chart received points with no `date`, `Date.parse(undefined)` gave NaN, and
+   `isoOfDay` threw a RangeError that unmounted the entire card page behind
+   "Something went wrong!". Caught by the browser gate, on the first click, on
+   production. Three fixes: `ValueChart` now drops any point it cannot place
+   (a short line is legible, a blank page is not); `chartPoints` skips
+   old-shaped points, for the reverse skew where a NEW bundle is handed a cached
+   OLD body; and the SW's API cache name is bumped to `deckpal-api-v2`, with a
+   comment saying to bump it on every shape change.
+
+**Why both belong here:** the first is the class of thing a local harness cannot
+model, however faithful — it is a property of the deployment, not the code. The
+second is the class of thing that is invisible to every gate that tests ONE
+version of the system, because the bug lives in the seam between two versions.
+Between them they are the argument for the browser gate that AGENTS.md already
+required and that this work nearly treated as a formality.
+
+**Implications:** `price-rollup.yml` is armed (3rd of the month, 04:20 UTC) and
+its header keeps the arming order for a re-run. Any future API shape change must
+bump `cacheName` in `apps/web/src/sw.ts` — the comment there now says so.
+DEPLOYMENT.md carries the outcome and the "read `haltedAt` first" note for a red
+run. One month (2024-08) was rolled with `--allow-gaps`: the backfill window
+starts 2024-08-29, so its first 28 days are absent by choice rather than by
+outage, and its bucket honestly records `n_obs: 3`.
+
+## 2026-08-29 — `prices-cardmarket` could write half of what it reported, and nothing would say so
+
+**Decided by:** Chey + agent (branch `fix/cardmarket-observations`)
+**Decision:** The Cardmarket ingest now READS BACK what it wrote before it
+reports success, records a `sync_run` row for a skipped run, and closes its run
+row on any failure. `sync_run.rows_written` for this job is a measurement taken
+from `price_observation`, not an in-process counter. No schema change.
+
+**Why:** Reported symptom — `price_current` holds 26,738 EUR rows,
+`price_observation` holds none for `source_code = 2`, ever, and the last five
+nightly `sync_run` rows all say `status: ok, rows_written: 26738,
+items_failed: 0`.
+
+The ingest writes both tables from ONE `points` array inside ONE transaction, so
+the first two facts are contradictory on their face. Root-causing it against a
+real Postgres (PGlite/PG18) rather than by reading:
+
+- The shipped write path is CORRECT. Driving the real `ingestCardmarket` over
+  the verbatim migration-007 DDL — including RLS from 021 — appends the right
+  EUR rows with `source_code = 2`, `currency_code = 'EUR'`, `captured_at` = the
+  file's own stamp, the `-holo` fields on the reverse variant, and the priceless
+  products dropped by the `num_nonnulls(...) > 0` CHECK. Repeated at production
+  shape (19,865 products / 26,486 priced variants, 67 chunk boundaries, a
+  `+0200` stamp, a non-UTC session TimeZone): 26,486 observations, 26,486
+  current rows, no divergence. Every hypothesis on the list — a swallowed
+  exception, a stamp outside every partition, a natural-key collision, a CHECK
+  rejecting rows, a metric-mapping mismatch, `ON CONFLICT DO NOTHING` hiding a
+  real conflict — was tested and killed.
+- `rows_written` was `appendObservations`' own return value, i.e. the row count
+  of `INSERT … RETURNING 1`. `rows_written: 26738` therefore asserts that 26,738
+  history rows were inserted and committed, five nights running. The equality
+  with the `price_current` row count is not the smoking gun it looks like: both
+  numbers are `points.filter(hasAnyMetric).length`, so under a WORKING
+  implementation they are necessarily equal.
+
+So the ingest logic does not explain the missing rows, and the numbers in
+`sync_run` cannot be used to argue anything either way — which is the real
+finding. **A job that reports its own intentions rather than its results cannot
+be used as evidence about itself.** That is what got fixed. The outstanding
+production question (were the rows committed and later removed, or were the two
+facts read from different databases?) is answered by four read-only queries
+handed to the maintainer, not by this branch. B9: nothing was run against prod.
+
+**Implications:**
+
+- **The report is now a measurement.** After COMMIT the job counts
+  `price_observation` for its own `(source, currency, captured_at)` and compares
+  it to the number of priced points. Short of it, the run is `failed` with the
+  shortfall in `items_failed` and both halves named in `error`
+  ("holds 0 of 26738 … price_current was written with 26738"). `rows_written` is
+  that count. A run that fills the hot snapshot and appends no history is now
+  a red Actions run instead of a green one.
+- **`failed`, not `partial`, for a lost history — on purpose.** `lastOkStamp`
+  treats `partial` as a success stamp, so calling it partial would make the next
+  nightly run SKIP the very file whose history is missing and the hole would be
+  permanent. `failed` leaves the stamp unclaimed and the next run retries it
+  with nobody typing `--force`.
+- **A skip now leaves a row.** `research/SCHEMA.md` has always said every job's
+  first step is "compare `source_stamp` to the last successful run and exit
+  `skipped` if equal", and `SyncStatus` has always had the value — the row was
+  simply never written, so "upstream has not republished" and "the scheduler has
+  been dead for three weeks" were the same picture from the database. They were
+  exactly that picture on 2026-08-09 → 2026-08-29. `lastOkStamp` reads only
+  `ok`/`partial`, so the new row cannot change the decision it records. NOT done
+  for `prices-tcgcsv`: its skip is a `*/15` poll, ~35k rows a year of "nothing
+  happened", and its liveness is already visible from the workflow's own tick.
+- **A throw between `startRun` and the transaction no longer wedges the job.**
+  `ensureObservationPartition` and the variant lookup used to sit outside the
+  error handler, so one transient failure left `status='running'` forever — and
+  `sync_run_one_active`, the partial UNIQUE index on `(job) WHERE status =
+  'running'`, then made every later run fail inside `startRun`. Permanently,
+  silently, from one network blip.
+- **Verified where it matters.** `apps/sync/src/prices/__tests__/cardmarket.test.ts`
+  drives the real ingest over an in-memory database that stores rows and honours
+  the natural key; `loseHistory` reproduces the production shape exactly (the
+  append reports rows it does not keep). Five of its nine tests fail against the
+  previous code. The SQL half is proved separately against real Postgres.
+
+**Found and NOT fixed here** (each needs its own pass, and one needs a prod read
+first):
+
+- **`captured_at` is not truncated to the source's day**, though 007's DDL says
+  it is ("THE SOURCE'S OWN STAMP, TRUNCATED"). Cardmarket publishes at ~01:00
+  CEST, so `2026-08-09T01:00:03+0200` is stored as `2026-08-08T23:00:03Z`: every
+  Cardmarket price is filed under the PREVIOUS calendar day by every day-grouping
+  reader (`rollup.ts`, `backfill.alreadyIngestedDays`), and every 1st-of-month
+  file lands in the PREVIOUS month's partition while `ensureObservationPartition`
+  guarantees only the current one. Once retention is armed that partition may
+  already be detached, and the insert fails with "no partition of relation found
+  for row" every 1st of the month. Changing it changes the natural key, so it is
+  a migration-shaped decision, not a one-liner.
+- **`ensureObservationPartition` writes TZ-dependent partition bounds.**
+  `FOR VALUES FROM ('2026-08-01')` is cast to `timestamptz` in the SESSION
+  TimeZone; measured on a `SET TimeZone 'America/Denver'` session it produced
+  `FROM ('2026-08-01 00:00:00-06')`. Partitions created under two different
+  server timezones overlap (the CREATE fails) or leave a six-hour hole (the
+  INSERT fails) — and Cardmarket's rows land at 22:00–23:00 UTC, inside exactly
+  that window. Supabase runs `timezone = UTC` so prod is almost certainly
+  consistent, which is why this is a query to run before a fix rather than a fix:
+  `SELECT relname, pg_get_expr(relpartbound, oid) FROM pg_class WHERE relname
+  LIKE 'price_observation_%'`. Pinning the literals to UTC is correct and would
+  turn a pre-existing misalignment into a loud CREATE failure.
+- **`price-refresh.yml`'s Cardmarket step ignores its own `force` input**, unlike
+  the TCGCSV step next to it. A dispatch with `force: true` silently does not.
+
+**Postscript — what the production run established (2026-08-30):**
+
+The four read-only queries were run, then the FIXED ingest was run against the
+live database. Results:
+
+- **The write path is correct, on production.** 28,490 EUR observations
+  inserted, read back as 28,490 stored, `ok`, and they persist. EUR prices were
+  three weeks stale and are now current. The agent's reading of `rows_written`
+  was right and the "smoking gun" that started this — `rows_written` equalling
+  the `price_current` row count — was an artefact: both are
+  `points.filter(hasAnyMetric).length`, so they are necessarily equal when the
+  job WORKS.
+- **So the 15 nightly runs from 2026-07-24 to 2026-08-09 did commit ~26.7k EUR
+  rows each, and those rows are gone.** They would live in
+  `price_observation_2026_07` and `_2026_08`; both are present, attached, and
+  were never touched by the retention rollup (which only ever processed months
+  up to 2026-06, and would have produced EUR `price_bucket` rows had it seen
+  any — there are none). Partition bounds are UTC, so the timezone hazard below
+  is not biting here. Nothing in the repository issues a DELETE against
+  `price_observation`.
+- **The mechanism is still unexplained, and there is one strong candidate.**
+  `price_observation.card_variant_id` is `REFERENCES card_variant(id) ON DELETE
+  CASCADE` (007). `card_variant` currently holds 41,471 rows with a maximum id
+  of 154,037 — a 3.7x gap, which is proof that variants have been deleted and
+  re-created at some point rather than only inserted. Any such churn silently
+  deletes price history for the affected variants, leaves no `sync_run` row and
+  no log line, and would hit EUR harder than USD (5,933 of the 28,490 EUR
+  variants have no USD rows at all). No `catalog` run is recorded between
+  2026-07-20 and now, so this is a mechanism rather than a demonstrated cause.
+
+**Owed, and deliberately not attempted here:** establish whether a catalog
+import can delete `card_variant` rows, and if so whether an append-only price
+history should really cascade from it. That is a schema-shaped question about a
+different subsystem, and the honest state is "an append-only table lost 15
+nights of rows and we do not know how". What this branch guarantees is that the
+NEXT occurrence is loud on night one instead of invisible for three weeks.
+## 2026-08-29 — A request never takes a second connection: `dbHandle()`
+
+**Decided by:** Claude (Fable 5) on behalf of @cheyras, from six production stack traces
+**Decision:** `dbHandle()` in `apps/api/src/db.ts` returns the request's RLS-held
+client (`rlsStore.getStore()`) or falls back to the pool; the deck adapters in
+`apps/api/src/deck/db.ts` and `export.ts` take `Queryable` instead of `pg.Pool`;
+every in-request call site (`routes/decks.ts`, `routes/cards.ts`) passes it.
+`makePool` warns at boot when a pooled `request` pool is sized below its role
+default, and `PGPOOL_MAX_API` is documented in `DEPLOYMENT.md` (B11).
+**Why:** All six 500s in the 2026-08-29 Deck-E transcript ("battle_logs failed:
+Internal server error" ×4, decks ×2) were one bug: `pg-pool` connect timeouts.
+`validate()` passed the module `pool` to `buildReprintOracle`, whose implicit
+connect→query→release is a SECOND checkout taken while the SUPABASE_MODE RLS
+middleware already holds one client for the whole request — N concurrent
+requests want 2N connections, and production's request pool was pinned to 2 by
+a stale `PGPOOL_MAX_API` override (a self-host value; `.env.example` un-pinned
+it on 2026-08-11, the Vercel env never followed). Two concurrent `GET /decks`
+deadlocked until `connectionTimeoutMillis`. PR #138 did not introduce the call
+site (it predates it, `07405e7`); it raised the arrival rate. `battle_logs`
+failed alongside because its deck-name resolution rides the same `/decks` call.
+**Implications:** These catalog reads now run inside the request's RLS
+transaction instead of on a BYPASSRLS connection — strictly tighter. The stale
+Production `PGPOOL_MAX_API` override still needs removing by the maintainer
+(B9); until then the boot warning names it. `deckeHistory.ts`'s own
+pool write is deliberate (escapes the `authenticated` role per migration 044)
+and was left alone. A unit test pins both the helper and the no-second-checkout
+call shape, and fails with the production stack frame if regressed.
+
+## 2026-08-29 — deck_history reads loosely, and `decks` can hand back the guide
+
+**Decided by:** Claude (Fable 5) on behalf of @cheyras (Deck-E reliability pass)
+**Decision:** `deck_history` resolves its deck with `strict: revert_to !==
+undefined` instead of unconditionally strict, and echoes the resolver's
+`picked.note` on the timeline and snapshot returns. `decks` gains
+`include: ['strategy']`, which renders the full strategy-guide markdown from
+the deck-detail payload it already fetches.
+**Why:** Two of `deck_history`'s three modes are GETs, but all three paid the
+write branch's price — in one measured turn `decks({deck_id:'slowking
+toolbox'})` returned the deck and `deck_history` refused the same words.
+Separately, `decks` reported the guide only as a label plus character count, so
+reading it meant a second, approval-gated `deck_strategy` call; Deck-E kept
+quoting "14k characters" and offering that call instead of answering.
+**Implications:** `revert_to` is unchanged — still strict, still ≤N ranked
+candidates and never a guess (pinned by a test). Read paths now name the deck
+they picked. The guide renders in full and last: in full because
+`deck_strategy`'s read branch returns no less, last because it is the only
+unbounded section in that response. Zero extra API calls.
+
+## 2026-08-29 — Deck-E harness: failures survive the turn boundary
+
+**Decided by:** owner, via the 2026-08-29 slowking transcript
+**Decision:** Error chips are replayed to the next turn as real `output-error`
+tool parts (`lookupRecord.failureParts`, capped at 4 per turn). A new
+`decke/failing.ts` rebuilds, per request, how many DISTINCT earlier turns each
+tool failed in SINCE ITS LAST SUCCESS (the review fork caught the shipped
+version never closing on recovery — it would have refused decks for the
+rest of the conversation it had recovered in); at 2 the tool is not called — `aisdk.ts execute` returns a
+`[[NO_WORK]] TOOL DOWN` result and emits an `error` chip saying the call was
+not made. The reader's own "try again" is the only thing that re-opens it. One
+`console.error('[decke] tool-circuit-open tool=… failures=… conversation=…')`
+per tool per request; `conversationId` is now on the `/api/chat` body,
+log-only. This is v1 of the owner's ask that Deck-E report tooling faults he
+keeps hitting.
+**Why:** `battle_logs` 500ed on four turns and was re-called every one of them,
+once immediately after promising not to. It was not disobeying: `lookupRecord`
+replayed `ok`/`partial` chips only and the server keeps nothing between
+requests, so no turn's context contained the fact that any tool had ever
+failed. No prompt can reach a fact that is not in the window.
+**Implications:** The breaker is turn-scoped, not call-scoped — `repeat.ts`
+still owns within-turn repetition. The chip is never `ok` (X2) and never
+`declined` (that word means the READER stopped it). The synthetic result tells
+him to answer from what he already has and NOT to restate prior summaries,
+which is the other half of the same transcript. Deep-tier sub-agents get an
+empty ledger for now — deliberate, flagged, not forgotten.
+
+## 2026-08-29 — Two turn guards that shipped unplugged, and a third for the promise
+
+**Decided by:** Claude (Fable 5) on behalf of @cheyras, from the #138 review
+**Decision:** `needsAnswerNudge` is called with all five arguments and
+`shouldFireFlailing` replaces the bare `errorBudgetExceeded` at the turn-end
+note (the mid-turn breaker in `stopWhen` keeps the bare predicate). A new
+`promisedWithoutActing` fires when the turn's last spoken sentences promise
+imminent first-person action ("One sec.", "First, I'll grab…") and nothing ran
+after them; it joins the one-guard-per-turn chain between phantom claims and
+ungrounded ids. Every one of these wirings is now pinned by source text in
+`chatWiring.test.ts`.
+**Why:** `needsAnswerNudge` shipped in #138 with 3 of 5 args, so the
+pending-tool carve-out matched everything and the guard could never fire;
+`shouldFireFlailing` was imported and never called, so a recovered turn was
+still told it flailed. Both had green unit tests — the tests exercised the
+functions, not the wiring. The measured turn ended "First, I'll grab your
+deck's battle logs … One sec." with no call after it, which no existing
+detector's tense or shape covered.
+**Implications:** `phantomClaims` was NOT widened — its precision argument is
+its design. A new detector in this chain must arrive with a `chatWiring` pin,
+or it is dead code with a green suite, which is what happened twice.
+
+## 2026-08-29 — A read is not a write, and the first "no" gets the full briefing
+
+**Decided by:** owner, in the 2026-08-29 transcript
+**Decision:** `wouldMutate` treats `deck_strategy` with no `markdown` as a read
+(contract-shaped carve-out mirroring `add_battle_log`'s). Error chips keep the
+lines their first line was leading into (`summariseError`). `DECLINED_REASON`
+now carries the same `[[NO_WORK]]`-led doctrine the server-side repeat refusal
+has carried since #138.
+**Why:** "the permission prompt asked if you could WRITE this strategy guide,
+when the request really only necessitated reading it" — `deck_strategy` has no
+`dry_run`, so every shape classified as a write even though the markdown-less
+branch returns before the PUT. The `deck_history` resolver miss rendered as
+"The closest is:" with the candidates cut off, because the chip summariser took
+the first line and that line is a lead-in. And "after i cancelled, you output a
+response that seemed canned like it was fore-assuming that i would say yes" —
+the first decline told the model four words ("the reader declined"), while a
+repeat decline got the full server-side briefing.
+**Implications:** The guide REPLACE is untouched: still always-approval, still
+unpreviewable, still name-suppressed after a decline. `ABANDONED_REASON` stays
+short and distinct — `declined.ts` compares against it exactly, and an
+unanswered panel is not a refusal.
+
+## 2026-08-29 — An answer they have already been given is not delivered a second time
+
+**Decided by:** owner, in the 2026-08-29 transcript ("you had already told me
+about most of these stats")
+**Decision:** `decke/toldAlready.ts` rebuilds, per request from the replayed
+lookup records, the set of tool+summary pairs the reader has already been shown
+— the same reconstruct-from-the-wire shape as `declined.ts` and `failing.ts` —
+and the adapter appends one parenthetical to the MODEL's copy of a read whose
+one-line summary matches: this was already reported; say only what is new.
+`failing.ts`'s block parser is shared, so the breaker's recovery signal and
+this annotation cannot disagree about what a turn recorded.
+**Why:** The transcript's other repetition had no guard that could reach it:
+`decks` returned the same summary on turns 3–7 and SUCCEEDED every time, so the
+failing-tool breaker (which only opens on failures) never applied, and the
+repeat ledger is rebuilt per request and cannot see a turn boundary. The
+comparison is free because the record's `<tool>: <summary>` lines are the
+server's own `summarise(result)`.
+**Implications:** X2 is satisfied by leaving the chip alone — the lookup really
+ran and `ok` is true of it. A per-result annotation, not a turn-end note, so it
+does not spend the one-note-per-turn budget. Does not fire for client/cosmetic
+tools, writes, breaker-intercepted calls, `health`/`set_cart`, or summaries too
+short to be evidence. The `chat.mjs` threading is pinned in
+`chatWiring.test.ts` — an unthreaded ledger is this repository's most repeated
+defect, and this pass found two more of them in #138.
+
+## 2026-08-29 — List covers are a mosaic of the list's own cards
+
+**Decided by:** maintainer (2026-08-29 walkthrough recording; deferred item now built)
+
+**Decision:** The lists index tile's cover renders a grid of the list's cards
+instead of one cropped art. The server sends up to 8 distinct cards per list
+(`coverImages`, explicit cover pick first, then list order); the client picks
+only layouts it can FILL — 4×2, 3×2, 2×2, 3×1, 2×1 — falling back to the old
+single-art cover for one card and the icon for none, and summarising the
+overflow with a `+N` chip.
+
+**Why:** The owner's spec verbatim: "like a grid of the cards in the list …
+determine how many across smartly … a maximum that will show." Eight is the
+measured cap: at the tile's 132px cover height, two rows of four is the floor
+where a card is still recognisable; more is confetti. Fill-only layouts
+because a half-empty second row reads as a loading failure.
+
+**Implications:** The mosaic is distinct BY CARD, not by item — a static list
+with four copies of one card shows the card once (dupes are a quantity, not
+four tiles). `coverImage` stays in the payload as the first-tile shorthand;
+nothing that wants one image has to learn the array. Decks keep their single
+cover — out of this item's scope. Verified in the browser at 1440 and 390 as
+the QA account (2/3/10-card lists; scratch lists purged after).
+
+## 2026-08-29 — Smart lists: a dynamic list can be a saved query, re-evaluated on read
+
+**Decided by:** maintainer (2026-08-29 walkthrough recording; deferred item now built)
+
+**Decision:** Migration 050 adds `card_list.rule` (JSONB) +
+`rule_evaluated_at`. A rule-backed dynamic list ("smart list") evaluates
+`missingForGoal` on every read — stored `list_item` rows are ignored while a
+rule is present, and `rule IS NULL` (every pre-050 list) keeps the
+reference-set behaviour untouched. The rule vocabulary is the `addMissing`
+spec, parsed by ONE shared parser (`listRules.ts:parseMissingSpec`, now also
+used by the bulk route), plus `exclude` (variant ids removed by hand) and a
+server-resolved `setName`.
+
+**Why:** The owner's original complaint, verbatim: "I satisfied the condition
+of owning Growlithe, he should not be on the list anymore." Dynamic lists
+were reference-sets by explicit prior decision; `addMissing` materialised the
+query once and the membership aged. And the second half: "it's not super
+clear that there's a real difference between a static list and a dynamic
+list" — so a smart list is visibly different: a highlighted chip, a "Live —
+showing what's still missing for <set> · <goal>" caption, "N to get" and
+"Cost to finish" instead of owned-progress.
+
+**Implications:**
+- "Remove" on a smart list is an EXCLUSION (`rule.exclude`), not a delete —
+  there is no row, and the rule would put the card back. The synthetic item
+  id `rule-<variantId>` routes it; exclusions are listed and restorable in
+  the rule editor.
+- Add/bulk-add/reorder against a smart list are 400s that say why. The MCP
+  reaches lists over this same HTTP surface, so agents get the same answers.
+- `PATCH { rule: null }` PINS the list — materialises the current evaluation
+  into rows (append-only, deduped) and detaches the rule. Pinning can never
+  destroy anything.
+- New mutation-log operations `list.rule.set` and `list.rule.exclude`, both
+  with real undo (restore the previous rule / un-exclude).
+- Progress is null for smart lists (owned = 0 by construction). Index
+  summaries evaluate each smart list's rule sequentially on one connection;
+  a rule whose set vanished degrades to the un-evaluated shape rather than
+  failing the whole index.
+- One behaviour change rode in with the shared parser: `addMissing` with an
+  unknown goal is now a 400 instead of silently becoming 'complete'.
+
+## 2026-08-29 — UI preferences move to the account; localStorage becomes the cache
+
+**Decided by:** maintainer (2026-08-29 walkthrough recording; deferred item now built)
+
+**Decision:** The five device-local UI preferences — Deck-E visibility, skin,
+top bar, and the Series index's sort/direction/grouping — are stored on
+`user_settings` (migration 049) and served by `GET`/`PATCH /me/settings`. The
+profile showcase moves off `deckpal.showcase.v1` onto the `user_showcase`
+table that has existed since migration 005, via `GET`/`PUT /me/showcase`.
+localStorage is demoted to an offline cache: the synchronous readers
+(deckePreference/skin/topbar/series prefs) are unchanged, and
+`lib/settingsSync.ts` applies the account's values over them on boot and on
+sign-in, with a one-time upward migration of existing local choices (flagged,
+so it happens once) and write-through from every toggle.
+
+**Why:** The owner: "I'd like this to not be remembered on this device only…
+a settings table per user, row level security… prep work for a proper
+settings page." The DeckeVisibility card literally had to caption itself
+"remembered on this device only — signing in elsewhere shows him again."
+Both halves of the fix already existed as schema: `user_settings` (005, RLS
+in 021, row per signup) and `user_showcase` (005, RLS in 021) — the work was
+columns and endpoints, not tables.
+
+**Implications:** `skin`/`topbar` columns are NULLable — NULL means "no
+explicit choice, follow the app default", so `DEFAULT_SKIN`/`DEFAULT_TOPBAR`
+stay flippable in code without a data migration. PATCH validation is strict
+(a typo'd value is a 400, never a silent reset), unlike the query-param
+`oneOf()`. The upward migration flag (`deckpal.settings.pushed.v1`) is set
+only after a successful round trip, so a failed first sync retries. Docs:
+API.md §Account, research/SCHEMA.md §9.1 note.
+
+## 2026-08-29 — Variant-scoped decks: one row per printing (migration 051)
+
+**Decided by:** maintainer (2026-08-12 note; built per roadmap/plans/variant-scoped-decks.md)
+
+**Decision:** `deck_card` is keyed `(deck_id, card_variant_id)`; `card_id`
+stays denormalised (composite FK to `card_variant(id, card_id)` keeps the
+pair honest). Backfill resolves every existing row to its card's primary
+variant — the same representative every read path already assumed. `owned`
+and `price` become the row's printing's own numbers. The ENGINE model,
+PTCGL export and the PDF aggregate rows back to card level (game rules and
+Live lines are per card); Mass Entry stays per printing on purpose — buying
+is exactly where the printing matters, and each row has its own token.
+
+**Why:** The owner, verbatim: "I might have 2 normals and 1 reverse holofoil
+of a card in my deck. In the deck list, it shows those as separate items."
+They don't — `owned` was a whole-card rollup and "Deck cost" was priced off
+an arbitrary representative. (The `H`/`J`/`I` chip that made decks LOOK
+variant-scoped on camera is the regulation mark.)
+
+**Implications:**
+- Write routes take an optional `variantId`; omitted = primary on add, the
+  single deck row on PATCH (400 when several printings are ambiguous), the
+  whole card on DELETE. Pre-051 callers (MCP included — agent-tools speaks
+  this HTTP surface) keep working unchanged.
+- Version snapshots carry `variantId`/`variantName`. The diff aggregates to
+  card level — a pre-051 snapshot reads as "primary, never a change" — and
+  same-total printing swaps get their own `printings` lane (pinned by
+  `deck-diff.test.ts`).
+- UI: deck rows show a VariantChip when a card is in the deck as several
+  printings (or a non-primary one); the card sheet's "In this deck" tab is
+  one row per printing with its own stepper, plus "Add another printing".
+- **SEQUENCING (unapplied):** the old API's variant-less INSERT violates the
+  new NOT NULL, so migration 051 and the API deploy must land in the same
+  step, after a backup and a scratch-copy dry run — this is the one item the
+  maintainer signs off on before the migration runs.
+
+---
+
+## 2026-08-31 — Retire the third-party reference surface from the working tree
+
+**Decided by:** repo owner (@cheyras); carried out by Claude (Opus 5) as Project
+Holo subtask 2c, part 1.
+
+**Decision:** The source ruled out on legal grounds on 2026-08-26 no longer
+appears anywhere in DeckPal's working tree except as dated history. Six
+categories of surface, six different removals:
+
+1. **Runnable code — deleted.** `apps/images/src/warmFromPkmn.ts` and its
+   `warm:pkmn` entry in `apps/images/package.json` are gone, so the module cannot
+   be run by anyone who does not first write it again. `cloudWarm.ts`'s residue
+   guidance now names the approved fallback (pokemontcg.io, per
+   `research/CARD-ART-SOURCES.md`) instead of pointing operators at the retired
+   warmer.
+2. **Schema — migration `052_remove_pkmn_source.sql`, authored, NOT applied.**
+   See the plan below.
+3. **Guardrails — mechanism kept, name dropped.** `packages/storage/src/upstream.ts`
+   and `SECURITY.md` used to explain at length which host was deliberately absent
+   from `IMAGE_SOURCE_HOSTS`. An allow-list never has to enumerate what it blocks;
+   saying so out loud was the only thing keeping the name in a security-critical
+   file. The comments now explain the allow-list *default* — anything not listed
+   is refused by the same code path, whether it was rejected deliberately or never
+   considered — and state what approving a new upstream costs (an entry, plus a
+   DECISIONS.md record of who approved it on what licensing basis). The test that
+   used to assert the specific host is absent now asserts the default, against a
+   neutral `assets.example`, and a second refusal case was added for a plausible
+   but unapproved card-art CDN. The guarantee under test is unchanged and
+   strictly better stated: the mechanism is proven, not one instance of it.
+4. **Research corpus — sorted per file before a character was edited.** See below.
+5. **Product-lineage comments — reworded to describe behaviour, not origin**
+   across 20 files in `apps/web`, `apps/api`, `apps/sync` and `scripts`. Where a
+   comment said "matches X", it now says what the rule *is* and why it is right;
+   several got better in the process, because "verified against X" was doing the
+   work a stated invariant should do. The `pkmnDark` root class was renamed
+   `deckpalDark` (a marker, not a selector — nothing keys off it), with the
+   quoting docs updated to match.
+6. **Decision log and skills.** `API.md`, `DESIGN-SYSTEM-AUDIT.md` and the three
+   affected skills now carry the policy without the name: the approved ladder in
+   `research/CARD-ART-SOURCES.md` is the list, anything absent from it is ruled
+   out, and the upstream allow-list is what enforces that rather than a warning in
+   prose. **`DECISIONS.md`'s own past entries were left alone.** This file is
+   append-only; rewriting what a dated entry decided would destroy the audit trail
+   the file exists to be. Its ~63 mentions are history and stay history.
+
+### The research corpus — the sort, per file
+
+Two shapes were mixed in these documents and they get opposite treatments.
+
+| File | Call | Reason |
+|---|---|---|
+| `BEHAVIOR-SPEC.md` | **deleted** | Its subject *is* the other product's interaction behaviour, reverse-specified from its help-centre articles and page captures. Nothing in it describes DeckPal. |
+| `ROUTE-MAP.md` | **deleted** | The same product's URL and IA structure, extracted from the same captures. Same category. |
+| `INTERACTION-CAPTURE.md` | **deleted** | A second capture pass over that product — motion, hover/focus states, breakpoints, view geometry. Same category. |
+| `SCHEMA.md` | **kept, reworded** | DeckPal's own data model, and canonical documentation per AGENTS.md. Its evidence tags cited the study; they now say "the reference tracker". The analysis, the tier rules and every measurement are original. |
+| `DECK-FORMATS.md` | **kept, reworded** | The legality engine's spec, grounded in the official rulebook, ban lists and rotation announcements (sources S1–S12). The comparison notes were incidental. |
+| `TCGCSV-VARIANTS.md` | **kept, reworded** | DeckPal's own verdict on cross-filling reverse-holo rows from TCGCSV. Two passing mentions. |
+| `CARD-ART-SOURCES.md` | **kept, ruling intact — deliberately** | This *is* the policy document. A policy that names what was evaluated and rejected is auditable; one that only says "use the approved list" invites the next agent to re-evaluate the same source and reach the same dead end. A dated update records that the code it names has since been deleted. |
+
+The rule that produced this split: a blanket find-and-replace across all seven
+would have produced documents describing a comparison with the compared thing
+removed, which is worse than either keeping or deleting them.
+
+Deleting three documents left section pointers dangling in `SCHEMA.md`,
+`DECK-FORMATS.md`, `ARCHITECTURE.md`'s document map (row replaced with the
+tombstone), three code comments, and migrations `003` and `013` (checksummed
+and immutable per B4 — they could not have been edited even if it were
+desirable). `research/REMOVED-RESEARCH.md` is the tombstone: it names what went,
+why, and says to read the surviving pointers as dated provenance marks rather than
+links. Rewriting ~120 citations instead would have destroyed the traceability the
+tags exist to provide, to fix a problem a single note fixes better.
+
+### Migration 052 — the plan, and why re-label rather than delete
+
+**Measured against production, read-only, 2026-08-31: NINE `card_variant` rows,
+not the 103 migration 024's header claims.** That number is from 2026-08-22 and is
+stale — the catalog has been re-imported since, and the importer promotes a row in
+place when TCGdex starts listing the facet, so most of the original hundred
+resolved themselves.
+
+All nine are **re-labelled to `source = 'tcgdex'`**, not deleted. Both halves of
+that came out of the data:
+
+- **Nothing duplicates anything.** `card_variant` carries
+  `UNIQUE (card_id, variant_kind_code)`, so a retired-source row and an
+  approved-source row can never describe the same printing of the same card. Every
+  one of the nine is the only row of its kind for its card, and the
+  "fold the duplicate" case is empty by construction.
+- **All nine carry user data.** Eight have a `collection_item` row (one with
+  quantity 2) and a `collection_event`; one also has a `price_current` row. Every
+  FK into `card_variant` from those tables is `ON DELETE CASCADE`, so deleting the
+  variants would silently destroy the owner's records for nine printings they
+  actually hold.
+- **`tcgdex` is the honest label.** These are not scraped catalog rows. All nine
+  have `is_synthesized = true` and were created locally to model a printing the
+  owner holds but TCGdex does not list. Every one of their `variant_kind_code`s is
+  composed from TCGdex's own facet vocabulary, and TCGdex already lists several of
+  those exact kinds on sibling cards. It is also the label that makes them
+  **re-verifiable**: the catalog importer upserts on
+  `(card_id, variant_kind_code)` writing `source='tcgdex'`, so the moment TCGdex
+  publishes one of these facets the row is promoted in place, keeping its id and
+  therefore its collection rows. Until then `is_synthesized` is the standing,
+  queryable statement that the row was inferred locally — which is what the retired
+  value was carrying, minus the name. `tcgcsv` would have been wrong: it means
+  "cross-filled from TCGplayer product data", and eight of the nine have no
+  TCGplayer product id at all.
+
+The migration also scrubs `source_note`, where the name had also landed as free
+text, guards with a `RAISE EXCEPTION` if any row outside the two approved values
+survives the re-label, and only then narrows the CHECK back to
+`('tcgdex','tcgcsv')` — the state migration 014 shipped and 024 widened.
+
+**Verified before shipping, not after:** the migration was executed against PGlite
+on a replay of the relevant DDL, seeded with the nine real (card, kind) pairs plus
+approved-source siblings and a dependent `collection_item` per row. It applies,
+leaves every dependent row intact, rejects the retired value afterwards, still
+accepts both approved values, is a no-op on a second run, and aborts loudly on a
+planted straggler.
+
+### Implications
+
+- **Migration 052 is authored but NOT applied.** Production still accepts the
+  third value and still holds the nine rows. Applying it is a separate, approved
+  step (see the prod-migration path — `tsx` on the runner, not `pnpm migrate`).
+- **The image bytes are a separate job.** ~1,912 `image_asset` rows are still
+  out of policy: 58 with the host in `source_url`, 1,854 with the honest-blank
+  `NULL` the 2026-08-07 backfill established. `research/card-art-residue.json`
+  tracks the replacement effort. Order of operations is unchanged and matters:
+  re-source first, delete second, because 120 swsh-TG cards exist only as those
+  bytes (DECISIONS.md 2026-08-10) and deleting them removes card art with nothing
+  behind it. A counted list of cards with no art is an honest state; silently
+  serving out-of-policy bytes is not.
+- **On history.** This change adds nothing that would justify a rewrite of its
+  own. Every removal here is text at the tip. If already-public history is
+  rewritten, it rides subtask 2a's single `git-filter-repo` pass as a blob
+  callback — two rewrites means two rounds of stale commit links, two support
+  tickets and two re-clones. If 2a decides against, a clean tip is a real
+  improvement on its own and 2c is complete either way. Recorded here so the item
+  is not left open a third time on 2c's account.
+- **Wiki sync is outstanding.** Per AGENTS.md gate 6 this change touches
+  `Decision-Log`, `Data-Layer` (SCHEMA.md), `UI-Spec` (the renamed root class) and
+  `Contribution-Record`. The wiki is a separate repository and was not written to
+  from this branch; it is a named follow-up, not a silent skip.
+
+
+## 2026-08-31 -- Purge 2a: frontend-shots removed from all history
+
+**Decision.** `research/frontend-shots/` (98 PNGs of DeckPal UI rendering real
+card art; 93 blobs, ~37 MB of history weight, present on every branch) was
+removed from the repository history with a single `git filter-repo --invert-paths --path research/frontend-shots/` pass over a fresh mirror, and
+every branch was updated to the rewritten history. Only SHAs changed; commit
+messages, authorship and dates are preserved verbatim. The path is now
+gitignored, with a README tombstone in place.
+
+**Archives, made and verified before the rewrite:** the offline mirror
+`deckpal-mirror-2026-08-31.git` (fsck-clean, all pre-rewrite tips recorded) and
+the media-corpus archive `foil-video-reference-archive-2026-08-31/` (387/387
+files sha256-verified against MANIFEST.sha256), both outside git. The wiki page
+`Foil-Branch-Log` snapshots all 8 foil/* branches (465 commits, 76,291 words)
+with their pre-rewrite tip SHAs; SHAs cited anywhere before this date resolve
+against the mirror.
+
+**Fork note.** `suwari2000/deckpal`, a public fork created 2026-08-30, holds
+the pre-rewrite objects (all 8 foil branches and the frontend-shots media) and
+is outside this repository's control. GitHub's server-side copies of the old
+objects also remain fetchable by direct SHA until garbage collection; a support
+ticket covering the rewrite and the upcoming branch deletion (purge 2b) will
+request GC and raise the fork.
+
+**pkmn.gg history question -- closed (tip-only).** The 2026-08-26 entry left
+open whether the pkmn.gg text mentions in already-public history warranted a
+rewrite. Decided now: no. The working tree was cleaned at the tip (PR #150);
+the text-only exposure in history does not justify a second rewrite round, and
+the single rewrite budget was spent on the 37 MB media above. This closes the
+open item rather than deferring it a third time.
+
+---
+
+## 2026-08-31 — Card-art re-sourcing executed (Project Holo 2c, part 2)
+
+**Decided by:** repo owner (@cheyras); carried out by Claude (Fable 5).
+
+**Decision:** §7 of `research/CARD-ART-SOURCES.md` is resolved. The owner
+approved **pokemontcg.io** as the card-art fallback source, and separately
+approved deleting the objects left with no approved source to attribute them
+to. Both are now executed, not just decided.
+
+**Numbers:** the dump (`tools/card-art/dump-affected.sql`) measured **1,912**
+affected `image_asset` rows (1,854 `source_url IS NULL` + 58 on the retired
+host) across **914** distinct cards. The crosswalk
+(`tools/card-art/crosswalk.json`, built by `tools/card-art/build-crosswalk.mts`
+from TCGdex + pokemontcg.io) mapped 173 of 218 sets, recovering all 120
+`swsh-TG` cards. The pipeline (`tools/card-art/resource-assets.mts`)
+re-sourced **1,417** assets from `images.pokemontcg.io`, re-encoded to webp
+(83.27 MB), and uploaded them through the shipped `storage:backfill --prefix
+images --force` choke point (B1) with **0 failures** (46 flagged undersized).
+The remaining **495** rows had no approved source (230 set-unmapped, 103
+persistent upstream 404s, 84 orphan rows, 78 per-number refusals).
+`out/apply-source-urls.sql` attributed the 1,417 re-sourced rows; the closing
+SELECT confirmed exactly 495 still unattributed, matching the delete set.
+
+**Finding, not a fix (Unown `!` sanitizer gap):** of the 495 owner-approved
+deletions, 493 went through the shipped `deleteObject`; the other 2 needed a
+direct storage API call because the card's `localId` is literally `!` (Unown
+`!` in `exu`), which the shipped key sanitizer refuses outright. This is the
+same character §1 of `CARD-ART-SOURCES.md` already flagged as unrepresentable
+under the `SEGMENT` allow-list in `packages/storage/src/paths.ts` (a B6
+path-contract issue). Not changed today — logged here so the sanitizer gap
+isn't rediscovered from scratch. `out/apply-unavailable.sql` then deleted the
+495 manifest rows in one `BEGIN`/`DELETE`/`COMMIT`.
+
+**Verification, all clean:** rows without an approved source = 0; rows on an
+unapproved host = 0; unexpected pokemontcg.io `source_url`s outside the
+approved set = 0; orphan `image_object` rows = 0; etag spot-check 10/10
+matched (no CDN staleness). `research/card-art-unavailable.json` is now
+published as the live no-art list: **952 cards** (the 495 just deleted, plus a
+485-card residue that never had art — the 2026-08-26 `card-art-residue.json`
+measurement of 504 rederived under the new crosswalk; coverage rose 88 → 107,
+almost entirely `cel25cc`'s `_A`/`_B` numbering the original probe couldn't
+decode). See `research/card-art-residue.json`'s `rederivations` entry and
+`research/CARD-ART-SOURCES.md` §8 for the full write-up.
+
+**Outstanding (named, not done):**
+
+1. `storage:backfill --reconcile` has not been run — 60 uploaded objects lack
+   an `image_object` per-tier row, so `manifest:check` reports DRIFT until it
+   runs. On the manager.
+2. **Open decision:** whether to add `images.pokemontcg.io` to
+   `IMAGE_SOURCE_HOSTS` (`packages/storage/src/upstream.ts`) so re-sourced
+   assets self-heal through the normal warm path. Not decided — put to the
+   owner, per B9.
+3. A visual in-app spot check of the re-sourced art has not been done.
+
+**Implications:** the image store's provenance ledger is honest again for
+this population — every remaining gap is either attributed to an approved
+source or listed in `card-art-unavailable.json`, never silently missing. The
+Unown-`!` finding means two cards will need a B6 path-contract change before
+they can ever carry art, independent of sourcing.
+
+
+## 2026-08-31 -- images.pokemontcg.io joins the image-source allow-list
+
+**Decision (owner, in chat, 2026-08-31):** add `images.pokemontcg.io` to
+`IMAGE_SOURCE_HOSTS` in `packages/storage/src/upstream.ts`.
+
+**Why now.** The card-art re-sourcing (same date, earlier entry) attributed
+~1,417 assets to `images.pokemontcg.io` URLs. Without the allow-list entry those
+rows could serve their existing bytes but could never *refill* -- a lost object
+would degrade to the placeholder while carrying a perfectly good recorded
+source. The entry closes that gap; the refill path now covers every recorded
+provenance in the store.
+
+**Licensing basis:** pokemontcg.io is the approved card-art fallback per
+`research/CARD-ART-SOURCES.md` section 7 (owner decision, same date). The
+allow-list comment and `SECURITY.md` carry the one-line justification; the test
+pins the list at exactly three hosts.
 ## 2026-09-02 — Scanner detection: a pretrained corner model replaces classical CV, unmodified, and the harness era ends
 
 Six rounds of classical quad detection (hand-rolled, OpenCV WASM, and a fused

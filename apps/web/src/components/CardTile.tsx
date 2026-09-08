@@ -13,7 +13,7 @@ import { CardLink } from './CardLink'
 
 import { VariantBadge } from './VariantChip'
 
-// Per-variant quantity counters (pkmn.gg's little count boxes).
+// Per-variant quantity counters — the small count boxes under each tile.
 //
 // `seed` is the card's standard-tier variants as served inline by /sets/:setId.
 // When it is present this component issues NO request at all. It used to always
@@ -103,7 +103,8 @@ function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: strin
 }
 
 // The signature component (UI-SPEC §3.2). The tile is INERT — no hover
-// transform, no shadow (pkmn.gg's is completely inert). Only the name link
+// transform, no shadow. A tile is a link, not a control, and a grid of a hundred
+// animating tiles is noise. Only the name link
 // carries the focus ring. Footer is a fixed-height block for uniform rows.
 // On list pages a card carries its own series/set (a list spans many sets) and
 // may render a remove affordance; both fall back to the set-page props.
@@ -122,8 +123,8 @@ export function CardTile({
   eager?: boolean
   onRemove?: () => void
   badge?: string
-  // Optional owned-state rendering (species detail / signed-in grid, pkmn.gg captures
-  // §15.2): dim un-owned cards, and stamp a quantity chip on owned ones. Omitted on
+  // Optional owned-state rendering (species detail / signed-in grid): dim un-owned
+  // cards, and stamp a quantity chip on owned ones. Omitted on
   // the set page, which is unaffected.
   ownership?: boolean
 }) {

@@ -25,7 +25,7 @@
  *    a bare name line (resolvable for Trainer/Energy per Limitless S10) with a
  *    structured warning. Never a silent garbage line.
  */
-import type pg from 'pg';
+import type { Queryable } from '@deckpal/db';
 import { serializePtcgl, type SerializableLine, type Section } from './ptcgl.js';
 import { setAliases } from './data.js';
 import { BRACE_TO_TYPE } from './names.js';
@@ -124,7 +124,7 @@ function sectionOf(cat: ExportRow['category']): Section {
  * (same rules text), so a 1999 "Switch" with different wording is NOT swapped.
  * Newest Live print wins.
  */
-export async function findLiveReprint(pool: pg.Pool, row: ExportRow): Promise<LiveReprint | null> {
+export async function findLiveReprint(pool: Queryable, row: ExportRow): Promise<LiveReprint | null> {
   const candidates = (await loadByName(pool, row.name)).filter((c) => {
     if (c.id === row.cardId) return false;
     const alias = ptcglCodeForSet(c.setTcgdexId);
@@ -145,7 +145,7 @@ export async function findLiveReprint(pool: pg.Pool, row: ExportRow): Promise<Li
 /**
  * Build the PTCGL decklist text + structured warnings for a deck's rows.
  * `reprintLookup` is injected so unit tests need no database; the route passes
- * `(row) => findLiveReprint(pool, row)`.
+ * `(row) => findLiveReprint(dbHandle(), row)`.
  */
 export async function buildPtcglExport(
   rows: ExportRow[],

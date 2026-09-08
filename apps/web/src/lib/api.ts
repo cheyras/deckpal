@@ -15,6 +15,7 @@ import { readSession, refreshSessionBounded } from './authSession'
 import { isPublicPathname } from './landingRoute'
 import { isJsonContentType } from './jsonContentType'
 import type { ValueRangeKey } from './insightsCaption'
+import type { PriceGrain, PriceHistoryPoint } from './priceGrain'
 import type { Goal } from '../routes/setSearch'
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
@@ -649,7 +650,25 @@ export interface CardLegalityResponse {
   formats: { format: 'standard' | 'expanded' | 'glc' | 'unlimited'; legal: boolean; reasons: string[] }[]
 }
 
-/** Observed market price over time, one series per printing. */
+// One definition of the point shape — priceGrain.ts owns it (that module stays
+// runtime-import-free); these re-exports keep every import site pointing here.
+export type { PriceGrain, PriceHistoryPoint }
+
+/**
+ * Observed market price over time, one series per printing, at whatever GRAIN
+ * that stretch of history still exists in.
+ *
+ * The points used to be `{date, value}`. Since the retention tiers landed
+ * (migration 048) history is kept daily for ~30 days, weekly for ~6 months and
+ * monthly forever, so every point carries the full OHLC bucket and a `grain`
+ * saying which tier it came from. A DAY is a degenerate bucket —
+ * `open = high = low = close`, `start = end = highOn = lowOn`, `n = 1` — so a
+ * caller that only wants a line reads `close` and never branches on grain.
+ *
+ * The endpoint's JSDoc carries the contract for what may be ASSERTED from a
+ * bucket; it matters here too, because this type is what an agent tool would
+ * eventually be built on.
+ */
 export interface CardPriceHistoryResponse {
   currency: string
   range: ValueRange
@@ -658,7 +677,7 @@ export interface CardPriceHistoryResponse {
     kind: string
     displayName: string
     tier: string | null
-    points: { date: string; value: number }[]
+    points: PriceHistoryPoint[]
   }[]
 }
 
@@ -697,6 +716,24 @@ export interface ListProgress {
   pct: number
   copies: number
 }
+/**
+ * A smart list's saved query (migration 050) — the addMissing spec plus
+ * hand-exclusions. Present on a rule-backed dynamic list; null/absent on a
+ * reference list. `setName` is resolved server-side for display.
+ */
+export interface ListRule {
+  setId: string
+  setName: string | null
+  goal: 'complete' | 'master' | 'grandmaster'
+  finishes: string[] | null
+  rarity: string[] | null
+  rarityExclude: string[] | null
+  maxPriceUsd: number | null
+  pricedOnly: boolean
+  /** card_variant ids removed by hand ("remove" on a smart list excludes). */
+  exclude: number[]
+}
+
 export interface ListSummary {
   id: string
   kind: ListKind
@@ -710,6 +747,11 @@ export interface ListSummary {
   progress: ListProgress | null
   marketValueUsd: number | null
   coverImage: { low: string; high: string } | null
+  /** Up to 8 distinct cards for the index tile's mosaic, cover pick first. */
+  coverImages: { low: string; high: string }[]
+  /** Present on a smart list; null on a reference/static/binder list. */
+  rule: ListRule | null
+  ruleEvaluatedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -731,12 +773,16 @@ export interface ListItem extends CardRow {
 export interface ListDetailResponse {
   list: ListSummary
   items: ListItem[]
+  /** Smart lists only: the cards removed by hand, for un-excluding. */
+  excluded?: { variantId: number; cardId: string; name: string; number: string }[]
 }
 export interface CreateListBody {
   name: string
   kind: ListKind
   description?: string | null
   visibility?: ListVisibility
+  /** Making it a smart list: the saved query (kind must be 'dynamic'). */
+  rule?: Partial<ListRule> | null
 }
 export interface UpdateListBody {
   name?: string
@@ -745,6 +791,9 @@ export interface UpdateListBody {
   isFavorite?: boolean
   itemOrder?: string[]
   coverCardVariantId?: number | null
+  /** Replace the smart list's rule; null PINS it (materialises the current
+   *  evaluation into stored rows and detaches the rule). */
+  rule?: Partial<ListRule> | null
 }
 
 // ── Search (used by the Add-to-List picker) ────────────────────
@@ -796,6 +845,9 @@ export interface DeckSummary {
 }
 export interface DeckCard {
   cardId: string
+  /** Which PRINTING this row is (migration 051) — one row per variant now. */
+  variantId: number
+  variant: { kind: string | null; displayName: string | null; tier: string | null; isPrimary: boolean | null } | null
   name: string
   number: string
   numberSort: string | null
@@ -983,11 +1035,17 @@ export interface SnapshotCard {
   tcgdexId: string
   name: string
   quantity: number
+  /** Which printing (migration 051). Absent on pre-051 snapshots. */
+  variantId?: number
+  variantName?: string | null
 }
 export interface DeckVersionDiff {
   added: { name: string; tcgdexId: string; quantity: number }[]
   removed: { name: string; tcgdexId: string; quantity: number }[]
   changed: { name: string; tcgdexId: string; from: number; to: number }[]
+  /** Same card, same total, different printing mix — e.g. "2× Normal" →
+   *  "1× Normal + 1× Reverse Holofoil". Absent from pre-051 responses. */
+  printings?: { name: string; tcgdexId: string; from: string; to: string }[]
 }
 export interface DeckVersionDetail {
   version: number
@@ -1111,6 +1169,35 @@ export interface MeResponse {
    */
   decke?: boolean
 }
+/**
+ * The account's settings row (user_settings + migration 049's UI columns).
+ * `skin`/`topbar` are null when the account never chose — the app default
+ * applies. See lib/settingsSync.ts for how these meet the localStorage caches.
+ */
+export interface UserSettings {
+  defaultGoal: 'complete' | 'master' | 'grandmaster'
+  displayCurrency: string
+  pricingEnabled: boolean
+  showCollectionValue: boolean
+  binderPocketSize: 4 | 9 | 12 | 16
+  binderStackVariants: boolean
+  binderAdditionalVariants: 'hide' | 'inline' | 'end'
+  deckeHidden: boolean
+  skin: 'premium' | 'classic' | null
+  topbar: 'cover' | 'flat' | null
+  seriesSortKey: 'recency' | 'az' | 'pct'
+  seriesSortDir: 'asc' | 'desc'
+  seriesGroupOwned: boolean
+}
+
+/** One featured card on the profile (user_showcase; slot is 1-based). */
+export interface ShowcaseSlot {
+  slot: number
+  cardId: string
+  name: string
+  images: { low: string; high: string }
+}
+
 export interface CollectionEvent {
   eventId: string
   occurredAt: string
@@ -1472,12 +1559,22 @@ export const api = {
   restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
-  addDeckCard: (id: string, cardId: string, quantity = 1) =>
-    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity }),
-  setDeckCardQuantity: (id: string, cardId: string, quantity: number) =>
-    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, { quantity }),
-  removeDeckCard: (id: string, cardId: string) =>
-    send<DeckDetail>('DELETE', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`),
+  // variantId (migration 051): which printing. Omitted = the card's primary
+  // variant on add; on set/remove the server targets the card's single deck
+  // row when there is exactly one and 400s when several printings would be
+  // ambiguous — so pass it whenever the row is known.
+  addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number) =>
+    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }),
+  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
+      quantity,
+      ...(variantId != null ? { variantId } : {}),
+    }),
+  removeDeckCard: (id: string, cardId: string, variantId?: number) =>
+    send<DeckDetail>(
+      'DELETE',
+      `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}${variantId != null ? `?variant=${variantId}` : ''}`,
+    ),
   validateDeck: (id: string, format?: DeckFormat, signal?: AbortSignal) =>
     get<{ validation: ValidationResult; cardRefs: Record<string, CardRef> }>(
       `/decks/${encodeURIComponent(id)}/validate${format ? `?format=${format}` : ''}`,
@@ -1523,6 +1620,15 @@ export const api = {
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
   me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
+  // Account settings (migration 049) — the server-side home of what used to be
+  // device-only preferences. PATCH takes any subset and returns the whole row.
+  settings: (signal?: AbortSignal) => get<{ settings: UserSettings }>('/me/settings', signal),
+  updateSettings: (patch: Partial<UserSettings>) => send<{ settings: UserSettings }>('PATCH', '/me/settings', patch),
+  // Profile showcase — the user_showcase table, replacing the old
+  // localStorage-only `deckpal.showcase.v1`. PUT replaces the whole set; the
+  // server resolves each card id to its primary variant.
+  showcase: (signal?: AbortSignal) => get<{ showcase: ShowcaseSlot[] }>('/me/showcase', signal),
+  setShowcase: (cards: (string | null)[]) => send<{ showcase: ShowcaseSlot[] }>('PUT', '/me/showcase', { cards }),
 
   // Insights / gamification (Phase 6)
   overview: (signal?: AbortSignal) => get<InsightsOverview>('/insights/overview', signal),

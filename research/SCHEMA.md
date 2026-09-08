@@ -9,6 +9,14 @@ against it. The live product runs on Supabase Postgres, not the host cluster thi
 document assumes — see `ARCHITECTURE.md` and `DEPLOYMENT.md` for how it is
 actually deployed.
 
+**Companion-document note (2026-08-31).** This document cites two companions —
+`BEHAVIOR-SPEC.md` and `ROUTE-MAP.md` — that were removed from `research/`; see
+`research/REMOVED-RESEARCH.md` for what they were and why. Their section pointers
+are left in place as dated provenance marks rather than live links, and the
+attributions that used to name the product they studied now say **"the reference
+tracker"**. Nothing in the model below depends on either file: the schema of record
+is `packages/db/src/migrations/`.
+
 **Read this as a dated research record, not as current DDL.** Its measurements
 are captioned with the date and method that produced them and are left as
 measured — the catalog it sweeps held 23,444 cards, where production now holds
@@ -50,7 +58,7 @@ rather than silently folded in**, because a visible correction is more useful th
 | C10 | `card_count_total` "advisory" — no number | Measured: `Σ cardCount.total` = 23,746 vs 23,444 real cards → **302 phantom cards**. And per-variant `cardCount` fields **exceed the card count in 47 of 214 sets** — unusable as denominators. | §6, §9.2 |
 | C11 | Binder `slot_index` — untested against real layouts | **Survives.** 9/4-pocket spreads, 12/16-pocket single pages, and the zero-pocket inside cover are all pure *render-time* derivations from `slot_index`. No stored page/pocket, no fudge. | §14.2 |
 
-### Third pass — authenticated evidence (pkmn.gg authenticated captures (not tracked), 37 logged-in screenshots)
+### Third pass — authenticated evidence (the authenticated reference captures (not tracked), 37 logged-in screenshots)
 
 The first authenticated evidence in the project. It **confirms** more of the model than it breaks,
 but what it breaks, it breaks hard.
@@ -59,7 +67,7 @@ but what it breaks, it breaks hard.
 |---|---|---|---|
 | D1 | Tier rule **v2**: `standard` iff no stamp, base size/finish, non-organised-play foil, non-error subtype | **Falsified.** `IMG_0592` shows Base Set Clefairy with **one** primary `Holofoil` and two rows under `Other Variants`. v2 marks **3–4** of Base Set's variants standard, so it would demand shadowless + 1999-copyright printings for Master Set. **Rule v3** keys on *print run*: exactly **1 standard variant for all 102 Base Set cards**. | §5.3 |
 | D2 | `tier` is a boolean-ish `standard`/`special` | The UI states provenance as **`Found in {printRun} Booster Packs`** — three strings, no more. `1st Edition Holofoil Shadowless` **is pack-pulled** yet sits in `Other Variants`. So **pack-pulled ≠ standard**; the Master boundary is *pack-pulled **from the base print run***. | §5.3, §5.4 |
-| D3 | Variant display names come straight from the facet tuple | Names are **composed**, and pkmn.gg authenticated captures (not tracked) §12.2's grammar is **wrong** — see §5.4. `Unlimited` is a *contrastive* token, not `subtype=unlimited`. | §5.4 |
+| D3 | Variant display names come straight from the facet tuple | Names are **composed**, and the authenticated reference captures (not tracked) §12.2's grammar is **wrong** — see §5.4. `Unlimited` is a *contrastive* token, not `subtype=unlimited`. | §5.4 |
 | D4 | Master % — unit unstated | **Confirmed a `(card, variant)` pair fraction**, not a card fraction. My §9.2/§17.2 already computed it that way. Complete stays a **card** fraction. | §9.2 |
 | D5 | `user_set_progress` keyed `(user, set, goal)`, 3 rows | **Confirmed necessary.** Bar 2 is **Master** by default and Grandmaster *only* when that goal is chosen — never a copy of Complete. Observed at goal=Complete with bar 2 showing a different value. Store three, render two. | §9.2, §9.3 |
 | D6 | Set `LVL` bands "low confidence" (`BEHAVIOR-SPEC.md` §3.2) | **Solved:** `LVL = 0 if pct = 0 else 1 + floor(pct/25)`, nine data points, milestone dots pixel-measured at 25/50/75 %. | §9.2 |
@@ -69,7 +77,7 @@ but what it breaks, it breaks hard.
 | D10 | Binder mutation unmodelled | Binder editing is **boolean per-pocket variant checkboxes**, not steppers. Same table, different mutation — and a real data-loss hazard. | §14.2 |
 | D11 | `variant_tier_resolved` boundary was **[I]** | **Confirmed** as exactly the `Other Variants` / `Additional Variants` grouping, named three ways in three surfaces. | §5.3 |
 
-### 🔴 A finding that neither sibling doc reports: our Master denominators will not match pkmn.gg's
+### 🔴 A finding that neither sibling doc reports: our Master denominators will not match the reference tracker's
 
 Testing rule v3 against the census turned up something more consequential than the rule itself.
 **TCGdex's variant coverage is incomplete for entire eras**, measured as variants per card:
@@ -88,7 +96,7 @@ Black & White, XY and Sun & Moon all shipped reverse-holo commons in reality. TC
 Chaos Rising (`me04`, 2026) has 119 of 122 cards at exactly one variant.
 
 This is what explains the one place my rule and the authenticated evidence disagree.
-pkmn.gg authenticated captures (not tracked) §11 brackets Pitch Black's Master denominator at **193–194** (or 204–205);
+The authenticated reference captures (not tracked) §11 brackets Pitch Black's Master denominator at **193–194** (or 204–205);
 rule v3 over TCGdex's data predicts **187**, which fits no admissible band. The 8-day-old set is
 simply under-populated upstream. The control case proves the rule is sound: **Base Set 2 predicts
 exactly 130 standard pairs, one per card for all 130** — precisely what §11 independently derived
@@ -117,7 +125,7 @@ Neither holds:
 - `official` vs `total` is the **printed vs secret-rare** split (the `165 + 42 Secret` → `0 / 207`
   finding, `BEHAVIOR-SPEC.md` §2.1). **Master Set is about *variants*, not secret rares**
   (`BEHAVIOR-SPEC.md` §2.1 / changelog C1). Conflating the two would make Master Set mean "own the
-  secret rares", which is not what pkmn.gg computes.
+  secret rares", which is not what the reference tracker computes.
 
 This *strengthens* the first pass's §9.2 decision to derive every denominator from `COUNT(*)` over
 real rows. It is now backed by a measurement rather than caution.
@@ -254,11 +262,11 @@ erDiagram
 
 ## 4.1 The problem, restated
 
-[E] `BEHAVIOR-SPEC.md` §1.2 harvested the **exact strings pkmn.gg uses**: `Normal`, `Holofoil`,
+[E] `BEHAVIOR-SPEC.md` §1.2 harvested the **exact strings the reference tracker uses**: `Normal`, `Holofoil`,
 `Reverse Holofoil`, `Poke Ball Pattern`, `Master Ball Pattern`, `Play Pokémon Stamp Holo`,
 `Play Pokémon Stamp Normal`, `Professor Program Stamp Normal`, `Staff Stamp`, `GameStop Stamp`,
 `EB Games Stamp`, `Stamp`, `Pokémon Center Stamp`, `Jumbo`, `TCG Pocket`. It also establishes
-that "Variant names are free-text-ish labels, curated by the pkmn.gg team, not a fixed enum. New
+that "Variant names are free-text-ish labels, curated by the the reference tracker's catalog team, not a fixed enum. New
 ones are added per card via a moderation flow."
 
 And [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §1 establishes what TCGdex actually ships: a `variants_detailed` array per
@@ -297,7 +305,7 @@ backwards for this domain.
 
 `variant_kind.code` is a **deterministic slug of the facet tuple**, so the sync can compute it
 without a lookup and re-derive it idempotently. `display_name` is curated free text so it can be
-made to match pkmn.gg's vocabulary as we learn it — but it is *display only* and nothing joins on it.
+made to match the reference tracker's vocabulary as we learn it — but it is *display only* and nothing joins on it.
 
 ```sql
 -- ── VARIANT VOCABULARY ────────────────────────────────────────────────────────
@@ -565,7 +573,7 @@ product row for. Store `tcgplayer_url TEXT` when available.
 
 ## 5.1 Why this is hard
 
-Master Set vs Grandmaster Set turns entirely on it. [E] `BEHAVIOR-SPEC.md` §2.1, quoting pkmn.gg's
+Master Set vs Grandmaster Set turns entirely on it. [E] `BEHAVIOR-SPEC.md` §2.1, quoting the reference tracker's
 own changelog C1:
 
 > **Master Set**: own each card in the main set in every standard pack-pulled variant.
@@ -607,7 +615,7 @@ CREATE TABLE variant_tier_override (
   tier              TEXT NOT NULL CHECK (tier IN ('standard','special')),
   rationale         TEXT NOT NULL,        -- required. An override with no reason is a future mystery.
   evidence_url      TEXT,
-  asserted_by       TEXT NOT NULL,        -- free text ('cheyras', 'pkmn.gg-support-reply-2026-08-02')
+  asserted_by       TEXT NOT NULL,        -- free text ('cheyras', 'vendor-support-reply-2026-08-02')
   asserted_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   supersedes_rule_version SMALLINT        -- the tier_rule_version this decision was made against;
                                           -- lets a future rule change re-surface stale overrides
@@ -643,7 +651,7 @@ LEFT JOIN variant_tier_override o_card
 
 **`tier_source` is exposed on the view deliberately.** The set page can render a small "curated"
 marker on any variant whose tier a human set, and `/sync-log` can list every override so a
-disagreement with pkmn.gg is diagnosable rather than mysterious.
+disagreement with the reference tracker is diagnosable rather than mysterious.
 
 ## 5.3 The derivation rule — **v3, keyed on print run** (rule_version = 3)
 
@@ -669,18 +677,18 @@ otherwise 'special'.
 
 ### The measurement that forced v3
 
-pkmn.gg's Base Set Clefairy page (pkmn.gg authenticated captures (not tracked) §12.2) renders **three** variant rows:
+The reference tracker's Base Set Clefairy page (the authenticated reference captures (not tracked) §12.2) renders **three** variant rows:
 `Holofoil` (primary) · `1st Edition Holofoil Shadowless` and `Unlimited Holofoil Shadowless`
 (both under `Other Variants`). TCGdex's `base1-5` carries **four**:
 
-| TCGdex facets | pkmn.gg row | tier |
+| TCGdex facets | Reference-tracker row | tier |
 |---|---|---|
 | `{holo, subtype: unlimited}` | **`Holofoil`** — primary | standard |
 | `{holo, subtype: shadowless, stamp: [1st-edition]}` | `1st Edition Holofoil Shadowless` | Other |
 | `{holo, subtype: shadowless}` | `Unlimited Holofoil Shadowless` | Other |
 | `{holo, subtype: 1999-2000-copyright}` | *not rendered at all* | — |
 
-So **`subtype = 'unlimited'` is the base run**, and pkmn.gg promotes it to the unqualified name
+So **`subtype = 'unlimited'` is the base run**, and the reference tracker promotes it to the unqualified name
 `Holofoil`. Any test that treats a non-null subtype as non-standard would leave Base Set with *zero*
 standard variants; any test that treats non-error subtypes as standard leaves it with three or four.
 
@@ -695,7 +703,7 @@ already caught by the stamp clause) · `no-e-reader` 39 · `japanese-back` 2 · 
 
 **Two independent confirmations that v3 is right:**
 
-1. **Base Set 2 → exactly 130 standard pairs, one per card for all 130.** pkmn.gg authenticated captures (not tracked) §11
+1. **Base Set 2 → exactly 130 standard pairs, one per card for all 130.** the authenticated reference captures (not tracked) §11
    derived that number from an entirely different direction — the observed `22.3 % / 22.3 %` double
    reading, arguing BS2 predates reverse holos so Master and Complete must coincide. My rule,
    applied to TCGdex facets, reproduces it exactly.
@@ -710,7 +718,7 @@ Rule v1 misclassified **1,269 rows**, all in the `foil` clause and all in the sa
 
 | rows | v1 → v2 | shape | why v1 was wrong |
 |---|---|---|---|
-| 302 | special → standard | `type=reverse foil=pokeball` | **These *are* pkmn.gg's "Poke Ball Pattern"** (`BEHAVIOR-SPEC.md` §2.1 lists it as standard pack-pulled). v1 looked for it on the wrong axis (C2). |
+| 302 | special → standard | `type=reverse foil=pokeball` | **These *are* the reference tracker's "Poke Ball Pattern"** (`BEHAVIOR-SPEC.md` §2.1 lists it as standard pack-pulled). v1 looked for it on the wrong axis (C2). |
 | 211 | special → standard | `type=reverse foil=masterball` | Same — "Master Ball Pattern". |
 | 334 | special → standard | `foil=energy` (holo + reverse) | Basic-energy foil patterns; pack-pulled. |
 | 151 | special → standard | `type=holo foil=rainbow` | Rainbow rares are pack-pulled secret rares. |
@@ -769,7 +777,7 @@ sentence** and the **display name**. We have to generate both ourselves.
 
 ### 5.4.1 Print run
 
-Only **three** provenance strings exist across all 37 images [E] pkmn.gg authenticated captures (not tracked) §12.1, with the
+Only **three** provenance strings exist across all 37 images [E] the authenticated reference captures (not tracked) §12.1, with the
 grammar `Found in {printRun} Booster Packs` and `{printRun}` omitted for the base run.
 
 ```sql
@@ -801,18 +809,18 @@ in §5.3 because it is the one that is easy to get wrong, but `print_run_code = 
 clearer statement of intent.
 
 **Non-booster provenance is unobserved.** No promo, retailer or box-topper card detail page was
-captured [E] pkmn.gg authenticated captures (not tracked) §12.1, §21 item 4. So the sentence for a `gamestop`-stamped or
+captured [E] the authenticated reference captures (not tracked) §12.1, §21 item 4. So the sentence for a `gamestop`-stamped or
 `Jumbo` variant is unknown, and `variant_print_run.provenance` must be nullable for those —
 render nothing rather than invent a sentence.
 
-### 5.4.2 Display-name composition — and a correction to pkmn.gg authenticated captures (not tracked) §12.2
+### 5.4.2 Display-name composition — and a correction to the authenticated reference captures (not tracked) §12.2
 
-pkmn.gg authenticated captures (not tracked) §12.2 proposes `[{stamp}] [{subtype-print}] {foil} [{subtype-run}]`, reading
+The authenticated reference captures (not tracked) §12.2 proposes `[{stamp}] [{subtype-print}] {foil} [{subtype-run}]`, reading
 `Unlimited Holofoil Shadowless` as carrying *two* subtype fragments. **That cannot be right —
 `subtype` is a single scalar field.** Checking `base1-5`'s real facets (§5.3) resolves it:
 
 - `Unlimited Holofoil Shadowless` is `{holo, subtype: shadowless}` — **no `unlimited` anywhere**.
-- `{holo, subtype: unlimited}` is the row pkmn.gg renders as plain **`Holofoil`**.
+- `{holo, subtype: unlimited}` is the row the reference tracker renders as plain **`Holofoil`**.
 
 So **`Unlimited` is a *contrastive* token, not a facet value.** It means "this print run, without
 the 1st-edition stamp", and it is emitted only when the card has a sibling variant that is identical
@@ -834,7 +842,7 @@ edition_prefix(v) := '1st Edition'  if v.stamp ∋ '1st-edition'
                    | ''             otherwise
 ```
 
-Verified against all five observed names [E] pkmn.gg authenticated captures (not tracked) §12.2:
+Verified against all five observed names [E] the authenticated reference captures (not tracked) §12.2:
 
 | facets | composed | observed |
 |---|---|---|
@@ -858,7 +866,7 @@ ALTER TABLE card_variant
 disagree, the card-scoped one wins.
 
 **One thing this does not settle.** `1999-2000-copyright` (150 rows) is a fourth Base-era print run
-that pkmn.gg **does not render at all** on the Clefairy page. Either they do not carry it or they
+that the reference tracker **does not render at all** on the Clefairy page. Either they do not carry it or they
 collapse it. Our composition would emit `Holofoil 1999-2000 Copyright`, which no capture supports.
 Flagged in §18.
 
@@ -987,7 +995,7 @@ CREATE TABLE card_subtype (              -- filter: "Sub-Type". ORDER IS SIGNIFI
 CREATE TABLE card_tag (                  -- ⚠ NEW (D8). A chip field on the card-detail Card tab,
   card_id BIGINT NOT NULL REFERENCES card(id) ON DELETE CASCADE,   -- rendered alongside Type and
   ord     SMALLINT NOT NULL,             -- Illustrated By, e.g. `Basic`. All three are links into
-  tag     TEXT NOT NULL,                 -- search. [E] pkmn.gg captures §6.
+  tag     TEXT NOT NULL,                 -- search. [E] the reference captures §6.
   PRIMARY KEY (card_id, ord)             -- Source unknown: `Basic` is also a `stage` value, so this
 );                                       -- MAY be a rendering of stage+subtypes rather than its own
                                          -- field. Modelled separately because it is cheap to merge
@@ -1036,7 +1044,8 @@ key format is mine; the requirement that one exist is `ROUTE-MAP.md`'s.
 | Table | Grain | Growth | Purpose |
 |---|---|---|---|
 | `price_current` | one row per `(variant, source, currency)` | **bounded**, ~50–90 k rows forever | Every price *display*: card tile, variant table, set value, deck price, collection value, price sorts. UPSERTed. |
-| `price_observation` | one row per `(variant, source, currency, day)` | **append-only**, see §11 | The per-variant chart series. `BEHAVIOR-SPEC.md` §9.2. |
+| `price_observation` | one row per `(variant, source, currency, day)` | **append-only**, RETAINED ~30 days (§7.5) | The per-variant chart series, at daily grain with all nine metrics. `BEHAVIOR-SPEC.md` §9.2. |
+| `price_bucket` | one row per `(variant, source, currency, grain, period)` | derived; weekly ~6 months, monthly FOREVER (§7.5) | What survives the daily partition being dropped: OHLC + mean/median/n over `market_minor`. |
 | `collection_value_point` | one row per `(user, day)` | ~365/user/yr | The user's own collection-value history. **Must be a separate, user-owned table** — [E] `BEHAVIOR-SPEC.md` §2.4: Reset Collection clears "activity log **and** total collection price history" but must not touch catalog market history. |
 
 Splitting current from history is the single change that makes whole-catalogue pricing affordable
@@ -1084,7 +1093,7 @@ CREATE TABLE price_current (
                                      -- ⚠ PER (variant, source) — NOT global (D9). Two cards were
                                      -- observed reading "Prices updated 2 hours ago" and
                                      -- "18 hours ago" in the same session, so the age shown is the
-                                     -- age of the row being rendered. [E] pkmn.gg captures §5.
+                                     -- age of the row being rendered. [E] the reference captures §5.
                                      -- Renamed from upstream_updated_at to match what it drives.
   fetched_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   is_fallback         BOOLEAN NOT NULL DEFAULT FALSE,  -- price borrowed from a sibling language /
@@ -1093,7 +1102,7 @@ CREATE TABLE price_current (
 );
 ```
 
-**Absence of a price is a missing ROW, not a row of NULLs (D9).** [E] pkmn.gg authenticated captures (not tracked) §12.4:
+**Absence of a price is a missing ROW, not a row of NULLs (D9).** [E] the authenticated reference captures (not tracked) §12.4:
 Base Set Clefairy's `1st Edition Holofoil Shadowless` renders **no price line and no TCGplayer
 button at all**, while its `Unlimited Holofoil Shadowless` sibling renders both. So "unpriced" is a
 real, common, per-variant state on vintage printings — not an error. The schema represents it by
@@ -1203,7 +1212,7 @@ brief: without TCGplayer partner credentials the provider chain falls through to
 publishes **once per day at ~20:00 UTC**; Cardmarket is likewise daily. So anchoring `captured_at`
 to the source's own stamp yields one row per variant per source per day *by construction*, and a
 re-sync is `ON CONFLICT DO NOTHING` — a true no-op, not an overwrite. The UI must therefore say
-**"as of {date}"** rather than implying live pricing the way pkmn.gg does.
+**"as of {date}"** rather than implying live pricing the way the reference tracker does.
 
 ## 7.3 The reverse-holo trap, made unmisreadable
 
@@ -1247,6 +1256,118 @@ INSERT INTO price_source_field_map VALUES
    [E] [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) §3 item 3 — *"Pin it with `swsh3-136`. Highest correctness-per-minute item on
    this list."*
 
+## 7.5 Tiered retention — what history is kept, and in what shape
+
+Migration `048_price_bucket.sql`. Daily rows forever do not fit the disk.
+Measured against the live database on 2026-08-29, these are counts and not
+estimates:
+
+| Fact | Number |
+|---|---|
+| Pokémon rows/day that join to a `card_variant` | 28,622 |
+| Storage per `price_observation` row | ~112 B → ~3.2 MB/day |
+| Daily-forever, Pokémon + Magic + Yu-Gi-Oh | **~6.6 GB/year** |
+| Supabase Pro includes | 8 GB |
+
+So retention is tiered by age, and each non-daily bucket stores the **shape** of
+its period rather than a closing value:
+
+| Tier | Window | Table | Mechanism when it expires |
+|---|---|---|---|
+| daily | last ~30 days | `price_observation` | monthly partition DETACHed, then DROPped one run later |
+| weekly | ~30 days to ~6 months | `price_bucket` (`grain='week'`) | quarterly sub-partition DROPped |
+| monthly | beyond ~6 months | `price_bucket` (`grain='month'`) | never — month grain is forever |
+
+**Why a bucket and not a close.** Measured over 633,431 real weekly buckets
+(>=6 observations, >\$0.50): **close alone misleads 46.8% of the time** — that
+fraction of weeks close at or near an extreme of their own range. Average
+intra-week range is 4.2% of close; 11.0% of weeks swing >10%.
+
+**Why there is no variance column.** `corr(stddev, high-low) = 0.9878` over the
+same sample, so a stored variance would be a second name for the range.
+Volatility is DERIVED on read (Parkinson / Garman-Klass from OHLC). Parkinson
+(1980) is why that is not a compromise: the range is a *more* efficient
+volatility estimator than close-to-close sampling, so these buckets measure
+volatility better per byte than the daily closes they replace.
+
+**Why there is no VWAP column.** TCGCSV supplies no volume. Recorded so nobody
+rediscovers its absence and designs around a column that cannot exist. (For the
+same reason the arithmetic mean IS the time-weighted mean here: observations are
+daily and evenly spaced.)
+
+**Why only `market_minor`.** It is the one metric every consumer reads — the
+price chart, the collection value rule, and Cardmarket maps its headline
+`trend` into it, so EUR series are covered too. The other eight metrics live on
+in the 30-day daily window and in `price_current`; bucketing all nine would
+multiply storage ~9x for columns nothing reads historically. They are
+deliberately lost with the partition.
+
+**Why the daily tier stays in `price_observation`.** Considered and rejected:
+degenerate `grain='day'` buckets for one uniform table. The ingest choke point
+(`appendObservations`) would either double-write ~28.6k rows/day or move
+wholesale, churning the one path three jobs share; daily rows carry nine metrics
+plus `priced_at`/`sync_run_id` provenance a bucket cannot hold; and the
+retention mechanism this schema was built for — monthly partitions you can DROP
+— already lives there. Uniformity is the READER's problem and is solved there:
+`GET /cards/:cardId/prices` returns every point in one bucket shape, a day row
+presenting as `open=high=low=close`, `n=1`.
+
+**RLS is enabled on `price_bucket` AND on its partitions.** Every table since
+021 carries the world-readable / nobody-writable pair, and this one needs it
+more than most: the API serves `/cards/:id/prices` under `SET LOCAL role` =
+`anon`/`authenticated`, those roles hold default CRUD grants on public-schema
+tables on Supabase, and after the rollup runs this table is the ONLY copy of
+that history in the database. The partitions are enabled individually because
+Postgres does not apply a parent's policies to a partition reached directly by
+name — a parent-only enable leaves `price_bucket_month` writable. Quarters
+created at runtime get the same treatment in `ensureWeekBucketPartition`.
+(The same parent-only gap exists on `price_observation`'s runtime partitions,
+which 021 does not cover. Pre-existing; flagged rather than fixed here.)
+
+**Completeness is checked before correctness.** Every verification below
+compares the buckets to THE PARTITION, which is the right question for "did the
+rollup summarise correctly" and blind to "was there anything to summarise". A
+month with an eight-day ingest outage rolls up, verifies perfectly, and makes
+that hole permanent — and then `backfill.ts`, which treats a bucketed day as
+ingested, would skip exactly the days needing repair. So a month with days
+carrying no observation at all is REFUSED by name, and the replay guard only
+counts a day as covered when some series' `n_obs` equals its bucket's full
+span. `--allow-gaps` is the acknowledgement that the missing days are days
+TCGCSV never published.
+
+**A refusal HALTS the run rather than skipping the month.** Rolling past a month
+would move `day_floor` beyond it, and the reader serves daily rows only from
+`day_floor` forward — so the skipped month's data would sit in the database
+visible at no grain, a months-long hole in every chart. Halting keeps
+`day_floor` at the first un-rolled month, which is the invariant the reader
+depends on.
+
+**No `REVOKE UPDATE, DELETE` on `price_bucket`**, unlike `price_observation`
+(§7.2). An observation log must not be rewritten; a bucket is derived,
+recomputable state, and the rollup upserts it `ON CONFLICT DO UPDATE` — which is
+exactly what makes the job re-runnable and resumable (B8).
+
+**The straddle-week invariant.** ISO weeks cross month boundaries, so ownership
+is pinned: rollup(M) computes the week buckets for every ISO week whose START
+falls in M, reading the PARENT table so a straddler sees its first days of M+1.
+Months are processed oldest-first, and partition M+1 is not dropped until
+rollup(M+1) a month later, so by induction:
+
+> Partition M is dropped only when its month bucket exists and every ISO week
+> overlapping M has been bucketed — the weeks starting in M by this run, the
+> week reaching back into M-1 by last month's run.
+
+**Verify BEFORE drop.** The source is about to be destroyed, so "the job ran" is
+not proof. Per month, in order: snapshot `n_obs`; upsert both grains; recompute
+the same aggregation into a TEMP table and `EXCEPT` it against what is stored in
+BOTH directions; check conservation (`sum(n_obs)` over the month buckets equals
+the distinct `(variant, source, currency, day)` count in the partition, so a
+series that got no bucket cannot hide); check no bucket SHRANK; only then DETACH
+and rename to `…_retired`. The DROP happens one run later, after the month
+bucket is re-derived from the retired table itself. Month buckets are built from
+the DAILY rows, never from week buckets — a median of weekly medians is not a
+median.
+
 ## 7.4 FX
 
 [E] `BEHAVIOR-SPEC.md` §9.4: *"All prices are stored/sourced in USD and converted for display …
@@ -1264,7 +1385,7 @@ CREATE TABLE fx_rate (
   PRIMARY KEY (base_code, quote_code, as_of)
 );
 ```
-[E] `BEHAVIOR-SPEC.md` §15 #20: the FX source and cadence are undocumented on pkmn.gg. Ours to pick.
+[E] `BEHAVIOR-SPEC.md` §15 #20: the FX source and cadence are undocumented on the reference tracker. Ours to pick.
 
 ---
 
@@ -1467,6 +1588,14 @@ CREATE TABLE deck (
   CHECK ((glc_type IS NOT NULL) OR format_code <> 'glc')
 );
 
+
+-- Migration 051 (2026-08-29): variant-scoped decks. One row per PRINTING —
+-- PK (deck_id, card_variant_id); card_id KEPT denormalised for card-level
+-- joins (engine, exports), held honest by a composite FK to
+-- card_variant(id, card_id). Backfill: each pre-051 row took its card's
+-- primary variant.
+ALTER TABLE deck_card ADD COLUMN card_variant_id BIGINT NOT NULL; -- (+ FKs, PK swap; see migration)
+
 CREATE TABLE deck_card (
   deck_id  UUID   NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
   card_id  BIGINT NOT NULL REFERENCES card(id) ON DELETE RESTRICT,
@@ -1613,7 +1742,7 @@ Restating [E] `BEHAVIOR-SPEC.md` §2.1's formalisation, with `F` = the active va
 | **Grandmaster Set** | for each `c`, every `v ∈ V(c)∩F` | `∀c,∀v: q(c,v) ≥ 1` |
 
 **The unit differs by goal, and this is now confirmed rather than assumed (D4).**
-[E] pkmn.gg authenticated captures (not tracked) §11 rules out the card-fraction reading of Master: on Pitch Black
+[E] the authenticated reference captures (not tracked) §11 rules out the card-fraction reading of Master: on Pitch Black
 (`17/120` Complete, `9.3 %` Master) **no integer numerator over 120 yields 9.3 %**, and on Base
 Set 2 — one printing per card — both bars read `22.3 %`, which only works if Master counts pairs.
 
@@ -1636,13 +1765,13 @@ Denominators:
 
 Percentage: `owned_required / total_required × 100`, **one decimal, round-half-up**. [E]
 `BEHAVIOR-SPEC.md` §2.1 item 4, now verified against **nine** observed pairs in
-[E] pkmn.gg authenticated captures (not tracked) §10 (`12/188 → 6.4` · `17/120 → 14.2` · `29/130 → 22.3` · `32/122 → 26.2` ·
+[E] the authenticated reference captures (not tracked) §10 (`12/188 → 6.4` · `17/120 → 14.2` · `29/130 → 22.3` · `32/122 → 26.2` ·
 `5/8 → 62.5`, plus the four zeroes). Store the two integers, format at render — never store a
 rounded percentage.
 
 ### Which bar renders which counter (D5)
 
-[E] pkmn.gg authenticated captures (not tracked) §8, quoting Account Settings verbatim: *"Choosing Grandmaster Set also
+[E] the authenticated reference captures (not tracked) §8, quoting Account Settings verbatim: *"Choosing Grandmaster Set also
 switches the lower set-completion bar to show Grandmaster progress instead of Master."* This is
 **narrower than the changelog**, which said the second bar "follows your selected goal":
 
@@ -1662,7 +1791,7 @@ The first pass already stored three rows per set; this confirms it is required, 
 
 ### Set `LVL` — derive, do not store (D6)
 
-[E] pkmn.gg authenticated captures (not tracked) §10 solves the bands that `BEHAVIOR-SPEC.md` §3.2 could only guess:
+[E] the authenticated reference captures (not tracked) §10 solves the bands that `BEHAVIOR-SPEC.md` §3.2 could only guess:
 
 ```
 set_level := 0                     if pct = 0
@@ -1713,7 +1842,7 @@ collection size*. That floor is the whole argument:
   figures"* → **≈210–430 ms [P]** on the two most-navigated pages in the app, on every load.
   → **materialise.**
 
-That is also what pkmn.gg itself does. [E] `BEHAVIOR-SPEC.md` §2.1 "Under the hood", quoting C1:
+That is also what the reference tracker itself does. [E] `BEHAVIOR-SPEC.md` §2.1 "Under the hood", quoting C1:
 *"The backend now tracks Grandmaster completion … updated live as you add and remove cards and
 reconciled by the nightly sweep."* And the doc's own clone requirement: *"On a Pi this matters:
 recomputing Grandmaster progress across ~200 sets on every checkbox tap is not viable."*
@@ -1770,7 +1899,7 @@ JOIN card c    ON c.set_id = s.id
 LEFT JOIN card_variant cv ON cv.card_id = c.id
 GROUP BY s.id, s.name, se.name;
 -- variants_per_card ~= 1.00 on a modern set is a strong signal that upstream has not populated
--- reverse holos yet, and that this set's Master % is not comparable to pkmn.gg's.
+-- reverse holos yet, and that this set's Master % is not comparable to the reference tracker's.
 ```
 
 **Deliberately NOT materialised, though I considered it:** set market value and "most expensive
@@ -1842,6 +1971,19 @@ CREATE TABLE user_settings (
   enabled_catalogues TEXT NOT NULL DEFAULT 'en'                                -- §5.6 (A4)
 );
 
+-- Migration 049 (2026-08-29): the five UI preferences that had grown up in
+-- localStorage move to the account (owner request — "not remembered on this
+-- device only"). skin/topbar are NULLable: NULL = "no explicit choice, follow
+-- the app default", which keeps the code-side defaults flippable without a
+-- data migration.
+ALTER TABLE user_settings
+  ADD COLUMN decke_hidden       BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN skin               TEXT CHECK (skin IN ('premium','classic')),
+  ADD COLUMN topbar             TEXT CHECK (topbar IN ('cover','flat')),
+  ADD COLUMN series_sort_key    TEXT NOT NULL DEFAULT 'recency' CHECK (series_sort_key IN ('recency','az','pct')),
+  ADD COLUMN series_sort_dir    TEXT NOT NULL DEFAULT 'desc' CHECK (series_sort_dir IN ('asc','desc')),
+  ADD COLUMN series_group_owned BOOLEAN NOT NULL DEFAULT TRUE;
+
 CREATE TABLE user_profile (
   user_id BIGINT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
   display_name TEXT, bio TEXT, avatar_path TEXT, banner_path TEXT,
@@ -1856,11 +1998,11 @@ CREATE TABLE user_profile (
 -- ✅ SETTLED (D7). trainer_level = floor(unique_cards / 10), LEVEL-0 START.
 --   Observed: Unique Cards 276 -> badge 27.  floor(276/10)=27 ✓
 --             1+floor(276/10)=28 ✗   floor(total_cards 677/10)=67 ✗
---   [E] pkmn.gg captures §13. This closes BEHAVIOR-SPEC §3.3's floor-vs-1+floor ambiguity.
+--   [E] the reference captures §13. This closes BEHAVIOR-SPEC §3.3's floor-vs-1+floor ambiguity.
 -- STILL OPEN: whether "unique" counts distinct CARDS or distinct (card,variant) PAIRS.
 --   677/276 = 2.45 copies per unique is plausible under either reading. Both columns are
 --   stored, so switching the input is a ONE-LINE change to the expression below, not a migration.
---   [E] pkmn.gg captures §21 item 3.
+--   [E] the reference captures §21 item 3.
 
 CREATE TABLE user_showcase (                 -- BEHAVIOR-SPEC §12.2 (A31). Survives Reset (§2.4).
   user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -1870,10 +2012,10 @@ CREATE TABLE user_showcase (                 -- BEHAVIOR-SPEC §12.2 (A31). Surv
 );
 
 CREATE TABLE collection_value_point (        -- USER-OWNED. Truncated by Reset Collection (§2.4).
-  -- Drives the Insights tab. [E] pkmn.gg captures §14.4 observed the real ranges:
+  -- Drives the Insights tab. [E] the reference captures §14.4 observed the real ranges:
   --   30 Days | 3 Months | 6 Months | 1 Year, plus 1.5 Years / 2 Years (Pro).
   --   => retention only ever needs 2 YEARS. ~730 rows/user/currency. Trivial.
-  -- Also observed: with 4 days of history and "30 Days" selected, pkmn.gg renders ONLY the days
+  -- Also observed: with 4 days of history and "30 Days" selected, the reference tracker renders ONLY the days
   --   it has -- no padding, no back-fill. Good precedent for our cold-start; do not synthesise
   --   points, and render an "insufficient history" state rather than a flat line.
   -- The "Last 30 Days" delta card (price change + percent change) is computed from the two
@@ -2141,7 +2283,7 @@ or a screen in `ROUTE-MAP.md`. **Anything not on this list is not created.**
 | Tempting index | Why not |
 |---|---|
 | `card (rarity)`, `card (illustrator)`, `card (released_on)`, `card_variant (price)` — the four remaining set-page sorts | [E] `BEHAVIOR-SPEC.md` §5.3: *"sorting is instantaneous **client-side** reordering"* (C2). A set page is ≤400 cards and is already fully loaded. Four indexes, zero queries. |
-| Any of the 12 Advanced Search filter fields (`rarity`, `retreat`, `hp`, `card_type.type`, `card_subtype.subtype`, `card_matchup.type`, `illustrator`, …) | **Confirmed 12 filters, verbatim and in order** ([E] pkmn.gg authenticated captures (not tracked) §17), and every one is covered by an existing column or junction table (§6). But a filtered scan over 23,444 cards is a few ms on this Pi, filters compose as AND so the planner needs only *one* selective predicate, and `set_id` (I1) already provides it for the common case. Twelve indexes to serve a screen that is not on any hot path is exactly the write amplification §1 principle 5 forbids. **Add one only when a measured query is slow.** |
+| Any of the 12 Advanced Search filter fields (`rarity`, `retreat`, `hp`, `card_type.type`, `card_subtype.subtype`, `card_matchup.type`, `illustrator`, …) | **Confirmed 12 filters, verbatim and in order** ([E] the authenticated reference captures (not tracked) §17), and every one is covered by an existing column or junction table (§6). But a filtered scan over 23,444 cards is a few ms on this Pi, filters compose as AND so the planner needs only *one* selective predicate, and `set_id` (I1) already provides it for the common case. Twelve indexes to serve a screen that is not on any hot path is exactly the write amplification §1 principle 5 forbids. **Add one only when a measured query is slow.** |
 | `card_attack (name)`, `card_ability (name)` for the Attack/Ability Search filters | These are *substring* searches over ~24 k and ~9 k rows [P]. A sequential scan over a table that fits in page cache beats a GIN index's write cost on microSD. Revisit only if measured slow. |
 | `price_observation (captured_at)` as a **btree** | ~650 MB at 23 M rows. A **BRIN** (I16) does the same job for kilobytes — see §11.3 item 2. |
 | `collection_item (card_variant_id)` alone (reverse direction) | Single-user: `user_id` is a constant, so the composite unique is already selective. Add when a second user exists. |
@@ -2172,6 +2314,15 @@ CREATE TABLE card_list (
   UNIQUE (id, user_id),                                     -- target of the §12.2 composite FK
   UNIQUE (id, kind)                                         -- target of the list_item composite FK
 );
+
+-- Migration 050 (2026-08-29): smart lists. A dynamic list MAY carry a saved
+-- query re-evaluated on every read (the addMissing spec + exclusions; see
+-- apps/api/src/listRules.ts). NULL rule = the pre-050 reference-set
+-- behaviour, unchanged.
+ALTER TABLE card_list
+  ADD COLUMN rule JSONB,
+  ADD COLUMN rule_evaluated_at TIMESTAMPTZ,
+  ADD CONSTRAINT card_list_rule_dynamic_only CHECK (rule IS NULL OR kind = 'dynamic');
 
 CREATE TABLE list_item (
   id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2305,13 +2456,13 @@ ALTER TABLE card_list ADD COLUMN binder_additional_variants TEXT
 
 The empty-pocket treatment (card art + `rgba(21,24,31,0.75)` scrim + a `Slot #N` label) needs no
 storage at all — an empty pocket is a `slot_index` with no `binder_placement` row, and the artwork
-comes from the set's card at that ordinal. [E] pkmn.gg authenticated captures (not tracked) §15.3 confirms this against a
+comes from the set's card at that ordinal. [E] the authenticated reference captures (not tracked) §15.3 confirms this against a
 binder with owned cards: unowned pockets render dimmed art plus a `Slot #N` overlay, so **slots are
 set-ordered and pre-populated, not blank**.
 
 ### 14.3 Binder mutation is boolean — and that is a data-loss hazard (D10)
 
-[E] pkmn.gg authenticated captures (not tracked) §15.3: beneath every pocket sits **a row of variant checkboxes**, one per
+[E] the authenticated reference captures (not tracked) §15.3: beneath every pocket sits **a row of variant checkboxes**, one per
 available variant, each a rounded square in that variant's colour. Unchecked = transparent,
 checked = solid with a ✓. Observed: `Weedle ▢yellow ▢blue`, `Kakuna ☑yellow ▢blue`,
 `Chesnaught ▢purple ☑blue`.
@@ -2618,12 +2769,12 @@ consequence"* C1 describes. That is a cheap assertion to put in the test suite.
 
 ### Have / Need / Dupes
 
-[E] pkmn.gg authenticated captures (not tracked) §4 settles the partition question that `BEHAVIOR-SPEC.md` §15 left open:
+[E] the authenticated reference captures (not tracked) §4 settles the partition question that `BEHAVIOR-SPEC.md` §15 left open:
 Pitch Black renders `Have (17)` · `Need (103)` · `Dupes (2)` against `17/120 Collected`, and
 **17 + 103 = 120 exactly**. So **Have and Need partition the Complete-Set denominator, and Dupes is
 orthogonal** — a card can be in Have *and* Dupes. It is not a third bucket.
 
-The `Dupes` predicate itself is **still unobserved** ([E] pkmn.gg authenticated captures (not tracked) §21 item 1 — the tab
+The `Dupes` predicate itself is **still unobserved** ([E] the authenticated reference captures (not tracked) §21 item 1 — the tab
 was never tapped). It is therefore isolated as a **single expression** so changing the definition is
 a one-line edit and nothing else moves:
 
@@ -2998,16 +3149,16 @@ and the whole invalidation problem with it.
 
 **2. The `foil` clause in tier rule v3 (§5.3d).** Untouched by the authenticated captures — no
 promo, stamped, or pattern-reverse card detail page was ever opened
-([E] pkmn.gg authenticated captures (not tracked) §21 item 4). The three organised-play foils I exclude (`league`,
+([E] the authenticated reference captures (not tracked) §21 item 4). The three organised-play foils I exclude (`league`,
 `player-reward`, `professor-program`, 57 rows) and the inclusion of `energy` (335 rows) remain my
 judgment. The Pitch Black legend showed only three variant colours, which neither confirms nor
 denies. **What would settle it:** one card-detail capture of an SV-era card with a Poké Ball or
 Master Ball pattern printing, showing whether it sits above or below the `Other Variants` divider.
 
-**3. `1999-2000-copyright` — 150 rows pkmn.gg appears not to render (§5.4.2).** TCGdex gives Base
-Set cards four variants; pkmn.gg's Clefairy page shows three. Either they do not carry that print
+**3. `1999-2000-copyright` — 150 rows the reference tracker appears not to render (§5.4.2).** TCGdex gives Base
+Set cards four variants; the reference tracker's Clefairy page shows three. Either they do not carry that print
 run or they collapse it into another row. My composition would emit a name no capture supports, and
-my tier rule counts it toward Grandmaster. If pkmn.gg omits it, our Grandmaster denominator is
+my tier rule counts it toward Grandmaster. If the reference tracker omits it, our Grandmaster denominator is
 inflated for every Base-era card. **What would settle it:** scrolling the `Other Variants` group on
 any Base Set card — the capture shows two rows but the section is collapsible and may have been cut.
 
@@ -3018,7 +3169,7 @@ defend it hard. **What would settle it:** one card-detail capture of a Trainer o
 Pokémon, showing what `Tags` contains when `stage` is not `Basic`.
 
 **5. Whether `Unique Cards` counts cards or (card, variant) pairs (§9.5).** [E]
-pkmn.gg authenticated captures (not tracked) §21 item 3 — `677 / 276 = 2.45` fits either reading. Both columns are stored so
+The authenticated reference captures (not tracked) §21 item 3 — `677 / 276 = 2.45` fits either reading. Both columns are stored so
 the switch is one line, but the Trainer Level shown to the user depends on it.
 
 **6. The `Dupes` predicate (§17.2).** Still unobserved after 37 authenticated screenshots — the tab
@@ -3030,7 +3181,7 @@ away: the binder checkbox (D10) makes an append-only event log genuinely load-be
 merely tidy. Still a predicate everyone must remember.
 
 **8. The Pokédex Binder list shape (§14.1).** Unchanged, and now conspicuous: **no list screen of
-any kind appears in the 37 authenticated images** ([E] pkmn.gg authenticated captures (not tracked) §21 item 7). The one list
+any kind appears in the 37 authenticated images** ([E] the authenticated reference captures (not tracked) §21 item 7). The one list
 type I model on pure inference remains entirely unobserved.
 
 ### Closed by the third pass
@@ -3046,7 +3197,7 @@ type I model on pure inference remains entirely unobserved.
 | 16-pocket binder | Confirmed real; the first pass's "leave it behind a flag" already withdrawn in pass two, now observed in use. |
 | Advanced Search filter coverage | All 12 confirmed verbatim and in order; all covered by existing columns/junctions. |
 
-### What I think pkmn.gg authenticated captures (not tracked) gets wrong or over-reads
+### What I think the authenticated reference captures (not tracked) gets wrong or over-reads
 
 Challenged in good faith — it is one analyst's reading of phone screenshots, and it says so.
 
@@ -3060,11 +3211,11 @@ Challenged in good faith — it is one analyst's reading of phone screenshots, a
 2. **§11's Pitch Black denominator bracket is probably sound but is being applied to the wrong
    corpus.** The arithmetic is careful and the withdrawal of the earlier `17/0.093 ≈ 183` estimate
    is right. But rule v3 over TCGdex's actual data predicts **187**, outside every admissible band
-   (193–194, 204–205, …). The resolution is not that §11 is wrong — it is that **pkmn.gg's variant
+   (193–194, 204–205, …). The resolution is not that §11 is wrong — it is that **the reference tracker's variant
    database is more complete than TCGdex's**, which the doc does not consider anywhere. Its
    "suggestive, not evidence" aside guessing N = 204 is reasoning about *the real card set*, while
    our denominators come from *TCGdex's view of it*. Those are different numbers and the gap is
-   measurable (revision log). **Any future attempt to validate our percentages against pkmn.gg's
+   measurable (revision log). **Any future attempt to validate our percentages against the reference tracker's
    should use a vintage set, where coverage is complete, not a new one.**
 
 3. **§10's "the LVL is computed from the Complete percentage" is [I] presented a little firmly.**

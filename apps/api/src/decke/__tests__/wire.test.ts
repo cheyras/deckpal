@@ -347,3 +347,45 @@ test('a DENIAL round-trips too, carrying its reason', async () => {
   assert.ok(response, 'a denial must reach the model, not vanish')
   assert.equal(response.approved, false)
 })
+
+test('a FAILED call round-trips as an error-text tool result the model can read', async () => {
+  // THE WHOLE CROSS-TURN BREAKER RESTS ON THIS SHAPE. The browser replays each
+  // failed call as `{type:'tool-<name>', state:'output-error', errorText}`
+  // (`chat/lookupRecord.ts`'s `failureParts`), and `failing.ts` counts them —
+  // but only if the SDK accepts the part and gives the model something to read.
+  // Asserted against the real `convertToModelMessages`, for the reason this
+  // file's header gives: a test of what we BELIEVE the format is would pass
+  // just as happily while the model saw nothing.
+  const msgs = await convertToModelMessages([
+    { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'how are my games going' }] },
+    {
+      id: 'a1',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'The logs tool is erroring.' },
+        {
+          type: 'tool-battle_logs',
+          toolCallId: 'call_3',
+          input: { deck_id: 'd1' },
+          state: 'output-error',
+          errorText: 'battle_logs failed: Internal server error',
+        },
+      ],
+    },
+  ] as never)
+
+  const flat = partsOf(msgs)
+  const call = flat.find((c) => (c as { type?: string }).type === 'tool-call') as Record<string, unknown>
+  assert.ok(call, 'the failed call must still be reconstructed, or the result dangles')
+  assert.equal(call.toolName, 'battle_logs')
+  assert.deepEqual(call.input, { deck_id: 'd1' })
+
+  const result = flat.find((c) => (c as { type?: string }).type === 'tool-result') as Record<string, unknown>
+  assert.ok(result, 'a failure with no result is a dangling tool_use some providers reject')
+  assert.equal(result.toolCallId, 'call_3')
+  // AND IT IS MARKED AS AN ERROR, not delivered as an ordinary result. A
+  // failure dressed as output is a fabricated status surface (X2).
+  const output = result.output as { type?: string; value?: unknown }
+  assert.match(String(output.type), /error/)
+  assert.match(String(output.value), /Internal server error/)
+})

@@ -68,7 +68,8 @@ export interface PriceBackfillDay {
 }
 
 export interface PriceBackfillResult {
-  /** Days in range that already had data and were not re-downloaded. */
+  /** Days in range already accounted for — by daily rows, or by a bucket that
+   *  covers them — and so not re-downloaded. */
   alreadyPresent: number;
   /**
    * Days that gained observations in THIS run.
@@ -90,10 +91,41 @@ export interface PriceBackfillResult {
 }
 
 /**
- * Which days in the range already carry tcgcsv observations.
+ * Which days in the range are already ACCOUNTED FOR — by daily observations, or
+ * by an OHLC bucket that already summarises them.
  *
  * The whole point of a chunked replay: without this, run 12 of 24 would
  * re-download the 340 days runs 1-11 already did. One index scan answers it.
+ *
+ * ── Why a bucket counts as "done" ──────────────────────────────────────────
+ * Since the retention tiers landed, "this day has no `price_observation` row"
+ * has two very different meanings: it was never ingested, or it was ingested,
+ * bucketed, VERIFIED and its partition deliberately dropped (`rollup.ts`).
+ * Looking only at `price_observation` cannot tell those apart, and the second
+ * reading is the dangerous one — a replay across a rolled-up range would
+ * re-download 30 archives per run, and `ensureObservationPartition` would
+ * cheerfully rebuild the very partition the rollup verified and retired. The
+ * database would grow back exactly the gigabytes the tiers exist to reclaim,
+ * and every run would report success while doing it.
+ *
+ * So a bucket covering the day is treated as the day being present, at a
+ * coarser grain, on purpose. `--force` still overrides — and doing so obliges a
+ * `rollup --month=… --force` afterwards, to re-bucket and re-retire the month
+ * the replay has just resurrected.
+ *
+ * ── But only when the bucket PROVES the day was there ──────────────────────
+ * A bucket spans a period; it does not list the days it saw. A week bucket with
+ * `n_obs = 2` covers seven days and witnessed two, and treating all seven as
+ * ingested is how this guard would turn a real ingest outage into a permanent
+ * one: the rollup buries the hole, and then the repair tool skips exactly the
+ * days that need repairing, reporting success. That is the failure mode this
+ * whole file exists to prevent, arriving by the back door.
+ *
+ * So a day counts as covered only when SOME series observed EVERY day of the
+ * bucket's span (`n_obs >= span`). A gappy bucket marks nothing, so the replay
+ * re-downloads its whole period — wasteful by a few archives, and idempotent, in
+ * exchange for the repair path staying open. The rollup separately refuses to
+ * create such a bucket at all without `--allow-gaps`.
  */
 async function alreadyIngestedDays(
   client: Queryable, from: string, to: string,
@@ -106,7 +138,37 @@ async function alreadyIngestedDays(
         AND captured_at < ($2::date + 1)`,
     [from, to, SOURCE_ID],
   );
-  return new Set(rows.map((r) => r.d));
+  const done = new Set(rows.map((r) => r.d));
+
+  // `to_regclass` rather than a try/catch: a self-host deployment that has not
+  // applied 048 has no `price_bucket`, and a replay there is exactly as correct
+  // as it was before the tiers existed.
+  const { rows: has } = await client.query<{ t: string | null }>(
+    `SELECT to_regclass('public.price_bucket')::text AS t`,
+  );
+  if (!has[0]?.t) return done;
+
+  const { rows: covered } = await client.query<{ d: string }>(
+    `SELECT to_char(gs::date, 'YYYY-MM-DD') AS d
+       FROM generate_series($1::date, $2::date, interval '1 day') gs
+      WHERE EXISTS (
+        SELECT 1 FROM price_bucket b
+         WHERE b.source_code = $3
+           AND b.bucket_start <= gs::date
+           AND gs::date < (CASE WHEN b.grain = 'week'
+                                THEN b.bucket_start + 7
+                                ELSE (b.bucket_start + interval '1 month')::date END)
+           -- n_obs counts DISTINCT DAYS OBSERVED. Equal to the span length, the
+           -- bucket witnessed every day in it and this day is genuinely covered.
+           -- Short of it, some day in the span was never ingested and we cannot
+           -- tell which, so none of them counts.
+           AND b.n_obs >= (CASE WHEN b.grain = 'week' THEN 7
+                                ELSE extract(day FROM (b.bucket_start
+                                       + interval '1 month' - interval '1 day'))::int END))`,
+    [from, to, SOURCE_ID],
+  );
+  for (const r of covered) done.add(r.d);
+  return done;
 }
 
 /**

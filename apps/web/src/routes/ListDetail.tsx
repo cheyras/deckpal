@@ -120,6 +120,9 @@ export function ListDetail() {
 
   const list = data?.list
   const items = useMemo(() => data?.items ?? [], [data])
+  // A rule-backed list: membership is a saved query the server re-evaluates
+  // on every read. Add/reorder don't exist for it; "remove" excludes.
+  const smart = !!list?.rule
 
   // Ownership counts (dynamic only)
   const counts = useMemo(() => {
@@ -202,7 +205,7 @@ export function ListDetail() {
   })
 
   const editList = useMutation({
-    mutationFn: (body: { name: string; description: string | null; visibility: 'private' | 'public' }) => api.updateList(id, body),
+    mutationFn: (body: Parameters<typeof api.updateList>[1]) => api.updateList(id, body),
     onSuccess: () => {
       setShowEdit(false)
       qc.invalidateQueries({ queryKey: key })
@@ -215,6 +218,17 @@ export function ListDetail() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['lists'] })
       navigate({ to: '/lists' })
+    },
+  })
+
+  // Pin a smart list: the server materialises the current evaluation into
+  // stored rows and detaches the rule — the list keeps today's cards and
+  // stops changing on its own. Undoable via the mutation log.
+  const pinList = useMutation({
+    mutationFn: () => api.updateList(id, { rule: null }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: key })
+      qc.invalidateQueries({ queryKey: ['lists'] })
     },
   })
 
@@ -251,17 +265,41 @@ export function ListDetail() {
             <div className="flex flex-wrap items-start justify-between gap-[16px]">
               <div className="min-w-0">
                 <div className="mb-[6px] flex items-center gap-[10px]">
-                  <span className="rounded-full bg-surface-tertiary px-[10px] py-[3px] text-[12px] font-bold text-text-secondary">{KIND_LABEL[list.kind]}</span>
+                  <span className={`rounded-full px-[10px] py-[3px] text-[12px] font-bold ${smart ? 'bg-action-primary-strong text-action-primary-strong-text' : 'bg-surface-tertiary text-text-secondary'}`}>
+                    {smart ? 'Smart List' : KIND_LABEL[list.kind]}
+                  </span>
                   <span className="text-[12px] font-semibold capitalize text-text-muted">{list.visibility}</span>
                   {list.isFavorite && <Icon name="star-filled" size={14} className="text-action-primary" />}
                 </div>
                 <h1 className="text-[30px] font-bold leading-[38px] text-text-primary">{list.name}</h1>
                 {list.description && <p className="mt-[4px] max-w-[560px] text-[14px] text-text-muted">{list.description}</p>}
+                {smart && list.rule && (
+                  // The visual difference the owner asked for: a smart list
+                  // SAYS it is live, names its rule, and shows the cards will
+                  // leave on their own.
+                  <p className="mt-[6px] flex flex-wrap items-center gap-x-[6px] text-[14px] text-text-body">
+                    <Icon name="sparkle" size={14} className="text-action-primary" />
+                    <span>
+                      Live — showing what's still missing for{' '}
+                      <span className="font-semibold text-text-primary">
+                        {list.rule.setName ?? list.rule.setId} · {list.rule.goal}
+                      </span>
+                      {list.rule.maxPriceUsd != null && <> under ${list.rule.maxPriceUsd}</>}
+                      . Cards leave by themselves as you collect them.
+                    </span>
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-[8px]">
-                <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
-                  <Icon name="plus" size={16} /> Add Cards
-                </button>
+                {smart ? (
+                  <button onClick={() => setShowEdit(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                    <Icon name="sliders" size={16} /> Edit Rule
+                  </button>
+                ) : (
+                  <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                    <Icon name="plus" size={16} /> Add Cards
+                  </button>
+                )}
                 <a href={api.listPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[16px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="printer" size={16} /> Print checklist
                 </a>
@@ -272,6 +310,14 @@ export function ListDetail() {
                   ariaLabel="List options"
                   size={42}
                   items={[
+                    ...(smart
+                      ? [{
+                          key: 'pin',
+                          label: pinList.isPending ? 'Pinning…' : 'Pin as regular list',
+                          icon: 'lists' as const,
+                          onSelect: () => pinList.mutate(),
+                        }]
+                      : []),
                     { key: 'delete', label: 'Delete list', icon: 'close', danger: true, onSelect: () => setShowDelete(true) },
                   ]}
                 />
@@ -281,9 +327,9 @@ export function ListDetail() {
             {/* info + progress */}
             <div className="flex flex-wrap items-center gap-x-[28px] gap-y-[8px] border-y border-divider-subtle py-[12px] text-[14px]">
               <span className="text-text-muted">Created <span className="text-text-primary">{fmtDate(list.createdAt)}</span></span>
-              <span className="text-text-muted"><span className="font-bold text-text-primary">{list.itemCount}</span> cards</span>
+              <span className="text-text-muted"><span className="font-bold text-text-primary">{list.itemCount}</span> {smart ? 'to get' : 'cards'}</span>
               {list.marketValueUsd != null && (
-                <span className="text-text-muted">List Value <span className="text-change-positive">{fmtUsd(list.marketValueUsd)}</span></span>
+                <span className="text-text-muted">{smart ? 'Cost to finish' : 'List Value'} <span className="text-change-positive">{fmtUsd(list.marketValueUsd)}</span></span>
               )}
               {list.progress && (
                 <div className="ml-auto min-w-[280px] flex-1">
@@ -307,7 +353,7 @@ export function ListDetail() {
 
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               {/* dynamic ownership strip */}
-              {list.kind === 'dynamic' ? (
+              {list.kind === 'dynamic' && !smart ? (
                 <OwnershipButtons
                   items={[
                     { key: 'all', label: 'Show All' },
@@ -402,9 +448,18 @@ export function ListDetail() {
         <ListFormModal
           mode="edit"
           initial={list}
+          excluded={data?.excluded}
           busy={editList.isPending}
           onClose={() => setShowEdit(false)}
-          onSubmit={(body) => editList.mutate({ name: body.name, description: body.description ?? null, visibility: body.visibility ?? 'private' })}
+          onSubmit={(body) =>
+            editList.mutate({
+              name: body.name,
+              description: body.description ?? null,
+              visibility: body.visibility ?? 'private',
+              // undefined = the form had no rule section = leave it alone.
+              ...(body.rule !== undefined ? { rule: body.rule } : {}),
+            })
+          }
         />
       )}
       {showDelete && list && (

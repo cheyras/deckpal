@@ -1,7 +1,8 @@
 /**
  * Trainer Level + set-LVL — the two gamification formulas, as PURE functions.
  *
- * Both are settled by authenticated pkmn.gg captures (source captures not tracked):
+ * Both are settled formulas. The data points that fix them are listed below and
+ * pinned by unit tests, so a change to either is a visible test failure:
  *
  *   Trainer Level = floor(unique_cards / 10)              (276 unique → badge 27)
  *   set LVL       = 0 if pct == 0 else 1 + floor(pct/25)  (nine data points; dots at 25/50/75)
@@ -12,7 +13,7 @@
 
 /**
  * ── ASSUMPTION (one-line switch) ────────────────────────────────────────────
- * What "unique cards" means for Trainer Level. The pkmn.gg source captures lean toward
+ * What "unique cards" means for Trainer Level. The evidence leans toward
  * distinct CARDS (677 total / 276 unique on the reference account fits either
  * reading, but the stat card is labelled "Unique Cards" and the question of
  * card-vs-(card,variant) question as still-open). We default to distinct cards.
@@ -21,7 +22,7 @@
  */
 export const TRAINER_UNIQUE_MODE: 'cards' | 'pairs' = 'cards';
 
-/** Cards needed per Trainer Level (floor(unique/10), verified against pkmn.gg). */
+/** Cards needed per Trainer Level — floor(unique / 10). See the data points above. */
 export const CARDS_PER_LEVEL = 10;
 
 /** Trainer Level from the count of unique owned cards. floor(unique / 10). */
@@ -62,14 +63,15 @@ export function trainerLevelProgress(uniqueCards: number): TrainerLevelProgress 
 // ── Set / species completion level ────────────────────────────────────────────
 
 /**
- * The set-LVL ladder is 0,1,2,3,4,Max = 6 states (verified against pkmn.gg, D.A22).
+ * The set-LVL ladder is 0,1,2,3,4,Max = 6 states.
  * `1 + floor(pct/25)` yields 1..5; 5 is the "Max" state reached only at 100%.
  * We clamp to MAX_SET_LEVEL so a rounding artdefact above 100 can't exceed it.
  */
 export const MAX_SET_LEVEL = 5;
 
 /**
- * One-decimal, round-half-up percentage — matches every % pkmn.gg renders.
+ * One-decimal, round-half-up percentage — the single rounding rule every % in the
+ * product uses, so two surfaces never disagree about the same fraction.
  * Accepts null (→ 0) because progress rollups bind SQL NULLs (routes/series.ts).
  */
 export function pct(owned: number | null, total: number | null): number {
@@ -79,7 +81,7 @@ export function pct(owned: number | null, total: number | null): number {
 
 /**
  * set LVL from a real percentage: 0 if pct<=0 else 1 + floor(pct/25), capped.
- * Verified against pkmn.gg source captures: 0→0, 6.4→1, 14.2→1, 22.3→1, 26.2→2,
+ * Pinned by these measured points: 0→0, 6.4→1, 14.2→1, 22.3→1, 26.2→2,
  * 62.5→3.
  */
 export function setLevel(percent: number): number {

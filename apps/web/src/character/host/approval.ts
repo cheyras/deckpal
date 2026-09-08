@@ -156,8 +156,52 @@ export function pendingApprovalFromChunk(
  */
 export type Verdict = { approved: true } | { approved: false; reason: string }
 
-/** What a denial says when nobody supplied anything better. */
-export const DECLINED_REASON = 'the reader declined'
+/**
+ * What a denial says when nobody supplied anything better.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════
+ * THE FIRST NO USED TO BE FOUR WORDS. ONLY THE SECOND GOT A BRIEFING.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * This string is the ENTIRE thing the model is told when the reader presses
+ * "Leave it". It rides the replayed part and `convertToModelMessages` turns it
+ * into `tool-result {type:'execution-denied', reason}`, so it lands in context
+ * as a fact — which is exactly why four words were not enough.
+ *
+ * A REPEAT decline, meanwhile, is answered server-side and gets the whole
+ * doctrine: `apps/api/src/decke/declined.ts` returns `[[NO_WORK]] REFUSED — …
+ * Nothing changed … Drop the subject … There is NO result. Do not describe,
+ * summarise, continue from or refer to work that did not happen.` The FIRST no
+ * — the one the reader actually performs — got none of it.
+ *
+ * Measured, 2026-08-29: the reader cancelled an approval and the next reply
+ * read as though they had agreed — *"Got it, let's pull the real picture
+ * instead of guessing. First, I'll grab your deck's battle logs and strategy
+ * guide. One sec."* — and the turn then ended with nothing run. Their words:
+ * *"after i cancelled, you output a response that seemed canned like it was
+ * fore-assuming that i would say yes."* `deny` in `useDeckeChat.ts` records an
+ * earlier instance of the identical complaint; that fix corrected the
+ * TRANSCRIPT half (the chip) and left this half at four words.
+ *
+ * `[[NO_WORK]]` IS REPLICATED, NOT IMPORTED. Its home is
+ * `apps/api/src/decke/deepOutcome.ts` and a browser bundle cannot import from
+ * there; `declined.ts` sets the precedent of replicating this text with a
+ * comment saying why. The prompt rule keys on a result STARTING WITH the
+ * marker, so it leads, and a test pins that it does.
+ *
+ * NOT A PROMPT FIX: `prompt.ts` already says "WHEN THEY SAY NO, THE FIRST THING
+ * YOU SAY IS THAT NOTHING CHANGED", and the transcript above is what that
+ * sentence produced. `ABANDONED_REASON` below stays short and distinct — an
+ * unanswered panel is not a refusal, and `declined.ts` compares against it
+ * exactly.
+ */
+export const DECLINED_REASON =
+  '[[NO_WORK]] REFUSED — the reader said no. This did not run, nothing was written and ' +
+  'nothing changed. There is NO result: do not describe, summarise, continue from or ' +
+  'refer to work that did not happen, and do not carry on with the plan that needed it. ' +
+  'Do not re-offer it and do not work around it. Say plainly, first, that it did not ' +
+  'happen, then follow what they actually said — answer that with what you already have, ' +
+  'or say what you cannot do without it.'
 
 /** What a denial says when the turn was abandoned rather than answered. */
 export const ABANDONED_REASON = 'the reader did not answer'

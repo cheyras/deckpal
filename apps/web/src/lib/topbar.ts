@@ -40,6 +40,16 @@ function isTopbar(v: string | null): v is Topbar {
   return v === 'cover' || v === 'flat'
 }
 
+/** The device's stored choice only — see readStoredSkin() in lib/skin.ts. */
+export function readStoredTopbar(): Topbar | null {
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY)
+    return isTopbar(stored) ? stored : null
+  } catch {
+    return null
+  }
+}
+
 export function readTopbar(): Topbar {
   if (typeof window === 'undefined') return DEFAULT_TOPBAR
   try {

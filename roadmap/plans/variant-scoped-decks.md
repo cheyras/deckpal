@@ -1,6 +1,9 @@
 # Variant-scoped deck records
 
-**Status:** planned, not started. Needs its own branch — this is a schema migration
+**Status:** BUILT 2026-08-29 (branch `feat/variant-scoped-decks`) as migration
+**051**, not the 034 this plan originally claimed — 034 shipped as
+`bug_report_kind` in the meantime. Code merged pending the coordinated
+apply-migration + deploy step below. Originally: Needs its own branch — this is a schema migration
 against the live Supabase project plus cross-cutting API/export/UI work, deliberately
 kept out of the `design-system` interface pass (DECISIONS.md 2026-08-12).
 
@@ -37,7 +40,7 @@ identify the *card*. That is why it looked variation-scoped on camera when it wa
 
 ## Work required
 
-1. **Migration** (`034_deck_card_variant.sql`)
+1. **Migration** (`051_deck_card_variant.sql` — was drafted here as 034)
    - `ADD COLUMN card_variant_id BIGINT REFERENCES card_variant(id)`.
    - Backfill each row to its card's primary variant
      (`ORDER BY is_primary DESC, sort_order LIMIT 1`).

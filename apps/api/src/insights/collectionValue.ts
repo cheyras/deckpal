@@ -142,8 +142,9 @@ export interface ValueSeries {
 /**
  * Value-over-time series for one currency + range, read from
  * collection_value_point. Also computes the first→last delta over the window
- * (pkmn.gg's "Last 30 Days" ▲ $ / ▲ % card). No axis padding —
- * we render only the days that exist, matching pkmn.gg's cold-start behaviour.
+ * (the "Last 30 Days" ▲ $ / ▲ % card). No axis padding — we return only the days
+ * that actually exist, so a cold start reads as "not enough history" rather than
+ * as a flat line across days nobody measured.
  */
 export async function valueSeries(userId: string, range: Range, currency = 'USD'): Promise<ValueSeries> {
   const cur = currency.trim().toUpperCase();

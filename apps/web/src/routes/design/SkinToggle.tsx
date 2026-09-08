@@ -1,4 +1,5 @@
 import { setSkin } from '../../lib/skin'
+import { pushSettings } from '../../lib/settingsSync'
 import { useSkin } from '../../lib/useSkin'
 
 /**
@@ -23,7 +24,10 @@ export function SkinToggle() {
           <button
             key={option}
             type="button"
-            onClick={() => setSkin(option)}
+            onClick={() => {
+              setSkin(option)
+              pushSettings({ skin: option })
+            }}
             aria-pressed={active}
             className={[
               'h-[26px] rounded-full px-[12px] text-[11px] font-bold capitalize',
