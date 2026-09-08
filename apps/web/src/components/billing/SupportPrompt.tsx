@@ -1,0 +1,417 @@
+/**
+ * The ask, as a modal — and everything that decides not to show it.
+ *
+ * ── WHERE THIS LIVES IN THE TREE, AND WHY IT MATTERS ─────────────────────────
+ *
+ * A sibling of the routed shell in `main.tsx`, next to `DeckeHost`, for the
+ * reason set out there: crossing the public/private boundary swaps `<AppShell>`
+ * for `<AuthGuard>` at that position and unmounts everything inside it. A
+ * prompt mounted in there would fire its boot request again on every such
+ * navigation. Here it mounts once per page load, which is exactly the unit
+ * `visit_count` is supposed to count.
+ *
+ * ── FOUR REASONS IT STAYS QUIET, IN ORDER ────────────────────────────────────
+ *
+ * 1. **Self-host, or no Stripe.** `available: false` and nothing renders. A
+ *    deployment without billing must not learn that billing exists.
+ * 2. **Signed out.** The visit is not even counted. Somebody reading the public
+ *    catalogue has no account to ask about, and asking a stranger for money on
+ *    a page they landed on from a search engine is the behaviour this product
+ *    is deliberately not.
+ * 3. **A chromeless page.** `/auth`, `/authorize`, the marketing landing, the
+ *    password screens. Every one of them is somebody in the middle of
+ *    something, and a modal over `/authorize` would land on top of an OAuth
+ *    consent screen.
+ * 4. **The server said no.** `prompt.due` is decided in `promptDue()` on the
+ *    server, from a row the browser cannot edit. There is no client-side
+ *    "have I shown this yet" flag, because localStorage is per-device and this
+ *    is a per-ACCOUNT promise — clearing site data must not restart the
+ *    cadence, and signing in on a phone must not reset what was answered on a
+ *    laptop.
+ *
+ * ── THE DELAY ────────────────────────────────────────────────────────────────
+ *
+ * The dialog waits a beat after the state arrives. A modal that appears while
+ * the page behind it is still painting reads as an interstitial ad; one that
+ * arrives a moment after everything has settled reads as a question. It is also
+ * the difference between "DeckPal asked me something" and "DeckPal wouldn't let
+ * me in until I dealt with a payment screen".
+ */
+import { useEffect, useRef, useState } from 'react'
+import { useRouterState } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { api, type BillingState, type SupportPromptKind } from '../../lib/api'
+import { isCloudMode, supabase } from '../../lib/supabase'
+import { readSession } from '../../lib/authSession'
+import { isChromelessPathname } from '../../lib/landingRoute'
+import { Sheet } from '../ui/Sheet'
+import { Icon } from '../Icon'
+import { PoweredByStripe } from './StripeTrust'
+import { SupportFlow } from './SupportFlow'
+
+/** Long enough that the app has painted, short enough not to feel like an ambush. */
+const SETTLE_MS = 1400
+
+/**
+ * ⚠️ TEMPORARY TESTING OVERRIDE — `?prompt=checkin` forces the modal open.
+ *
+ * The prompt is designed to be hard to see twice: the server decides, from a
+ * row the browser cannot edit, and answering it buys a month of quiet. That is
+ * correct behaviour and exactly what makes it untestable — once you have seen
+ * it, you cannot see it again for thirty days.
+ *
+ * So: `?prompt=onboarding`, `?prompt=checkin` or `?prompt=payment_issue` on any
+ * in-app URL forces that variant open on load.
+ *
+ * TWO THINGS KEEP THIS FROM BEING A HOLE:
+ *
+ * 1. **It only works while Stripe is in TEST MODE.** `stripeMode` comes from
+ *    the server, read off the secret key's own prefix, so this switches itself
+ *    off the moment live keys are configured. Nobody can force this prompt at a
+ *    real customer — not because we remembered to remove it, but because it
+ *    stops working.
+ * 2. **Forced exposures are labelled.** Events recorded under a forced prompt
+ *    carry the context `forced-<kind>`, so the $1 experiment can exclude them:
+ *
+ *      SELECT … FROM billing_ab_event WHERE context NOT LIKE 'forced-%'
+ *
+ *    Without that, testing the modal twenty times would put twenty exposures
+ *    into one arm's denominator and quietly ruin the measurement.
+ *
+ * REMOVE THIS before the experiment is read for real. It is three small pieces:
+ * this constant, `forcedKind()`, and the two `forced` references below.
+ */
+const FORCE_PARAM = 'prompt'
+
+function forcedKind(): SupportPromptKind | null {
+  try {
+    const v = new URLSearchParams(window.location.search).get(FORCE_PARAM)
+    return v === 'onboarding' || v === 'checkin' || v === 'payment_issue' ? v : null
+  } catch {
+    return null
+  }
+}
+
+interface Copy {
+  title: string
+  eyebrow: string
+  /** The claim. Two sentences at most — this is the part people actually read. */
+  lead: string
+  /**
+   * The caveat, set quieter and smaller.
+   *
+   * The lead used to be four sentences and carried both, and the important
+   * half — "no feature is locked", "$0 is fine" — was buried in the middle of
+   * a paragraph nobody finishes. Splitting them lets the argument be short
+   * without deleting the reassurance.
+   */
+  aside: string
+  dismiss: string
+}
+
+/**
+ * One block of copy per kind, together, so they can be read against each other.
+ *
+ * The check-in and the welcome are deliberately different voices: the first is
+ * addressed to somebody who has used the product and knows what it is, the
+ * second to somebody who arrived ten seconds ago. Migration 053's backfill
+ * exists precisely so an existing account gets the first and never the second.
+ */
+const COPY: Record<SupportPromptKind, Copy> = {
+  onboarding: {
+    eyebrow: 'Welcome to DeckPal',
+    title: 'Pay what you think it is worth',
+    lead:
+      'Every part of DeckPal works the same whether you pay nothing or pay plenty — there is no locked feature '
+      + 'anywhere in it. Running it does cost real money, so if you would like to cover a bit of that, pick an '
+      + 'amount.',
+    aside: 'Card images, the daily price feed, the database.',
+    dismiss: 'Skip for now',
+  },
+  checkin: {
+    eyebrow: 'A quick check-in',
+    title: 'Still free. Still worth asking.',
+    lead:
+      'You have been using DeckPal for a while, which is the nicest thing that can happen to a project like this. '
+      + 'If it has earned a few dollars a month from you, here is where to say so.',
+    aside: 'And if it has not, $0 is the right answer and nothing about your account changes.',
+    dismiss: 'Not right now',
+  },
+  payment_issue: {
+    eyebrow: 'Payment',
+    title: 'Your last payment did not go through',
+    lead:
+      'Your bank turned down the most recent charge — nearly always an expired card or a number that was replaced, '
+      + 'rather than anything to do with your account.',
+    aside: 'Nothing has been interrupted. Updating your card here puts it straight.',
+    dismiss: 'Later',
+  },
+}
+
+export function SupportPrompt() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const [state, setState] = useState<BillingState | null>(null)
+  const [open, setOpen] = useState(false)
+  const [kind, setKind] = useState<SupportPromptKind | null>(null)
+  const [forced, setForced] = useState(false)
+  /**
+   * One exposure per page load, ever.
+   *
+   * `boot()` runs on mount AND on every `SIGNED_IN`, and supabase-js re-fires
+   * that event when a tab regains focus. Without this, alt-tabbing away and
+   * back while the prompt was open recorded another `shown` each time — an
+   * unbounded, self-selecting inflation of one arm's denominator, contributed
+   * entirely by whoever happened to be switching windows.
+   */
+  const exposed = useRef(false)
+  /**
+   * Has this mount already been closed?
+   *
+   * `boot()` re-runs on `SIGNED_IN`, which supabase-js re-fires on tab focus
+   * (see `exposed` above). The ack is a network write, so there is a window
+   * between closing the sheet and the server knowing it: a refire inside that
+   * window reads `due` still true and reopens the modal on somebody who has
+   * just answered it. `exposed` keeps the experiment honest through that;
+   * this keeps the READER's answer honoured. Per mount, so the next page load
+   * asks the server afresh, which is where the decision belongs.
+   */
+  const closedHere = useRef(false)
+  const queryClient = useQueryClient()
+  /**
+   * Is a write in flight right now?
+   *
+   * ⚠️ THE ✕, ESCAPE AND THE BACKDROP ARE THE FRAME'S, and they were live for
+   * the whole of every payment. Only the flow's own dismiss link was disabled
+   * while busy, so a reader who pressed "Give $10 once", met the bank's
+   * challenge, and closed the sheet had the $10 charged into a component that
+   * no longer existed — no done screen (the one that exists to say "one time
+   * only, nothing recurring has been set up"), no receipt on the profile by
+   * 057's design, and a `dismissed: true` recorded on top of the answer,
+   * because `onAnswered` never got to fire.
+   *
+   * A ref, not state: `close()` reads it synchronously from an event handler,
+   * and a re-render is neither needed nor wanted mid-write.
+   */
+  const writing = useRef(false)
+  /**
+   * Did they actually answer?
+   *
+   * Set from `onAnswered`, which `SupportFlow` fires at the eight points where
+   * an answer exists. Without it, answering and then closing the sheet with the
+   * ✕ or the backdrop — rather than the "Back to DeckPal" button — recorded
+   * a dismissal ON TOP OF the answer, which is the both-outcomes-at-once
+   * overlap that splitting dismissal from completion was meant to end.
+   *
+   * ⚠️ NOT `onState`, which is what this said for fifteen rounds after the
+   * mechanism changed underneath it — while the JSX below said the opposite.
+   * `onState` fires whenever the state on screen must change, INCLUDING on
+   * failure and ambiguous branches, because the card summary and the status
+   * have to stay honest whatever happened. A reader trusting the old sentence
+   * would conclude `onAnswered` is redundant and remove it, which re-opens the
+   * overlap five separate rounds went into closing (DECISIONS §21, §22, §24,
+   * §27, §30).
+   */
+  const answered = useRef(false)
+
+  // The boot call — only for somebody who is signed in, and NOT once per page
+  // load, whatever an earlier version of this line said: it re-registers on
+  // `SIGNED_IN`, which supabase-js re-fires when a tab regains focus. That is
+  // what `exposed` and `closedHere` above are for.
+  useEffect(() => {
+    if (!isCloudMode) return
+    let alive = true
+
+    async function boot() {
+      if (closedHere.current) return
+      const { session } = await readSession()
+      if (!session || !alive || closedHere.current) return
+      try {
+        const s = await api.billingVisit()
+        // ⚠️ AFTER THE AWAIT TOO. Guarding only the entry to this function left
+        // an in-flight boot able to schedule the timer below on a reader who
+        // answered while the fetch was outstanding.
+        if (!alive || closedHere.current) return
+        setState(s)
+        // The override is test-mode-only; see FORCE_PARAM. In live mode
+        // `forced` is always null and this reads exactly as it did before.
+        const forced = s.mode === 'test' ? forcedKind() : null
+        const due = forced ?? s.prompt.due
+        if (s.available && due) {
+          if (forced) console.warn(`[deckpal] support prompt FORCED via ?${FORCE_PARAM}=${forced} (test mode only)`)
+          setKind(due)
+          setForced(!!forced)
+          window.setTimeout(() => {
+            // ⚠️ AND HERE, which is the one that actually reopened the sheet. A
+            // boot scheduled before `close()` fires this a beat after it, and
+            // `setOpen(true)` then put the modal back in front of somebody who
+            // had just answered — with `close()` having no re-entry guard, so
+            // dismissing it again posted a SECOND `dismissed` against one
+            // exposure. Worse in the tail: the reopened flow remounts against
+            // boot's now-stale state, so a reader who had just chosen $5 saw a
+            // button reading "Continue with $0", and pressing it set
+            // `cancel_at_period_end` on the subscription they had made ninety
+            // seconds earlier.
+            if (!alive || closedHere.current) return
+            // The render suppresses the modal on a chromeless page (/auth,
+            // /authorize, the landing). Recording an exposure there counted a
+            // reader who saw nothing — and somebody who then left via an OAuth
+            // redirect was "exposed" to a modal that never painted.
+            if (isChromelessPathname(window.location.pathname)) return
+            setOpen(true)
+            // The exposure, recorded when the modal actually MOUNTS rather than
+            // when the state was fetched. Most loads show nothing; counting
+            // those as exposures would put an unknown amount of noise in the
+            // denominator of the $1 experiment. Fire-and-forget: analytics
+            // never blocks the thing being measured.
+            if (exposed.current) return
+            exposed.current = true
+            api.supportPromptShown(due, forced ? `forced-${due}` : due).catch(() => { /* not worth a word */ })
+          }, SETTLE_MS)
+        }
+      } catch {
+        // Offline, an expired session, a deployment mid-deploy: the ask is the
+        // most skippable thing in the app. It is never worth a visible error,
+        // and the next load asks the server again.
+      }
+    }
+
+    void boot()
+    // Signing in during this page's life is the other moment a first visit can
+    // happen — the /auth form navigates rather than reloading, so without this
+    // a brand-new account would not be greeted until its second page load.
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') void boot()
+    })
+    return () => {
+      alive = false
+      data.subscription.unsubscribe()
+    }
+  }, [])
+
+  /**
+   * Both a dismissal and a completed answer count as "we asked" — that is what
+   * buys the month of quiet (migration 054). Only one of them is a DISMISSAL,
+   * though, and recording both against the same exposure made the experiment's
+   * outcomes overlap: every conversion also logged a walk-away.
+   */
+  /**
+   * Close, or refuse and say so.
+   *
+   * Returns `false` when it refuses, which is how `Sheet` knows to put its
+   * panel back rather than leave an invisible scrim over the page. See the
+   * `onClose` docstring there.
+   */
+  function close(dismissed = true): boolean {
+    // ⚠️ NOT WHILE MONEY IS MOVING. The flow reports its own writes through
+    // `onBusy`, including the card step's `confirmSetup`, which lives inside
+    // `CardFields` and is otherwise invisible from here. Refusing the close is
+    // better than taking it: the write finishes, the reader sees what happened
+    // to their money, and the exposure records one outcome instead of two.
+    if (writing.current) return false
+    // ⚠️ RE-ENTRY GUARD, not just a flag for `boot`. Two presses of the dismiss
+    // button inside one commit window posted `ackSupportPrompt` twice, and
+    // `dismissed` rows carry no dedupe key — two walk-aways against one
+    // exposure, the same shape as the double `chose` §31 records. The ref was
+    // already being SET here; it was simply never read here.
+    if (closedHere.current) return false
+    closedHere.current = true
+    setOpen(false)
+    // ⚠️ BELOW BOTH GUARDS. The dismissal path writes too — `ackPrompt`
+    // stamps the clock — so the profile card must re-read. But a REFUSED
+    // close (a payment in flight) must not start a fetch: round forty-four
+    // executed one landing after a card replacement and reverting the panel to
+    // the old card and `past_due`, which tells somebody who just fixed their
+    // payment that it failed.
+    void queryClient.invalidateQueries({ queryKey: ['billing'] })
+    if (!kind) return true
+    api
+      .ackSupportPrompt(kind, { dismissed, context: forced ? `forced-${kind}` : kind })
+      .catch(() => { /* the next boot re-decides */ })
+    return true
+  }
+
+  if (!isCloudMode || !state?.available || !kind || !open) return null
+  if (isChromelessPathname(pathname)) return null
+
+  const copy = COPY[kind]
+
+  return (
+    <Sheet
+      title={copy.title}
+      // Not unconditionally a dismissal: closing the done screen with the ✕ is
+      // still an answer, and recording both put two mutually exclusive outcomes
+      // against one exposure.
+      onClose={() => close(!answered.current)}
+      size="lg"
+      // Top right, beside the close button. A processor mark belongs in the
+      // chrome of a payment surface, not in the middle of the argument.
+      headerRight={<PoweredByStripe height={18} />}
+    >
+      <div>
+        {/* A pill rather than bare uppercase text. It is the one small piece of
+            chrome in a surface that is otherwise all type, it gives the eye
+            somewhere to land before the paragraph, and it is the treatment
+            every premium upgrade surface converges on. */}
+        <span className="mb-[12px] inline-flex items-center gap-[6px] rounded-full bg-halo-neutral px-[10px] py-[5px] text-[11px] font-bold uppercase tracking-wide text-action-primary">
+          <Icon name={kind === 'payment_issue' ? 'credit-card' : 'heart'} size={13} />
+          {copy.eyebrow}
+        </span>
+        <p className="text-[15px] leading-[1.6] text-text-body">{copy.lead}</p>
+        <p className="mb-[22px] mt-[8px] text-[13px] leading-[1.6] text-text-muted">{copy.aside}</p>
+
+        <SupportFlow
+          state={state}
+          // ⚠️ `onState`, NOT the answer signal. It fires whenever the state on
+          // screen must change — including after a failure — so inferring an
+          // answer from it recorded neither outcome for a reader who tried,
+          // failed and closed the sheet. `onAnswered` is the signal.
+          onState={(next) => {
+            setState(next)
+            // ⚠️ THE PROFILE CARD IS THE SAME ACCOUNT, and it holds its own
+            // copy: `SupportSettings` reads `useQuery(['billing'])` with a 60s
+            // `staleTime`, this sheet reads `api.billingVisit()` into local
+            // state, and nothing connected them. On /profile — where the
+            // modal renders directly over that card, and where `payment_issue`
+            // is shown to people who ARE paying — answering the modal left
+            // the card underneath reading "$0 / month, you are on $0, which is
+            // a perfectly good answer" and still offering "Chip in".
+            //
+            // Executed in round forty-three: the reader presses it, the flow
+            // opens against stale state, re-sends the same amount (no double
+            // charge — the update branch is idempotent) and the route records
+            // a SECOND `chose`, attributed to `settings` with no matching
+            // exposure. `chose` carries no dedupe key by design (061), so that
+            // is a phantom conversion in the numerator of the number deciding
+            // whether the $1 rung ships.
+            // ⚠️ SEED, DO NOT INVALIDATE. This held the answer already —
+            // `next` IS the fresh state — and invalidating instead started a
+            // GET that could land after somebody's next write and undo it (see
+            // `settle` in SupportSettings). Cancel first, then write: the card
+            // underneath updates immediately and nothing in flight can revert
+            // it.
+            void (async () => {
+              await queryClient.cancelQueries({ queryKey: ['billing'] })
+              queryClient.setQueryData(['billing'], next)
+            })()
+          }}
+          onAnswered={() => {
+            answered.current = true
+          }}
+          onBusy={(b) => {
+            writing.current = b
+          }}
+          context={kind}
+          analyticsContext={forced ? `forced-${kind}` : kind}
+          // `!answered.current`, NOT an unconditional dismissal — the same
+          // reading the ✕ takes. THREE branches leave the flow on `choose` AFTER
+          // an answer was recorded, with the chooser and submit disabled by
+          // `inFlight`, so this button is the reader's only live control; a
+          // flat `true` there posted a dismissal on top of the `chose`.
+          onDismiss={() => close(!answered.current)}
+          dismissLabel={copy.dismiss}
+          onDone={() => close(false)}
+        />
+      </div>
+    </Sheet>
+  )
+}

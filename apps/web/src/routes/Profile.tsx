@@ -11,6 +11,7 @@ import { Icon } from '../components/Icon'
 import { AvatarDisc, AvatarSpinner, useAvatarEditor } from '../components/Avatar'
 import { ChangePassword } from './auth/ChangePassword'
 import { AgentAccess } from '../components/AgentAccess'
+import { SupportSettings } from '../components/billing/SupportSettings'
 import { DeckeVisibility } from '../components/DeckeVisibility'
 import { Sheet } from '../components/ui/Sheet'
 import { fmtUsd } from '../lib/format'
@@ -402,6 +403,12 @@ export function Profile() {
             deploy has no Supabase account); Agent access is not — self-hosters
             connect assistants too. */}
         <div className="mt-[16px] mb-[8px] flex flex-col gap-[16px]">
+          {/* Billing first in the stack: it is the surface every line of the
+              support prompt promises exists ("change or stop it any time"), so
+              somebody arriving from that modal must not have to hunt. It is
+              cloud-only and self-gating -- SupportSettings renders nothing at
+              all on a deployment with no Stripe, rather than an empty card. */}
+          <SupportSettings />
           {isCloudMode && <ChangePassword />}
           <DeckeVisibility />
           <AgentAccess />

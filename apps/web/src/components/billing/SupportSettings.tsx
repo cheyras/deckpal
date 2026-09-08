@@ -1,0 +1,443 @@
+/**
+ * Supporting DeckPal — the profile page's billing card.
+ *
+ * ── THIS IS THE PLACE THE MODAL PROMISES EXISTS ──────────────────────────────
+ *
+ * Every piece of copy in the prompt says "you can change or stop it any time".
+ * This is where that is true. It is deliberately reachable without ever having
+ * seen the modal, deliberately not hidden behind an accordion, and deliberately
+ * shows the current amount as the first thing on it — a person who cannot see
+ * what they are paying without clicking has not been told what they are paying.
+ *
+ * ── THREE ROUTES OUT, AND ALL THREE ARE VISIBLE ──────────────────────────────
+ *
+ *   • Change the amount (including to $0) — inline, this component.
+ *   • Replace the card — inline, Stripe's Payment Element.
+ *   • Everything else — invoices, receipts, billing address, the full history —
+ *     Stripe's own portal. Rebuilding that surface would mean rebuilding an
+ *     audited one, worse. See `service.ts`.
+ *
+ * The portal button is not a dark-pattern escape hatch and is not treated as
+ * one: cancelling is the inline path, one tap on the `$0` preset, and it never
+ * requires leaving the app.
+ *
+ * ── THE PAGE MUST SURVIVE THIS CARD FAILING ──────────────────────────────────
+ *
+ * Same rule the Account and Agent-access cards follow (`Profile.tsx`): a
+ * billing outage must not take the profile down with it. Nothing here throws
+ * upward, an unavailable deployment renders nothing at all, and a failed read
+ * renders a quiet line rather than an error state.
+ */
+import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { api, type BillingState } from '../../lib/api'
+import { isCloudMode } from '../../lib/supabase'
+import { brandLabel, cardExpiryWarning, formatAmount, formatExpiry, statusNote, stripeFor } from '../../lib/billing'
+import { Button } from '../ui/Button'
+import { FormAlert } from '../ui/FormAlert'
+import { Spinner } from '../ui'
+import { Icon } from '../Icon'
+import { CardForm } from './CardForm'
+import { CardChip, StripeBadge, TrustPoints } from './StripeTrust'
+import { SupportFlow } from './SupportFlow'
+
+type Panel = 'none' | 'amount' | 'card'
+
+export function SupportSettings() {
+  const queryClient = useQueryClient()
+  /**
+   * Land a write so nothing in flight can undo it.
+   *
+   * ⚠️ `setQueryData` ALONE DOES NOT WIN. Round forty-four replaced
+   * `setState` + `refetch` with a bare `setQueryData` on the stated ground that
+   * it "puts react-query's own ordering in charge". It does not: `setQueryData`
+   * neither cancels nor supersedes an in-flight fetch, and that fetch's success
+   * dispatch overwrites it. Executed in round forty-five — a `past_due`
+   * supporter dismisses the dunning modal (which invalidates, starting a GET
+   * against the OLD row), then replaces their card; the write lands, the panel
+   * shows the new card, and the stale GET arrives and reverts both the panel
+   * and the cache to the dead card and "your last payment did not go through".
+   * To somebody who has just done exactly that, whose money has already moved.
+   * Round forty-four also deleted the `refetch` that used to correct it a
+   * moment later, so with a 60s `staleTime` it did not self-heal.
+   *
+   * `cancelQueries` first is what makes the write authoritative.
+   */
+  const settle = async (next: BillingState) => {
+    await queryClient.cancelQueries({ queryKey: ['billing'] })
+    queryClient.setQueryData(['billing'], next)
+  }
+  const query = useQuery({
+    queryKey: ['billing'],
+    queryFn: ({ signal }) => api.billing(signal),
+    enabled: isCloudMode,
+    staleTime: 60_000,
+  })
+  const [state, setState] = useState<BillingState | null>(null)
+  const [panel, setPanel] = useState<Panel>('none')
+  const [portalBusy, setPortalBusy] = useState(false)
+  /**
+   * Is the amount editor mid-write?
+   *
+   * State, not a ref, because these controls are RENDERED disabled rather than
+   * refusing on click — the reader should see that there is nothing to press,
+   * not press it and be ignored. `SupportPrompt`'s equivalent is a ref because
+   * it guards an event handler (`close`) instead.
+   */
+  const [writing, setWriting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  /**
+   * Does the error on screen CONTRADICT the status note?
+   *
+   * Only one of them does. "The card is saved, but the outstanding payment
+   * still did not go through" sits directly above a note reading "updating your
+   * card will put it right" — the reader has just done that and it has not, so
+   * the note is suppressed and the newer fact stands alone.
+   *
+   * ⚠️ The other error here does not contradict anything. "Could not open the
+   * billing portal" has nothing to say about a failed payment or a pending
+   * stop, and hiding the note for it removed guidance the reader needs — for as
+   * long as that error stayed up, which is until another portal attempt or a
+   * card save, i.e. potentially for ever. So the suppression is keyed to the
+   * error's SUBJECT, not to there being one.
+   */
+  const [errorHidesNote, setErrorHidesNote] = useState(false)
+  // Read inside the retire-effect without making the effect depend on it — see
+  // the effect's own warning about running against a stale snapshot.
+  const errorHidesNoteRef = useRef(false)
+  errorHidesNoteRef.current = errorHidesNote
+  /** The fetch this component has already reacted to. */
+  const fetchedAt = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!query.data) return
+    setState(query.data)
+    // ⚠️ THE DUNNING ALERT IS ABOUT A FACT THAT CAN STOP BEING TRUE. It is set
+    // when a replaced card failed to settle the outstanding invoice, and it
+    // suppresses the status note while it is up — so if Stripe's own dunning
+    // collects the invoice a few minutes later, a stale sentence saying the
+    // payment did not go through would go on hiding a note that by then reads
+    // "next payment on the 14th". A FRESH FETCH showing the account no longer
+    // needs attention retires it.
+    //
+    // ⚠️ A FRESH one. Keyed on `dataUpdatedAt`, and deliberately NOT on
+    // `errorHidesNote`: with the flag in the dependency list this ran the
+    // moment the flag was set, against whatever `query.data` was already
+    // cached — so an account that went `past_due` after the page loaded had its
+    // brand-new "the outstanding payment still did not go through" cleared in
+    // the same tick by a snapshot that still said `active`, and the reader was
+    // left believing the card fix had worked.
+    if (fetchedAt.current === query.dataUpdatedAt) return
+    fetchedAt.current = query.dataUpdatedAt
+    const status = query.data.support?.status ?? null
+    if (status !== 'past_due' && status !== 'unpaid') {
+      setErrorHidesNote(false)
+      setError((prev) => (errorHidesNoteRef.current ? null : prev))
+    }
+  }, [query.data, query.dataUpdatedAt])
+
+  // Self-host, or a deployment with no Stripe: say nothing at all. An empty
+  // card headed "Supporting DeckPal" would advertise a tier that does not exist
+  // here, and a self-hoster is running their own copy — there is nobody to pay.
+  if (!isCloudMode) return null
+  // ⚠️ `&& !state` — a failed REFETCH must not delete the section. This ran
+  // after `state` was populated, and the live trigger is this component's own
+  // `query.refetch()` in `onState`: change your amount successfully, have the
+  // refetch fail, and the amount, the card, the way to stop and the "thank you"
+  // all vanish with no message, while the write reached the server. The header
+  // promises a failed read renders a quiet line; deleting the section is not
+  // that. A first load that fails still renders nothing, which is right.
+  if (query.isError && !state) return null
+  if (!state) {
+    return (
+      <section className="rounded-2xl bg-surface-secondary p-[20px]">
+        <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Supporting DeckPal</div>
+        <div className="mt-[8px]">
+          <Spinner label="Loading…" inline />
+        </div>
+      </section>
+    )
+  }
+  if (!state.available) return null
+
+  const { support, card } = state
+  const supporting = support.cents > 0
+  /**
+   * Winding down: still paying for the month they have, nothing renewing after.
+   *
+   * The distinction the no-card warning below needs. `supporting` stays true
+   * through the wind-down month, so it cannot be the test for "a payment is
+   * coming that will fail" — there is no next payment.
+   */
+  // ⚠️ AN OPEN INVOICE OUTRANKS THE WIND-DOWN. Stripe's dunning is independent
+  // of `cancel_at_period_end`, so a `past_due` supporter who has also asked to
+  // stop WILL keep being retried for the month they actually used — and
+  // "nothing further will be charged" told them otherwise, directly beneath a
+  // note saying updating their card settles it. Same adjacent-contradiction
+  // shape this branch was added to fix, one state over, and this one costs the
+  // owner the month.
+  const dunning = support.status === 'past_due' || support.status === 'unpaid'
+  const winding = supporting && support.cancelAtPeriodEnd && !dunning
+  const needsCard = supporting && (!support.cancelAtPeriodEnd || dunning)
+  const note = statusNote(support.status, {
+    cents: support.cents,
+    cancelAtPeriodEnd: support.cancelAtPeriodEnd,
+    currentPeriodEnd: support.currentPeriodEnd,
+    currency: support.currency,
+  })
+  const expiry = card ? formatExpiry(card.expMonth, card.expYear) : null
+  const expiryWarning = card ? cardExpiryWarning(card.expMonth, card.expYear) : null
+
+  async function openPortal() {
+    setPortalBusy(true)
+    setError(null)
+    try {
+      const { url } = await api.billingPortal()
+      // A full navigation, not a new tab: the portal has its own return link
+      // back here, and a popup would be eaten by half the browsers that matter.
+      window.location.assign(url)
+    } catch (e) {
+      setErrorHidesNote(false)
+      setError(e instanceof Error ? e.message : 'Could not open the billing portal.')
+      setPortalBusy(false)
+    }
+  }
+
+  return (
+    <section id="billing" className="rounded-2xl bg-surface-secondary p-[20px]">
+      <div className="flex flex-wrap items-center justify-between gap-[10px]">
+        <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Supporting DeckPal</div>
+        {state.mode === 'test' && (
+          <span className="rounded-full border border-warning/40 bg-warning/[0.12] px-[8px] py-[2px] text-[11px] font-bold uppercase tracking-wide text-warning">
+            Stripe test mode
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div className="mt-[12px]">
+          <FormAlert kind="error">{error}</FormAlert>
+        </div>
+      )}
+
+      {/* The number, first and largest. */}
+      <div className="mt-[10px] flex flex-wrap items-end justify-between gap-[12px]">
+        <div>
+          <div className="flex items-baseline gap-[6px]">
+            <span className={`text-[30px] font-extrabold ${supporting ? 'text-change-positive' : 'text-text-primary'}`}>
+              {formatAmount(support.cents, support.currency)}
+            </span>
+            <span className="text-[14px] font-semibold text-text-muted">/ month</span>
+          </div>
+          <p className="mt-[4px] max-w-[440px] text-[14px] leading-[1.55] text-text-secondary">
+            {supporting
+              ? 'Thank you — this covers the servers, the card images and the price feed.'
+              : 'You are on $0, which is a perfectly good answer. Everything works exactly the same either way.'}
+          </p>
+        </div>
+        {panel === 'none' && (
+          <Button variant={supporting ? 'ghost' : 'primary'} size="sm" onClick={() => setPanel('amount')}>
+            {supporting ? 'Change amount' : 'Chip in'}
+          </Button>
+        )}
+      </div>
+
+      {/* ⚠️ NOT ALONGSIDE THE ERROR. The dunning note reads "updating your card
+          will put it right", and the error directly above it says the card was
+          updated and it did not. Two adjacent sentences contradicting each
+          other is worse than either alone, and the error is the newer fact. */}
+      {note && !(error && errorHidesNote) && (
+        <p
+          className={[
+            'mt-[10px] rounded-[10px] px-[12px] py-[9px] text-[13px] leading-[1.5]',
+            note.tone === 'error'
+              ? 'bg-halo-error text-error'
+              : note.tone === 'warn'
+                // A wash of the warning colour, not `halo-neutral` — see the
+                // note in StripeTrust. `halo-error` and `halo-neutral` are the
+                // right tokens for their own tones and are left alone.
+                ? 'bg-warning/10 text-warning'
+                : 'bg-halo-neutral text-text-body',
+          ].join(' ')}
+        >
+          {note.text}
+        </p>
+      )}
+
+      {/* ── Payment method ───────────────────────────────────────────────── */}
+      <div className="mt-[18px] border-t border-divider-subtle pt-[16px]">
+        <div className="mb-[10px] text-[12px] font-bold uppercase tracking-wide text-text-muted">Payment method</div>
+
+        {panel === 'card' ? (
+          <div>
+            <p className="mb-[14px] text-[14px] leading-[1.6] text-text-secondary">
+              {card
+                ? `Enter the card you would like to use instead. Your ${brandLabel(card.brand)} ending ${card.last4} stays in place until the new one is saved.`
+                : 'Add a card so DeckPal can bill your monthly amount. It goes straight to Stripe.'}
+            </p>
+            {!state.publishableKey && (
+              // ⚠️ A WAY OUT. Only the paragraph above renders without a
+              // publishable key, and "Change amount"/"Chip in" is hidden while
+              // a panel is open — so this was a dead end with no control at
+              // all. Unreachable today (`available: true` implies a key), which
+              // is exactly why `SupportFlow` gives its identical branch a Close
+              // and a Reload: an unreachable dead end is one deploy
+              // configuration away from being a reachable one.
+              <div className="flex flex-col-reverse gap-[8px] sm:flex-row sm:justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setPanel('none')}>
+                  Close
+                </Button>
+                <Button size="sm" onClick={() => window.location.reload()}>
+                  Reload
+                </Button>
+              </div>
+            )}
+            {state.publishableKey && (
+              <CardForm
+                stripePromise={stripeFor(state.publishableKey)}
+                mode={state.mode}
+                submitLabel={card ? 'Use this card' : 'Save card'}
+                cancelLabel="Cancel"
+                // ⚠️ THIS PANEL WRITES TOO, and round forty-two guarded only the
+                // amount panel. `writing` stayed false for the whole of the
+                // bank's `confirmSetup` AND the whole of
+                // `replacePaymentMethod` — which runs `retryOpenInvoice`, i.e.
+                // `stripe.invoices.pay`. So "Open billing portal" five lines
+                // below stayed live, and it is a full page navigation.
+                //
+                // Executed in round forty-three: a `past_due` supporter reads
+                // "updating your card will put it right", opens this panel, and
+                // during the bank's modal presses the button labelled
+                // "Invoices, receipts and billing details". Navigating during
+                // `confirmSetup` means no card is ever attached and the invoice
+                // is never retried — dunning runs to `unpaid` and the
+                // subscription cancels, for somebody who thought they had fixed
+                // it. Navigating during `replacePaymentMethod` loses the
+                // `settled: false` warning while the charge has already landed.
+                onBusy={setWriting}
+                onCancel={() => setPanel('none')}
+                onComplete={async (setupIntentId) => {
+                  // NOT `setSupport(support.cents, …)`. That re-sent the amount
+                  // to promote the card, which set `cancel_at_period_end: false`
+                  // as a side effect — so replacing an expiring card during the
+                  // wind-down month after choosing $0 silently un-cancelled the
+                  // stop and billed them again. It also logged a conversion.
+                  const next = await api.replacePaymentMethod(setupIntentId)
+                  await settle(next)
+                  setPanel('none')
+                  // (The explicit refetch this used to do is unnecessary now
+                  // that the answer is written straight into the cache.)
+                  // ⚠️ `settled` IS THE SERVER'S ANSWER TO "did that fix it".
+                  // Behind this endpoint is `retryOpenInvoice`, and a new card
+                  // can be refused as readily as the old one. The dunning modal
+                  // checks this; the profile panel did not, so somebody
+                  // replacing a card to clear a failed payment saw the panel
+                  // close, took that as done, and had only the passive banner
+                  // to tell them otherwise.
+                  setErrorHidesNote(next.settled === false)
+                  setError(
+                    next.settled === false
+                      ? 'The card is saved, but the outstanding payment still did not go through. Your bank may be declining it — try a different card, or contact them.'
+                      : null,
+                  )
+                }}
+              />
+            )}
+          </div>
+        ) : card ? (
+          <div className="flex flex-wrap items-center justify-between gap-[12px]">
+            <CardChip brand={card.brand} last4={card.last4} expiry={expiry} warning={expiryWarning} />
+            <Button variant="ghost" size="sm" disabled={writing} onClick={() => setPanel('card')}>
+              <Icon name="credit-card" size={15} />
+              Use a different card
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-[12px]">
+            {/* ⚠️ "NONE IS NEEDED" IS ONLY TRUE AT $0. This was unconditional, so
+                a supporter who removed their card in Stripe's own portal — the
+                one THIS CARD LINKS TO eight lines below — saw "Next payment of
+                $5 on the 4th" and "none is needed while you are on $0" at once.
+                In `past_due` it was worse: "updating your card will put it
+                right" directly above "none is needed". The reader is told not
+                to act, and the renewal fails. Also reachable via a Link or
+                bank-debit method, which `service.ts` documents as reading "no
+                card on file". */}
+            {/* ⚠️ AND NOT WHILE THEY ARE WINDING DOWN. `supporting` is
+                `cents > 0`, which is still true through the month a cancelling
+                supporter has already paid for — so this said "your next
+                payment will fail" directly beneath the note saying support
+                stops on the 3rd. There is no next payment. It is false, and it
+                solicits somebody who has explicitly cancelled, which
+                `offerOneTime`'s comment says this product does not do. Same
+                adjacent-contradiction shape as the defect this warning was
+                added to fix, mirrored. */}
+            <p className={`text-[14px] ${needsCard ? 'text-warning' : 'text-text-muted'}`}>
+              {needsCard
+                ? 'No card on file, so your next payment will fail. Add one to keep your support running.'
+                : winding
+                  ? 'No card on file. Nothing further will be charged.'
+                  : 'No card on file — none is needed while you are on $0.'}
+            </p>
+            <Button variant="ghost" size="sm" disabled={writing} onClick={() => setPanel('card')}>
+              <Icon name="plus" size={15} />
+              Add a card
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ── The amount editor ────────────────────────────────────────────── */}
+      {panel === 'amount' && (
+        <div className="mt-[18px] border-t border-divider-subtle pt-[16px]">
+          <SupportFlow
+            state={state}
+            onState={(next) => {
+              void settle(next)
+            }}
+            // ⚠️ THE SAME GUARD `SupportPrompt` HAS, ON THE OTHER MOUNT SITE.
+            // This card's own controls sit outside the flow, so "Use a
+            // different card" and "Open billing portal" stayed live while a
+            // charge was in flight — and the card button UNMOUNTS the flow
+            // (`panel === 'amount' && <SupportFlow …>`). Executed in round
+            // forty-two: the charge landed, `onState` and the refetch never
+            // fired, and the card went on reading "$0 / month — you are on
+            // $0, which is a perfectly good answer". A bank step-up in flight
+            // was simply dropped, leaving the subscription `incomplete`.
+            onBusy={setWriting}
+            context="settings"
+            onDismiss={() => setPanel('none')}
+            dismissLabel="Cancel"
+            onDone={() => setPanel('none')}
+          />
+        </div>
+      )}
+
+      {/* ── Receipts and the rest ────────────────────────────────────────── */}
+      <div className="mt-[18px] border-t border-divider-subtle pt-[16px]">
+        <div className="flex flex-wrap items-center justify-between gap-[12px]">
+          <div className="min-w-[240px] flex-1">
+            <p className="text-[14px] text-text-body">Invoices, receipts and billing details</p>
+            <p className="mt-[3px] text-[12px] text-text-muted">
+              Opens Stripe&apos;s own billing portal and comes straight back here.
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={portalBusy}
+            disabled={writing || (!card && !supporting)}
+            onClick={() => void openPortal()}
+          >
+            <Icon name="external" size={15} />
+            Open billing portal
+          </Button>
+        </div>
+      </div>
+
+      <TrustPoints className="mt-[16px] border-t border-divider-subtle pt-[16px]" />
+      <StripeBadge mode={state.mode} />
+
+    </section>
+  )
+}

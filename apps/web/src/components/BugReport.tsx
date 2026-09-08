@@ -247,7 +247,11 @@ export function BugButton() {
   }
 
   function close() {
-    if (busy) return
+    // ⚠️ `false`, NOT a bare `return`. `Sheet` restores its panel only on a
+    // strict `false`; anything else — `undefined` included — means "I have
+    // unmounted", and returning that while refusing left the reader under an
+    // invisible full-screen overlay with their report trapped behind it.
+    if (busy) return false
     setOpen(false)
     setShot(undefined)
   }

@@ -508,6 +508,67 @@ destroy, and drops a partition only one run after retiring it. `research/SCHEMA.
 
 `user_id` is on every user-owned row; catalog and pricing tables are global.
 
+### Billing — a cache in front of Stripe, and a schedule for one question
+
+`billing_account` (migration 053) is one row per account and is **not a
+licence**. There is deliberately no entitlement column: the hosted tier is
+pay-what-you-want with $0 a valid permanent answer, and nothing in the product
+reads this row to decide what somebody may do.
+
+It holds two unrelated things, which is why the table has a divider in it:
+
+1. **A cache of Stripe.** Amount, status, period end, and a card's brand/last
+   four/expiry. Stripe is the source of truth; if the two disagree, this row is
+   stale and `stripe_synced_at` says how stale. No money is ever computed from
+   these columns — they exist to render a page without a round trip to Stripe on
+   every profile load. There is no `amount_owed`, no `paid_through` and no
+   invoice history: invoices live in Stripe and are reached through its portal.
+2. **When to ask again.** `visit_count` (sessions, not page loads — at most one
+   per six hours, counted in SQL), `prompt_last_shown_at`, `onboarded_at`. This
+   is per-ACCOUNT rather than per-device on purpose: clearing site data must not
+   restart the cadence, and signing in on a phone must not re-ask what was
+   answered on a laptop.
+
+**Writes have two paths and both are narrow.** The Stripe webhook runs outside
+the RLS middleware, as the connection's owning role, and writes by customer id.
+The billing routes run as `authenticated` and write through four
+`SECURITY DEFINER` functions that derive the row from `auth.uid()`. The
+alternatives — a second pooled connection per request, or a `RESET ROLE` dance on
+the request's own client — are respectively a B2 violation and a way to leave a
+whole request running with RLS off. See `SECURITY.md` for why the customer id in
+particular has to be unwritable from the browser.
+
+**The connection budget shapes the Stripe client.** These are the first routes
+that hold the per-request pooled connection across long third-party I/O, and the
+watchdog reclaims it after `PGRLS_MAX_HOLD_MS` (30 s). The Stripe client is
+therefore sized against THAT rather than against Stripe: 8 s timeout, one retry,
+so a single call's worst case stays inside the budget with room for the database
+writes either side. When a request does fail after a charge has succeeded, the
+error says "check your profile before trying again" rather than "nothing was
+charged" — the latter is how a one-off gets paid twice.
+
+**`billing_ab_event` (055/057/058) is an append-only log, not a counter.** It
+carries one row per exposure, answer and dismissal, with the experiment arm
+STAMPED on the row rather than joined — so a reassignment could not rewrite the
+experiment's own past. It exists to answer one question: does offering a $1 rung
+raise revenue, or move people down the ladder? The reading is
+revenue-per-exposure, not conversion rate, and the query has three traps in it
+(amount changes append rows, the testing override records, one-offs are a
+different kind); the corrected version lives beside `promptDue` in
+`billing/store.ts`, because migration 055's own header predates all three and
+cannot be edited (B4).
+
+**One-time contributions** reuse the subscription's card path exactly — same
+SetupIntent, same Payment Element — and charge server-side against the customer
+default. Two card-collection flows would mean two places for the Link prefill to
+drift and two ways for "your card never touches DeckPal" to stop being true.
+
+**The subscription has no Price object.** A pay-what-you-want amount cannot be a
+fixed Stripe Price, so each subscription item carries inline `price_data` against
+one Product (`STRIPE_SUPPORT_PRODUCT_ID`). Every invoice then reads "DeckPal
+Support $5.00/month" and the dashboard still groups supporters under one product
+— unlike the quantity-of-dollars trick, which invoices as "25 x $1.00".
+
 ### Card scanner — the table is the index
 
 A photo becomes a 64-bit dHash; the catalog's ~22.7k hashes live in

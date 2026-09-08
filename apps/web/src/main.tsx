@@ -57,6 +57,7 @@ import { validateListSearch } from './routes/listSearch'
 import { validateDeckSearch, DECK_SEARCH_DEFAULTS } from './routes/deckSearch'
 import { DevBackendRibbon } from './components/DevBackendRibbon'
 import { DeckeHost } from './character/host/DeckeHost'
+import { SupportPrompt } from './components/billing/SupportPrompt'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,6 +106,15 @@ function RootComponent() {
       <DevBackendRibbon />
       {shell}
       <DeckeHost />
+      {/* A sibling of `{shell}` for the same reason DeckeHost is: crossing the
+          public/private boundary swaps <AppShell> for <AuthGuard> at that
+          position and unmounts everything inside it. Mounted in there, the
+          support prompt would re-run its boot request -- and re-count a
+          "visit" -- on every /series -> /decks navigation. Here it mounts once
+          per page load, which is the unit visit_count is supposed to count.
+          It renders nothing at all when signed out, on a chromeless page, or
+          on a deployment with no Stripe. */}
+      <SupportPrompt />
     </>
   )
 }

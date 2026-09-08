@@ -9,10 +9,25 @@ async function main(): Promise<void> {
     if (cmd === 'up') {
       const results = await migrateUp(pool);
       const newly = results.filter((r) => r.applied);
+      const skipped = results.filter((r) => r.skipped);
       for (const r of results) {
-        console.log(`${r.applied ? 'APPLIED ' : 'present '} ${r.version}`);
+        // ⚠️ THREE WORDS, NOT TWO. `present` used to cover both "already
+        // applied" and "skipped because SUPABASE_MODE is unset", which are
+        // opposite facts: the first means the schema has it, the second means
+        // it never will on this run. A cutover that forgets to load the
+        // environment reads a screen of `present` and concludes it is done —
+        // and the deploy then hard-fails on a function that was never created.
+        console.log(`${r.applied ? 'APPLIED ' : r.skipped ? 'SKIPPED ' : 'present '} ${r.version}`);
       }
       console.log(`\n${newly.length} migration(s) applied, ${results.length} total.`);
+      if (skipped.length) {
+        console.log(
+          `\n⚠️  ${skipped.length} supabase-only migration(s) SKIPPED because SUPABASE_MODE is not set.\n`
+            + '   On a cloud deployment that is a MISTAKE, not a no-op: the billing write path, its\n'
+            + '   RLS and its SECURITY DEFINER functions all live in the skipped files, and the\n'
+            + '   deployed code calls them by name. Load the environment and run again.',
+        );
+      }
     } else if (cmd === 'status') {
       const rows = await migrationStatus(pool);
       for (const r of rows) console.log(`${r.applied ? '[x]' : '[ ]'} ${r.version}`);
