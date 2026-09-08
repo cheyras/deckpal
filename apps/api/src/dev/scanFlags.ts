@@ -8,7 +8,7 @@ import {
   unknownProvenance,
 } from '@deckpal/storage';
 import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
-import { ownerOnlyInProduction } from '../ownerGate.js';
+import { labelerOnlyInProduction } from '../ownerGate.js';
 
 /**
  * Scan-harness "Flag frame" capture — POST/GET /dev/scan-flags.
@@ -63,14 +63,22 @@ async function readComment(objectPath: string): Promise<string | null> {
 }
 
 export const scanFlagsRouter: Router = Router();
-// Owner-only on production; open on preview and self-host. Mounted ahead of
-// resolveIdentity in index.ts specifically so a preview deployment is not
-// ALSO forced through its 401 for having no app session. `forbidden` rather
-// than `not-found`: this is a documented operator tool, and saying "you may
-// not" to the wrong account is more useful than pretending the route is
-// absent — the opposite of the scanner's gate, which is meant to be invisible.
-// See ../ownerGate.ts.
-scanFlagsRouter.use(ownerOnlyInProduction('forbidden'));
+// The LABELER SET on production (owner + QA, see ../ownerGate.ts); open on
+// preview and self-host. Mounted ahead of resolveIdentity in index.ts
+// specifically so a preview deployment is not ALSO forced through its 401 for
+// having no app session — `authMiddleware` has already run by then, so
+// `req.user` is populated and the gate has a verified subject to check.
+//
+// WIDENED FROM OWNER-ONLY 2026-09-08. This router is the only path a quad
+// label takes (`scan/labeler/saveLabel.ts` -> `api.scanFlag` -> POST here), so
+// it has to agree with `/dev/quad-labeler`'s route guard or the QA account
+// gets a surface it can open and cannot save from.
+//
+// `forbidden` rather than `not-found`: this is a documented operator tool, and
+// saying "you may not" to the wrong account is more useful than pretending the
+// route is absent — the opposite of the scanner's gate, which is meant to be
+// invisible.
+scanFlagsRouter.use(labelerOnlyInProduction('forbidden'));
 
 // ── POST / — upload a flagged frame ─────────────────────────────────────────
 scanFlagsRouter.post(

@@ -1,0 +1,398 @@
+[
+  {
+    "id": 1788622691583,
+    "tRel": 1.489,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sm6-5",
+        "setId": "sm6",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv03-144",
+      "alternates": [
+        {
+          "cardId": "sv03-144",
+          "distance": 12
+        },
+        {
+          "cardId": "B1a-090",
+          "distance": 13
+        },
+        {
+          "cardId": "sv10-043",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH100",
+          "distance": 13
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622696788,
+    "tRel": 6.996,
+    "match": {
+      "matchedRaw": true,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-047",
+        "setId": "sv10",
+        "distance": 8,
+        "confidence": 0.875
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv04.5-134",
+      "alternates": [
+        {
+          "cardId": "sv04.5-134",
+          "distance": 9
+        },
+        {
+          "cardId": "swsh4.5sv-SV104",
+          "distance": 11
+        },
+        {
+          "cardId": "sv04.5-143",
+          "distance": 11
+        },
+        {
+          "cardId": "swshp-SWSH145",
+          "distance": 12
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622713613,
+    "tRel": 23.782,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-050",
+        "setId": "sv10",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 0,
+      "rivalCardId": "svp-082",
+      "alternates": [
+        {
+          "cardId": "svp-082",
+          "distance": 11
+        },
+        {
+          "cardId": "sv04.5-122",
+          "distance": 12
+        },
+        {
+          "cardId": "sv04.5-127",
+          "distance": 12
+        },
+        {
+          "cardId": "me02-027",
+          "distance": 12
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622761446,
+    "tRel": 71.542,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-201",
+        "setId": "sv10",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv10-070",
+      "alternates": [
+        {
+          "cardId": "sv10-070",
+          "distance": 12
+        },
+        {
+          "cardId": "sm3-41",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh3-145",
+          "distance": 13
+        },
+        {
+          "cardId": "swshp-SWSH220",
+          "distance": 14
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622794780,
+    "tRel": 105.031,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-093",
+        "setId": "sv10",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 0,
+      "rivalCardId": "sv04-026",
+      "alternates": [
+        {
+          "cardId": "sv04-026",
+          "distance": 12
+        },
+        {
+          "cardId": "sv02-229",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh11-054",
+          "distance": 14
+        },
+        {
+          "cardId": "sv04-011",
+          "distance": 14
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622834171,
+    "tRel": 144.28,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sm2-28",
+        "setId": "sm2",
+        "distance": 11,
+        "confidence": 0.828
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sm8-144",
+      "alternates": [
+        {
+          "cardId": "sm8-144",
+          "distance": 12
+        },
+        {
+          "cardId": "sv04.5-105",
+          "distance": 12
+        },
+        {
+          "cardId": "sv10-109",
+          "distance": 13
+        },
+        {
+          "cardId": "B1a-019",
+          "distance": 13
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622865467,
+    "tRel": 175.676,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sm2-6",
+        "setId": "sm2",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv04.5-057",
+      "alternates": [
+        {
+          "cardId": "sv04.5-057",
+          "distance": 13
+        },
+        {
+          "cardId": "sv10-121",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh8-63",
+          "distance": 13
+        },
+        {
+          "cardId": "swsh9-033",
+          "distance": 13
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622899936,
+    "tRel": 209.368,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-134",
+        "setId": "sv10",
+        "distance": 10,
+        "confidence": 0.844
+      },
+      "tieMargin": 2,
+      "rivalCardId": "sv02-128",
+      "alternates": [
+        {
+          "cardId": "sv02-128",
+          "distance": 12
+        },
+        {
+          "cardId": "sv04.5-058",
+          "distance": 12
+        },
+        {
+          "cardId": "sm11-137",
+          "distance": 13
+        },
+        {
+          "cardId": "sv03-206",
+          "distance": 13
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622913004,
+    "tRel": 221.624,
+    "match": {
+      "matchedRaw": true,
+      "matchedAfterTieGate": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-142",
+        "setId": "sv10",
+        "distance": 6,
+        "confidence": 0.906
+      },
+      "tieMargin": 6,
+      "rivalCardId": "sv07-100",
+      "alternates": [
+        {
+          "cardId": "sv07-100",
+          "distance": 12
+        },
+        {
+          "cardId": "sv01-141",
+          "distance": 12
+        },
+        {
+          "cardId": "sv10.5b-066",
+          "distance": 13
+        },
+        {
+          "cardId": "sma-SV43",
+          "distance": 13
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788622933434,
+    "tRel": 242.479,
+    "match": {
+      "matchedRaw": false,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv04-055",
+        "setId": "sv04",
+        "distance": 12,
+        "confidence": 0.813
+      },
+      "tieMargin": 1,
+      "rivalCardId": "sv10-142",
+      "alternates": [
+        {
+          "cardId": "sv10-142",
+          "distance": 13
+        },
+        {
+          "cardId": "me05-011",
+          "distance": 13
+        },
+        {
+          "cardId": "sv06-009",
+          "distance": 13
+        },
+        {
+          "cardId": "sv10-160",
+          "distance": 13
+        }
+      ]
+    }
+  },
+  {
+    "id": 1788623062569,
+    "tRel": 371.872,
+    "match": {
+      "matchedRaw": true,
+      "matchedAfterTieGate": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": {
+        "cardId": "sv10-177",
+        "setId": "sv10",
+        "distance": 8,
+        "confidence": 0.875
+      },
+      "tieMargin": 0,
+      "rivalCardId": "me02.5-208",
+      "alternates": [
+        {
+          "cardId": "me02.5-208",
+          "distance": 8
+        },
+        {
+          "cardId": "sv02-192",
+          "distance": 9
+        },
+        {
+          "cardId": "me04-084",
+          "distance": 9
+        },
+        {
+          "cardId": "sv02-193",
+          "distance": 11
+        }
+      ]
+    }
+  }
+]

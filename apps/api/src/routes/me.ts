@@ -4,7 +4,7 @@ import { isDeckeEntitled } from '../decke/entitlement.js';
 import { cardImages, q, q1, withTx } from '../db.js';
 import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { isOwner, ownerGateStatus } from '../ownerGate.js';
+import { isLabelerEntitled, isOwner, ownerGateStatus } from '../ownerGate.js';
 
 /**
  * GET /me — the caller's own account identity. Currently just `username`
@@ -43,7 +43,20 @@ meRouter.get(
     // `designEditor` is retained for the existing /design gate. `owner` is the
     // same answer under the name that actually describes it, and is what new
     // owner-only surfaces should use.
-    res.json({ username: row.username, designEditor: owner, owner, decke: isDeckeEntitled(userId) });
+    //
+    // `labeler` is a THIRD answer and has to be: the quad training surface is
+    // open to the owner plus the QA account, so reporting `owner` there would
+    // hide the surface from the only account AGENTS.md B12 permits to drive
+    // it. Same reason `decke` is not `owner` — see the comment on
+    // `MeResponse.decke` in apps/web/src/lib/api.ts for what happened when a
+    // client gate and a server gate answered different questions.
+    res.json({
+      username: row.username,
+      designEditor: owner,
+      owner,
+      decke: isDeckeEntitled(userId),
+      labeler: isLabelerEntitled(userId),
+    });
   }),
 );
 

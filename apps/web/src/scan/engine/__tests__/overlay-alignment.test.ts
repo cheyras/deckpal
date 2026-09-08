@@ -46,6 +46,7 @@
 // separate want; the overlay has to be right either way.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it } from 'node:test'
@@ -55,7 +56,22 @@ import { CANONICAL_SIZE, reticleForAspect } from '../frame'
 import { QuadOverlay } from '../../ui/QuadOverlay'
 import { squareSide } from '../../ui/coords'
 
-const SESSION = 'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/owner-session-1/'
+// ── WHY THE FIXTURES ARE IN THE REPO ────────────────────────────────────────
+//
+// This path used to be an absolute one on the author's laptop
+// (`E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/...`), pointing
+// into a directory that is not tracked. The `if (!existsSync) return []` guard
+// below reads as graceful degradation and was not: the suite then asserts the
+// artifacts ARE present, so on any other machine — GitHub Actions included —
+// this file could only fail. It did, on every CI run since the scanner landed
+// on main, and the regressions it pins have therefore never once been checked
+// by CI.
+//
+// The recorded sessions are gigabytes of frames and crops and stay out of git.
+// The JSON the assertions actually read is a few hundred KB, so it lives here,
+// addressed relative to this file. The guard is kept: it is now the honest
+// thing it always claimed to be.
+const SESSION = fileURLToPath(new URL('./fixtures/owner-session-1/', import.meta.url))
 
 /** The owner's two real box shapes, from telemetry: 428x319 in portrait for
  *  175 of the 176 events, and 926x136 for the landscape excursion at t+80 s. */

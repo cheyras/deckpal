@@ -1,0 +1,310 @@
+[
+  {
+    "id": "1788508779253",
+    "app": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Terrakion",
+          "set": "sv10.5w",
+          "num": "054",
+          "d": 12
+        },
+        {
+          "name": "Donphan",
+          "set": "sv08",
+          "num": "103",
+          "d": 12
+        },
+        {
+          "name": "Karrablast",
+          "set": "swsh9",
+          "num": "015",
+          "d": 13
+        },
+        {
+          "name": "Pineco",
+          "set": "swsh4",
+          "num": "8",
+          "d": 13
+        },
+        {
+          "name": "Hisuian Basculegion",
+          "set": "swshp",
+          "num": "SWSH205",
+          "d": 13
+        }
+      ]
+    },
+    "mine": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Donphan",
+          "set": "sv08",
+          "num": "103",
+          "d": 11
+        },
+        {
+          "name": "Lotad",
+          "set": "swsh2",
+          "num": "7",
+          "d": 11
+        },
+        {
+          "name": "Pineco",
+          "set": "swsh4",
+          "num": "8",
+          "d": 11
+        },
+        {
+          "name": "Eldegoss",
+          "set": "swsh4.5",
+          "num": "15",
+          "d": 12
+        },
+        {
+          "name": "Special Delivery Charizard",
+          "set": "swshp",
+          "num": "SWSH075",
+          "d": 12
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788508798447",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "swsh7",
+          "num": "235",
+          "d": 9
+        },
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 10
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 7
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 9
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788508832704",
+    "app": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Yungoos",
+          "set": "2017sm",
+          "num": "12",
+          "d": 12
+        },
+        {
+          "name": "Kecleon",
+          "set": "sm8",
+          "num": "161",
+          "d": 12
+        },
+        {
+          "name": "Snorlax",
+          "set": "sm10",
+          "num": "158",
+          "d": 13
+        },
+        {
+          "name": "Trubbish",
+          "set": "swsh2",
+          "num": "117",
+          "d": 13
+        },
+        {
+          "name": "Venipede",
+          "set": "swsh6",
+          "num": "105",
+          "d": 13
+        }
+      ]
+    },
+    "mine": {
+      "matched": false,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Misdreavus",
+          "set": "sm4",
+          "num": "39",
+          "d": 12
+        },
+        {
+          "name": "Karrablast",
+          "set": "swsh9",
+          "num": "015",
+          "d": 12
+        },
+        {
+          "name": "Zamazenta",
+          "set": "swsh2",
+          "num": "140",
+          "d": 12
+        },
+        {
+          "name": "Fraxure",
+          "set": "swsh9",
+          "num": "111",
+          "d": 13
+        },
+        {
+          "name": "Pineco",
+          "set": "swsh4",
+          "num": "8",
+          "d": 13
+        }
+      ]
+    }
+  },
+  {
+    "id": "1788508847850",
+    "app": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "swsh7",
+          "num": "235",
+          "d": 9
+        },
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 10
+        }
+      ]
+    },
+    "mine": {
+      "matched": true,
+      "threshold": 9,
+      "indexSize": 22652,
+      "top": [
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "012",
+          "d": 7
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "mee",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Metal Energy",
+          "set": "sve",
+          "num": "016",
+          "d": 8
+        },
+        {
+          "name": "Lightning Energy",
+          "set": "sve",
+          "num": "004",
+          "d": 8
+        },
+        {
+          "name": "Water Energy",
+          "set": "sve",
+          "num": "011",
+          "d": 9
+        }
+      ]
+    }
+  }
+]

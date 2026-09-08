@@ -49,6 +49,7 @@ import {
   type SessionStats,
 } from './types'
 import { buildWorkingFrame, type WorkingFrame } from './workingFrame'
+import type { SweepVerdict } from './sweep'
 
 type EntryMode = 'capture' | 'upload'
 
@@ -71,6 +72,25 @@ const RETRY_EVERY_MS = 15_000
 
 export function QuadLabeler() {
   const [entryMode, setEntryMode] = useState<EntryMode>('capture')
+  /**
+   * ── SWEEP MODE (owner request, 2026-09-08) ────────────────────────────────
+   *
+   * Runs the SHIPPING engine live against the preview so the reader can point
+   * the phone around a room and see what the product mistakes for a card —
+   * then capture exactly those frames as negatives. Without it, mining "not a
+   * card" means guessing which of the things in front of the lens the detector
+   * has an opinion about, and the guess is uncorrelated with the answer.
+   *
+   * OFF BY DEFAULT, and the default is the load-bearing part: a normal
+   * labelling session works through a stack of real cards, where a continuous
+   * detector opinion costs battery and inference time and tells the reader
+   * nothing they cannot see. See CaptureStage's header.
+   */
+  const [live, setLive] = useState(false)
+  /** The live verdict for the frame currently being edited — captured at the
+   *  shutter, held across the editor, and stamped onto the row. Null for
+   *  uploads and for captures taken with the sweep off. */
+  const [sweep, setSweep] = useState<SweepVerdict | null>(null)
   const [editing, setEditing] = useState(false)
   const [workingFrame, setWorkingFrame] = useState<WorkingFrame | null>(null)
   // A real identity for AnnotationEditor's `key` — the canvas ELEMENT itself
@@ -137,7 +157,8 @@ export function QuadLabeler() {
     warmSeed()
   }, [])
 
-  const beginEditing = useCallback((frame: WorkingFrame, from: LabelSource) => {
+  const beginEditing = useCallback((frame: WorkingFrame, from: LabelSource, verdict: SweepVerdict | null = null) => {
+    setSweep(verdict)
     frameSeq.current += 1
     setFrameKey(frameSeq.current)
     setWorkingFrame(frame)
@@ -284,10 +305,13 @@ export function QuadLabeler() {
       crop: { x: workingFrame.crop.x, y: workingFrame.crop.y, size: workingFrame.crop.size },
       source,
       seededFrom: seed.seededFrom,
-      pipeline: seed.pipeline,
+      // The seed's own pipeline block, plus the live verdict when there was
+      // one. Spread in this order deliberately: `sweep` is additive provenance
+      // and must never overwrite a field the seed measured.
+      pipeline: sweep ? { ...seed.pipeline, sweep } : seed.pipeline,
       savedAt: new Date().toISOString(),
     } satisfies Omit<QuadLabel, 'corners' | 'invalidReason'>
-  }, [workingFrame, seed, source])
+  }, [workingFrame, seed, source, sweep])
 
   const doSave = useCallback(
     async (label: QuadLabel | null) => {
@@ -464,6 +488,23 @@ export function QuadLabeler() {
               {m}
             </button>
           ))}
+          {entryMode === 'capture' && (
+            <button
+              type="button"
+              onClick={() => setLive((v) => !v)}
+              aria-pressed={live}
+              title="Run the shipping detector continuously against the preview, and show every quad it proposes — including the ones the product throws away. For finding what the scanner mistakes for a card."
+              className={`flex h-[44px] items-center gap-[6px] rounded-full px-[14px] text-[12px] font-bold ${
+                live ? 'bg-rose-400 text-rose-950' : 'bg-white/10 text-white/70 hover:bg-white/15'
+              }`}
+            >
+              <span
+                className={`h-[7px] w-[7px] rounded-full ${live ? 'animate-pulse bg-rose-950' : 'bg-white/40'}`}
+                aria-hidden="true"
+              />
+              Sweep
+            </button>
+          )}
           {filesLeft > 0 && (
             <span className="text-[11px] text-white/50">{filesLeft} more photo{filesLeft === 1 ? '' : 's'} queued</span>
           )}
@@ -476,7 +517,11 @@ export function QuadLabeler() {
           `hidden` keeps the <video> and its MediaStream attached. */}
       {entryMode === 'capture' && (
         <div className={editing ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
-          <CaptureStage active={entryMode === 'capture'} onCaptured={(f) => beginEditing(f, 'camera')} />
+          <CaptureStage
+            active={entryMode === 'capture'}
+            live={live}
+            onCaptured={(f, verdict) => beginEditing(f, 'camera', verdict)}
+          />
         </div>
       )}
 
