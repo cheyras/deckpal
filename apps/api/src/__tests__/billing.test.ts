@@ -25,7 +25,15 @@ import {
 } from '../billing/store.js';
 import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, normalizeAmountCents } from '../billing/stripe.js';
 import { ApiError, errorMiddleware } from '../http.js';
-import { analyticsContext, askDedupeKey, assertFresh, promptContext, stripeFailure } from '../routes/billing.js';
+import {
+  analyticsContext,
+  askDedupeKey,
+  assertFresh,
+  promptContext,
+  rateOk,
+  resetRateLimit,
+  stripeFailure,
+} from '../routes/billing.js';
 import { pullState, sweepDuplicatePayingSubscriptions } from '../billing/service.js';
 import { PaymentInFlightError, SubscriptionPausedError } from '../billing/service.js';
 
@@ -957,5 +965,39 @@ describe('askDedupeKey — one ask is one row, however many tabs are open', () =
     // A context is capped at 40, and a truncated key would collide with another
     // truncated key — which would drop a legitimately different event.
     assert.ok(String(askDedupeKey('dismissed', 'x'.repeat(40))).length <= 80);
+  });
+});
+
+describe('the billing rate limit', () => {
+  test('a real sessions worth of billing traffic is nowhere near it', () => {
+    // The whole prompt flow is about eight calls: /visit, /prompt-shown,
+    // /setup-intent, PUT /subscription, /refresh, /prompt-ack. Settings is
+    // similar. A ceiling that a person can reach by using the product is a
+    // ceiling that refuses payments.
+    resetRateLimit();
+    for (let i = 0; i < 20; i++) assert.equal(rateOk('user-a'), true, `call ${i}`);
+  });
+
+  test('but a loop is stopped', () => {
+    resetRateLimit();
+    let allowed = 0;
+    for (let i = 0; i < 200; i++) if (rateOk('user-a')) allowed++;
+    assert.equal(allowed, 40);
+  });
+
+  test('one account cannot spend the budget of another', () => {
+    resetRateLimit();
+    for (let i = 0; i < 60; i++) rateOk('noisy');
+    assert.equal(rateOk('noisy'), false);
+    assert.equal(rateOk('quiet'), true);
+  });
+
+  test('the window rolls', () => {
+    resetRateLimit();
+    const t0 = 1_000_000;
+    for (let i = 0; i < 60; i++) rateOk('user-a', t0);
+    assert.equal(rateOk('user-a', t0), false);
+    // A minute later they are a new caller again.
+    assert.equal(rateOk('user-a', t0 + 60_001), true);
   });
 });

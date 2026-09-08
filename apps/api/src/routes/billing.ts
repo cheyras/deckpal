@@ -64,7 +64,7 @@
  * so the client never has to guess what a write did or issue a follow-up GET
  * that may race a webhook. One shape, one source, no reconciliation in the UI.
  */
-import { Router, type Request } from 'express';
+import { Router, type Request, type RequestHandler } from 'express';
 import type Stripe from 'stripe';
 import { commitRequestTx } from '../db.js';
 import { ApiError, asyncHandler, badRequest, userCache } from '../http.js';
@@ -344,6 +344,76 @@ async function resync(req: Request, userId: string, row: BillingRow): Promise<Bi
   return applyStripe(userId, patch);
 }
 
+
+// ── Rate limit ───────────────────────────────────────────────────────────────
+//
+// Flagged by CodeQL (`js/missing-rate-limiting`, high) on the mount in
+// `index.ts`: this router authorises, moves money, and had nothing bounding how
+// often one account could ask.
+//
+// ⚠️ WHAT THIS IS AND IS NOT. It is per-process, so on Vercel each instance
+// keeps its own counters and a determined caller spread across instances gets a
+// multiple of the limit. It is a speed bump, not a boundary — the same shape and
+// the same caveat as the reporter's limiter in `routes/bugs.ts`. The things that
+// actually make repetition safe live elsewhere and are unchanged: the
+// idempotency key on every charge, the per-account advisory lock, 062's daily
+// ceiling on experiment writes, and Stripe's own limits.
+//
+// What it is for is the cheap, real case: a loop — a broken client, a retry
+// storm, somebody curling `/setup-intent` — turning into a wall of Stripe
+// customers or charge attempts before anyone notices.
+//
+// Keyed on the ACCOUNT, not the IP. Every route here is behind `requireSession`,
+// so the account is known and is the thing worth limiting; IP is both wrong
+// (shared networks) and useless (serverless egress).
+const RATE_MAX = 40;
+const RATE_WINDOW_MS = 60_000;
+const RATE_SWEEP_MS = 5 * 60_000;
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of rateBuckets) if (b.resetAt <= now) rateBuckets.delete(k);
+}, RATE_SWEEP_MS).unref();
+
+/** True while this account is inside its budget for the current window. */
+export function rateOk(userId: string, now = Date.now()): boolean {
+  let b = rateBuckets.get(userId);
+  if (!b || b.resetAt <= now) {
+    b = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    rateBuckets.set(userId, b);
+  }
+  b.count++;
+  return b.count <= RATE_MAX;
+}
+
+/** Test seam — the map is module state and would otherwise leak between cases. */
+export function resetRateLimit(): void {
+  rateBuckets.clear();
+}
+
+/**
+ * ⚠️ FAILS OPEN. If anything in here throws — no session yet, a shape nobody
+ * expected — the request proceeds. Forty requests a minute is a generous ceiling
+ * nobody reaches by using the product, so the asymmetry is stark: a false
+ * negative costs a fraction of a wall somebody was already hitting, and a false
+ * positive refuses a payment somebody is trying to make.
+ */
+export const billingRateLimit: RequestHandler = (req, res, next) => {
+  let userId = '';
+  try {
+    userId = currentUserId(req);
+  } catch {
+    next();
+    return;
+  }
+  if (!userId || rateOk(userId)) {
+    next();
+    return;
+  }
+  res.status(429).json({
+    error: { code: 'rate_limited', message: 'Too many billing requests — wait a moment and try again.' },
+  });
+};
 
 /**
  * The only contexts an experiment event may carry, and what to do with the rest.

@@ -35,7 +35,7 @@ import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
 import { oauthRouter } from './routes/oauth.js';
 import { mountOAuthServer } from './oauthServer.js';
-import { billingRouter } from './routes/billing.js';
+import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
 
@@ -478,7 +478,9 @@ export function createApp(): express.Express {
   // management. A token reads a collection; it does not spend money or
   // administer the account. Both web surfaces use sessions, so nothing
   // legitimate loses access.
-  api.use('/me/billing', requireSession, billingRouter);
+  // `billingRateLimit` bounds how often ONE account can ask; see its header for
+  // what a per-process limiter does and does not promise on serverless.
+  api.use('/me/billing', requireSession, billingRateLimit, billingRouter);
   api.use('/me', meRouter);
 
   // Deck-E's transcript history. Mounted under `/decke` so the feature's routes
