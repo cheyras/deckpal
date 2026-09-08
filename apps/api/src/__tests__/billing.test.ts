@@ -1001,3 +1001,60 @@ describe('the billing rate limit', () => {
     assert.equal(rateOk('user-a', t0 + 60_001), true);
   });
 });
+
+describe('a rejected request is a conclusive answer, not a maybe', () => {
+  // Go-live night: the first live payment failed and the reader was told to
+  // "open your profile to check whether it went through". Nothing had gone
+  // through — Stripe had rejected the call outright, the invoice was never
+  // attempted, and the profile then told them their bank had asked for a
+  // confirmation that was never requested. Two lies about one event.
+  const thrown = (err: unknown, kind: 'subscription' | 'one_time' | 'no_charge') => {
+    try {
+      stripeFailure(err, kind);
+      return null;
+    } catch (e) {
+      return e as ApiError;
+    }
+  };
+
+  test('an invalid request says plainly that nothing was charged', () => {
+    const e = thrown({ type: 'StripeInvalidRequestError', message: 'no such payment_method' }, 'subscription');
+    assert.equal(e?.status, 502);
+    assert.match(String(e?.message), /nothing has been charged/i);
+    assert.doesNotMatch(String(e?.message), /check whether it went through/i);
+  });
+
+  test('and the genuinely ambiguous failures still say so', () => {
+    // A charge that succeeded and a later step that failed is the case the
+    // hedge exists for. It must survive.
+    for (const err of [
+      { type: 'StripeAPIError', message: 'upstream' },
+      { type: 'StripeConnectionError', message: 'socket hang up' },
+      new Error('the RLS watchdog reclaimed the connection'),
+    ]) {
+      const e = thrown(err, 'subscription');
+      assert.match(String(e?.message), /check whether it went through/i, JSON.stringify(err));
+    }
+  });
+
+  test('a REJECTED gift is told nothing was charged, not sent to look for a receipt', () => {
+    // A one-off has no profile history and no invoice, so the receipt is
+    // normally the only surface that can answer for it — but pointing somebody
+    // at an email that will never arrive, for a charge Stripe refused to
+    // process, is worse than saying the true thing.
+    const e = thrown({ type: 'StripeInvalidRequestError', message: 'bad' }, 'one_time');
+    assert.match(String(e?.message), /nothing has been charged/i);
+    assert.doesNotMatch(String(e?.message), /receipt/i);
+  });
+
+  test('...but an AMBIGUOUS gift failure still points at the receipt', () => {
+    const e = thrown({ type: 'StripeAPIError', message: 'upstream' }, 'one_time');
+    assert.match(String(e?.message), /receipt/i);
+  });
+
+  test('a card decline is still the card decline, not a 502', () => {
+    const e = thrown({ type: 'StripeCardError', message: 'Your card was declined.' }, 'subscription');
+    assert.equal(e?.status, 400);
+    assert.equal(e?.message, 'Your card was declined.');
+  });
+});

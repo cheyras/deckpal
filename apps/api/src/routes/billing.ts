@@ -229,7 +229,7 @@ export function stripeFailure(
   // describes the JSON Stripe returns (`type: 'card_error'`), while the SDK
   // throws an Error subclass whose `type` is the CLASS name
   // (`'StripeCardError'`). Naming the wrong one compiles and never matches.
-  const e = err as { type?: string; requestId?: string; message?: string };
+  const e = err as { type?: string; code?: string; requestId?: string; message?: string };
   // A refusal that already decided its own answer — a `badRequest` from a guard
   // above, or `PaymentInFlightError`/`SubscriptionPausedError` from
   // `setSupport`. Wrapping those as a 502 would lose the sentence written for
@@ -247,15 +247,24 @@ export function stripeFailure(
   if (e?.type === 'StripeCardError') {
     throw badRequest(e.message ?? 'Your card was declined. Try a different card.');
   }
+  // ⚠️ THE MESSAGE IS LOGGED FOR STRIPE ERRORS TOO, and the reason it was not
+  // is worth stating because it looked prudent: a Stripe error's message can
+  // carry the cardholder's own decline copy, and this is a shared log. But
+  // `StripeCardError` — the only class that carries decline copy — has already
+  // been caught and returned above this line. Everything that reaches here is
+  // an INVALID REQUEST, a rate limit, an API error or one of our own throws:
+  // operational text with nothing personal in it.
+  //
+  // Withholding it cost a real diagnosis. On go-live night the first live
+  // payment failed, and the only trace was `type` and a request id in a log
+  // window that had already rolled — a subscription sat at `incomplete` with an
+  // unattempted invoice and nothing anywhere said why. `code` and `message` are
+  // what turn that into an answer.
   console.error('[deckpal-api] billing: stripe call failed', {
     type: e?.type ?? 'unknown',
+    code: e?.code ?? null,
     requestId: e?.requestId ?? null,
-    // ⚠️ Only for errors that are NOT Stripe's. A Stripe error's message can
-    // carry the reader's own decline copy, and this line is a server log — but
-    // this funnel also catches OUR throws ("no payment method on file for a
-    // one-time charge" is a wiring failure that exists to be seen), and logging
-    // type+requestId alone reduced every one of them to `unknown`/`null`.
-    message: e?.type ? undefined : (err as Error)?.message,
+    message: (err as Error)?.message,
   });
   // NOT "nothing was charged". This funnel is reached from after a successful
   // charge too — a `pullState` that fails once the money has moved, or the RLS
@@ -279,9 +288,24 @@ export function stripeFailure(
   throw new ApiError(
     502,
     'billing_upstream',
-    kind === 'one_time'
-      ? 'We could not finish that just now. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.'
-      : kind === 'no_charge'
+    // ⚠️ THE CONCLUSIVE BRANCH COMES FIRST, INCLUDING BEFORE THE GIFT.
+    // `StripeInvalidRequestError` means Stripe REJECTED the call — it never
+    // reached an authorisation, so no money moved and the reader can be told so
+    // flatly. Saying "check whether it went through" for one of these is the
+    // chain-jerking the owner objected to on go-live night, and it is no better
+    // on the gift leg: "do not pay again, check your receipt" for a charge that
+    // provably never happened leaves somebody waiting for an email that will
+    // never arrive. Certainty beats caution when we HAVE certainty.
+    //
+    // The ambiguity the rest of this funnel exists for is real but narrow: a
+    // charge that succeeded and a later step that failed. That is
+    // `StripeAPIError`, `StripeConnectionError`, a timeout, or one of our own
+    // throws — never a request Stripe refused to process.
+    e?.type === 'StripeInvalidRequestError'
+      ? 'We could not set that up, and nothing has been charged. Please try again.'
+      : kind === 'one_time'
+        ? 'We could not finish that just now. Do not pay again — Stripe emails a receipt for every contribution, so check there before retrying.'
+        : kind === 'no_charge'
         // `/setup-intent` and `/portal` move no money and never could, so
         // "check whether it went through" is a question about nothing. Saying
         // so is better than sending a reader to look for a charge that cannot
