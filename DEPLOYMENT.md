@@ -448,7 +448,7 @@ places a literal reading of the previous version of this list went wrong.
 > | What | Id | Notes |
 > |---|---|---|
 > | Support product | `prod_VDekZd6kp4bFsg` | "DeckPal Support" |
-> | Webhook endpoint | `we_1UDDRLIHv8hP64ogxYtgCPum` | `https://deckpal.app/api/stripe/webhook`, enabled, **16 events** — the full `HANDLED` set including `payment_intent.succeeded` |
+> | Webhook endpoint | `we_1UDE1RIHv8hP64ogCC1nwWb9` | `https://deckpal.app/api/stripe/webhook`, enabled, **16 events** — the full `HANDLED` set including `payment_intent.succeeded` |
 > | Payment-method domain | `pmd_1UDDUMIHv8hP64ogvm2DI8Hd` | `deckpal.app`, validated and active, so wallets appear |
 > | Customer-portal configuration | `bpc_1UDDUbIHv8hP64ogFmv9ZL92` | default; invoice history, payment-method update, email update |
 >
@@ -480,7 +480,11 @@ the test-mode equivalents do not carry over):
 
 **Environment** (Vercel → Project → Settings → Environment Variables):
 
-7. ⚠️ **Add the three secret `STRIPE_*` variables to PRODUCTION.** Use
+7. ⚠️ **Add the two live API keys to PRODUCTION.** `STRIPE_WEBHOOK_SECRET` is
+   already set — it was taken from the endpoint-creation response and handed to
+   Vercel by a script, never displayed. These two have no equivalent path:
+   Stripe exposes no API that returns your secret or publishable key, so they
+   come from the dashboard (Developers → API keys, **live** mode). Use
    **`bash scripts/set-stripe-live-env.sh`** — it prompts for each one without
    echoing it, refuses a test key on production, refuses a secret/publishable
    pair from different modes, sends each value to `vercel env add` on stdin so

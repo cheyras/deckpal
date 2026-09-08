@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 #
-# Put the three live Stripe secrets into Vercel Production, without any of them
-# ever appearing on screen, in your shell history, in a file, or in an agent's
+# Put the two live Stripe API keys into Vercel Production, without either ever
+# appearing on screen, in your shell history, in a file, or in an agent's
 # transcript.
-#
-# The fourth Stripe variable, STRIPE_SUPPORT_PRODUCT_ID, is already set — a
-# product id is not a credential. So is PUBLIC_APP_ORIGIN. This script is only
-# for the three that are secret:
 #
 #   STRIPE_SECRET_KEY       sk_live_… (or rk_live_…)
 #   STRIPE_PUBLISHABLE_KEY  pk_live_…
-#   STRIPE_WEBHOOK_SECRET   whsec_…   ← Stripe → Developers → Webhooks →
-#                                       we_1UDDRLIHv8hP64ogxYtgCPum →
-#                                       "Signing secret" → Reveal
+#
+# ── WHY THESE TWO ARE TYPED AND THE OTHERS WERE NOT ──────────────────────────
+#
+# Everything else was scripted end to end. `STRIPE_SUPPORT_PRODUCT_ID` and
+# `PUBLIC_APP_ORIGIN` are not credentials and are already set.
+# `STRIPE_WEBHOOK_SECRET` IS a credential and is also already set, taken from
+# Stripe and handed to Vercel by a script without ever being displayed — Stripe
+# returns a webhook endpoint's signing secret in the response that CREATES the
+# endpoint, so a program can catch it in flight.
+#
+# These two have no such path. Stripe exposes no API that returns your secret or
+# publishable key — there is no `/v1/apikeys`, by design — so they can only be
+# read by a human from the dashboard (Developers → API keys, in LIVE mode). That
+# is the whole reason this script still exists.
 #
 # Usage:  bash scripts/set-stripe-live-env.sh
 #
@@ -50,7 +57,7 @@ fi
 echo "Linked project: $(pwd)"
 vercel whoami 2>/dev/null | tail -1
 echo
-echo "Setting three secrets on: $TARGET"
+echo "Setting two API keys on: $TARGET"
 echo "Nothing you type is echoed, stored, or printed back."
 echo
 
@@ -117,7 +124,6 @@ put() {
 
 put STRIPE_SECRET_KEY      sk_ || true
 put STRIPE_PUBLISHABLE_KEY pk_ || true
-put STRIPE_WEBHOOK_SECRET  whsec_ || true
 
 # ── the mode-mismatch check, before anyone deploys ───────────────────────────
 sk="${MODES[STRIPE_SECRET_KEY]:-}"
