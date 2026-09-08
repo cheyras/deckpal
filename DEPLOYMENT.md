@@ -439,6 +439,29 @@ you actually cut over, this is the sequence. It was walked step by step against
 a database seeded to production's current state; the notes marked ⚠️ are the
 places a literal reading of the previous version of this list went wrong.
 
+> ### ✅ Already done, 2026-09-07 — do not create these twice
+>
+> The live-mode Stripe objects below exist. Steps 1, 3 and 5 are **complete**;
+> re-running them makes duplicates, and two support products or two webhook
+> endpoints is a mess to unpick.
+>
+> | What | Id | Notes |
+> |---|---|---|
+> | Support product | `prod_VDekZd6kp4bFsg` | "DeckPal Support" |
+> | Webhook endpoint | `we_1UDDRLIHv8hP64ogxYtgCPum` | `https://deckpal.app/api/stripe/webhook`, enabled, **16 events** — the full `HANDLED` set including `payment_intent.succeeded` |
+> | Payment-method domain | `pmd_1UDDUMIHv8hP64ogvm2DI8Hd` | `deckpal.app`, validated and active, so wallets appear |
+> | Customer-portal configuration | `bpc_1UDDUbIHv8hP64ogFmv9ZL92` | default; invoice history, payment-method update, email update |
+>
+> ⚠️ **The portal deliberately does NOT offer cancellation.** Stopping support is
+> the app's own flow — choosing $0 sets `cancel_at_period_end` and keeps the
+> month already paid for, which is the behaviour every screen describes. A portal
+> cancel can be immediate, and would leave a reader in a state none of the copy
+> accounts for. If you want it anyway, it is one field on the configuration.
+>
+> Still to do in the dashboard: **Settings → Customer emails → "Successful
+> payments" ON** (there is no API for it), and `STRIPE_SUPPORT_PRODUCT_ID` is
+> already in Vercel Production, as is `PUBLIC_APP_ORIGIN`.
+
 **In the Stripe dashboard, in LIVE mode** (each of these is live-mode-only —
 the test-mode equivalents do not carry over):
 
