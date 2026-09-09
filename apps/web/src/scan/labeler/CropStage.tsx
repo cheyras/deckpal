@@ -28,7 +28,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { reticleForAspect, squareCrop, type SquareCrop } from '../engine/frame'
-import { clampCrop } from './workingFrame'
+import { buildPaddedPreview, clampCropAllowingPad, cropPad, isPadded } from './workingFrame'
 
 /** How small the square may get, as a fraction of the shorter source edge. A
  *  crop below this is upscaling a handful of pixels into a 416 px canonical
@@ -102,8 +102,13 @@ export function CropStage({
   const pinch = useRef<{ ids: [number, number]; dist: number; start: SquareCrop } | null>(null)
   const points = useRef(new Map<number, { x: number; y: number }>())
 
+  // THE SQUARE MAY LEAVE THE PHOTO NOW (owner ruling, 2026-09-08). What used to
+  // be `clampCrop` — pull it back inside — is `clampCropAllowingPad`, which
+  // only keeps enough of each axis over real pixels for the mirror to have
+  // something to mirror. The gap is filled by reflection, drawn live below, so
+  // the reader is choosing against the thing they will actually get.
   const apply = (next: SquareCrop) =>
-    setCrop(clampCrop({ ...next, size: Math.max(minSize, next.size) }, sourceWidth, sourceHeight))
+    setCrop(clampCropAllowingPad({ ...next, size: Math.max(minSize, next.size) }, sourceWidth, sourceHeight))
 
   const onDown = (e: React.PointerEvent) => {
     const target = e.target as Element
@@ -167,6 +172,38 @@ export function CropStage({
   const r = reticleForAspect()
   const cropCss = { left: sx(crop.x), top: sy(crop.y), width: crop.size * fit, height: crop.size * fit }
   const pct = Math.round((crop.size / Math.min(sourceWidth, sourceHeight)) * 100)
+  const pad = cropPad(crop, sourceWidth, sourceHeight)
+  const padded = isPadded(pad)
+
+  // ── THE MIRRORED FILL, DRAWN LIVE ────────────────────────────────────────
+  //
+  // Rendered by the SAME `drawSquarePadded` the working frame uses (through
+  // `buildPaddedPreview`), never a second renderer — the point of showing it is
+  // to decide a crop by looking at the result, and a preview that could
+  // disagree with the result is worse than no preview.
+  //
+  // Small and upscaled on purpose: 256 px is plenty to judge a reflection seam
+  // at this size, and it keeps a redraw-per-drag-frame cheap on a phone.
+  const padPreviewRef = useRef<HTMLCanvasElement>(null)
+  useLayoutEffect(() => {
+    const host = padPreviewRef.current
+    if (!host) return
+    const ctx = host.getContext('2d')
+    if (!ctx) return
+    if (!padded) {
+      ctx.clearRect(0, 0, host.width, host.height)
+      return
+    }
+    try {
+      const built = buildPaddedPreview(image, sourceWidth, sourceHeight, crop, 256)
+      host.width = built.width
+      host.height = built.height
+      ctx.drawImage(built, 0, 0)
+    } catch {
+      // The only throw is "no overlap", which `clampCropAllowingPad` already
+      // prevents. Leave the last good frame rather than flashing an empty one.
+    }
+  }, [image, sourceWidth, sourceHeight, crop, padded])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-neutral-950">
@@ -223,6 +260,17 @@ export function CropStage({
                 height: cropCss.height,
               }}
             />
+            {/* The mirrored fill, positioned exactly under the crop square, so
+                the parts of it that hang off the photo show reflected pixels
+                instead of the black the stage would otherwise leave. Drawn
+                before the outline and the guide so both stay on top. */}
+            {padded && (
+              <canvas
+                ref={padPreviewRef}
+                className="pointer-events-none absolute"
+                style={{ ...cropCss, imageRendering: 'auto' }}
+              />
+            )}
             {/* The square itself, and the card-aspect guide inside it. */}
             <div className="pointer-events-none absolute border border-cyan-300/90" style={cropCss}>
               <div
@@ -260,6 +308,14 @@ export function CropStage({
         <span className="font-mono text-[11px] text-white/40">
           {crop.size}px · {pct}%
         </span>
+        {padded && (
+          <span
+            className="rounded bg-amber-400/15 px-[6px] py-[2px] text-[10px] font-bold text-amber-300"
+            title="Part of this square is outside the photo and is filled by mirroring the photo's own pixels. It is recorded on the label."
+          >
+            mirrored edge
+          </span>
+        )}
         <div className="flex-1" />
         <button
           type="button"
@@ -271,7 +327,7 @@ export function CropStage({
         </button>
         <button
           type="button"
-          onClick={() => onConfirm(clampCrop(crop, sourceWidth, sourceHeight))}
+          onClick={() => onConfirm(clampCropAllowingPad(crop, sourceWidth, sourceHeight))}
           className="h-[44px] rounded-full bg-cyan-400 px-[20px] text-[12px] font-bold text-cyan-950 hover:bg-cyan-300"
         >
           Use this crop

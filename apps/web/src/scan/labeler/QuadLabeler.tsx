@@ -59,7 +59,7 @@ import {
   type QuadLabel,
   type SessionStats,
 } from './types'
-import { buildWorkingFrame, type WorkingFrame } from './workingFrame'
+import { buildWorkingFrame, isPadded, type WorkingFrame } from './workingFrame'
 import type { SquareCrop } from '../engine/frame'
 import type { SweepVerdict } from './sweep'
 
@@ -463,10 +463,18 @@ export function QuadLabeler() {
       crop: { x: workingFrame.crop.x, y: workingFrame.crop.y, size: workingFrame.crop.size },
       source,
       seededFrom: seed.seededFrom,
-      // The seed's own pipeline block, plus the live verdict when there was
-      // one. Spread in this order deliberately: `sweep` is additive provenance
-      // and must never overwrite a field the seed measured.
-      pipeline: sweep ? { ...seed.pipeline, sweep } : seed.pipeline,
+      // The seed's own pipeline block, plus the live verdict when there was one
+      // and the mirrored-edge record when the crop left the photo. Spread in
+      // this order deliberately: both are additive provenance and must never
+      // overwrite a field the seed measured.
+      pipeline: {
+        ...seed.pipeline,
+        ...(sweep ? { sweep } : {}),
+        // Only when there IS one. An all-zero block on every unpadded row would
+        // be noise in the corpus and would make "was this padded?" a numeric
+        // test rather than a presence test.
+        ...(isPadded(workingFrame.pad) ? { pad: { ...workingFrame.pad, mode: 'mirror' as const } } : {}),
+      },
       savedAt: new Date().toISOString(),
     } satisfies Omit<QuadLabel, 'corners' | 'invalidReason'>
   }, [workingFrame, seed, source, sweep])
