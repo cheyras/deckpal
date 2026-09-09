@@ -53,6 +53,22 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Verify: `curl` served URL → HTTP 200, real bytes (not the ~1 KB placeholder); count `find … -size +2k`; `manifest:check` exits 0.
 - Game-specific: no.
 - Added: (original build) · notes: feeds the scanner — after warming, `scan:index` + restart `deckpal-api`. 2026-08-07: 1,970 files here had no manifest row; backfilled, and the ad-hoc scripts that caused it were folded into the tracked warmers.
+- **2026-09-03 — `mee`/`sve` energy-subset gap.** Both sets had **zero** `image_asset`
+  rows (never warmed by anything, ever) — invisible to the §8-era residue sweep
+  because that sweep started from existing rows needing replacement, not from
+  "never had a row at all." Filled `sve-001..016` (of 24) from pokemontcg.io;
+  `sve-017..024` and all of `mee` (8 cards) are a genuine gap under current policy
+  — see `research/CARD-ART-SOURCES.md` §9 for the full trace, including a Bulbagarden
+  Archives crosswalk that IS solved for basic-energy cards specifically but is not
+  adopted (the owner's 2026-08-31 decision against commissioning Bulbagarden stands
+  until revisited). **New crosswalk shape:** a single TCGdex set id can bundle
+  several print-cycles of the same 8 basic-energy types (`sve` = three cycles of
+  001-008), and an approved fallback can cover some cycles and not others — check
+  coverage per print-cycle, not just per set. **New validation trap:**
+  `images.pokemontcg.io` can return **HTTP 404 with a full, valid, decodable image
+  body** for a missing number (a generic filler, byte-identical across different
+  missing numbers) — always gate on the HTTP status code before trusting magic
+  bytes/dimensions.
 
 ### set-logo — status: active
 - Purpose / renders: the set wordmark on set pages, set headers, and (as the series icon) the series index.
