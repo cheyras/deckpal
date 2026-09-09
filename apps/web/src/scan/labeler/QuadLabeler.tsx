@@ -444,6 +444,16 @@ export function QuadLabeler() {
       <div className="flex shrink-0 items-center gap-[8px] border-b border-white/10 px-[12px] py-[7px]">
         <Icon name="camera" size={15} className="shrink-0 text-cyan-300" />
         <span className="shrink-0 text-[12px] font-bold">Quad labeler</span>
+        {/* Into the corpus this session is filling. A plain link, not a router
+            <Link>, so the labeler keeps no dependency on the route tree — and
+            leaving mid-session is deliberate: the retry queue's beforeunload
+            guard is what makes an unsent label loud on the way out. */}
+        <a
+          href="/dev/quad-harvest"
+          className="shrink-0 rounded-full bg-white/10 px-[10px] py-[3px] text-[10px] font-bold text-white/60 hover:bg-white/15 hover:text-white"
+        >
+          harvest →
+        </a>
         <div className="flex-1" />
         {/* THE SESSION COUNTER, as wrapping chips rather than one long sentence.
             At 390 px the sentence form ran off the edge and took the title with

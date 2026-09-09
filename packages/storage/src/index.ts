@@ -57,6 +57,7 @@ export {
   hasStorageEnv,
 } from './config.js';
 export {
+  deleteObject,
   headObject,
   listObjectsRecursive,
   moveObject,

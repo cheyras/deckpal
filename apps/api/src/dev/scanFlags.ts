@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  deleteObject,
   hasStorageEnv,
   listObjectsRecursive,
   objectExists,
@@ -60,6 +61,96 @@ async function readComment(objectPath: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * The label's own verdict, read out of its sidecar JSON.
+ *
+ * ── WHY THE LISTING CAN RETURN THIS AND WHY IT IS OPT-IN ────────────────────
+ *
+ * The listing knows an id, a size and a timestamp; it does not know whether the
+ * row is a card, a card back or a reason-coded negative, because Storage's list
+ * endpoint reports metadata about OBJECTS and the verdict lives inside one. A
+ * harvest view that cannot sort by verdict is a wall of thumbnails, so `?meta=1`
+ * fetches each sidecar and reports a summary.
+ *
+ * It is OPT-IN because it costs one request per row. The default listing — used
+ * by everything that only wants ids — is unchanged and still one call.
+ */
+interface LabelSummary {
+  /** 'positive' | 'back' | 'negative' | 'unknown' — `unknown` covers the rows
+   *  written by the OTHER two producers in this prefix (the harness's frame
+   *  flags and the scanner's reports), which are not quad labels at all. */
+  verdict: string;
+  /** For a negative, the reason code. Null otherwise. */
+  reason: string | null;
+  /** `meta.type` verbatim — 'quad-label' for the labeler's own rows. */
+  type: string | null;
+  source: string | null;
+  seededFrom: string | null;
+  /** The live pipeline's stage at the shutter, when the row was captured with
+   *  sweep mode on. Null on every other row. */
+  sweepStage: string | null;
+  hasObj: number | null;
+}
+
+function summarize(meta: Record<string, unknown>): LabelSummary {
+  const pipeline = (meta.pipeline ?? {}) as Record<string, unknown>;
+  const sweep = (pipeline.sweep ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const str_ = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+  const isQuadLabel = meta.type === 'quad-label';
+  let verdict = 'unknown';
+  if (isQuadLabel) {
+    if (meta.corners === null) verdict = 'negative';
+    else if (Array.isArray(meta.corners)) verdict = meta.face === 'back' ? 'back' : 'positive';
+  }
+  return {
+    verdict,
+    reason: verdict === 'negative' ? str_(meta.invalidReason) : null,
+    type: str_(meta.type),
+    source: str_(meta.source),
+    seededFrom: str_(meta.seededFrom),
+    sweepStage: str_(sweep.stage),
+    // The seed's own presence head, which is the number a `no_object` fallback
+    // is about. Not the sweep's — that one travels under sweepStage.
+    hasObj: num(pipeline.hasObj),
+  };
+}
+
+/** Fetch one sidecar and summarize it. Best-effort, exactly like `readComment`:
+ *  a row whose JSON is unreachable still lists, just without its verdict. */
+async function readSummary(objectPath: string): Promise<LabelSummary | null> {
+  try {
+    const upstream = await fetch(publicObjectUrl(objectPath));
+    if (!upstream.ok) return null;
+    const data = (await upstream.json()) as Record<string, unknown>;
+    return summarize(data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `Promise.all` with a ceiling on how many are in flight.
+ *
+ * The comment fetch above has always been an unbounded `Promise.all` and got
+ * away with it because comments are rare. Summaries are not — `?meta=1` wants
+ * one per row — and 1000 simultaneous fetches out of a serverless function is
+ * how you discover its socket limit in production rather than here.
+ */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]!);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 export const scanFlagsRouter: Router = Router();
@@ -202,20 +293,58 @@ scanFlagsRouter.get(
     const top = [...byId.entries()]
       .sort((a, b) => Number(b[0]) - Number(a[0]))
       .slice(0, limit);
-    const flags = await Promise.all(
-      top.map(async ([id, { files, size }]) => {
-        const cpath = commentPaths.get(id);
-        const comment = cpath ? await readComment(cpath) : null;
-        return {
-          id: Number(id),
-          files,
-          size,
-          uploadedAt: new Date(Number(id)).toISOString(), // the id IS the capture time
-          comment,
-        };
-      }),
-    );
+    // `?meta=1` costs one extra fetch per row and is what makes a harvest view
+    // sortable by verdict; without it the listing is one call, as it always was.
+    const wantMeta = _req.query.meta === '1' || _req.query.meta === 'true';
+    const flags = await mapLimit(top, 12, async ([id, { files, size }]) => {
+      const cpath = commentPaths.get(id);
+      const comment = cpath ? await readComment(cpath) : null;
+      const label =
+        wantMeta && files.includes('json') ? await readSummary(`${PREFIX}${id}.json`) : null;
+      return {
+        id: Number(id),
+        files,
+        size,
+        uploadedAt: new Date(Number(id)).toISOString(), // the id IS the capture time
+        comment,
+        label,
+      };
+    });
     res.json({ flags });
+  }),
+);
+
+// ── DELETE /:id — remove one flag and everything paired with it ─────────────
+//
+// PERMANENT, AND SAYS SO. There is no recycle bin here: these are debug
+// captures in an unmanifested prefix, with no `image_asset` row to soft-delete
+// and no restore path that would not be a second feature. The confirmation
+// therefore lives in the UI, where the reader can see WHICH row they are about
+// to lose, rather than in a `?purge=true` flag they would learn to append.
+//
+// ALL THREE OBJECTS, and the comment is not optional cleanup: a `<id>.comment
+// .json` left behind would keep appearing in the listing loop's `commentPaths`
+// map forever, attached to an id whose png and json no longer exist. Deleting
+// the frame and orphaning its annotation is the one outcome worth ruling out.
+//
+// Absent objects are not an error. `deleteObject` reports whether it removed
+// anything, and a partial delete retried is exactly how a caller recovers from
+// the first attempt failing halfway — so a second run over a half-gone id must
+// finish the job and report success, not 404 on the piece already gone.
+scanFlagsRouter.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const id = str(req.params.id) ?? '';
+    if (!ID_RE.test(id)) throw badRequest('bad flag id');
+    if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
+
+    const paths = [`${PREFIX}${id}.png`, `${PREFIX}${id}.json`, `${PREFIX}${id}.comment.json`];
+    const removed: string[] = [];
+    for (const p of paths) {
+      if (await deleteObject(p)) removed.push(p.slice(PREFIX.length));
+    }
+    if (!removed.length) throw notFound(`no flag ${id}`);
+    res.json({ ok: true, id: Number(id), removed });
   }),
 );
 

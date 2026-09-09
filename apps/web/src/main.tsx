@@ -656,6 +656,46 @@ const quadLabelerRoute = createRoute({
   component: QuadLabelerRoute,
 })
 
+/**
+ * `/dev/quad-harvest` — what the labeler has actually written: every saved row
+ * as a thumbnail, with its verdict, its reason code and (for sweep captures)
+ * the stage the live pipeline reached, sortable and deletable.
+ *
+ * THE SAME GATE AS THE LABELER, not a copy of the reasoning. It reads the same
+ * `me.labeler` flag, for the same reason, and the API it calls
+ * (`GET`/`DELETE /dev/scan-flags`) is behind the same `isLabelerEntitled`
+ * middleware — a viewer of the corpus and a writer to it are the same person,
+ * and a harvest view open to someone who cannot see the labeler would be a
+ * listing of frames photographed in the owner's house.
+ */
+const LazyQuadHarvest = lazyRoute(() => import('./routes/dev/QuadHarvest'))
+const QuadHarvestRoute = () => (
+  <Suspense
+    fallback={
+      <div className="flex h-screen items-center justify-center text-text-muted">Loading…</div>
+    }
+  >
+    <LazyQuadHarvest />
+  </Suspense>
+)
+const quadHarvestRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/dev/quad-harvest',
+  beforeLoad: async () => {
+    if (import.meta.env.DEV) return
+    if (!isCloudMode) return
+    if (import.meta.env.VITE_VERCEL_ENV === 'preview') return
+    try {
+      const me = await api.me()
+      if (me.labeler) return
+    } catch {
+      // Signed out, or /me unavailable — fall through to not-found.
+    }
+    throw notFound()
+  },
+  component: QuadHarvestRoute,
+})
+
 const routeTree = rootRoute.addChildren([
   ...coreRoutes,
   designRoute,
@@ -664,6 +704,7 @@ const routeTree = rootRoute.addChildren([
   chatUiRoute,
   scanHarnessRoute,
   quadLabelerRoute,
+  quadHarvestRoute,
 ])
 
 const router = createRouter({
