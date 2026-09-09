@@ -5,13 +5,17 @@
 // the time the editor opens, nothing downstream can tell a camera frame from
 // an upload.
 //
-// MULTI-SELECT, AND THE DECODING LIVES IN THE PARENT. Both changes are the same
-// change: a labelling session is a HUNDRED photos, and a picker that takes one
-// at a time makes the reader tap through the OS file dialog a hundred times. So
-// this hands the whole selection up at once and `QuadLabeler` holds the queue —
-// it has to, because this component is unmounted for the entire time the editor
-// is open, and a queue kept here would be destroyed by the first frame it was
-// meant to outlive.
+// MULTI-SELECT, AND THE QUEUE LIVES ELSEWHERE. A labelling session is a HUNDRED
+// photos, and a picker that takes one at a time makes the reader tap through the
+// OS file dialog a hundred times. So this hands the whole selection up at once.
+//
+// SINCE 2026-09-08 the picked files go STRAIGHT TO THE PERSISTENT QUEUE
+// (`queueDb.ts`) rather than opening the first one's editor. The queue used to
+// be an in-memory ref in `QuadLabeler`, which is why this file's job was once
+// "hand up one batch and let the parent hold the rest"; now the batch is
+// written to IndexedDB and survives a reload, a backgrounded tab and the end of
+// a session. The reader is moved to the Queue tab, which is where photos are
+// worked from.
 //
 // The picker cannot be re-opened programmatically between frames either: a file
 // input needs a user gesture and an async save is not one, so a browser would
