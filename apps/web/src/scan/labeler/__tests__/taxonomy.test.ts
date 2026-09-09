@@ -41,6 +41,8 @@ const EXPECTED_REASONS: readonly InvalidReason[] = [
   'cut_off',
   'too_dark',
   'glare_washout',
+  'too_obscured',
+  'too_bent',
   'too_oblique',
   'multiple_no_clear_foreground',
 ]
@@ -61,10 +63,12 @@ describe('the taxonomy is complete and closed', () => {
       'cut_off',
       'glare_washout',
       'multiple_no_clear_foreground',
+      'too_bent',
       'too_blurry',
       'too_dark',
       'too_far',
       'too_oblique',
+      'too_obscured',
     ])
     assert.deepEqual(byGroup('quaddable'), [], 'a quaddable class is never a rejection')
   })
@@ -197,5 +201,31 @@ describe('version-1 rows stay harvestable', () => {
     // frames that are mostly empty and occasionally an envelope, with no way to
     // tell which. The class starts clean, at schema 2.
     assert.equal(Object.values(LEGACY_REASON_MAP).includes('not_a_card'), false)
+  })
+})
+
+describe('the 2026-09-08 classes are defined on the QUAD, not the scan', () => {
+  it('both are unquaddable and both are coachable', () => {
+    // `unquaddable` because a `corners: null` row trains the detector to emit
+    // nothing, and that is only true when the boundary genuinely cannot be
+    // pinned. `coachable` because unlike `not_a_card` there is a real
+    // instruction — move your fingers, flatten the card — that makes the NEXT
+    // frame work, which is the whole test for whether a class earns coaching
+    // copy rather than a statement.
+    for (const value of ['too_obscured', 'too_bent'] as const) {
+      const spec = REASON_BY_VALUE[value]
+      assert.equal(spec.group, 'unquaddable', `${value} must sit with the card-present rejections`)
+      assert.equal(spec.coachable, true, `${value} must carry an instruction, not a refusal`)
+      assert.ok(spec.coaching.trim().length > 0, `${value} must say something`)
+    }
+  })
+
+  it("neither has a v1 population — they must not be mined from legacy rows", () => {
+    // Same trap `not_a_card` documents: a v1 labeler had nowhere to put these,
+    // so a v1 reader that back-fills them would be inventing labels. The legacy
+    // map is the proof — it can only ever produce the three names it knows.
+    const produced = new Set(Object.values(LEGACY_REASON_MAP))
+    assert.ok(!produced.has('too_obscured'))
+    assert.ok(!produced.has('too_bent'))
   })
 })

@@ -702,13 +702,39 @@ export function AnnotationEditor({
             </button>
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-[10px] overflow-y-auto p-[12px]">
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] px-[10px] py-[8px] text-[11px] leading-[16px] text-white/55">
-              <b className="text-white/75">Borderline calls:</b> several cards but ONE is clearly the intended
-              foreground subject → that's a <b className="text-emerald-300/90">positive</b>, label the foreground
-              card (background-card suppression must stay trained in) — go back and save it, don't tap "Several
-              cards". Blurry but you can still confidently place the corners → also a{' '}
-              <b className="text-emerald-300/90">positive</b> (a valuable hard example). "Too blurry" is only for
-              when <i>you</i> can't confidently place them.
+            {/* THE ONE RULE, and then the calls people actually get wrong.
+                Every gate here is stated in terms of PLACING THE CORNERS,
+                because that is what a `corners: null` row trains — see
+                types.ts on the 2026-09-08 classes, and HARVEST.md for the
+                measured version. The asymmetry is the reason it is worth
+                spelling out: a wrong rejection teaches the detector to give up
+                and nothing downstream can undo a quad that was never emitted,
+                while a quad that turns out unidentifiable costs one round trip
+                and the next frame fixes it. */}
+            <div className="flex flex-col gap-[6px] rounded-lg border border-white/10 bg-white/[0.03] px-[10px] py-[8px] text-[11px] leading-[16px] text-white/55">
+              <span>
+                <b className="text-white/75">The rule:</b> reject only when <i>you</i> cannot confidently place the
+                four corners. If you can place them, it's a{' '}
+                <b className="text-emerald-300/90">positive</b> — a hard one, and those are the valuable ones. When
+                in doubt, place them.
+              </span>
+              <span>
+                <b className="text-white/75">Blurry</b> — can you put each corner in the same spot twice? Mushy
+                artwork with a crisp border is a positive; the identifier's problems are not the detector's.
+              </span>
+              <span>
+                <b className="text-white/75">Obscured</b> — a corner you can't <i>see</i>, or an edge more than
+                about a third hidden. Fingers across the art with four corners clear → positive. Don't infer a
+                corner under a thumb: labelling a guess teaches the model to guess.
+              </span>
+              <span>
+                <b className="text-white/75">Bent</b> — sight the straight line between two corners; if the card's
+                edge visibly bows off it, the quad has stopped describing the card. A gentle bow is a positive.
+              </span>
+              <span>
+                <b className="text-white/75">Several cards</b> — one clearly-intended foreground subject → positive,
+                label the foreground card. Background-card suppression must stay trained in.
+              </span>
             </div>
             {REJECTION_GROUPS.map((group) => (
               <div key={group} className="flex flex-col gap-[6px]">
