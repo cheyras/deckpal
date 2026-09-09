@@ -40,16 +40,34 @@ import { buildWorkingFrame, type WorkingFrame } from './workingFrame'
 export function CaptureStage({
   active,
   live,
+  rapid,
+  queued,
   onCaptured,
+  onQueued,
 }: {
   active: boolean
   /** Run the shipping engine continuously against the preview. See the header. */
   live: boolean
+  /**
+   * RAPID MODE (owner request, 2026-09-08): the shutter files the frame in the
+   * persistent queue and stays live, instead of freezing it and opening the
+   * editor. For shooting a stack of cards in one pass and labelling later.
+   *
+   * The frame is kept at the CAMERA'S OWN RESOLUTION, as a JPEG, not as a
+   * canonical square — because the crop step comes later and cannot invent
+   * pixels a 416 px square already threw away. That is the whole reason this
+   * path does not just call `buildWorkingFrame` early.
+   */
+  rapid: boolean
+  /** How many photos are already waiting — the count on the shutter. */
+  queued: number
   /** The frozen frame, plus what the LIVE detector was saying at the instant the
    *  shutter fired — null when the sweep was off. That verdict is the reason to
    *  capture this frame at all, so it travels with it rather than being
    *  re-derived (it could not be: the engine has moved on by then). */
   onCaptured: (frame: WorkingFrame, verdict: SweepVerdict | null) => void
+  /** Rapid mode's shutter: the full-resolution frame, for the queue. */
+  onQueued: (blob: Blob, verdict: SweepVerdict | null) => void
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -76,7 +94,24 @@ export function CaptureStage({
   const shutter = () => {
     const video = videoRef.current
     if (!video || !video.videoWidth || !video.videoHeight) return
-    onCaptured(buildWorkingFrame(video, video.videoWidth, video.videoHeight), verdict)
+    if (!rapid) {
+      onCaptured(buildWorkingFrame(video, video.videoWidth, video.videoHeight), verdict)
+      return
+    }
+    // FULL SENSOR FRAME, not the canonical square: this photo will be cropped
+    // by hand later, and a square taken now would decide that in advance.
+    const full = document.createElement('canvas')
+    full.width = video.videoWidth
+    full.height = video.videoHeight
+    const ctx = full.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0)
+    // JPEG at 0.92: a 1080p frame lands around 300 KB, so a hundred-card run is
+    // tens of megabytes rather than the hundreds a PNG of the same frame would
+    // hold. The detector never sees these bytes — it sees the 416 px canonical
+    // square built from them after cropping — so the quality that matters is
+    // "can a human place corners on it", and 0.92 is well clear of that.
+    full.toBlob((blob) => blob && onQueued(blob, verdict), 'image/jpeg', 0.92)
   }
 
   // Reticle overlay geometry: video-native pixels -> CSS pixels under
@@ -153,11 +188,19 @@ export function CaptureStage({
           type="button"
           onClick={shutter}
           disabled={camState !== 'live'}
-          aria-label="Capture frame"
-          className="flex h-[58px] w-[58px] items-center justify-center rounded-full border-4 border-white/70 bg-white/10 hover:bg-white/20 disabled:opacity-30"
+          aria-label={rapid ? 'Add frame to the queue' : 'Capture frame'}
+          className={`flex h-[58px] w-[58px] items-center justify-center rounded-full border-4 bg-white/10 hover:bg-white/20 disabled:opacity-30 ${
+            rapid ? 'border-cyan-300' : 'border-white/70'
+          }`}
         >
-          <span className="h-[44px] w-[44px] rounded-full bg-white" />
+          <span className={`h-[44px] w-[44px] rounded-full ${rapid ? 'bg-cyan-300' : 'bg-white'}`} />
         </button>
+        {/* The queue depth, beside the shutter rather than in the header: in
+            rapid mode the screen never changes when you press it, and a count
+            that does is the only feedback that the press landed. */}
+        {rapid && (
+          <span className="absolute right-[16px] font-mono text-[13px] font-bold text-cyan-300">{queued}</span>
+        )}
       </div>
     </div>
   )

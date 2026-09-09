@@ -35,6 +35,16 @@ import type { Quad } from '../engine/contract'
 import { decodeForCanvas } from '../ui/uploadNormalize'
 import { CaptureStage } from './CaptureStage'
 import { CropStage } from './CropStage'
+import { QueueStage } from './QueueStage'
+import {
+  clearQueue,
+  enqueue,
+  listQueue,
+  queueSupported,
+  queueUsage,
+  removeQueued,
+  type QueuedPhoto,
+} from './queueDb'
 import { UploadStage } from './UploadStage'
 import { AnnotationEditor } from './AnnotationEditor'
 import { seedQuad, warmSeed, type SeedResult } from './detectSeed'
@@ -53,7 +63,13 @@ import { buildWorkingFrame, type WorkingFrame } from './workingFrame'
 import type { SquareCrop } from '../engine/frame'
 import type { SweepVerdict } from './sweep'
 
-type EntryMode = 'capture' | 'upload'
+/**
+ * `queue` joined `capture`/`upload` on 2026-09-08. The other two are ways to
+ * ACQUIRE photos; this one is where they wait and where they are worked. Upload
+ * now feeds it rather than opening the editor directly, and capture feeds it
+ * whenever Rapid is on.
+ */
+type EntryMode = 'capture' | 'upload' | 'queue'
 
 /**
  * How many un-sent labels may pile up before the reader is made to stop.
@@ -105,8 +121,30 @@ export function QuadLabeler() {
     image: CanvasImageSource
     width: number
     height: number
+    /** Where the photo came from, carried WITH it — `source` state is set at
+     *  the same moment and reading it back here would be a second copy that
+     *  can be one render stale. */
+    source: LabelSource
   } | null>(null)
   const [live, setLive] = useState(false)
+  /**
+   * RAPID CAPTURE. The shutter files the frame in the persistent queue and the
+   * camera stays live, so a stack of cards is one continuous pass instead of
+   * one shoot-then-label round trip per card. Off by default: a reader
+   * labelling as they go still wants the editor, and losing that flow to a mode
+   * they did not ask for would be worse than not having the mode.
+   */
+  const [rapid, setRapid] = useState(false)
+  // ── THE PERSISTENT QUEUE (queueDb.ts) ─────────────────────────────────────
+  // Mirrored into state for rendering; IndexedDB is the source of truth and is
+  // re-read after every mutation rather than patched in two places.
+  const [queueItems, setQueueItems] = useState<QueuedPhoto[]>([])
+  const [queueUsageInfo, setQueueUsageInfo] = useState<{ bytes: number; quota: number | null } | null>(null)
+  const [queueError, setQueueError] = useState<string | null>(null)
+  /** The queue item currently being opened, and the one being labelled — kept
+   *  so a save can retire exactly the row it came from. */
+  const [openingId, setOpeningId] = useState<number | null>(null)
+  const workingId = useRef<number | null>(null)
   /** The live verdict for the frame currently being edited — captured at the
    *  shutter, held across the editor, and stamped onto the row. Null for
    *  uploads and for captures taken with the sweep off. */
@@ -152,10 +190,13 @@ export function QuadLabeler() {
   // Lives HERE, not in UploadStage, because UploadStage is unmounted for the
   // whole time the editor is open — a queue held there would be destroyed by
   // the first frame it was meant to survive.
-  const fileQueue = useRef<File[]>([])
-  const [filesLeft, setFilesLeft] = useState(0)
+  // (The in-memory `fileQueue` ref that used to live here is gone — the queue
+  // is `queueDb.ts` now, and it survives a reload. See that file's header.)
   const [decodeError, setDecodeError] = useState<string | null>(null)
-  const [decoding, setDecoding] = useState(false)
+  /** True while a picked batch is being written to IndexedDB. A hundred phone
+   *  photos is a real wait, and a picker that looks idle through it invites a
+   *  second pick on top of the first. */
+  const [adding, setAdding] = useState(false)
 
   const flashMessage = useCallback((status: 'sent' | 'error' | 'queued', text: string) => {
     setSaveStatus(status)
@@ -197,21 +238,102 @@ export function QuadLabeler() {
     setPendingCrop(null)
   }, [])
 
-  /** Decode one picked photo and hand it to the CROP stage. The editor opens
-   *  only once the reader has chosen a square (or skipped to the centre one). */
-  const loadFile = useCallback(async (file: File) => {
-    setDecodeError(null)
-    setDecoding(true)
+  // ── the persistent queue ──────────────────────────────────────────────────
+
+  /** Re-read the queue from IndexedDB. Called after every mutation: the store
+   *  is the source of truth and patching a mirrored array in parallel is how
+   *  the two drift. */
+  const refreshQueue = useCallback(async () => {
+    if (!queueSupported()) return
     try {
-      const src = await decodeForCanvas(file)
-      setPendingCrop({ image: src, width: src.width, height: src.height })
+      const [items, usage] = await Promise.all([listQueue(), queueUsage()])
+      setQueueItems(items)
+      setQueueUsageInfo(usage)
+      setQueueError(null)
     } catch (e) {
-      setDecodeError(e instanceof Error ? e.message : 'that image could not be read')
-      setEditing(false)
-    } finally {
-      setDecoding(false)
+      setQueueError(e instanceof Error ? e.message : 'the photo queue could not be read')
     }
   }, [])
+
+  useEffect(() => {
+    void refreshQueue()
+  }, [refreshQueue])
+
+  /** Add photos to the queue. One transaction for the whole batch (see
+   *  queueDb.enqueue) so a mass upload either lands or does not. */
+  const addToQueue = useCallback(
+    async (items: Array<{ blob: Blob; name: string; source: 'camera' | 'upload' }>) => {
+      if (!items.length) return
+      if (!queueSupported()) {
+        setQueueError('This browser has no storage for the queue — label photos one at a time instead.')
+        return
+      }
+      setAdding(true)
+      try {
+        await enqueue(items)
+        await refreshQueue()
+      } catch (e) {
+        setQueueError(e instanceof Error ? e.message : 'those photos could not be queued')
+      } finally {
+        setAdding(false)
+      }
+    },
+    [refreshQueue],
+  )
+
+  const acceptFiles = useCallback(
+    (files: File[]) => {
+      if (!files.length) return
+      // Straight to the queue, and the reader stays where they are. Uploads
+      // used to open the first file's editor immediately, which was right when
+      // the queue died with the tab and wrong now: a hundred-file pick is a
+      // batch to work through, not a hundred-deep stack of modal state.
+      void addToQueue(files.map((f) => ({ blob: f, name: f.name, source: 'upload' as const })))
+      setEntryMode('queue')
+    },
+    [addToQueue],
+  )
+
+  /** Decode one queued photo and hand it to the CROP stage. The editor opens
+   *  only once the reader has chosen a square (or skipped to the centre one). */
+  const openQueued = useCallback(
+    async (item: QueuedPhoto) => {
+      setDecodeError(null)
+      setOpeningId(item.id)
+      try {
+        const src = await decodeForCanvas(new File([item.blob], item.name, { type: item.blob.type }))
+        workingId.current = item.id
+        setPendingCrop({ image: src, width: src.width, height: src.height, source: item.source })
+      } catch (e) {
+        setDecodeError(e instanceof Error ? e.message : 'that image could not be read')
+        setEditing(false)
+      } finally {
+        setOpeningId(null)
+      }
+    },
+    [],
+  )
+
+  const discardQueued = useCallback(
+    async (id: number) => {
+      try {
+        await removeQueued(id)
+        await refreshQueue()
+      } catch (e) {
+        setQueueError(e instanceof Error ? e.message : 'that photo could not be discarded')
+      }
+    },
+    [refreshQueue],
+  )
+
+  const discardAll = useCallback(async () => {
+    try {
+      await clearQueue()
+      await refreshQueue()
+    } catch (e) {
+      setQueueError(e instanceof Error ? e.message : 'the queue could not be cleared')
+    }
+  }, [refreshQueue])
 
   /** The crop is settled — build the working frame and open the editor.
    *  `crop` undefined means "the centre square", i.e. Skip. */
@@ -220,38 +342,41 @@ export function QuadLabeler() {
       const p = pendingCrop
       if (!p) return
       setPendingCrop(null)
-      beginEditing(buildWorkingFrame(p.image, p.width, p.height, crop), 'upload')
+      // `source` was set when the item was opened; a camera frame that went
+      // through the queue is still a camera frame and its rows must say so.
+      beginEditing(buildWorkingFrame(p.image, p.width, p.height, crop), p.source)
     },
     [pendingCrop, beginEditing],
   )
 
-  /** Pull the next queued photo, or fall back to the picker if the queue is
-   *  empty. The picker is NOT re-opened programmatically: a file input needs a
-   *  user gesture, and an async save is not one — a browser would silently
-   *  ignore the click and the reader would be left staring at a dead screen. */
-  const nextUpload = useCallback(() => {
-    const next = fileQueue.current.shift()
-    setFilesLeft(fileQueue.current.length)
-    if (next) void loadFile(next)
-    else reset()
-  }, [loadFile, reset])
-
-  const acceptFiles = useCallback(
-    (files: File[]) => {
-      if (!files.length) return
-      fileQueue.current = files.slice(1)
-      setFilesLeft(fileQueue.current.length)
-      void loadFile(files[0]!)
-    },
-    [loadFile],
-  )
-
-  /** Land ready for the next frame. Camera mode has nothing to load — the stage
-   *  never stopped — so it is instant; upload mode takes the next queued file. */
+  /**
+   * Land ready for the next frame.
+   *
+   * A row that came off the queue RETIRES FROM IT HERE, after the label is
+   * counted — not when it was opened. Removing it on open would lose the photo
+   * if the reader backed out, reloaded, or the save failed, which is precisely
+   * the loss the persistent queue exists to prevent.
+   */
   const advance = useCallback(() => {
-    if (source === 'upload') nextUpload()
-    else reset()
-  }, [source, nextUpload, reset])
+    const id = workingId.current
+    workingId.current = null
+    if (id !== null) {
+      void (async () => {
+        await removeQueued(id).catch(() => {})
+        const items = await listQueue().catch(() => [] as QueuedPhoto[])
+        setQueueItems(items)
+        void queueUsage().then(setQueueUsageInfo).catch(() => {})
+        reset()
+        // Straight on to the next one: the whole point of a worked queue is
+        // that finishing a photo puts the following photo in front of you.
+        const next = items[0]
+        if (next) void openQueued(next)
+        else setEntryMode('queue')
+      })()
+      return
+    }
+    reset()
+  }, [reset, openQueued])
 
   // ── flushing the retry queue ──────────────────────────────────────────────
   const flushQueue = useCallback(async () => {
@@ -521,16 +646,25 @@ export function QuadLabeler() {
           mid-decision would strand a decoded photo nothing can reach. */}
       {!editing && !pendingCrop && (
         <div className="flex shrink-0 items-center gap-[6px] border-b border-white/10 px-[10px] py-[6px]">
-          {(['capture', 'upload'] as const).map((m) => (
+          {(['capture', 'upload', 'queue'] as const).map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => setEntryMode(m)}
-              className={`h-[44px] rounded-full px-[18px] text-[12px] font-bold capitalize ${
+              className={`flex h-[44px] items-center gap-[5px] rounded-full px-[16px] text-[12px] font-bold capitalize ${
                 entryMode === m ? 'bg-cyan-400 text-cyan-950' : 'bg-white/10 text-white/70 hover:bg-white/15'
               }`}
             >
               {m}
+              {m === 'queue' && queueItems.length > 0 && (
+                <span
+                  className={`rounded-full px-[5px] font-mono text-[10px] ${
+                    entryMode === m ? 'bg-cyan-950/25' : 'bg-cyan-400/20 text-cyan-300'
+                  }`}
+                >
+                  {queueItems.length}
+                </span>
+              )}
             </button>
           ))}
           {entryMode === 'capture' && (
@@ -550,8 +684,18 @@ export function QuadLabeler() {
               Sweep
             </button>
           )}
-          {filesLeft > 0 && (
-            <span className="text-[11px] text-white/50">{filesLeft} more photo{filesLeft === 1 ? '' : 's'} queued</span>
+          {entryMode === 'capture' && (
+            <button
+              type="button"
+              onClick={() => setRapid((v) => !v)}
+              aria-pressed={rapid}
+              title="Shutter files each frame in the queue and stays live, so you can shoot a whole stack in one pass and label them later."
+              className={`h-[44px] rounded-full px-[14px] text-[12px] font-bold ${
+                rapid ? 'bg-cyan-400 text-cyan-950' : 'bg-white/10 text-white/70 hover:bg-white/15'
+              }`}
+            >
+              Rapid
+            </button>
           )}
         </div>
       )}
@@ -565,13 +709,35 @@ export function QuadLabeler() {
           <CaptureStage
             active={entryMode === 'capture'}
             live={live}
+            rapid={rapid}
+            queued={queueItems.length}
             onCaptured={(f, verdict) => beginEditing(f, 'camera', verdict)}
+            onQueued={(blob) =>
+              void addToQueue([
+                // Named by capture time so the queue list can tell two shots of
+                // the same card apart, and so name order and shot order agree.
+                { blob, name: `capture-${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`, source: 'camera' },
+              ])
+            }
           />
         </div>
       )}
 
       {entryMode === 'upload' && !editing && !pendingCrop && (
-        <UploadStage busy={decoding} error={decodeError} queued={filesLeft} onFiles={acceptFiles} />
+        <UploadStage busy={adding} error={queueError ?? decodeError} queued={queueItems.length} onFiles={acceptFiles} />
+      )}
+
+      {entryMode === 'queue' && !editing && !pendingCrop && (
+        <QueueStage
+          items={queueItems}
+          usage={queueUsageInfo}
+          busy={openingId}
+          error={queueError ?? decodeError}
+          onOpen={(item) => void openQueued(item)}
+          onRemove={(id) => void discardQueued(id)}
+          onClear={() => void discardAll()}
+          onAddFiles={acceptFiles}
+        />
       )}
 
       {/* CHOOSE THE SQUARE, for uploads only. Rendered ahead of the editor
@@ -581,7 +747,7 @@ export function QuadLabeler() {
           image={pendingCrop.image}
           sourceWidth={pendingCrop.width}
           sourceHeight={pendingCrop.height}
-          queued={filesLeft}
+          queued={Math.max(0, queueItems.length - 1)}
           onConfirm={(crop) => acceptCrop(crop)}
           onSkip={() => acceptCrop()}
         />
