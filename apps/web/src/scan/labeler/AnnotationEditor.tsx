@@ -552,6 +552,12 @@ export function AnnotationEditor({
         {loupe && liveLoupeCorner && (
           <Loupe
             source={workingFrame.reference}
+            // The LIVE quad, straight off the ref — same reason `liveLoupeCorner`
+            // reads from it. `setLoupe` re-renders on every pointer move, so
+            // this is re-read at the same cadence the corner is.
+            quad={cornersRef.current}
+            sourceSize={refSize}
+            cornerIndex={loupe.cornerIndex}
             centerX={liveLoupeCorner[0] * refSize}
             centerY={liveLoupeCorner[1] * refSize}
             screenX={loupe.screenX}
