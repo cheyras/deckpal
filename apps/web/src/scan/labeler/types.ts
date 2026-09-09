@@ -396,6 +396,27 @@ interface QuadLabelBase {
      *  a session. Diagnostic only. */
     seedMs?: number
     /**
+     * WHICH PART OF THIS FRAME IS NOT A PHOTOGRAPH.
+     *
+     * Present, with a non-zero side, only when the reader pushed the crop
+     * square off the edge of an upload (2026-09-08 ruling) and the gap was
+     * filled by MIRRORING the photo's own pixels. Absent or all-zero means
+     * every pixel in the canonical square came off a sensor — which is every
+     * camera frame, by construction, and most uploads.
+     *
+     * Sides are in SOURCE pixels, matching `crop`, so a harvest can convert to
+     * canonical fractions with the `crop.size` beside it and know exactly which
+     * region of the saved PNG is reflected.
+     *
+     * RECORDED RATHER THAN FORBIDDEN. The mirror introduces no new content — a
+     * reflected pixel is a real pixel of this photograph — but it does repeat
+     * one, and a training run that wants only unrepeated pixels needs to be
+     * able to find these rows. Nothing is blocked on it: per the owner's
+     * ruling, a corner may sit in a mirrored region, because the region is
+     * background the card was never in.
+     */
+    pad?: { left: number; top: number; right: number; bottom: number; mode: 'mirror' }
+    /**
      * WHAT THE LIVE DETECTOR WAS SAYING when the shutter fired, present only on
      * rows captured with the sweep mode on (CaptureStage's `live`).
      *
