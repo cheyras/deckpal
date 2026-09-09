@@ -47,11 +47,49 @@ function drawSquare(src: CanvasImageSource, crop: SquareCrop, dest: HTMLCanvasEl
   ctx.drawImage(src, crop.x, crop.y, crop.size, crop.size, 0, 0, dest.width, dest.height)
 }
 
-/** Build a `WorkingFrame` from a live video frame or a decoded upload —
- *  identical draw path either way, which is the whole point: by the time
- *  this returns, nothing downstream can tell which mode produced it. */
-export function buildWorkingFrame(src: CanvasImageSource, sourceWidth: number, sourceHeight: number): WorkingFrame {
-  const crop = squareCrop(sourceWidth, sourceHeight)
+/**
+ * Clamp an arbitrary square to lie wholly inside a source image, and to be at
+ * least one pixel. A crop that hangs off the edge would draw transparent black
+ * into the canonical frame — a region the detector has never seen in training
+ * and the reader cannot label, so it is refused here rather than explained
+ * later.
+ */
+export function clampCrop(crop: SquareCrop, sourceWidth: number, sourceHeight: number): SquareCrop {
+  const bound = Math.max(1, Math.min(sourceWidth | 0, sourceHeight | 0))
+  const size = Math.max(1, Math.min(Math.round(crop.size), bound))
+  return {
+    size,
+    x: Math.round(Math.min(Math.max(crop.x, 0), Math.max(0, sourceWidth - size))),
+    y: Math.round(Math.min(Math.max(crop.y, 0), Math.max(0, sourceHeight - size))),
+  }
+}
+
+/**
+ * Build a `WorkingFrame` from a live video frame or a decoded upload —
+ * identical draw path either way, which is the whole point: by the time this
+ * returns, nothing downstream can tell which mode produced it.
+ *
+ * ── `crop` IS FOR UPLOADS ONLY (owner request, 2026-09-08) ─────────────────
+ *
+ * Omit it and the centre square is used, which is what the LIVE path must
+ * always do: `EngineState.frame`'s working-frame invariant makes the canonical
+ * frame a pure function of the camera stream, and a camera frame the reader
+ * could re-aim after the fact would break the one guarantee that lets a label
+ * and a runtime detection describe the same square.
+ *
+ * An upload has no such constraint — the photo is already taken, its framing is
+ * whatever it is, and forcing the centre square threw away every card that
+ * happened to sit off-centre. So upload mode passes a chosen square, and
+ * `QuadLabelBase.crop` (already recorded on every row since the schema was
+ * written) is what tells a harvest which one it was.
+ */
+export function buildWorkingFrame(
+  src: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  chosen?: SquareCrop,
+): WorkingFrame {
+  const crop = chosen ? clampCrop(chosen, sourceWidth, sourceHeight) : squareCrop(sourceWidth, sourceHeight)
   const canonical = makeCanvas(CANONICAL_SIZE)
   drawSquare(src, crop, canonical)
   const refSize = Math.max(1, Math.min(crop.size, MAX_REFERENCE_SIZE))

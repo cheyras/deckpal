@@ -34,6 +34,7 @@ import { Icon } from '../../components/Icon'
 import type { Quad } from '../engine/contract'
 import { decodeForCanvas } from '../ui/uploadNormalize'
 import { CaptureStage } from './CaptureStage'
+import { CropStage } from './CropStage'
 import { UploadStage } from './UploadStage'
 import { AnnotationEditor } from './AnnotationEditor'
 import { seedQuad, warmSeed, type SeedResult } from './detectSeed'
@@ -49,6 +50,7 @@ import {
   type SessionStats,
 } from './types'
 import { buildWorkingFrame, type WorkingFrame } from './workingFrame'
+import type { SquareCrop } from '../engine/frame'
 import type { SweepVerdict } from './sweep'
 
 type EntryMode = 'capture' | 'upload'
@@ -86,6 +88,24 @@ export function QuadLabeler() {
    * detector opinion costs battery and inference time and tells the reader
    * nothing they cannot see. See CaptureStage's header.
    */
+  /**
+   * THE DECODED PHOTO WAITING FOR A CROP (owner request, 2026-09-08).
+   *
+   * Upload mode used to go decode -> centre square -> editor. It now stops
+   * here so the reader can say WHICH square, because a photo's card is not
+   * reliably in the middle of it and the centre crop silently threw the rest
+   * away. Camera mode does not stop: the working-frame invariant requires the
+   * live canonical frame to be a pure function of the stream.
+   *
+   * Held as state rather than passed straight through because the choice is a
+   * user interaction with its own screen, and the source bitmap has to outlive
+   * the decode that produced it.
+   */
+  const [pendingCrop, setPendingCrop] = useState<{
+    image: CanvasImageSource
+    width: number
+    height: number
+  } | null>(null)
   const [live, setLive] = useState(false)
   /** The live verdict for the frame currently being edited — captured at the
    *  shutter, held across the editor, and stamped onto the row. Null for
@@ -172,24 +192,37 @@ export function QuadLabeler() {
     setEditing(false)
     setWorkingFrame(null)
     setSeed(null)
+    // A half-made crop decision must not survive into the next photo — it would
+    // show the previous image's square over a new one.
+    setPendingCrop(null)
   }, [])
 
-  /** Decode one picked photo and open the editor on it. */
-  const loadFile = useCallback(
-    async (file: File) => {
-      setDecodeError(null)
-      setDecoding(true)
-      try {
-        const src = await decodeForCanvas(file)
-        beginEditing(buildWorkingFrame(src, src.width, src.height), 'upload')
-      } catch (e) {
-        setDecodeError(e instanceof Error ? e.message : 'that image could not be read')
-        setEditing(false)
-      } finally {
-        setDecoding(false)
-      }
+  /** Decode one picked photo and hand it to the CROP stage. The editor opens
+   *  only once the reader has chosen a square (or skipped to the centre one). */
+  const loadFile = useCallback(async (file: File) => {
+    setDecodeError(null)
+    setDecoding(true)
+    try {
+      const src = await decodeForCanvas(file)
+      setPendingCrop({ image: src, width: src.width, height: src.height })
+    } catch (e) {
+      setDecodeError(e instanceof Error ? e.message : 'that image could not be read')
+      setEditing(false)
+    } finally {
+      setDecoding(false)
+    }
+  }, [])
+
+  /** The crop is settled — build the working frame and open the editor.
+   *  `crop` undefined means "the centre square", i.e. Skip. */
+  const acceptCrop = useCallback(
+    (crop?: SquareCrop) => {
+      const p = pendingCrop
+      if (!p) return
+      setPendingCrop(null)
+      beginEditing(buildWorkingFrame(p.image, p.width, p.height, crop), 'upload')
     },
-    [beginEditing],
+    [pendingCrop, beginEditing],
   )
 
   /** Pull the next queued photo, or fall back to the picker if the queue is
@@ -474,7 +507,9 @@ export function QuadLabeler() {
         </div>
       )}
 
-      {!editing && (
+      {/* Hidden while cropping as well as while editing: switching entry mode
+          mid-decision would strand a decoded photo nothing can reach. */}
+      {!editing && !pendingCrop && (
         <div className="flex shrink-0 items-center gap-[6px] border-b border-white/10 px-[10px] py-[6px]">
           {(['capture', 'upload'] as const).map((m) => (
             <button
@@ -525,8 +560,21 @@ export function QuadLabeler() {
         </div>
       )}
 
-      {entryMode === 'upload' && !editing && (
+      {entryMode === 'upload' && !editing && !pendingCrop && (
         <UploadStage busy={decoding} error={decodeError} queued={filesLeft} onFiles={acceptFiles} />
+      )}
+
+      {/* CHOOSE THE SQUARE, for uploads only. Rendered ahead of the editor
+          because until this resolves there is no working frame to edit. */}
+      {pendingCrop && !editing && (
+        <CropStage
+          image={pendingCrop.image}
+          sourceWidth={pendingCrop.width}
+          sourceHeight={pendingCrop.height}
+          queued={filesLeft}
+          onConfirm={(crop) => acceptCrop(crop)}
+          onSkip={() => acceptCrop()}
+        />
       )}
 
       {editing &&
