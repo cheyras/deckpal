@@ -312,6 +312,24 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
   probe both miscounts absences and retries them as if transient. Read the body, treat only the
   definitive answer as absent, and re-probe anything inconclusive serially before it reaches a
   "missing" total.
+- **After a source removal, sweep the WHOLE catalog for now-placeholder-only sets — not just the
+  residue list computed before the removal.** A utility/energy/promo subset can depend entirely on
+  a source that later gets ruled out, and never surface in a subsequent audit if that audit starts
+  from "existing rows needing replacement" rather than "sets with zero rows, ever." `mee`/`sve`
+  (2026-09-03) had **zero** `image_asset` rows from day one and were absent from every prior gap
+  analysis for exactly this reason — they were invisible to a sweep keyed on existing rows.
+- **A source's crosswalk can be unresolved in general while trivially solvable for a narrower,
+  unambiguous card class inside it.** Bulbagarden Archives' free-text search confidently returns
+  the wrong named-Pokémon printing (§2.4 of `CARD-ART-SOURCES.md`), but basic-energy scans there
+  follow a deterministic filename (`Basic{Type}Energy{SETCODE}Energy{n}.jpg`) with no
+  character/printing disambiguation needed. Don't write off a whole source because ONE card class
+  inside it is hard — solve the narrow, low-ambiguity class independently, and let the licensing
+  question (a different axis from "can we find the right file") be decided on its own terms.
+- **A source can answer a missing item with a non-200 status but a full, valid, decodable
+  placeholder image body.** `images.pokemontcg.io` does this: a genuinely missing card number 404s,
+  but the response body is a real 734×1024 image — the SAME bytes across different missing numbers,
+  i.e. a generic filler, not art for either card. A validator that checks magic bytes/dimensions but
+  not the HTTP status will silently accept it as real art. Always gate on the status code first.
 
 ## Definition of done (adding a TCG, or a refresh)
 

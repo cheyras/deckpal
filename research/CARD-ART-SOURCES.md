@@ -360,4 +360,94 @@ See `DECISIONS.md` 2026-08-31 for the compact version of this same story.
 
 ---
 
-_Last updated by Claude Fable 5 on behalf of @cheyras — 2026-08-31_
+## 9. 2026-09-03 update — mee/sve energy subsets: TCGdex empty, pokemontcg.io partial, Bulbagarden solved-but-uncommissioned
+
+**Trigger:** the card-scanner-redesign index audit found `mee` (8/8 sampled) and
+`sve` (12/12 sampled) serving the placeholder for **every** card — never
+phash-indexed, because every `image_asset` write for these two sets had always
+been absent, not merely stale. Neither set was ever on the §1 residue list:
+that analysis started from cards that already had an `image_asset` row and
+needed a *replacement*; mee/sve had **zero rows from day one**, a different
+failure shape that the original sweep had no reason to catch. **Lesson banked
+in `add-tcg/SKILL.md`:** after a source removal, sweep the whole catalog for
+placeholder-only sets, not just the residue list computed before the removal.
+
+**TCGdex — exhausted, confirmed at the API level, not only the CDN.**
+`GET /v2/sets/mee` and `/v2/sets/sve` return the set and full card list (8 and
+24 cards respectively), but every card in both lists **omits the `image` field
+entirely** — TCGdex's own API does not claim to have art for these, consistent
+with the CDN 404s §2.1 already documents. **[measured]**
+
+**pokemontcg.io — partial for `sve`, zero for `mee`. [measured]**
+- `sve` exists on pokemontcg.io ("Scarlet & Violet Energies") and serves
+  numbers **1-16** at `images.pokemontcg.io/sve/{n}.png` (low) /
+  `{n}_hires.png` (high, 733×1024) — genuinely distinct art per number
+  (confirmed by hash and by visual check: SVE 001 and SVE 009 are different
+  illustrations of "Basic Grass Energy," not a repeat). Numbers **17-24
+  consistently 404** across repeated retries.
+- DeckPal's `sve` set has 24 local ids — three 8-card print cycles
+  (001-008 / 009-016 / 017-024). pokemontcg.io only ever produced two of the
+  three. This is a **new crosswalk shape**: within one TCGdex set id, only
+  some of several print-cycle numbers are covered — distinct from the earlier
+  whole-set "not carried" gaps in §2.2.
+- `mee` has **no pokemontcg.io counterpart at all**: no `mee` set id exists,
+  and the era's base set (`me1`, "Mega Evolution") carries zero
+  `supertype:Energy` cards (`q=set.id:me1 supertype:Energy` → 0 results).
+  Mega Evolution Energy was never split into its own pokemontcg.io product the
+  way Scarlet & Violet's energy was.
+- **Trap found this pass:** `images.pokemontcg.io` can answer a genuinely
+  missing number with **HTTP 404 status but a full, valid, decodable image
+  body** (a 734×1024 PNG, not a tiny error page) — `sve/17_hires.png` and
+  `sve/18_hires.png`'s bodies are byte-identical to each other, i.e. a generic
+  filler, not art for either card. A downloader that checks magic bytes and
+  dimensions but not the HTTP status would silently store this as real card
+  art. **Gate on the status code first.** Banked in `add-tcg/SKILL.md`.
+
+**Bulbagarden Archives — §2.4's general crosswalk is still unresolved, but the
+narrow case of basic-energy cards is not.** Basic-energy scans follow a
+deterministic, unambiguous filename: `Basic{Type}Energy{SETCODE}Energy{n}.jpg`
+(e.g. `BasicGrassEnergyMEEEnergy1.jpg`, `BasicMetalEnergySVEEnergy24.jpg`),
+verified via `prop=imageinfo` for **all 8 `mee` numbers and all 8 remaining
+`sve` numbers (17-24)** — real, distinct 734×1024 JPEGs, not placeholders.
+This resolves the *crosswalk* difficulty for this one card class. It does
+**not** resolve §2.4's open *legal-posture* question — finding the right file
+and having the right to redistribute it are different axes, and only the
+first one moved here. Banked in `add-tcg/SKILL.md`: a source's crosswalk can
+be unresolved in general while trivially solvable for a narrower, unambiguous
+card class inside it.
+
+**What this task did, and did not do.** The owner's 2026-08-31 decision (§8)
+already answered whether to commission the Bulbagarden crosswalk — "stays
+unresolved and uncommissioned." That decision predates this narrower finding
+(it was made against the general 504-card residue, of which mee/sve were
+never a part), and nothing in this investigation reopens it on its own
+authority — sourcing decisions with a licensing dimension are the owner's
+call, not a standing delegation. So:
+
+- **Filled** (2026-09-03): `sve-001` through `sve-016`, both qualities, from
+  `images.pokemontcg.io` — same approved source and encode policy as §8's
+  pipeline (webp q82, resize-down-only to 245×337 / 600×825). 32/32 assets
+  staged through the cloud choke point (`packages/storage/src/put-asset.ts`);
+  verified live on deckpal.app (`X-Cache: HIT`, no `X-Placeholder`, correct
+  art confirmed on visual inspection); `image_asset` + `image_object(tier=
+  'object')` rows both present for all 32, byte sizes match, 0 drift.
+- **Genuine gap, not filled:** `sve-017` through `sve-024` (8 cards) and all
+  of `mee-001` through `mee-008` (8 cards) — no *currently-approved* source
+  covers them. Bulbagarden Archives verifiably does (URLs recorded in the
+  session transcript), but adopting it would reopen the standing 2026-08-31
+  decision. **Flagged back to the owner:** the crosswalk is now solved for
+  this narrow, low-risk card class (generic energy art, unambiguous
+  filenames, no character/printing disambiguation — the opposite of the
+  named-Pokémon-card problem §2.4 describes), so revisiting the decision for
+  *basic energy cards specifically* may be worth a short look even if the
+  general residue stays parked.
+
+---
+
+_Last updated by Claude Fable 5 on behalf of @cheyras — 2026-09-03_
+
+**§9 status update (2026-09-03, later):** the 16-card gap is CLOSED — owner
+approved a scoped Bulbagarden acceptance (see DECISIONS.md same date, with the
+verbatim quote); mee-001..008 + sve-017..024 filled and live-verified. mee and
+sve now have complete real art. The general §2.4 crosswalk remains
+uncommissioned.

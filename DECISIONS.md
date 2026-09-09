@@ -18736,3 +18736,159 @@ thing it always claimed to be.
 
 `deckpal-web test:scan`: 671/671, **0 skipped** — CI's own run of the same suite
 reported 6 failed and 64 skipped.
+
+## 2026-09-03 — mee/sve energy subsets: sourced sve-001..016, mee + sve-017..024 stay a genuine gap
+
+**Decided by:** Claude Fable 5 on behalf of @cheyras, acting on the task's
+explicit "walk the approved ladder and fill what's legal" instruction; the
+Bulbagarden question below was NOT decided here — it is put back to the owner.
+
+**Decision:** filled `sve-001` through `sve-016` (both qualities, 32 assets)
+from `images.pokemontcg.io` — the already-approved source (§7/§8 of
+`research/CARD-ART-SOURCES.md`) — through the cloud choke point
+(`packages/storage/src/put-asset.ts`, `provenance: fromUrl(...)`). Left
+`sve-017..024` and all 8 `mee` cards unfilled: no currently-approved source
+covers them.
+
+**Why.** The scan-index audit (`roadmap/plans/card-scanner-redesign/p2-work/
+index-audit/REPORT.md`) found `mee` and `sve` serving the placeholder for
+every card — the owner's suspicion that the 2026-08-26 pkmn.gg legal removal
+left this hole was directionally right (a source these energy subsets once
+depended on is gone) though not literally: neither set ever had an
+`image_asset` row at all, so there was never a pkmn.gg-attributed row to lose.
+TCGdex's own API omits the `image` field for every card in both sets (not
+just a CDN 404). pokemontcg.io covers `sve` numbers 1-16 of 24 (two of three
+print-cycles) and none of `mee` (no `mee` set, zero Energy-supertype cards in
+`me1`). Bulbagarden Archives DOES have verified, unambiguous scans for the
+remaining 16 cards (deterministic filename
+`Basic{Type}Energy{SETCODE}Energy{n}.jpg`), but adopting Bulbagarden as a
+source was already decided against by the owner on 2026-08-31 ("stays
+unresolved and uncommissioned" — the entry above this one, and
+`CARD-ART-SOURCES.md` §8). That decision predates this narrower finding and
+this task does not have standing to reverse it, so the 16 remaining cards are
+reported as a gap rather than filled. Full trace, sample URLs, and the
+narrower re-ask to the owner: `research/CARD-ART-SOURCES.md` §9.
+
+**Verified:** live `GET` on all 32 filled assets returns `X-Cache: HIT`, no
+`X-Placeholder`, real WebP bytes (245×342 low / 600×838 high); 4 spot-checked
+visually (correct card name + number stamped on the art, e.g. SVE 001/008/
+009/016). Scoped drift check: 32/32 `image_asset` rows, 32/32
+`image_object(tier='object')` rows, byte sizes match, all `source_url`s on
+`images.pokemontcg.io` — 0 drift. Scan index untouched (out of scope; a
+separate, owner-gated rebuild per `REPORT.md`'s fix path).
+
+**Implications.** The remaining `mee`/`sve` gap (16 cards) will keep serving
+the placeholder — and keep being skipped by the scan indexer — until the
+owner either approves Bulbagarden for this narrow card class or a new source
+appears. `.claude/skills/add-tcg/SKILL.md` and `image-slots.md` gained three
+generalizable lessons from this gap: sweep the whole catalog (not just the
+prior residue list) after any source removal; a source's crosswalk can be
+unresolved in general but solvable for a narrow card class; and
+`images.pokemontcg.io` can answer a missing number with HTTP 404 but a full,
+valid, decodable filler image body — gate on status code, not just magic
+bytes. `.claude/skills/fill-missing-assets/SKILL.md` and
+`.claude/skills/add-tcg/{SKILL.md,image-slots.md}` were audited for lingering
+pkmn.gg references and already carried none — the 2026-08-31 cleanup was
+complete; no edit was needed there.
+
+## 2026-09-03 — Sixteen energies from Bulbagarden Archives: a scoped acceptance, in the owner's own words
+
+The mee/sve investigation earlier today ended by putting the Bulbagarden
+question back to the owner. The owner answered, in the live session
+(claude.ai/code session 91f559e4, "DeckPal Scanner"), after a briefing that
+covered: what Bulbagarden is, that its files carry uploader fair-use claims
+(the ladder's weakest posture, distinct from pkmn.gg's legal exclusion), that
+2026-08-31 declined only the GENERAL crosswalk, and that 2026-08-29's
+three-file exception was a knowing scoped acceptance "not a precedent."
+Verbatim: "Yes. Bring these scans into our collection. Um, but more so than
+that, like, I wanna fill in -- because I know there are more that we are
+missing."
+
+**Scope of this entry:** exactly sixteen files — mee-001..008 and
+sve-017..024, the basic energies whose deterministic
+Basic{Type}Energy{SET}Energy{n}.jpg crosswalk §9 verified. Filled 2026-09-03
+via fill-bulba-energies.mjs (direct hashed media URLs, encode policy and
+choke point identical to the sve-001..016 fill; provenance fromUrl per
+file). 32/32 assets staged; live-verified (real bytes, no X-Placeholder;
+mee-003 visually confirmed as Basic Water Energy with the MEE set stamp).
+The general Bulbagarden crosswalk REMAINS uncommissioned; the remedy if the
+posture is ever challenged is swap/removal of these sixteen. The owner's
+second sentence — the broader "fill in what we're missing" — is being
+executed as its own task against APPROVED sources only; any further gap
+requiring an unapproved source comes back as another scoped question.
+
+**Process note for future agents:** two subagents refused this fill because
+owner approval reached them only as task-prompt narrative, which their rules
+correctly treat as non-consent — and the repo record at the time said
+"put back to the owner." The refusals were right. The fill was ultimately
+executed directly by the orchestrating session, where the owner's words are
+first-hand context. Consent lives with whoever heard it.
+
+## 2026-09-04 — Catalog-wide art sweep: Pokémon TCG Pocket was 100% unwarmed (2,469 cards), plus a 6-card Double Crisis gap
+
+The owner's "I know there are more that we are missing" (previous entry) was
+executed as its own task, against approved sources only: TCGdex (primary) and
+pokemontcg.io (fallback) — no further Bulbagarden use. Full trace, method,
+and the remaining-gap table: `roadmap/plans/card-scanner-redesign/p2-work/
+art-sweep/SWEEP.md`.
+
+**Method.** Read-only SQL against production Postgres (`.env.prod`): every
+English card vs. every `image_object(tier='object')` row. Cheaper and more
+authoritative than a CDN sweep, because `apps/api/src/images/handler.ts` only
+ever writes that row after a successful upstream fetch — no row means no real
+art, full stop. Found 3,252 gap cards across 59 sets, two classes of which
+were on no prior residue list.
+
+**Finding 1 — Pokémon TCG Pocket (`tcgp` series), 2,469 cards, 15 sets: not a
+sourcing gap, a discovery gap.** TCGdex already has real art for these cards
+(verified directly against the CDN) — they were simply never warmed, because
+`GET /api/series` deliberately excludes `tcgp` (`apps/api/src/routes/
+series.ts:96`, "a separate game, not an English TCG era" — a real product
+decision: the dedicated `pocket-en` catalogue exists in schema but is seeded
+disabled, and `tcgp` currently sits under the enabled `en` catalogue as a
+staging step, reachable directly via `/api/sets/:id` but hidden from the main
+series list). `apps/images/src/cloudWarm.ts` (`warm:cloud`) builds its
+work-list by walking that same series list, so it silently produces zero jobs
+for any `tcgp` set — confirmed by running it. Same root-cause shape as the
+mee/sve finding (a whole set with no `image_asset` row from day one, invisible
+to any sweep built from existing rows) but on a structural axis instead of a
+per-card one, at ~150x the scale.
+
+**Finding 2 — Double Crisis (`dc1`), 6 cards:** a small, previously
+undocumented, ordinary sourcing gap (TCGdex 404s for exactly these six).
+pokemontcg.io has all six at an exact 1:1 number+name match.
+
+**Filled:** `dc1` 6/6 (`fill-dc1.mjs`, same shape as `fill-sve.mjs`) and
+`tcgp` 2,257/2,469 (`fill-tcgp.mjs`, which reuses `cloudWarm.ts`'s exact
+work-list shape and fetch mechanics but builds the set list from the 15 known
+`tcgp` ids directly, working around the `/api/series` exclusion rather than
+fixing it — that exclusion is a deliberate product decision, not this task's
+to reverse). Both went through the same choke point as every prior fill
+(`packages/storage/src/put-asset.ts`, `provenance: fromUrl(...)`). 0 upload
+failures across both. Verified live (no `X-Placeholder`, correct `X-Cache`)
+and viewed 4 cards across 4 different sets (`dc1-1` Team Magma's Numel,
+`A1-001` Bulbasaur, `A3b-001` Tropius, `B2-001` Ledyba) — all correct art,
+correct card.
+
+**Remaining, 967 cards:** 206 (`B2a` Paldean Wonders in full, plus tails of
+`P-A`, `B1`, `B1a`) still 404 at TCGdex and have no pokemontcg.io fallback
+(confirmed: pokemontcg.io does not carry TCG Pocket at all) — read as an
+upstream publishing lag on the newest Pocket sets rather than a closed door;
+`fill-tcgp.mjs` is idempotent and worth re-running later. The other 761 are
+the pre-existing `research/CARD-ART-SOURCES.md` / `card-art-unavailable.json`
+residue (trainer kits in full, `mep`, `mfb`, `cel25cc`, McDonald's
+Collections, e-card era, `exu`, promos), re-confirmed live today by
+spot-checking five different classes against TCGdex — unchanged: TCGplayer
+verifiably has much of it but is ruled out on ToS grounds, Bulbagarden's
+general named-card crosswalk stays unresolved and uncommissioned beyond the
+narrow energy-card exception already granted, and the rest has no source at
+all.
+
+**Not done, and flagged rather than assumed:** did not touch the `tcgp`
+series exclusion, the `pocket-en` catalogue's `is_enabled` flag, any schema,
+or any feature code — only image bytes through the existing choke point for
+cards that already exist live in the `card` table (this task's stated
+approved purpose). Whether TCG Pocket's current hidden-but-reachable state is
+an intentional pre-launch stage is the owner's call, not inferred here; it is
+named in `SWEEP.md` §2a so a future catalog import doesn't reproduce the same
+invisible-to-`warm:cloud` gap from scratch.
