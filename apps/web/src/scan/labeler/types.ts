@@ -92,8 +92,37 @@ export type InvalidReason =
   | 'cut_off'
   | 'too_dark'
   | 'glare_washout'
+  | 'too_obscured'
+  | 'too_bent'
   | 'too_oblique'
   | 'multiple_no_clear_foreground'
+
+/**
+ * ── `too_obscured` AND `too_bent` (owner request, 2026-09-08) ──────────────
+ *
+ * Both are defined on the QUAD, not on the scan, because that is what a
+ * `corners: null` row trains. See `HARVEST.md` §"Where each gate sits" for the
+ * measured rationale; the short form of each:
+ *
+ *   `too_obscured` — a CORNER you cannot see, or an EDGE more than about a
+ *      third hidden. Fingers across the artwork with all four corners clear are
+ *      a POSITIVE and a valuable one: the detector's job is the boundary, and
+ *      a frame that is hard to identify but easy to detect is exactly the
+ *      example that teaches it not to give up. It is deliberately NOT defined
+ *      on "can I still tell which card this is" — that is the identifier's
+ *      question, it has its own recovery (one failed round trip, then the next
+ *      frame), and answering it here would train the detector to refuse frames
+ *      it should have quadded.
+ *
+ *   `too_bent` — curved enough that a four-corner quad stops DESCRIBING the
+ *      card: an edge visibly bowed away from the straight line joining its two
+ *      corners. This is the one class where the corners can be perfectly
+ *      placeable and the answer is still no, and the reason is `rectify.ts`:
+ *      the homography it solves is exact only for a plane, so a bowed card
+ *      yields a warped crop even from perfect corners. A gentle bow whose edges
+ *      still read straight is a POSITIVE — it is the common case in a real
+ *      hand and the detector must not learn to fear it.
+ */
 
 /**
  * THE CARD'S FACE — added 2026-09-06 with `card_back`, and deliberately NOT an
@@ -200,6 +229,13 @@ export const REASON_SPECS: readonly ReasonSpec[] = [
     coachable: true,
   },
   {
+    value: 'too_obscured',
+    group: 'unquaddable',
+    label: 'Too obscured',
+    coaching: 'Move your fingers off the corners.',
+    coachable: true,
+  },
+  {
     value: 'too_dark',
     group: 'unquaddable',
     label: 'Too dark',
@@ -218,6 +254,13 @@ export const REASON_SPECS: readonly ReasonSpec[] = [
     group: 'unquaddable',
     label: 'Too angled',
     coaching: 'Face the card more directly.',
+    coachable: true,
+  },
+  {
+    value: 'too_bent',
+    group: 'unquaddable',
+    label: 'Too bent',
+    coaching: 'Hold the card flat.',
     coachable: true,
   },
   {

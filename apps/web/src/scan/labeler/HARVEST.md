@@ -183,3 +183,82 @@ against tight framings is the point, not a defect.
 **A `seededFrom: 'detector'` row is a recorded agreement or disagreement with
 production; a `default` row is neither.** When counting how often the geometric
 anchor rule is wrong, filter to `seededFrom === 'detector'` first.
+
+---
+
+## 6. Where each gate sits, and why
+
+Added 2026-09-08 with `too_obscured` and `too_bent`, in answer to the owner's
+question: *at what point is it genuinely too blurry — just blurry enough that
+OCR fails, or only when the artwork is illegible?*
+
+### The rule that decides every one of them
+
+**A rejection is a claim about the QUAD, not about the scan.** A negative row
+is `corners: null`, and what it trains is a detector that emits nothing for
+frames like this one. So the gate on every `unquaddable` class is the same
+question — *can a human confidently place the four corners?* — and the specific
+tag only says which obstacle stopped them.
+
+That is why "blurry enough that OCR fails" is the WRONG line. OCR, the pHash
+and the CLIP embedding all read the card's INTERIOR. The detector reads its
+BOUNDARY. A frame whose artwork is mush but whose dark border is still a crisp
+line is a frame the detector should absolutely quad, and is one of the more
+valuable positives in the corpus, because it teaches the boundary task
+independently of the identification task.
+
+### The asymmetry that makes the rule worth stating
+
+The two errors do not cost the same:
+
+| error | what it teaches | recoverable? |
+|---|---|---|
+| Rejected a frame that was quaddable | the detector to give up on frames like it | **No.** Nothing downstream can act on a quad that was never emitted. |
+| Quadded a frame that turns out unidentifiable | nothing wrong — the boundary label was true | **Yes.** The identifier returns no match, the reader moves the card, the next frame lands. |
+
+So the tie-break is fixed: **when in doubt, place the corners.**
+
+### The gates
+
+| class | the gate | not the gate |
+|---|---|---|
+| `too_blurry` | The edge has smeared into a gradient wider than you can resolve a corner within — place each corner twice and see if you land in the same spot. Roughly: worse than ±1–2% of the card's short edge (±4–8 px on the 416 canonical). | "OCR would fail." `refineQuadChecked` snaps to a gradient field; if the gradient still has a ridge, refinement works and the frame is a positive. |
+| `too_obscured` | **A corner you cannot see**, or an edge with more than about a third of its length hidden — you need enough edge left to fit a line through. | "I can no longer tell which card this is." That is the identifier's question. Fingers across the artwork with four corners clear is a positive. |
+| `too_bent` | Sight the straight line joining two adjacent corners; if the card's edge visibly bows off it (say, past ~2% of the long edge), a four-corner quad has stopped describing the card. | Any curve at all. A gentle bow is the normal state of a card in a hand, its edges still read straight, and the detector must not learn to fear it. |
+| `too_far` | The card no longer occupies enough of the frame for the corners to be distinct pixels rather than one blob. Below roughly a quarter of the frame's width, the rectified crop is pure upscaling. | "It looks small." |
+| `too_oblique` | The far edge has foreshortened so hard you are guessing where the two far corners are. | A visible perspective. The quad is four independent points precisely so it can carry perspective — that is the case it is FOR. |
+| `too_dark` / `glare_washout` | The border has been crushed into the background (dark) or blown into the highlight (glare) along enough of its length that a corner is a guess. | The artwork being hard to read. |
+
+### `too_obscured` is deliberately not two tags
+
+A thumb has two quite different effects, and only one of them is a rejection:
+
+* **over a corner** — unquaddable, because the model at inference has to *see*
+  that corner. A human can infer it from the other three and the fixed 63:88
+  aspect; labelling that inference teaches the detector to hallucinate corners
+  under occlusions, which is the precise failure you would then have to unlearn.
+* **over the middle** — perfectly quaddable, and a positive.
+
+The second case may well be unidentifiable, which is a real product problem —
+but it belongs to a future *identifiability* head, not to this one. Folding it
+in here would put `corners: null` on frames whose corners are plainly visible.
+
+### `too_bent` is the one class where good corners still mean no
+
+Every other rejection is "the corners are unavailable". This one can have four
+crisp corners and still be right, and the reason is `rectify.ts`: the homography
+it solves from four points is exact **only for a plane**. A bowed card yields a
+warped crop from perfect corners, and — more to the point here — the ground
+truth itself becomes ill-defined, since the card's boundary is no longer the
+quadrilateral joining its corners.
+
+Watch the counts. If `too_bent` stays rare, it is doing its job as a
+severe-curl class. If it starts collecting a large share of hand-held frames,
+the gate has drifted toward "any curve" and the corpus is being taught to refuse
+the normal case.
+
+### These two classes have no v1 or v2 population
+
+Like `not_a_card` before them, they start here. A harvest must not back-fill
+them from older rows — a labeler without the button cannot have meant it, and
+`LEGACY_REASON_MAP` can only ever produce the three names it knows.
