@@ -166,6 +166,33 @@ test('the SCANNER did not widen with it — /scan still ends at me.owner', () =>
   assert.doesNotMatch(guard, /me\.labeler/, '/scan must NOT have inherited the labeler widening')
 })
 
+test('the harvest view gates exactly as the labeler does', () => {
+  // It LISTS the frames the labeler wrote — photographs taken in the owner's
+  // house — and it can DELETE them. A viewer of the corpus and a writer to it
+  // are the same person, so the two guards must agree; the API behind both
+  // (GET/DELETE /dev/scan-flags) is already one middleware.
+  const harvest = routeGuardFor(code(MAIN), '/dev/quad-harvest')
+  const labeler = routeGuardFor(code(MAIN), '/dev/quad-labeler')
+  assert.match(harvest, /me\.labeler/, '/dev/quad-harvest must gate on the labeler flag')
+  assert.doesNotMatch(harvest, /me\.owner/)
+  assert.match(
+    harvest,
+    /catch\s*\{[^}]*\}\s*throw\s+notFound\(\)/,
+    '/dev/quad-harvest must fail closed to notFound()',
+  )
+  // Compare the GUARD only. `routeGuardFor` returns the `path:` line with it,
+  // and the two paths differ by definition — that is the one difference which
+  // must not fail this. Whitespace is flattened because the two are formatted
+  // independently and only their logic has to agree. (`norm` further up is
+  // scoped to the test that owns it.)
+  const flat = (t: string) => t.replace(/path:\s*'[^']*',/, '').replace(/\s+/g, ' ').trim()
+  assert.equal(
+    flat(harvest),
+    flat(labeler),
+    'the harvest guard has drifted from the labeler it mirrors — they gate the same corpus',
+  )
+})
+
 test('the quad labeler keeps its *.vercel.app preview allowance — do not "tidy" this away', () => {
   const guard = routeGuardFor(code(MAIN), '/dev/quad-labeler')
   assert.match(

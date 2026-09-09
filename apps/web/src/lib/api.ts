@@ -1145,6 +1145,35 @@ export interface InsightsOverview {
   collectionValue: CurrencyTotal[]
   pokedex: { captured: number; total: number; pct: number }
 }
+/** One row of the harvest listing — `GET /dev/scan-flags`. */
+export interface ScanFlag {
+  /** The capture timestamp in epoch ms. It IS the id, and the sort key. */
+  id: number
+  /** Which of the pair actually exist: 'png', 'json'. A row missing one is a
+   *  half-written capture, worth seeing rather than hiding. */
+  files: string[]
+  size: number
+  uploadedAt: string
+  comment: string | null
+  /** Present only when the listing was asked for `meta=1`, and null for a row
+   *  whose sidecar could not be read. */
+  label: ScanFlagLabel | null
+}
+
+/** The verdict summary the server reads out of a row's sidecar JSON. */
+export interface ScanFlagLabel {
+  /** 'positive' | 'back' | 'negative' | 'unknown' — `unknown` is a row written
+   *  by one of the other two producers sharing this prefix (the harness's frame
+   *  flags, the scanner's reports), which are not quad labels. */
+  verdict: string
+  reason: string | null
+  type: string | null
+  source: string | null
+  seededFrom: string | null
+  sweepStage: string | null
+  hasObj: number | null
+}
+
 export interface MeResponse {
   username: string
   /** True when this account may open /design in production (owner only).
@@ -1585,6 +1614,26 @@ export const api = {
   // owner-gated route decides visibility, this is just the typed call.
   scanFlag: (png: string, meta: Record<string, unknown>) =>
     send<{ id: string }>('POST', '/dev/scan-flags', { png, meta }),
+  /**
+   * The harvest listing. `meta` asks the server to read each row's sidecar and
+   * report its verdict — one extra fetch per row, so it is opt-in and only the
+   * harvest view asks for it.
+   */
+  scanFlagList: (opts: { limit?: number; meta?: boolean } = {}, signal?: AbortSignal) => {
+    const q = new URLSearchParams()
+    if (opts.limit) q.set('limit', String(opts.limit))
+    if (opts.meta) q.set('meta', '1')
+    const qs = q.toString()
+    return get<{ flags: ScanFlag[] }>(`/dev/scan-flags${qs ? `?${qs}` : ''}`, signal)
+  },
+  /** PERMANENT — removes the frame, its label and its comment. No recycle bin;
+   *  see the route's own comment for why there deliberately is not one. */
+  scanFlagDelete: (id: number) => send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-flags/${id}`),
+  /** One stored object's bytes, through the API's own gate — NOT the bucket's
+   *  public URL. The thumbnail grid must not hardcode a Storage origin, and
+   *  going through the gate means an un-entitled account gets a 403 for the
+   *  image exactly as it does for the listing. */
+  scanFlagFileUrl: (id: number, ext: 'png' | 'json') => `${BASE}/dev/scan-flags/${id}.${ext}`,
 
   // PDF export URLs (streamed by the API; open in a new tab).
   deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
