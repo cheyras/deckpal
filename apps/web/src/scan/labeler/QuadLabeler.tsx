@@ -130,11 +130,25 @@ export function QuadLabeler() {
   /**
    * RAPID CAPTURE. The shutter files the frame in the persistent queue and the
    * camera stays live, so a stack of cards is one continuous pass instead of
-   * one shoot-then-label round trip per card. Off by default: a reader
-   * labelling as they go still wants the editor, and losing that flow to a mode
-   * they did not ask for would be worse than not having the mode.
+   * one shoot-then-label round trip per card.
+   *
+   * ── ON BY DEFAULT, CORRECTED 2026-09-08 ───────────────────────────────────
+   *
+   * It shipped OFF, on the reasoning that a reader labelling as they go still
+   * wants the editor and should not lose that flow to a mode they did not ask
+   * for. That reasoning was wrong about which flow was the default one: the
+   * request that produced the queue was *"make it so that I can take a bunch of
+   * photos one after another and they all end up in a persistent queue"* — the
+   * behaviour, not a toggle for it. Shipped off, the observable result was
+   * exactly the opposite of the ask ("I clicked on queue and it said there was
+   * nothing… seems like the queue is just saving to the harvest view"): every
+   * shutter went to the editor, every label went to the corpus, and the queue
+   * stayed empty because nothing had ever been put in it.
+   *
+   * The single-shot flow is one tap away and still there. The default is now
+   * the thing that was asked for.
    */
-  const [rapid, setRapid] = useState(false)
+  const [rapid, setRapid] = useState(true)
   // ── THE PERSISTENT QUEUE (queueDb.ts) ─────────────────────────────────────
   // Mirrored into state for rendering; IndexedDB is the source of truth and is
   // re-read after every mutation rather than patched in two places.
@@ -697,12 +711,16 @@ export function QuadLabeler() {
               type="button"
               onClick={() => setRapid((v) => !v)}
               aria-pressed={rapid}
-              title="Shutter files each frame in the queue and stays live, so you can shoot a whole stack in one pass and label them later."
+              title={
+                rapid
+                  ? 'Rapid: the shutter files each frame in the queue and stays live. Tap to label each shot immediately instead.'
+                  : 'Label as you go: the shutter opens the editor on each frame. Tap for Rapid, which queues them instead.'
+              }
               className={`h-[44px] rounded-full px-[14px] text-[12px] font-bold ${
                 rapid ? 'bg-cyan-400 text-cyan-950' : 'bg-white/10 text-white/70 hover:bg-white/15'
               }`}
             >
-              Rapid
+              {rapid ? 'Rapid' : 'One at a time'}
             </button>
           )}
         </div>

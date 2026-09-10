@@ -18,7 +18,7 @@
 // why not), so the confirmation lives here, on a row the reader can see, rather
 // than in a flag on a URL. Two taps, and the second one is labelled with what
 // it destroys.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ScanFlag } from '../../lib/api'
 import { Icon } from '../../components/Icon'
 import { REASON_BY_VALUE, type InvalidReason } from './types'
@@ -54,6 +54,95 @@ const STAGE_TONE: Record<string, string> = {
 function reasonLabel(reason: string | null): string | null {
   if (!reason) return null
   return REASON_BY_VALUE[reason as InvalidReason]?.label ?? reason
+}
+
+/**
+ * One row's frame, fetched through the authenticated API and shown as a blob.
+ *
+ * ── WHY NOT `<img src={someUrl}>` ──────────────────────────────────────────
+ *
+ * That is what this was, and it could never work: `/dev/scan-flags/:file` sits
+ * behind `labelerOnlyInProduction`, which reads the verified JWT subject, and a
+ * browser-initiated image request sends cookies — never the `Authorization:
+ * Bearer` header this API authenticates with. Measured against production: 403
+ * on every thumbnail, so the whole grid rendered as broken images.
+ *
+ * ── AND WHY IT LOADS LAZILY ────────────────────────────────────────────────
+ *
+ * The listing returns up to 300 rows. Fetching every frame on mount would be
+ * 300 authenticated round trips and 300 decoded bitmaps held at once, on a
+ * phone. An IntersectionObserver does what `loading="lazy"` did for the URL
+ * version: only what the reader can actually see is fetched, and each blob URL
+ * is revoked when its card unmounts — without that, scrolling a long harvest
+ * pins every frame it has ever shown.
+ */
+function FlagThumb({ id, alt }: { id: number; alt: string }) {
+  const hostRef = useRef<HTMLDivElement>(null)
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    let cancelled = false
+    let objectUrl: string | null = null
+    const ac = new AbortController()
+
+    const load = () => {
+      void api
+        .scanFlagBlob(id, 'png', ac.signal)
+        .then((blob) => {
+          if (cancelled) return
+          objectUrl = URL.createObjectURL(blob)
+          setUrl(objectUrl)
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true)
+        })
+    }
+
+    // No IntersectionObserver (older WebViews, and jsdom in a future test) is
+    // not a reason to show nothing — fall back to loading immediately.
+    if (typeof IntersectionObserver === 'undefined') {
+      load()
+      return () => {
+        cancelled = true
+        ac.abort()
+        if (objectUrl) URL.revokeObjectURL(objectUrl)
+      }
+    }
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect()
+          load()
+        }
+      },
+      // A screen ahead, so a scroll lands on decoded frames rather than
+      // spinners.
+      { rootMargin: '400px' },
+    )
+    io.observe(host)
+    return () => {
+      cancelled = true
+      io.disconnect()
+      ac.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [id])
+
+  return (
+    <div ref={hostRef} className="h-full w-full">
+      {url ? (
+        <img src={url} alt={alt} className="h-full w-full object-contain" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[10px] text-white/25">
+          {failed ? 'unreadable' : ''}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function QuadHarvest() {
@@ -100,6 +189,18 @@ export function QuadHarvest() {
       setError(e instanceof Error ? e.message : `could not delete ${id}`)
     } finally {
       setBusy(null)
+    }
+  }, [])
+
+  /** Fetch a row's sidecar and open it in a tab. The blob URL is deliberately
+   *  NOT revoked immediately — the new tab is still reading it — so it is left
+   *  to the document's own lifetime, which is what closing that tab ends. */
+  const openJson = useCallback(async (id: number) => {
+    try {
+      const blob = await api.scanFlagBlob(id, 'json')
+      window.open(URL.createObjectURL(blob), '_blank', 'noreferrer')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `could not read the label for ${id}`)
     }
   }, [])
 
@@ -210,12 +311,7 @@ export function QuadHarvest() {
               >
                 <div className="relative aspect-square bg-black">
                   {f.files.includes('png') ? (
-                    <img
-                      src={api.scanFlagFileUrl(f.id, 'png')}
-                      alt={`label ${f.id}`}
-                      loading="lazy"
-                      className="h-full w-full object-contain"
-                    />
+                    <FlagThumb id={f.id} alt={`label ${f.id}`} />
                   ) : (
                     <div className="flex h-full items-center justify-center text-[10px] text-white/30">no frame</div>
                   )}
@@ -267,14 +363,16 @@ export function QuadHarvest() {
                 </div>
 
                 <div className="flex items-center gap-[4px] border-t border-white/10 px-[6px] py-[4px]">
-                  <a
-                    href={api.scanFlagFileUrl(f.id, 'json')}
-                    target="_blank"
-                    rel="noreferrer"
+                  {/* A BUTTON, not an <a href>: a link navigation carries no
+                      Authorization header either, so the old one 403'd exactly
+                      as the thumbnails did. Fetch it, then open the blob. */}
+                  <button
+                    type="button"
+                    onClick={() => void openJson(f.id)}
                     className="text-[10px] font-bold text-white/45 hover:text-cyan-300"
                   >
                     json
-                  </a>
+                  </button>
                   <div className="flex-1" />
                   {armed ? (
                     <>

@@ -1629,11 +1629,35 @@ export const api = {
   /** PERMANENT — removes the frame, its label and its comment. No recycle bin;
    *  see the route's own comment for why there deliberately is not one. */
   scanFlagDelete: (id: number) => send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-flags/${id}`),
-  /** One stored object's bytes, through the API's own gate — NOT the bucket's
-   *  public URL. The thumbnail grid must not hardcode a Storage origin, and
-   *  going through the gate means an un-entitled account gets a 403 for the
-   *  image exactly as it does for the listing. */
-  scanFlagFileUrl: (id: number, ext: 'png' | 'json') => `${BASE}/dev/scan-flags/${id}.${ext}`,
+  /**
+   * One stored object's bytes, through the API's own gate.
+   *
+   * ── WHY THIS IS A FETCH AND NOT A URL ──────────────────────────────────
+   *
+   * It used to be `scanFlagFileUrl`, handed straight to `<img src>` and to an
+   * `<a href>`. That could never work on production and every thumbnail in the
+   * harvest was a broken image: the route sits behind
+   * `labelerOnlyInProduction`, which reads the VERIFIED JWT subject, and a
+   * browser-initiated `<img>` or link navigation sends cookies — never the
+   * `Authorization: Bearer` header this API authenticates with. Measured
+   * against the deployed endpoint: 403 on every request.
+   *
+   * So the bytes come back through the same authenticated pipeline as every
+   * other call, and the caller turns them into a `blob:` URL it owns and
+   * revokes. Going through the gate is still the point — an un-entitled
+   * account gets a 403 for the image exactly as it does for the listing —
+   * it just has to be a request that can prove who is asking.
+   */
+  scanFlagBlob: async (id: number, ext: 'png' | 'json', signal?: AbortSignal): Promise<Blob> => {
+    const headers = await authHeaders()
+    let res = await fetch(`${BASE}/dev/scan-flags/${id}.${ext}`, { headers, signal })
+    if (res.status === 401) {
+      const retry = await handle401(`/dev/scan-flags/${id}.${ext}`, { headers, signal })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    return res.blob()
+  },
 
   // PDF export URLs (streamed by the API; open in a new tab).
   deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
