@@ -44,7 +44,7 @@ import {
   type SeededFrom,
 } from './types'
 import type { WorkingFrame } from './workingFrame'
-import { Loupe } from './Loupe'
+import { LOUPE_CARD_FRACTION, LOUPE_DEFAULT_STEP, LOUPE_STEPS, Loupe } from './Loupe'
 
 /** The VISUAL markers — unchanged, because their size is an aiming decision. */
 const HANDLE_SIZE = 26
@@ -125,6 +125,35 @@ export function AnnotationEditor({
   const cornersRef = useRef<Quad>(initialCorners)
   const [selectedCorner, setSelectedCorner] = useState<number | null>(null)
   const [loupe, setLoupe] = useState<{ cornerIndex: number; screenX: number; screenY: number } | null>(null)
+  /**
+   * How far the loupe is stepped from its derived window — an index into
+   * `LOUPE_STEPS`, remembered across frames and sessions.
+   *
+   * The derived default comes from the card's geometry and is an estimate; the
+   * reader's is measured by eye on their own device, mid-session, on real
+   * cards. Persisted for the obvious reason: a preference re-set on every one
+   * of two hundred frames is not a preference.
+   */
+  const [loupeStep, setLoupeStep] = useState<number>(() => {
+    try {
+      const raw = Number(localStorage.getItem('deckpal.labeler.loupeStep'))
+      return Number.isInteger(raw) && raw >= 0 && raw < LOUPE_STEPS.length ? raw : LOUPE_DEFAULT_STEP
+    } catch {
+      // Private mode, or storage blocked. The default is a working value.
+      return LOUPE_DEFAULT_STEP
+    }
+  })
+  const stepLoupe = useCallback((delta: number) => {
+    setLoupeStep((cur) => {
+      const next = Math.min(LOUPE_STEPS.length - 1, Math.max(0, cur + delta))
+      try {
+        localStorage.setItem('deckpal.labeler.loupeStep', String(next))
+      } catch {
+        // Not being able to remember it is not a reason to refuse the change.
+      }
+      return next
+    })
+  }, [])
   // The orientation anchor lives in BOTH a ref and state, for the same reason
   // the corners do: `syncVisuals` is a stable callback that stale ResizeObserver
   // closures also call, so it must read the anchor from a ref that is never
@@ -413,6 +442,32 @@ export function AnnotationEditor({
   // not the last-committed React `corners` — read straight from the ref.
   const liveLoupeCorner = loupe ? cornersRef.current[loupe.cornerIndex] : null
 
+  /**
+   * THE LOUPE'S WINDOW, in reference pixels, measured off the card itself.
+   *
+   * The quad's shorter side IS the card's short edge — that is what a correct
+   * quad means — so the corner radius it has to display is a known fraction of
+   * it (3 mm of 63 mm, `lib/cardGeometry.ts`). Sizing the window this way is
+   * what makes the loupe show the same amount of CARD whatever the photo's
+   * resolution, which a fixed pixel multiplier could not: see the note on
+   * `LOUPE_CARD_FRACTION`.
+   *
+   * Falls back to a quarter of the frame if the quad is degenerate (a fresh
+   * default seed, a quad dragged onto itself) — a usable window beats none.
+   */
+  const loupeWindowPx = (() => {
+    const q = cornersRef.current
+    const side = (a: number, b: number) => {
+      const [ax, ay] = q[a]!
+      const [bx, by] = q[b]!
+      return Math.hypot((ax - bx) * refSize, (ay - by) * refSize)
+    }
+    // Adjacent sides only; the shorter PAIR is the card's width.
+    const shortEdge = Math.min((side(0, 1) + side(2, 3)) / 2, (side(1, 2) + side(3, 0)) / 2)
+    const base = shortEdge > 8 ? shortEdge * LOUPE_CARD_FRACTION : refSize * 0.25
+    return base * (LOUPE_STEPS[loupeStep] ?? 1)
+  })()
+
   const reorientedFromSeed = topLeftIndex !== initialTopLeftIndex
 
   return (
@@ -549,6 +604,43 @@ export function AnnotationEditor({
         <span className="pointer-events-none absolute left-[10px] top-[10px] z-20 rounded-full bg-black/70 px-[8px] py-[3px] text-[10px] font-bold uppercase tracking-wide text-amber-300 ring-1 ring-amber-300/40">
           ■ = card's top-left
         </span>
+        {/* ── THE LOUPE'S ZOOM, tunable in place ──────────────────────────
+            Top-right, opposite the orientation legend, and OUT of the way of
+            the bottom-left corner handle — which is the one a right-handed
+            reader's thumb covers this control with otherwise.
+
+            It is here rather than in the controls row below because it is
+            adjusted while looking at the loupe, and a control you have to look
+            away from to find is a control you stop using. `-` widens the
+            window (less magnification), `+` narrows it. */}
+        <div className="pointer-events-auto absolute right-[10px] top-[10px] z-20 flex items-center gap-[1px] overflow-hidden rounded-full bg-black/70 ring-1 ring-white/20">
+          {/* MIND THE SIGN. A larger step is a WIDER window, which is LESS
+              magnification — so "zoom out" walks the index UP, not down. */}
+          <button
+            type="button"
+            onClick={() => stepLoupe(1)}
+            disabled={loupeStep === LOUPE_STEPS.length - 1}
+            aria-label="Zoom the loupe out — show more of the card"
+            className="flex h-[30px] w-[30px] items-center justify-center text-[15px] font-bold text-white/80 hover:bg-white/15 disabled:opacity-25"
+          >
+            −
+          </button>
+          <span
+            className="min-w-[34px] text-center font-mono text-[10px] text-white/50"
+            title="How much of the card's width the loupe shows. Lower is more magnified."
+          >
+            {Math.round(LOUPE_CARD_FRACTION * (LOUPE_STEPS[loupeStep] ?? 1) * 100)}%
+          </span>
+          <button
+            type="button"
+            onClick={() => stepLoupe(-1)}
+            disabled={loupeStep === 0}
+            aria-label="Zoom the loupe in — show less of the card, larger"
+            className="flex h-[30px] w-[30px] items-center justify-center text-[15px] font-bold text-white/80 hover:bg-white/15 disabled:opacity-25"
+          >
+            +
+          </button>
+        </div>
         {loupe && liveLoupeCorner && (
           <Loupe
             source={workingFrame.reference}
@@ -558,6 +650,7 @@ export function AnnotationEditor({
             quad={cornersRef.current}
             sourceSize={refSize}
             cornerIndex={loupe.cornerIndex}
+            windowPx={loupeWindowPx}
             centerX={liveLoupeCorner[0] * refSize}
             centerY={liveLoupeCorner[1] * refSize}
             screenX={loupe.screenX}
