@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ScanFlag, ScanFlagLabel } from '../../../lib/api'
-import { filterFlags, sortFlags, verdictCounts, verdictsPresent } from '../harvest'
+import { defaultVerdicts, filterFlags, sortFlags, verdictCounts, verdictsPresent } from '../harvest'
 
 function flag(id: number, label: Partial<ScanFlagLabel> | null = {}): ScanFlag {
   return {
@@ -128,4 +128,40 @@ test('the filter matches on verdict, and an unreadable row filters as unknown', 
 test('verdictsPresent offers only what the corpus contains, in display order', () => {
   const fs = [flag(1, { verdict: 'positive' }), flag(2, { verdict: 'negative' }), flag(3, { verdict: 'positive' })]
   assert.deepEqual(verdictsPresent(fs), ['negative', 'positive'], 'no chip that would filter to nothing')
+})
+
+// ── The scanner's telemetry shares this prefix ──────────────────────────────
+//
+// `capture-event`, `lock-event` and `identity-event` are written into
+// `dev-flags/` by the product scanner (scan/ui/flags.ts), one PNG + JSON per
+// event. A real session produces hundreds: the owner's first look at the
+// harvest found 224 of them, reported as "I'm not sure where these came from".
+// They are legitimate records and they are not the corpus.
+
+test('the default filter selects the LABEL verdicts and leaves events out', () => {
+  const fs = [
+    flag(1, { verdict: 'positive' }),
+    flag(2, { verdict: 'negative' }),
+    flag(3, { verdict: 'unknown', type: 'lock-event' }),
+    flag(4, { verdict: 'unknown', type: 'capture-event' }),
+  ]
+  const def = defaultVerdicts(fs)
+  assert.deepEqual([...def].sort(), ['negative', 'positive'])
+  assert.deepEqual(ids(filterFlags(fs, def)), [1, 2], 'events are off by default')
+})
+
+test('the default never hides EVERYTHING — an events-only corpus still shows', () => {
+  // A filter that resolves to "no matches" over a view that plainly has rows in
+  // it reads as a broken screen. Empty selection means everything (filterFlags),
+  // so a corpus with no labels yet shows its events rather than a blank grid.
+  const fs = [flag(1, { verdict: 'unknown', type: 'lock-event' })]
+  const def = defaultVerdicts(fs)
+  assert.equal(def.size, 0)
+  assert.deepEqual(ids(filterFlags(fs, def)), [1])
+})
+
+test('the events are still reachable, and still counted', () => {
+  const fs = [flag(1, { verdict: 'positive' }), flag(2, { verdict: 'unknown', type: 'identity-event' })]
+  assert.equal(verdictCounts(fs).unknown, 1, 'a row that exists is never omitted from a total')
+  assert.deepEqual(ids(filterFlags(fs, new Set(['unknown']))), [2], 'one chip brings them back')
 })
