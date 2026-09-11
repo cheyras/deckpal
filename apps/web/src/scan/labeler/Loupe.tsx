@@ -21,8 +21,45 @@
 import { useEffect, useRef } from 'react'
 import type { Quad } from '../engine/contract'
 
-export const LOUPE_SIZE = 132
-export const LOUPE_ZOOM = 5
+export const LOUPE_SIZE = 156
+
+/**
+ * ── THE ZOOM IS SIZED AGAINST THE CARD, NOT AGAINST PIXELS ─────────────────
+ *
+ * It used to be `LOUPE_ZOOM = 5` — a fixed multiplier on `reference` pixels —
+ * and that was measurably the wrong instrument. `reference` is up to 1600 px
+ * of whatever resolution the photo happened to be, so a constant multiplier
+ * shows a constant number of PIXELS and a wildly varying amount of CARD.
+ *
+ * Worked through against the real geometry (`lib/cardGeometry.ts`: a 3 mm
+ * radius on a 63 mm short edge, i.e. 4.76% of it), the old 132/5 = 26.4 px
+ * window came out like this:
+ *
+ *   reference   card short edge   corner radius   window / radius
+ *        800               560 px        26.7 px            0.99
+ *       1200               840 px        40.0 px            0.66
+ *       1600              1120 px        53.3 px            0.49
+ *
+ * In every realistic case the window was SMALLER THAN THE CORNER RADIUS. The
+ * reader saw the tip of the arc and none of either straight edge — which is
+ * the exact complaint that produced this change: *"it's so zoomed in that I
+ * can't even see the actual edges that I'm trying to line it up with."*
+ * Placing a corner means aligning two LINES, and the tool for it was showing
+ * neither.
+ *
+ * So the window is now a fraction of the card's own short edge, measured off
+ * the live quad. That number is constant across every resolution above (0.238
+ * for "the arc plus about two radii of each edge"), which is the tell that the
+ * card — not the pixel — was always the right unit.
+ */
+export const LOUPE_CARD_FRACTION = 0.24
+
+/** How far the reader may step the window either way, and in what increments.
+ *  The default above is an estimate from geometry; theirs is measured by eye,
+ *  and this is what lets the two disagree without a code change. */
+export const LOUPE_STEPS = [0.5, 0.7, 1, 1.4, 2, 2.8] as const
+/** Index into `LOUPE_STEPS` — 1 means the derived window, unscaled. */
+export const LOUPE_DEFAULT_STEP = 2
 const CROSSHAIR = 'rgba(0, 211, 243, 0.95)'
 /** The dragged corner's own two edges. Amber reads against card art (which is
  *  overwhelmingly not amber) and is the colour the editor already uses for
@@ -38,6 +75,7 @@ export function Loupe({
   quad,
   sourceSize,
   cornerIndex,
+  windowPx,
   centerX,
   centerY,
   screenX,
@@ -53,6 +91,12 @@ export function Loupe({
   sourceSize: number
   /** Which corner is being dragged — decides which two edges are the live ones. */
   cornerIndex: number
+  /**
+   * How many SOURCE pixels the loupe spans, derived from the card's own size
+   * by the caller. Replaces the old fixed `LOUPE_ZOOM`; see the note on
+   * `LOUPE_CARD_FRACTION` for why a pixel multiplier could not work.
+   */
+  windowPx: number
   /** Sample centre, in `source`'s own pixel space. */
   centerX: number
   centerY: number
@@ -84,12 +128,16 @@ export function Loupe({
     ctx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE)
 
     const mid = LOUPE_SIZE / 2
-    const half = mid / LOUPE_ZOOM
+    // The window the caller asked for, in source px, and the magnification that
+    // implies. Guarded: a degenerate quad must not divide by zero.
+    const span = Math.max(4, windowPx)
+    const zoom = LOUPE_SIZE / span
+    const half = span / 2
     /** Source pixel -> loupe canvas, in CSS px. The sample window is centred on
      *  the dragged corner, so the corner itself always lands on `mid`. */
     const toLoupe = (px: number, py: number): [number, number] => [
-      mid + (px - centerX) * LOUPE_ZOOM,
-      mid + (py - centerY) * LOUPE_ZOOM,
+      mid + (px - centerX) * zoom,
+      mid + (py - centerY) * zoom,
     ]
 
     ctx.save()
@@ -127,7 +175,7 @@ export function Loupe({
     ctx.moveTo(mid, mid - 8)
     ctx.lineTo(mid, mid + 8)
     ctx.stroke()
-  }, [source, quad, sourceSize, cornerIndex, centerX, centerY])
+  }, [source, quad, sourceSize, cornerIndex, windowPx, centerX, centerY])
 
   // Prefer above-left of the touch point; flip to stay on screen near an edge.
   const margin = 16
