@@ -347,6 +347,31 @@ function already has 1024 MB of memory, which is comfortable for this.
 
 ### Turning the pay-what-you-want tier on
 
+> ## ✅ DONE — live on deckpal.app since 2026-09-08
+>
+> The cutover below was executed. **It is kept as the record of what was done
+> and as the runbook for a fresh deployment; do not re-run it against
+> production.** In particular the go-live cleanup SQL is destructive after
+> go-live — its own banner says so.
+>
+> | Step | State |
+> |---|---|
+> | Live Stripe product, webhook endpoint (16 events), payment-method domain, portal configuration | created — ids in the block below |
+> | Production env: four `STRIPE_*` + `PUBLIC_APP_ORIGIN` | set and verified by name |
+> | Migrations `057`–`063` | applied; `migrate:status` reports 0 pending, 63 total, verified against the catalog |
+> | Go-live cleanup SQL | run once; cleared 1 stale customer, 13 experiment rows, 8 ledger rows, kept all 10 accounts |
+> | `/api/health` | `{"billingGate":"configured","stripeMode":"live"}` |
+> | Live webhook delivery | a real signed `customer.deleted` verified, claimed and processed |
+> | First real payment | $1/month subscription active, `invoice.paid` and `payment_intent.succeeded` both processed |
+>
+> ⚠️ **Production was at `056`, not `057`, when this began.** Every review round
+> and both docs had said `053`–`057` were applied. Nobody had checked, because a
+> `migrate:status` run from the main checkout — which had none of these files —
+> reports a tidy "0 pending". Ask the database, not the documentation.
+>
+> Two bugs survived fifty review rounds and were found by the first live
+> payment. Both are fixed; see `DECISIONS.md` and the contract check below.
+
 Nothing in DeckPal is gated on payment — there is no entitlement column and no
 locked feature — so switching this on adds a way to give money and changes
 nothing else.

@@ -353,6 +353,23 @@ there is no entitlement column and no locked feature, which is worth stating in
 a security document because it means a forged "I am a supporter" claim would buy
 an attacker nothing at all.
 
+### The money routes are rate-limited, and honest about what that buys
+
+`/me/billing` is behind `billingRateLimit` (`routes/billing.ts`): 40 requests a
+minute, keyed on the **authenticated account** rather than the IP, because every
+route there requires a session and IP is both wrong on shared networks and
+useless behind serverless egress. Flagged by CodeQL (`js/missing-rate-limiting`,
+high) on a router that authorises and moves money.
+
+⚠️ It is a speed bump, not a boundary. The counters are per-process, so each
+serverless instance keeps its own and a determined caller spread across
+instances gets a multiple of the limit. What makes repetition SAFE is elsewhere
+and unchanged: an idempotency key on every charge, a per-account advisory lock
+on the money routes, migration 062's daily ceiling on experiment writes, and
+Stripe's own limits. What the limiter stops is a broken client or a retry storm
+becoming a wall of Stripe customers before anyone notices. It fails **open**: a
+false positive would refuse a payment somebody is trying to make.
+
 ### No card data reaches this system, and none could be stored
 
 The card number, expiry and CVC are typed into **Stripe's own cross-origin
