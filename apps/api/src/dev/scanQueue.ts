@@ -47,18 +47,22 @@ const PREFIX = 'dev-queue/';
 /**
  * The decoded-photo cap.
  *
- * 8 MB, NOT 12: the body arrives as base64, which is 33% larger than the bytes,
- * behind `express.json({ limit: '12mb' })` in `index.ts`. A 12 MB cap here was
- * unreachable — anything over ~9 MB decoded made a >12 MB body and the PARSER
- * rejected it first, with a message about JSON rather than about photographs.
- * 8 MB decoded is 10.7 MB on the wire and therefore a limit this route can
- * actually enforce and explain.
+ * ── SIZED AGAINST THE LIMIT THAT ACTUALLY BITES ────────────────────────────
  *
- * Clients normalize to a 2048 px JPEG before uploading (`queueDb
- * .normalizeForUpload`), which lands well under this; the cap is the backstop
- * for a client that does not, not the working size.
+ * **Vercel rejects a serverless function's request body over 4.5 MB before this
+ * handler runs.** `scan/router.ts` sizes itself at 4 MB for that reason and
+ * says so; `ui/uploadNormalize.ts` opens with it; DECISIONS records it three
+ * times. This route shipped at 12 MB, then 8 MB — both above a ceiling the
+ * platform enforces first, so neither could ever be the thing that refused a
+ * photo, and what the reader actually got was a platform error about nothing.
+ *
+ * The body is base64 (+33%), so 3 MB decoded is 4 MB on the wire and fits with
+ * room for the JSON wrapper. It is also the number `dev-flags` already uses.
+ * Clients normalize down to this before sending (`queueDb.normalizeForUpload`,
+ * which steps quality and edge down until it fits); the cap is the backstop for
+ * a client that does not.
  */
-const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
 
 interface QueueMeta {
   name: string;
