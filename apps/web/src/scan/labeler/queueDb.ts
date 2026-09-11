@@ -34,6 +34,7 @@
 // crop and no quad; the moment it acquires them it becomes a label, goes out
 // through `saveLabel.ts`, and is deleted from the queue.
 import { api } from '../../lib/api'
+import { decodeForCanvas } from '../ui/uploadNormalize'
 
 /** One photo waiting to be labelled, as the queue reports it. */
 export interface QueuedPhoto {
@@ -152,6 +153,80 @@ async function stash(items: OutboxItem[]): Promise<void> {
   })
 }
 
+/**
+ * The longest edge an uploaded photo keeps.
+ *
+ * `workingFrame.MAX_REFERENCE_SIZE` is 1600: the editor's sharp canvas — the
+ * thing the reader zooms into and the loupe samples — is capped there whatever
+ * the source resolution. 2048 leaves every pixel that cap can use, with room
+ * for a crop that takes less than the whole frame. The original 12 MP frame was
+ * never reaching the editor; it was only ever making the upload fail.
+ */
+const MAX_UPLOAD_EDGE = 2048
+
+/** JPEG quality for the re-encode. Matches the rapid shutter's own 0.92. */
+const UPLOAD_QUALITY = 0.92
+
+/**
+ * Normalize a picked photo to ONE format before it is uploaded: upright JPEG,
+ * no EXIF, at most `MAX_UPLOAD_EDGE` on its long side.
+ *
+ * ── THREE THINGS THIS FIXES, AND THEY ARE THE SAME THING ───────────────────
+ *
+ * **1. The stored object was mislabelled.** `dev/scanQueue.ts` writes every
+ * upload as `<id>.jpg` with `content-type: image/jpeg`, unconditionally. A PNG
+ * was stored under a lie, and an iPhone HEIC was stored under a lie that most
+ * browsers then refuse to decode at all — so the photo came back unreadable
+ * from the server as well as from the outbox.
+ *
+ * **2. Large photos never uploaded, silently.** The body is base64, 33% larger
+ * than the bytes, behind `express.json({ limit: '12mb' })` — so a 10 MB phone
+ * photo becomes a 13.3 MB body and the PARSER rejects it before the route's own
+ * size check can say anything useful. `enqueue` caught that, held the photo and
+ * said nothing, which is how a queue of `local` rows that would never upload
+ * came to look like a queue that was merely waiting for signal.
+ *
+ * **3. EXIF ORIENTATION, which is the trap in fixing 1 and 2.** Re-encoding
+ * through a canvas STRIPS EXIF. A phone photo carries its rotation there rather
+ * than in its pixels, so a naive re-encode bakes in the unrotated pixels and
+ * throws away the flag that said which way was up — every portrait photo lands
+ * sideways, permanently, in the corpus. `decodeForCanvas` is the project's
+ * EXIF-aware decode (`createImageBitmap(file, {imageOrientation: 'from-image'})`)
+ * and is reused here precisely so the rotation is APPLIED before it is lost.
+ *
+ * Falls back to the original bytes if decoding fails: normalization is an
+ * improvement, not a precondition, and a photo the reader took is worth more
+ * than a tidy format.
+ */
+async function normalizeForUpload(blob: Blob): Promise<Blob> {
+  try {
+    const src = await decodeForCanvas(new File([blob], 'queued', { type: blob.type || 'image/jpeg' }))
+    const w = 'width' in src ? src.width : 0
+    const h = 'height' in src ? src.height : 0
+    if (!w || !h) return blob
+    const scale = Math.min(1, MAX_UPLOAD_EDGE / Math.max(w, h))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(w * scale))
+    canvas.height = Math.max(1, Math.round(h * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return blob
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(src as CanvasImageSource, 0, 0, canvas.width, canvas.height)
+    ;(src as { close?: () => void }).close?.()
+    const out = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', UPLOAD_QUALITY),
+    )
+    if (!out) return blob
+    // A re-encode that came out LARGER than an already-small JPEG is not an
+    // improvement — unless the source was not a JPEG at all, in which case the
+    // format is the point and the size is not.
+    const wasJpeg = /jpe?g/i.test(blob.type)
+    return !wasJpeg || out.size < blob.size ? out : blob
+  } catch {
+    return blob
+  }
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -176,41 +251,59 @@ function blobToBase64(blob: Blob): Promise<string> {
  * connection's real limit — and the queue is ordered, so finishing them in
  * order is also what makes the server's ids match the order they were picked.
  */
+/** The stored object IS a jpg (see dev/scanQueue.ts), so the displayed name
+ *  should not still claim `.heic` or `.png` — a name that disagrees with the
+ *  bytes is the same small lie this normalization exists to stop telling. */
+function jpgName(name: string): string {
+  return name.replace(/\.[A-Za-z0-9]+$/, '') + '.jpg'
+}
+
 export async function enqueue(
   items: Array<{ blob: Blob; name: string; source: 'camera' | 'upload' }>,
-): Promise<{ uploaded: number; held: number }> {
+): Promise<{ uploaded: number; held: number; error: string | null }> {
   let uploaded = 0
+  let lastError: string | null = null
   const held: OutboxItem[] = []
   for (const it of items) {
     try {
-      const jpg = await blobToBase64(it.blob)
-      await api.scanQueueAdd({ jpg, name: it.name, source: it.source })
+      const jpg = await blobToBase64(await normalizeForUpload(it.blob))
+      await api.scanQueueAdd({ jpg, name: jpgName(it.name), source: it.source })
       uploaded += 1
-    } catch {
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : 'the upload was refused'
       held.push({ id: nextLocalId(), blob: it.blob, name: it.name, source: it.source, addedAt: Date.now() })
     }
   }
   if (held.length) await stash(held)
-  return { uploaded, held: held.length }
+  return { uploaded, held: held.length, error: held.length ? lastError : null }
 }
 
-/** Push whatever is in the outbox. Returns how many landed. */
-export async function flushOutbox(): Promise<number> {
+/**
+ * Push whatever is in the outbox.
+ *
+ * REPORTS WHY IT STOPPED. The first version returned a count and swallowed the
+ * reason, so a photo that could never upload — too large for the body parser,
+ * say — looked exactly like a photo waiting for signal, forever. A queue that
+ * cannot explain itself is a queue the reader has to guess about.
+ */
+export async function flushOutbox(): Promise<{ sent: number; remaining: number; error: string | null }> {
   const items = await outbox()
   let sent = 0
+  let error: string | null = null
   for (const it of items) {
     try {
-      const jpg = await blobToBase64(it.blob)
-      await api.scanQueueAdd({ jpg, name: it.name, source: it.source })
+      const jpg = await blobToBase64(await normalizeForUpload(it.blob))
+      await api.scanQueueAdd({ jpg, name: jpgName(it.name), source: it.source })
       await run('readwrite', (s) => s.delete(it.id))
       sent += 1
-    } catch {
-      // Still down. Stop at the first failure rather than hammering a dead
-      // network with the rest of the batch; the next flush picks up here.
+    } catch (e) {
+      // Stop at the first failure rather than hammering a dead network with the
+      // rest of the batch; the next flush picks up here.
+      error = e instanceof Error ? e.message : 'the upload was refused'
       break
     }
   }
-  return sent
+  return { sent, remaining: items.length - sent, error }
 }
 
 /**
@@ -245,10 +338,39 @@ export async function listQueue(): Promise<QueuedPhoto[]> {
   ]
 }
 
-/** Remove one — labelled, or discarded. Local ids hit the outbox; server ids
- *  hit the API. The sign of the id is the routing. */
+/**
+ * Is this id an outbox row? ASKED, never inferred.
+ *
+ * ── THE BUG THIS REPLACED ──────────────────────────────────────────────────
+ *
+ * Routing was `id < 0`: negative meant outbox, positive meant server. True of
+ * every row THIS code writes, and false of every row already on disk when it
+ * shipped — the previous queue stored outbox items under positive `Date.now()`
+ * ids, in the same database, under the same store name and the same version.
+ *
+ * So a reader upgrading mid-session had a queue full of local photos whose ids
+ * claimed to be the server's. `queuedPhotoBlob` asked the API for bytes it had
+ * never been given and every one rendered `unreadable`; `removeQueued` deleted
+ * them from a server that did not have them, so nothing was deleted at all.
+ *
+ * Entirely self-inflicted: a schema whose MEANING changed without its version
+ * changing. Asking the store is a lookup rather than a guess, and it is right
+ * for rows written by either version.
+ */
+async function inOutbox(id: number): Promise<OutboxItem | null> {
+  if (!queueSupported()) return null
+  try {
+    const it = await run<OutboxItem | undefined>('readonly', (s) => s.get(id) as IDBRequest<OutboxItem | undefined>)
+    return it ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Remove one — labelled, or discarded. The outbox is consulted first; anything
+ *  it does not hold is the server's. */
 export async function removeQueued(id: number): Promise<void> {
-  if (id < 0) {
+  if (await inOutbox(id)) {
     await run('readwrite', (s) => s.delete(id))
     return
   }
@@ -288,10 +410,7 @@ export async function queueUsage(): Promise<{ bytes: number; localBytes: number;
  *  fetched through the authenticated client — an `<img src>` cannot carry a
  *  bearer token, which is the lesson the harvest thumbnails taught. */
 export async function queuedPhotoBlob(id: number, signal?: AbortSignal): Promise<Blob> {
-  if (id < 0) {
-    const it = (await outbox()).find((o) => o.id === id)
-    if (!it) throw new Error('that photo is no longer in the outbox')
-    return it.blob
-  }
+  const local = await inOutbox(id)
+  if (local) return local.blob
   return api.scanQueueBlob(id, signal)
 }

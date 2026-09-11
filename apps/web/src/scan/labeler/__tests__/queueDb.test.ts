@@ -61,3 +61,43 @@ test('a clock that jumps backward does not reissue an outbox id', () => {
   assert.notEqual(a, b)
   assert.ok(b < a, 'ids keep descending, so ordering and uniqueness both hold')
 })
+
+// ── Routing must ASK the store, never infer from the id ────────────────────
+//
+// The shipped version routed on `id < 0`: negative meant outbox, positive meant
+// server. True of every row that version wrote, and false of every row already
+// on disk — the previous queue used positive `Date.now()` ids in the SAME
+// database, store and version. Upgrading mid-session therefore produced a queue
+// of local photos whose ids claimed to be the server's: every one rendered
+// `unreadable`, and deleting one deleted nothing.
+//
+// A source assertion because the failure is a whole-module behaviour against a
+// database written by code that no longer exists; there is no seam where a unit
+// test could observe it.
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+const QUEUE_SRC = fs.readFileSync(fileURLToPath(new URL('../queueDb.ts', import.meta.url)), 'utf8')
+
+test('the outbox is consulted by lookup, not by the sign of the id', () => {
+  assert.match(QUEUE_SRC, /async function inOutbox\(/, 'a lookup helper must exist')
+  assert.match(QUEUE_SRC, /const local = await inOutbox\(id\)/, 'queuedPhotoBlob must look the id up')
+  assert.match(QUEUE_SRC, /if \(await inOutbox\(id\)\)/, 'removeQueued must look the id up')
+  assert.doesNotMatch(QUEUE_SRC, /if \(id < 0\)/, 'routing on the sign is the bug — it cannot come back')
+})
+
+test('every upload is normalized to one format before it goes out', () => {
+  // Mislabelled objects (the route stores everything as .jpg regardless), HEIC
+  // that no browser will decode back, and 12 MP frames the body parser refuses
+  // are one problem with one fix.
+  assert.match(QUEUE_SRC, /async function normalizeForUpload\(/, 'the normalizer must exist')
+  const calls = QUEUE_SRC.match(/normalizeForUpload\(/g) ?? []
+  assert.ok(calls.length >= 3, 'both enqueue and flushOutbox must normalize, not just one of them')
+})
+
+test('the normalizer decodes EXIF-aware, or it bakes in the wrong rotation', () => {
+  // Re-encoding through a canvas STRIPS EXIF. A phone photo carries its
+  // rotation there rather than in its pixels, so decoding without applying it
+  // first lands every portrait photo permanently sideways in the corpus.
+  assert.match(QUEUE_SRC, /decodeForCanvas/, 'normalization must reuse the EXIF-aware decode')
+})

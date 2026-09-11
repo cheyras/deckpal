@@ -285,8 +285,18 @@ export function QuadLabeler() {
   // no other device can see, and nothing else would push it.
   useEffect(() => {
     const drain = () => {
-      void flushOutbox().then((sent) => {
+      void flushOutbox().then(({ sent, remaining, error }) => {
         if (sent > 0) void refreshQueue()
+        // SAY WHY IT STOPPED. A photo that can never upload — one the body
+        // parser refuses, say — otherwise looks exactly like a photo waiting
+        // for signal, forever, and the reader has no way to tell the two apart.
+        if (remaining > 0 && error) {
+          setQueueError(
+            `${remaining} photo${remaining === 1 ? '' : 's'} still waiting to upload — ${error}`,
+          )
+        } else if (remaining === 0) {
+          setQueueError(null)
+        }
       })
     }
     drain()
