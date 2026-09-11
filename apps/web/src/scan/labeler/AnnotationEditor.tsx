@@ -44,7 +44,8 @@ import {
   type SeededFrom,
 } from './types'
 import type { WorkingFrame } from './workingFrame'
-import { LOUPE_CARD_FRACTION, LOUPE_DEFAULT_STEP, LOUPE_STEPS, Loupe } from './Loupe'
+import { LOUPE_CARD_FRACTION, LOUPE_DEFAULT_STEP, LOUPE_STEPS } from './Loupe'
+import { LoupePad } from './LoupePad'
 
 /** The VISUAL markers — unchanged, because their size is an aiming decision. */
 const HANDLE_SIZE = 26
@@ -124,7 +125,19 @@ export function AnnotationEditor({
    */
   const cornersRef = useRef<Quad>(initialCorners)
   const [selectedCorner, setSelectedCorner] = useState<number | null>(null)
-  const [loupe, setLoupe] = useState<{ cornerIndex: number; screenX: number; screenY: number } | null>(null)
+  /**
+   * A REDRAW TICK, not a loupe position.
+   *
+   * This was `loupe: {cornerIndex, screenX, screenY} | null`, set on every
+   * pointer move and cleared on pointer up — so the magnifier existed only
+   * while a finger was down, which is exactly when the finger is covering the
+   * corner. Selection owns it now (`selectedCorner`), and this only exists to
+   * re-render while `cornersRef` is being mutated: the corners are a ref on
+   * purpose (see their declaration), so nothing would otherwise tell React that
+   * the magnified view is stale.
+   */
+  const [tick, setTick] = useState(0)
+  const bumpLoupe = useCallback(() => setTick((t) => (t + 1) % 1_000_000), [])
   /**
    * How far the loupe is stepped from its derived window — an index into
    * `LOUPE_STEPS`, remembered across frames and sessions.
@@ -350,13 +363,17 @@ export function AnnotationEditor({
     next[i] = [clamp(wx / refSize, -0.15, 1.15), clamp(wy / refSize, -0.15, 1.15)]
     cornersRef.current = next
     syncVisuals()
-    setLoupe({ cornerIndex: i, screenX: sx, screenY: sy })
+    // The magnified view has to follow the drag; the PAD does not move (see
+    // LoupePad's placement rule), so this is a redraw, not a reposition.
+    bumpLoupe()
   }
   const onHandlePointerUp = (i: number, e: React.PointerEvent) => {
     if (draggingCorner.current !== i) return
     e.stopPropagation()
     draggingCorner.current = null
-    setLoupe(null)
+    // The selection — and therefore the loupe and its pad — SURVIVES the
+    // release. That is the whole point: the corner is now visible because the
+    // finger has left it, and the arrows are there to place it exactly.
   }
 
   /**
@@ -370,7 +387,36 @@ export function AnnotationEditor({
    * quad the reader never saw — the one failure mode a corpus cannot detect
    * later, because the row looks perfectly well-formed.
    */
+  /**
+   * Move the selected corner by whole working-frame pixels.
+   *
+   * Extracted from the keyboard handler so the pad's arrows and the arrow keys
+   * are the SAME operation — including the clamp, which is what stops a corner
+   * being nudged somewhere the frame cannot represent. Two implementations of
+   * "nudge" would drift the moment one of them learned about a new bound.
+   */
+  const nudgeCorner = useCallback(
+    (dx: number, dy: number, multiplier = 1) => {
+      setSelectedCorner((sel) => {
+        if (sel === null) return sel
+        const step = NUDGE_FRAC * multiplier
+        const next = [...cornersRef.current] as Quad
+        const [x, y] = next[sel]!
+        next[sel] = [clamp(x + dx * step, -0.15, 1.15), clamp(y + dy * step, -0.15, 1.15)]
+        cornersRef.current = next
+        syncVisuals()
+        return sel
+      })
+      bumpLoupe()
+    },
+    [syncVisuals, bumpLoupe],
+  )
+
   const submit = useCallback(() => {
+    // SAVING CONFIRMS. The owner's rule, and it costs nothing to honour: a row
+    // is written from `cornersRef` either way, so clearing the selection only
+    // decides whether the next frame opens with a pad floating over it.
+    setSelectedCorner(null)
     onSaveLabel([...cornersRef.current] as Quad, topLeftRef.current, faceRef.current)
   }, [onSaveLabel])
 
@@ -427,20 +473,18 @@ export function AnnotationEditor({
       const d = deltas[e.key]
       if (!d) return
       e.preventDefault()
-      const step = (e.shiftKey ? 5 : 1) * NUDGE_FRAC
-      const next = [...cornersRef.current] as Quad
-      const [x, y] = next[selectedCorner]!
-      next[selectedCorner] = [clamp(x + d[0] * step, -0.15, 1.15), clamp(y + d[1] * step, -0.15, 1.15)]
-      cornersRef.current = next
-      syncVisuals()
+      nudgeCorner(d[0], d[1], e.shiftKey ? 5 : 1)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedCorner, syncVisuals, rotateAnchor, toggleFace, rejecting, saving, submit])
+  }, [selectedCorner, nudgeCorner, rotateAnchor, toggleFace, rejecting, saving, submit])
 
-  // While dragging, the loupe must sample the LIVE (ref-mutated) position,
-  // not the last-committed React `corners` — read straight from the ref.
-  const liveLoupeCorner = loupe ? cornersRef.current[loupe.cornerIndex] : null
+  // The loupe samples the LIVE (ref-mutated) quad, not a last-committed React
+  // copy — `tick` is what re-renders this, and reading the ref here is what
+  // makes the magnified view current. `tick` is referenced so the dependency is
+  // honest rather than incidental.
+  void tick
+  const liveQuad = cornersRef.current
 
   /**
    * THE LOUPE'S WINDOW, in reference pixels, measured off the card itself.
@@ -613,7 +657,12 @@ export function AnnotationEditor({
             adjusted while looking at the loupe, and a control you have to look
             away from to find is a control you stop using. `-` widens the
             window (less magnification), `+` narrows it. */}
-        <div className="pointer-events-auto absolute right-[10px] top-[10px] z-20 flex items-center gap-[1px] overflow-hidden rounded-full bg-black/70 ring-1 ring-white/20">
+        <div // z-40: the nudge pad (z-30) is inset 50 px from the edges and can reach
+            // under this when it anchors top-right. The zoom control wins that
+            // overlap on purpose — it is adjusted WHILE a corner is selected, so
+            // being covered by the pad would make it unreachable exactly when it
+            // is wanted.
+            className="pointer-events-auto absolute right-[10px] top-[10px] z-40 flex items-center gap-[1px] overflow-hidden rounded-full bg-black/70 ring-1 ring-white/20">
           {/* MIND THE SIGN. A larger step is a WIDER window, which is LESS
               magnification — so "zoom out" walks the index UP, not down. */}
           <button
@@ -641,22 +690,21 @@ export function AnnotationEditor({
             +
           </button>
         </div>
-        {loupe && liveLoupeCorner && (
-          <Loupe
+        {/* SELECTION SHOWS IT, not a finger being down. A corner is selected by
+            tapping it, by dragging it, or by tabbing to it, and the pad stays
+            until the reader confirms — which is what makes the arrows reachable
+            at all. Selecting a DIFFERENT corner implicitly confirms this one:
+            the handle's own pointerdown sets `selectedCorner`, so there is no
+            second rule to keep in step. */}
+        {selectedCorner !== null && (
+          <LoupePad
             source={workingFrame.reference}
-            // The LIVE quad, straight off the ref — same reason `liveLoupeCorner`
-            // reads from it. `setLoupe` re-renders on every pointer move, so
-            // this is re-read at the same cadence the corner is.
-            quad={cornersRef.current}
+            quad={liveQuad}
             sourceSize={refSize}
-            cornerIndex={loupe.cornerIndex}
+            cornerIndex={selectedCorner}
             windowPx={loupeWindowPx}
-            centerX={liveLoupeCorner[0] * refSize}
-            centerY={liveLoupeCorner[1] * refSize}
-            screenX={loupe.screenX}
-            screenY={loupe.screenY}
-            viewportW={containerRef.current?.clientWidth ?? 0}
-            viewportH={containerRef.current?.clientHeight ?? 0}
+            onNudge={(dx, dy) => nudgeCorner(dx, dy)}
+            onConfirm={() => setSelectedCorner(null)}
           />
         )}
       </div>

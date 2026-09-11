@@ -60,15 +60,28 @@ export const LOUPE_CARD_FRACTION = 0.24
 export const LOUPE_STEPS = [0.5, 0.7, 1, 1.4, 2, 2.8] as const
 /** Index into `LOUPE_STEPS` — 1 means the derived window, unscaled. */
 export const LOUPE_DEFAULT_STEP = 2
-const CROSSHAIR = 'rgba(0, 211, 243, 0.95)'
-/** The dragged corner's own two edges. Amber reads against card art (which is
- *  overwhelmingly not amber) and is the colour the editor already uses for
- *  "this is the one you are working on". */
-const EDGE_LIVE = 'rgba(255, 190, 60, 0.95)'
-/** The opposite edges. Present for context — a quad that has gone non-convex
- *  is visible here before it is anywhere else — without competing with the
- *  two lines being aimed. */
-const EDGE_FAR = 'rgba(255, 255, 255, 0.38)'
+const CROSSHAIR_INVERT = '#ffffff'
+/**
+ * ── THE EDGES INVERT WHAT IS BEHIND THEM ──────────────────────────────────
+ *
+ * They were amber and translucent white, chosen on the reasoning that card art
+ * is "overwhelmingly not amber". Reported from the device: *"the quad lines in
+ * the loupe are near impossible to see."* Of course they are — a fixed colour
+ * has to beat EVERY background a Pokémon card can present, at one device pixel
+ * wide, and full-art cards are saturated in every hue including amber. There is
+ * no colour that wins that argument.
+ *
+ * Inversion does not have to win it. `globalCompositeOperation = 'difference'`
+ * against white gives `255 - pixel` per channel, so the line is the photometric
+ * opposite of whatever it crosses: black on white, white on black, cyan on red.
+ * Contrast is guaranteed by construction rather than by a bet about the
+ * artwork. It is the same reason selection marquees and crosshairs in imaging
+ * tools have inverted for forty years.
+ *
+ * Colour is no longer available to distinguish the two pairs of edges, so DASH
+ * carries it: the dragged corner's own edges are solid, the far pair dashed.
+ */
+const EDGE_INVERT = '#ffffff'
 
 export function Loupe({
   source,
@@ -76,12 +89,6 @@ export function Loupe({
   sourceSize,
   cornerIndex,
   windowPx,
-  centerX,
-  centerY,
-  screenX,
-  screenY,
-  viewportW,
-  viewportH,
 }: {
   source: HTMLCanvasElement
   /** The whole quad, normalized [0,1] — the editor's own representation, so
@@ -97,15 +104,6 @@ export function Loupe({
    * `LOUPE_CARD_FRACTION` for why a pixel multiplier could not work.
    */
   windowPx: number
-  /** Sample centre, in `source`'s own pixel space. */
-  centerX: number
-  centerY: number
-  /** Where the dragged point currently sits on screen — the loupe offsets
-   *  away from it so the finger/cursor never covers what it's magnifying. */
-  screenX: number
-  screenY: number
-  viewportW: number
-  viewportH: number
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -130,6 +128,12 @@ export function Loupe({
     const mid = LOUPE_SIZE / 2
     // The window the caller asked for, in source px, and the magnification that
     // implies. Guarded: a degenerate quad must not divide by zero.
+    // THE SAMPLE CENTRE IS THE CORNER. It used to arrive as its own
+    // `centerX`/`centerY` pair alongside `quad` and `cornerIndex`, which is the
+    // same fact passed twice and two things that could disagree. Derived here,
+    // they cannot.
+    const centerX = (quad[cornerIndex]?.[0] ?? 0.5) * sourceSize
+    const centerY = (quad[cornerIndex]?.[1] ?? 0.5) * sourceSize
     const span = Math.max(4, windowPx)
     const zoom = LOUPE_SIZE / span
     const half = span / 2
@@ -147,45 +151,59 @@ export function Loupe({
     ctx.drawImage(source, centerX - half, centerY - half, half * 2, half * 2, 0, 0, LOUPE_SIZE, LOUPE_SIZE)
 
     // The quad, INSIDE the clip so an edge cannot run out over the bezel.
-    // A hairline: one device pixel, whatever the CSS transform above is.
     const pts = quad.map(([nx, ny]) => toLoupe(nx * sourceSize, ny * sourceSize))
-    ctx.lineWidth = 1 / dpr
-    ctx.lineCap = 'round'
+    ctx.globalCompositeOperation = 'difference'
+    ctx.strokeStyle = EDGE_INVERT
+    ctx.lineCap = 'butt'
     for (let i = 0; i < 4; i++) {
       const a = pts[i]!
       const b = pts[(i + 1) % 4]!
       // Edge i joins corner i to corner i+1, so the dragged corner's two edges
       // are i === cornerIndex and i === cornerIndex - 1 (mod 4).
       const live = i === cornerIndex || i === (cornerIndex + 3) % 4
-      ctx.strokeStyle = live ? EDGE_LIVE : EDGE_FAR
+      // A HAIRLINE FOR THE LIVE PAIR, at one device pixel: this is the line
+      // being aimed, and anything thicker covers the boundary it is there to
+      // find. The far pair is the same width but dashed, which is now the only
+      // thing telling them apart — inversion leaves no choice of colour.
+      ctx.lineWidth = 1 / dpr
+      ctx.setLineDash(live ? [] : [3, 4])
       ctx.beginPath()
       ctx.moveTo(a[0], a[1])
       ctx.lineTo(b[0], b[1])
       ctx.stroke()
     }
+    ctx.setLineDash([])
+    ctx.globalCompositeOperation = 'source-over'
     ctx.restore()
 
-    // The crosshair last and on top: it marks the sample centre, which is the
-    // corner itself, and it must stay findable against a busy full-art.
-    ctx.strokeStyle = CROSSHAIR
+    // The crosshair last and on top. It marks the sample centre — which IS the
+    // corner — and it inverts for the reason the edges do: a fixed colour has
+    // to beat every background, and this one has to stay findable against a
+    // busy full-art at the exact moment the reader is judging a pixel.
+    //
+    // It is drawn as a GAPPED cross: the four arms stop short of the centre, so
+    // the one pixel the reader is actually placing is never painted over by the
+    // marker pointing at it.
+    ctx.globalCompositeOperation = 'difference'
+    ctx.strokeStyle = CROSSHAIR_INVERT
     ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(mid - 8, mid)
-    ctx.lineTo(mid + 8, mid)
-    ctx.moveTo(mid, mid - 8)
-    ctx.lineTo(mid, mid + 8)
+    ctx.moveTo(mid - 9, mid)
+    ctx.lineTo(mid - 3, mid)
+    ctx.moveTo(mid + 3, mid)
+    ctx.lineTo(mid + 9, mid)
+    ctx.moveTo(mid, mid - 9)
+    ctx.lineTo(mid, mid - 3)
+    ctx.moveTo(mid, mid + 3)
+    ctx.lineTo(mid, mid + 9)
     ctx.stroke()
-  }, [source, quad, sourceSize, cornerIndex, windowPx, centerX, centerY])
+    ctx.globalCompositeOperation = 'source-over'
+  }, [source, quad, sourceSize, cornerIndex, windowPx])
 
-  // Prefer above-left of the touch point; flip to stay on screen near an edge.
-  const margin = 16
-  let left = screenX - LOUPE_SIZE - margin
-  let top = screenY - LOUPE_SIZE - margin
-  if (left < 0) left = screenX + margin
-  if (top < 0) top = screenY + margin
-  if (left + LOUPE_SIZE > viewportW) left = viewportW - LOUPE_SIZE - margin
-  if (top + LOUPE_SIZE > viewportH) top = viewportH - LOUPE_SIZE - margin
-
+  // NO SELF-PLACEMENT ANY MORE. It used to offset itself from the touch point
+  // and flip near the viewport edges; `LoupePad` owns placement now, because
+  // the arrows around it have to be reserved room and only the thing drawing
+  // all five can do that. See that file for the quadrant rule.
   return (
     <canvas
       ref={canvasRef}
@@ -193,8 +211,8 @@ export function Loupe({
       height={LOUPE_SIZE}
       // The CSS size is fixed; `width`/`height` above are re-set to the device
       // resolution in the effect. Both are needed: this is the first paint.
-      style={{ left, top, width: LOUPE_SIZE, height: LOUPE_SIZE }}
-      className="pointer-events-none absolute z-20 rounded-full shadow-[0_4px_16px_rgba(0,0,0,0.6)] ring-2 ring-cyan-300/80"
+      style={{ width: LOUPE_SIZE, height: LOUPE_SIZE }}
+      className="pointer-events-none block rounded-full shadow-[0_4px_16px_rgba(0,0,0,0.6)] ring-2 ring-cyan-300/80"
     />
   )
 }
