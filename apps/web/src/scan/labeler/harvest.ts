@@ -103,6 +103,27 @@ export function verdictsPresent(flags: ScanFlag[]): string[] {
   return [...seen].sort((a, b) => rank(VERDICT_ORDER, a) - rank(VERDICT_ORDER, b))
 }
 
+/**
+ * The verdicts that are actually LABELS. Everything else under `dev-flags/` is
+ * the product scanner's own telemetry — `capture-event`, `lock-event`,
+ * `identity-event` — which shares the prefix and outnumbers the corpus: the
+ * owner's first real look at the harvest found 224 of them against a handful of
+ * labels, reported as *"there are like 224 unknown… I'm not sure where these
+ * came from"*.
+ *
+ * They are not junk and they are not hidden, but they are not what a corpus
+ * review is looking at, so they are off by default.
+ */
+export const LABEL_VERDICTS = ['positive', 'back', 'negative'] as const
+
+/** The default chip selection for a set of rows: the label verdicts present.
+ *  Empty when the corpus has nothing but events, because filtering to nothing
+ *  would show a "no matches" screen over a view that does have rows in it. */
+export function defaultVerdicts(flags: ScanFlag[]): Set<string> {
+  const present = verdictsPresent(flags).filter((v) => (LABEL_VERDICTS as readonly string[]).includes(v))
+  return new Set(present)
+}
+
 /** Keep only the chosen verdicts. An EMPTY selection means "everything", not
  *  "nothing": a filter bar that empties the grid when the reader deselects the
  *  last chip reads as a bug, and there is no other way back. */

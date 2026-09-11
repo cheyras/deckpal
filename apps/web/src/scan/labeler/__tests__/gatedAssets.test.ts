@@ -67,12 +67,31 @@ test('the URL helper that invited it is gone', () => {
   assert.ok(/^\s*scanFlagBlob\s*:/m.test(api), 'scanFlagBlob is the authenticated replacement and must exist')
 })
 
-test('the harvest fetches its frames through the authenticated client', () => {
+test('both grids fetch their frames through the authenticated client', () => {
   const harvest = fs.readFileSync(path.join(LABELER_DIR, 'QuadHarvest.tsx'), 'utf8')
+  const queue = fs.readFileSync(path.join(LABELER_DIR, 'QueueStage.tsx'), 'utf8')
   assert.match(harvest, /api\.scanFlagBlob\(/, 'the harvest must go through scanFlagBlob')
-  assert.match(
-    harvest,
-    /revokeObjectURL/,
-    'every blob URL it mints must be revoked — a long harvest otherwise pins every frame it has shown',
-  )
+  assert.match(queue, /queuedPhotoBlob\(/, 'the queue must go through queuedPhotoBlob')
+})
+
+test('revocation lives in ONE place, and both grids use it', () => {
+  // It used to be hand-rolled per grid — an effect in QuadHarvest and a
+  // `useMemo` map in QueueStage. Two copies of "fetch, blob, revoke, observe"
+  // is two places for the revocation to drift, and revocation is the half that
+  // matters: a few hundred queued phone photos is hundreds of megabytes pinned
+  // if a blob URL outlives its card.
+  const thumb = fs.readFileSync(path.join(LABELER_DIR, 'AuthThumb.tsx'), 'utf8')
+  assert.match(thumb, /revokeObjectURL/, 'AuthThumb must revoke what it mints')
+  assert.match(thumb, /IntersectionObserver/, 'AuthThumb must load lazily — both grids can run to hundreds of rows')
+  for (const [name, src] of [
+    ['QuadHarvest.tsx', fs.readFileSync(path.join(LABELER_DIR, 'QuadHarvest.tsx'), 'utf8')],
+    ['QueueStage.tsx', fs.readFileSync(path.join(LABELER_DIR, 'QueueStage.tsx'), 'utf8')],
+  ] as const) {
+    assert.match(src, /<AuthThumb/, `${name} must render through AuthThumb`)
+    // NO `<img>` OF ITS OWN. That is the precise rule — not "no
+    // createObjectURL", which would also forbid the harvest's `json` opener,
+    // where minting a blob URL for a new tab is correct and the URL must
+    // deliberately outlive this document's reference to it.
+    assert.doesNotMatch(src, /<img/, `${name} must not render a raw <img> — thumbnails belong to AuthThumb`)
+  }
 })

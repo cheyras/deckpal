@@ -4,17 +4,21 @@
 // time, in the order it was taken, at whatever pace they like and across as
 // many sittings as it takes. This is the list they come back to.
 //
-// ── OBJECT URLS ARE OWNED HERE, AND REVOKED ────────────────────────────────
+// ── THE QUEUE IS THE SERVER'S, SINCE 2026-09-10 ────────────────────────────
 //
-// Every thumbnail is a `blob:` URL over a stored `Blob`, and each one pins that
-// blob in memory until it is revoked. A hundred queued phone photos is easily
-// several hundred megabytes, so a screen that mints URLs per render and never
-// revokes them is a leak large enough to be fatal on the device this runs on.
-// One effect owns the whole map, keyed by the id list, and revokes the previous
-// generation on every change.
-import { useEffect, useMemo, useState } from 'react'
+// It was IndexedDB, which is per-device: photos added on a laptop were simply
+// absent on a phone, which is the workflow the queue exists for. The rows here
+// are now a server listing, so a thumbnail is a FETCH — `AuthThumb` owns that,
+// along with the lazy-loading and the blob-URL revocation that a few hundred
+// queued phone photos make non-optional.
+//
+// A row marked `local` has not uploaded yet and lives only in this device's
+// outbox. That state is shown rather than hidden: until it lands, it is not in
+// the queue any other browser can see.
+import { useState } from 'react'
 import { Icon } from '../../components/Icon'
-import type { QueuedPhoto } from './queueDb'
+import { queuedPhotoBlob, type QueuedPhoto } from './queueDb'
+import { AuthThumb } from './AuthThumb'
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -34,7 +38,7 @@ export function QueueStage({
   onAddFiles,
 }: {
   items: QueuedPhoto[]
-  usage: { bytes: number; quota: number | null } | null
+  usage: { bytes: number; localBytes: number; quota: number | null } | null
   /** The id currently being loaded into the editor — disables the row so a
    *  double tap cannot start two. */
   busy: number | null
@@ -46,19 +50,11 @@ export function QueueStage({
 }) {
   const [confirmClear, setConfirmClear] = useState(false)
 
-  // One URL per item, revoked when the item leaves. Keyed on the id list so a
-  // re-render that changes nothing does not churn a hundred blob URLs.
-  const key = items.map((i) => i.id).join(',')
-  const urls = useMemo(() => {
-    const map = new Map<number, string>()
-    for (const it of items) map.set(it.id, URL.createObjectURL(it.blob))
-    return map
-    // `items` is intentionally not a dependency: `key` IS its identity here,
-    // and depending on the array would mint a new generation on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-  useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls])
-
+  // THE ROWS NO LONGER CARRY THEIR BYTES. The queue is the server's list now
+  // (queueDb.ts), so a thumbnail is a fetch — and `AuthThumb` owns the
+  // fetching, the lazy-loading and the revocation for both this grid and the
+  // harvest's. The hand-rolled `URL.createObjectURL` map that used to live here
+  // went with the local-only queue.
   const next = items[0]
 
   return (
@@ -68,9 +64,16 @@ export function QueueStage({
           {items.length} photo{items.length === 1 ? '' : 's'} waiting
         </span>
         {usage && (
-          <span className="font-mono text-white/35" title="Bytes this queue is holding on this device">
+          <span className="font-mono text-white/35" title="Total bytes this queue is holding">
             {fmtBytes(usage.bytes)}
-            {usage.quota ? ` / ${fmtBytes(usage.quota)}` : ''}
+          </span>
+        )}
+        {usage && usage.localBytes > 0 && (
+          <span
+            className="rounded bg-amber-400/15 px-[5px] py-[1px] font-mono text-[10px] text-amber-300"
+            title={`Waiting to upload from this device${usage.quota ? ` — this browser allows about ${fmtBytes(usage.quota)}` : ''}`}
+          >
+            {fmtBytes(usage.localBytes)} local
           </span>
         )}
         <div className="flex-1" />
@@ -116,7 +119,7 @@ export function QueueStage({
           <span className="max-w-[280px] text-[12px] leading-[17px] text-white/50">
             Nothing queued. Shoot a batch in <b className="text-white/75">Capture</b> with{' '}
             <b className="text-white/75">Rapid</b> on, or add photos below — they stay here until you label them,
-            even if you close the tab.
+            on <b className="text-white/75">any device</b> you open the labeler from.
           </span>
           <AddFilesButton onAddFiles={onAddFiles} />
         </div>
@@ -150,15 +153,26 @@ export function QueueStage({
                     className="relative aspect-square bg-black disabled:opacity-50"
                     aria-label={`Label ${it.name}`}
                   >
-                    <img
-                      src={urls.get(it.id)}
-                      alt=""
-                      loading="lazy"
-                      className="h-full w-full object-contain"
+                    <AuthThumb
+                      cacheKey={it.id}
+                      alt={it.name}
+                      load={(signal) => queuedPhotoBlob(it.id, signal)}
                     />
                     <span className="pointer-events-none absolute left-[4px] top-[4px] rounded bg-black/70 px-[5px] py-[1px] font-mono text-[9px] font-bold text-white/70">
                       {i + 1}
                     </span>
+                    {/* Still on this device only. Worth saying plainly: until
+                        it uploads it is not in the queue anybody else's browser
+                        can see, which is the whole thing the server queue
+                        fixed. */}
+                    {it.pending && (
+                      <span
+                        className="pointer-events-none absolute right-[4px] top-[4px] rounded bg-amber-400/20 px-[5px] py-[1px] text-[9px] font-bold text-amber-300"
+                        title="Waiting to upload — this photo is on this device only until it does"
+                      >
+                        local
+                      </span>
+                    )}
                     {busy === it.id && (
                       <span className="absolute inset-0 flex items-center justify-center bg-black/60">
                         <span className="h-[20px] w-[20px] animate-spin rounded-full border-2 border-white/20 border-t-cyan-300" />

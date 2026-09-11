@@ -1629,6 +1629,39 @@ export const api = {
   /** PERMANENT — removes the frame, its label and its comment. No recycle bin;
    *  see the route's own comment for why there deliberately is not one. */
   scanFlagDelete: (id: number) => send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-flags/${id}`),
+  // ── the labeler's pending-photo queue (apps/api/src/dev/scanQueue.ts) ────
+  //
+  // SERVER-BACKED since 2026-09-10, because the IndexedDB one could only be
+  // worked on the device that filled it — photos added on a laptop were absent
+  // on a phone, which is the workflow the queue exists for.
+  /** Upload one pending photo. The server stamps the id, so two devices filling
+   *  one queue still produce a single coherent order. */
+  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload' }) =>
+    send<{ ok: true; id: number; name: string; source: string; addedAt: string }>('POST', '/dev/scan-queue', body),
+  scanQueueList: (signal?: AbortSignal) =>
+    get<{ photos: Array<{ id: number; name: string; source: 'camera' | 'upload'; addedAt: string; size: number }> }>(
+      '/dev/scan-queue',
+      signal,
+    ),
+  /** Remove one — labelled, or discarded. Absent is not an error server-side:
+   *  two devices can finish the same photo. */
+  scanQueueDelete: (id: number) =>
+    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}`),
+  /** A queued photo's bytes, through the authenticated pipeline for
+   *  `scanFlagBlob`'s reason: a browser-initiated `<img>` request carries no
+   *  Authorization header and would 403 at the gate. */
+  scanQueueBlob: async (id: number, signal?: AbortSignal): Promise<Blob> => {
+    const headers = await authHeaders()
+    const path = `/dev/scan-queue/${id}.jpg`
+    let res = await fetch(`${BASE}${path}`, { headers, signal })
+    if (res.status === 401) {
+      const retry = await handle401(path, { headers, signal })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    return res.blob()
+  },
+
   /**
    * One stored object's bytes, through the API's own gate.
    *

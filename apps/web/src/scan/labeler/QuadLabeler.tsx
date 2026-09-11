@@ -39,9 +39,11 @@ import { QueueStage } from './QueueStage'
 import {
   clearQueue,
   enqueue,
+  flushOutbox,
   listQueue,
   queueSupported,
   queueUsage,
+  queuedPhotoBlob,
   removeQueued,
   type QueuedPhoto,
 } from './queueDb'
@@ -153,7 +155,11 @@ export function QuadLabeler() {
   // Mirrored into state for rendering; IndexedDB is the source of truth and is
   // re-read after every mutation rather than patched in two places.
   const [queueItems, setQueueItems] = useState<QueuedPhoto[]>([])
-  const [queueUsageInfo, setQueueUsageInfo] = useState<{ bytes: number; quota: number | null } | null>(null)
+  const [queueUsageInfo, setQueueUsageInfo] = useState<{
+    bytes: number
+    localBytes: number
+    quota: number | null
+  } | null>(null)
   const [queueError, setQueueError] = useState<string | null>(null)
   /** The queue item currently being opened, and the one being labelled — kept
    *  so a save can retire exactly the row it came from. */
@@ -273,6 +279,21 @@ export function QuadLabeler() {
     void refreshQueue()
   }, [refreshQueue])
 
+  // THE OUTBOX DRAINS ON ARRIVAL AND ON RECONNECT. A photo taken with no signal
+  // is exactly the photo worth keeping, so the shutter never fails on the
+  // network — but it does mean the queue can start a session holding work that
+  // no other device can see, and nothing else would push it.
+  useEffect(() => {
+    const drain = () => {
+      void flushOutbox().then((sent) => {
+        if (sent > 0) void refreshQueue()
+      })
+    }
+    drain()
+    window.addEventListener('online', drain)
+    return () => window.removeEventListener('online', drain)
+  }, [refreshQueue])
+
   /** Add photos to the queue. One transaction for the whole batch (see
    *  queueDb.enqueue) so a mass upload either lands or does not. */
   const addToQueue = useCallback(
@@ -315,7 +336,11 @@ export function QuadLabeler() {
       setDecodeError(null)
       setOpeningId(item.id)
       try {
-        const src = await decodeForCanvas(new File([item.blob], item.name, { type: item.blob.type }))
+        // The bytes are FETCHED now — a queued row is the server's listing and
+        // carries no blob (see queueDb.ts). A local outbox item short-circuits
+        // inside `queuedPhotoBlob`, so this one call covers both.
+        const blob = await queuedPhotoBlob(item.id)
+        const src = await decodeForCanvas(new File([blob], item.name, { type: blob.type || 'image/jpeg' }))
         workingId.current = item.id
         setPendingCrop({ image: src, width: src.width, height: src.height, source: item.source })
       } catch (e) {

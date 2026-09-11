@@ -34,6 +34,7 @@ import { scanRouter } from './scan/router.js';
 import { warnOnPrintedSetCodeDivergence } from './scan/catalogPort.js';
 import { scanEmbedGate, scanEmbedWarning } from './scan/embedGate.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
+import { scanQueueRouter } from './dev/scanQueue.js';
 import { bugsRouter } from './routes/bugs.js';
 import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
@@ -490,6 +491,10 @@ export function createApp(): express.Express {
   // must not ALSO be forced through resolveIdentity's 401 for having no app
   // session, and self-host has no Supabase auth to resolve identity from.
   api.use('/dev/scan-flags', scanFlagsRouter);
+  // The labeler's pending-photo queue. Same mount point in the chain as the
+  // corpus router above and for the same reasons — its own gate is the only
+  // check, and a preview deployment must not meet resolveIdentity's 401.
+  api.use('/dev/scan-queue', scanQueueRouter);
 
   // ── User-scoped routes ────────────────────────────────────────────────────
   // resolveIdentity settles "who is calling" once, for both deployments:

@@ -20,10 +20,12 @@
 // it destroys.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ScanFlag } from '../../lib/api'
+import { AuthThumb } from './AuthThumb'
 import { Icon } from '../../components/Icon'
 import { REASON_BY_VALUE, type InvalidReason } from './types'
 import {
   SORT_LABELS,
+  defaultVerdicts,
   filterFlags,
   sortFlags,
   verdictCounts,
@@ -56,100 +58,14 @@ function reasonLabel(reason: string | null): string | null {
   return REASON_BY_VALUE[reason as InvalidReason]?.label ?? reason
 }
 
-/**
- * One row's frame, fetched through the authenticated API and shown as a blob.
- *
- * ── WHY NOT `<img src={someUrl}>` ──────────────────────────────────────────
- *
- * That is what this was, and it could never work: `/dev/scan-flags/:file` sits
- * behind `labelerOnlyInProduction`, which reads the verified JWT subject, and a
- * browser-initiated image request sends cookies — never the `Authorization:
- * Bearer` header this API authenticates with. Measured against production: 403
- * on every thumbnail, so the whole grid rendered as broken images.
- *
- * ── AND WHY IT LOADS LAZILY ────────────────────────────────────────────────
- *
- * The listing returns up to 300 rows. Fetching every frame on mount would be
- * 300 authenticated round trips and 300 decoded bitmaps held at once, on a
- * phone. An IntersectionObserver does what `loading="lazy"` did for the URL
- * version: only what the reader can actually see is fetched, and each blob URL
- * is revoked when its card unmounts — without that, scrolling a long harvest
- * pins every frame it has ever shown.
- */
-function FlagThumb({ id, alt }: { id: number; alt: string }) {
-  const hostRef = useRef<HTMLDivElement>(null)
-  const [url, setUrl] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-
-  useEffect(() => {
-    const host = hostRef.current
-    if (!host) return
-    let cancelled = false
-    let objectUrl: string | null = null
-    const ac = new AbortController()
-
-    const load = () => {
-      void api
-        .scanFlagBlob(id, 'png', ac.signal)
-        .then((blob) => {
-          if (cancelled) return
-          objectUrl = URL.createObjectURL(blob)
-          setUrl(objectUrl)
-        })
-        .catch(() => {
-          if (!cancelled) setFailed(true)
-        })
-    }
-
-    // No IntersectionObserver (older WebViews, and jsdom in a future test) is
-    // not a reason to show nothing — fall back to loading immediately.
-    if (typeof IntersectionObserver === 'undefined') {
-      load()
-      return () => {
-        cancelled = true
-        ac.abort()
-        if (objectUrl) URL.revokeObjectURL(objectUrl)
-      }
-    }
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          io.disconnect()
-          load()
-        }
-      },
-      // A screen ahead, so a scroll lands on decoded frames rather than
-      // spinners.
-      { rootMargin: '400px' },
-    )
-    io.observe(host)
-    return () => {
-      cancelled = true
-      io.disconnect()
-      ac.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [id])
-
-  return (
-    <div ref={hostRef} className="h-full w-full">
-      {url ? (
-        <img src={url} alt={alt} className="h-full w-full object-contain" />
-      ) : (
-        <div className="flex h-full w-full items-center justify-center text-[10px] text-white/25">
-          {failed ? 'unreadable' : ''}
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function QuadHarvest() {
   const [flags, setFlags] = useState<ScanFlag[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sort, setSort] = useState<HarvestSort>('newest')
   const [verdicts, setVerdicts] = useState<Set<string>>(new Set())
+  /** Has the reader changed the filter themselves? Once they have, a reload
+   *  must not quietly reassert the default over their choice. */
+  const touched = useRef(false)
   /** The row awaiting its second tap. One at a time — a grid with several armed
    *  delete buttons is a grid where the wrong one gets hit. */
   const [confirming, setConfirming] = useState<number | null>(null)
@@ -160,6 +76,13 @@ export function QuadHarvest() {
     try {
       const res = await api.scanFlagList({ limit: PAGE, meta: true }, signal)
       setFlags(res.flags)
+      // THE SCANNER'S TELEMETRY IS OFF BY DEFAULT. It shares this prefix and
+      // outnumbers the corpus; a review that opens on 224 lock-events with the
+      // labels scattered among them is not a review. The chips say how many
+      // there are and one tap brings them back — `touched` makes this a default
+      // rather than an override, so a reader who has set the filter keeps it
+      // across a refresh.
+      if (!touched.current) setVerdicts(defaultVerdicts(res.flags))
     } catch (e) {
       if (signal?.aborted) return
       setError(e instanceof Error ? e.message : 'the harvest could not be read')
@@ -204,13 +127,15 @@ export function QuadHarvest() {
     }
   }, [])
 
-  const toggleVerdict = (v: string) =>
+  const toggleVerdict = (v: string) => {
+    touched.current = true
     setVerdicts((cur) => {
       const next = new Set(cur)
       if (next.has(v)) next.delete(v)
       else next.add(v)
       return next
     })
+  }
 
   return (
     <div
@@ -273,10 +198,14 @@ export function QuadHarvest() {
           {verdicts.size > 0 && (
             <button
               type="button"
-              onClick={() => setVerdicts(new Set())}
+              onClick={() => {
+                touched.current = true
+                setVerdicts(new Set())
+              }}
+              title="Show everything, including the scanner's own capture, lock and identity events"
               className="h-[30px] rounded-full px-[10px] text-[11px] font-bold text-white/50 hover:text-white/80"
             >
-              clear
+              show all
             </button>
           )}
         </div>
@@ -311,7 +240,11 @@ export function QuadHarvest() {
               >
                 <div className="relative aspect-square bg-black">
                   {f.files.includes('png') ? (
-                    <FlagThumb id={f.id} alt={`label ${f.id}`} />
+                    <AuthThumb
+                      cacheKey={f.id}
+                      alt={`label ${f.id}`}
+                      load={(signal) => api.scanFlagBlob(f.id, 'png', signal)}
+                    />
                   ) : (
                     <div className="flex h-full items-center justify-center text-[10px] text-white/30">no frame</div>
                   )}
@@ -319,8 +252,17 @@ export function QuadHarvest() {
                     className={`pointer-events-none absolute left-[4px] top-[4px] rounded px-[5px] py-[1px] text-[9px] font-bold uppercase tracking-wide ${
                       VERDICT_TONE[verdict] ?? VERDICT_TONE.unknown
                     }`}
+                    title={
+                      verdict === 'unknown'
+                        ? 'Not a quad label — the product scanner writes its own capture, lock and identity events into the same prefix'
+                        : undefined
+                    }
                   >
-                    {verdict}
+                    {/* A scanner event is not an "unknown verdict", it is a
+                        different KIND of record. Naming it is the difference
+                        between a corpus with 224 mysteries in it and one with
+                        224 telemetry rows the reader can recognise and skip. */}
+                    {verdict === 'unknown' ? (f.label?.type ?? 'event') : verdict}
                   </span>
                   {f.label?.sweepStage && (
                     <span
