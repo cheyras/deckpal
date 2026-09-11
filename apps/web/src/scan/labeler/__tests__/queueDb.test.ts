@@ -101,3 +101,50 @@ test('the normalizer decodes EXIF-aware, or it bakes in the wrong rotation', () 
   // first lands every portrait photo permanently sideways in the corpus.
   assert.match(QUEUE_SRC, /decodeForCanvas/, 'normalization must reuse the EXIF-aware decode')
 })
+
+// ── One bad photo must not hold the rest hostage ───────────────────────────
+//
+// The flush used to `break` on the first failure, reasoning that a dead network
+// should not be hammered with the rest of the batch. That reasoning only holds
+// when failures are about the NETWORK. An undecodable HEIC fails every time,
+// forever — and one at the head of the queue held thirty-one other photos
+// hostage, including two this browser could read perfectly well. Measured on
+// the owner's own queue: 32 items, 30 HEIC, zero uploaded.
+
+test('a per-item failure skips that item and the loop continues', () => {
+  assert.doesNotMatch(
+    QUEUE_SRC,
+    /error = e instanceof Error \? e\.message : 'the upload was refused'\s*\n\s*break/,
+    'an unconditional break on the first failure is the bug — one bad photo blocks the queue',
+  )
+  assert.match(QUEUE_SRC, /failed \+= 1/, 'failures must be counted, not just stopped on')
+  assert.match(QUEUE_SRC, /if \(looksOffline\(\)\)/, 'only a genuine outage may short-circuit the run')
+})
+
+test('an undecodable photo is REFUSED, never uploaded as-is', () => {
+  // The route stores everything as image/jpeg. Uploading bytes that failed to
+  // decode manufactures a server row as broken as the local one — the previous
+  // "fall back to the original blob" path did exactly that.
+  assert.match(QUEUE_SRC, /throw new Error\(\s*`this browser cannot decode/, 'decode failure must throw')
+  assert.doesNotMatch(
+    QUEUE_SRC,
+    /async function normalizeForUpload[\s\S]*?\n  \} catch \{\n    return blob\n  \}/,
+    'normalizeForUpload must not fall back to the undecodable original',
+  )
+})
+
+test('the upload budget is sized under the limit that actually bites', () => {
+  // Vercel rejects a function request body over 4.5 MB BEFORE the handler runs.
+  // The body is base64, so the decoded budget is three quarters of that, less
+  // the JSON wrapper. Caps above it (12 MB, then 8 MB) could never fire.
+  const m = /const MAX_UPLOAD_BYTES = (\d+) \* 1024 \* 1024/.exec(QUEUE_SRC)
+  assert.ok(m, 'the client must declare an upload budget')
+  const decodedMb = Number(m[1])
+  const wireMb = (decodedMb * 4) / 3
+  assert.ok(wireMb < 4.5, `${decodedMb} MB decoded is ${wireMb.toFixed(1)} MB on the wire — over Vercel's 4.5 MB cap`)
+})
+
+test('the normalizer steps down until it fits, rather than giving up at one size', () => {
+  assert.match(QUEUE_SRC, /UPLOAD_LADDER/, 'a single quality/size attempt cannot guarantee the budget')
+  assert.match(QUEUE_SRC, /if \(out\.size <= MAX_UPLOAD_BYTES\) break/, 'the ladder must stop at the first fit')
+})

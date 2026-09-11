@@ -164,8 +164,38 @@ async function stash(items: OutboxItem[]): Promise<void> {
  */
 const MAX_UPLOAD_EDGE = 2048
 
-/** JPEG quality for the re-encode. Matches the rapid shutter's own 0.92. */
+/** JPEG quality to try first. Matches the rapid shutter's own 0.92. */
 const UPLOAD_QUALITY = 0.92
+
+/**
+ * The decoded size an upload has to fit under.
+ *
+ * ── THE CEILING I MISSED, TWICE, IN A REPO THAT DOCUMENTS IT ───────────────
+ *
+ * **Vercel rejects a serverless function's request body over 4.5 MB before the
+ * handler runs.** `scan/router.ts` says so and sizes itself at 4 MB;
+ * `ui/uploadNormalize.ts` says so in its first paragraph; DECISIONS records it
+ * three times. This queue route shipped with a 12 MB cap, then an 8 MB one —
+ * both above a limit the platform enforces first, so neither could ever be the
+ * thing that refused a photo, and the refusal that did happen arrived as a
+ * platform error about nothing in particular.
+ *
+ * The body is base64, so the DECODED budget is three quarters of the wire
+ * budget, less the JSON wrapper. 3 MB is the same number `dev-flags` already
+ * uses and leaves comfortable headroom.
+ */
+const MAX_UPLOAD_BYTES = 3 * 1024 * 1024
+
+/** Successively smaller attempts, tried in order until one fits the budget. A
+ *  card only has to be legible enough to place four corners on; 1280 px still
+ *  puts a card's short edge near 900 px, which is more than the 416 px
+ *  canonical frame will ever use. */
+const UPLOAD_LADDER: Array<{ edge: number; quality: number }> = [
+  { edge: MAX_UPLOAD_EDGE, quality: UPLOAD_QUALITY },
+  { edge: MAX_UPLOAD_EDGE, quality: 0.8 },
+  { edge: 1600, quality: 0.8 },
+  { edge: 1280, quality: 0.75 },
+]
 
 /**
  * Normalize a picked photo to ONE format before it is uploaded: upright JPEG,
@@ -199,31 +229,57 @@ const UPLOAD_QUALITY = 0.92
  * than a tidy format.
  */
 async function normalizeForUpload(blob: Blob): Promise<Blob> {
-  try {
-    const src = await decodeForCanvas(new File([blob], 'queued', { type: blob.type || 'image/jpeg' }))
-    const w = 'width' in src ? src.width : 0
-    const h = 'height' in src ? src.height : 0
-    if (!w || !h) return blob
-    const scale = Math.min(1, MAX_UPLOAD_EDGE / Math.max(w, h))
+  // THROWS RATHER THAN FALLING BACK. The previous version returned the original
+  // bytes when it could not decode them, which manufactured broken rows: the
+  // route stores everything as `image/jpeg`, so an undecodable HEIC went up
+  // labelled as a JPEG and came back just as unreadable from the server as it
+  // had been locally. If this browser cannot read the picture, no upload of it
+  // can be correct, and saying so is the only useful thing left to do.
+  const src = await decodeForCanvas(new File([blob], 'queued', { type: blob.type || 'image/jpeg' })).catch(() => {
+    throw new Error(
+      `this browser cannot decode ${blob.type || 'that file'} — Chrome cannot read HEIC at all. ` +
+        'Open the labeler in Safari, or export the photos as JPEG first.',
+    )
+  })
+  const w = 'width' in src ? src.width : 0
+  const h = 'height' in src ? src.height : 0
+  if (!w || !h) throw new Error('that file decoded to an empty image')
+
+  let best: Blob | null = null
+  for (const { edge, quality } of UPLOAD_LADDER) {
+    const scale = Math.min(1, edge / Math.max(w, h))
     const canvas = document.createElement('canvas')
     canvas.width = Math.max(1, Math.round(w * scale))
     canvas.height = Math.max(1, Math.round(h * scale))
     const ctx = canvas.getContext('2d')
-    if (!ctx) return blob
+    if (!ctx) throw new Error('this browser could not prepare the photo')
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(src as CanvasImageSource, 0, 0, canvas.width, canvas.height)
-    ;(src as { close?: () => void }).close?.()
-    const out = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', UPLOAD_QUALITY),
+    const out = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', quality))
+    if (out) {
+      best = out
+      if (out.size <= MAX_UPLOAD_BYTES) break
+    }
+  }
+  ;(src as { close?: () => void }).close?.()
+  if (!best) throw new Error('this browser could not re-encode that photo')
+  if (best.size > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `this photo is still ${(best.size / 1024 / 1024).toFixed(1)} MB after downscaling — over the ` +
+        `${MAX_UPLOAD_BYTES / 1024 / 1024} MB upload limit`,
     )
-    if (!out) return blob
-    // A re-encode that came out LARGER than an already-small JPEG is not an
-    // improvement — unless the source was not a JPEG at all, in which case the
-    // format is the point and the size is not.
-    const wasJpeg = /jpe?g/i.test(blob.type)
-    return !wasJpeg || out.size < blob.size ? out : blob
+  }
+  return best
+}
+
+/** Is the browser telling us the network is gone? `navigator.onLine` is only
+ *  trustworthy in the negative direction — `false` really does mean no
+ *  connection — which is exactly the direction this needs. */
+function looksOffline(): boolean {
+  try {
+    return typeof navigator !== 'undefined' && navigator.onLine === false
   } catch {
-    return blob
+    return false
   }
 }
 
@@ -286,10 +342,29 @@ export async function enqueue(
  * say — looked exactly like a photo waiting for signal, forever. A queue that
  * cannot explain itself is a queue the reader has to guess about.
  */
-export async function flushOutbox(): Promise<{ sent: number; remaining: number; error: string | null }> {
+export async function flushOutbox(): Promise<{
+  sent: number
+  failed: number
+  remaining: number
+  error: string | null
+}> {
   const items = await outbox()
   let sent = 0
+  let failed = 0
   let error: string | null = null
+  // ── ONE BAD PHOTO MUST NOT BLOCK THE REST ───────────────────────────────
+  //
+  // This used to `break` on the first failure, on the reasoning that a dead
+  // network should not be hammered with the rest of the batch. That reasoning
+  // only holds when failures are about the NETWORK. They are not: an
+  // undecodable HEIC fails every time, forever, and one of them at the head of
+  // the queue held thirty-one other photos hostage — including two the browser
+  // could read perfectly well. Measured on the owner's own queue: 32 items, 30
+  // HEIC, zero uploaded.
+  //
+  // So a per-item failure skips that item and the loop continues. A genuine
+  // network outage still short-circuits, because `looksOffline` stops the run
+  // rather than retrying thirty times against a connection that is gone.
   for (const it of items) {
     try {
       const jpg = await blobToBase64(await normalizeForUpload(it.blob))
@@ -297,13 +372,16 @@ export async function flushOutbox(): Promise<{ sent: number; remaining: number; 
       await run('readwrite', (s) => s.delete(it.id))
       sent += 1
     } catch (e) {
-      // Stop at the first failure rather than hammering a dead network with the
-      // rest of the batch; the next flush picks up here.
-      error = e instanceof Error ? e.message : 'the upload was refused'
-      break
+      const message = e instanceof Error ? e.message : 'the upload was refused'
+      failed += 1
+      if (!error) error = message
+      if (looksOffline()) {
+        error = 'no connection — the queue will finish uploading when you are back online'
+        break
+      }
     }
   }
-  return { sent, remaining: items.length - sent, error }
+  return { sent, failed, remaining: items.length - sent, error }
 }
 
 /**

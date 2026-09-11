@@ -34,6 +34,9 @@ export function AuthThumb({
   const hostRef = useRef<HTMLDivElement>(null)
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  // A decode failure clears the URL, so the explanation replaces the broken
+  // image rather than sitting next to it.
+  const shown = failed ? null : url
   // `load` is read through a ref so a new closure each render never restarts a
   // fetch; `cacheKey` is the only thing that may.
   const loadRef = useRef(load)
@@ -92,11 +95,17 @@ export function AuthThumb({
 
   return (
     <div ref={hostRef} className="h-full w-full">
-      {url ? (
-        <img src={url} alt={alt} className={className} />
+      {shown ? (
+        // `onError` IS NOT OPTIONAL HERE. Fetching the bytes can succeed and
+        // DECODING them still fail — Chrome cannot read HEIC at all, so an
+        // iPhone photo arrives intact and renders as the browser's torn-page
+        // glyph. Thirty of those in a grid reads as "the app is broken" rather
+        // than "this browser cannot open this format", which is what the owner
+        // saw. Say which.
+        <img src={shown} alt={alt} className={className} onError={() => setFailed(true)} />
       ) : (
-        <div className="flex h-full w-full items-center justify-center text-[10px] text-white/25">
-          {failed ? 'unreadable' : ''}
+        <div className="flex h-full w-full items-center justify-center px-[6px] text-center text-[10px] leading-[13px] text-white/35">
+          {failed ? "this browser can't open this format" : ''}
         </div>
       )}
     </div>
