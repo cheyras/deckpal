@@ -44,10 +44,21 @@ const QUEUE_ID_RE = /^(\d+)\.(jpg|json)$/;
 const ID_RE = /^\d+$/;
 const PREFIX = 'dev-queue/';
 
-/** A phone photo at full resolution. Generous next to the 3 MB flag cap because
- *  these ARE the originals — the crop step later cannot invent pixels this
- *  upload threw away. */
-const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
+/**
+ * The decoded-photo cap.
+ *
+ * 8 MB, NOT 12: the body arrives as base64, which is 33% larger than the bytes,
+ * behind `express.json({ limit: '12mb' })` in `index.ts`. A 12 MB cap here was
+ * unreachable — anything over ~9 MB decoded made a >12 MB body and the PARSER
+ * rejected it first, with a message about JSON rather than about photographs.
+ * 8 MB decoded is 10.7 MB on the wire and therefore a limit this route can
+ * actually enforce and explain.
+ *
+ * Clients normalize to a 2048 px JPEG before uploading (`queueDb
+ * .normalizeForUpload`), which lands well under this; the cap is the backstop
+ * for a client that does not, not the working size.
+ */
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 
 interface QueueMeta {
   name: string;
