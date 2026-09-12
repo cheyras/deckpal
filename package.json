@@ -11,6 +11,7 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:local": "node scripts/dev.mjs --local",
