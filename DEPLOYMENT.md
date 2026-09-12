@@ -5,6 +5,23 @@ and CDN) or **self-host** (plain Postgres behind your own reverse proxy).
 
 ---
 
+## Prerequisites — pnpm version
+
+This repository pins its package manager in `package.json`
+(`"packageManager": "pnpm@10.34.5"`). CI's `pnpm/action-setup@v6` step reads
+that pin — its `version` input is deliberately unset — so CI installs under the
+same pnpm that generated and tested the frozen lockfile. The pin is repo-level
+only: it changes no global package-manager setting and no dependency version.
+Auto-selection was confirmed on this machine's native pnpm11.13.1 launcher
+(`manage-package-manager-versions` default); it is not guaranteed for every
+configuration. Run `pnpm --version` before `pnpm install` and confirm
+`10.34.5`; if a global pnpm does not self-switch, use the version-explicit
+non-global fallback — `npx --yes pnpm@10.34.5 --version`, then
+`npx --yes pnpm@10.34.5 install --frozen-lockfile` — which needs no global
+change and does not edit the lock.
+
+---
+
 ## Path A — Vercel + Supabase (cloud)
 
 ### 1. Create a Supabase project
