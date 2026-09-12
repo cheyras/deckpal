@@ -19,6 +19,7 @@
     "manifest:check": "tsx src/manifestCheck.ts",
     "rekey:set": "tsx src/rekeySet.ts",
     "test": "node --import tsx --test src/__tests__/*.test.ts",
+    "test:ratelimit": "node --import tsx --test src/__tests__/rateLimit.test.ts",
     "manifest:backfill": "tsx src/manifestBackfill.ts",
     "storage:backfill": "tsx src/cloudBackfill.ts",
     "warm:cloud": "tsx src/cloudWarm.ts"
@@ -30,8 +31,8 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/node": "^26.2.0",
-    "tsx": "^4.23.12",
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
 }

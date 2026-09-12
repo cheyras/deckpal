@@ -195,6 +195,21 @@ jobs:
       - name: Image re-key address algebra (pure, no DB)
         run: pnpm --filter deckpal-images test
 
+      # ── Security hardening suites (pure, no DB) ──────────────────────────
+      # These test the rate limiters and safe CLI error formatting added by
+      # the security-fixes branch. The content-type sniff guard runs in the
+      # existing @deckpal/storage test step above. All are pure unit tests
+      # with no DB or network dependencies.
+
+      - name: API rate-limit guards (pure, no DB)
+        run: pnpm --filter deckpal-api test:ratelimit
+
+      - name: Images rate-limit guards (pure, no DB)
+        run: pnpm --filter deckpal-images test:ratelimit
+
+      - name: CLI error safety (pure, no DB)
+        run: pnpm --filter @deckpal/db test:cli
+
       - name: Build web
         run: pnpm --filter deckpal-web build
 

@@ -21,16 +21,16 @@
     "dev:api": "pnpm --filter deckpal-api dev"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "sharp": "^0.35.3",
-    "tsx": "^4.23.12",
+    "@types/node": "^26.4.1",
+    "sharp": "^0.35.4",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "4.0.52",
+    "@ai-sdk/gateway": "4.0.75",
     "@deckpal/db": "workspace:*",
-    "ai": "7.0.66",
+    "ai": "7.0.93",
     "pg": "^8.23.0",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   }
 }

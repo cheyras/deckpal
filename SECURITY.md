@@ -320,6 +320,105 @@ whose session has lapsed to the sign-in form instead of the marketing page
 (`lib/returningVisitor.ts`); it carries no email, user id or token, and no
 authorization decision anywhere consults it. Clearing site data resets both.
 
+### Rate limiting (REST API)
+
+Two layers of in-memory rate limiting were added to the REST API
+(`apps/api/src/rateLimit.ts`, mounted in `createApp`):
+
+**Pre-auth ingress guard (ordinary base-path API router).** A limiter runs on
+the ordinary base-path API router (`/api` on Vercel, `/deckpal/api`
+self-host) **before** `authMiddleware`/token resolution and **before** the RLS
+`pool.connect()`, so even unauthenticated catalog reads are bounded — the RLS
+middleware acquires a database connection for anonymous requests too, so a
+Bearer-only guard would leave no-header floods unbounded. **600 requests/minute
+per source IP per process.** On the real Vercel runtime
+(`process.env.VERCEL === '1'`) a narrow resolver keys on the validated platform
+`x-vercel-forwarded-for` (preferred) or `x-forwarded-for`; Vercel overwrites
+these at ingress, so a client cannot spoof them. Outside Vercel, forwarding
+headers are **ignored** and the raw socket peer is used. Express `trust proxy`
+stays at its default **false** (not loopback), and no new production env
+variable is required — the existing `VERCEL` is platform-provided, not user
+input. The Stripe raw-body webhook and the bare-origin OAuth discovery /
+`/register` / `/token` handlers are mounted separately on `app` ahead of that
+router and are outside this guard; the MCP transport at `/mcp` is a separate
+function (`api/mcp.mjs`).
+
+**Per-user session routes.** `/tokens` (20/min), `/avatar` (10/min) and
+`/oauth` (30/min) are guarded **after** authentication but **before** the RLS
+`pool.connect`; `requireSession` rejects personal access tokens and
+anonymous requests cheaply first. On self-host, where `authMiddleware` leaves
+`req.user` unset, the account guards key on the socket peer; on cloud
+`requireSession` still rejects anonymous/PAT before any per-user budget is
+checked. Refusal is `429` with a `Retry-After` header in seconds. Each request
+is charged **once per applicable budget** — it may consume both the ingress
+budget and a per-user session budget, but there is no duplicate route-level
+charge (the routers below carry no second limiter). Existing `requireSession`
+policies are unchanged.
+
+**What these budgets are — and are not.** All application budgets are bounded
+in-memory fixed windows, **per process / per serverless function instance**,
+reset on restart or cold start. Bounded key capacity (`MAX_KEYS`) and amortised
+expiry avoid memory growth and per-rejection full-map scans. The guard stops
+retry storms and casual abuse; it does **not** protect from distributed or
+network flooding, and reverse-proxy / platform controls remain the deployment
+boundary. Never claim distributed-quota protection.
+
+⚠️ Same shape as the billing limiter below: per-process means each serverless
+instance keeps its own budget, so a caller spread across instances gets a
+multiple of the limit. The budgets are speed bumps, not boundaries.
+
+**MCP scope.** The MCP transport at `/mcp` (separate `api/mcp.mjs` function)
+is **not** automatically covered by the 600/min guard. The MCP token/OAuth
+**management** endpoints (`/tokens`, `/oauth`, `/avatar`) are REST routes on
+the base-path router and use these REST controls. Existing MCP-specific
+security details are unchanged.
+
+### Self-host images rate limiting
+
+`apps/images` stays bound to `127.0.0.1`. **Health is 60 requests/min before
+the `cacheStats` DB work**, and the four sprite/set/card asset routes share a
+generous **3000/min budget before filesystem/DB work**. Identity is the socket
+peer; behind the ordinary loopback proxy these are coarse shared
+**process/peer** budgets, **not** per-end-user quotas. Existing cache headers,
+placeholders, path guards and provenance behaviour stay unchanged; no asset
+writes, migrations or nginx changes happened.
+
+### Content-type sniffing
+
+`sniffContentType` (`packages/storage/src/sniff.ts`, shared by both image
+tiers) returns `application/octet-stream` for malformed non-byte input types.
+Genuine `Buffer`/`Uint8Array` including nonzero-`byteOffset` views are
+supported. Object, string and array values are rejected via
+`util.types.isUint8Array`, which checks the internal `[[TypedArrayName]]` slot.
+
+### Migration CLI error safety
+
+The migration CLI (`packages/db/src/cliErrors.ts`) replaces open-ended error
+stringification with a **closed set** of fixed diagnostics keyed on an
+explicit pg/system error-code allowlist. It never includes `err.message`,
+`err.stack`, `err.detail` or `String(err)` — a `pg` message is built from
+connection parameters and can carry the full DSN with credentials. It avoids
+getters, `toString` and any coercion: `safeReadCode` reads the `code`
+descriptor as a data property only, and the `getOwnPropertyDescriptor` call
+it makes **can** trigger a hostile Proxy trap during descriptor inspection —
+those trap exceptions are caught and discarded (never logged or stringified),
+returning a fixed diagnostic. Dictionary membership is guarded as own-only.
+Unknown code strings are never echoed: a code like `TOPSECRET` would
+leak through a regex redactor, which is why a redactor (or an uppercase-code
+regex) is insufficient — a redactor can only scrub shapes it enumerates, and a
+hostile `code` property is a value, not a pattern.
+
+### Dependency advisories
+
+Addressed via version floors and within-major `pnpm` overrides (resolved
+versions in `pnpm-lock.yaml`): `sharp >= 0.35.4` (`sharp@0.35.4`), `hono >= 4.13.5`
+(`hono@4.13.7`), `qs >= 6.16.0` (`qs@6.16.0`), `fast-uri >= 3.1.6`
+(`fast-uri@3.1.7`). `hono` is explicit in `apps/mcp/package.json` because
+optional peer resolution otherwise retained the vulnerable version. The
+existing Dependabot batch plus the `sharp` and `github-script` updates are
+consolidated into this changeset. `actions/github-script` v7→v9 is an Actions
+**major** upgrade, not a minor update. Permissions/approval logic is unchanged.
+
 ### Self-host deployment
 
 **Authentication:** The API has no built-in authentication. It is designed to

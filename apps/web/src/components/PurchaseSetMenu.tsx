@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Goal } from '../routes/setSearch'
 import { api, type SetMassEntry } from '../lib/api'
 import { Icon } from './Icon'
@@ -63,8 +63,30 @@ function generateErrorMessage(err: unknown): string {
   return (err as Error).message
 }
 
-export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: Goal }) {
-  const [open, setOpen] = useState(false)
+export function PurchaseSetMenu({
+  setId,
+  pageGoal,
+  controlledOpen,
+  onControlledClose,
+}: {
+  setId: string
+  pageGoal: Goal
+  /** When provided, suppresses the built-in trigger button and the component
+   *  uses this value as the modal open state (controlled mode for SetHeader's
+   *  mobile Actions dropdown). */
+  controlledOpen?: boolean
+  onControlledClose?: () => void
+}) {
+  const isControlled = controlledOpen !== undefined
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = isControlled ? controlledOpen! : internalOpen
+  const setOpen = (v: boolean) => {
+    if (isControlled) {
+      if (!v) onControlledClose?.()
+    } else {
+      setInternalOpen(v)
+    }
+  }
   const [goal, setGoal] = useState<Goal>(pageGoal)
   const [finishes, setFinishes] = useState<Set<FinishCode>>(new Set(FINISHES.map((f) => f.code)))
   const [busy, setBusy] = useState(false)
@@ -79,16 +101,56 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
     setCopied(false)
   }
 
+  // Lifecycle guard: incremented on close, on open and on setId change so a late
+  // async cart response from a previous open/set cannot write into the current
+  // state.  The close increment is critical: without it a delayed response that
+  // arrives between close and the next open can still match the epoch that was
+  // current when the request started, writing stale data into the reopened modal.
+  const epochRef = useRef(0)
+  const prevOpenRef = useRef(false)
+
+  // Reset goal + cart + busy state every time the modal opens (both controlled
+  // and uncontrolled paths), and invalidate on close so in-flight requests from
+  // the previous session are discarded.
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      // Opening: reset everything and bump epoch so old requests are stale.
+      setGoal(pageGoal)
+      setBusy(false)
+      reset()
+      epochRef.current++
+    } else if (!open && prevOpenRef.current) {
+      // Closing: bump epoch so any still-in-flight request from this session
+      // sees a mismatch and drops its result instead of writing into state.
+      epochRef.current++
+    }
+    prevOpenRef.current = open
+  }, [open, pageGoal])
+
+  // Discard stale results when setId changes (navigation A→B while modal open
+  // or closed).  Goal is reset to the new page's goal so a dialog that stayed
+  // open across set navigation does not carry the previous set's goal forward.
+  useEffect(() => {
+    setGoal(pageGoal)
+    setBusy(false)
+    reset()
+    epochRef.current++
+  }, [setId, pageGoal])
+
   const generate = async () => {
+    const myEpoch = ++epochRef.current
     setBusy(true)
     reset()
     try {
       const scope: FinishCode[] | null = goal !== 'complete' && !allFinishes ? [...finishes] : null
-      setResult(await api.setMassEntry(setId, goal, scope, AbortSignal.timeout(GENERATE_TIMEOUT_MS)))
+      const data = await api.setMassEntry(setId, goal, scope, AbortSignal.timeout(GENERATE_TIMEOUT_MS))
+      if (epochRef.current !== myEpoch) return // stale — modal closed or set changed
+      setResult(data)
     } catch (err) {
+      if (epochRef.current !== myEpoch) return
       setError(generateErrorMessage(err))
     } finally {
-      setBusy(false)
+      if (epochRef.current === myEpoch) setBusy(false)
     }
   }
 
@@ -105,16 +167,18 @@ export function PurchaseSetMenu({ setId, pageGoal }: { setId: string; pageGoal: 
 
   return (
     <>
-      <button
-        onClick={() => {
-          setGoal(pageGoal)
-          reset()
-          setOpen(true)
-        }}
-        className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
-      >
-        <Icon name="cart" size={16} className="text-action-brand" /> Purchase Set
-      </button>
+      {!isControlled && (
+        <button
+          onClick={() => {
+            setGoal(pageGoal)
+            reset()
+            setOpen(true)
+          }}
+          className="flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
+        >
+          <Icon name="cart" size={16} className="text-action-brand" /> Purchase Set
+        </button>
+      )}
 
       {open && (
         <Modal title="Purchase Set" onClose={() => setOpen(false)}>

@@ -19,15 +19,16 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/cli.ts up",
-    "migrate:status": "tsx src/cli.ts status"
+    "migrate:status": "tsx src/cli.ts status",
+    "test:cli": "node --import tsx --test src/__tests__/cliErrors.test.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.21.0",
-    "tsx": "^4.23.12",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
-    "@types/node": "^26.2.0"
+    "@types/node": "^26.4.1"
   }
 }

@@ -200,8 +200,11 @@ function QtyStepper({
 // wide, so "Found in Booster Packs" wrapped down 9 lines, two characters at a
 // time. Narrower price/qty tracks there give the name column ~84px, which
 // wraps on word boundaries like prose instead of shattering.
+// Mobile (<567px): 2-column grid — name+stepper share row 1, price spans row 2.
+// gap+ (≥567px): 3-column grid matching the original layout.
+// nav+ (≥1068px): wider column gaps only.
 const VARIANT_GRID =
-  'grid grid-cols-[minmax(0,1fr)_64px_92px] gap-x-[8px] gap:grid-cols-[minmax(0,1fr)_84px_108px] gap:gap-x-[12px] nav:gap-x-[16px]'
+  'grid grid-cols-[minmax(0,1fr)_auto] gap-x-[8px] gap:grid-cols-[minmax(0,1fr)_84px_108px] gap:gap-x-[12px] nav:gap-x-[16px]'
 
 function VariantRow({
   v,
@@ -259,8 +262,8 @@ function VariantRow({
           </div>
         </div>
 
-        {/* Market Price column */}
-        <div className="min-w-0 text-right">
+        {/* Market Price column — spans full width on mobile (row 2), col 2 on gap+ */}
+        <div className="col-[1/-1] row-[2] min-w-0 gap:col-[auto] gap:row-[auto] gap:text-right">
           {price && price.market != null ? (
             <div className="text-[16px] font-medium text-change-positive">{fmtPrice(price)}</div>
           ) : (
@@ -271,9 +274,10 @@ function VariantRow({
           )}
         </div>
 
-        {/* Quantity column. Logged out there is no quantity and nothing to
-            adjust, so the stepper is replaced by the reason it is missing. */}
-        <div className="flex justify-end">
+        {/* Quantity column — col 2 row 1 on mobile, col 3 on gap+. Logged out
+            there is no quantity and nothing to adjust, so the stepper is
+            replaced by the reason it is missing. */}
+        <div className="col-[2] row-[1] flex justify-end gap:col-[auto] gap:row-[auto]">
           {v.quantity === undefined ? (
             <Link
               to="/auth"
@@ -768,8 +772,9 @@ function CardTab({
       >
         <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[14px] text-text-muted`}>
           <span>Variant</span>
-          <span className="text-right">Market Price</span>
-          <span className="text-right">Quantity</span>
+          {/* Hidden on mobile (price label goes with the row, not the header column) */}
+          <span className="hidden text-right gap:block">Market Price</span>
+          <span className="text-right">Qty</span>
         </div>
         <div className="flex flex-col gap-[10px]">
           {standard.map((v) => (

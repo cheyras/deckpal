@@ -60,9 +60,15 @@ supportedArchitectures:
 # success and resolves the old version anyway. Verify with `pnpm why <pkg> -r`
 # rather than trusting a clean install.
 overrides:
-  # GHSA alerts 7/8/9/10: memo() SSR cross-user data disclosure, CORS ReDoS,
-  # Language-middleware algorithmic DoS, Connection-header leak in the proxy
-  # helper. All fixed in 4.12.34. @hono/node-server peer-requires `hono: ^4`, so
-  # this is a patch bump inside the range the parent already accepts, not a
-  # forced major. Drop it once @modelcontextprotocol/node ships a newer floor.
-  hono: '^4.12.34'
+  # GHSA alerts 7/8/9/10 (fixed in 4.12.34) + 18/19/20 (fixed in 4.13.5):
+  # query-parser fragment confusion, parseBody() unbounded nesting, toSSG()
+  # path traversal. @hono/node-server peer-requires `hono: ^4`, so this is a
+  # patch bump inside the range. Drop once @modelcontextprotocol/node ships >=4.13.5.
+  hono: '^4.13.5'
+  # GHSA-4mjr-xmp4-gh2g / GHSA-x5fp-wj9c-mxmx: qs isBuffer DoS + array-limit
+  # bypass. Express 5 depends on qs ^6.14.0; this forces the fix. Within major.
+  qs: '^6.16.0'
+  # GHSA-jqff-g426-hqxp / GHSA-f65p-4m7j-42xc / GHSA-fph4-wmhf-6fwf /
+  # GHSA-5jgf-p345-68v8: host confusion, SSRF, double percent-decode, IDN
+  # canonicalization bypass. All fixed in 3.1.6. Within major.
+  fast-uri: '^3.1.6'

@@ -1,5 +1,6 @@
 import { makePool } from './pool.js';
 import { migrateUp, migrationStatus } from './migrate.js';
+import { safeDiagnostic } from './cliErrors.js';
 
 async function main(): Promise<void> {
   const cmd = process.argv[2] ?? 'up';
@@ -42,7 +43,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
+main().catch((err: unknown) => {
+  console.error(safeDiagnostic(err));
   process.exit(1);
 });

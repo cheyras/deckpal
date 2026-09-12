@@ -43,6 +43,7 @@ import { mountOAuthServer } from './oauthServer.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -183,11 +184,37 @@ export function createApp(): express.Express {
 
   const api = express.Router();
 
+  // Pre-auth ingress guard: throttle ALL API requests BEFORE authMiddleware
+  // and the RLS pool acquisition that follows it. The RLS middleware acquires
+  // a database connection even for unauthenticated catalog reads, so a
+  // Bearer-only guard would leave no-header and lowercase-bearer floods
+  // unbounded. 600 requests/min per source IP per process — conservative
+  // enough for normal app loads (~5-10 API calls per page load, ~50 for
+  // heavy browsing) while bounding unauthenticated DB work.
+  // Keyed on platform-aware client IP: on Vercel, validated
+  // x-vercel-forwarded-for (Vercel overwrites it to prevent spoofing);
+  // on self-host, raw socket peer (Express trust proxy is FALSE by default,
+  // not loopback — see expressjs.com/en/guide/behind-proxies.html).
+  api.use(preAuthFloodGuard);
+
   // JWT verification runs on every request (extracts req.user from Bearer token).
   // It never rejects — user-scoped routers are gated by resolveIdentity below,
   // and the session-only ones (/me/billing, /tokens, /avatar, /oauth) by
   // requireSession too.
   api.use(authMiddleware);
+
+  // ── Per-user rate limits for session-only routes ─────────────────────────
+  //
+  // Mounted AFTER authMiddleware (which settles req.user) but BEFORE the RLS
+  // middleware below (which calls pool.connect). A blocked request never
+  // acquires a pool connection or begins a transaction.
+  //
+  // requireSession rejects PATs (403) and unauthenticated requests (401)
+  // cheaply; the per-user rate limit then bounds authenticated session users.
+  // Charges once here — the route mounts below carry only the router.
+  api.use('/tokens', requireSession, tokensRateLimit);
+  api.use('/avatar', requireSession, avatarRateLimit);
+  api.use('/oauth', requireSession, oauthRateLimit);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS
@@ -553,14 +580,19 @@ export function createApp(): express.Express {
   api.use('/bugs', bugsRouter);
   // Token management is session-only: a personal access token can use the API,
   // but it can never mint another one or revoke the ones that gate it.
-  api.use('/tokens', requireSession, tokensRouter);
+  // requireSession and tokensRateLimit (20/min) already ran above —
+  // mounted before the RLS middleware so a rejected request never acquires
+  // a pool connection.
+  api.use('/tokens', tokensRouter);
   // Profile photo. Session-only for the same reason: a personal access token
   // reads a collection, it does not restyle the account that minted it.
-  api.use('/avatar', requireSession, avatarRouter);
+  // requireSession and avatarRateLimit (10/min) already ran above.
+  api.use('/avatar', avatarRouter);
   // OAuth consent decision. Session-only for the same reason as /tokens:
   // approving a connector mints a new personal access token, so a token must
   // never be able to approve minting another one.
-  api.use('/oauth', requireSession, oauthRouter);
+  // requireSession and oauthRateLimit (30/min) already ran above.
+  api.use('/oauth', oauthRouter);
 
   app.use(basePath, api);
 

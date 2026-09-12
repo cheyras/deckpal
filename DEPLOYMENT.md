@@ -233,6 +233,31 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DRIVE_EXPORT_FOLDER_ID` | Drive folder id (optional) | Where curated training images go. Unset, the tool resolves `/deckpal/card_scans` **by name** and fails loudly if it cannot find it — it will not CREATE the folder, per B9: a tool that makes its own destination when it cannot find one is a tool that uploads somewhere nobody is watching. The folder must be shared with the service account's `client_email`. |
 | `DRIVE_EXPORT_CROP_BUCKET` | `card-scans` (default) | Which storage bucket holds the retained crops the export reads. **The default is a guess and has not been confirmed against a real deployment** — the opt-in crop tier has never written an object. Confirm it before the first run. |
 
+#### Rate limiting — no new environment variable
+
+The API's abuse budgets need **no new env variable to deploy**. The pre-auth
+ingress guard (600 requests/min per source IP per process) and the per-user
+session limits (`/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min) are wired
+unconditionally in `createApp` on the ordinary base-path API router (`/api` on
+Vercel, `/deckpal/api` self-host). The Stripe raw-body webhook and the
+bare-origin OAuth discovery / `/register` / `/token` handlers are mounted
+separately on `app` ahead of that router and are outside this guard; the MCP
+transport at `/mcp` is a separate function. Client-identity resolution keys on
+the existing **`VERCEL`** runtime variable — platform-provided on Vercel
+(`'1'`), absent elsewhere — to decide whether to trust
+`x-vercel-forwarded-for` / `x-forwarded-for` (Vercel overwrites both at
+ingress) or fall back to the raw socket peer. Express `trust proxy` is **not**
+changed from its default `false`. Per B11: nothing here is inferred — `VERCEL`
+is the platform's own variable, set by the runtime, never by a user, and the
+limits are on whenever the API is on. Refusals are `429` with a `Retry-After`
+header in seconds.
+
+⚠️ **Per-process, not global.** The budgets are in-memory fixed windows kept
+per process / per serverless function instance and reset on restart or cold
+start. They stop retry storms and casual abuse; they are not a durable
+distributed quota and do not protect from distributed or network flooding —
+reverse-proxy / platform controls remain the deployment boundary.
+
 #### `pgvector` is a prerequisite of migration 051
 
 The scanner's embedding index (`card_embedding`) is a `vector(768)` column, so
@@ -1268,6 +1293,14 @@ node apps/api/dist/index.js
 The API serves the built SPA. The image server (`apps/images`) serves cached
 card art from the local disk. Run it alongside the API if you need card art
 served locally.
+
+`apps/images` binds `127.0.0.1` and carries its own in-memory budgets: health
+**60 requests/min** before its `cacheStats` DB query, and the four
+sprite/set/card asset routes share **3000/min** before filesystem/DB work.
+Identity is the socket peer, so behind the ordinary loopback proxy every
+request shares one coarse process/peer budget — these are speed bumps against
+localhost abuse (runaway warmers, crawlers), **not** per-end-user quotas, and
+the proxy remains the real ingress boundary.
 
 ### 5. Configure a reverse proxy
 
