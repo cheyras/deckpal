@@ -7,6 +7,7 @@ import { describeCard, resolveCard } from '../resolve.js';
 import type { RarityPeel } from '../entities.js';
 import { explainMiss, peelRarity, presentRef, resolveSet, resolvedNote } from '../entities.js';
 import { GOALS, defaultGoal, errText, type Goal } from '../shared.js';
+import { cardPriceHistoryTools } from './cardPriceHistory.js';
 
 /**
  * Catalog tools — SPEC §5 #3 search_cards, #4 get_card, #5 set_progress.
@@ -1227,4 +1228,5 @@ export const catalogTools: ToolDefinition[] = [
   searchCardsTool,
   getCardTool,
   setProgressTool,
+  ...cardPriceHistoryTools,
 ];

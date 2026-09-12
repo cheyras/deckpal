@@ -362,9 +362,10 @@ cardsRouter.get(
  * rollup buckets, so the two tiers cannot disagree about what a day was worth.
  *
  * ── WHAT AN AGENT MAY ASSERT FROM THIS RESPONSE ────────────────────────────
- * ⚠ THIS TEXT IS A CONTRACT. It MUST ship verbatim in any `packages/agent-tools`
- * or MCP tool that later exposes price history — none does today (`get_card`
- * serves current prices only). Rollup destroys real information, and an agent
+ * ⚠ THIS TEXT IS A CONTRACT. It ships verbatim in the `card_price_history`
+ * tool (`packages/agent-tools/src/tools/cardPriceHistory.ts`), which exposes
+ * this history through `ctx.api.get` against this endpoint; `get_card` serves
+ * current prices only. Rollup destroys real information, and an agent
  * that does not know WHICH information will invent it.
  *
  * Grounded on `grain`, an agent:

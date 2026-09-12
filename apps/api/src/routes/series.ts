@@ -3,6 +3,7 @@ import { q, q1 } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
 import { pct } from '../insights/trainerLevel.js';
+import { compareSetOrder, mapUpcomingPlaceholder, todayIso, upcomingSetsFor } from '../upcomingSets.js';
 
 export const seriesRouter: Router = Router();
 
@@ -54,6 +55,14 @@ seriesRouter.get(
     // per fanned-out row: 20 968 loops, 91 837 shared buffers, 661 ms execution.
     // Aggregating first leaves 20 rows, so each LATERAL runs 20 times: 46 ms,
     // byte-identical output (verified by diffing both result sets).
+    //
+    // SQL DATE columns (first_release_on, released_on) are projected to text
+    // with to_char('YYYY-MM-DD') at the SELECT boundary. node-postgres parses
+    // bare DATE values (OID 1082) into JS Date objects, which JSON serializes
+    // as UTC timestamps — shifting the rendered calendar day in zones behind
+    // UTC and breaking the string-only compareSetOrder used to interleave
+    // placeholders. Projecting to text keeps the contract a calendar string
+    // end-to-end; the ORDER BY still sorts on the raw DATE column.
     const rows = await q<SeriesRow>(
       `WITH counts AS (
          SELECT cs.series_id,
@@ -63,8 +72,10 @@ seriesRouter.get(
       LEFT JOIN card c ON c.set_id = cs.id
           GROUP BY cs.series_id
        )
-       SELECT s.id, s.tcgdex_id, s.slug, s.name, s.first_release_on, s.sort_order,
-              COALESCE(cnt.set_count, 0)  AS set_count,
+       SELECT s.id, s.tcgdex_id, s.slug, s.name,
+               to_char(s.first_release_on, 'YYYY-MM-DD') AS first_release_on,
+               s.sort_order,
+               COALESCE(cnt.set_count, 0)  AS set_count,
               COALESCE(cnt.card_count, 0) AS card_count,
               rep.tcgdex_id        AS rep_set_id,
               rep.logo_url   IS NOT NULL AS rep_has_logo,
@@ -159,7 +170,9 @@ seriesRouter.get(
   asyncHandler(async (req, res) => {
     const slug = req.params.seriesSlug;
     const series = await q1<SeriesRow>(
-      `SELECT s.id, s.tcgdex_id, s.slug, s.name, s.first_release_on, s.sort_order,
+      `SELECT s.id, s.tcgdex_id, s.slug, s.name,
+              to_char(s.first_release_on, 'YYYY-MM-DD') AS first_release_on,
+              s.sort_order,
               0 AS set_count, 0 AS card_count
          FROM series s
          JOIN catalogue cat ON cat.code = s.catalogue_code AND cat.is_enabled
@@ -171,7 +184,8 @@ seriesRouter.get(
     const userId = optionalUserId(req);
 
     const sets = await q<SetSummaryRow>(
-      `SELECT cs.id, cs.tcgdex_id, cs.slug, cs.name, cs.released_on,
+      `SELECT cs.id, cs.tcgdex_id, cs.slug, cs.name,
+              to_char(cs.released_on, 'YYYY-MM-DD') AS released_on,
               cs.card_count_official, cs.card_count_total, cs.is_promo,
               cs.logo_url, cs.symbol_url,
               count(c.id) AS card_rows,
@@ -194,9 +208,7 @@ seriesRouter.get(
     );
 
     userCache(res);
-    res.json({
-      series: { slug: series.slug, tcgdexId: series.tcgdex_id, name: series.name, firstReleaseOn: series.first_release_on },
-      sets: sets.map((s) => {
+    const catalogSets = sets.map((s) => {
         const total = s.card_count_total ?? Number(s.card_rows);
         const official = s.card_count_official ?? total;
         return {
@@ -222,7 +234,27 @@ seriesRouter.get(
                 },
               }),
         };
-      }),
+      });
+
+    // Announced-but-unpublished sets, appended as non-clickable "Coming Soon"
+    // rows (see upcomingSets.ts for why these are not catalog rows). Normally
+    // this is an empty array. The placeholder mapping and the sort comparator
+    // live in upcomingSets.ts so the route and its tests share one
+    // implementation rather than a copy that can drift.
+    const placeholders = upcomingSetsFor(
+      series.slug,
+      catalogSets.map((s) => s.name),
+      todayIso(),
+    ).map(mapUpcomingPlaceholder);
+
+    userCache(res);
+    res.json({
+      series: { slug: series.slug, tcgdexId: series.tcgdex_id, name: series.name, firstReleaseOn: series.first_release_on },
+      // Re-sorted rather than concatenated, so a placeholder lands in date order
+      // among the real sets instead of being pinned to an end. The comparator
+      // is the SQL's `released_on DESC NULLS LAST, name` — kept in step by hand
+      // because only one of the two lists comes from the database.
+      sets: [...catalogSets, ...placeholders].sort(compareSetOrder),
     });
   }),
 );

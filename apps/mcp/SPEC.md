@@ -109,7 +109,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
 ## 3b. Cloud mode — multi-user, per-token (added 2026-08-10)
 
 Everything above describes the **self-host** server: one long-lived process, one user, one shared
-`x-brain-key`. The cloud deployment serves the *same 23 tools* to any signed-up user from a single
+`x-brain-key`. The cloud deployment serves the *same 24 tools* to any signed-up user from a single
 Vercel function. Only the way the context is built differs; no tool was rewritten.
 
 | Thing | Self-host (`src/index.ts`) | Cloud (`src/cloud.ts` → `api/mcp.mjs`) |
@@ -171,7 +171,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 ## 4. Tool conventions
 
-- **The 23 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
+- **The 24 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
   each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
   against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
   is the only file that turns one into an MCP registration: it walks `allTools()` and calls
@@ -179,7 +179,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   branching on whether `inputSchema` is present (the SDK calls a no-arg tool's handler as
   `(serverCtx)`, not `(args, serverCtx)` — `health` needs the with-args branch skipped or its handler
   receives the server context in the position it expects its own args). `apps/api/src/decke/adapters/
-  aisdk.ts` is the sibling adapter onto the AI SDK's `tool()`, for Deck-E — same 23 definitions, a
+  aisdk.ts` is the sibling adapter onto the AI SDK's `tool()`, for Deck-E — same 24 definitions, a
   different protocol. A tool added or changed here appears on both fronts in the same commit.
   Every tool has `title` + annotations: `readOnlyHint: true` on all reads; `destructiveHint: true` on
   `delete_deck` / `delete_list`; `idempotentHint` where true. `readOnlyHint` is required in this
@@ -272,7 +272,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (23 tools + 1 resource)
+## 5. Tool surface (24 tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -342,6 +342,45 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
    (`price_observation` partitions / `collection_value_point`) or by calling the API insights
    route — implementer reads that file first and picks the thinner path; label results as
    estimates.
+ 7b. **`card_price_history`** — `{ card_id, range? = '3m' ∈ 30d|3m|6m|1y|18m|2y,
+     currency? = 'USD' ∈ USD|EUR|JPY, offset? = 0 }`. Historical OHLC price series for one card by
+     TCGdex id, one series per printing variant. Delegates a single read to
+     `GET /cards/:cardId/prices` through `ctx.api.get` — no schema change, no new
+     credential, no direct Postgres touch. `card_id` is the canonical TCGdex id
+     (e.g. `sv03.5-151`, `base1-1`), required and non-blank; `range` defaults to
+     `3m`, `currency` to `USD`. Values come back in **currency major units**
+     (dollars/euros pre-divided from cents; JPY is whole yen) — never divide by 100.
+     `readOnlyHint: true`, `idempotentHint: true`.
+
+     **Pagination.** `offset` is an optional nonnegative safe integer, default
+     `0`. It counts points in API order plus one record for each empty variant,
+     and is not sent to the REST endpoint. Each call makes one GET for the
+     same card/range/currency. Each successful
+     text page is at most 5500 characters including headers and continuation;
+     OHLC point fields and printing identity remain complete. Read the
+     model-visible `next_offset=<integer>` and call again with that `offset`
+     and unchanged `card_id`, `range`, and `currency` until
+     `next_offset=none`. Do not treat the first page as the complete history.
+     If a single complete record and its identity exceed the budget, the tool
+     returns an explicit error; it does not split or truncate that record.
+     Continuation is in text because MCP does not expose structured tool
+     metadata. This also avoids conversational Deck-E's 6000-character cutoff.
+
+     **Empty behaviour.** An empty `series` means there are no recorded
+     observations for that card/range/currency — NOT a current price (use
+     `get_card` for that), NOT zero history, and NOT a fabricated trend. The tool
+     says so in plain text. An offset past available records is reported
+     separately and does not imply the card has no history.
+
+     **Pricing interpretation limits.** The description carries the full
+     MAY/MAY NOT contract from `apps/api/src/routes/cards.ts`'s price-route
+     JSDoc verbatim (grounded on `grain`): an agent MAY assert bucket
+     open/close/high/low/mean/median, the exact `highOn`/`lowOn` daily facts,
+     trend across buckets and volatility DERIVED from OHLC; it MAY NOT assert
+     any specific day's price inside a week or month bucket other than the two
+     extremes, the path between them, durations, or a second/third dip within one
+     bucket. `"It dipped to $4.00 on the 12th"` is licensed iff `lowOn` says the
+     12th and `low` says $4.00. `get_card` retains current prices unchanged.
 
 ### Decks & lists — via deckpal-api (read parts `readOnlyHint: true`)
 

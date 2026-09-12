@@ -98,6 +98,20 @@ queries, views, generated columns). Rewriting routes gains nothing -- the SQL
 stays the same. Cold-start cost is acceptable for a collection tracker. Hono
 migration is documented as a follow-up once the port is stable.
 
+### Series calendar dates
+
+The series list and detail routes project `first_release_on`, and detail set
+rows project `released_on`, with `to_char(..., 'YYYY-MM-DD')` in their SELECTs.
+SQL `DATE` values therefore reach the driver, sort comparator, and JSON client
+as nullable calendar strings. This keeps real sets and upcoming placeholders
+in descending release-date order, with unknown dates last and name ordering
+for equal dates, and prevents a release day becoming the previous day in
+America/Denver after timestamp serialization. The change is limited to the
+series endpoints: there is no global PostgreSQL parser override. `fmtDate`
+renders calendar strings as calendar dates and genuine timestamps as local
+instants. Actual-route regression coverage uses an isolated query adapter
+with PostgreSQL OID parser controls, without a live database.
+
 ## 5. Auth and multi-user
 
 **Decision: Supabase Auth (email + OAuth) with JWT-based RLS enforcement.**
@@ -444,16 +458,36 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 23 tools (12 read, 11 write, 4 of those
+what an agent may do in DeckPal.** 24 tools (13 read, 11 write, 4 of those
 also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
 into whatever reads the flag), and a handler written against `Ctx` alone
 (`{ db, api, userId }`) with no protocol details in it. Reads go straight to
-Postgres; writes and all deck/list operations go through deckpal-api on the
-same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_event`
+Postgres; writes and all deck/list operations go through deckpal-api on
+the same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_event`
 append, `recomputeSetProgress`, one transaction — stays defined exactly once
 in `apps/api/src/routes/*`, however many surfaces call it.
+
+The 13th read is `card_price_history` (added 2026-09-12): a read-only OHLC
+price-history tool that delegates to the existing `GET /cards/:cardId/prices`
+endpoint through `ctx.api.get` — no schema change, no new credential, no direct
+Postgres touch — and carries the endpoint's verbatim MAY/MAY NOT rollup
+interpretation contract in its description. It is registered through
+`catalogTools`/`allTools`, so both adapters serve it; `get_card` is unchanged
+and still returns current prices.
+
+`card_price_history` accepts a tool-side `offset` (nonnegative safe integer,
+default `0`). Each invocation makes one unchanged REST request and returns a
+text page of at most 5500 characters, including headers and continuation,
+with complete OHLC records and their printing identity. Model-visible
+`next_offset=<integer>` resumes the same card/range/currency;
+`next_offset=none` ends the traversal. This keeps each page below conversational
+Deck-E's 6000-character limit and also works through MCP's text-only response.
+The global adapter limit and REST API are unchanged; empty history and an
+offset past the available records are distinct results. Offsets count points
+in API order, plus one record for each empty variant. A record whose complete
+fields and identity cannot fit the budget produces an explicit error.
 
 Two cross-cutting flows added 2026-08-29 (the agentic pass): **card rules
 text** — `get_card` renders abilities/attacks/effects/matchups from the
@@ -490,7 +524,7 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 23 tools are served to any signed-up user at
+`deckpal-mcp`'s 24 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs

@@ -97,7 +97,7 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**All 23 tools reach the conversational model; the write half is held by the
+**All 24 tools reach the conversational model; the write half is held by the
 SDK, not filtered out.** The adapter Deck-E uses
 (`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
 `annotations.readOnlyHint` — never to the verb in a tool's name, because a name
@@ -195,7 +195,7 @@ everything else to `it failed with <code>`. `errText`
 error a handler caught and formatted itself: a driver error becomes its
 SQLSTATE, a statement timeout keeps its "narrow the query" hint, and the
 fallback that carries our own readable messages is scrubbed of DSNs, IP
-addresses, `host:port` pairs and `for user "…"`. Every one of the 23 tools
+addresses, `host:port` pairs and `for user "…"`. Every one of the 24 tools
 formats through it -- not only the ones whose file runs SQL, because whether a
 given catch can reach the database is a call-graph question that was already
 answered wrongly once (issue #94: `log_cards` resolves cards over SQL before its

@@ -43,3 +43,34 @@ These are conditions of the licence to display the mark, not preferences:
 
 If Stripe refreshes the kit, replace the file from the same source rather than
 editing this one.
+
+## `pokemon-30th-celebration-logo.webp`
+
+The English set logo for **30th Celebration**, the Pokémon 30th anniversary
+expansion (Mega Evolution series, street date 2026-09-16).
+
+| | |
+|---|---|
+| Source | Bulbagarden Archives, [`File:30th Celebration Logo EN.png`](https://archives.bulbagarden.net/wiki/File:30th_Celebration_Logo_EN.png) |
+| Original | `30th_Celebration_Logo_EN.png`, 2173×1200 PNG, 784,949 bytes |
+| Shipped | 448×247 WebP, 19,292 bytes — resized with `sharp` (q88), nothing else |
+| Added | 2026-09-11 |
+
+**Why this file is here and not in the image tier.** Every other set logo is
+served by `deckpal-images` off `card_set.logo_url`, keyed by TCGdex id. This set
+has no catalog row yet — TCGdex has not published it — so there is no id to key
+on and nothing for the warmer to fetch. It is rendered by the Coming Soon row in
+`routes/SeriesDetail.tsx` (`UpcomingSetRow`), driven by `UPCOMING_SETS` in
+`apps/api/src/upcomingSets.ts`.
+
+**Bulbagarden Archives is an already-approved source for set imagery**, not a
+new one: `SET_IMAGE_FALLBACK_TABLE` in `@deckpal/storage` sources the `mfb` logo
+and nine set symbols from it under the owner's 2026-08-29 approval. That table
+is deliberately NOT touched here — it is frozen, and this asset is a temporary
+placeholder rather than a permanent crosswalk entry.
+
+**It is disposable, and that is the point.** When TCGdex publishes the set, the
+weekly catalog refresh creates the real row with the real `logo_url`, the
+name-match rule in `upcomingSetsFor()` retires the placeholder, and this file
+plus its `UPCOMING_SETS` entry should be deleted in the same change. Nothing
+else references it.

@@ -19752,3 +19752,150 @@ lock is unchanged. This does not upgrade pnpm.
 **Why.** Visual evidence: the same actual character code and assets underlie both the baseline (`a260525`) and the PR #179 head (`3e6930b`); the real DeckE WebGL pipeline ran with matching camera and scene-node hashes (1e-6 precision), custom Blender AgX active, 10 still cases covering both desktop 1280×900 DPR 1 and mobile 390×844 DPR 2 (rest, left, mouth+bend, alert, card-present), and 7 synchronized desktop happy-animation frames. Two fresh baseline scenes decoded EXACT RGB-equal. Independent PNG comparison: largest still mean absolute RGB error 0.00413248875926601 on a 0–255 scale; max channel difference 2/255; largest motion MAE 0.00026244212962963. No visible regression in reviewed silhouettes, eyes, gold accents, body highlights, mouth, or card surfaces; no runtime errors or external browser requests. Test framing (300 CSS px desktop / 200 mobile) keeps full extreme poses in frame and is not an app change. Source audit found the AgX hook unchanged and a PMREM spiral-blur change on `fromScene`, while DeckE uses `fromEquirectangular`; do not infer bit-identical output from the source. No source, material, or lighting tuning was needed.
 
 **Implications.** The candidate passed 27 CI-equivalent checks, 97 security tests, 22 browser assertions, and zero audit findings. Rendering dependency updates need visual comparison as well as CI: here that comparison ran on Chromium SwiftShader with mobile viewport emulation on one machine — not on a physical-phone GPU or Safari — and cross-version pixels differ slightly even though the baseline scenes decoded exact RGB-equal (scene matrix hashes rounded to 1e-6). Approval remains conditioned on green owner-PR CI as stated in the Decision; the PR has not yet merged.
+
+---
+
+## 2026-09-12 — card_price_history tool, Upcoming Sets, and B10 bug-report doc correction
+
+**Decided by:** Codex (Ringer supervisor) on behalf of @cheyras,
+recording the user's authorization for three approved changes; GLM-5.2 (Ringer
+documentation worker) documented them on the verified integrated branch.
+
+**Decision — `card_price_history` shared read-only tool.** A new read-only tool
+`card_price_history` is added to `packages/agent-tools/src/tools/cardPriceHistory.ts`,
+registered through `catalogTools`/`allTools` and therefore served by both the MCP
+adapter (`apps/mcp/src/adapters/mcp.ts`) and Deck-E's AI SDK adapter
+(`apps/api/src/decke/adapters/aisdk.ts`). It takes a required canonical `card_id`,
+`range ∈ 30d|3m|6m|1y|18m|2y` (default `3m`) and `currency ∈ USD|EUR|JPY` (default
+`USD`), and delegates a single read to the existing `GET /cards/:cardId/prices`
+endpoint through `ctx.api.get` — no schema change, no new credential, no direct
+Postgres touch. It returns per-printing day/week/month OHLC points with start/end,
+exact `highOn`/`lowOn`, mean/median/n and currency-major-unit values in
+model-readable text; no data is invented. The full MAY/MAY NOT interpretation
+contract from `cards.ts`'s price-route JSDoc ships verbatim in the description.
+`get_card` is unchanged and retains current prices. The current shared-tool count
+moves from 23 (12 read / 11 write) to **24 (13 read / 11 write)**.
+
+**Decision — Upcoming Sets.** Announced but not-yet-published sets render
+as non-clickable "Coming Soon" rows on a series detail page, outside the
+catalog's DB/canonical ids, without progress, and excluded from the real set
+count. A name-match or expiry suppresses the placeholder. The existing 30th
+Celebration announcement keeps its unchanged logo and ships via a narrow
+`.gitignore` exception, with a minimal mobile layout fix. The official release
+date (September 16, 2026) is source-verified by the supervisor at the Pokémon
+TCG 30th Celebration news page; no additional sets or markets are speculated on.
+
+**Decision — B10 bug-report documentation correction.** `AGENTS.md` B10 now states
+the precise cloud-mode condition: `bugs.ts` derives `isCloudMode = !!(GITHUB_TOKEN
+&& GITHUB_REPO)` — gated on **both** `GITHUB_TOKEN` and `GITHUB_REPO`, not merely
+on `SUPABASE_MODE`. When cloud mode is active, the route inserts a `bug_report`
+row (user id from the JWT, under RLS), optionally uploads the screenshot to
+Supabase Storage when Storage is configured (`hasStorage = !!(SUPABASE_URL &&
+SUPABASE_SERVICE_KEY)`), and attempts the GitHub issue; the `bug_report` row
+survives a downstream GitHub failure. The self-host / no-GitHub-configuration
+path writes the filesystem. The blank line before B11 is restored. `API.md` and
+the `bugs.ts` source already describe this; no runtime deployment is claimed
+tested.
+
+**Why.** The tool closes a gap the docs themselves flagged ("No agent tool
+exposes price history today") without adding a new endpoint, credential or
+interpretation surface — the contract that already governs the REST route now
+governs the tool verbatim. Upcoming Sets makes announced-but-unreleased product
+visible without polluting canonical ids or set counts. The B10 correction stops
+a maintainer reading only `SUPABASE_MODE` from concluding cloud bug-report mode
+is off when it is in fact keyed on the GitHub pair.
+
+**Implications.** Public doc/README/architecture/SPEC counts and the wiki move
+to 24 tools (13 read / 11 write); historical benchmark counts and migration
+history mentions of "23" are preserved as-is. The new tool is available through
+both adapters in one commit. `PLAN.md`'s earlier "per-card price history tool —
+out of scope" line is historical and preserved, with a dated delivered-on-branch
+note rather than a falsified original scope. The integrated branch is verified
+and ready for GitHub CI and merge; GitHub CI and deployment have not yet run.
+
+**Verification.** The integrated branch passes 38 check commands (all pass),
+3,270 tests across 19 suites (all pass), and 15 browser gates under a mocked
+local API at desktop 1280 and mobile 390. One check command is a deliberate
+negative control that returns 1: removing `card_price_history` registration
+from the ignored compiled catalog triggers the independent missing-tool
+assertion; the file is restored in `finally`. Five-zone date unit checks (UTC, America/Denver, and
+three more) reject invalid calendar dates. The browser gates exercise the
+actual integrated build (`apps/web/dist`) against a mocked local API, not
+production; GitHub CI and production deployment have not yet run.
+
+---
+
+## 2026-09-12 — Preserve series release dates and verify price-history query arguments
+
+**Decided by:** Codex in-session worker under Codex supervision on behalf of
+@cheyras, recording the authorized repairs after adversarial review.
+
+**Decision.** Normalize calendar fields at the series SQL boundary:
+`first_release_on` in both the list and detail queries and `released_on` in
+detail set rows use `to_char(..., 'YYYY-MM-DD')`, preserving nulls. This supplies
+the existing comparator and JSON response with one calendar-date representation.
+Real sets and upcoming placeholders sort newest first, unknown dates last, and
+by name on equal dates. The shared `fmtDate` formatter continues to preserve
+calendar dates while interpreting genuine timestamps as local instants. Only
+the series endpoint fields change; there is no global PostgreSQL type-parser
+override or claim that every catalog endpoint now has this representation.
+
+**Why.** Review findings R1 and R2 exposed an untested driver boundary:
+node-postgres returns SQL `DATE` as JavaScript `Date` objects. Mixing those
+objects with placeholder strings broke interleaving and same-day name ordering;
+serializing midnight as a timestamp also displayed the prior day in Denver.
+Normalizing in the query prevents both failures before sorting or serialization.
+
+**Verification scope.** The new actual-route regression is wired into API
+`test:pure` and uses an isolated query adapter with actual PostgreSQL OID parser
+controls, without a live database. The `card_price_history` tests now capture
+outgoing requests for non-default `2y`/`JPY` and `30d`/`EUR` range/currency
+pairs, closing the review's test gap instead of trusting mocked response labels.
+The supervisor's independent mutation checks must reject hardcoded range and
+currency defaults separately. The upcoming row also gains `role="group"` so its
+existing accessible name has an explicit role; it remains non-clickable.
+
+At this documentation update, final verification, a fresh Astra review, GitHub
+CI, merge, and deployment are pending. Earlier test and browser counts describe
+the preceding integration, not acceptance of these repairs. This worker changed
+documentation only and did not execute tests or access production.
+
+---
+
+## 2026-09-12 — Page price-history text before the conversational adapter limit
+
+**Decided by:** Codex in-session worker under Codex supervision on behalf of
+@cheyras, recording the repair required by the fresh GPT-6 Astra PR review.
+
+**Trigger.** Astra executed the actual conversational `buildDataTools` adapter
+with three printing variants and 31 daily points per variant at `30d`.
+The shared tool returned 13,137 characters; the adapter's 6000-character limit
+cut off the third variant. Although the cutoff was explicit, the tool had no
+continuation input to recover the omitted observations. MCP also exposes tool
+text without structured metadata, so metadata alone cannot solve this.
+
+**Decision.** Add optional `offset`, a nonnegative safe integer defaulting to
+`0`, to `card_price_history`. Each invocation still makes one GET to the
+existing card-prices endpoint with the same card, range, and currency; pagination
+is tool-side and does not add a REST query parameter. Return complete OHLC
+records and printing identity in pages of at most 5500 characters including
+headers and continuation. Model-visible `next_offset=<integer>` directs the
+caller to repeat the same card/range/currency at that offset;
+`next_offset=none` marks completion. Report empty history separately from an
+offset past available records. Range/currency defaults, currency-major-unit
+values and the full MAY/MAY NOT interpretation contract remain unchanged.
+
+**Why and limits.** Bounded shared-tool output works through both adapters
+without increasing Deck-E's global output cap or relying on MCP-invisible
+metadata. Callers must follow continuation before claiming a complete history.
+Each page is a fresh read of the requested history, not a database snapshot.
+Offsets count complete points in API order plus one record per empty variant.
+If one complete record and its identity cannot fit the budget, the tool
+reports an error instead of returning partial fields.
+
+**Verification scope.** The repair requires an actual-adapter regression for
+the truncation case and pagination checks that traverse every record without
+loss, duplication, partial fields or a page exceeding the bound. Final checks,
+Astra re-review, publication of the repair, GitHub CI, merge and deployment are
+pending at this documentation update. This worker edited documentation only
+and did not execute tests or access production.
