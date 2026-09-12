@@ -1,5 +1,5 @@
 /**
- * Three build gates on the 3D character's assets.
+ * Three build gates on runtime and 3D character assets.
  *
  * ONE: fail the build if the service worker would precache the 3D character.
  *
@@ -16,8 +16,8 @@
  * instead — if a precached script contains three.js, the exclusion has stopped
  * working, whatever the file is called.
  *
- * TWO: fail the build if an asset the character fetches by a literal path is not
- * in the output at all. `.gitignore` carries a blanket `**\/*.webp` for the
+ * TWO: fail the build if a character asset or an upcoming-set announcement logo
+ * referenced by a literal path is not in the output at all. `.gitignore` carries a blanket `**\/*.webp` for the
  * fetched card-image cache, and it swallowed the card back: `git add -A`
  * reported nothing, the commit looked complete, the LOCAL build worked because
  * the file was still on disk, and it 404'd only in production. A build from a
@@ -138,14 +138,24 @@ if (existsSync(CHARACTER_SRC)) walk(CHARACTER_SRC)
 // `.md` is documentation that ships beside the assets, not something fetched.
 for (const r of [...referenced]) if (r.endsWith('.md')) referenced.delete(r)
 
-const missing = [...referenced].filter((rel) => !existsSync(join(DIST, rel)))
+// Announcement logos are bundled public assets too. Derive their paths from
+// the actual metadata so a new announcement cannot bypass the build gate.
+const ANNOUNCEMENT_SRC = join(HERE, '..', '..', 'api', 'src', 'upcomingSets.ts')
+const LOGO_ASSET = /\blogoAssetPath\s*:\s*(['"])([^'"]+)\1/g
+for (const match of readFileSync(ANNOUNCEMENT_SRC, 'utf8').matchAll(LOGO_ASSET)) {
+  const asset = match[2]
+  // The metadata uses local public paths; remote URLs are not build artifacts.
+  if (!asset.startsWith('//') && !/^[a-z][a-z\d+.-]*:/i.test(asset)) referenced.add(asset)
+}
+
+const missing = [...referenced].filter((rel) => !existsSync(join(DIST, rel.replace(/^\/+/, ''))))
 if (missing.length) {
-  console.error('\ncheck-precache FAILED: assets the character fetches are not in the build:\n')
+  console.error('\ncheck-precache FAILED: runtime assets are not in the build:\n')
   for (const m of missing) console.error(`  - ${m}`)
   console.error(
     '\nThe runtime asks for these by name, so a missing one is a 404 in ' +
-      'production and nowhere else. Check .gitignore — a blanket rule for the ' +
-      'image cache has swallowed one of these before.\n',
+      'production. Check both .gitignore and .vercelignore: each needs a narrow ' +
+      'exception so the source asset is committed and included in the deployment upload.\n',
   )
   // SELF-DIAGNOSING, because the place this fires is a build log somebody else
   // owns. Saying "one of five is missing" and stopping there costs a round trip
@@ -220,6 +230,6 @@ if (onCriticalPath.length) {
 
 console.log(
   `check-precache: ${urls.length} entries, no character payload; ` +
-    `${referenced.size} character asset(s) present; ` +
+    `${referenced.size} runtime asset(s) present; ` +
     `${new Set(critical).size} critical-path script(s) clean. OK`,
 )
