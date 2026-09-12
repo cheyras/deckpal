@@ -29,8 +29,9 @@ self-hosters.
   condition, and notes.
 - **Price history** -- daily prices from TCGCSV (TCGplayer) and Cardmarket bulk
   dumps. Every price in the UI shows "as of {date}" -- honest by construction.
-  Agents can pull per-card OHLC history through the `card_price_history` tool,
-  with the same rollup/interpretation contract documented by the REST endpoint.
+  Agents can pull per-card OHLC history through the `card_price_history` tool
+  in complete-record pages, following `next_offset` to retrieve the rest, with
+  the same rollup/interpretation contract documented by the REST endpoint.
 - **Upcoming sets** -- announced expansions appear with a release date and a
   "Coming Soon" label, and retire automatically when the real catalog entry
   arrives or the announcement expires.

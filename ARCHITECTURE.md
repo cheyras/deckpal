@@ -477,6 +477,18 @@ interpretation contract in its description. It is registered through
 `catalogTools`/`allTools`, so both adapters serve it; `get_card` is unchanged
 and still returns current prices.
 
+`card_price_history` accepts a tool-side `offset` (nonnegative safe integer,
+default `0`). Each invocation makes one unchanged REST request and returns a
+text page of at most 5500 characters, including headers and continuation,
+with complete OHLC records and their printing identity. Model-visible
+`next_offset=<integer>` resumes the same card/range/currency;
+`next_offset=none` ends the traversal. This keeps each page below conversational
+Deck-E's 6000-character limit and also works through MCP's text-only response.
+The global adapter limit and REST API are unchanged; empty history and an
+offset past the available records are distinct results. Offsets count points
+in API order, plus one record for each empty variant. A record whose complete
+fields and identity cannot fit the budget produces an explicit error.
+
 Two cross-cutting flows added 2026-08-29 (the agentic pass): **card rules
 text** — `get_card` renders abilities/attacks/effects/matchups from the
 migration-003 tables, making the catalog the grounding source for any rules

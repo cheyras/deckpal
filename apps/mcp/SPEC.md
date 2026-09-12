@@ -343,7 +343,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
    route — implementer reads that file first and picks the thinner path; label results as
    estimates.
  7b. **`card_price_history`** — `{ card_id, range? = '3m' ∈ 30d|3m|6m|1y|18m|2y,
-     currency? = 'USD' ∈ USD|EUR|JPY }`. Historical OHLC price series for one card by
+     currency? = 'USD' ∈ USD|EUR|JPY, offset? = 0 }`. Historical OHLC price series for one card by
      TCGdex id, one series per printing variant. Delegates a single read to
      `GET /cards/:cardId/prices` through `ctx.api.get` — no schema change, no new
      credential, no direct Postgres touch. `card_id` is the canonical TCGdex id
@@ -352,10 +352,25 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
      (dollars/euros pre-divided from cents; JPY is whole yen) — never divide by 100.
      `readOnlyHint: true`, `idempotentHint: true`.
 
+     **Pagination.** `offset` is an optional nonnegative safe integer, default
+     `0`. It counts points in API order plus one record for each empty variant,
+     and is not sent to the REST endpoint. Each call makes one GET for the
+     same card/range/currency. Each successful
+     text page is at most 5500 characters including headers and continuation;
+     OHLC point fields and printing identity remain complete. Read the
+     model-visible `next_offset=<integer>` and call again with that `offset`
+     and unchanged `card_id`, `range`, and `currency` until
+     `next_offset=none`. Do not treat the first page as the complete history.
+     If a single complete record and its identity exceed the budget, the tool
+     returns an explicit error; it does not split or truncate that record.
+     Continuation is in text because MCP does not expose structured tool
+     metadata. This also avoids conversational Deck-E's 6000-character cutoff.
+
      **Empty behaviour.** An empty `series` means there are no recorded
      observations for that card/range/currency — NOT a current price (use
      `get_card` for that), NOT zero history, and NOT a fabricated trend. The tool
-     says so in plain text; no data is explicit beyond the empty state.
+     says so in plain text. An offset past available records is reported
+     separately and does not imply the card has no history.
 
      **Pricing interpretation limits.** The description carries the full
      MAY/MAY NOT contract from `apps/api/src/routes/cards.ts`'s price-route
