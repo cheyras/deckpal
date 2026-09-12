@@ -149,9 +149,14 @@ The English-catalogue series list (newest-era ordering via `sortOrder`), each wi
 the requesting user's per-series completion rollup (owned/total cards summed across
 the series' sets for the Complete goal, from the materialised `user_set_progress`).
 Pokémon TCG Pocket (`tcgp`) is a separate game and is excluded. `private` cached.
+
+`firstReleaseOn` is a calendar date in `YYYY-MM-DD` format, or `null` when
+unknown. The series list and detail routes project their SQL `DATE` fields to
+text before driver decoding and JSON serialization; these values carry no
+time zone or time of day.
 ```json
 { "series": [ { "slug": "scarlet-violet", "tcgdexId": "sv", "name": "Scarlet & Violet",
-                "firstReleaseOn": "2023-03-31T…", "sortOrder": 18,
+                "firstReleaseOn": "2023-03-31", "sortOrder": 18,
                 "setCount": 24, "cardCount": 5123,
                 "repSetId": "sv01", "repHasSymbol": true,
                 "progress": { "owned": 0, "total": 5123, "pct": 0 } } ] }
@@ -162,10 +167,16 @@ sharing the series name, else the earliest non-promo set with a logo).
 ## GET /deckpal/api/series/:seriesSlug
 Sets in a series, each with the three-goal completion summary for the requesting user.
 Zero-card catalogue artifacts (e.g. `base/wp`, `miscellaneous/jumbo`) are hidden.
+
+The series' `firstReleaseOn` and each set's `releasedOn` use the same nullable
+`YYYY-MM-DD` calendar-date contract as the series list. Real and upcoming sets
+sort by release date descending, unknown dates last, then name for equal dates.
+This normalization is scoped to these two series endpoints; timestamp fields
+and the date representation of other catalog endpoints are unchanged.
 ```json
 { "series": { "slug": "base", "tcgdexId": "base", "name": "Base", "firstReleaseOn": … },
   "sets": [ { "setId": "base1", "slug": "base-set", "name": "Base Set",
-              "releasedOn": "1999-01-09T…", "isPromo": false,
+              "releasedOn": "1999-01-09", "isPromo": false,
               "printedCount": 102, "secretCount": 0, "cardCountTotal": 102,
               "logoUrl": "…", "symbolUrl": "…",
               "progress": {

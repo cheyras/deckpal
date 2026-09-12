@@ -74,6 +74,28 @@ function findTool(name: string, tools: ReturnType<typeof allTools>) {
   return t;
 }
 
+/**
+ * Build a Ctx that captures every path handed to ctx.api.get so tests can
+ * assert on the ACTUAL outgoing request rather than the mocked response echo.
+ * `ctx.api.send` and `ctx.db.query` reject — this is a read-only tool.
+ */
+function captureCtx(apiResponse: unknown): { ctx: Ctx; calls: string[] } {
+  const calls: string[] = [];
+  const ctx: Ctx = {
+    userId: '00000000-0000-4000-8000-000000000001',
+    db: { query: (): Promise<never> => Promise.reject(new Error('db should not be called')) },
+    api: {
+      base: 'http://127.0.0.1:3700/deckpal/api',
+      get: async (path: string): Promise<unknown> => {
+        calls.push(path);
+        return apiResponse;
+      },
+      send: (): Promise<never> => Promise.reject(new Error('send should not be called')),
+    },
+  } as unknown as Ctx;
+  return { ctx, calls };
+}
+
 // ── 1. Registration ──────────────────────────────────────────────────────────
 
 test('card_price_history is in cardPriceHistoryTools', () => {
@@ -149,23 +171,13 @@ test('description mentions get_card as the tool for current prices', () => {
 
 test('defaults: range=3m and currency=USD', async () => {
   const t = findTool('card_price_history', allTools());
-  const captured: string[] = [];
-  const ctx: Ctx = {
-    userId: 'u1',
-    db: { query: (): Promise<never> => Promise.reject(new Error('no db')) },
-    api: {
-      base: 'http://127.0.0.1:3700/deckpal/api',
-      get: async (path: string) => {
-        captured.push(path);
-        return sampleResponse();
-      },
-      send: (): Promise<never> => Promise.reject(new Error('no send')),
-    },
-  } as unknown as Ctx;
-
+  const { ctx, calls } = captureCtx(sampleResponse());
   await t.handler({ card_id: 'base1-1' }, ctx);
-  assert.ok(captured[0]?.includes('range=3m'), `expected range=3m in ${captured[0]}`);
-  assert.ok(captured[0]?.includes('currency=USD'), `expected currency=USD in ${captured[0]}`);
+  assert.equal(calls.length, 1, 'must issue exactly one GET request');
+  const url = new URL(calls[0]!, 'http://test.local');
+  assert.equal(url.pathname, '/cards/base1-1/prices', 'path must target the card prices endpoint');
+  assert.equal(url.searchParams.get('range'), '3m', 'default outgoing range query argument must be 3m');
+  assert.equal(url.searchParams.get('currency'), 'USD', 'default outgoing currency query argument must be USD');
 });
 
 test('blank card_id fails validation', async () => {
@@ -599,22 +611,44 @@ test('legitimate empty series array still returns ok with no-history message', a
   assert.ok(/no .*histor|no .*observation/i.test(res.text), 'should say no history');
 });
 
-// ── 15. Negative control — prove tests detect missing implementation ──────────
+// ── 15. Outgoing query — non-default range and currency reach the API ───────
 //
-// These tests would fail if the tool did not exist or returned wrong values.
-// We verify this by checking the properties directly.
+// The tool must forward the caller's range and currency to the REST API as
+// outgoing query arguments, not silently fall back to defaults. These tests
+// capture the actual requested path through ctx.api.get and assert the exact
+// query parameters via URL/searchParams — not the mocked response echo, which
+// would pass regardless of what was requested.
 
-test('negative control: a non-existent tool name is not in allTools', () => {
-  const tools = allTools();
-  assert.equal(
-    tools.find((t) => t.name === 'card_price_history_DOES_NOT_EXIST'),
-    undefined,
-  );
+test('non-default range=2y and currency=JPY reach the API as outgoing query args', async () => {
+  const t = findTool('card_price_history', allTools());
+  const { ctx, calls } = captureCtx(sampleResponse({ currency: 'JPY', range: '2y' }));
+  const res = await t.handler({ card_id: 'base1-1', range: '2y', currency: 'JPY' }, ctx);
+  assert.ok(!res.isError, `should not error: ${res.text}`);
+  assert.equal(calls.length, 1, 'must issue exactly one GET request');
+  const url = new URL(calls[0]!, 'http://test.local');
+  assert.equal(url.pathname, '/cards/base1-1/prices', 'path must target the card prices endpoint');
+  assert.equal(url.searchParams.get('range'), '2y', 'outgoing range query argument must be 2y');
+  assert.equal(url.searchParams.get('currency'), 'JPY', 'outgoing currency query argument must be JPY');
 });
 
-test('negative control: readOnlyHint being false would fail the annotation test', () => {
-  // This documents that the annotation test above would fail if readOnlyHint
-  // were false. We prove the guard works by checking a deliberately wrong value.
+test('non-default range=30d and currency=EUR reach the API as outgoing query args', async () => {
   const t = findTool('card_price_history', allTools());
-  assert.notEqual(t.annotations.readOnlyHint, false);
+  const { ctx, calls } = captureCtx(sampleResponse({ currency: 'EUR', range: '30d' }));
+  const res = await t.handler({ card_id: 'base1-1', range: '30d', currency: 'EUR' }, ctx);
+  assert.ok(!res.isError, `should not error: ${res.text}`);
+  assert.equal(calls.length, 1, 'must issue exactly one GET request');
+  const url = new URL(calls[0]!, 'http://test.local');
+  assert.equal(url.pathname, '/cards/base1-1/prices', 'path must target the card prices endpoint');
+  assert.equal(url.searchParams.get('range'), '30d', 'outgoing range query argument must be 30d');
+  assert.equal(url.searchParams.get('currency'), 'EUR', 'outgoing currency query argument must be EUR');
+});
+
+test('defaults still reach the API when range and currency are omitted', async () => {
+  const t = findTool('card_price_history', allTools());
+  const { ctx, calls } = captureCtx(sampleResponse());
+  await t.handler({ card_id: 'base1-1' }, ctx);
+  assert.equal(calls.length, 1, 'must issue exactly one GET request');
+  const url = new URL(calls[0]!, 'http://test.local');
+  assert.equal(url.searchParams.get('range'), '3m', 'omitted range defaults to 3m in the outgoing query');
+  assert.equal(url.searchParams.get('currency'), 'USD', 'omitted currency defaults to USD in the outgoing query');
 });

@@ -35,9 +35,12 @@ export function fmtDate(iso: string | null | undefined): string {
   // instant. `new Date('2026-09-16')` parses that as UTC midnight, so
   // `toLocaleDateString` shifts it a calendar day early in zones behind UTC
   // (Sep 15 in America/Denver). Build the Date from the calendar parts in the
-  // local zone instead, so the named day renders as that day everywhere. Real
-  // catalog `released_on` values arrive as bare `YYYY-MM-DD` from Postgres DATE
-  // columns, so this also fixes the dates on existing set rows.
+  // local zone instead, so the named day renders as that day everywhere. The
+  // API projects SQL DATE columns to bare `YYYY-MM-DD` text (see
+  // routes/series.ts), so catalog `released_on`/`first_release_on` values
+  // arrive in this calendar-string shape; a bare `YYYY-MM-DD` is the contract
+  // this branch handles, not a quirk of the Postgres driver (which would
+  // otherwise hand back a JS Date that JSON-serializes as a UTC timestamp).
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
     const [y, m, d] = iso.split('-').map(Number)
     const date = new Date(y, m - 1, d)

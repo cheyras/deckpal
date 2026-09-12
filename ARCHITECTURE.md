@@ -98,6 +98,20 @@ queries, views, generated columns). Rewriting routes gains nothing -- the SQL
 stays the same. Cold-start cost is acceptable for a collection tracker. Hono
 migration is documented as a follow-up once the port is stable.
 
+### Series calendar dates
+
+The series list and detail routes project `first_release_on`, and detail set
+rows project `released_on`, with `to_char(..., 'YYYY-MM-DD')` in their SELECTs.
+SQL `DATE` values therefore reach the driver, sort comparator, and JSON client
+as nullable calendar strings. This keeps real sets and upcoming placeholders
+in descending release-date order, with unknown dates last and name ordering
+for equal dates, and prevents a release day becoming the previous day in
+America/Denver after timestamp serialization. The change is limited to the
+series endpoints: there is no global PostgreSQL parser override. `fmtDate`
+renders calendar strings as calendar dates and genuine timestamps as local
+instants. Actual-route regression coverage uses an isolated query adapter
+with PostgreSQL OID parser controls, without a live database.
+
 ## 5. Auth and multi-user
 
 **Decision: Supabase Auth (email + OAuth) with JWT-based RLS enforcement.**
@@ -498,7 +512,7 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 23 tools are served to any signed-up user at
+`deckpal-mcp`'s 24 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs

@@ -24,6 +24,7 @@ export function UpcomingSetRow({ set }: { set: SetSummary }) {
   return (
     <div
       className="flex items-stretch overflow-hidden rounded-lg border border-dashed border-border-default bg-surface-tertiary/60"
+      role="group"
       aria-label={`${set.name} — coming soon`}
       data-decke-set={set.setId}
       data-decke-landmark={`[data-decke-set="${set.setId}"]`}
