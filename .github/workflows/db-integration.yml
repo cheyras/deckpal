@@ -14,7 +14,6 @@ jobs:
     timeout-minutes: 15
     env:
       TEST_PG_BINDIR: /usr/lib/postgresql/16/bin
-      TEST_ARTIFACT_DIR: ${{ runner.temp }}/db-integration-results
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -61,6 +60,8 @@ jobs:
       # No service container, URL or production secret is supplied. The runner
       # creates a private Unix-socket cluster, verifies it, and always removes it.
       - name: Real route and tool boundaries in UTC and Denver
+        env:
+          TEST_ARTIFACT_DIR: ${{ runner.temp }}/db-integration-results
         run: pnpm --filter deckpal-api test:integration
 
       - name: Upload integration evidence
