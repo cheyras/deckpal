@@ -5,10 +5,38 @@
  * and the object tier record the same truth. The cache is named `.webp`
  * throughout, but a writer without validation can (and did) land PNG/JPEG bytes
  * under that name; recording `image/webp` for them would be a lie the manifest
- * then spreads. Returns `application/octet-stream` for anything unrecognised.
+ * then spreads. Returns `application/octet-stream` for anything unrecognised
+ * or for malformed/hostile runtime input (graceful degradation, never throws).
  */
+
+import { types } from 'node:util';
+
+/**
+ * True runtime byte-view check. Accepts Buffer (which extends Uint8Array)
+ * and genuine Uint8Array instances, including sliced views with nonzero
+ * byteOffset. Rejects:
+ *   - Object.create(Uint8Array.prototype) — passes instanceof but is not a
+ *     real typed array (no internal [[ViewedArrayBuffer]] slot).
+ *   - Other TypedArray types (Int32Array, Float64Array, Uint16Array, etc.)
+ *   - DataView
+ *   - Plain arrays, strings, null, undefined, objects, lookalikes
+ *
+ * Uses Node's util.types.isUint8Array which checks the internal
+ * [[TypedArrayName]] slot, immune to prototype manipulation.
+ */
+function isGenuineByteView(buf: unknown): buf is Uint8Array {
+  return types.isUint8Array(buf as object);
+}
+
 export function sniffContentType(buf: Uint8Array): string {
-  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  // Graceful: return unknown content type for malformed runtime input instead
+  // of throwing. The original contract explicitly requested this.
+  if (!isGenuineByteView(buf)) return 'application/octet-stream';
+
+  // Work with the input directly — Buffer extends Uint8Array, and for plain
+  // Uint8Array we wrap once. Sliced views (nonzero byteOffset) are handled
+  // correctly because Buffer.from(uint8array) copies the visible window.
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
   if (b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') {
     return 'image/webp';
   }

@@ -383,7 +383,7 @@ function Sidebar({
             className="group relative flex h-full w-full items-center justify-center"
           >
             <span className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0">
-              <BrandD size={33} />
+              <BrandD size={24.75} />
             </span>
             <span className="absolute inset-0 flex items-center justify-center text-icon-default opacity-0 transition-opacity duration-150 group-hover:text-icon-hover group-hover:opacity-100 group-focus-visible:opacity-100">
               <Icon name="chevron-right" size={20} />
@@ -392,7 +392,7 @@ function Sidebar({
         ) : (
           <>
             <span className="flex-1">
-              <BrandLogo height={30} />
+              <BrandLogo height={22.5} />
             </span>
             <button
               onClick={onToggle}

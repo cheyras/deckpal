@@ -134,6 +134,59 @@ async function withUserContext(userId: string, fn: (client) => Promise<T>): Prom
 For catalog-only reads (search, series list without user progress): the service
 role is used (bypasses RLS, since catalog tables are world-readable).
 
+### Request pipeline order
+
+The `createApp` pipeline (`apps/api/src/index.ts`, which exports `createApp`)
+orders the base-path API router (`api`, mounted at `/api` on Vercel /
+`/deckpal/api` self-host) so that a request **rejected by the limiter** stops
+before token lookup and RLS work. Accepted anonymous catalog reads still use
+the existing RLS flow — they are not turned away, and they do acquire a
+connection:
+
+1. **Pre-auth ingress guard** (`preAuthFloodGuard`, `rateLimit.ts`) — 600
+   req/min per source IP per process, mounted on the `api` router **before**
+   everything else on it. The RLS middleware acquires a connection even for
+   anonymous catalog reads, so a Bearer-only guard would leave no-header
+   floods unbounded. Client identity is platform-aware: on Vercel
+   (`process.env.VERCEL === '1'`) the validated `x-vercel-forwarded-for`
+   (preferred) or `x-forwarded-for` is used — Vercel overwrites both at
+   ingress; off Vercel, forwarding headers are ignored and the raw socket peer
+   is used. Express `trust proxy` stays at its default `false` (not loopback);
+   no new env variable is required.
+2. **`authMiddleware`** — **verifies** the `Authorization: Bearer` JWT and
+   resolves a personal access token (PAT) to `req.user`; it never rejects.
+   User-scoped routers are gated by `resolveIdentity` below, session-only ones
+   by `requireSession` too. A PAT lookup runs on the base pool and may access
+   the database during authentication — so RLS is **not** the first database
+   access; distinguish that lookup from the per-request transaction the RLS
+   context opens below.
+3. **Per-user session limits** — `/tokens` 20/min, `/avatar` 10/min,
+   `/oauth` 30/min, mounted **after** auth (so `req.user` is settled) but
+   **before** the RLS `pool.connect`. `requireSession` rejects PATs (403) and
+   anonymous (401) cheaply first; a blocked request never begins a transaction.
+   A request is charged **once per applicable budget** — it may consume both
+   the ingress budget and a per-user budget, but there is no duplicate
+   route-level charge (the routers below carry no second limiter).
+4. **RLS context** (`withUserContext`) — `pool.connect()` + `SET LOCAL role =
+   'authenticated'` + `request.jwt.claims`. This opens the per-request
+   transaction the lookup above is distinct from.
+
+All budgets are in-memory fixed windows **per process / per serverless
+instance**, reset on cold start — speed bumps against retry storms and casual
+abuse, not a distributed quota; reverse-proxy / platform controls remain the
+deployment boundary. Refusals are `429` with a `Retry-After` header (seconds).
+
+The guard is on the ordinary base-path API router only. Two flows are mounted
+**separately on `app`, ahead of that router**, and are deliberately **not**
+covered by the new guard: the Stripe raw-body webhook (signature-verified,
+registered before the global JSON parser — re-serialising the body would break
+signature checks), and the bare-origin OAuth discovery / `/register` / `/token`
+handlers (cloud-only, mint `api_token` rows). No new quota is claimed for
+either. The MCP transport at `/mcp` (separate `api/mcp.mjs` function) is also
+**not** automatically covered — but the MCP token/OAuth **management**
+endpoints (`/tokens`, `/oauth`, `/avatar`) are these REST routes and use these
+controls. See `SECURITY.md` → Rate limiting.
+
 ### Request identity — the one accessor
 
 The single-user choke point (`defaultUserId()`) is not removed; it becomes one

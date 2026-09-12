@@ -151,6 +151,24 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 - The REST base is derived from the (already validated) request host — `https://<host>/api` — so
   there is no environment variable to get wrong. `DECKPAL_API_BASE` still overrides.
 
+- **REST rate-limit scope (added 2026-09-12).** The REST API's pre-auth ingress
+  guard (600 req/min per source IP per process) and per-user session limits
+  live in `apps/api/src/index.ts` (which exports `createApp`) — i.e. the
+  `deckpal-api` Express base-path API router. The MCP **transport** at
+  `https://deckpal.app/mcp` is served by the separate `api/mcp.mjs` function
+  and is **not** automatically covered by that guard; no new MCP-transport rate
+  limit is claimed here. The token/OAuth **management** endpoints
+  (`POST /tokens`, the OAuth consent decision `POST /oauth/authorize/decision`,
+  and `/avatar`) are ordinary REST routes on that base-path router, so they
+  **do** use these controls: `/tokens` 20/min, `/oauth` 30/min, `/avatar`
+  10/min per authenticated user, refused with `429` + `Retry-After` (seconds)
+  before any RLS connection is acquired. Two flows are mounted separately on
+  `app` ahead of that router and are **not** covered by the new guard: the
+  Stripe raw-body webhook (signature-verified) and the bare-origin OAuth
+  discovery / `/register` / `/token` handlers (cloud-only). The self-host
+  `/mcp` edge keeps its existing `x-brain-key` / `MCP_ALLOWED_HOSTS` controls
+  unchanged.
+
 ## 4. Tool conventions
 
 - **The 23 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),

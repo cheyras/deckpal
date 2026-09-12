@@ -19,6 +19,7 @@ import {
 } from './layout.js';
 import { cacheStats, closePool, touchLastAccess } from './assets.js';
 import { PLACEHOLDER_CONTENT_TYPE, PLACEHOLDER_WEBP } from './placeholder.js';
+import { healthRateLimit, assetRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-images — serves the local WebP cache (ARCHITECTURE §4, §5.2, §7.5).
@@ -36,15 +37,28 @@ function isQuality(v: string): v is Quality {
   return (QUALITIES as readonly string[]).includes(v);
 }
 
-export function createApp(): express.Express {
+/**
+ * Optional dependency injection for no-DB testing. When omitted, defaults to
+ * the production implementations — no external switch or environment variable.
+ */
+export interface ImageAppDeps {
+  cacheStats?: typeof cacheStats;
+  touchLastAccess?: typeof touchLastAccess;
+}
+
+export function createApp(deps?: ImageAppDeps): express.Express {
+  const _cacheStats = deps?.cacheStats ?? cacheStats;
+  const _touchLastAccess = deps?.touchLastAccess ?? touchLastAccess;
+
   const app = express();
   app.disable('x-powered-by');
 
-  app.get('/api/deckpal/images/health', async (_req, res) => {
+  // Health calls cacheStats() which queries the DB — rate-limit BEFORE that work.
+  app.get('/api/deckpal/images/health', healthRateLimit, async (_req, res) => {
     let db: 'up' | 'down' = 'down';
-    let stats: Awaited<ReturnType<typeof cacheStats>> | null = null;
+    let stats: Awaited<ReturnType<typeof _cacheStats>> | null = null;
     try {
-      stats = await cacheStats();
+      stats = await _cacheStats();
       db = 'up';
     } catch {
       /* health still reports; DB optional for serving */
@@ -57,25 +71,14 @@ export function createApp(): express.Express {
     });
   });
 
-  // Pokédex species sprites (registered BEFORE the 5-segment card route; these are
-  // 3–4 segments so they never collide). id is validated numeric to bar traversal.
-  //   GET /deckpal/images/sprites/pixel/6.png        → {SPRITE_ROOT}/6.png
-  //   GET /deckpal/images/sprites/pixel/shiny/6.png  → {SPRITE_ROOT}/shiny/6.png
-  //   GET /deckpal/images/sprites/art/6.png          → {SPRITE_ROOT}/other/official-artwork/6.png
-  //   GET /deckpal/images/sprites/art/shiny/6.png    → {SPRITE_ROOT}/other/official-artwork/shiny/6.png
-  app.get('/deckpal/images/sprites/:kind/:a', spriteHandler);
-  app.get('/deckpal/images/sprites/:kind/:shiny/:a', spriteHandler);
-
-  // Set logos + symbols (catalog imagery warmed from card_set base URLs). 4-segment
-  // path after /deckpal/images, so it never collides with the 5-segment card route.
-  //   GET /deckpal/images/sets/sv03.5/logo.webp   → {CACHE_ROOT}/sets/sv03.5/logo.webp
-  //   GET /deckpal/images/sets/base1/symbol.webp  → 404 (no upstream symbol) → client fallback
-  app.get('/deckpal/images/sets/:setId/:file', setHandler);
-
-  // Mirrored-upstream card route: the local path is a pure function of the
-  // upstream image URL (DATA-LAYER §5.3), so no DB lookup is needed to locate a file.
-  //   GET /deckpal/images/en/sv/sv03.5/006/high.webp
-  app.get('/deckpal/images/:lang/:serie/:set/:localId/:file', cardHandler);
+  // Asset rate limit: 3000 requests per 60s per IP. Applied BEFORE filesystem/DB
+  // operations on all four asset handlers. Generous for large card/dex grids
+  // but bounds tight loops before expensive work. Behind loopback nginx this is
+  // a coarse per-process/peer budget shared across all end-users.
+  app.get('/deckpal/images/sprites/:kind/:a', assetRateLimit, spriteHandler);
+  app.get('/deckpal/images/sprites/:kind/:shiny/:a', assetRateLimit, spriteHandler);
+  app.get('/deckpal/images/sets/:setId/:file', assetRateLimit, setHandler);
+  app.get('/deckpal/images/:lang/:serie/:set/:localId/:file', assetRateLimit, makeCardHandler(_touchLastAccess));
 
   return app;
 }
@@ -143,52 +146,54 @@ function setHandler(req: Request, res: Response): void {
   });
 }
 
-function cardHandler(req: Request, res: Response): void {
-  const p = (v: string | string[] | undefined): string => (typeof v === 'string' ? v : '');
-  const lang = p(req.params.lang);
-  const serie = p(req.params.serie);
-  const set = p(req.params.set);
-  const localId = p(req.params.localId);
-  const file = p(req.params.file);
+function makeCardHandler(onAccess: typeof touchLastAccess) {
+  return function cardHandler(req: Request, res: Response): void {
+    const p = (v: string | string[] | undefined): string => (typeof v === 'string' ? v : '');
+    const lang = p(req.params.lang);
+    const serie = p(req.params.serie);
+    const set = p(req.params.set);
+    const localId = p(req.params.localId);
+    const file = p(req.params.file);
 
-  // Same validation setHandler applies: [A-Za-z0-9][A-Za-z0-9.-]* + no '..' to
-  // bar path traversal. localId also allows digits-only (e.g. '006', 'TG05').
-  const seg = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
-  if (
-    !seg.test(serie) || serie.includes('..') ||
-    !seg.test(set) || set.includes('..') ||
-    !seg.test(localId) || localId.includes('..')
-  ) {
-    res.status(404).end();
-    return;
-  }
+    // Same validation setHandler applies: [A-Za-z0-9][A-Za-z0-9.-]* + no '..' to
+    // bar path traversal. localId also allows digits-only (e.g. '006', 'TG05').
+    const seg = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
+    if (
+      !seg.test(serie) || serie.includes('..') ||
+      !seg.test(set) || set.includes('..') ||
+      !seg.test(localId) || localId.includes('..')
+    ) {
+      res.status(404).end();
+      return;
+    }
 
-  const m = /^(low|high)\.webp$/.exec(file);
-  const qual = m?.[1];
-  if (!qual || lang !== LANG || !isQuality(qual)) {
-    servePlaceholder(res, 'bad-request');
-    return;
-  }
-  const quality: Quality = qual;
-  const ref: CardRef = { serie, set, localId };
-  const abs = cardAbsolutePath(ref, quality);
+    const m = /^(low|high)\.webp$/.exec(file);
+    const qual = m?.[1];
+    if (!qual || lang !== LANG || !isQuality(qual)) {
+      servePlaceholder(res, 'bad-request');
+      return;
+    }
+    const quality: Quality = qual;
+    const ref: CardRef = { serie, set, localId };
+    const abs = cardAbsolutePath(ref, quality);
 
-  if (!existsSync(abs)) {
-    servePlaceholder(res, 'miss');
-    return;
-  }
-
-  // HIT — sendFile handles Content-Type, strong ETag, Last-Modified, Range and
-  // conditional-GET (304). We override Cache-Control to the immutable long-cache.
-  res.setHeader('Cache-Control', IMMUTABLE_CACHE_CONTROL);
-  res.setHeader('X-Cache', 'HIT');
-  res.sendFile(abs, { headers: { 'Cache-Control': IMMUTABLE_CACHE_CONTROL } }, (err) => {
-    if (err && !res.headersSent) {
+    if (!existsSync(abs)) {
       servePlaceholder(res, 'miss');
       return;
     }
-    if (!err) touchLastAccess(cardCacheKey(ref, quality)); // fire-and-forget LRU bump
-  });
+
+    // HIT — sendFile handles Content-Type, strong ETag, Last-Modified, Range and
+    // conditional-GET (304). We override Cache-Control to the immutable long-cache.
+    res.setHeader('Cache-Control', IMMUTABLE_CACHE_CONTROL);
+    res.setHeader('X-Cache', 'HIT');
+    res.sendFile(abs, { headers: { 'Cache-Control': IMMUTABLE_CACHE_CONTROL } }, (err) => {
+      if (err && !res.headersSent) {
+        servePlaceholder(res, 'miss');
+        return;
+      }
+      if (!err) onAccess(cardCacheKey(ref, quality)); // fire-and-forget LRU bump
+    });
+  };
 }
 
 function servePlaceholder(res: Response, reason: 'miss' | 'bad-request'): void {

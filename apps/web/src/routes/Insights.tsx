@@ -25,7 +25,6 @@ const RANGES: { key: ValueRange; label: string }[] = [
 // server-side halves are `Range`/`RANGE_INTERVAL` in insights/collectionValue.ts.
 
 export function Insights() {
-  const [tab, setTab] = useState<'overview' | 'trends'>('overview')
   const [range, setRange] = useState<ValueRange>('30d')
   const [currency, setCurrency] = useState<'USD' | 'EUR'>('USD')
 
@@ -45,18 +44,6 @@ export function Insights() {
   return (
     <Content cap={1000}>
       <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Insights</h1>
-
-      {/* Overview | Trends sub-toggle */}
-      <Tabs
-        variant="pill"
-        items={[
-          { key: 'overview', label: 'Overview' },
-          { key: 'trends', label: 'Trends' },
-        ]}
-        value={tab}
-        onChange={(k) => setTab(k as 'overview' | 'trends')}
-        className="mt-[16px]"
-      />
 
       {overview.isLoading && <Spinner label="Loading insights…" />}
       {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} />}
@@ -206,49 +193,46 @@ export function Insights() {
           </div>
 
           {/* Last 30 Days delta — honest cold-start */}
-          {tab === 'overview' && (
-            <div className="mt-[16px]">
-              {val?.series.delta ? (
-                <DeltaCard delta={val.series.delta} currency={val.currency} />
-              ) : (
-                <div className="rounded-2xl border border-border-default bg-surface-secondary p-[20px]">
-                  <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Last 30 Days</div>
-                  <div className="mt-[6px] text-[15px] text-text-body">
-                    Not enough history yet. The daily snapshot started at cold start, so there is no first→last change
-                    to report. Check back tomorrow.
-                  </div>
+          <div className="mt-[16px]">
+            {val?.series.delta ? (
+              <DeltaCard delta={val.series.delta} currency={val.currency} />
+            ) : (
+              <div className="rounded-2xl border border-border-default bg-surface-secondary p-[20px]">
+                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Last 30 Days</div>
+                <div className="mt-[6px] text-[15px] text-text-body">
+                  Not enough history yet. The daily snapshot started at cold start, so there is no first→last change
+                  to report. Check back tomorrow.
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
 
-          {tab === 'trends' && (
-            <div className="mt-[16px] rounded-2xl bg-surface-secondary p-[20px]">
-              <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Top Movers</div>
-              {val && val.movers.length > 0 ? (
-                <ul className="mt-[10px] divide-y divide-divider-subtle">
-                  {val.movers.map((m) => (
-                    <li key={m.cardId + m.variantKind} className="flex items-center justify-between py-[8px]">
-                      <span className="text-[14px] text-text-primary">{m.name}</span>
-                      <span
-                        className={
-                          m.change >= 0 ? 'text-[14px] text-change-positive' : 'text-[14px] text-change-negative'
-                        }
-                      >
-                        {m.change >= 0 ? '▲' : '▼'} {fmtMoney(Math.abs(m.change), m.currency)}
-                        {m.changePct != null && <span className="ml-[6px] text-text-muted">{m.changePct}%</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="mt-[8px] text-[14px] text-text-muted">
-                  No movers yet — a mover needs both a current market price and a 30-day average on an owned variant.
-                  The price feed hasn't accumulated a 30-day window at this cold start.
-                </div>
-              )}
-            </div>
-          )}
+          {/* Top Movers */}
+          <div className="mt-[16px] rounded-2xl bg-surface-secondary p-[20px]">
+            <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Top Movers</div>
+            {val && val.movers.length > 0 ? (
+              <ul className="mt-[10px] divide-y divide-divider-subtle">
+                {val.movers.map((m) => (
+                  <li key={m.cardId + m.variantKind} className="flex items-center justify-between py-[8px]">
+                    <span className="text-[14px] text-text-primary">{m.name}</span>
+                    <span
+                      className={
+                        m.change >= 0 ? 'text-[14px] text-change-positive' : 'text-[14px] text-change-negative'
+                      }
+                    >
+                      {m.change >= 0 ? '▲' : '▼'} {fmtMoney(Math.abs(m.change), m.currency)}
+                      {m.changePct != null && <span className="ml-[6px] text-text-muted">{m.changePct}%</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-[8px] text-[14px] text-text-muted">
+                No movers yet — a mover needs both a current market price and a 30-day average on an owned variant.
+                The price feed hasn't accumulated a 30-day window at this cold start.
+              </div>
+            )}
+          </div>
         </>
       )}
 

@@ -82,7 +82,7 @@ function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: strin
 
   return (
     <div
-      className="absolute bottom-[8px] right-[8px] flex items-center gap-[4px]"
+      className="px-card-counters absolute bottom-[8px] right-[8px] flex items-center gap-[4px]"
       title={online ? undefined : 'Offline — reconnect to change your collection'}
     >
       {standard.map(({ v, meta }) => (
@@ -153,7 +153,7 @@ export function CardTile({
           eager={eager}
         />
         {owned === true && qty > 0 && (
-          <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[14px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
+          <span className="px-card-badge absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[14px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
             ×{qty}
           </span>
         )}
@@ -174,13 +174,13 @@ export function CardTile({
           <VariantBadge variant={card.variant} />
         ) : (
           card.variantCount > 1 && (
-            <span className="absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
+            <span className="px-card-badge absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
               <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
             </span>
           )
         )}
         {badge && (
-          <span className="absolute bottom-[8px] right-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[12px] font-bold leading-[18px] text-action-primary-strong-text">
+          <span className="px-card-badge absolute bottom-[8px] right-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[12px] font-bold leading-[18px] text-action-primary-strong-text">
             {badge}
           </span>
         )}

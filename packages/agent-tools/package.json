@@ -17,13 +17,13 @@
     "test:variants": "node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
-    "zod": "^4.2",
+    "zod": "^4.5",
     "@deckpal/db": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "@types/pg": "^8.21.0",
-    "tsx": "^4.23.12",
+    "@types/node": "^26.4.1",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
 }

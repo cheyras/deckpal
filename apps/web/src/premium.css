@@ -894,13 +894,28 @@
     filter var(--px-dur) var(--px-ease);
   transform: translateZ(0);
 }
-:root[data-skin='premium'] a:hover .px-card-art,
+/* Keyboard focus gets the lift on any device — no hover requirement. */
 :root[data-skin='premium'] a:focus-visible .px-card-art,
-:root[data-skin='premium'] button:hover .px-card-art,
 :root[data-skin='premium'] button:focus-visible .px-card-art {
   transform: translateY(-2px) scale(1.014);
   filter: drop-shadow(0 8px 14px rgb(0 0 0 / 0.55));
   z-index: 1;
+}
+/* Pointer hover only on devices that can actually hover — touch devices use
+   (hover:none) so this never sticks after a tap (issues #174 / #153). */
+@media (hover: hover) and (pointer: fine) {
+  :root[data-skin='premium'] a:hover .px-card-art,
+  :root[data-skin='premium'] button:hover .px-card-art {
+    transform: translateY(-2px) scale(1.014);
+    filter: drop-shadow(0 8px 14px rgb(0 0 0 / 0.55));
+    z-index: 1;
+  }
+}
+/* Counters and overlay badges sit at z-index 2 so they paint above lifted art
+   (z-index 1) regardless of hover / focus-visible / reduced-motion state. */
+:root[data-skin='premium'] .px-card-counters,
+:root[data-skin='premium'] .px-card-badge {
+  z-index: 2;
 }
 
 /* Sheets cast a real shadow onto the scrim. The MOVEMENT lives in theme.css
@@ -1065,11 +1080,15 @@
   :root[data-skin='premium'] .px-card-art {
     transition: filter var(--px-dur) var(--px-ease);
   }
-  :root[data-skin='premium'] a:hover .px-card-art,
   :root[data-skin='premium'] a:focus-visible .px-card-art,
-  :root[data-skin='premium'] button:hover .px-card-art,
   :root[data-skin='premium'] button:focus-visible .px-card-art {
     transform: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    :root[data-skin='premium'] a:hover .px-card-art,
+    :root[data-skin='premium'] button:hover .px-card-art {
+      transform: none;
+    }
   }
   :root[data-skin='premium'] .bg-track-subtle > div {
     transition-duration: 1ms;
