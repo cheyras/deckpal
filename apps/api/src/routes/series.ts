@@ -3,6 +3,7 @@ import { q, q1 } from '../db.js';
 import { asyncHandler, notFound, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
 import { pct } from '../insights/trainerLevel.js';
+import { compareSetOrder, mapUpcomingPlaceholder, todayIso, upcomingSetsFor } from '../upcomingSets.js';
 
 export const seriesRouter: Router = Router();
 
@@ -194,9 +195,7 @@ seriesRouter.get(
     );
 
     userCache(res);
-    res.json({
-      series: { slug: series.slug, tcgdexId: series.tcgdex_id, name: series.name, firstReleaseOn: series.first_release_on },
-      sets: sets.map((s) => {
+    const catalogSets = sets.map((s) => {
         const total = s.card_count_total ?? Number(s.card_rows);
         const official = s.card_count_official ?? total;
         return {
@@ -222,7 +221,28 @@ seriesRouter.get(
                 },
               }),
         };
-      }),
+      });
+
+    // Announced-but-unpublished sets, appended as non-clickable "Coming Soon"
+    // rows (see upcomingSets.ts for why these are not catalog rows). Normally
+    // this is an empty array and the response is byte-for-byte what it was.
+    // The placeholder mapping and the sort comparator live in upcomingSets.ts
+    // so the route and its tests share one implementation rather than a copy
+    // that can drift.
+    const placeholders = upcomingSetsFor(
+      series.slug,
+      catalogSets.map((s) => s.name),
+      todayIso(),
+    ).map(mapUpcomingPlaceholder);
+
+    userCache(res);
+    res.json({
+      series: { slug: series.slug, tcgdexId: series.tcgdex_id, name: series.name, firstReleaseOn: series.first_release_on },
+      // Re-sorted rather than concatenated, so a placeholder lands in date order
+      // among the real sets instead of being pinned to an end. The comparator
+      // is the SQL's `released_on DESC NULLS LAST, name` — kept in step by hand
+      // because only one of the two lists comes from the database.
+      sets: [...catalogSets, ...placeholders].sort(compareSetOrder),
     });
   }),
 );

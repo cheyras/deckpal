@@ -3,6 +3,7 @@ import { Link, useParams } from '@tanstack/react-router'
 import { api, type SetSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
+import { UpcomingSetRow } from '../components/UpcomingSetRow'
 import { fmtDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
@@ -120,7 +121,13 @@ export function SeriesDetail() {
           <h1 className="mb-[2px] mt-[16px] text-[32px] font-bold leading-[40px] text-text-primary">
             {data.series.name}
           </h1>
-          <p className="mb-[24px] text-[14px] text-text-muted">{data.sets.length} sets</p>
+          {/* Counts SETS, so the Coming Soon row is excluded — the series list
+              at /series takes this number straight from the database, and a
+              detail page reading one higher than the tile that led here looks
+              like an off-by-one rather than an announcement. */}
+          <p className="mb-[24px] text-[14px] text-text-muted">
+            {data.sets.filter((s) => !s.upcoming).length} sets
+          </p>
           {/* The set list is marked as a CONTAINER as well as its rows. A series
               page is the worst case for the landmark budget — Mega Evolution
               aside, several eras run past twenty sets — and without a container
@@ -133,9 +140,13 @@ export function SeriesDetail() {
             data-decke-label="the list of sets in this series"
             data-decke-rank="container"
           >
-            {data.sets.map((s) => (
-              <SetRow key={s.setId} set={s} seriesSlug={series} />
-            ))}
+            {data.sets.map((s) =>
+              s.upcoming ? (
+                <UpcomingSetRow key={s.setId} set={s} />
+              ) : (
+                <SetRow key={s.setId} set={s} seriesSlug={series} />
+              ),
+            )}
           </div>
         </>
       )}

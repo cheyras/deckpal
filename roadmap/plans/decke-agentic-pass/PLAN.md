@@ -158,3 +158,16 @@ ships with prompt-test pinning now, probe specs written, gates listed.
   authenticated as the owner — needs the owner to export or run the mining
   session. The 2026-08-25 mine (builds #80-95) already shaped `entities.ts`.
 - MCP wire structured output, memory panel, conversation resumption.
+
+> **Follow-up — 2026-09-12 (delivered on branch, verified).**
+> The "per-card price history tool" item above was recorded as out of scope for
+> *this* agentic pass, and that original scope is preserved. A `card_price_history`
+> shared read-only tool has since been implemented on the integrated branch
+> (`packages/agent-tools/src/tools/cardPriceHistory.ts`, registered through
+> `catalogTools`/`allTools`) and documented in this sync; it is not part of the
+> WS1-8 work above. The integrated branch passes verification — 38 check
+> commands, 3,270 tests across 19 suites, 15 browser gates under a mocked local
+> API — and is ready for GitHub CI and publication. GitHub CI and deployment
+> have not yet run; this follow-up is not claimed merged or deployed. The other
+> two recorded items (battle-log notes >2000 chars; `parent_version` branching)
+> remain out of scope.

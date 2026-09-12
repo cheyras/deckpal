@@ -51,6 +51,13 @@ assets/sprites/
 !apps/web/public/models/decke/
 !apps/web/public/models/decke/*.webp
 
+# The 30th Celebration placeholder logo, rendered by UpcomingSetRow as a plain
+# <img> because the image tier has no catalog row for this set yet (see
+# upcomingSets.ts and apps/web/public/brand/README.md). Same failure mode as the
+# Deck-E card back above: **/*.webp swallows it silently; the negation targets
+# only this one file and does not reopen blanket card-art tracking.
+!apps/web/public/brand/pokemon-30th-celebration-logo.webp
+
 # Raw, full-size generations from scripts/gen-marketing-images.mjs — originals and
 # rejected candidates. Only the optimised derivatives get committed.
 .marketing-raw/

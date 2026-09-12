@@ -24,7 +24,7 @@ packages:
 | `apps/mcp` | `deckpal-mcp` | **deckpal-mcp** -- MCP server, live and multi-user on cloud; also runs self-host |
 | `packages/db` | `@deckpal/db` | Shared Postgres pool + numbered SQL migrations |
 | `packages/storage` | `@deckpal/storage` | Shared image path algebra + the `putAsset()` provenance choke point (B1), used by `apps/images` and the cloud image function |
-| `packages/agent-tools` | `@deckpal/agent-tools` | The 23 agent tool definitions (reads + writes) shared by `apps/mcp` and Deck-E (`apps/api/src/decke`) -- one definition of what an agent can do, two front-ends |
+| `packages/agent-tools` | `@deckpal/agent-tools` | The 24 agent tool definitions (reads + writes) shared by `apps/mcp` and Deck-E (`apps/api/src/decke`) -- one definition of what an agent can do, two front-ends |
 | `packages/matching` | `@deckpal/matching` | The scanner's versioned embed input spec (TypeScript + a bit-parity Python mirror), the pgvector text codec, and the SEPARATE identity/variant confidence gates -- imported by `apps/web`'s scan engine, `apps/api` and `tools/embed-catalog`, so all three agree to the bit about what an image is |
 
 Data lives in a Postgres database. Cloud deployments use Supabase Auth (JWT +
@@ -249,13 +249,26 @@ fix a UI bug. Infrastructure changes require the maintainer's explicit approval.
 (`issues/<id>/`) behind auth (the reverse proxy). The workflow: reproduce, fix,
 verify in a real browser, resolve.
 
-**Planned (cloud — Wave 2):** Bug reports will write to a `bug_report` table in
-the database (per-user, with `user_id` and RLS). Screenshots will be stored in
-Supabase Storage (`bug-reports/<id>/screenshot.jpg`). The table and its migration
-have not been created yet.
+**Rule (current — cloud):** Bug reports write to a `bug_report` table in the
+database (per-user, with `user_id` and RLS). Screenshots are stored in
+Supabase Storage (`bug-reports/<id>/screenshot.jpg`). The table, RLS, and kind
+column are established by migrations 022_bug_report.sql, 023_bug_report_rls.sql,
+and 034_bug_report_kind.sql. The route attempts GitHub issue creation when
+configured (see `apps/api/src/routes/bugs.ts`).
 
-**Where enforced:** `apps/api/src/routes/bugs.ts` for the current filesystem
-writer. GitHub Issues is used for project-level issue tracking.
+**Precise mode condition.** `bugs.ts` derives `isCloudMode = !!(GITHUB_TOKEN &&
+GITHUB_REPO)` — i.e. cloud mode is gated on **both** `GITHUB_TOKEN` and
+`GITHUB_REPO` being set, not merely on `SUPABASE_MODE`. When cloud mode is
+active the route (1) inserts the `bug_report` row (user id from the JWT, under
+RLS), (2) optionally uploads the screenshot to Supabase Storage when Storage is
+configured (`hasStorage = !!(SUPABASE_URL && SUPABASE_SERVICE_KEY)`), and (3)
+attempts the GitHub issue. The `bug_report` row survives a downstream GitHub
+failure (the response is `202` with a `note`). The self-host / no-GitHub-configuration
+path writes the filesystem instead.
+
+**Where enforced:** `apps/api/src/routes/bugs.ts` handles both modes: cloud
+(DB+Storage+GitHub) and self-host (filesystem). GitHub Issues is used for
+project-level issue tracking in cloud mode.
 
 ### B11 — Runtime configuration must fail loudly
 

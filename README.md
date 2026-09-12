@@ -29,6 +29,11 @@ self-hosters.
   condition, and notes.
 - **Price history** -- daily prices from TCGCSV (TCGplayer) and Cardmarket bulk
   dumps. Every price in the UI shows "as of {date}" -- honest by construction.
+  Agents can pull per-card OHLC history through the `card_price_history` tool,
+  with the same rollup/interpretation contract documented by the REST endpoint.
+- **Upcoming sets** -- announced expansions appear with a release date and a
+  "Coming Soon" label, and retire automatically when the real catalog entry
+  arrives or the announcement expires.
 - **Deck builder** -- PTCG Live format import/export, legality validation, and
   battle-log intelligence (record matches, track win rates, get strategy
   analysis).
@@ -44,12 +49,12 @@ self-hosters.
   addresses the object directly; the image function stays as the fallback that
   fills a cold asset); self-host uses a local disk cache with a dedicated image
   server. `warm:cloud` warms the whole catalog into the cloud tier.
-- **MCP server** ("deckpal-mcp") -- 23 tools for Claude, ChatGPT, Gemini, or any
-  MCP-speaking assistant to query the collection, catalog, prices, and decks,
-  and to log collection changes with attribution. Live and multi-user on
-  cloud: connect with one click via OAuth 2.1 (`https://deckpal.app/mcp`,
-  choose "Connect"), or a personal access token for clients without MCP OAuth
-  support.
+- **MCP server** ("deckpal-mcp") -- 24 tools for Claude, ChatGPT, Gemini, or any
+  MCP-speaking assistant to query the collection, catalog, prices, decks, and
+  per-card price history, and to log collection changes with attribution. Live
+  and multi-user on cloud: connect with one click via OAuth 2.1
+  (`https://deckpal.app/mcp`, choose "Connect"), or a personal access token for
+  clients without MCP OAuth support.
 - **Every change is logged and undoable.** Collection edits, list and deck
   changes and strategy-guide rewrites each record a before/after snapshot;
   `mutation_history` shows what an operation did and `revert` undoes it (dry-run
@@ -86,7 +91,7 @@ pnpm monorepo, deployed on Vercel + Supabase (cloud) or plain Postgres
 | `apps/mcp` (`deckpal-mcp`) | **deckpal-mcp** -- MCP server, live and multi-user on cloud |
 | `packages/db` (`@deckpal/db`) | Shared Postgres pool + numbered immutable SQL migrations |
 | `packages/storage` (`@deckpal/storage`) | Shared image path algebra + the provenance choke point used by `apps/images` and the cloud image function |
-| `packages/agent-tools` (`@deckpal/agent-tools`) | The 23 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
+| `packages/agent-tools` (`@deckpal/agent-tools`) | The 24 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
 | `packages/matching` (`@deckpal/matching`) | The scanner's card-identity embedding: one versioned input spec shared by the phone, the API and the catalogue job, with bit-exact TypeScript/Python parity |
 
 For the full topology, data flow, and design rationale, see

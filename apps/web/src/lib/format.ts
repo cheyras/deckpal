@@ -31,9 +31,31 @@ export function fmtMoney(v: number, currency: string, maximumFractionDigits?: nu
 
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  // A calendar-only date (`YYYY-MM-DD`, no time or offset) names a DAY, not an
+  // instant. `new Date('2026-09-16')` parses that as UTC midnight, so
+  // `toLocaleDateString` shifts it a calendar day early in zones behind UTC
+  // (Sep 15 in America/Denver). Build the Date from the calendar parts in the
+  // local zone instead, so the named day renders as that day everywhere. Real
+  // catalog `released_on` values arrive as bare `YYYY-MM-DD` from Postgres DATE
+  // columns, so this also fixes the dates on existing set rows.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [y, m, d] = iso.split('-').map(Number)
+    const date = new Date(y, m - 1, d)
+    if (isNaN(date.getTime())) return '—'
+    // The local-zone constructor rolls overflow into a valid neighbour
+    // (2026-13-01 → Jan 2027, 2026-02-30 → Mar 2, 2026-02-29 in a non-leap
+    // year → Mar 1), so verify the parts round-trip exactly before formatting;
+    // anything that was normalised is an impossible calendar date and falls
+    // back to the em dash. A real leap day like 2024-02-29 survives intact.
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return '—'
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  }
+  // Anything with a time or offset is an instant; convert to the local calendar
+  // day as before (a 00:30 UTC price-timestamp lands on the previous evening in
+  // Denver, which is correct for "when did this happen here").
+  const dt = new Date(iso)
+  if (isNaN(dt.getTime())) return '—'
+  return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 // "2 hours ago" freshness line for prices.

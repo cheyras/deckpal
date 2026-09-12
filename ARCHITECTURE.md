@@ -444,16 +444,24 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 23 tools (12 read, 11 write, 4 of those
+what an agent may do in DeckPal.** 24 tools (13 read, 11 write, 4 of those
 also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
 into whatever reads the flag), and a handler written against `Ctx` alone
 (`{ db, api, userId }`) with no protocol details in it. Reads go straight to
-Postgres; writes and all deck/list operations go through deckpal-api on the
-same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_event`
+Postgres; writes and all deck/list operations go through deckpal-api on
+the same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_event`
 append, `recomputeSetProgress`, one transaction — stays defined exactly once
 in `apps/api/src/routes/*`, however many surfaces call it.
+
+The 13th read is `card_price_history` (added 2026-09-12): a read-only OHLC
+price-history tool that delegates to the existing `GET /cards/:cardId/prices`
+endpoint through `ctx.api.get` — no schema change, no new credential, no direct
+Postgres touch — and carries the endpoint's verbatim MAY/MAY NOT rollup
+interpretation contract in its description. It is registered through
+`catalogTools`/`allTools`, so both adapters serve it; `get_card` is unchanged
+and still returns current prices.
 
 Two cross-cutting flows added 2026-08-29 (the agentic pass): **card rules
 text** — `get_card` renders abilities/attacks/effects/matchups from the

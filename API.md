@@ -315,8 +315,10 @@ verbatim in the endpoint's JSDoc because rollup destroys real information:
 "It dipped to \$4.00 on the 12th" is licensed if and only if `lowOn` says the
 12th and `low` says \$4.00.
 
-No agent tool exposes price history today (`get_card` serves current prices
-only). Any that later does must carry the block above unchanged.
+The `card_price_history` agent tool now exposes this history (it calls this
+endpoint through `ctx.api.get`, registered in `packages/agent-tools` and served
+through both the MCP and Deck-E adapters); it carries the block above unchanged
+in its description. `get_card` continues to serve current prices only.
 
 ## GET /deckpal/api/search
 The 12-filter advanced search. AND across fields, OR within a multi-value field.

@@ -516,6 +516,19 @@ export interface SetSummary {
   symbolUrl: string | null
   /** Absent for an anonymous read (see SeriesSummary.progress). */
   progress?: Progress
+  /**
+   * Set true ONLY for an announced-but-unpublished set (apps/api's
+   * `UPCOMING_SETS`). Such a row has no cards, no set page and no `progress`
+   * even when signed in: `setId` is a placeholder, not a TCGdex id, so linking
+   * to it would 404. Render it as the non-clickable "Coming Soon" row.
+   */
+  upcoming?: true
+  /**
+   * Present only alongside `upcoming`. A path under apps/web's `public/`,
+   * because the image tier serves logos by TCGdex id and has never heard of
+   * this set.
+   */
+  logoAssetPath?: string
 }
 export interface SeriesDetailResponse {
   series: { slug: string; tcgdexId: string; name: string; firstReleaseOn: string | null }
