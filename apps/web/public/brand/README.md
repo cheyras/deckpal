@@ -69,8 +69,21 @@ and nine set symbols from it under the owner's 2026-08-29 approval. That table
 is deliberately NOT touched here — it is frozen, and this asset is a temporary
 placeholder rather than a permanent crosswalk entry.
 
+**Deployment inclusion.** This WebP needs the exact
+`!apps/web/public/brand/pokemon-30th-celebration-logo.webp` exception in both
+`.gitignore` and `.vercelignore`. The first keeps it in Git; the second keeps it
+in Vercel's upload. A successful local build alone does not prove both.
+
+The web build's `check-precache.mjs` gate reads local `logoAssetPath` literals
+from `apps/api/src/upcomingSets.ts` and requires the referenced logos in
+`dist`, with diagnostics for both ignore files. Keep this metadata path local
+(`/brand/pokemon-30th-celebration-logo.webp`). `UpcomingSetRow` prefixes it with
+`import.meta.env.BASE_URL` so the same asset loads at cloud `/` and self-host
+`/deckpal/`. Adding a new local announcement logo therefore extends the
+build gate automatically.
+
 **It is disposable, and that is the point.** When TCGdex publishes the set, the
 weekly catalog refresh creates the real row with the real `logo_url`, the
 name-match rule in `upcomingSetsFor()` retires the placeholder, and this file
-plus its `UPCOMING_SETS` entry should be deleted in the same change. Nothing
-else references it.
+plus its `UPCOMING_SETS` entry should be deleted in the same change. Remove
+its unused exact exceptions from both ignore files at the same time.

@@ -42,7 +42,7 @@ export function UpcomingSetRow({ set }: { set: SetSummary }) {
             has never seen. This asset ships in the bundle. */}
         {set.logoAssetPath ? (
           <img
-            src={set.logoAssetPath}
+            src={`${import.meta.env.BASE_URL}${set.logoAssetPath.replace(/^\/+/, '')}`}
             alt=""
             className="max-h-[64px] max-w-[80px] object-contain opacity-80 sm:max-w-[112px]"
           />

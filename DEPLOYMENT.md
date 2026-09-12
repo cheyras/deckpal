@@ -861,6 +861,25 @@ seconds ago. That is the intended behaviour, it happens the first time these
 migrations run in production, and it is the one part of this that cannot be
 rehearsed in test mode against real accounts.
 
+### Bundled announcement assets
+
+Git tracking and Vercel upload filtering are separate boundaries. A local build
+can contain a tracked WebP that `.vercelignore` excludes from deployment.
+When adding or replacing a bundled announcement logo, keep an exact exception
+for its source path in **both** `.gitignore` and `.vercelignore`; do not broaden
+the image-cache exclusion. The current exception is
+`!apps/web/public/brand/pokemon-30th-celebration-logo.webp`.
+
+`apps/web/scripts/check-precache.mjs` derives local `logoAssetPath` string
+literals from `apps/api/src/upcomingSets.ts` and requires their files in
+`apps/web/dist`. Its missing-asset diagnostic names both ignore files, so the
+build fails if the deployment upload omitted a referenced logo. Keep bundled
+announcement paths as local public paths, such as `/brand/<file>.webp`;
+`UpcomingSetRow` resolves them using `import.meta.env.BASE_URL` so they work at
+the cloud root `/` and the self-host base `/deckpal/`. When retiring an
+announcement, remove its metadata, asset and unused exact ignore exceptions
+together.
+
 ### Static asset caching (`vercel.json` → `headers`)
 
 Vercel serves every static file as `public, max-age=0, must-revalidate` by

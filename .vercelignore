@@ -28,6 +28,8 @@
 # the Vercel deploy while the identical tree built cleanly from a fresh clone,
 # which is the difference between "in git" and "uploaded".
 !apps/web/public/models/decke/*.webp
+# Bundled upcoming-set logo: tracked files must also survive upload filtering.
+!apps/web/public/brand/pokemon-30th-celebration-logo.webp
 .env
 .env.*
 !.env.example
