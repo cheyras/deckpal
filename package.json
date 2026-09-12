@@ -27,9 +27,9 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "4.0.75",
+    "@ai-sdk/gateway": "4.0.76",
     "@deckpal/db": "workspace:*",
-    "ai": "7.0.93",
+    "ai": "7.0.94",
     "pg": "^8.23.0",
     "zod": "4.5.4"
   }
