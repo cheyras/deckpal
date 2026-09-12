@@ -26,12 +26,12 @@
     "test:ratelimit": "node --import tsx --test src/__tests__/rateLimit.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "^4.0.75",
+    "@ai-sdk/gateway": "^4.0.76",
     "@deckpal/agent-tools": "workspace:*",
     "@deckpal/db": "workspace:*",
     "@deckpal/matching": "workspace:*",
     "@deckpal/storage": "workspace:*",
-    "ai": "7.0.93",
+    "ai": "7.0.94",
     "express": "^5.0.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.20.2",
