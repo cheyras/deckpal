@@ -22,6 +22,26 @@ change and does not edit the lock.
 
 ---
 
+## Isolated checks before deployment
+
+`pnpm test:deploy-assets` verifies bundled-asset tracking and deployment
+filters, including negative controls. `pnpm test:browser` builds cloud `/` and
+self-host `/deckpal/` variants and exercises them with local deterministic
+fixtures at desktop and 390px. These commands do not upload to Vercel, load
+repository `.env` files, or use `pnpm dev` and its live-backend proxy. Review
+their retained screenshots and results alongside the normal build checks.
+
+`pnpm --filter deckpal-api test:integration` is separately isolated: it refuses
+a repository-root `.env` before application imports, replaces inherited
+connection settings, and creates a private disposable PostgreSQL cluster
+listening only on its owned Unix socket. It accepts no existing server, DSN
+or database URL. `TEST_PG_BINDIR` and `TEST_PG_LIBRARY_PATH` select local tooling,
+not a connection target; `TEST_ARTIFACT_DIR` selects output. This focused fixture
+suite is not a migration or production-RLS rehearsal. See CONTRIBUTING.md for
+prerequisites and the three CI workflows.
+
+---
+
 ## Path A — Vercel + Supabase (cloud)
 
 ### 1. Create a Supabase project

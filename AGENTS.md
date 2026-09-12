@@ -69,6 +69,11 @@ pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
 # Run the pure test suite (no DB required)
 pnpm --filter deckpal-api test:deck
+
+# Additional isolated CI boundaries (see CONTRIBUTING.md for prerequisites)
+pnpm --filter deckpal-api test:integration
+pnpm test:deploy-assets
+pnpm test:browser
 ```
 
 Build `@deckpal/db`, `@deckpal/storage` and `@deckpal/agent-tools` before
@@ -212,15 +217,21 @@ A miss serves a placeholder (never an error).
 derivation (a pure function of the upstream identifiers). The cache/bucket
 directory is gitignored -- never commit card art or bulk catalog dumps.
 
-### B7 — Live-DB tests excluded from CI
+### B7 — Database CI uses only a runner-created disposable cluster
 
-**Rule:** CI runs typecheck, pure deck/parser tests, and builds only. Tests that
-touch Postgres are run manually against your own database.
+**Rule:** Automated database tests may use only the private disposable PostgreSQL
+cluster created and stopped by `scripts/test-db-integration.mjs`. The runner
+accepts no existing database or connection URL, refuses a repo-root `.env` before
+application imports, replaces inherited connection settings, and listens only
+on its owned Unix socket. Production-targeting `test:collection` remains a
+manual suite excluded from every CI workflow; production is never a CI target.
 
-**Why:** CI should never mutate a production database on every push. The project
-does not currently provision ephemeral test databases.
+**Why:** Query and driver contracts need real PostgreSQL coverage without
+mutating shared data. Pure/build CI remains database-free; the independent
+database job creates its own fixtures and removes only its owned cluster.
 
-**Where enforced:** CI workflow (`.github/workflows/ci.yml`).
+**Where enforced:** `.github/workflows/ci.yml`,
+`.github/workflows/db-integration.yml` and `scripts/test-db-integration.mjs`.
 
 ### B8 — Importer idempotency
 

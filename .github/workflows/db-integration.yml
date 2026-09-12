@@ -1,0 +1,73 @@
+name: Database integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      TEST_PG_BINDIR: /usr/lib/postgresql/16/bin
+      TEST_ARTIFACT_DIR: ${{ runner.temp }}/db-integration-results
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Provision PostgreSQL 16 binaries
+        shell: bash
+        run: |
+          if [ ! -x "$TEST_PG_BINDIR/initdb" ] || [ ! -x "$TEST_PG_BINDIR/pg_ctl" ] || [ ! -x "$TEST_PG_BINDIR/psql" ]; then
+            # Extract binaries into this job's temporary directory. No package
+            # install hooks or system PostgreSQL service are started.
+            pgroot="$RUNNER_TEMP/deckpal-postgres"
+            mkdir -p "$pgroot/packages" "$pgroot/root"
+            sudo apt-get update
+            cd "$pgroot/packages"
+            apt-get download postgresql-16 postgresql-client-16 libpq5
+            for package in ./*.deb; do dpkg-deb -x "$package" "$pgroot/root"; done
+            export TEST_PG_BINDIR="$pgroot/root/usr/lib/postgresql/16/bin"
+            export TEST_PG_LIBRARY_PATH="$pgroot/root/usr/lib/x86_64-linux-gnu"
+            export LD_LIBRARY_PATH="$TEST_PG_LIBRARY_PATH"
+            printf '%s\n' "TEST_PG_BINDIR=$TEST_PG_BINDIR" "TEST_PG_LIBRARY_PATH=$TEST_PG_LIBRARY_PATH" >> "$GITHUB_ENV"
+          fi
+          "$TEST_PG_BINDIR/postgres" --version
+          "$TEST_PG_BINDIR/initdb" --version
+
+      - name: Build shared runtime packages
+        run: |
+          pnpm --filter @deckpal/db build
+          pnpm --filter @deckpal/storage build
+          pnpm --filter @deckpal/agent-tools build
+          pnpm --filter @deckpal/matching build
+
+      # No service container, URL or production secret is supplied. The runner
+      # creates a private Unix-socket cluster, verifies it, and always removes it.
+      - name: Real route and tool boundaries in UTC and Denver
+        run: pnpm --filter deckpal-api test:integration
+
+      - name: Upload integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-integration
+          path: ${{ runner.temp }}/db-integration-results
+          if-no-files-found: warn
+          retention-days: 7

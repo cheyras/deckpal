@@ -1,0 +1,3 @@
+@import "../../apps/web/src/theme.css";
+/* Tailwind must see the real component classes, not only this test entry. */
+@source "../../apps/web/src";

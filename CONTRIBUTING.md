@@ -83,36 +83,66 @@ Point the dev server at any other deployment — a preview URL, a fork's — wit
 
 ## What CI runs
 
-CI (triggered on every push to `main` and on PRs) runs:
+Three independent workflows run for PRs and pushes to `main`:
 
-1. `pnpm install --frozen-lockfile`
-2. Build `@deckpal/db` (other packages depend on its `dist/`)
-3. Typecheck all workspaces
-4. Pure deck engine + battle-log parser tests (no DB)
-5. Build `deckpal-api`, `deckpal-mcp`, `deckpal-web`
+| Workflow | Coverage |
+|---|---|
+| `.github/workflows/ci.yml` | Frozen install; shared-package builds; workspace typechecks; the pure API, agent-tool, adapter, web, storage, matching and other wired suites; deployable builds and serverless-function loading. No database. |
+| `.github/workflows/db-integration.yml` | Real PostgreSQL in a private disposable cluster: series date/order behavior and the price route → shared history tool → conversational adapter boundary in UTC and America/Denver. |
+| `.github/workflows/browser.yml` | Deployment asset inclusion checks, actual cloud/self-host SPA builds at desktop and 390px, and real chat components exercised through a test-only Vite entry. Deterministic local fixtures; results and screenshots retained as artifacts. |
 
-**Live-DB tests are deliberately excluded from CI.** The project does not
-provision ephemeral test databases, and CI should never mutate a production
-database on every push. Run `pnpm --filter deckpal-api test:collection`
-manually against your own database when your changes touch collection/API logic.
+The database and browser workflows retain their result artifacts even when a
+check fails. Both boundary workflows use Node 24; use that version to
+reproduce them locally after a frozen install and the shared-package builds
+used by CI:
+
+```bash
+pnpm --filter deckpal-api test:integration
+pnpm test:deploy-assets
+pnpm test:browser
+```
+
+Database integration requires Linux (WSL is suitable), a non-root user, and
+PostgreSQL 16's `initdb`, `pg_ctl`, `postgres` and `psql` binaries. The runner
+creates its own private data/socket directories and throwaway role/database,
+disables TCP listening, and stops/removes that owned cluster afterward. It
+does not accept an existing database or URL and refuses a repo-root `.env`
+before application imports. Use a clean checkout; do not repoint a live setup.
+Optional `TEST_PG_BINDIR` and `TEST_PG_LIBRARY_PATH` select local PostgreSQL
+tooling only, and `TEST_ARTIFACT_DIR` selects result output.
+
+Browser checks use the repository's pinned Playwright and Chromium. Install
+the browser with `pnpm exec playwright install chromium` if needed. They build
+the actual SPA for `/` and `/deckpal/`, serve local fixtures and a test-only
+chat entry, and reject external requests. They do not run `pnpm dev` or use
+its live-backend proxy, and do not load repository `.env` configuration.
+`test:deploy-assets` checks tracking and deployment filters with negative
+controls; it does not upload to Vercel.
+
+**Production-targeting tests remain excluded.** The existing
+`pnpm --filter deckpal-api test:collection` suite is manual and is not called
+by any CI workflow. The new database fixture schema is focused boundary
+coverage, not full migration or RLS validation.
 
 ## Testing expectations
 
-- **Pure tests** (`test:deck`) must pass. These cover the deck engine and
-  battle-log parser with no external dependencies.
-- **Live-DB tests** -- run manually when your change touches DB queries or API
-  routes. They are self-cleaning but need a real Postgres.
-- **Browser verification for UI changes** -- open the page at desktop width
-  **and** at 390px viewport. Actually look at it. Screenshots are strongly
-  encouraged in PRs.
+- Run the pure suites relevant to the change; `test:deck` is only the deck
+  engine suite, not a substitute for the rest of CI.
+- Use `test:integration` for the covered SQL/driver and adapter boundaries;
+  add meaningful route-level fixtures when extending that scope.
+- Run `test:deploy-assets` for bundled-asset changes and `test:browser` for
+  the covered UI flows. Inspect desktop and 390px screenshots, and add browser
+  cases for changed behavior the existing scenarios do not exercise.
+- Prefer assertions on executed behavior over source-text patterns, copied
+  arithmetic, or duplicate checks. Removing a redundant assertion is useful
+  only when the surviving test still detects the failure it guarded.
 
 ## Pull request checklist
 
 Before marking a PR ready for review:
 
-- [ ] Typecheck passes (`pnpm -r exec tsc --noEmit` after building
-      `@deckpal/db`)
-- [ ] Pure tests pass (`pnpm --filter deckpal-api test:deck`)
+- [ ] Typecheck passes after the shared-package builds used by CI
+- [ ] Relevant pure tests and the three CI workflows pass
 - [ ] All apps build successfully
 - [ ] UI changes: verified in a real browser at desktop **and** 390px viewport;
       screenshots attached

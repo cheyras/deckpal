@@ -7,8 +7,9 @@
 #   - test:collection (apps/api/src/__tests__) — those are live-DB integration
 #     tests against the PRODUCTION deckpal database (self-cleaning, but CI
 #     should never mutate prod data on every push). Run them manually.
-#   - No Postgres service container — nothing in this workflow touches a
-#     live database.
+#   - No database in this workflow. db-integration.yml separately creates
+#     a private disposable PostgreSQL cluster; it accepts no existing DB.
+# Browser/deployment checks run independently in browser.yml.
 name: CI
 
 on:
@@ -46,7 +47,7 @@ jobs:
       - name: Build @deckpal/storage
         run: pnpm --filter @deckpal/storage build
 
-      # @deckpal/agent-tools holds the 23 tool definitions the MCP server and
+      # @deckpal/agent-tools holds the 24 tool definitions the MCP server and
       # Deck-E both serve. Same deal: consumed through its dist/, so it has to
       # be built before anything that imports it is loaded — which includes the
       # serverless-function check further down, since api/mcp.mjs pulls
