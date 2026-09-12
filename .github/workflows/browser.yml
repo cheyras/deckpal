@@ -1,0 +1,44 @@
+name: Browser boundaries
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Build browser shared packages
+        run: |
+          pnpm --filter @deckpal/storage build
+          pnpm --filter @deckpal/matching build
+      - name: Cloud and self-host browser journeys, rendered chat and deployment controls
+        run: pnpm test:browser
+        env:
+          TEST_ARTIFACT_DIR: .cache/browser-tests
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: browser-boundaries
+          path: .cache/browser-tests/
+          if-no-files-found: error
+          retention-days: 14

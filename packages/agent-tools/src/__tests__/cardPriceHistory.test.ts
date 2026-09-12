@@ -169,7 +169,7 @@ test('description mentions get_card as the tool for current prices', () => {
 
 // ── 4. Schema defaults and validation ────────────────────────────────────────
 
-test('defaults: range=3m and currency=USD', async () => {
+test('omitted range and currency issue one GET with range=3m and currency=USD', async () => {
   const t = findTool('card_price_history', allTools());
   const { ctx, calls } = captureCtx(sampleResponse());
   await t.handler({ card_id: 'base1-1' }, ctx);
@@ -396,7 +396,7 @@ test('complete day/week/month series — all grains appear in text', async () =>
 
 // ── 9. Empty series (no history) ─────────────────────────────────────────────
 
-test('empty series returns ok (not error) with explicit no-history message', async () => {
+test('empty series returns ok with explicit no-history text and an empty structured array', async () => {
   const t = findTool('card_price_history', allTools());
   const res = await t.handler({ card_id: 'base1-1', range: '3m', currency: 'USD' }, mockCtx(sampleResponse({ seriesEmpty: true })));
   assert.equal(res.isError, undefined, 'empty series should not be an error');
@@ -404,11 +404,7 @@ test('empty series returns ok (not error) with explicit no-history message', asy
     res.text.toLowerCase().includes('no historical') || res.text.toLowerCase().includes('no history'),
     `should say no history, got: ${res.text}`,
   );
-});
-
-test('empty series structured output has empty series array', async () => {
-  const t = findTool('card_price_history', allTools());
-  const res = await t.handler({ card_id: 'base1-1', range: '3m', currency: 'USD' }, mockCtx(sampleResponse({ seriesEmpty: true })));
+  assert.ok(/no .*histor|no .*observation/i.test(res.text), 'should say no history');
   assert.deepEqual((res.structured as { series: unknown[] })?.series, []);
 });
 
@@ -601,16 +597,6 @@ test('null API response payload returns isError', async () => {
   assert.equal(res.isError, true, 'null payload must be an error');
 });
 
-test('legitimate empty series array still returns ok with no-history message', async () => {
-  const t = findTool('card_price_history', allTools());
-  const res = await t.handler(
-    { card_id: 'base1-1', range: '3m', currency: 'USD' },
-    mockCtx({ currency: 'USD', range: '3m', series: [] }),
-  );
-  assert.equal(res.isError, undefined, 'empty series array must NOT be an error');
-  assert.ok(/no .*histor|no .*observation/i.test(res.text), 'should say no history');
-});
-
 // ── 15. Outgoing query — non-default range and currency reach the API ───────
 //
 // The tool must forward the caller's range and currency to the REST API as
@@ -642,17 +628,6 @@ test('non-default range=30d and currency=EUR reach the API as outgoing query arg
   assert.equal(url.searchParams.get('range'), '30d', 'outgoing range query argument must be 30d');
   assert.equal(url.searchParams.get('currency'), 'EUR', 'outgoing currency query argument must be EUR');
 });
-
-test('defaults still reach the API when range and currency are omitted', async () => {
-  const t = findTool('card_price_history', allTools());
-  const { ctx, calls } = captureCtx(sampleResponse());
-  await t.handler({ card_id: 'base1-1' }, ctx);
-  assert.equal(calls.length, 1, 'must issue exactly one GET request');
-  const url = new URL(calls[0]!, 'http://test.local');
-  assert.equal(url.searchParams.get('range'), '3m', 'omitted range defaults to 3m in the outgoing query');
-  assert.equal(url.searchParams.get('currency'), 'USD', 'omitted currency defaults to USD in the outgoing query');
-});
-
 
 // ── 16. Complete-record pagination under the conversational text ceiling ───
 

@@ -570,6 +570,26 @@ wrong. They are listed here because each one is silent when wrong.
 | TCGdex `card(id:)` prefix-matches; `localId` padding is inconsistent | Wrong card returned; join numerically |
 | No upstream English-image fallback exists (hard 404) | Must be application logic |
 
+### Executable boundary checks
+
+Three independent PR/main workflows cover pure/build checks, disposable
+PostgreSQL integration, and browser/deployment behavior. The database runner
+owns a private Unix-socket-only cluster from `initdb` through `pg_ctl` cleanup;
+it accepts no existing database, refuses repository `.env` before application
+imports, and replaces inherited connection settings. Its focused fixture
+schema drives the actual series/prices routes, shared history tool and
+conversational adapter in UTC and America/Denver. It does not validate the
+entire migration history or production RLS setup.
+
+Browser checks build the actual SPA at cloud `/` and self-host `/deckpal/`,
+use deterministic local API fixtures, and exercise real chat components in a
+separate test-only Vite entry. Desktop/390px screenshots and result artifacts
+make the behavior reviewable. Deployment checks derive announcement assets
+from source metadata and check tracking/upload filters with negative controls.
+These suites neither use the live development proxy nor load repository
+`.env` files; they do not deploy or access production. The existing
+production-targeting collection suite remains manual and excluded from CI.
+
 ## 12. Data model
 
 Full DDL, indexes and worked SQL: `research/SCHEMA.md`.

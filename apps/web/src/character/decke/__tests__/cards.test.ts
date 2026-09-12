@@ -3,8 +3,8 @@
  *
  * These assert the FIVE traps that cost a debugging pass each upstream, against
  * `cards.json` as generated from the .blend. They are deliberately assertions
- * about the DATA and the algebra, not about pixels: the pixel check is the
- * frame-by-frame harness, and the things that went wrong here went wrong in a
+ * about the DATA and production geometry, not about pixels: the pixel check
+ * is the frame-by-frame harness, and the things that went wrong here went wrong in a
  * way a screenshot did not obviously show.
  */
 import { readFileSync } from 'node:fs'
@@ -92,14 +92,6 @@ test('every gate ramp happens while its card is invisible', () => {
       assert.ok(evalCurve(gate, t) > 0.999, `${state}: gate is ramping at ${t}ms with the card up`)
     }
   }
-})
-
-test('at facing +1 the gate is the identity for ANY present — algebra, not tolerance', () => {
-  for (const present of [0, 0.37, 1]) {
-    assert.equal(1 - present * (1 - 1), 1)
-  }
-  // ...and at facing -1 with the gate up it is a clean sign flip, nothing else.
-  assert.equal(1 - 1 * (1 - -1), -1)
 })
 
 test('all five stash cards fly, staggered, and none of them is a duplicate path', () => {
@@ -430,8 +422,8 @@ test('a card faces the reader at either facing', () => {
 /**
  * ── THE PRESENT GATE MAY NOT SWING UNDER A VISIBLE CARD ──────────────────────
  *
- * The tests above pin the authored gate data and the algebra `k` is computed
- * with. The moment between them had nothing on it, and that is where the
+ * The tests above pin the authored gate data and production facing geometry.
+ * The gate during a state transition had no coverage, which is where the
  * 2026-08-24 review found this:
  *
  *   "card suddenly snaps over to the other side (the wrong side for the way

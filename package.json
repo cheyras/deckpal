@@ -19,10 +19,13 @@
     "migrate:status": "pnpm --filter @deckpal/db migrate:status",
     "build": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-images build && pnpm --filter deckpal-sync build",
     "typecheck": "pnpm -r typecheck",
-    "dev:api": "pnpm --filter deckpal-api dev"
+    "dev:api": "pnpm --filter deckpal-api dev",
+    "test:browser": "node --import tsx scripts/test-browser.mjs",
+    "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
+    "playwright": "1.63.0",
     "sharp": "^0.35.4",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
