@@ -340,17 +340,23 @@ input. The Stripe raw-body webhook and the bare-origin OAuth discovery /
 router and are outside this guard; the MCP transport at `/mcp` is a separate
 function (`api/mcp.mjs`).
 
-**Per-user session routes.** `/tokens` (20/min), `/avatar` (10/min) and
-`/oauth` (30/min) are guarded **after** authentication but **before** the RLS
-`pool.connect`; `requireSession` rejects personal access tokens and
-anonymous requests cheaply first. On self-host, where `authMiddleware` leaves
-`req.user` unset, the account guards key on the socket peer; on cloud
-`requireSession` still rejects anonymous/PAT before any per-user budget is
-checked. Refusal is `429` with a `Retry-After` header in seconds. Each request
-is charged **once per applicable budget** — it may consume both the ingress
-budget and a per-user session budget, but there is no duplicate route-level
-charge (the routers below carry no second limiter). Existing `requireSession`
-policies are unchanged.
+**Per-user session routes.** `/tokens` (20/min), `/avatar` (10/min),
+`/oauth` (30/min), all `/admin` (120/min) and all `/me/credits` (180/min)
+are guarded after authentication/resolved self-host identity and
+`requireSession`, before RLS acquires its request connection. Cloud
+anonymous/PAT callers are rejected before their per-user budget. Self-host uses
+its resolved local account. Authentication lookup and trusted bootstrap can
+access their own pool earlier, so this is specifically an RLS-connection
+boundary. Active-account and action/SQL permission checks still follow RLS.
+
+Ingress, admin and wallet use genuine `express-rate-limit` 8.7.0 middleware
+with `BoundedExpressStore` over the existing store. All adapters share its
+10,000-key cap with distinct prefixes; admission at capacity fails without
+evicting an active key. Store errors fail closed. No skip rules, response-based
+counter refunds or validation suppression are configured. Budget exhaustion returns
+429 with Retry-After seconds and Cache-Control: no-store. Each request consumes
+each applicable budget once, so nested credit routes do not double-charge
+administration. Token/avatar/OAuth guards retain their existing implementation.
 
 **What these budgets are — and are not.** All application budgets are bounded
 in-memory fixed windows, **per process / per serverless function instance**,
@@ -702,8 +708,9 @@ a Super admin. Preview follows the same authorization rules; self-host trusts
 its reverse proxy and single local identity. No administrative MCP/Deck-E tools,
 impersonation, arbitrary SQL or account-deletion UI are introduced.
 
-After verified-session gating, one limiter covers all `/admin` requests,
-including credit administration, at 120 per 60 seconds per user. Wallet routes
+After verified-session gating and before RLS request-connection acquisition,
+one limiter covers all `/admin` requests, including credit administration,
+at 120 per 60 seconds per user. Wallet routes
 under `/me/credits` have a separate 180-per-60-second budget. The existing
 bounded in-memory store is per API process/function instance, resets on restart,
 and returns 429 with Retry-After; it is not a distributed quota. Nested credit

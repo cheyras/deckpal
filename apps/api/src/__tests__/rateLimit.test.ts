@@ -1,9 +1,10 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, before, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { readFileSync } from 'node:fs';
-import { RateLimitStore, preAuthRateLimit, perUserRateLimit, adminRateLimit, creditWalletRateLimit } from '../rateLimit.js';
-import type { Request, Response } from 'express';
+import { readFileSync, existsSync } from 'node:fs';
+import { createHmac, randomUUID } from 'node:crypto';
+import { RateLimitStore, preAuthRateLimit, perUserRateLimit, adminRateLimit, creditWalletRateLimit, preAuthFloodGuard, BoundedExpressStore } from '../rateLimit.js';
+import type { Request, Response, RequestHandler } from 'express';
 
 // ── Store unit tests ──────────────────────────────────────────────────────
 
@@ -564,45 +565,193 @@ describe('preAuthRateLimit — real Express server (cloud/Vercel)', () => {
 });
 
 
-describe('administration and wallet route budgets', () => {
-  it('actual admin middleware rejects request 121 before handlers and isolates users', () => {
-    let reached = 0;
-    const next = () => { reached++; };
-    const req = mockReq({ user: { id: 'admin-budget-fixture' } });
-    for (let n = 0; n < 120; n++) adminRateLimit(req, mockRes(), next);
-    assert.equal(reached, 120);
-    const rejected = mockRes();
-    adminRateLimit(req, rejected, next);
-    assert.equal(reached, 120, 'over-budget requests must never reach admin SQL');
-    assert.equal(rejected._status, 429);
-    assert.deepEqual((rejected._json as { error: { code: string } }).error.code, 'rate_limited');
-    assert.ok(Number(rejected._headers['Retry-After']) >= 1 && Number(rejected._headers['Retry-After']) <= 60);
-    adminRateLimit(mockReq({ user: { id: 'other-admin-fixture' } }), mockRes(), next);
-    assert.equal(reached, 121, 'another verified user retains their own budget');
-    creditWalletRateLimit(req, mockRes(), next);
-    assert.equal(reached, 122, 'admin exhaustion must not consume wallet polling budget');
+describe('bounded adapter for express-rate-limit', () => {
+  it('returns real hits/reset times, resets windows and supports the store contract', (t) => {
+    let now = 1000000;
+    t.mock.method(Date, 'now', () => now);
+    const backend = new RateLimitStore();
+    const adapter = new BoundedExpressStore('fixture', 2, 60000, backend);
+    try {
+      assert.deepEqual(adapter.increment('alice'), { totalHits: 1, resetTime: new Date(now + 60000) });
+      assert.equal(adapter.increment('alice').totalHits, 2);
+      assert.equal(adapter.increment('alice').totalHits, 3, 'real count exceeds the configured limit');
+      now += 60000;
+      assert.equal(adapter.increment('alice').totalHits, 1, 'same fixed window reset as the original store');
+      adapter.decrement('alice');
+      assert.equal(adapter.increment('alice').totalHits, 1);
+      adapter.resetKey('alice');
+      assert.equal(backend.size, 0);
+    } finally { backend.destroy(); }
   });
 
-  it('actual wallet middleware allows polling then returns 429 with Retry-After', () => {
-    const req = mockReq({ user: { id: 'wallet-budget-fixture' } });
-    let reached = 0;
-    for (let n = 0; n < 180; n++) creditWalletRateLimit(req, mockRes(), () => { reached++; });
-    const rejected = mockRes();
-    creditWalletRateLimit(req, rejected, () => { reached++; });
-    assert.equal(reached, 180, 'wallet handlers stop before request 181');
-    assert.equal(rejected._status, 429);
-    assert.equal((rejected._json as { error: { code: string } }).error.code, 'rate_limited');
-    assert.ok(Number(rejected._headers['Retry-After']) >= 1 && Number(rejected._headers['Retry-After']) <= 60);
-    creditWalletRateLimit(mockReq({ user: { id: 'other-wallet-fixture' } }), mockRes(), () => { reached++; });
-    assert.equal(reached, 181, 'wallet budgets are separate per verified user');
+  it('fails closed at the shared hard key bound without evicting active identities', (t) => {
+    const now = 1000000;
+    t.mock.method(Date, 'now', () => now);
+    const backend = new RateLimitStore();
+    const adapter = new BoundedExpressStore('fixture', 120, 60000, backend);
+    try {
+      for (let n = 0; n < 10000; n++) backend.check('active:' + n, 1, 60000, now);
+      const rejected = adapter.increment('new-user');
+      assert.equal(rejected.totalHits, 121, 'capacity exhaustion is over budget, never an allowed hit');
+      assert.equal(rejected.resetTime?.getTime(), now + 60000);
+      assert.equal(backend.size, 10000);
+      assert.ok(backend.check('active:0', 1, 60000, now) > 0, 'active user budget was retained');
+      assert.equal(backend.size, 10000);
+    } finally { backend.destroy(); }
+  });
+});
+
+describe('production ingress and session limits over real HTTP', () => {
+  const secret = 'local-rate-limit-fixture-signing-key-only';
+  let authMiddleware: RequestHandler, requireSession: RequestHandler;
+  let server: http.Server, origin: string;
+  let beforeAuth: number, beforeDatabase: number, protectedHandlers: number;
+  let user: string, otherUser: string, ingressIp: string;
+  let request: (path: string, options?: { user?: string | null; token?: string; local?: string; ip?: string; xff?: string }) =>
+    Promise<{ status: number; headers: Headers; body: { error?: { code: string; message: string } } }>;
+  let fixtureSequence = 0;
+  const savedVercel = process.env.VERCEL;
+
+  before(async () => {
+    assert.equal(existsSync(new URL('../../../../.env', import.meta.url)), false, 'only a clean isolated checkout may import auth');
+    const savedSecret = process.env.SUPABASE_JWT_SECRET, savedUrl = process.env.SUPABASE_URL;
+    process.env.SUPABASE_JWT_SECRET = secret;
+    delete process.env.SUPABASE_URL;
+    try {
+      ({ authMiddleware, requireSession } = await import('../auth.js'));
+    } finally {
+      if (savedSecret === undefined) delete process.env.SUPABASE_JWT_SECRET; else process.env.SUPABASE_JWT_SECRET = savedSecret;
+      if (savedUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = savedUrl;
+    }
   });
 
-  it('production mounts meter the admin subtree exactly once after verified session auth', () => {
+  beforeEach(async () => {
+    process.env.VERCEL = '1';
+    user = randomUUID(); otherUser = randomUUID(); ingressIp = '198.51.100.' + (++fixtureSequence);
+    beforeAuth = 0; beforeDatabase = 0; protectedHandlers = 0;
+    const express = (await import('express')).default;
+    const app = express();
+    // These are the actual exported middleware instances in the production order.
+    // The source-order assertion below also binds this HTTP proof to index.ts.
+    app.use(preAuthFloodGuard);
+    app.use((_req, _res, next) => { beforeAuth++; next(); });
+    app.use(authMiddleware);
+    app.use((req, _res, next) => {
+      // A resolved PAT/local identity is synthetic: no connector lookup or DB is used.
+      if (typeof req.headers['x-fixture-token-user'] === 'string') {
+        req.user = { id: req.headers['x-fixture-token-user'] }; req.authKind = 'token';
+      }
+      if (typeof req.headers['x-fixture-local-user'] === 'string') {
+        req.user = { id: req.headers['x-fixture-local-user'] }; req.authKind = 'local';
+      }
+      next();
+    });
+    app.use('/admin', requireSession, adminRateLimit);
+    app.use('/me/credits', requireSession, creditWalletRateLimit);
+    app.use((_req, _res, next) => { beforeDatabase++; next(); });
+    const success: RequestHandler = (_req, res) => { protectedHandlers++; res.json({ reached: true }); };
+    const credits = express.Router().get('/settings', success);
+    const administration = express.Router().use('/credits', credits).get('/users', success);
+    app.use('/admin', administration);
+    app.use('/me/credits', express.Router().get('/events', success));
+    app.get('/public', (_req, res) => res.json({ public: true }));
+    app.use((_req, res) => res.status(404).json({ error: { code: 'not_found', message: 'Fixture route missing' } }));
+    server = await new Promise<http.Server>(resolve => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    origin = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+    const token = (id: string) => {
+      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+      const payload = Buffer.from(JSON.stringify({ sub: id, aud: 'authenticated', role: 'authenticated', exp: Math.floor(Date.now() / 1000) + 600 })).toString('base64url');
+      const signed = header + '.' + payload;
+      return signed + '.' + createHmac('sha256', secret).update(signed).digest('base64url');
+    };
+    request = async (path, options = {}) => {
+      const headers: Record<string, string> = {
+        'x-vercel-forwarded-for': options.ip ?? ingressIp,
+        'x-forwarded-for': options.xff ?? '203.0.113.200',
+      };
+      if (options.user !== null) headers.authorization = 'Bearer ' + token(options.user ?? user);
+      if (options.token) headers['x-fixture-token-user'] = options.token;
+      if (options.local) headers['x-fixture-local-user'] = options.local;
+      const response = await fetch(origin + path, { headers, signal: AbortSignal.timeout(5000) });
+      return { status: response.status, headers: response.headers, body: await response.json() };
+    };
+  });
+
+  afterEach(() => {
+    server?.closeAllConnections(); server?.close();
+    if (savedVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = savedVercel;
+  });
+
+  it('one admin budget covers nested credit routes and fallthrough; rejects before database work', async () => {
+    for (let n = 0; n < 120; n++) {
+      const path = n === 57 ? '/admin/credits/missing' : n % 2 ? '/admin/users' : '/admin/credits/settings';
+      assert.equal((await request(path)).status, n === 57 ? 404 : 200);
+    }
+    assert.equal(beforeDatabase, 120, 'nested credits and unmatched routes are counted once');
+    const handlersBefore = protectedHandlers;
+    const rejected = await request('/admin/users');
+    assert.equal(rejected.status, 429); assert.equal(rejected.body.error?.code, 'rate_limited');
+    assert.ok(Number(rejected.headers.get('retry-after')) >= 1 && Number(rejected.headers.get('retry-after')) <= 60);
+    assert.equal(rejected.headers.get('cache-control'), 'no-store');
+    assert.equal(beforeDatabase, 120); assert.equal(protectedHandlers, handlersBefore);
+    assert.equal((await request('/me/credits/events')).status, 200, 'admin quota does not debit wallet quota');
+    assert.equal((await request('/admin/users', { user: otherUser })).status, 200, 'different verified user retains budget');
+    const databaseBeforeDenials = beforeDatabase;
+    assert.equal((await request('/admin/users', { user: null, token: user })).status, 403, 'PAT remains forbidden even after owner budget is exhausted');
+    assert.equal((await request('/admin/users', { user: null })).status, 401, 'anonymous remains unauthorized');
+    assert.equal(beforeDatabase, databaseBeforeDenials, 'session rejection precedes RLS');
+  });
+
+  it('wallet allows 180 requests then blocks, independently of admin and other users', async () => {
+    for (let n = 0; n < 180; n++) assert.equal((await request('/me/credits/events')).status, 200);
+    const rejected = await request('/me/credits/events');
+    assert.equal(rejected.status, 429); assert.equal(rejected.body.error?.code, 'rate_limited');
+    assert.ok(Number(rejected.headers.get('retry-after')) > 0);
+    assert.equal(beforeDatabase, 180); assert.equal(protectedHandlers, 180);
+    assert.equal((await request('/me/credits/events', { user: otherUser })).status, 200);
+    assert.equal((await request('/admin/users')).status, 200);
+    assert.equal((await request('/me/credits/events', { user: null, token: user })).status, 403);
+  });
+
+  it('self-host resolved local identity retains the same per-user admin budget', async () => {
+    for (let n = 0; n < 120; n++) assert.equal((await request('/admin/users', { user: null, local: user })).status, 200);
+    assert.equal((await request('/admin/users', { user: null, local: user, ip: '192.0.2.90' })).status, 429, 'IP changes do not reset a settled local identity');
+    assert.equal(beforeDatabase, 120);
+    assert.equal((await request('/admin/users', { user: null, local: otherUser })).status, 200);
+  });
+
+  it('actual 600/min ingress guard stops before authentication and trusts only the platform IP', async () => {
+    for (let n = 0; n < 600; n++) assert.equal((await request('/public', { user: null })).status, 200);
+    const rejected = await request('/admin/users', { xff: '192.0.2.99' });
+    assert.equal(rejected.status, 429); assert.equal(rejected.body.error?.code, 'rate_limited');
+    assert.equal(beforeAuth, 600); assert.equal(beforeDatabase, 600); assert.equal(protectedHandlers, 0);
+    assert.ok(Number(rejected.headers.get('retry-after')) > 0);
+    assert.equal((await request('/public', { user: null, ip: '192.0.2.91' })).status, 200);
+  });
+
+  it('actual self-host ingress ignores changing forwarding headers', async () => {
+    delete process.env.VERCEL;
+    for (let n = 0; n < 600; n++) assert.equal((await request('/public', { user: null, ip: '192.0.2.' + (n % 250), xff: '198.51.100.' + (n % 250) })).status, 200);
+    assert.equal((await request('/public', { user: null, ip: '203.0.113.2' })).status, 429);
+    assert.equal(beforeAuth, 600); assert.equal(beforeDatabase, 600);
+  });
+
+  it('production source mounts actual gates before RLS and mounts no duplicate later limiter', () => {
     const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    assert.match(source, /const administration = express\.Router\(\);\s*administration\.use\('\/credits', adminCreditRouter\);\s*administration\.use\(adminRouter\);\s*api\.use\('\/admin', requireSession, adminRateLimit, administration\);/);
-    assert.equal((source.match(/api\.use\('\/admin'/g) ?? []).length, 1, 'one common parent is the only admin rate-limit mount');
-    assert.doesNotMatch(source, /api\.use\('\/admin\/credits'/, 'credits must not also debit an overlapping parent mount');
-    assert.match(source, /api\.use\('\/me\/credits', requireSession, creditWalletRateLimit, meCreditRouter\);/);
-    assert.match(source, /api\.use\(preAuthFloodGuard\)/, 'global pre-auth ingress limit must survive');
+    const ingress = source.indexOf('api.use(preAuthFloodGuard)');
+    const auth = source.indexOf('api.use(authMiddleware)');
+    const local = source.indexOf('api.use(resolveOptionalIdentity)');
+    const admin = source.indexOf("api.use('/admin', requireSession, adminRateLimit)");
+    const wallet = source.indexOf("api.use('/me/credits', requireSession, creditWalletRateLimit)");
+    const database = source.indexOf('pool.connect()');
+    assert.ok(ingress >= 0 && ingress < auth && auth < local && local < admin && admin < database);
+    assert.ok(local < wallet && wallet < database);
+    assert.equal((source.match(/requireSession, adminRateLimit/g) ?? []).length, 1);
+    assert.equal((source.match(/requireSession, creditWalletRateLimit/g) ?? []).length, 1);
+    assert.match(source, /administration\.use\('\/credits', adminCreditRouter\);\s*administration\.use\(adminRouter\);\s*api\.use\('\/admin', administration\);/);
+    assert.match(source, /api\.use\('\/me\/credits', meCreditRouter\)/);
+    assert.doesNotMatch(source, /api\.use\('\/admin\/credits'/);
   });
 });

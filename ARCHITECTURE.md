@@ -150,45 +150,41 @@ role is used (bypasses RLS, since catalog tables are world-readable).
 
 ### Request pipeline order
 
-The `createApp` pipeline (`apps/api/src/index.ts`, which exports `createApp`)
-orders the base-path API router (`api`, mounted at `/api` on Vercel /
-`/deckpal/api` self-host) so that a request **rejected by the limiter** stops
-before token lookup and RLS work. Accepted anonymous catalog reads still use
-the existing RLS flow — they are not turned away, and they do acquire a
-connection:
+The `createApp` pipeline (`apps/api/src/index.ts`) orders the base-path API
+router (`/api` on Vercel, `/deckpal/api` self-host) as follows:
 
-1. **Pre-auth ingress guard** (`preAuthFloodGuard`, `rateLimit.ts`) — 600
-   req/min per source IP per process, mounted on the `api` router **before**
-   everything else on it. The RLS middleware acquires a connection even for
-   anonymous catalog reads, so a Bearer-only guard would leave no-header
-   floods unbounded. Client identity is platform-aware: on Vercel
-   (`process.env.VERCEL === '1'`) the validated `x-vercel-forwarded-for`
-   (preferred) or `x-forwarded-for` is used — Vercel overwrites both at
-   ingress; off Vercel, forwarding headers are ignored and the raw socket peer
-   is used. Express `trust proxy` stays at its default `false` (not loopback);
-   no new env variable is required.
-2. **`authMiddleware`** — **verifies** the `Authorization: Bearer` JWT and
-   resolves a personal access token (PAT) to `req.user`; it never rejects.
-   User-scoped routers are gated by `resolveIdentity` below, session-only ones
-   by `requireSession` too. A PAT lookup runs on the base pool and may access
-   the database during authentication — so RLS is **not** the first database
-   access; distinguish that lookup from the per-request transaction the RLS
-   context opens below.
-3. **Per-user session limits** — `/tokens` 20/min, `/avatar` 10/min,
-   `/oauth` 30/min, mounted **after** auth (so `req.user` is settled) but
-   **before** the RLS `pool.connect`. `requireSession` rejects PATs (403) and
-   anonymous (401) cheaply first; a blocked request never begins a transaction.
-   A request is charged **once per applicable budget** — it may consume both
-   the ingress budget and a per-user budget, but there is no duplicate
-   route-level charge (the routers below carry no second limiter).
-4. **RLS context** (`withUserContext`) — `pool.connect()` + `SET LOCAL role =
-   'authenticated'` + `request.jwt.claims`. This opens the per-request
-   transaction the lookup above is distinct from.
+1. **Pre-auth ingress guard** — 600 requests/min per source IP per process,
+   before authentication or RLS. It covers anonymous catalog reads too.
+   Vercel's validated `x-vercel-forwarded-for` (then `x-forwarded-for`)
+   identifies the client; outside Vercel, forwarded headers are ignored and
+   the raw socket peer is used. Express `trust proxy` remains false.
+2. **Authentication and local identity** — `authMiddleware` verifies a JWT
+   or resolves a PAT. Self-host resolves its single local account before the
+   session limits. The trusted bootstrap check also precedes RLS. Token lookup,
+   local-identity lookup or initialization may use the base/trusted pool here;
+   RLS is not necessarily the first database access.
+3. **Session gates and per-user limits** — `requireSession` rejects cloud
+   anonymous callers (401) and PATs (403), then applies `/tokens` 20/min,
+   `/avatar` 10/min, `/oauth` 30/min, the whole `/admin` subtree 120/min
+   and the whole `/me/credits` subtree 180/min. Credit administration consumes
+   the parent admin budget once; wallet polling has its own budget. Rejection
+   happens before the RLS request connection is acquired.
+4. **RLS context** — acquire the per-request connection and establish claims/
+   SQL role. Cloud requests, including accepted anonymous catalog reads, use
+   the existing transaction path. Self-host request transactions are scoped
+   to admin, wallet and OAuth; other local routes retain their prior pool use.
+5. **Account/action authorization and handlers** — user routes resolve identity,
+   check active-account state, then enforce action permissions in their router
+   and SQL functions. Early rate limiting does not replace authorization.
 
-All budgets are in-memory fixed windows **per process / per serverless
-instance**, reset on cold start — speed bumps against retry storms and casual
-abuse, not a distributed quota; reverse-proxy / platform controls remain the
-deployment boundary. Refusals are `429` with a `Retry-After` header (seconds).
+Ingress, admin and wallet guards use pinned `express-rate-limit` 8.7.0 with
+`BoundedExpressStore` adapting the existing shared 10,000-key process bound.
+Prefixes keep budgets separate; fixed windows, bounded admission and amortized
+expiry remain. No skip rules, response-based count refunds or validation
+suppression are configured. Store errors do not admit the request. These are
+per-process/function-instance budgets, reset on restart; they are not global
+distributed quotas. Budget exhaustion returns 429, Retry-After seconds and no-store.
+Existing token/avatar/OAuth guards keep their existing implementation and rates.
 
 The guard is on the ordinary base-path API router only. Two flows are mounted
 **separately on `app`, ahead of that router**, and are deliberately **not**

@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { isIP } from 'node:net';
+import { rateLimit, ipKeyGenerator, type Store, type Options, type ClientRateLimitInfo, type RateLimitInfo } from 'express-rate-limit';
 
 /**
  * Bounded in-memory rate limiter for per-user and per-IP abuse control.
@@ -65,6 +66,24 @@ export class RateLimitStore {
     }
     return 0;
   }
+
+  /** Store adapter: retain the same atomic count and bounded admission policy. */
+  increment(key: string, max: number, windowMs: number, now = Date.now()): ClientRateLimitInfo {
+    this.check(key, max, windowMs, now);
+    const bucket = this.buckets.get(key);
+    // A fresh key at capacity is denied without allocation or active-key eviction.
+    return {
+      totalHits: bucket?.count ?? max + 1,
+      resetTime: new Date(bucket?.resetAt ?? now + windowMs),
+    };
+  }
+
+  decrement(key: string): void {
+    const bucket = this.buckets.get(key);
+    if (bucket) bucket.count = Math.max(0, bucket.count - 1);
+  }
+
+  resetKey(key: string): void { this.buckets.delete(key); }
 
   /** Remove expired entries. */
   sweep(now = Date.now()): void {
@@ -224,6 +243,60 @@ export function preAuthRateLimit(
   };
 }
 
+/**
+ * Adapter for the maintained Express middleware. All instances share the
+ * existing 10,000-key process bound, with separate prefixes and unchanged
+ * fixed windows. No successful/failed-request refunds or skip rules are used.
+ */
+export class BoundedExpressStore implements Store {
+  readonly localKeys = false;
+  readonly prefix: string;
+
+  constructor(
+    routeTag: string,
+    private readonly max: number,
+    private readonly windowMs: number,
+    private readonly backend: RateLimitStore = store,
+  ) { this.prefix = routeTag + ':'; }
+
+  increment(key: string): ClientRateLimitInfo {
+    return this.backend.increment(this.prefix + key, this.max, this.windowMs);
+  }
+  decrement(key: string): void { this.backend.decrement(this.prefix + key); }
+  resetKey(key: string): void { this.backend.resetKey(this.prefix + key); }
+}
+
+function verifiedUserKey(req: Request): string {
+  return req.user?.id ?? 'local:' + ipKeyGenerator(req.ip ?? req.socket?.remoteAddress ?? 'unknown', false);
+}
+
+function boundedOptions(
+  tag: string,
+  max: number,
+  windowMs: number,
+  keyGenerator: (req: Request) => string,
+): Partial<Options> {
+  return {
+    windowMs, limit: max, keyGenerator,
+    store: new BoundedExpressStore(tag, max, windowMs),
+    legacyHeaders: false,
+    standardHeaders: false,
+    passOnStoreError: false,
+    handler(req, res) {
+      const info = (req as Request & { rateLimit: RateLimitInfo }).rateLimit;
+      const retryAfter = Math.max(1, Math.ceil(((info.resetTime?.getTime() ?? Date.now() + windowMs) - Date.now()) / 1000));
+      res.setHeader('Retry-After', String(retryAfter));
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(429).json({
+        error: {
+          code: 'rate_limited',
+          message: tag === 'preauth' ? 'Too many requests — slow down.' : 'Too many requests — wait ' + retryAfter + 's and try again.',
+        },
+      });
+    },
+  };
+}
+
 // ── Pre-built middleware instances ───────────────────────────────────────────
 
 /** Token minting/revocation: 20 requests per 60s per user. */
@@ -233,10 +306,10 @@ export const tokensRateLimit: RequestHandler = perUserRateLimit('tokens', 20, 60
  * Administration, including credit policy and operations: 120 requests per
  * 60s per user. Mounted once for the entire /admin subtree.
  */
-export const adminRateLimit: RequestHandler = perUserRateLimit('admin', 120, 60_000);
+export const adminRateLimit: RequestHandler = rateLimit(boundedOptions('admin', 120, 60_000, verifiedUserKey));
 
 /** Wallet balance, statement, order polling and checkout: 180 requests per 60s per user. */
-export const creditWalletRateLimit: RequestHandler = perUserRateLimit('credit-wallet', 180, 60_000);
+export const creditWalletRateLimit: RequestHandler = rateLimit(boundedOptions('credit-wallet', 180, 60_000, verifiedUserKey));
 
 /** Avatar mutations: 10 requests per 60s per user. */
 export const avatarRateLimit: RequestHandler = perUserRateLimit('avatar', 10, 60_000);
@@ -251,6 +324,6 @@ export const oauthRateLimit: RequestHandler = perUserRateLimit('oauth', 30, 60_0
  * Conservative enough for normal app loads while bounding unauthenticated
  * DB work from floods of any kind.
  */
-export const preAuthFloodGuard: RequestHandler = preAuthRateLimit(600, 60_000);
+export const preAuthFloodGuard: RequestHandler = rateLimit(boundedOptions('preauth', 600, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)));
 
 export { RateLimitStore as _RateLimitStore };

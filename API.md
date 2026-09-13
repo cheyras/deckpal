@@ -93,9 +93,12 @@ omit the host.
   `false`). The Stripe raw-body webhook and the bare-origin OAuth discovery /
   `/register` / `/token` handlers are mounted separately on `app` ahead of that
   router and are outside this guard; the MCP transport at `/mcp` is a separate
-  function. Three per-user session routes are limited **after** auth but
-  **before** the RLS `pool.connect`: `/tokens` 20/min, `/avatar` 10/min,
-  `/oauth` 30/min. Refusal is **`429`** with a **`Retry-After`** header in
+  function. Session budgets run **after** auth/self-host identity and
+  `requireSession` but **before** RLS request-connection acquisition:
+  `/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min, all `/admin`
+  120/min and all `/me/credits` 180/min. Active-account/action permissions
+  and handlers follow RLS. Authentication and trusted bootstrap may access
+  their own pool earlier. Refusal is **`429`** with a **`Retry-After`** header in
   seconds; a request is charged once per applicable budget (it may consume
   both ingress and a per-user session budget, with no duplicate route-level
   charge). Budgets are in-memory fixed windows, per process / per serverless

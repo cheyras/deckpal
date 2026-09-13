@@ -36,6 +36,7 @@
     "@deckpal/storage": "workspace:*",
     "ai": "7.0.94",
     "express": "^5.0.0",
+    "express-rate-limit": "8.7.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.0",

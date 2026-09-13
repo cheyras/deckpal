@@ -279,8 +279,13 @@ all `/admin` 120/min, all `/me/credits` 180/min) are wired unconditionally
 in `createApp` on the ordinary base-path API router (`/api` on Vercel,
 `/deckpal/api` self-host). A single parent admin limiter includes credit
 administration once; the wallet budget is separate. These use the existing
-bounded per-instance store. The database checkout limits of 60 requests and
-10 new order attempts per user/hour are unchanged. The Stripe raw-body webhook and the
+bounded per-instance store. Ingress, admin and wallet middleware use the pinned
+`express-rate-limit` 8.7.0 dependency installed by the normal frozen workspace
+install. Ingress runs before authentication; admin/wallet session gates and
+limits run after verified/local identity but before RLS request-connection
+acquisition. Active-account/action permissions still precede handlers. The
+database checkout limits of 60 requests and 10 new order attempts per user/hour
+are unchanged. The Stripe raw-body webhook and the
 bare-origin OAuth discovery / `/register` / `/token` handlers are mounted
 separately on `app` ahead of that router and are outside this guard; the MCP
 transport at `/mcp` is a separate function. Client-identity resolution keys on

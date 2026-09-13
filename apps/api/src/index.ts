@@ -216,6 +216,10 @@ export function createApp(): express.Express {
   api.use('/tokens', requireSession, tokensRateLimit);
   api.use('/avatar', requireSession, avatarRateLimit);
   api.use('/oauth', requireSession, oauthRateLimit);
+  // Shared /admin parent counts its credit subtree once; wallet polling has
+  // an independent budget. Reject before RLS obtains a request connection.
+  api.use('/admin', requireSession, adminRateLimit);
+  api.use('/me/credits', requireSession, creditWalletRateLimit);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS
@@ -540,8 +544,8 @@ export function createApp(): express.Express {
   const administration = express.Router();
   administration.use('/credits', adminCreditRouter);
   administration.use(adminRouter);
-  api.use('/admin', requireSession, adminRateLimit, administration);
-  api.use('/me/credits', requireSession, creditWalletRateLimit, meCreditRouter);
+  api.use('/admin', administration);
+  api.use('/me/credits', meCreditRouter);
 
   // Mounted ahead of `/me` so the two-segment path resolves here; meRouter has
   // no `/billing` route, so nothing is shadowed either way, but the order says
