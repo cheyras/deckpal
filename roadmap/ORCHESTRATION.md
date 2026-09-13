@@ -22,6 +22,8 @@ operational shape: branches, worktrees, review, and the merge protocol.
 
 Worktrees live outside the main tree to avoid interfering with the deployed
 code. Statuses as of 2026-08-16 — check git for current branch state.
+Project Holo moved to its own repository (2026-09-13); the separate foil
+renderer workstream is no longer scheduled here.
 
 | Wave | Branch | Plan | Status |
 |---|---|---|---|
@@ -29,7 +31,6 @@ code. Statuses as of 2026-08-16 — check git for current branch state.
 | 1 | `feat/battle-events-parser` | plans/battle-events-parser.md | scaffold |
 | 1 | `feat/battle-synthesis` | plans/battle-synthesis.md | scaffold |
 | 1 | `feat/engine-fork` | plans/engine-fork.md | scaffold |
-| 1 | `foil/main` (long-lived) | plans/foil-main.md | scaffold |
 | 2 | `feat/battle-search-tools` | plans/battle-search-tools.md | pending |
 | 2 | `feat/board-replay` | plans/board-replay.md | pending |
 | 2 | `feat/engine-modern-rules` | plans/engine-modern-rules.md | pending |
