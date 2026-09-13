@@ -1642,7 +1642,10 @@ orders, spend reservations and debt controls. The protected Super admin role
 cannot be edited or lost through concurrent demotion/suspension. Application
 roles are rows, not new PostgreSQL login roles. A trusted one-time bootstrap
 imports the existing owner/QA configuration, then database changes become
-authoritative.
+authoritative. The runner commits migrations individually, so 064/066 revoke
+PUBLIC and existing anon/authenticated access to their new objects before
+committing. Interrupted upgrades keep those objects private until the later
+narrow grants in 065/067; deployment still requires the complete sequence.
 
 All administrative routes and wallet routes require an application session,
 excluding personal/connector tokens. Request-local access coalescing never

@@ -21,7 +21,54 @@ const db=new pg.Client(config);
 const results={name:'admin-'+mode,status:'running',cases:[]};
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 async function test(name,fn){await fn();results.cases.push({name,status:'passed'});console.log('PASS '+name);}
-async function migration(name){await db.query(readFileSync(join(repo,'packages/db/src/migrations',name),'utf8'));}
+async function creationObjects(){
+ return (await db.query(`
+  SELECT CASE c.relkind WHEN 'S' THEN 'sequence' ELSE 'table' END kind,
+   c.oid::text oid,c.oid::regclass::text name
+  FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind IN ('r','S')
+  UNION ALL
+  SELECT 'function',p.oid::text,p.oid::regprocedure::text
+  FROM pg_proc p WHERE p.pronamespace='public'::regnamespace
+ `)).rows;
+}
+async function assertCreationPrivileges(name,created){
+ const expected=name.startsWith('064')?{table:8,sequence:1,function:17}:{table:7,sequence:1,function:10};
+ const counts={table:0,sequence:0,function:0};
+ for(const object of created) counts[object.kind]++;
+ assert.deepEqual(counts,expected,'all objects introduced by the actual migration are checked');
+ const webRoles=(await db.query("SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated') ORDER BY rolname")).rows.map(r=>r.rolname);
+ const checkers={table:['has_table_privilege','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'],sequence:['has_sequence_privilege','USAGE,SELECT,UPDATE'],function:['has_function_privilege','EXECUTE']};
+ let deniedChecks=0;
+ for(const object of created){
+  const [checker,privileges]=checkers[object.kind];
+  for(const role of webRoles){
+   const value=(await db.query('SELECT '+checker+'($1,$2::oid,$3) allowed',[role,object.oid,privileges])).rows[0].allowed;
+   assert.equal(value,false,name+' must not leave '+role+' access to '+object.name+' before its security migration');
+   deniedChecks++;
+  }
+  // Also prove PUBLIC itself is closed when no cloud roles exist. Expanding
+  // acldefault covers implicit EXECUTE, not merely explicit ACL entries.
+  const publicAcl=object.kind==='function'
+   ? await db.query("SELECT a.privilege_type FROM pg_proc p CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=$1::oid AND a.grantee=0",[object.oid])
+   : await db.query("SELECT a.privilege_type FROM pg_class c CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S'::\"char\" ELSE 'r'::\"char\" END,c.relowner))) a WHERE c.oid=$1::oid AND a.grantee=0",[object.oid]);
+  assert.equal(publicAcl.rowCount,0,name+' must remove inherited PUBLIC access to '+object.name);
+  const owner=(await db.query('SELECT '+checker+'(current_user,$1::oid,$2) allowed',[object.oid,privileges])).rows[0].allowed;
+  assert.equal(owner,true,'trusted creator retains operation of '+object.name);
+ }
+ results.creationStages??=[];
+ results.creationStages.push({migration:name,objects:counts,webRoles,deniedChecks,publicAclClosed:true,creatorRetained:true});
+}
+async function migration(name){
+ const creation=name==='064_admin_core.sql'||name==='066_credit_economy.sql';
+ const before=creation?new Set((await creationObjects()).map(o=>o.kind+':'+o.oid)):null;
+ // Each original migration is its own committed query, like migrateUp's
+ // per-file transaction; assertions run before the next numbered file.
+ await db.query(readFileSync(join(repo,'packages/db/src/migrations',name),'utf8'));
+ if(creation){
+  const created=(await creationObjects()).filter(o=>!before.has(o.kind+':'+o.oid));
+  await test(name.slice(0,3)+' creation-stage table sequence and function ACLs are closed before later grants',()=>assertCreationPrivileges(name,created));
+ }
+}
 async function as(user,fn,{kind='jwt',role='authenticated',direct=false}={}){
  const c=new pg.Client(config);await c.connect();
  try{
@@ -75,6 +122,17 @@ try{
   });
  }else{
   await db.query(readFileSync(join(here,'admin-fixture.sql'),'utf8'));
+  await test('disposable cloud fixture includes direct web defaults and inherited PUBLIC execute',async()=>{
+   const defaults=(await db.query("SELECT d.defaclobjtype kind,a.grantee,a.privilege_type,CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END principal FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) a WHERE d.defaclnamespace='public'::regnamespace")).rows;
+   for(const principal of ['anon','authenticated']){
+    for(const [kind,privilege] of [['r','SELECT'],['S','USAGE'],['f','EXECUTE']]){
+     assert.ok(defaults.some(d=>d.kind===kind&&d.principal===principal&&d.privilege_type===privilege),'fixture must exercise '+principal+' default '+privilege);
+    }
+   }
+   // Function PUBLIC EXECUTE can be implicit or explicit. The built-in default
+   // is verified in metadata without creating or invoking a financial helper.
+   assert.ok((await db.query("SELECT EXISTS(SELECT 1 FROM aclexplode(acldefault('f',(SELECT oid FROM pg_roles WHERE rolname=current_user))) a WHERE a.grantee=0 AND privilege_type='EXECUTE') allowed")).rows[0].allowed);
+  });
   for(const name of ['026_api_token.sql','027_api_token_rls.sql','031_oauth_client.sql','032_oauth_code.sql','033_oauth_rls.sql','041_decke_credits.sql','042_decke_credits_rls.sql','053_billing.sql','054_billing_rls.sql','055_billing_ab.sql','056_billing_ab_rls.sql','057_billing_one_time.sql','058_billing_ab_amount_cap.sql','059_billing_customer_pin.sql','060_billing_release_customer.sql','061_billing_ab_dedupe.sql','062_billing_ab_event_guard.sql','063_billing_event_processed.sql','064_admin_core.sql','065_admin_security.sql']) await migration(name);
   await test('missing owner is atomic and trusted bootstrap runs exactly once',async()=>{
    assert.equal((await db.query("SELECT admin_bootstrap(NULL,'{}','{}') ready")).rows[0].ready,false);
@@ -263,6 +321,18 @@ try{
    try{
     const roles=await request('/admin/roles');assert.equal(roles.status,200);assert.equal(roles.headers.get('cache-control'),'no-store');
     const pat=await request('/admin/users',{headers:{'x-fixture-kind':'token'}});assert.equal(pat.status,403);
+    // Exercise the browser's initial query through the actual HTTP parser and SQL.
+    for(const filter of ['', '&status=all', '&status=active', '&status=suspended']){
+     const users=await request('/admin/users?search=&role=&offset=0&limit=25'+filter);
+     assert.equal(users.status,200,'accepted Users status filter '+filter);
+     const list=await users.json();
+     assert.equal(list.total,filter==='&status=suspended'?0:7);
+     assert.equal(list.users.length,list.total);
+    }
+    for(const invalid of ['', 'unknown']){
+     const users=await request('/admin/users?status='+invalid);
+     assert.equal(users.status,400,'reject invalid Users status '+JSON.stringify(invalid));
+    }
     const update=await request('/admin/settings',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({settings:{skin:'premium',topbar:'cover'},expectedRevision:2})});
     assert.equal(update.status,200,await update.text());
     assert.equal((await db.query('SELECT revision FROM admin_app_settings')).rows[0].revision,3,'mutation committed before successful HTTP response');

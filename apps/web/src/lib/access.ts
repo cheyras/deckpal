@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { api } from './api'
 import { isCloudMode, supabase } from './supabase'
 import { readSession } from './authSession'
+import { hasVerifiedPermission } from './capabilities'
 
 export interface Access { permissions: readonly string[]; roles: readonly { id: string; name: string }[]; ready: boolean; identity: string; error?: string }
 const EMPTY: Access = { permissions: [], roles: [], ready: false, identity: '' }
@@ -57,7 +58,7 @@ function subscribe(listener: () => void) {
 }
 export function useAccess(): Access { return useSyncExternalStore(subscribe, () => value, () => EMPTY) }
 export function usePermission(key: string): boolean { return useAccess().permissions.includes(key) }
-export async function hasPermission(key: string): Promise<boolean> { const access = await getAccess(); if (access.error) throw new Error('Cannot verify account access. Please reload to try again.'); return access.permissions.includes(key) }
+export async function hasPermission(key: string): Promise<boolean> { const access = await getAccess(); return hasVerifiedPermission(access, key) }
 if (typeof window !== 'undefined') {
   window.addEventListener('deckpal:forbidden', () => { invalidateAccess(); void getAccess() })
   window.addEventListener('focus', () => { void getAccess(true) })

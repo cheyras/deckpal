@@ -309,19 +309,10 @@ BEGIN
  RAISE EXCEPTION 'Unknown operation' USING ERRCODE='22023';
 END $$;
 
--- Default privileges grant EXECUTE to PUBLIC; remove that implicit API.
-REVOKE ALL ON TABLE public.admin_permission,public.admin_role,public.admin_role_permission,public.admin_account,public.admin_user_role,public.admin_state,public.admin_app_settings,public.admin_audit FROM PUBLIC;
-REVOKE ALL ON SEQUENCE public.admin_audit_id_seq FROM PUBLIC;
-DO $$ DECLARE f record; BEGIN
- FOR f IN SELECT oid::regprocedure sig FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'admin_%' LOOP
-  EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.sig);
- END LOOP;
-END $$;
 CREATE FUNCTION public.admin_user_has_permission(p_user text,p_key text) RETURNS boolean
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $$
  SELECT p_key=ANY(public.admin_permissions(p_user))
 $$;
-REVOKE ALL ON FUNCTION public.admin_user_has_permission(text,text) FROM PUBLIC;
 
 -- The consent UI uses its existing request connection. These narrow RPCs
 -- replace a second trusted pool checkout without exposing bearer-code tables.
@@ -342,7 +333,6 @@ BEGIN
  INSERT INTO public.oauth_code(code,client_id,user_id,redirect_uri,code_challenge,code_challenge_method,resource,expires_at)
  SELECT p_code,p_client,u.id,p_redirect,p_challenge,'S256',p_resource,now()+interval '5 minutes' FROM public.app_user u WHERE u.id::text=actor;
 END $$;
-REVOKE ALL ON FUNCTION public.admin_connector_client(text),public.admin_connector_issue(text,text,text,text,text) FROM PUBLIC;
 
 -- Every credential INSERT participates in the revocation boundary, including
 -- direct PostgREST inserts. The lock is held through the inserting transaction;
@@ -356,10 +346,48 @@ BEGIN
  END IF;
  RETURN NEW;
 END $$;
-REVOKE ALL ON FUNCTION public.admin_guard_token_mint() FROM PUBLIC;
 DO $$ BEGIN
  IF to_regclass('public.api_token') IS NOT NULL THEN
   CREATE TRIGGER admin_token_mint_boundary BEFORE INSERT ON public.api_token
    FOR EACH ROW EXECUTE FUNCTION public.admin_guard_token_mint();
  END IF;
 END $$;
+
+-- migrateUp commits each numbered file independently. Close inherited/default
+-- client ACLs in the creation transaction, even if the upgrade stops here.
+-- Later security migrations grant only the intended client RPCs. The creator
+-- and existing explicit trusted-server grants remain intact; no role/default
+-- privilege settings or unrelated schema objects are changed.
+DO $creation_acl$
+DECLARE principal text; grantee_sql text; object_name text; signature text;
+BEGIN
+ FOREACH principal IN ARRAY ARRAY['PUBLIC','anon','authenticated'] LOOP
+  IF principal<>'PUBLIC' AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal) THEN CONTINUE; END IF;
+  grantee_sql:=CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END;
+  FOREACH object_name IN ARRAY ARRAY['admin_permission','admin_role','admin_role_permission','admin_account','admin_user_role','admin_state','admin_app_settings','admin_audit'] LOOP
+   EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %s',object_name,grantee_sql);
+  END LOOP;
+  EXECUTE format('REVOKE ALL PRIVILEGES ON SEQUENCE public.%I FROM %s','admin_audit_id_seq',grantee_sql);
+  FOREACH signature IN ARRAY ARRAY[
+   'public.admin_actor_id()',
+   'public.admin_account_active(text)',
+   'public.admin_permissions(text)',
+   'public.admin_is_super(text)',
+   'public.admin_is_session()',
+   'public.admin_require_permission(text)',
+   'public.admin_audit_append(text,text,text,jsonb,jsonb,text)',
+   'public.admin_bootstrap(text,text[],text[])',
+   'public.admin_access(text)',
+   'public.admin_public_defaults()',
+   'public.admin_user_projection(text)',
+   'public.admin_role_projection(uuid)',
+   'public.admin_api(text,jsonb)',
+   'public.admin_user_has_permission(text,text)',
+   'public.admin_connector_client(text)',
+   'public.admin_connector_issue(text,text,text,text,text)',
+   'public.admin_guard_token_mint()'
+  ] LOOP
+   EXECUTE format('REVOKE ALL PRIVILEGES ON FUNCTION %s FROM %s',signature::regprocedure,grantee_sql);
+  END LOOP;
+ END LOOP;
+END $creation_acl$;

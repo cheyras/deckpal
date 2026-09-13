@@ -1672,6 +1672,14 @@ return `409 protected_state`. See ADMINISTRATION.md for operational guidance.
 | GET / PUT `/admin/settings` | `settings.read` / `settings.write` | Read defaults/revision; write `{settings:{skin,topbar}, expectedRevision}`. |
 | GET `/admin/audit` | `audit.read` | Paginated actor/action/target filters with validated before/after data. |
 
+A single verified-user budget covers the entire `/admin` subtree, including
+credit administration: 120 requests per 60 seconds. `/me/credits` and its
+wallet/statement/order/checkout children share a separate 180-per-60-second
+budget. Nested credit administration counts once against the admin budget.
+These bounded in-memory windows are per process/function instance and reset
+on restart, not a global quota. Exhaustion returns `429 rate_limited` with
+`Retry-After` seconds. The database checkout quotas below still apply.
+
 Directory/audit limits default to 50 and cap at 100; offsets default to zero.
 Role/status changes require a reason. Last-active-Super-admin and authority
 delegation rules are enforced in SQL, not just the UI.
@@ -1698,6 +1706,10 @@ separately from explicit personal choices. `GET /health` includes
 | GET `/me/credits/events` | Session | Own paginated credit/debt statement; finance-only provider estimates are excluded. |
 | GET `/me/credits/orders/:id` | Session | Own server-confirmed frozen order state. |
 | POST `/me/credits/checkout` | Session + eligible account | `{packId,idempotencyKey}` only; returns hosted `url` and `orderId`. |
+
+Wallet reads recover expired, unstarted reservations idempotently. Reservations
+locked by a concurrent transaction are skipped and can recover on a later read;
+a successful response does not promise every busy reservation was refunded.
 
 Credit list limits default to 25 and cap at 100. Attempt keys contain 8–100
 letters, digits, underscores or hyphens; financial reasons contain 3–500

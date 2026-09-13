@@ -1,287 +1,121 @@
 /**
- * The scanner is owner-only, and every door to it agrees about that.
- *
- * ══════════════════════════════════════════════════════════════════════════════
- * Why this is a source-reading test, and why that is the honest shape here
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * The thing being protected is not a function's return value — it is a PROPERTY
- * OF THE WHOLE APP: that no door to the scanner opens for a non-owner, and that
- * no surface a non-owner sees mentions it. There are six doors (a route guard, a
- * rail row, a header button, a mobile drawer row, Deck-E's navigation
- * allowlist, and the marketing page), they live in five files, and the failure
- * mode is somebody adding a seventh — or quietly deleting one guard while the
- * other five keep the test suite green.
- *
- * Rendering the router would check one door. Reading the sources checks that
- * the SET is closed, which is the property that actually matters, and it is the
- * same technique `character/host/__tests__/selfHostGate.test.ts` already uses
- * for the same kind of cross-file coupling — including its habit of making the
- * failure message the instruction.
- *
- * Every assertion below strips comments first. This file is surrounded by prose
- * about `notFound()` and `owner`, and a test that matched its own explanation
- * would pass a codebase where the gate had been deleted and only the comment
- * left behind.
+ * Execute the production capability decision, then verify each scanner entrance
+ * is wired to it. Actual SPA browser journeys cover both modes, navigation and
+ * revocation; these tests catch a weakened guard or a mismatched capability.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { hasVerifiedPermission, requireVerifiedCapability, type CapabilitySnapshot } from '../../../lib/capabilities'
 
-/** repo root, from apps/web/src/scan/ui/__tests__/ */
 const ROOT = fileURLToPath(new URL('../../../../../../', import.meta.url))
-
-/** Source with comments removed — a promise in prose is not a gate. */
 function code(rel: string): string {
-  return readFileSync(new URL(rel, `file://${ROOT}`), 'utf8')
+  return readFileSync(new URL(rel, 'file://' + ROOT), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, '')
     .replace(/(^|[^:])\/\/.*$/gm, '$1')
 }
-
-const MAIN = 'apps/web/src/main.tsx'
-const SHELL = 'apps/web/src/components/AppShell.tsx'
-
-// ── 1 · the route guard ─────────────────────────────────────────────────────
-
-/**
- * The exact three-branch shape `/design`, `/dev/decke` and `/dev/quad-labeler`
- * all use: dev open, self-host open, cloud asks the server, everything else
- * `notFound()`. Matched as a shape rather than as a string so reformatting is
- * allowed and removing a branch is not.
- */
+const MAIN = 'apps/web/src/main.tsx', SHELL = 'apps/web/src/components/AppShell.tsx'
 function routeGuardFor(src: string, path: string): string {
-  // The createRoute({...}) block whose `path` is this one, up to `component:`.
-  const re = new RegExp(`path:\\s*'${path.replace(/\//g, '\\/')}'[\\s\\S]*?component:`, 'm')
-  const m = re.exec(src)
-  assert.ok(m, `no route declaring path: '${path}' in ${MAIN}`)
-  return m[0]
+  const start = src.indexOf("path: '" + path + "'")
+  assert.ok(start >= 0, 'Missing route ' + path)
+  const end = src.indexOf('component:', start)
+  assert.ok(end > start, 'Missing route component for ' + path)
+  return src.slice(start, end)
 }
+const verified = (permissions: string[]): CapabilitySnapshot => ({ ready: true, permissions })
+const notFound = { isNotFound: true }
+const guard = (access: CapabilitySnapshot, permission = 'scanner.use') =>
+  requireVerifiedCapability(permission, async () => access, () => notFound)
 
-test('/scan has a beforeLoad guard at all', () => {
-  const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.match(
-    guard,
-    /beforeLoad:\s*async/,
-    `the /scan route in ${MAIN} has no beforeLoad. It shipped open to the world before 2026-09-07 ` +
-      'and the owner asked for it to be owner-only — if that has been reversed deliberately, this ' +
-      'test and the API gate in apps/api/src/scan/router.ts both have to go with it.',
-  )
+test('an explicit scanner capability opens the production route decision', async () => {
+  await guard(verified(['scanner.use']))
+  await guard(verified(['scanner.use', 'scanner.label']))
 })
-
-test('/scan is gated on the SERVER-VERIFIED owner flag, not on being signed in', () => {
-  const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.match(
-    guard,
-    /await\s+api\.me\(\)/,
-    '/scan no longer asks the server who is calling. A client-side notion of "the owner" is a ' +
-      'suggestion, not a gate — the identity lives in DESIGN_EDITOR_USER_ID, server-side, and ' +
-      'nothing about it may reach this bundle.',
-  )
-  assert.match(guard, /me\.owner/, '/scan must read `owner`, the same flag /dev/decke reads')
+test('ordinary and signed-out verified accounts are denied', async () => {
+  await assert.rejects(guard(verified([])), error => error === notFound)
 })
-
-test('/scan fails CLOSED: the guard ends in notFound(), and the catch falls through to it', () => {
-  const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.match(
-    guard,
-    /catch\s*\{[^}]*\}\s*throw\s+notFound\(\)/,
-    'the /scan guard no longer ends with `throw notFound()` after its catch. A guard that swallows ' +
-      'a failed /me and RETURNS has opened the route to every signed-out visitor and every network ' +
-      'blip — which is the direction an owner gate may never fail.',
-  )
-  // 404, not a redirect to /auth: a redirect tells the visitor a scanner exists
-  // and that an account might get them in. Neither is true.
-  assert.doesNotMatch(guard, /redirect\(/, 'the /scan guard must not redirect — it must look absent')
+test('labeler permission grants training tools but never the scanner', async () => {
+  const labeler = verified(['scanner.label'])
+  await guard(labeler, 'scanner.label')
+  await assert.rejects(guard(labeler), error => error === notFound)
 })
-
-test('/scan opens for local dev and for self-host, exactly like every other owner-only route', () => {
-  const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.match(guard, /import\.meta\.env\.DEV/, 'local dev must stay open or nobody can build the feature')
-  assert.match(guard, /!isCloudMode/, 'self-host has one user behind their own auth proxy — it stays open')
+test('scanner access does not implicitly grant labeling or diagnostics', async () => {
+  const scanner = verified(['scanner.use'])
+  await assert.rejects(guard(scanner, 'scanner.label'), error => error === notFound)
+  await assert.rejects(guard(scanner, 'diagnostics.view'), error => error === notFound)
 })
-
-test('the /scan guard is /dev/decke plus EXACTLY the preview allowance — nothing else', () => {
-  // The guards were deliberately identical when copied. They now differ by ONE
-  // documented line: /scan admits *.vercel.app hostnames, because the e2e
-  // acceptance drives sign in as QA (AGENTS.md B12) and an owner-only preview
-  // would blind every machine gate this scanner ships through — the same
-  // reasoning, measured on the same rig, that gave the labeler its allowance.
-  // Deck-E keeps the strict form (nothing machine-gates him on previews).
-  // Production is unaffected: deckpal.app still ends at me.owner, fail-closed.
+test('unknown access fails closed even if an old capability is present', async () => {
+  await assert.rejects(guard({ ready: false, permissions: ['scanner.use'] }), /Cannot verify account access/)
+})
+test('verification failure is unavailable, never a settled grant or not-found denial', async () => {
+  await assert.rejects(guard({ ...verified(['scanner.use']), error: '503' }), /Cannot verify account access/)
+  const unavailable = new Error('identity request failed')
+  await assert.rejects(requireVerifiedCapability('scanner.use', async () => { throw unavailable }, () => notFound), error => error === unavailable)
+})
+test('revocation and suspension clear a previously granted capability on the next check', async () => {
+  let access = verified(['scanner.use'])
+  const load = async () => access
+  await requireVerifiedCapability('scanner.use', load, () => notFound)
+  access = verified([])
+  await assert.rejects(requireVerifiedCapability('scanner.use', load, () => notFound), error => error === notFound)
+})
+test('role labels and legacy owner flags cannot grant a capability', async () => {
+  const legacy = { ...verified([]), owner: true, labeler: true, roles: [{ name: 'Super administrator' }] }
+  await assert.rejects(guard(legacy), error => error === notFound)
+})
+test('all scanner and diagnostics routes use their precise server capability with no preview shortcut', () => {
   const src = code(MAIN)
-  const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
-  const bodyOf = (path: string) => {
-    const g = routeGuardFor(src, path)
-    const m = /beforeLoad:\s*async\s*\(\)\s*=>\s*\{([\s\S]*)\}\s*,?\s*component:/.exec(g)
-    assert.ok(m, `could not read the beforeLoad body for ${path}`)
-    return norm(m[1]!)
+  for (const [path, permission] of [
+    ['/scan', 'scanner.use'], ['/dev/quad-labeler', 'scanner.label'],
+    ['/dev/quad-harvest', 'scanner.label'], ['/design', 'design.view'],
+    ['/dev/decke', 'diagnostics.view'], ['/dev/chat-ui', 'diagnostics.view'],
+    ['/dev/decke-compare', 'diagnostics.view'], ['/dev/scan-harness', 'diagnostics.view'],
+  ]) {
+    const route = routeGuardFor(src, path!)
+    assert.match(route, new RegExp("beforeLoad:\\s*\\(\\)\\s*=>\\s*requireCapability\\('" + permission + "'\\)"), path + ' must await its shared capability guard')
+    assert.doesNotMatch(route, /import\.meta|preview|isCloudMode|\.owner|\.labeler/, path + ' must have no deployment or legacy flag bypass')
   }
-  const allowance = "if (import.meta.env.VITE_VERCEL_ENV === 'preview') return "
-  const scan = bodyOf('/scan')
-  assert.ok(scan.includes(allowance), '/scan lost its preview allowance')
-  assert.equal(
-    scan.replace(allowance, ''),
-    bodyOf('/dev/decke'),
-    'the /scan guard has drifted from /dev/decke beyond the one documented allowance. ' +
-      'Everything else is deliberately identical so a fix applies to both.',
-  )
+  assert.match(src, /requireCapability\s*=\s*\(permission: string\)\s*=>\s*requireVerifiedCapability\(permission, getAccess, notFound\)/)
+  const access = code('apps/web/src/lib/access.ts')
+  assert.match(access, /const me = await api\.me\(\)/)
+  assert.match(access, /permissions: me\.permissions \?\? \[\]/)
+  assert.match(access, /return hasVerifiedPermission\(access, key\)/)
+  assert.doesNotMatch(code('apps/web/src/lib/capabilities.ts'), /import\.meta|preview|isCloudMode/)
 })
-
-// ── 2 · the quad labeler keeps its gate AND its preview allowance ────────────
-
-test('the quad labeler gates on the LABELER flag on production, and fails closed', () => {
-  // WIDENED 2026-09-08 (owner ruling): the training surface is live for the
-  // owner AND the QA account, while /scan stays owner-only — the test below
-  // pins that half, and this one pins which flag the widening reads.
-  //
-  // `me.labeler`, NOT `me.owner`, and the distinction is the whole point: the
-  // flag is computed by the same `isLabelerEntitled` that guards
-  // POST /dev/scan-flags (apps/api/src/ownerGate.ts), which is where a saved
-  // label actually goes. Reading `me.owner` here would draw a Not Found at the
-  // account the server was already accepting writes from — the two-gate
-  // disagreement this file exists to prevent, just pointing the other way.
-  const guard = routeGuardFor(code(MAIN), '/dev/quad-labeler')
-  assert.match(guard, /me\.labeler/, '/dev/quad-labeler must gate on the labeler flag on production')
-  assert.doesNotMatch(
-    guard,
-    /me\.owner/,
-    'the labeler must not ALSO consult me.owner — one flag, or the two can disagree',
-  )
-  assert.match(
-    guard,
-    /catch\s*\{[^}]*\}\s*throw\s+notFound\(\)/,
-    '/dev/quad-labeler must still fail closed to notFound()',
-  )
+test('permission matching is exact; unrelated capabilities never expose the scanner', () => {
+  assert.equal(hasVerifiedPermission(verified(['scanner.label', 'decke.use', 'admin.access']), 'scanner.use'), false)
+  assert.equal(hasVerifiedPermission(verified(['scanner.use']), 'scanner.use'), true)
 })
-
-test('the SCANNER did not widen with it — /scan still ends at me.owner', () => {
-  // The 2026-09-07 ruling ("remove the scanner entirely for anyone that isn't
-  // me") is untouched by the 2026-09-08 one. Pinned here because the two
-  // surfaces sit twenty lines apart in main.tsx and share a shape, which is
-  // exactly the distance at which a widening gets copied by accident.
-  const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.match(guard, /me\.owner/, '/scan must still gate on the owner flag')
-  assert.doesNotMatch(guard, /me\.labeler/, '/scan must NOT have inherited the labeler widening')
-})
-
-test('the harvest view gates exactly as the labeler does', () => {
-  // It LISTS the frames the labeler wrote — photographs taken in the owner's
-  // house — and it can DELETE them. A viewer of the corpus and a writer to it
-  // are the same person, so the two guards must agree; the API behind both
-  // (GET/DELETE /dev/scan-flags) is already one middleware.
-  const harvest = routeGuardFor(code(MAIN), '/dev/quad-harvest')
-  const labeler = routeGuardFor(code(MAIN), '/dev/quad-labeler')
-  assert.match(harvest, /me\.labeler/, '/dev/quad-harvest must gate on the labeler flag')
-  assert.doesNotMatch(harvest, /me\.owner/)
-  assert.match(
-    harvest,
-    /catch\s*\{[^}]*\}\s*throw\s+notFound\(\)/,
-    '/dev/quad-harvest must fail closed to notFound()',
-  )
-  // Compare the GUARD only. `routeGuardFor` returns the `path:` line with it,
-  // and the two paths differ by definition — that is the one difference which
-  // must not fail this. Whitespace is flattened because the two are formatted
-  // independently and only their logic has to agree. (`norm` further up is
-  // scoped to the test that owns it.)
-  const flat = (t: string) => t.replace(/path:\s*'[^']*',/, '').replace(/\s+/g, ' ').trim()
-  assert.equal(
-    flat(harvest),
-    flat(labeler),
-    'the harvest guard has drifted from the labeler it mirrors — they gate the same corpus',
-  )
-})
-
-test('the quad labeler keeps its *.vercel.app preview allowance — do not "tidy" this away', () => {
-  const guard = routeGuardFor(code(MAIN), '/dev/quad-labeler')
-  assert.match(
-    guard,
-    /VITE_VERCEL_ENV === 'preview'/,
-    'the labeler lost its preview allowance. It is there because the owner labels signed in as QA ' +
-      '(AGENTS.md B12) and the recorder it writes to is already non-production-unconditional ' +
-      '(apps/api/src/dev/scanFlags.ts) — an owner-only gate here locked out the only person who ' +
-      'uses the surface, measured as a "Not Found" in round 9. Production stays owner-only either way.',
-  )
-})
-
-test('the SCANNER keeps its preview allowance — the machine gates depend on it', () => {
-  // Reversed on 2026-09-07, the day it was written: gating previews owner-only
-  // would have blinded the e2e rig (QA login) for every future round. The
-  // owner-only claim is about PRODUCTION and the test above pins that half.
-  const guard = routeGuardFor(code(MAIN), '/scan')
-  assert.match(guard, /VITE_VERCEL_ENV === 'preview'/, '/scan lost its preview allowance')
-})
-
-// ── 3 · the nav ─────────────────────────────────────────────────────────────
-
-test('the Scan Card nav row is marked ownerOnly', () => {
+test('scanner navigation is shared, permission filtered and hidden for empty access', () => {
   const src = code(SHELL)
-  const row = /\{[^{}]*to:\s*'\/scan'[^{}]*\}/.exec(src)
-  assert.ok(row, `no /scan nav entry found in ${SHELL}`)
-  assert.match(
-    row[0],
-    /ownerOnly:\s*true/,
-    'the Scan Card row is no longer ownerOnly, so every signed-in visitor is offered a link to a ' +
-      'route that answers Not Found.',
-  )
+  const row = /\{[^{}]*to: '\/scan'[^{}]*\}/.exec(src)
+  assert.ok(row, 'Missing scanner navigation row')
+  assert.match(row[0], /permission: 'scanner\.use'/)
+  assert.match(src, /NAV\.filter\(\(item\)\s*=>\s*!item\.permission\s*\|\|\s*permissions\.includes\(item\.permission\)\)/)
+  assert.equal((src.match(/visibleNav\(permissions\)\.map/g) ?? []).length, 2, 'Both rail and mobile drawer must filter the shared NAV')
+  assert.doesNotMatch(src, /\{NAV\.map\(/, 'No navigation surface may render unfiltered rows')
+  assert.match(src, /permissions\.includes\('scanner\.use'\) && \(\s*<Link\s+to="\/scan"/)
+  assert.doesNotMatch(src, /to=\{signedIn === false \? '\/auth' : '\/scan'\}/)
 })
-
-test('BOTH nav surfaces filter the rows — the rail and the mobile drawer', () => {
-  const src = code(SHELL)
-  const uses = src.match(/visibleNav\(/g) ?? []
-  assert.ok(
-    uses.length >= 3,
-    `visibleNav is called ${uses.length} times; expected at least 3 (its definition, the rail, the ` +
-      'drawer). On a phone the drawer is the ONLY nav, so a filter applied to just the rail hides ' +
-      'nothing where it matters most — that is issue #52 with a leak attached.',
-  )
-  assert.doesNotMatch(
-    src,
-    /\{NAV\.map\(/,
-    'a nav surface is mapping the raw NAV array again instead of visibleNav(owner), which renders ' +
-      'the owner-only rows for everybody.',
-  )
-})
-
-test('an unknown owner status HIDES — undefined is not "show it for now"', () => {
-  const src = code(SHELL)
-  assert.match(
-    src,
-    /NAV\.filter\(\(item\)\s*=>\s*!item\.ownerOnly\s*\|\|\s*owner\s*===\s*true\)/,
-    'visibleNav no longer requires `owner === true`. `undefined` means the /me answer has not ' +
-      'arrived; treating it as truthy flashes the scanner row at every visitor for one tick, which ' +
-      'tells them a scanner exists — the exact thing the gate removes.',
-  )
-})
-
-test('the header camera button renders only for the owner, with no signed-out fallback', () => {
-  const src = code(SHELL)
-  assert.match(
-    src,
-    /owner === true && \(\s*<Link\s+to="\/scan"/,
-    'the header Scan button is no longer wrapped in `owner === true`.',
-  )
-  assert.doesNotMatch(
-    src,
-    /to=\{signedIn === false \? '\/auth' : '\/scan'\}/,
-    "the Scan button has gone back to sending signed-out visitors to the sign-up form. That was a " +
-      'promise — "make an account and you can scan" — and it stopped being true when the route and ' +
-      'the API both began refusing everyone but the owner.',
-  )
+test('live scanner revocation protects already mounted pages as well as navigation', () => {
+  const src = code(MAIN)
+  assert.match(src, /'\/scan': 'scanner\.use'/)
+  assert.match(src, /const access = useAccess\(\)/)
+  assert.match(src, /permission && \(!access\.ready \|\| !access\.permissions\.includes\(permission\)\)/)
 })
 
 // ── 4 · no other door, and no trace ─────────────────────────────────────────
 
-test("Deck-E cannot walk somebody to /scan — he is entitled to more accounts than the scanner is", () => {
+test("Deck-E cannot walk somebody to /scan — Deck-E access does not grant scanner access", () => {
   for (const f of ['apps/api/src/decke/tools.ts', 'apps/web/src/character/host/uiTools.ts']) {
     const list = /ROUTE_ALLOWLIST[\s\S]*?\]/.exec(code(f))
     assert.ok(list, `no ROUTE_ALLOWLIST in ${f}`)
     assert.doesNotMatch(
       list[0],
       /'\/scan'/,
-      `${f} still allows Deck-E to navigate to /scan. DECKE_ENTITLED_USER_IDS deliberately includes ` +
-        'the QA account, which is NOT the owner, so he would be walking an entitled non-owner to a ' +
+      `${f} still allows Deck-E to navigate to /scan. decke.use can be assigned to ` +
+        'accounts without scanner.use, so this would offer a scanner-ineligible user a ' +
         'page that answers Not Found. Both lists mirror each other; change them together.',
     )
   }
@@ -308,7 +142,7 @@ test('the crawler-facing metadata no longer promises a scanner', () => {
   assert.doesNotMatch(
     metaAndLd,
     /scanner/i,
-    'index.html advertises a scanner to search engines and social crawlers again. Every reader who ' +
-      'arrives from one of those is a non-owner, and the feature answers Not Found for them.',
+    'index.html advertises a scanner to search engines and social crawlers again. An ordinary reader who ' +
+      'arrives from one of those has no scanner capability, and the feature answers Not Found.',
   )
 })

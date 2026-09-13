@@ -22,7 +22,7 @@ export function adminFixture(mount) {
   }
   const response = (rel, url, req = { method: 'GET' }) => {
     const { method, body } = req
-    if (rel.startsWith('/api/')) state.requests.push({ rel, method, body })
+    if (rel.startsWith('/api/')) state.requests.push({ rel, method, body, query: url.search })
     const ok = value => ({ body: value, headers: { 'Cache-Control': 'no-store, private' } })
     if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud' } }
     if (rel === '/api/me') return state.signedOut ? { status: 401, body: { error: { message: 'Signed out' } } } : ok({ id: state.actor === 'owner' ? OWNER : USER, username: state.actor, permissions: state.permissions, roles: state.actor === 'owner' ? [{ id: 'super-role', name: 'Super administrator' }] : [], adminReady: true, owner: state.actor === 'owner', decke: state.permissions.includes('decke.use') })
@@ -36,7 +36,14 @@ export function adminFixture(mount) {
     if (rel === '/api/me/credits/checkout') { assert.equal(method,'POST'); assert.equal(body.packId, 'pack-1'); assert.ok(body.idempotencyKey); assert.deepEqual(Object.keys(body).sort(), ['idempotencyKey','packId']); return ok({ url: 'https://checkout.stripe.com/c/pay/fixture-only', orderId: 'order-1' }) }
     if (rel === '/api/me/credits/orders/order-1') return ok(state.order)
     if (rel === '/api/admin/overview') return ok({ adminReady: true, counts: state.permissions.includes('users.read') ? { users: 2, suspended: 0, roles: state.roles.length, auditEvents: state.events.length } : {}, status: { bootstrap: 'ready', mode: mount ? 'self-host' : 'cloud' } })
-    if (rel === '/api/admin/users') return ok({ users: state.users.filter(u => !url.searchParams.get('search') || JSON.stringify(u).includes(url.searchParams.get('search'))), total: 1, limit: 25, offset: 0 })
+    if (rel === '/api/admin/users') {
+      const status = url.searchParams.get('status') ?? 'all'
+      if (!['all', 'active', 'suspended'].includes(status)) return { status: 400, body: { error: { code: 'invalid_input', message: 'Invalid status filter' } } }
+      const search = url.searchParams.get('search'), role = url.searchParams.get('role')
+      const users = state.users.filter(u => (!search || JSON.stringify(u).toLowerCase().includes(search.toLowerCase())) && (status === 'all' || u.suspended === (status === 'suspended')) && (!role || u.roles.some(r => r.id === role)))
+      const limit = Number(url.searchParams.get('limit') ?? 25), offset = Number(url.searchParams.get('offset') ?? 0)
+      return ok({ users: users.slice(offset, offset + limit), total: users.length, limit, offset })
+    }
     if (rel === '/api/admin/users/' + USER) return ok({ user: state.users[0], permissions: state.users[0].roles.flatMap(r => state.roles.find(role => role.id === r.id)?.permissions ?? []), stats: { collectionItems: 3, decks: 1, connectors: 2 } })
     if (rel === '/api/admin/users/' + USER + '/roles') {
       assert.equal(body.expectedRevision, state.users[0].revision)
@@ -121,6 +128,15 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
         assert.equal(state.roles.some(r=>r.name==='Temporary reviewer'),false)
       }
       await page.getByRole('link',{name:'Users',exact:true}).click()
+      await page.getByRole('link',{name:'Future Contributor',exact:true}).waitFor()
+      assert.equal(await page.getByLabel('Status', {exact:true}).inputValue(), 'all')
+      await page.getByLabel('Status', {exact:true}).selectOption('suspended')
+      await page.getByText('No matching users', {exact:true}).waitFor()
+      await page.getByLabel('Status', {exact:true}).selectOption('active')
+      await page.getByRole('link',{name:'Future Contributor',exact:true}).waitFor()
+      await page.getByLabel('Status', {exact:true}).selectOption('all')
+      await page.getByRole('link',{name:'Future Contributor',exact:true}).waitFor()
+      assert.ok(state.requests.filter(r => r.rel === '/api/admin/users').every(r => ['all','active','suspended'].includes(new URLSearchParams(r.query).get('status') ?? 'all')), 'UI must send a valid SQL status filter')
       await page.getByRole('link',{name:'Future Contributor',exact:true}).click()
       await page.getByRole('button',{name:'Assign roles',exact:true}).click()
       dialog=page.getByRole('dialog',{name:'Assign roles',exact:true})

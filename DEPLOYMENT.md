@@ -274,9 +274,13 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 
 The API's abuse budgets need **no new env variable to deploy**. The pre-auth
 ingress guard (600 requests/min per source IP per process) and the per-user
-session limits (`/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min) are wired
-unconditionally in `createApp` on the ordinary base-path API router (`/api` on
-Vercel, `/deckpal/api` self-host). The Stripe raw-body webhook and the
+session limits (`/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min,
+all `/admin` 120/min, all `/me/credits` 180/min) are wired unconditionally
+in `createApp` on the ordinary base-path API router (`/api` on Vercel,
+`/deckpal/api` self-host). A single parent admin limiter includes credit
+administration once; the wallet budget is separate. These use the existing
+bounded per-instance store. The database checkout limits of 60 requests and
+10 new order attempts per user/hour are unchanged. The Stripe raw-body webhook and the
 bare-origin OAuth discovery / `/register` / `/token` handlers are mounted
 separately on `app` ahead of that router and are outside this guard; the MCP
 transport at `/mcp` is a separate function. Client-identity resolution keys on
@@ -958,6 +962,18 @@ self-host. Do not skip 067 there: its cloud-role grants are conditional and its
 wallet/economy functions also support the current UUID self-host account.
 Do not alter shipped migration checksums or create platform roles by hand.
 
+The runner commits each numbered file independently. Creation migrations 064
+and 066 explicitly revoke all privileges on their own new tables, sequences
+and functions from PUBLIC and any existing anon/authenticated roles before
+their respective transactions commit. This removes default client grants
+immediately, so stopping after either creation file cannot leave its
+new objects exposed until the next security migration. The lists are scoped
+to those new objects; existing explicit trusted-server access is preserved,
+and no PostgreSQL role or schema-wide default privileges are changed.
+Migrations 065/067 still apply only their existing narrow grants. An interrupted
+upgrade may leave new features unavailable; complete the normal migration
+sequence and checksum verification before deploying code.
+
 The migration owner/trusted server retains private bootstrap, pricing-runtime
 and settlement access. In cloud mode 065 grants `anon` only public defaults
 and the account-active policy helper; `authenticated` receives scoped access,
@@ -1021,9 +1037,17 @@ missing subscriptions or an unreadable endpoint list; results cache for up to
 or authenticate the configured signing secret against a delivery.
 
 Local tests use isolated Stripe/model fixtures and selected real SQL migrations.
-Final independent review/CI, production schema/bootstrap, and real payment and
-refund/dispute delivery verification remain unverified at this documentation
-update. Do not infer those states from the presence of source or a local pass.
+Earlier security/accounting findings have repairs, including skipped locked
+reservations during wallet recovery. The creation-time permissions repair passed
+54 isolated integration cases, including denied client access after 064/066,
+UUID self-host without cloud roles, and the final 065/067 authorized flows.
+See [PR #188](https://github.com/cheyras/deckpal/pull/188) for current independent
+review and CI status. Production schema/bootstrap and real payment/refund/dispute
+delivery remain unverified: release awaits access
+to the existing authorized migration/deployment workflow. The intended Vercel
+project has been identified, but available access has not established its
+sensitive configuration or Stripe subscriptions. Check those through the
+authorized operator workflow before serving the new code or enabling sales.
 
 
 | `DECKE_APPROVAL_SECRET` | `<long random string>` | **Signs Deck-E write approvals so they cannot be forged.** Every write is held for a human to approve — but the SDK verifies the approval's signature ONLY when this is set (`ai/dist/index.js:5164`); unset, the approval is taken at face value. That matters because Deck-E's client replays the whole conversation on every leg, so a crafted caller could append `state: "approval-responded", approval: { approved: true }` to a tool call it was never granted — or approve "add 1 card" and send back "add 4000" against the same approval. The tool INPUT is inside the signature; without it nothing binds them. **Unset is not broken** (it is what every deployment did before this existed) so it does not fail closed, but it is a security control that is OFF: the API warns at boot and `GET /health` reports `deckeApprovals: "unsigned"`. Generate with `openssl rand -base64 32` and set it in Production and Preview. |

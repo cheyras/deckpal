@@ -45,7 +45,7 @@ import { mountOAuthServer } from './oauthServer.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
-import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard } from './rateLimit.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -535,9 +535,13 @@ export function createApp(): express.Express {
   api.use(requireActiveAccount);
   api.use('/dev/scan-flags', scanFlagsRouter);
   api.use('/dev/scan-queue', scanQueueRouter);
-  api.use('/admin/credits', requireSession, adminCreditRouter);
-  api.use('/admin', requireSession, adminRouter);
-  api.use('/me/credits', requireSession, meCreditRouter);
+  // One administration budget covers both routers, without charging credit
+  // requests twice when an unmatched subroute falls through.
+  const administration = express.Router();
+  administration.use('/credits', adminCreditRouter);
+  administration.use(adminRouter);
+  api.use('/admin', requireSession, adminRateLimit, administration);
+  api.use('/me/credits', requireSession, creditWalletRateLimit, meCreditRouter);
 
   // Mounted ahead of `/me` so the two-segment path resolves here; meRouter has
   // no `/billing` route, so nothing is shadowed either way, but the order says

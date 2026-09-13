@@ -28,7 +28,8 @@ import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
-import { hasPermission, useAccess, IDENTITY_CHANGED } from './lib/access'
+import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED } from './lib/access'
+import { requireVerifiedCapability } from './lib/capabilities'
 import { Content, EmptyState } from './components/ui'
 import Admin, { AdminOverview, AdminTools } from './routes/admin/Admin'
 import { AdminUsers, AdminUserDetail } from './routes/admin/Users'
@@ -79,9 +80,7 @@ const queryClient = new QueryClient({
 
 window.addEventListener(IDENTITY_CHANGED, () => queryClient.clear())
 
-async function requireCapability(permission: string) {
-  if (!(await hasPermission(permission))) throw notFound()
-}
+const requireCapability = (permission: string) => requireVerifiedCapability(permission, getAccess, notFound)
 const TOOL_PERMISSIONS: Record<string, string> = {
   '/scan': 'scanner.use', '/design': 'design.view', '/dev/decke': 'diagnostics.view',
   '/dev/chat-ui': 'diagnostics.view', '/dev/decke-compare': 'diagnostics.view',

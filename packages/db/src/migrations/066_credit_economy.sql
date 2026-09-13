@@ -243,3 +243,35 @@ BEGIN
  UPDATE public.credit_spend SET refunded_at=now() WHERE id=s.id;
  RETURN true;
 END $$;
+
+-- migrateUp commits each numbered file independently. Close inherited/default
+-- client ACLs in the creation transaction, even if the upgrade stops here.
+-- Later security migrations grant only the intended client RPCs. The creator
+-- and existing explicit trusted-server grants remain intact; no role/default
+-- privilege settings or unrelated schema objects are changed.
+DO $creation_acl$
+DECLARE principal text; grantee_sql text; object_name text; signature text;
+BEGIN
+ FOREACH principal IN ARRAY ARRAY['PUBLIC','anon','authenticated'] LOOP
+  IF principal<>'PUBLIC' AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal) THEN CONTINUE; END IF;
+  grantee_sql:=CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END;
+  FOREACH object_name IN ARRAY ARRAY['credit_policy_revision','credit_policy_current','credit_pack','credit_wallet_control','credit_order','credit_spend','credit_adjustment'] LOOP
+   EXECUTE format('REVOKE ALL PRIVILEGES ON TABLE public.%I FROM %s',object_name,grantee_sql);
+  END LOOP;
+  EXECUTE format('REVOKE ALL PRIVILEGES ON SEQUENCE public.%I FROM %s','credit_policy_revision_revision_seq',grantee_sql);
+  FOREACH signature IN ARRAY ARRAY[
+   'public.credit_validate_policy(jsonb)',
+   'public.credit_policy_initialize(boolean)',
+   'public.credit_policy_read()',
+   'public.credit_policy_save(jsonb,bigint)',
+   'public.credit_pack_save(uuid,jsonb,integer)',
+   'public.credit_apply_delta(text,integer,text,text,text,bigint,jsonb)',
+   'public.credit_adjust(text,integer,text,text)',
+   'public.credit_spend_create(text,text,bigint,text,text)',
+   'public.credit_spend_start(text,uuid)',
+   'public.credit_spend_refund(text,uuid)'
+  ] LOOP
+   EXECUTE format('REVOKE ALL PRIVILEGES ON FUNCTION %s FROM %s',signature::regprocedure,grantee_sql);
+  END LOOP;
+ END LOOP;
+END $creation_acl$;

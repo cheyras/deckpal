@@ -7,10 +7,14 @@ sections reflect your current permissions. The Profile **AI credits** panel
 provides **Open credit wallet** and, with `admin.access`, **Administration**
 links; the latter opens `/admin`.
 
-**Release record, 2026-09-13:** implementation and isolated verification are
-available for review. Final CI/review, schema deployment and live payment
-verification have not been established by this guide. See DEPLOYMENT.md before
-serving the new code.
+**Release record, 2026-09-13:** see [PR #188](https://github.com/cheyras/deckpal/pull/188)
+for current review and CI status. Earlier security and financial findings have
+repairs, and the interrupted-upgrade permissions repair passed isolated
+integration. Production migration/bootstrap and actual payments have not been
+verified. Release awaits
+access to the existing authorized migration/deployment workflow; deployed
+configuration and Stripe subscriptions remain unverified. See DEPLOYMENT.md
+before serving the new code.
 
 ## First setup and access recovery
 
@@ -21,6 +25,10 @@ It imports existing Deck-E and labeler allowlists in the same transaction and
 records an audit entry and initialization sentinel. This is not a first-user
 claim: signing up, setting profile metadata, or submitting an owner ID never
 creates administrative authority.
+
+Creation migrations 064 and 066 close client permissions on their new objects
+before each file commits. An upgrade stopping between files therefore leaves
+those objects private; finish all required migrations before serving new code.
 
 After initialization, roles are database-managed. Changing an old allowlist
 environment variable does not restore a revoked grant or add a new administrator.
@@ -65,6 +73,12 @@ authority assigned to a suspended account. Role deletion requires no remaining
 members. Save conflicts mean someone changed the record: review the latest
 version before retrying. Settings retain a conflicting draft and offer
 **Discard draft and reload latest**.
+
+If a burst of requests returns **429**, wait the response's **Retry-After**
+seconds before retrying. Administration shares a 120-request budget per
+60 seconds, including credit administration; the wallet has a separate
+180-request budget. These are per-account, per-API-instance limits. Checkout
+also retains its database limits of 60 requests and 10 new orders per hour.
 
 ### Permission catalog
 
@@ -188,9 +202,12 @@ cannot establish the policy or balance. Cancellation or setup failure before
 provider invocation is refunded idempotently. Once provider work begins,
 failures and cancellations retain the quoted flat charge; there is no
 token-by-token settlement. Unstarted reservations expire after five minutes
-and are eligible for idempotent recovery on wallet reads. If recovery cannot
-complete during concurrent work, refresh the wallet later. Accounting connections
-are released across a model stream.
+and are eligible for idempotent recovery on wallet reads. Recovery skips
+reservations currently locked by another transaction, avoiding a wait cycle
+with direct cancellation. That transaction may refund the reservation; otherwise
+a later wallet read recovers it after the lock is released. Refresh the wallet
+later if a refund has not appeared. Accounting connections are released across
+a model stream.
 
 ## Offer credit packs and diagnose payment setup
 

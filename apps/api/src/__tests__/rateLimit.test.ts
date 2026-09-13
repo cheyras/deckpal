@@ -1,7 +1,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { RateLimitStore, preAuthRateLimit, perUserRateLimit } from '../rateLimit.js';
+import { readFileSync } from 'node:fs';
+import { RateLimitStore, preAuthRateLimit, perUserRateLimit, adminRateLimit, creditWalletRateLimit } from '../rateLimit.js';
 import type { Request, Response } from 'express';
 
 // ── Store unit tests ──────────────────────────────────────────────────────
@@ -559,5 +560,49 @@ describe('preAuthRateLimit — real Express server (cloud/Vercel)', () => {
 
     // Second client still has budget
     assert.equal((await request('198.51.100.2')).status, 200, 'second client still has budget');
+  });
+});
+
+
+describe('administration and wallet route budgets', () => {
+  it('actual admin middleware rejects request 121 before handlers and isolates users', () => {
+    let reached = 0;
+    const next = () => { reached++; };
+    const req = mockReq({ user: { id: 'admin-budget-fixture' } });
+    for (let n = 0; n < 120; n++) adminRateLimit(req, mockRes(), next);
+    assert.equal(reached, 120);
+    const rejected = mockRes();
+    adminRateLimit(req, rejected, next);
+    assert.equal(reached, 120, 'over-budget requests must never reach admin SQL');
+    assert.equal(rejected._status, 429);
+    assert.deepEqual((rejected._json as { error: { code: string } }).error.code, 'rate_limited');
+    assert.ok(Number(rejected._headers['Retry-After']) >= 1 && Number(rejected._headers['Retry-After']) <= 60);
+    adminRateLimit(mockReq({ user: { id: 'other-admin-fixture' } }), mockRes(), next);
+    assert.equal(reached, 121, 'another verified user retains their own budget');
+    creditWalletRateLimit(req, mockRes(), next);
+    assert.equal(reached, 122, 'admin exhaustion must not consume wallet polling budget');
+  });
+
+  it('actual wallet middleware allows polling then returns 429 with Retry-After', () => {
+    const req = mockReq({ user: { id: 'wallet-budget-fixture' } });
+    let reached = 0;
+    for (let n = 0; n < 180; n++) creditWalletRateLimit(req, mockRes(), () => { reached++; });
+    const rejected = mockRes();
+    creditWalletRateLimit(req, rejected, () => { reached++; });
+    assert.equal(reached, 180, 'wallet handlers stop before request 181');
+    assert.equal(rejected._status, 429);
+    assert.equal((rejected._json as { error: { code: string } }).error.code, 'rate_limited');
+    assert.ok(Number(rejected._headers['Retry-After']) >= 1 && Number(rejected._headers['Retry-After']) <= 60);
+    creditWalletRateLimit(mockReq({ user: { id: 'other-wallet-fixture' } }), mockRes(), () => { reached++; });
+    assert.equal(reached, 181, 'wallet budgets are separate per verified user');
+  });
+
+  it('production mounts meter the admin subtree exactly once after verified session auth', () => {
+    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    assert.match(source, /const administration = express\.Router\(\);\s*administration\.use\('\/credits', adminCreditRouter\);\s*administration\.use\(adminRouter\);\s*api\.use\('\/admin', requireSession, adminRateLimit, administration\);/);
+    assert.equal((source.match(/api\.use\('\/admin'/g) ?? []).length, 1, 'one common parent is the only admin rate-limit mount');
+    assert.doesNotMatch(source, /api\.use\('\/admin\/credits'/, 'credits must not also debit an overlapping parent mount');
+    assert.match(source, /api\.use\('\/me\/credits', requireSession, creditWalletRateLimit, meCreditRouter\);/);
+    assert.match(source, /api\.use\(preAuthFloodGuard\)/, 'global pre-auth ingress limit must survive');
   });
 });

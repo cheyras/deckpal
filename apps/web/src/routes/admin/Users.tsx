@@ -8,14 +8,14 @@ import type { AdminUser, AdminRole } from '../../lib/adminTypes'
 import { Panel, LoadState, Paging, useAdminQuery, useAdminSave, ConfirmAction, selectClass, fmtDate } from './shared'
 
 export function AdminUsers() {
-  const [search, setSearch] = useState(''), [term, setTerm] = useState(''), [status, setStatus] = useState(''), [role, setRole] = useState(''), [offset, setOffset] = useState(0)
+  const [search, setSearch] = useState(''), [term, setTerm] = useState(''), [status, setStatus] = useState('all'), [role, setRole] = useState(''), [offset, setOffset] = useState(0)
   const roles = useAdminQuery(['roles'], signal => api.adminRoles(signal), 'roles.read')
   const params = new URLSearchParams({ search, status, role, offset: String(offset), limit: '25' })
   const query = useAdminQuery(['users', params.toString()], signal => api.adminUsers(params.toString(), signal), 'users.read')
   return <section className="space-y-[20px]"><h2 className="font-display text-[24px] text-text-primary">Users</h2>
     <form onSubmit={e => { e.preventDefault(); setSearch(term); setOffset(0) }} className="grid items-end gap-[12px] md:grid-cols-[2fr_1fr_1fr_auto]">
       <Field label="Search users" type="search" value={term} onChange={e => setTerm(e.target.value)} placeholder="Email, username, or ID" maxLength={200} />
-      <label className="mb-[16px] text-[14px] font-semibold text-text-secondary">Status<select aria-label="Status" className={selectClass + ' mt-[6px]'} value={status} onChange={e => { setStatus(e.target.value); setOffset(0) }}><option value="">All statuses</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
+      <label className="mb-[16px] text-[14px] font-semibold text-text-secondary">Status<select aria-label="Status" className={selectClass + ' mt-[6px]'} value={status} onChange={e => { setStatus(e.target.value); setOffset(0) }}><option value="all">All statuses</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
       <label className="mb-[16px] text-[14px] font-semibold text-text-secondary">Role<select aria-label="Role" className={selectClass + ' mt-[6px]'} value={role} onChange={e => { setRole(e.target.value); setOffset(0) }}><option value="">All roles</option>{roles.data?.roles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
       <Button className="mb-[16px]" type="submit">Search</Button>
     </form>

@@ -702,6 +702,13 @@ a Super admin. Preview follows the same authorization rules; self-host trusts
 its reverse proxy and single local identity. No administrative MCP/Deck-E tools,
 impersonation, arbitrary SQL or account-deletion UI are introduced.
 
+After verified-session gating, one limiter covers all `/admin` requests,
+including credit administration, at 120 per 60 seconds per user. Wallet routes
+under `/me/credits` have a separate 180-per-60-second budget. The existing
+bounded in-memory store is per API process/function instance, resets on restart,
+and returns 429 with Retry-After; it is not a distributed quota. Nested credit
+routes consume the admin budget once. Database checkout quotas remain in force.
+
 Trusted bootstrap imports existing configured accounts exactly once before
 request RLS; it has no public first-user enrollment path. A missing owner/schema
 is observable and closes authenticated capabilities. Environment changes cannot
@@ -709,6 +716,14 @@ undo later role revocations. SQL functions pin search paths, schema-qualify
 relations, constrain safe projections and reauthorize independently of Express.
 Web roles receive specific EXECUTE grants, never unrestricted governance or
 financial table access.
+
+Creation migrations 064/066 revoke all privileges on their explicitly listed
+new tables, sequences and functions from PUBLIC and any existing anon and
+authenticated roles before each file commits. Because the runner commits files
+independently, this prevents default client grants from exposing intermediate
+schema if an upgrade stops before 065/067. The later scoped grants remain
+unchanged. No platform roles, schema-wide default privileges or unrelated
+objects are modified; existing explicit trusted-server access is preserved.
 
 Governance and financial administrative writes serialize and recheck authority
 under the shared lock. The protected role and last-active-admin invariant live
@@ -731,7 +746,10 @@ are revalidated against current Stripe identity, amount, currency, mode, refunds
 and disputes. Per-order revisions reject stale snapshots. Debt/holds block new
 work; holds cannot be cleared while debt or open refund/dispute work remains.
 Refunds before provider start are compensating events; started flat-priced work
-retains its charge. No realized-margin or token-settlement guarantee is made.
+retains its charge. Expired-reservation recovery uses FOR UPDATE SKIP LOCKED
+so it does not wait on a spend row while another cancellation waits for its
+wallet; skipped rows recover on a later read unless already refunded. No
+realized-margin or token-settlement guarantee is made.
 
 Identity, admin and wallet responses use no-store. The browser clears sensitive
 query state on account changes and invalidates authority on 403/focus/session

@@ -229,6 +229,15 @@ export function preAuthRateLimit(
 /** Token minting/revocation: 20 requests per 60s per user. */
 export const tokensRateLimit: RequestHandler = perUserRateLimit('tokens', 20, 60_000);
 
+/**
+ * Administration, including credit policy and operations: 120 requests per
+ * 60s per user. Mounted once for the entire /admin subtree.
+ */
+export const adminRateLimit: RequestHandler = perUserRateLimit('admin', 120, 60_000);
+
+/** Wallet balance, statement, order polling and checkout: 180 requests per 60s per user. */
+export const creditWalletRateLimit: RequestHandler = perUserRateLimit('credit-wallet', 180, 60_000);
+
 /** Avatar mutations: 10 requests per 60s per user. */
 export const avatarRateLimit: RequestHandler = perUserRateLimit('avatar', 10, 60_000);
 
