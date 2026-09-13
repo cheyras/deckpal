@@ -17,7 +17,7 @@
     "test:variants": "node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
-    "zod": "^4.5",
+    "zod": "^4.6",
     "@deckpal/db": "workspace:*"
   },
   "devDependencies": {
