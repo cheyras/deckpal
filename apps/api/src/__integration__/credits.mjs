@@ -270,4 +270,75 @@ export async function runCreditIntegration({db:trusted,as:withIdentity,api,id,co
   }
  });
 
+
+ for(const [fixture,priorAdjustment,directCancellation] of [[80,false,true],[81,true,true],[82,true,false]]) {
+  await test('stale recovery skips locked cancellation with '+(priorAdjustment?'an existing wallet lock':'no prior wallet mutation')+' and '+(directCancellation?'both refunds commit':'recovers a released reservation later'),async()=>{
+   const user=id(fixture);
+   await db.query('INSERT INTO public.app_user(id,username) VALUES($1,$2)',[user,'credit-recovery-'+fixture]);
+   await db.query('INSERT INTO public.admin_account(user_id) VALUES($1)',[user]);
+   await db.query("INSERT INTO public.admin_user_role SELECT $1,id FROM public.admin_role WHERE key='legacy_decke'",[user]);
+   await db.query("SELECT public.credit_apply_delta($1,100,'grant','Recovery race fixture',$2)",[user,'recovery-seed-'+fixture]);
+   const reservations=[];
+   for(const suffix of ['A','B']){
+    const spend=await scalar('SELECT public.credit_spend_create($1,$2,$3,$4,$5) AS data',[user,'chatTurn',policy.revision,'recovery-'+fixture+'-'+suffix,'8'.repeat(64)]);
+    assert.equal(spend.allowed,true);assert.equal(spend.spent,1);
+    reservations.push(spend.spendId);
+   }
+   await db.query("UPDATE public.credit_spend SET created_at=now()-interval '6 minutes' WHERE user_id=$1",[user]);
+   const wallet=new pg.Client(config),refund=new pg.Client(config);
+   let pending;
+   try{
+    await Promise.all([wallet.connect(),refund.connect()]);
+    await wallet.query('BEGIN');await refund.query('BEGIN');
+    await wallet.query("SET LOCAL statement_timeout='8s'");await refund.query("SET LOCAL statement_timeout='8s'");
+    await refund.query('SELECT id FROM public.credit_spend WHERE id=$1 FOR UPDATE',[reservations[1]]);
+    if(priorAdjustment) await wallet.query("SELECT public.credit_apply_delta($1,1,'grant','Earlier mutation in this transaction',$2)",[user,'recovery-extra-'+fixture]);
+    await wallet.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:user,role:'authenticated',deckpal_auth_kind:'jwt'})]);
+    const walletPid=(await wallet.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+    await wallet.query('SET LOCAL ROLE authenticated');
+    // B remains locked throughout this awaited call. Waiting for B while
+    // retaining A's wallet lock would reproduce the reviewed inversion.
+    const recovered=(await wallet.query('SELECT public.credit_wallet_read(NULL) AS data')).rows[0].data;
+    assert.equal(recovered.balance,99+Number(priorAdjustment));
+    if(directCancellation){
+     const refundPid=(await refund.query('SELECT pg_backend_pid() pid')).rows[0].pid;
+     pending=refund.query('SELECT public.credit_spend_refund($1,$2) AS data',[user,reservations[1]])
+      .then(result=>({ok:true,refunded:result.rows[0].data}),error=>({ok:false,code:error.code,message:error.message}));
+     let blocked=false;
+     for(let i=0;i<150;i++){
+      const row=await query('SELECT $2::int=ANY(pg_blocking_pids($1::int)) blocked',[refundPid,walletPid]);
+      if(row.blocked){blocked=true;break;}
+      await new Promise(resolve=>setTimeout(resolve,10));
+     }
+     assert.equal(blocked,true,'direct cancellation must actually wait for the recovering wallet transaction');
+     await wallet.query('COMMIT');
+     assert.deepEqual(await pending,{ok:true,refunded:true});
+     await refund.query('COMMIT');
+    }else{
+     await wallet.query('COMMIT');
+     await refund.query('ROLLBACK');
+     assert.equal((await query('SELECT refunded_at FROM public.credit_spend WHERE id=$1',[reservations[1]])).refunded_at,null);
+    }
+   }finally{
+    await wallet.query('ROLLBACK').catch(()=>{});
+    await pending?.catch(()=>{});
+    await refund.query('ROLLBACK').catch(()=>{});
+    await Promise.all([wallet.end(),refund.end()]);
+   }
+   // Both operations committed (or a skipped row was released for recovery).
+   // Subsequent wallet reads and cancellation replays cannot refund twice.
+   for(let i=0;i<2;i++){
+    const final=await as(user,()=>scalar('SELECT public.credit_wallet_read(NULL) AS data'));
+    assert.equal(final.balance,100+Number(priorAdjustment));assert.equal(final.debt,0);
+   }
+   for(const reservation of reservations){
+    assert.equal(await scalar('SELECT public.credit_spend_refund($1,$2) AS data',[user,reservation]),false);
+    const events=await query('SELECT count(*) n,sum(delta) delta FROM public.decke_credit_event WHERE ref=$1',['spend-refund:'+reservation]);
+    assert.equal(Number(events.n),1);assert.equal(Number(events.delta),1);
+    assert.ok((await query('SELECT refunded_at FROM public.credit_spend WHERE id=$1',[reservation])).refunded_at);
+   }
+   assert.equal((await query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1',[user])).balance,100+Number(priorAdjustment));
+  });
+ }
+
 }

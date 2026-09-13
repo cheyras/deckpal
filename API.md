@@ -5,7 +5,7 @@ The React frontend's contract. TypeScript/Express, ~55 routes.
 **Scope.** This documents the surface the web frontend's data layer consumes.
 Registered on the same app but documented elsewhere, not repeated here: OAuth
 2.1 + personal-access-token management (`/oauth`, `/tokens`) in
-`apps/mcp/SPEC.md`; Deck-E's history and owner-gate/account routes (`/decke`,
+`apps/mcp/SPEC.md`; Deck-E's history and permission/account routes (`/decke`,
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
 the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
 itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
@@ -1308,17 +1308,13 @@ dex id or the slug. `404` when no such species. Returns the
 
 ## Scan — perceptual-hash card matcher
 
-> **OWNER-ONLY ON PRODUCTION (since 2026-09-07).** Every endpoint in this
-> section answers **`404 not_found`** on `deckpal.app` unless the verified JWT
-> subject is `DESIGN_EDITOR_USER_ID`. Preview deployments, local dev and
-> self-host are unrestricted — the gate keys off `VERCEL_ENV === 'production'`
-> (`apps/api/src/ownerGate.ts`). 404 rather than 403 is deliberate and matches
-> the `/scan` route guard in the web app: a 403 would tell a prober that
-> deckpal.app has a scanner behind a door, and the pair would leak whatever
-> either half gives away. The endpoints are also absent from `GET /api`'s
-> public index for the same reason. This is why the scanner does not appear in
-> the nav for anybody else, and it is the half of that pair which is a control
-> rather than a decoration.
+> **Session and permission required.** Scanner endpoints require current
+> `scanner.use` permission and an active application session in every
+> deployment, including cloud preview. Missing scanner authority is hidden
+> with `404 not_found`; connector/PAT credentials cannot use this private
+> tool. The web route and navigation use the same server permission. Existing
+> owner/QA environment lists are imported once into database roles; they are
+> no longer a continuing runtime bypass.
 
 ### POST /deckpal/api/scan
 Offline card scanner: image → catalog match. Send the **raw image bytes** as the
@@ -1650,3 +1646,68 @@ so a guess that misses would otherwise void the whole cart.
 `DELETE /lists/:id` and `DELETE /decks/:id` are now soft by default and answer
 `{ deleted, restorable: true, batchId }`; `?purge=true` answers
 `{ purged, restorable: false }`.
+
+## Administration and AI credit APIs
+
+Paths below are relative to the configured API base: `/api` on cloud,
+`/deckpal/api` on self-host. Administration and wallet routes require an
+active application session; PAT/OAuth connector tokens are rejected. Admin
+operations additionally require `admin.access` and the listed permission.
+Reads and writes are private/no-store. Writes validate keys, authorize again
+inside SQL, record audit/accounting atomically, and commit before success.
+Stale `expectedRevision` values return `409 conflict`; protected-state changes
+return `409 protected_state`. See ADMINISTRATION.md for operational guidance.
+
+| Method/path | Permission | Request / purpose |
+|---|---|---|
+| GET `/admin/overview` | `admin.access` | Only permitted aggregate counts plus setup/deployment status. |
+| GET `/admin/users` | `users.read` | `search`, `status`, `role`, `limit`, `offset`; bounded directory. |
+| GET `/admin/users/:id` | `users.read` | Safe identity/activity, assigned roles and effective permissions. |
+| PUT `/admin/users/:id/roles` | `roles.manage` | `{roleIds, expectedRevision, reason}`; replaces role membership. |
+| PATCH `/admin/users/:id/status` | `users.manage` | `{suspended, expectedRevision, reason}`; suspension also revokes connectors. |
+| POST `/admin/users/:id/revoke-tokens` | `users.manage` | `{reason}`; revoke tokens and consume outstanding OAuth codes. |
+| GET / POST `/admin/roles` | `roles.read` / `roles.manage` | Read catalog/roles; create with `{name, description, permissions}`. |
+| PATCH `/admin/roles/:id` | `roles.manage` | `{name, description, permissions, expectedRevision}`. |
+| DELETE `/admin/roles/:id` | `roles.manage` | `{expectedRevision}`; role must be unassigned and unprotected. |
+| GET / PUT `/admin/settings` | `settings.read` / `settings.write` | Read defaults/revision; write `{settings:{skin,topbar}, expectedRevision}`. |
+| GET `/admin/audit` | `audit.read` | Paginated actor/action/target filters with validated before/after data. |
+
+Directory/audit limits default to 50 and cap at 100; offsets default to zero.
+Role/status changes require a reason. Last-active-Super-admin and authority
+delegation rules are enforced in SQL, not just the UI.
+
+`GET /me` adds `permissions`, `roles` and `adminReady` while retaining
+compatible owner/designEditor/decke/labeler flags derived from those permissions.
+`GET /me/settings` and public config expose effective skin/topbar defaults
+separately from explicit personal choices. `GET /health` includes
+`administration` readiness (`pending`, `ready`, `owner-missing` or
+`schema-unavailable`), without exporting owner IDs or secrets.
+
+| Method/path | Permission | Request / purpose |
+|---|---|---|
+| GET / PUT `/admin/credits/settings` | `credits.read` / `credits.manage` | Versioned policy and notices; write `{policy, expectedRevision}`. |
+| GET / POST `/admin/credits/packs` | `credits.read` / `credits.manage` | List packs; create `{name,credits,priceCents,currency:"usd",active}`. |
+| PATCH `/admin/credits/packs/:id` | `credits.manage` | Same pack fields plus `expectedRevision`. |
+| GET `/admin/credits/payment-status` | `credits.read` | `refresh=true` bypasses the 60-second readiness cache; returns ready/reason/requiredEvents/checkedAt. |
+| GET `/admin/credits/users/:id` | `credits.read` | Wallet, debt/hold and paginated events. |
+| POST `/admin/credits/users/:id/adjustments` | `credits.manage` | `{delta,reason,idempotencyKey}`; nonzero integer delta, bounded ±1,000,000. |
+| POST `/admin/credits/users/:id/resolve-hold` | `credits.manage` | `{reason}`; only eligible closed lost-dispute holds. |
+| GET `/admin/credits/summary` | `credits.read` | `days=7|30|90` (default 30); cohort sales/refunds, estimated usage cost, current order/hold/debt counts. |
+| GET `/admin/credits/orders` | `credits.read` | `status`, `user`, `limit`, `offset`. |
+| GET `/me/credits` | Session | Own balance, debt, purchaseHold, prices, lowAt, packs, pricingRevision and purchase availability/reason. |
+| GET `/me/credits/events` | Session | Own paginated credit/debt statement; finance-only provider estimates are excluded. |
+| GET `/me/credits/orders/:id` | Session | Own server-confirmed frozen order state. |
+| POST `/me/credits/checkout` | Session + eligible account | `{packId,idempotencyKey}` only; returns hosted `url` and `orderId`. |
+
+Credit list limits default to 25 and cap at 100. Attempt keys contain 8–100
+letters, digits, underscores or hyphens; financial reasons contain 3–500
+characters. Checkout permits 60 requests/hour and 10 new order attempts/hour
+per account. Browser-supplied amounts/customer/session IDs are not accepted.
+
+Policy fields are `enabled`, `microUsdPerCredit`, `markupBps`,
+`estimatedMicroUsd:{chatTurn,analysis,planDeck}` and `lowBalance`.
+Values are bounded safe integers; operation prices use ceiling division and
+minimum one. Historical balances/events and pending order terms are unchanged
+by policy edits. Credits use USD card-only Checkout, separate from support
+subscriptions/gifts; signed webhook reconciliation, never a return URL,
+fulfills an order. See ADMINISTRATION.md for charge/refund/debt semantics.

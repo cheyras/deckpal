@@ -3248,3 +3248,32 @@ The catalog import path remains undemonstrated end-to-end: `docker save` extract
 `generated/en/cards.json` is blocked in this sandbox, and GraphQL — the path that *does* work — does
 not expose `variantId`, `thirdParty` or `pricing`, which are exactly what `card_variant` needs.
 The third pass did not change this, and it is still the largest unvalidated assumption in the build.
+
+## 2026-09-13 — Application governance and credit economy extension
+
+This current extension does not rewrite the dated catalog research above.
+The schema of record is migrations 064–067:
+
+- `admin_permission`, `admin_role`, `admin_role_permission`,
+  `admin_account`, `admin_user_role` and `admin_state` hold the permission
+  catalog, role union, suspension and one-time bootstrap state.
+- `admin_app_settings` holds revisioned skin/topbar defaults;
+  `admin_audit` records validated before/after administrative changes.
+- `credit_policy_revision` and `credit_policy_current` separate immutable
+  future-price snapshots from the current pointer. `credit_pack` and
+  `credit_order` freeze purchase terms and track reconciliation revisions.
+- `credit_wallet_control` records explicit debt; `credit_spend` records
+  reserved/started/refunded flat charges; `credit_adjustment` and
+  `credit_checkout_rate` support idempotent adjustments and throttling.
+- Existing `decke_credit_balance` integers and historical
+  `decke_credit_event` deltas are unchanged. New events can include pricing
+  revision/snapshot and debt delta; a reversal never makes spendable balance
+  negative, and positive grants repay debt first.
+
+Text account references support current UUID accounts and tolerate legacy
+bigint IDs; UUID remains the normal self-host identity since migration 020.
+065 alone is Supabase-only; 067 conditionally grants existing cloud roles and
+also supplies self-host functions. Web roles receive scoped functions, not
+direct governance/financial writes. Selected migration/RLS/concurrency fixtures
+are exercised locally; this is not a claim that production migrations were run.
+See ADMINISTRATION.md and DEPLOYMENT.md for behavior and rollout.

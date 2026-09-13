@@ -66,7 +66,8 @@ TTL, and the token the flow ultimately mints is the exact same `api_token`
 row the manual flow produces -- OAuth is a bridge onto the existing
 credential, not a second one. `oauth_client` and `oauth_code` have RLS
 enabled with zero grants (migration 033): only the server's RLS-bypassing
-pool connection can ever read or write them.
+pool connection or narrowly authorized SECURITY DEFINER consent functions can
+access them; browsers receive no direct table grants.
 
 **Deck-E (the AI assistant, `POST /api/chat`).** Entitlement is decided on the
 server, not the browser. `entitlement.ts`'s browser-side gate only decides
@@ -74,17 +75,13 @@ whether to draw a button — verified against the deployed endpoint before this
 was fixed, an ordinary signed-in account got a full model turn, billed to the
 owner's Gateway key, by asking for one (DECISIONS.md 2026-08-21, "`/api/chat`
 had no server-side entitlement, rate limit or spend cap"). The route now
-checks `DECKE_ENTITLED_USER_IDS` plus the owner before the request body is
-parsed, and every account is metered against a durable daily cap in Postgres
-(`decke_usage`, migrations 039/040) — conversational turns and deep-tier calls
-capped separately, since the two differ roughly 250x in price. The cap is
-enforced by a single `INSERT … ON CONFLICT DO UPDATE … WHERE` statement so the
-check and the charge cannot race under concurrent requests; migration 040
-grants `authenticated` a SELECT policy on that table and nothing else, since an
-UPDATE policy would let a signed-in user zero their own counter through
-Supabase's Data API. `GET /api/health` reports `deckeEntitlement` (a status —
-`nobody` / `owner-only` / `owner-plus-list` / `self-host` — never the ids, since
-`/health` is unauthenticated) and `deckeLimits`.
+checks current database `decke.use` permission and account status. Enabled
+credit policy reserves an atomic debit/ledger/pricing snapshot before provider
+work and refuses accounting failures; disabled credit policy retains the
+existing daily counters. Exact accepted-request replays are rejected rather
+than granting free repeated work. The public health response reports
+`administration` and `deckeEntitlement` readiness/status without account IDs.
+
 
 Deck-E holds **no credential of his own**. He carries the caller's own
 Supabase JWT — the same one the browser sent — and forwards it to deckpal-api
@@ -695,3 +692,51 @@ properties are load-bearing:
 
 The snapshots contain card ids, quantities, list/deck names and strategy-guide
 text — the same user data as the tables they describe, and no more.
+
+## Administration, suspension and credit security (2026-09-13)
+
+Administration requires an active application session plus `admin.access`
+and action-specific database permissions. PATs and OAuth connector tokens
+cannot administer, read wallets or purchase credits, even when their owner is
+a Super admin. Preview follows the same authorization rules; self-host trusts
+its reverse proxy and single local identity. No administrative MCP/Deck-E tools,
+impersonation, arbitrary SQL or account-deletion UI are introduced.
+
+Trusted bootstrap imports existing configured accounts exactly once before
+request RLS; it has no public first-user enrollment path. A missing owner/schema
+is observable and closes authenticated capabilities. Environment changes cannot
+undo later role revocations. SQL functions pin search paths, schema-qualify
+relations, constrain safe projections and reauthorize independently of Express.
+Web roles receive specific EXECUTE grants, never unrestricted governance or
+financial table access.
+
+Governance and financial administrative writes serialize and recheck authority
+under the shared lock. The protected role and last-active-admin invariant live
+in SQL. Credential minting, including direct token inserts, coordinates with
+revoke-all/suspension; successful manual token responses follow COMMIT, so a
+failed commit cannot leak an unusable secret. OAuth codes are consumed during
+revocation as well as active token rows being revoked.
+
+Suspension denies new private access through Express, token resolution, MCP
+context, restrictive owned-table RLS and the three legacy billing write guards.
+Trusted payment reconciliation remains possible. Already-running requests or
+provider work can finish, and downloaded data/signed URLs cannot be recalled.
+This is application suspension, not an Auth-provider ban.
+
+Credit policy/pack/adjustment writes require finance permissions in both API and
+SQL. Historical balances remain integers. Provider-cost snapshots are restricted
+to finance readers; ordinary wallets expose service prices and their own ledger.
+Atomic order fulfillment is independent of webhook event IDs. Signed events
+are revalidated against current Stripe identity, amount, currency, mode, refunds
+and disputes. Per-order revisions reject stale snapshots. Debt/holds block new
+work; holds cannot be cleared while debt or open refund/dispute work remains.
+Refunds before provider start are compensating events; started flat-priced work
+retains its charge. No realized-margin or token-settlement guarantee is made.
+
+Identity, admin and wallet responses use no-store. The browser clears sensitive
+query state on account changes and invalidates authority on 403/focus/session
+refresh. The service worker routes private or authorized APIs NetworkOnly with
+HTTP no-store, rejects private/no-store responses from cache admission, and
+deletes `deckpal-api-v1`/`deckpal-api-v2` on activation. Only eligible anonymous
+cloud catalog responses use `deckpal-public-api-v3`; self-host API responses
+remain network-only. Art and shell caching are preserved.

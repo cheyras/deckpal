@@ -649,3 +649,24 @@ there.
 3. Auth: request without `x-brain-key` → 401; with → 200.
 4. Deployment (separate phase): process-manager entry, reverse-proxy routes for
    `/mcp` (key-header auth, allowed-hosts env), reboot-safe.
+
+## Administration and account status boundary (2026-09-13)
+
+The shared tool catalog remains 24 tools (13 read / 11 write); no administrative
+agent tools are added. Application Super admin status does not expand a
+connector's authority. PAT/OAuth tokens cannot call `/admin` or `/me/credits`,
+including read endpoints, pack purchases or financial settings. A signed-in
+application session and fresh database permissions are required there.
+
+Suspension is checked by token resolution, standalone MCP transaction context
+and restrictive owned-data policies, not only by Express. Revoke connectors
+invalidates active tokens and outstanding OAuth codes. Mint/exchange and
+revoke-all share a governance lock so an in-flight mint cannot commit behind
+a completed revoke. Already-running work and previously downloaded data cannot
+be recalled. Admin routes/actions remain outside Deck-E navigation/click
+allowlists; an assistant cannot exercise the owner's administrative UI.
+
+Deck-E use separately requires `decke.use`. Its UI wallet and flat estimated
+credit policy are documented in ADMINISTRATION.md; support subscriptions/gifts
+do not buy credits. Personal identity/admin/wallet data is no-store and is not
+kept in the service worker's anonymous catalog cache.

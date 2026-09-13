@@ -860,23 +860,18 @@ the componentization ledger. It has two modes with one structural rule:
   an agent with judgment (Lane B, `design-requests/`). The endpoints exist
   only while `vite dev` runs; they are absent from build output by
   construction, not by configuration.
-- **Production:** the route ships in the bundle but is gated to the owner:
-  `GET /me` returns a server-verified `designEditor` flag (cloud: the account
-  named by `DESIGN_EDITOR_USER_ID`; self-host: the single user), and the
-  route's `beforeLoad` renders not-found for anyone else. The page detects
-  the missing dev endpoints and runs read-only — tokens parsed client-side
-  from the bundled `theme.css` text by the same parser the plugin uses
-  (`routes/design/themeTokens.ts`), saves and composers hidden, live
-  ephemeral overrides still available.
+- **Deployed app:** the route requires `design.view` from the server's current
+  database permissions, including on preview. The compatibility
+  `designEditor` flag is derived from the same permission. The missing local
+  design endpoints keep the deployed page read-only: tokens are parsed from
+  bundled CSS, saves/composers stay hidden, and ephemeral previews remain.
 
 ## 15. Deck-E — the 3D character runtime
 
-**Status: complete. Ships to production, owner-only.** Route `/dev/decke`,
-gated the same way as `/design`: `beforeLoad` checks the server-verified `owner`
-flag on `GET /me` and throws `notFound()` for everyone else, so for any other
-visitor the route is indistinguishable from one that never existed. The identity
-check lives server-side (`DESIGN_EDITOR_USER_ID`), so nothing about who the owner
-is enters the bundle, and an unset variable means nobody — it fails closed.
+**Status: implemented runtime; access is permission-based.** The
+`/dev/decke` review route requires `diagnostics.view`. Browser guards and
+server-side gates use current database authority; no owner UUID enters the
+bundle, and preview does not bypass permission checks.
 
 Shipping it means the chunk is emitted (~1.17 MB of three.js and the runtime,
 measured 2026-08-22 and approximate on purpose — the precise figure drifts with
@@ -1128,15 +1123,14 @@ enums, numbers and plain strings, and `DeckeScreen.tsx` is a switch that renders
 schema that carries HTML, a class name, a style, a URL or a selector — so it is
 not a sanitised injection surface, it is not an injection surface.
 
-**Who may talk to him, and how much, is decided on the server.** The browser's
-own gate (`entitlement.ts`) only decides whether to draw a button; `POST
-/api/chat` re-checks it before the request body is parsed
-(`DECKE_ENTITLED_USER_IDS` plus the owner — a list, not a single id, because
-several of the plan's browser gates run as the QA account, never the owner,
-per B12) and meters every account against a durable daily cap in Postgres
-(`decke_usage`, migrations 039/040) — chat turns and deep calls capped
-separately, ~250x apart in price. See SECURITY.md for the reasoning; this is
-the mechanism.
+**Who may talk to him, and how much, is decided on the server.** Deck-E
+requires current `decke.use` permission and an active account. When database
+credit policy is enabled, each priced operation reserves an atomic flat charge
+with its policy snapshot before invocation; accounting errors fail closed.
+When disabled, the existing daily chat/deep counters remain. Old entitlement
+allowlists and the credits-enable flag are one-time bootstrap inputs, not
+continuing authorization/configuration sources. See ADMINISTRATION.md and
+SECURITY.md for limits, refunds and suspension.
 
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly
@@ -1170,7 +1164,7 @@ apps/web/src/lib/markdownSafety.ts   what model-written markdown may become,
 apps/api/src/decke/
   ctx.ts               builds a Ctx from the caller's JWT; lazy Ctx.db (§15c)
   rls.ts               the per-tool-call RLS session + its watchdog (§15c)
-  entitlement.ts        DECKE_ENTITLED_USER_IDS + the owner gate
+  entitlement.ts        current database decke.use permission
   meter.ts              the daily chat_turns / deep_calls cap, check-and-charge in one statement
   models.ts             which model each job gets, and why (measured, not assumed)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
@@ -1639,3 +1633,43 @@ both "what happened to this card" and "which operation did it belong to".
 `mutation_event` is append-only at the policy level — SELECT and INSERT, no
 UPDATE — so a revert appends compensating events rather than editing history.
 See SECURITY.md for why that matters on Supabase specifically.
+
+## Administration and the AI credit economy (2026-09-13)
+
+Migrations 064–067 add database-backed application roles/permissions, account
+status, defaults and audit, plus immutable credit-policy revisions, packs,
+orders, spend reservations and debt controls. The protected Super admin role
+cannot be edited or lost through concurrent demotion/suspension. Application
+roles are rows, not new PostgreSQL login roles. A trusted one-time bootstrap
+imports the existing owner/QA configuration, then database changes become
+authoritative.
+
+All administrative routes and wallet routes require an application session,
+excluding personal/connector tokens. Request-local access coalescing never
+caches positive authority across requests. SQL functions independently validate
+sessions and permissions; governance mutations and financial administration
+take the same advisory transaction lock before reauthorizing. Token mint,
+OAuth exchange and revoke-all share this boundary. Restrictive account policies
+and narrow legacy-billing guards extend suspension beyond Express.
+
+Pricing revisions change future flat estimated quotes without redenominating
+existing balances or recalculating historical events. Each chat leg and its
+deep work share one revision; debit, snapshot and reservation are atomic.
+Unstarted work can be refunded; provider-started work retains its quoted charge.
+Accounting connections are released across provider streaming. Frozen USD pack
+orders are fulfilled once after signed Stripe events and current remote state
+validation. Per-order reconciliation revisions reject stale refund/dispute
+snapshots; reversal debt is explicit and spendable balances remain nonnegative.
+Voluntary support/gifts remain separate.
+
+Administration is a lazy route tree inside the normal application shell.
+Permission-filtered navigation makes contributor tools discoverable without
+granting finance/users access. Identity changes clear query state and remount
+sensitive surfaces. The service worker makes private and Authorization-bearing
+API requests network-only, retires old mixed API caches, and keeps anonymous
+cloud catalog/art/shell caching. Self-host API data is all network-only because
+reverse-proxy identity is opaque; its art/shell caching remains.
+
+The owner guide is ADMINISTRATION.md. DEPLOYMENT.md records schema-first rollout
+and readiness; test fixtures and browser evidence are not proof of live Stripe
+payments or production configuration.

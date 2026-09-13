@@ -19,9 +19,17 @@ BEGIN
  IF actor IS NULL OR NOT public.admin_is_session() OR NOT public.admin_account_active(actor) THEN RAISE EXCEPTION 'Sign in required' USING ERRCODE='42501'; END IF;
  p_user=coalesce(p_user,actor);
  IF p_user<>actor THEN PERFORM public.admin_require_permission('credits.read'); END IF;
- -- Crash recovery: expired reservations cannot start a provider. Reopening a
- -- wallet refunds them idempotently, including a process killed before finally.
- FOR stale IN SELECT id FROM public.credit_spend WHERE user_id=p_user AND provider_started_at IS NULL AND refunded_at IS NULL AND created_at<=now()-interval '5 minutes' LOOP
+ -- Crash recovery: expired reservations cannot start a provider. Never wait
+ -- for a spend row while retaining a wallet lock from an earlier refund or
+ -- adjustment: direct cancellation takes the spend lock before the wallet.
+ -- A concurrent cancellation refunds its row, or a later wallet read recovers
+ -- it after that transaction releases the lock without refunding.
+ FOR stale IN
+  SELECT id FROM public.credit_spend
+  WHERE user_id=p_user AND provider_started_at IS NULL AND refunded_at IS NULL
+   AND created_at<=now()-interval '5 minutes'
+  ORDER BY created_at,id FOR UPDATE SKIP LOCKED
+ LOOP
   PERFORM public.credit_spend_refund(p_user,stale);
  END LOOP;
  SELECT balance INTO b FROM public.decke_credit_balance WHERE user_id::text=p_user;

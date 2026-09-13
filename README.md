@@ -23,6 +23,8 @@ self-hosters.
 
 ## Features
 
+- **Administration** — database roles, contributor tools, account access, app defaults and estimated AI credit pricing/packs. See [the owner guide](ADMINISTRATION.md).
+
 - **Full card catalog** -- series, sets, cards, and variant-level detail
   (reverse holos, foils, stamps, promos), imported from TCGdex open data.
 - **Collection tracking** -- own/want/trade at the variant level with quantity,
@@ -192,6 +194,7 @@ users of that service.
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Target architecture, RLS model, storage design, sync design |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
+| [`ADMINISTRATION.md`](ADMINISTRATION.md) | Owner/contributor guide to access, defaults, AI credits, payment readiness and recovery |
 | [`research/SCHEMA.md`](research/SCHEMA.md) | Dated data-model research -- variant taxonomy, tier/goal derivation (schema of record: `packages/db/src/migrations/`) |
 | [`API.md`](API.md) | REST API contract -- the endpoint inventory lives here |
 | [`DECISIONS.md`](DECISIONS.md) | Dated audit trail of every decision, correction, and gotcha |
