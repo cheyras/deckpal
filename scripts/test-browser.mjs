@@ -5,6 +5,8 @@ import path from 'node:path'
 import { chromium } from 'playwright'
 import { ROOT, WEB, run, buildWeb, isolatedEnv, serve, contextFor } from '../tests/browser/support.mjs'
 import { appResponses, announcement, checkUpcoming } from '../tests/browser/upcoming.mjs'
+import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
+import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkChat } from '../tests/browser/chat.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
@@ -23,7 +25,9 @@ try {
   for (const [label, mount] of [['selfhost', '/deckpal'], ['cloud', '']]) {
     const dist = path.join(scratch, label)
     let scenario = 'active'
-    const server = await serve(dist, mount, rel => appResponses(scenario, rel))
+    const admin = adminFixture(mount)
+    let adminActive = false
+    const server = await serve(dist, mount, (rel, url, req) => adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html', { allowMutation: admin.allowMutation })
     try {
       logs.push(buildWeb(dist, label === 'cloud', server.origin))
       assets.push({ label, ...checkDeployAssets(dist) })
@@ -38,6 +42,9 @@ try {
           results.push({ case: 'upcoming-suppression', label, scenario, placeholderAbsent: true })
         } finally { await context.close() }
       }
+      adminActive = true
+      results.push(...await checkAdmin(browser, server, mount, label, out, admin))
+      results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
       assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
     } finally { await server.close() }
   }

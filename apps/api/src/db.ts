@@ -98,11 +98,14 @@ export function dbHandle(): Queryable {
 export async function commitRequestTx(userId: string | null): Promise<void> {
   const client = rlsStore.getStore();
   if (!client) return;
+  const previous = (await client.query<{claims:string}>("SELECT current_setting('request.jwt.claims',true) AS claims")).rows[0]?.claims;
+  const preserved = previous ? JSON.parse(previous) as Record<string,unknown> : {};
+  if (userId && preserved.sub !== userId) throw new Error('Cannot change identity while committing a request');
   const claims = userId
     ? `SELECT set_config('request.jwt.claims', ${client.escapeLiteral(
-        JSON.stringify({ sub: userId, role: 'authenticated' }),
-      )}, true); SET LOCAL role = 'authenticated'`
-    : `SET LOCAL role = 'anon'`;
+        JSON.stringify({ ...preserved, sub: userId }),
+       )}, true); ${preserved.role === 'local' ? '' : "SET LOCAL role = 'authenticated'"}`
+    : `${SUPABASE_MODE ? "SET LOCAL role = 'anon'" : ''}`;
   // One round trip. If the connection has already been destroyed by the
   // watchdog or an early client disconnect, this throws — which is correct:
   // the response is unsendable and the error funnel should say so rather than

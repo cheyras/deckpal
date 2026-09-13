@@ -11,7 +11,7 @@ import { api } from '../lib/api'
 import { isCloudMode } from '../lib/supabase'
 import { isChromelessPathname } from '../lib/landingRoute'
 import { useSignedIn } from '../lib/session'
-import { useOwnerEntitled } from '../lib/ownerSurface'
+import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
 
@@ -92,7 +92,7 @@ interface NavItem {
    * about a surface exactly one account will ever have. See `ownerOnly` in
    * `visibleNav` below.
    */
-  ownerOnly?: boolean
+  permission?: string
 }
 
 // Rail order per UI-SPEC §3.1. Single-user English-TCG build:
@@ -106,7 +106,8 @@ const NAV: NavItem[] = [
   // Owner-only since 2026-09-07 — the route (main.tsx) and the API
   // (apps/api/src/scan/router.ts) both refuse everyone else on production, so a
   // row here for anybody else would lead to a Not Found. See `ownerOnly` above.
-  { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true, ownerOnly: true },
+  { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true, permission: 'scanner.use' },
+  { label: 'Administration', icon: 'lists', to: '/admin', gated: true, permission: 'admin.access' },
 ]
 
 /**
@@ -123,8 +124,8 @@ const NAV: NavItem[] = [
  * `NAV` array and have drifted apart once already (issue #52), and a visibility
  * rule only one of them applied would be that bug with a leak attached.
  */
-function visibleNav(owner: boolean | undefined): NavItem[] {
-  return NAV.filter((item) => !item.ownerOnly || owner === true)
+function visibleNav(permissions: readonly string[]): NavItem[] {
+  return NAV.filter((item) => !item.permission || permissions.includes(item.permission))
 }
 
 // Whether a nav row points at the page you are on. One definition, because the
@@ -206,7 +207,7 @@ function NavRow({
   // It also matches every other owner-only surface: `/design` and the `/dev`
   // review routes are absent from his world entirely rather than
   // present-but-refused.
-  if (item.to && item.ownerOnly) {
+  if (item.to && item.permission) {
     return (
       <Link to={item.to} className="block">
         {body}
@@ -350,12 +351,12 @@ function Sidebar({
   collapsed,
   onToggle,
   signedOut,
-  owner,
+  permissions,
 }: {
   collapsed: boolean
   onToggle: () => void
   signedOut: boolean
-  owner: boolean | undefined
+  permissions: readonly string[]
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   return (
@@ -405,7 +406,7 @@ function Sidebar({
         )}
       </div>
       <nav className="flex-1 overflow-y-auto py-[6px]">
-        {visibleNav(owner).map((item) => {
+        {visibleNav(permissions).map((item) => {
           if (item.expandable) {
             return <ExpandableNavRow key={item.label} item={item} collapsed={collapsed} />
           }
@@ -428,12 +429,12 @@ function MobileDrawer({
   open,
   onClose,
   signedIn,
-  owner,
+  permissions,
 }: {
   open: boolean
   onClose: () => void
   signedIn: boolean | undefined
-  owner: boolean | undefined
+  permissions: readonly string[]
 }) {
   // The drawer's "View Profile" button is the ONLY identity surface on mobile —
   // the header chip is desktop-only (`nav:flex`). So the photo belongs here too,
@@ -495,7 +496,7 @@ function MobileDrawer({
           )}
         </div>
         <nav>
-          {visibleNav(owner).map((item) =>
+          {visibleNav(permissions).map((item) =>
             item.expandable ? (
               // Self-manages its toggle + sub-links; closes the drawer on a sub-item tap.
               <ExpandableNavRow key={item.label} item={item} collapsed={false} onNavigate={onClose} />
@@ -515,12 +516,12 @@ function Header({
   onBurger,
   drawerOpen,
   signedIn,
-  owner,
+  permissions,
 }: {
   onBurger: () => void
   drawerOpen: boolean
   signedIn: boolean | undefined
-  owner: boolean | undefined
+  permissions: readonly string[]
 }) {
   const navigate = useNavigate()
   const [term, setTerm] = useState('')
@@ -598,7 +599,7 @@ function Header({
             started refusing everyone but the owner. `owner !== true` covers
             signed out, signed in as somebody else, AND the tick before the
             answer arrives — see `useOwnerEntitled`. */}
-        {owner === true && (
+        {permissions.includes('scanner.use') && (
           <Link
             to="/scan"
             aria-label="Scan a card"
@@ -638,7 +639,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Asked ONCE here and handed down, so the rail, the header and the drawer
   // cannot disagree about it — the same reason `isNavActive` is one function.
   // `undefined` until `/me` answers, and every consumer reads that as "hide".
-  const owner = useOwnerEntitled()
+  const { permissions } = useAccess()
 
   // Chrome-free paths: every auth surface and the marketing landing at `/` —
   // see isChromelessPathname. Rendering the full nav on /auth fired
@@ -661,10 +662,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}
         signedOut={signedIn === false}
-        owner={owner}
+        permissions={permissions}
       />
-      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} owner={owner} />
-      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} owner={owner} />
+      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} permissions={permissions} />
       <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>

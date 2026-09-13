@@ -1,65 +1,9 @@
 /**
- * Deck-E's credits — one balance, spent down, topped up.
- *
- * ══════════════════════════════════════════════════════════════════════════════
- * WHY THIS REPLACES TWO DAILY COUNTERS
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * `meter.ts` caps `chat_turns` and `deep_calls` separately and resets both at
- * UTC midnight. The owner used the product with the deep counter spent:
- *
- *   "This is pretty bad because he basically kind of becomes useless when this
- *    happens. 10 deep questions just feels arbitrary. And then it's like, oh
- *    I'm using him but he can't really do anything."
- *
- * The failure is not the number. A per-tier cap produces a HALF-DEAD AGENT:
- * present, answering, apparently capable, and unable to do the thing you opened
- * him for. Which is the shape of every other defect this pass exists to remove.
- *
- * Asked directly whether cheap features should survive at zero — I recommended
- * they should — the owner said no, and was right:
- *
- *   "He can chat and lookup but he can only pretend to do other stuff and that
- *    sucks. I want just credits because that's the only thing that makes sense
- *    — I can use him while I have credits. If I'm out, I can't use him."
- *
- * **An agent that can only pretend is worse than one that is honestly away.**
- *
- * ══════════════════════════════════════════════════════════════════════════════
- * IT IS OFF UNTIL SOMEBODY TURNS IT ON
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * `creditsEnabled()` reads `DECKE_CREDITS_ENABLED` and is false by default, so
- * `api/chat.mjs` keeps using the daily meter and nothing here runs. That is not
- * timidity: migration 041 creates every balance at ZERO, so switching credits on
- * before granting balances would make Deck-E unavailable to every account at
- * once, the owner's included.
- *
- * The order is: migrate → grant → set the flag. 039's tables are left in place
- * so the flag is reversible.
- *
- * ══════════════════════════════════════════════════════════════════════════════
- * WHAT A CREDIT IS WORTH
- * ══════════════════════════════════════════════════════════════════════════════
- *
- * `CREDIT_USD` is the only number to argue about; everything else is derived
- * from measured cost. That is deliberate — a table of hand-picked prices drifts
- * away from what things actually cost, and the drift is invisible until a bill
- * arrives.
- *
- * The measurements, all from this repository's own notes:
- *
- *   a conversational turn   $0.000143   (`039_decke_usage.sql`)
- *   an analysis call        $0.0356     (`models.ts`)
- *   a realistic deck plan   $0.50-$1    (`039_decke_usage.sql`)
- *
- * **The RETAIL multiple is not set here and is not mine to set.** These costs
- * are what the model spend actually is; what a reader pays for a credit is a
- * business decision. `CREDIT_USD` is expressed as cost so the arithmetic below
- * is honest, and a margin belongs in the price of a top-up rather than hidden in
- * a fudged cost table.
+ * Legacy flat-price constants and manual-grant script helpers. Runtime charging
+ * is DB-authoritative in ../credits/runtime.ts and migrations066/067.
+ * These values preserve initial 1/4/75 compatibility; they are historical
+ * estimates, not measurements of the currently selected provider model.
  */
-
 /** One credit, in dollars of MODEL SPEND. Not a retail price. */
 export const CREDIT_USD = 0.01;
 
@@ -112,7 +56,7 @@ export function deepCost(toolName: string): number {
   return COST.deep[toolName] ?? DEEP_DEFAULT;
 }
 
-/** Is the credit system switched on for this deployment? */
+/** Legacy bootstrap parser; runtime enablement lives in credit_policy_current. */
 export function creditsEnabled(): boolean {
   return process.env.DECKE_CREDITS_ENABLED === 'true';
 }

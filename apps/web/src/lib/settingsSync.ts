@@ -30,8 +30,8 @@ import { api, type UserSettings } from './api'
 import { readSession } from './authSession'
 import { isCloudMode, supabase } from './supabase'
 import { deckeHidden, setDeckeHidden } from '../character/deckePreference'
-import { readStoredSkin, setSkin } from './skin'
-import { readStoredTopbar, setTopbar } from './topbar'
+import { readStoredSkin, setSkin, setSkinDefault, clearStoredSkin } from './skin'
+import { readStoredTopbar, setTopbar, setTopbarDefault, clearStoredTopbar } from './topbar'
 
 const PUSHED_FLAG = 'deckpal.settings.pushed.v1'
 /** The Series index's existing cache key — hydration writes it, the page reads it. */
@@ -95,7 +95,9 @@ function applyDown(s: UserSettings): void {
   // null means "no explicit choice — follow the app default": leave the local
   // cache alone rather than erase a value the account never overrode.
   if (s.skin === 'premium' || s.skin === 'classic') setSkin(s.skin)
+  else clearStoredSkin()
   if (s.topbar === 'cover' || s.topbar === 'flat') setTopbar(s.topbar)
+  else clearStoredTopbar()
   try {
     window.localStorage.setItem(
       SERIES_PREFS_KEY,
@@ -112,16 +114,21 @@ function applyDown(s: UserSettings): void {
 }
 
 let syncing = false
+let generation = 0
+let currentAccount = ''
 
 async function sync(): Promise<void> {
   if (syncing) return
   syncing = true
+  const version = generation
   try {
     if (isCloudMode) {
       const { session } = await readSession()
       if (!session) return // signed out: nothing to fetch, nothing to apply
     }
-    let { settings } = await api.settings()
+    let { settings, defaults } = await api.settings()
+    if (defaults) { setSkinDefault(defaults.skin); setTopbarDefault(defaults.topbar) }
+    if (version !== generation) return
     if (!flagged()) {
       const up = upwardPatch(settings)
       if (Object.keys(up).length) {
@@ -129,12 +136,13 @@ async function sync(): Promise<void> {
       }
       setFlag()
     }
+    if (version !== generation) return
     applyDown(settings)
   } catch (e) {
     // Offline, expired session, server trouble: the local cache carries on.
     console.warn('settings sync skipped:', e)
   } finally {
-    syncing = false
+    if (version === generation) syncing = false
   }
 }
 
@@ -144,10 +152,25 @@ async function sync(): Promise<void> {
  * preferences up without a reload.
  */
 export function initSettingsSync(): void {
+  const refreshDefaults = () => { void api.publicDefaults().then(({ defaults }) => {
+    if (defaults) { setSkinDefault(defaults.skin); setTopbarDefault(defaults.topbar) }
+  }).catch(() => { /* retain current default while offline */ }) }
+  refreshDefaults()
+  window.addEventListener('focus', () => { refreshDefaults(); void sync() })
   void sync()
   if (isCloudMode) {
-    supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN') void sync()
+    supabase.auth.onAuthStateChange((event, session) => {
+      const nextAccount = session?.user.id ?? ''
+      if (nextAccount !== currentAccount) {
+        currentAccount = nextAccount; generation++; syncing = false
+        try {
+          const previous = window.localStorage.getItem('deckpal.settings.owner')
+          if (previous && previous !== nextAccount) { clearStoredSkin(); clearStoredTopbar() }
+          if (nextAccount) window.localStorage.setItem('deckpal.settings.owner', nextAccount)
+        } catch { /* device cache is optional */ }
+      }
+      if (event === 'SIGNED_OUT') { clearStoredSkin(); clearStoredTopbar() }
+      if (nextAccount) window.setTimeout(() => { void sync() }, 0)
     })
   }
 }

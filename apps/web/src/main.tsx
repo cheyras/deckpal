@@ -28,7 +28,14 @@ import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
-import { api } from './lib/api'
+import { hasPermission, useAccess, IDENTITY_CHANGED } from './lib/access'
+import { Content, EmptyState } from './components/ui'
+import Admin, { AdminOverview, AdminTools } from './routes/admin/Admin'
+import { AdminUsers, AdminUserDetail } from './routes/admin/Users'
+import { AdminRoles } from './routes/admin/Roles'
+import { AdminSettings } from './routes/admin/Settings'
+import { AdminAudit } from './routes/admin/Audit'
+import { Credits } from './routes/credits/Credits'
 import { isCloudMode } from './lib/supabase'
 import { readSession } from './lib/authSession'
 import { isReturningVisitor } from './lib/returningVisitor'
@@ -70,7 +77,32 @@ const queryClient = new QueryClient({
   },
 })
 
+window.addEventListener(IDENTITY_CHANGED, () => queryClient.clear())
+
+async function requireCapability(permission: string) {
+  if (!(await hasPermission(permission))) throw notFound()
+}
+const TOOL_PERMISSIONS: Record<string, string> = {
+  '/scan': 'scanner.use', '/design': 'design.view', '/dev/decke': 'diagnostics.view',
+  '/dev/chat-ui': 'diagnostics.view', '/dev/decke-compare': 'diagnostics.view',
+  '/dev/scan-harness': 'diagnostics.view', '/dev/quad-labeler': 'scanner.label', '/dev/quad-harvest': 'scanner.label',
+}
+function SecureOutlet() {
+  const pathname = useRouterState({ select: s => s.location.pathname })
+  const access = useAccess()
+  const localPath = pathname.replace(/^\/deckpal(?=\/)/, '')
+  let permission = TOOL_PERMISSIONS[localPath]
+  if (localPath === '/admin' || localPath.startsWith('/admin/')) {
+    permission = localPath.startsWith('/admin/users') ? 'users.read' : localPath.startsWith('/admin/roles') ? 'roles.read' : localPath.startsWith('/admin/audit') ? 'audit.read' : 'admin.access'
+    if (localPath.startsWith('/admin/settings') && !access.permissions.includes('settings.read') && !access.permissions.includes('credits.read')) permission = 'settings.read'
+    if (!access.permissions.includes('admin.access')) permission = 'admin.access'
+  }
+  if (permission && (!access.ready || !access.permissions.includes(permission))) return <Content>{access.ready ? <EmptyState icon="lists" title="Access unavailable" body={access.error ? "Access could not be verified. Reload to try again." : "Your account no longer has access to this page."} /> : <p role="status">Checking access…</p>}</Content>
+  return <Outlet />
+}
+
 function RootComponent() {
+  const access = useAccess()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   // Public by definition, and each for its own reason:
   //   • the marketing landing at `/` and every auth surface — wrapping them in
@@ -82,12 +114,12 @@ function RootComponent() {
   //     out (see isChromelessPathname vs isCatalogPathname).
   const shell = isPublicPathname(pathname) ? (
     <AppShell>
-      <Outlet />
+      <SecureOutlet />
     </AppShell>
   ) : (
     <AuthGuard>
       <AppShell>
-        <Outlet />
+        <SecureOutlet />
       </AppShell>
     </AuthGuard>
   )
@@ -104,8 +136,8 @@ function RootComponent() {
   return (
     <>
       <DevBackendRibbon />
-      {shell}
-      <DeckeHost />
+      <div key={'shell:' + access.identity}>{shell}</div>
+      <DeckeHost key={'decke:' + access.identity} />
       {/* A sibling of `{shell}` for the same reason DeckeHost is: crossing the
           public/private boundary swaps <AppShell> for <AuthGuard> at that
           position and unmounts everything inside it. Mounted in there, the
@@ -297,26 +329,7 @@ const scanRoute = createRoute({
   validateSearch: (raw: Record<string, unknown>): { card?: string } => ({
     card: typeof raw.card === 'string' && raw.card ? raw.card : undefined,
   }),
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    // Self-host has exactly one user (the owner) behind their own auth proxy.
-    if (!isCloudMode) return
-    // Preview BUILDS are open, same allowance (and same reasoning) as the
-    // quad labeler's: the e2e acceptance drives sign in as QA per AGENTS.md
-    // B12, and gating previews would blind every machine gate this scanner
-    // ships through. Keyed on the BUILD TIER, not the hostname — production
-    // carries *.vercel.app aliases, so a hostname test would open this to any
-    // signed-in account that finds one (round 12). A production build ends at
-    // me.owner below on every hostname it is served from, fail-closed.
-    if (import.meta.env.VITE_VERCEL_ENV === 'preview') return
-    try {
-      const me = await api.me()
-      if (me.owner) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('scanner.use'),
   component: Scan,
 })
 
@@ -437,18 +450,7 @@ const DesignSystemRoute = () => (
 const designRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/design',
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    // Self-host has exactly one user (the owner) behind their own auth proxy.
-    if (!isCloudMode) return
-    try {
-      const me = await api.me()
-      if (me.designEditor) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('design.view'),
   component: DesignSystemRoute,
 })
 
@@ -486,18 +488,7 @@ const DeckeRoute = () => (
 const deckeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dev/decke',
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    // Self-host has exactly one user (the owner) behind their own auth proxy.
-    if (!isCloudMode) return
-    try {
-      const me = await api.me()
-      if (me.owner) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('diagnostics.view'),
   component: DeckeRoute,
 })
 
@@ -521,17 +512,7 @@ const ChatUiRoute = () => (
 const chatUiRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dev/chat-ui',
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    if (!isCloudMode) return
-    try {
-      const me = await api.me()
-      if (me.owner) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('diagnostics.view'),
   component: ChatUiRoute,
 })
 
@@ -557,17 +538,7 @@ const DeckeCompareRoute = () => (
 const deckeCompareRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dev/decke-compare',
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    if (!isCloudMode) return
-    try {
-      const me = await api.me()
-      if (me.owner) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('diagnostics.view'),
   component: DeckeCompareRoute,
 })
 
@@ -593,17 +564,7 @@ const ScanHarnessRoute = () => (
 const scanHarnessRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dev/scan-harness',
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    if (!isCloudMode) return
-    try {
-      const me = await api.me()
-      if (me.owner) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('diagnostics.view'),
   component: ScanHarnessRoute,
 })
 
@@ -628,31 +589,7 @@ const QuadLabelerRoute = () => (
 const quadLabelerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dev/quad-labeler',
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    if (!isCloudMode) return
-    // Preview BUILDS are open: the labeler writes to the SAME recorder whose
-    // server gate is already "non-production unconditional"
-    // (apps/api/src/dev/scanFlags.ts), and the owner labels signed in as QA
-    // per AGENTS.md B12 — an owner-only gate here locked out the only person
-    // who uses the surface (round 9 measured the resulting "Not Found").
-    // Keyed on the BUILD TIER, not the hostname — production carries
-    // *.vercel.app aliases (round 12).
-    if (import.meta.env.VITE_VERCEL_ENV === 'preview') return
-    // On PRODUCTION: the labeler set, not the owner alone (2026-09-08 owner
-    // ruling — the training surface is live for the owner and the QA account,
-    // while /scan itself stays owner-only). `me.labeler` is computed by the
-    // same `isLabelerEntitled` that guards POST /dev/scan-flags, which is
-    // where a saved label actually goes; reading `me.owner` here would draw a
-    // surface the server was already willing to accept writes from.
-    try {
-      const me = await api.me()
-      if (me.labeler) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('scanner.label'),
   component: QuadLabelerRoute,
 })
 
@@ -681,22 +618,29 @@ const QuadHarvestRoute = () => (
 const quadHarvestRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dev/quad-harvest',
-  beforeLoad: async () => {
-    if (import.meta.env.DEV) return
-    if (!isCloudMode) return
-    if (import.meta.env.VITE_VERCEL_ENV === 'preview') return
-    try {
-      const me = await api.me()
-      if (me.labeler) return
-    } catch {
-      // Signed out, or /me unavailable — fall through to not-found.
-    }
-    throw notFound()
-  },
+  beforeLoad: () => requireCapability('scanner.label'),
   component: QuadHarvestRoute,
 })
 
+const adminRoute = createRoute({ getParentRoute: () => rootRoute, path: '/admin', beforeLoad: () => requireCapability('admin.access'), component: Admin })
+const adminIndexRoute = createRoute({ getParentRoute: () => adminRoute, path: '/', component: AdminOverview })
+const adminUsersRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users', beforeLoad: () => requireCapability('users.read'), component: AdminUsers })
+const adminUserRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users/$userId', beforeLoad: () => requireCapability('users.read'), component: AdminUserDetail })
+const adminRolesRoute = createRoute({ getParentRoute: () => adminRoute, path: '/roles', beforeLoad: () => requireCapability('roles.read'), component: AdminRoles })
+const adminSettingsRoute = createRoute({ getParentRoute: () => adminRoute, path: '/settings', beforeLoad: async () => {
+  if (!(await hasPermission('settings.read')) && !(await hasPermission('credits.read'))) throw notFound()
+}, component: AdminSettings })
+const adminAuditRoute = createRoute({ getParentRoute: () => adminRoute, path: '/audit', beforeLoad: () => requireCapability('audit.read'), component: AdminAudit })
+const adminToolsRoute = createRoute({ getParentRoute: () => adminRoute, path: '/tools', component: AdminTools })
+const creditsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/credits', validateSearch: (raw: Record<string, unknown>): { order?: string; checkout?: string; cancelled?: string } => ({
+  cancelled: raw.cancelled === '1' ? '1' : undefined,
+  order: typeof raw.order === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(raw.order) ? raw.order : undefined,
+  checkout: typeof raw.checkout === 'string' ? raw.checkout : undefined,
+}), component: Credits })
+
 const routeTree = rootRoute.addChildren([
+  adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminUserRoute, adminRolesRoute, adminSettingsRoute, adminAuditRoute, adminToolsRoute]),
+  creditsRoute,
   ...coreRoutes,
   designRoute,
   deckeRoute,

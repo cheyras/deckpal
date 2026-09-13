@@ -36,19 +36,27 @@ export function buildWeb(dist, cloud, cloudOrigin = 'https://fixture.supabase.in
 }
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' }
-export async function serve(dist, mount, respondApi, html = 'index.html') {
+export async function serve(dist, mount, respondApi, html = 'index.html', options = {}) {
   const requests = [], unexpected = [], stubbedThirdParty = []
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1')
     requests.push(url.pathname)
     const reject = (why, status = 404) => { unexpected.push(why); res.writeHead(status); res.end(why) }
-    if (!['GET', 'HEAD'].includes(req.method)) return reject('Unexpected method ' + req.method, 405)
+    const mutation = !['GET', 'HEAD'].includes(req.method)
+    if (mutation && !options.allowMutation?.(url.pathname, req.method)) return reject('Unexpected method ' + req.method + ' ' + url.pathname, 405)
+    if (options.csp) res.setHeader('Content-Security-Policy', options.csp)
+    let body
+    if (mutation) {
+      let raw = ''
+      for await (const chunk of req) { raw += chunk; if (raw.length > 20000) return reject('Fixture body too large', 413) }
+      try { body = raw ? JSON.parse(raw) : {} } catch { return reject('Invalid JSON', 400) }
+    }
     if (mount && url.pathname !== mount && !url.pathname.startsWith(mount + '/')) return reject('Outside mount: ' + url.pathname)
     const rel = decodeURIComponent(url.pathname.slice(mount.length))
-    const response = respondApi(rel, url)
+    const response = await respondApi(rel, url, { method: req.method, body, headers: req.headers })
     if (response || rel.startsWith('/api/')) {
       if (!response) return reject('Unexpected API: ' + rel)
-      res.writeHead(response.status ?? 200, { 'Content-Type': response.type ?? 'application/json' })
+      res.writeHead(response.status ?? 200, { 'Content-Type': response.type ?? 'application/json', ...(response.headers ?? {}) })
       res.end(response.raw ?? JSON.stringify(response.body))
       return
     }
@@ -62,7 +70,7 @@ export async function serve(dist, mount, respondApi, html = 'index.html') {
     fs.createReadStream(file).pipe(res)
   })
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
-  return { requests, unexpected, stubbedThirdParty, origin: 'http://127.0.0.1:' + server.address().port,
+  return { requests, unexpected, stubbedThirdParty, allowMutation: options.allowMutation, origin: 'http://127.0.0.1:' + server.address().port,
     close: async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) } }
 }
 export async function contextFor(browser, server, width) {
@@ -70,7 +78,7 @@ export async function contextFor(browser, server, width) {
     timezoneId: 'America/Denver', locale: 'en-US', serviceWorkers: 'block', reducedMotion: 'reduce' })
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
-    if (url.origin === server.origin && ['GET', 'HEAD'].includes(route.request().method())) return route.continue()
+    if (url.origin === server.origin && (['GET', 'HEAD'].includes(route.request().method()) || server.allowMutation?.(url.pathname, route.request().method()))) return route.continue()
     // Stripe's installed loader eagerly inserts this script on public pages.
     // Fulfill this one known SDK locally; never permit third-party network.
     if (url.href === 'https://js.stripe.com/dahlia/stripe.js' && route.request().resourceType() === 'script') {

@@ -14,6 +14,8 @@ export type Skin = 'premium' | 'classic'
 /** Change this to 'classic' to ship the pre-pass look without touching anything else. */
 export const DEFAULT_SKIN: Skin = 'premium'
 
+let appDefault: Skin = DEFAULT_SKIN
+
 const STORAGE_KEY = 'deckpal:skin'
 
 function isSkin(v: string | null): v is Skin {
@@ -35,7 +37,7 @@ export function readStoredSkin(): Skin | null {
 }
 
 export function readSkin(): Skin {
-  if (typeof window === 'undefined') return DEFAULT_SKIN
+  if (typeof window === 'undefined') return appDefault
   try {
     const fromUrl = new URLSearchParams(window.location.search).get('skin')
     if (isSkin(fromUrl)) {
@@ -48,7 +50,7 @@ export function readSkin(): Skin {
     // Private-mode / disabled storage: fall through to the default rather than
     // taking the whole app down over a cosmetic preference.
   }
-  return DEFAULT_SKIN
+  return appDefault
 }
 
 /** Writes the attribute the CSS keys off. Called once at boot and on every toggle. */
@@ -70,4 +72,14 @@ export function initSkin(): Skin {
   const skin = readSkin()
   applySkin(skin)
   return skin
+}
+
+/** Apply server defaults without turning them into a personal choice. */
+export function setSkinDefault(value: Skin): void {
+  appDefault = value
+  if (!readStoredSkin()) applySkin(value)
+}
+export function clearStoredSkin(): void {
+  try { window.localStorage.removeItem(STORAGE_KEY) } catch { /* optional cache */ }
+  applySkin(appDefault)
 }

@@ -93,7 +93,8 @@ export async function resolveToken(db: Queryable, raw: string): Promise<Resolved
   const { rows } = await db.query<{ id: string; user_id: string; token_hash: string }>(
     `SELECT id, user_id, token_hash
        FROM api_token
-      WHERE token_hash = $1 AND revoked_at IS NULL`,
+      WHERE token_hash = $1 AND revoked_at IS NULL
+        AND public.admin_account_active(user_id::text)`,
     [hash],
   );
   const row = rows[0];

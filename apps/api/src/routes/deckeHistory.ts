@@ -228,11 +228,11 @@ async function write<T extends Record<string, unknown> = Record<string, unknown>
 }
 
 /** Every route here needs the same two facts. */
-function caller(req: Parameters<Parameters<typeof asyncHandler>[0]>[0]): string {
+async function caller(req: Parameters<Parameters<typeof asyncHandler>[0]>[0]): Promise<string> {
   // currentUserId is total — it returns a string or throws its own loud 500 —
   // so "signed in" needs no second check here; only entitlement does.
   const userId = currentUserId(req);
-  if (!isDeckeEntitled(userId)) throw forbidden('Deck-E is not available on this account.');
+  if (!await isDeckeEntitled(userId)) throw forbidden('Deck-E is not available on this account.');
   return userId;
 }
 
@@ -248,7 +248,7 @@ function caller(req: Parameters<Parameters<typeof asyncHandler>[0]>[0]): string 
 deckeHistoryRouter.post(
   '/history',
   asyncHandler(async (req, res) => {
-    const userId = caller(req);
+    const userId = await caller(req);
     const body = (req.body ?? {}) as Record<string, unknown>;
 
     const conversationId = str(body.conversationId) ?? '';
@@ -385,7 +385,7 @@ deckeHistoryRouter.post(
 deckeHistoryRouter.get(
   '/history',
   asyncHandler(async (req, res) => {
-    const userId = caller(req);
+    const userId = await caller(req);
     const limit = clampInt(req.query.limit, 40, 1, 200);
     const rows = await q(
       `SELECT c.id, c.title, c.turns, c.started_at, c.updated_at,
@@ -424,7 +424,7 @@ deckeHistoryRouter.get(
 deckeHistoryRouter.get(
   '/history/:id',
   asyncHandler(async (req, res) => {
-    const userId = caller(req);
+    const userId = await caller(req);
     const id = String(req.params.id ?? '');
     if (!UUID.test(id)) throw badRequest('id must be a uuid.');
     const head = await q1<{ id: string; title: string; started_at: string }>(
@@ -485,7 +485,7 @@ deckeHistoryRouter.get(
 deckeHistoryRouter.delete(
   '/history/:id',
   asyncHandler(async (req, res) => {
-    const userId = caller(req);
+    const userId = await caller(req);
     const id = String(req.params.id ?? '');
     if (!UUID.test(id)) throw badRequest('id must be a uuid.');
     // Turns cascade from the conversation (043), so this cannot orphan a row.

@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import express from 'express';
-import { pool } from './db.js';
+import { pool, withTx } from './db.js';
 import { MAX_ACTIVE_TOKENS } from './routes/tokens.js';
 import {
   OAuthValidationError,
@@ -157,53 +157,40 @@ export function mountOAuthServer(app: Express): void {
           return;
         }
 
-        let consumed;
         try {
-          consumed = await consumeAuthCode(pool, code);
-        } catch (err) {
-          console.error('[deckpal-api] /token code lookup failed:', (err as Error).message);
-          oauthError(res, 500, 'server_error');
-          return;
-        }
-        if (!consumed) {
-          oauthError(res, 400, 'invalid_grant', 'Unknown, expired, or already-used code.');
-          return;
-        }
-        // Every field the code was minted with must match what the client is
-        // presenting now — this is what stops a code stolen in transit (or a
-        // client impersonating another) from being redeemed elsewhere.
-        if (consumed.clientId !== clientId || consumed.redirectUri !== redirectUri) {
-          oauthError(res, 400, 'invalid_grant', 'client_id or redirect_uri does not match the authorization request.');
-          return;
-        }
-        if (!verifyPkceS256(codeVerifier, consumed.codeChallenge)) {
-          oauthError(res, 400, 'invalid_grant', 'code_verifier does not match the original code_challenge.');
-          return;
-        }
-
-        try {
-          const client = await getClient(pool, clientId);
-          const name = `${client?.clientName ?? 'MCP client'} (OAuth)`.slice(0, 60);
-
-          const { rows: activeRows } = await pool.query<{ count: string }>(
-            `SELECT count(*)::text AS count FROM api_token WHERE user_id = $1 AND revoked_at IS NULL`,
-            [consumed.userId],
-          );
-          if (Number(activeRows[0]?.count ?? '0') >= MAX_ACTIVE_TOKENS) {
-            oauthError(res, 400, 'temporarily_unavailable', 'This account already has the maximum number of active tokens. Revoke one in Profile → Agent access first.');
+          const outcome = await withTx(async (db) => {
+            // Serialize exchange with admin revocation/suspension, including
+            // the code that was issued before an owner clicked Revoke.
+            await db.query('SELECT pg_advisory_xact_lock(741290064)');
+            const consumed = await consumeAuthCode(db, code);
+            if (!consumed) return { error: 'Unknown, expired, revoked, or already-used code.' };
+            if (consumed.clientId !== clientId || consumed.redirectUri !== redirectUri) {
+              return { error: 'The authorization request does not match.' };
+            }
+            if (!verifyPkceS256(codeVerifier, consumed.codeChallenge)) {
+              return { error: 'The code verifier does not match.' };
+            }
+            const client = await getClient(db, clientId);
+            const name = `${client?.clientName ?? 'MCP client'} (OAuth)`.slice(0,60);
+            const activeRows = (await db.query<{count:string}>(
+              'SELECT count(*)::text AS count FROM api_token WHERE user_id=$1 AND revoked_at IS NULL',
+              [consumed.userId])).rows;
+            if (Number(activeRows[0]?.count ?? '0') >= MAX_ACTIVE_TOKENS) {
+              return { error: 'The account has the maximum number of active connectors.' };
+            }
+            const created = await createToken(db, consumed.userId, name);
+            return { token: created.raw };
+          });
+          res.setHeader('Cache-Control','no-store');
+          if (outcome.error || !outcome.token) {
+            oauthError(res,400,'invalid_grant',outcome.error);
             return;
           }
-
-          const created = await createToken(pool, consumed.userId, name);
-          res.status(200).json({
-            access_token: created.raw,
-            token_type: 'Bearer',
-            // access_token does not expire; omit expires_in (RFC 6749 §5.1 —
-            // absent means unspecified lifetime).
-          });
+          // Return a bearer credential only after its transaction has committed.
+          res.status(200).json({access_token:outcome.token,token_type:'Bearer'});
         } catch (err) {
-          console.error('[deckpal-api] /token mint failed:', (err as Error).message);
-          oauthError(res, 500, 'server_error');
+          console.error('[deckpal-api] /token exchange failed:',(err as Error).message);
+          oauthError(res,500,'server_error');
         }
       })();
     },

@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { isDeckeEntitled } from '../decke/entitlement.js';
+import { appDefaults, getAccessForUser, hasPermission } from '../admin/access.js';
 import { cardImages, q, q1, withTx } from '../db.js';
 import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { isLabelerEntitled, isOwner, ownerGateStatus } from '../ownerGate.js';
+import { ownerGateStatus } from '../ownerGate.js';
 
 /**
  * GET /me — the caller's own account identity. Currently just `username`
@@ -39,7 +39,9 @@ meRouter.get(
     const userId = currentUserId(req);
     const row = await q1<UsernameRow>('SELECT username FROM app_user WHERE id = $1', [userId]);
     if (!row) throw notFound('No such user');
-    const owner = isOwner(userId);
+    res.setHeader('Cache-Control','no-store');
+    const access = await getAccessForUser(userId);
+    const owner = access.roles.some(role=>role.key==='super_admin') && !access.suspended;
     // `designEditor` is retained for the existing /design gate. `owner` is the
     // same answer under the name that actually describes it, and is what new
     // owner-only surfaces should use.
@@ -52,10 +54,13 @@ meRouter.get(
     // client gate and a server gate answered different questions.
     res.json({
       username: row.username,
-      designEditor: owner,
+      designEditor: hasPermission(access,'design.view'),
+      permissions: access.permissions,
+      roles: access.roles,
+      adminReady: access.ready,
       owner,
-      decke: isDeckeEntitled(userId),
-      labeler: isLabelerEntitled(userId),
+      decke: hasPermission(access,'decke.use'),
+      labeler: hasPermission(access,'scanner.label'),
     });
   }),
 );
@@ -143,7 +148,7 @@ meRouter.get(
   asyncHandler(async (req, res) => {
     userCache(res);
     const userId = currentUserId(req);
-    res.json({ settings: shapeSettings(await settingsRow(userId)) });
+    res.json({ settings: shapeSettings(await settingsRow(userId)), defaults: await appDefaults() });
   }),
 );
 
@@ -196,7 +201,7 @@ meRouter.patch(
     );
     if (!updated) throw notFound('No such user');
     userCache(res);
-    res.json({ settings: shapeSettings(updated) });
+    res.json({ settings: shapeSettings(updated), defaults: await appDefaults() });
   }),
 );
 

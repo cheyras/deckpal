@@ -312,3 +312,15 @@ export function normalizeAmountCents(v: unknown): number {
   }
   return n;
 }
+
+/** Hosted credits do not depend on the voluntary-support Product or publishable
+ * key. They use the same secret/SDK and a bounded request budget. */
+let cachedCreditClient: Stripe | null = null;
+export function creditStripeClient(): Stripe | null {
+  if (!SUPABASE_MODE || !secretKey() || !webhookSecret() || stripeMode() === 'unknown') return null;
+  if (!cachedCreditClient) cachedCreditClient = new Stripe(secretKey(), {
+    appInfo: { name: 'DeckPal AI credits', url: 'https://deckpal.app' },
+    maxNetworkRetries: 0, timeout: 4_000,
+  });
+  return cachedCreditClient;
+}

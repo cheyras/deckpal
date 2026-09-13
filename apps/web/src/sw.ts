@@ -10,7 +10,7 @@
 //   Tier 1 — visited card/set art: CacheFirst, LRU-capped at 2000 entries.
 //   Tier 2 — the Deck-E character assets: StaleWhileRevalidate, so a repeat
 //            chat-open is instant and costs a 304 rather than ~600 KB.
-//   API GETs — NetworkFirst: fresh catalog/collection online, last-good offline.
+//   Anonymous cloud catalog GETs — NetworkFirst; private APIs stay NetworkOnly.
 //   API mutations (POST/PUT/PATCH/DELETE) — NetworkOnly, never cached (hard rule).
 //   Client-route navigations under /deckpal/ — fall back to the precached shell.
 import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching'
@@ -79,20 +79,32 @@ const jsonOnlyGuard = {
   cacheWillUpdate: async ({ response }: { response: Response }): Promise<Response | null> => {
     if (!response || response.status !== 200 || response.redirected) return null
     if (response.type === 'opaqueredirect') return null
+    if (/private|no-store/i.test(response.headers.get('cache-control') ?? '')) return null
     const ct = response.headers.get('content-type') ?? ''
     return ct.includes('application/json') ? response : null
   },
 }
 
-// ── API GETs: NetworkFirst (fresh online, last-good offline) ───────────────────
+// Personal data and authorization must never survive logout in a runtime cache.
+// Self-host proxy identity is opaque to a worker, so its API is network-only.
+const cloudApi = Boolean(import.meta.env.VITE_SUPABASE_URL)
+const publicCatalog = /^(series|sets|cards|pokedex|species|search|public-config|health)(?:\/|$)/
 registerRoute(
-  ({ url, request }) => url.pathname.startsWith(`${BASE}api/`) && request.method === 'GET',
+  ({ url, request, sameOrigin }) => sameOrigin && url.pathname.startsWith(BASE + 'api/') &&
+    (!cloudApi || request.headers.has('authorization') ||
+      !publicCatalog.test(url.pathname.slice((BASE + 'api/').length))),
+  new NetworkOnly({ fetchOptions: { cache: 'no-store' } }), 'GET',
+)
+
+// ── Public catalog GETs: NetworkFirst (fresh online, last-good offline) ───────────────────
+registerRoute(
+  ({ url, request, sameOrigin }) => sameOrigin && url.pathname.startsWith(`${BASE}api/`) && request.method === 'GET',
   new NetworkFirst({
     // ⚠ BUMP THIS NAME WHENEVER AN API RESPONSE CHANGES SHAPE. Entries live for
     // seven days, so without a bump the new bundle keeps being served old-shaped
     // bodies from this cache long after the deploy. v2: price history became
     // OHLC buckets (2026-08-30).
-    cacheName: 'deckpal-api-v2',
+    cacheName: 'deckpal-public-api-v3',
     networkTimeoutSeconds: 5,
     plugins: [
       new CacheableResponsePlugin({ statuses: [200] }),
@@ -222,4 +234,9 @@ self.addEventListener('activate', (event) => {
 // never swap the SW mid-session (this app holds significant filter/scroll state).
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})
+
+// Retire caches that formerly mixed user data with public catalog responses.
+self.addEventListener('activate', event => {
+  event.waitUntil(Promise.all(['deckpal-api-v1', 'deckpal-api-v2'].map(name => caches.delete(name))))
 })

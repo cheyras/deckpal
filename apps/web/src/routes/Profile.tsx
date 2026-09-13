@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CreditProfileCard } from './credits/Credits'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
@@ -408,6 +409,7 @@ export function Profile() {
               somebody arriving from that modal must not have to hunt. It is
               cloud-only and self-gating -- SupportSettings renders nothing at
               all on a deployment with no Stripe, rather than an empty card. */}
+          <CreditProfileCard />
           <SupportSettings />
           {isCloudMode && <ChangePassword />}
           <DeckeVisibility />

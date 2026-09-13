@@ -174,6 +174,7 @@ export async function consumeAuthCode(db: Queryable, code: string): Promise<Auth
     `UPDATE oauth_code
         SET used_at = now()
       WHERE code = $1 AND used_at IS NULL AND expires_at > now()
+        AND public.admin_account_active(user_id::text)
       RETURNING code, client_id, user_id, redirect_uri, code_challenge, resource`,
     [code],
   );

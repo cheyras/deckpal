@@ -50,6 +50,7 @@
  *    that ignores it bills Opus for up to five minutes after the reader gave up
  *    and closed the tab.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { GatewayProvider } from '@ai-sdk/gateway';
@@ -129,6 +130,8 @@ export const HEARTBEAT_MS = 4_000;
  */
 export const NO_RESEARCH_FINDINGS_MIN = 80;
 
+const providerCreditWork = new AsyncLocalStorage<{ start?: () => Promise<void> }>();
+
 export interface DeepToolOptions {
   /** Everything a data tool needs; the sub-agents get their own read tools. */
   ctx: AiSdkAdapterOptions;
@@ -141,7 +144,9 @@ export interface DeepToolOptions {
    * Injected rather than imported because the meter needs a pool, and this
    * module has no business knowing how the chat function gets one.
    */
-  charge: (toolName: string) => Promise<{
+  charge: (toolName: string, toolCallId?: string, args?: Record<string, unknown>) => Promise<{
+    start?: () => Promise<void>;
+    refund?: () => Promise<void>;
     allowed: boolean;
     /** The daily cap, when the old meter answered. */
     cap?: number;
@@ -149,6 +154,7 @@ export interface DeepToolOptions {
     credits?: boolean;
     /** What they still have, when credits refused. */
     balance?: number;
+    held?: boolean;
     /** What this call needed. */
     needed?: number;
   }>;
@@ -387,6 +393,8 @@ async function runSubAgent(opts: {
   }, opts.heartbeatMs ?? HEARTBEAT_MS);
 
   try {
+    if (opts.signal?.aborted) throw new Error('Operation cancelled before provider invocation');
+    await providerCreditWork.getStore()?.start?.();
     const result = streamText({
       model: opts.gateway(opts.modelId),
       instructions: opts.instructions,
@@ -993,13 +1001,13 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       };
       // CHARGED BEFORE THE MODEL RUNS, and a refusal costs one query. A denial
       // path that is expensive is a denial path worth exercising.
-      const meter = await opts.charge(spec.name);
+      const meter = await opts.charge(spec.name, toolCallId, args);
       if (!meter.allowed) {
         // TWO DIFFERENT SENTENCES, because they send someone to two different
         // places. A daily cap comes back tomorrow; a spent balance does not, and
         // telling somebody to wait when what they need is a top-up wastes their
         // day. `credits` says which system answered.
-        const summary = meter.credits
+        const summary = meter.held ? 'AI credits are on hold; open the credit wallet for details' : meter.credits
           ? `not enough credits — ${meter.needed} needed, ${meter.balance} left`
           : `today's ${meter.cap} deep questions are spent`;
         opts.onEvent?.({ phase: 'error', ...chip, summary });
@@ -1009,7 +1017,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         // `plan_deck` calls followed by "Perfect, let's build! I'm pulling
         // together a 60-card list…". See `deepOutcome.ts`.
         return deepRefused(
-          meter.credits
+          meter.held ? 'AI credits are on hold; open the credit wallet for details' : meter.credits
             ? `this needs ${meter.needed} credits and only ${meter.balance} are left`
             : `today's ${meter.cap} deep-thinking questions are spent`,
         );
@@ -1024,7 +1032,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       const opening = openingBeat(spec.name);
       if (opening) progress(opening);
       try {
-        const out = await spec.run(args, progress);
+        const out = await providerCreditWork.run(meter, () => spec.run(args, progress));
         const summary = out.text.slice(0, 110);
         // ── GROUND WHAT THIS TOOL RESOLVED, SO IT CAN BE SHOWN ──────────────
         //
@@ -1057,6 +1065,8 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         const message = safeToolError(err);
         opts.onEvent?.({ phase: 'error', ...chip, summary: message });
         return deepFailed(message);
+      } finally {
+        await meter.refund?.();
       }
     },
   });

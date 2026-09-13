@@ -1,0 +1,29 @@
+CREATE SCHEMA auth;
+CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,last_sign_in_at timestamptz,raw_user_meta_data jsonb,encrypted_password text);
+CREATE TABLE auth.sessions(id uuid PRIMARY KEY,user_id uuid REFERENCES auth.users(id));
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULLIF(NULLIF(current_setting('request.jwt.claims',true),'')::jsonb->>'sub','')::uuid $$;
+GRANT USAGE ON SCHEMA auth TO anon,authenticated;
+GRANT EXECUTE ON FUNCTION auth.uid() TO anon,authenticated;
+CREATE TABLE public.app_user(id uuid PRIMARY KEY,username text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE public.user_settings(user_id uuid PRIMARY KEY REFERENCES app_user(id),skin text,topbar text);
+CREATE TABLE public.user_profile(user_id uuid PRIMARY KEY REFERENCES app_user(id),display_name text);
+CREATE TABLE public.collection_item(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,user_id uuid NOT NULL REFERENCES app_user(id),quantity integer NOT NULL DEFAULT 1);
+CREATE TABLE public.deck(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,user_id uuid NOT NULL REFERENCES app_user(id));
+INSERT INTO app_user(id,username) SELECT ('00000000-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid,'user-'||i FROM generate_series(1,7) i;
+INSERT INTO auth.users SELECT id,username||'@example.invalid',now(),'{"private":"must-never-return"}','secret-hash' FROM app_user;
+INSERT INTO auth.sessions SELECT id,id FROM app_user;
+INSERT INTO collection_item(user_id) SELECT id FROM app_user;
+ALTER TABLE app_user ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_user ON app_user FOR SELECT USING(id=auth.uid());
+ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_settings ON user_settings FOR ALL USING(user_id=auth.uid());
+ALTER TABLE collection_item ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_collection ON collection_item FOR ALL USING(user_id=auth.uid());
+ALTER TABLE deck ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_deck ON deck FOR ALL USING(user_id=auth.uid());
+GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO anon,authenticated;
+GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO anon,authenticated;
+-- Match Supabase's exposed-schema defaults, so explicit migration REVOKEs
+-- must defeat inherited table/function permissions in these tests.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon,authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon,authenticated;
