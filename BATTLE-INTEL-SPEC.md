@@ -1,9 +1,10 @@
 > **Predates the cloud pivot -- re-scope before executing.** (Ground truths #5 -- local ollama/pgvector -- and #6 -- connection budget 4 -- are superseded; pooling is now AGENTS.md B2.)
 
-# Battle Intelligence & Foil Renderer — Feature Spec
+# Battle Intelligence — Feature Spec
 
 **Audience:** the orchestrating Fable agent and its worktree subagents.
 **Supersedes:** the 2026-07-31 conversation roadmap ("Rotom Battle Intelligence & Foil Renderer") where they conflict. Where *this* spec and the code disagree, code wins — flag the discrepancy in DECISIONS.md.
+**Scope update (2026-09-13):** Project Holo now has its own repository. Its foil renderer workstream is no longer part of this DeckPal plan. Historical decisions remain in `DECISIONS.md`.
 **Status:** UX decisions below are locked (interviewed 2026-08-01). Architecture internals are the orchestrator's judgment within the contracts stated here.
 **Companion docs:** `roadmap/ORCHESTRATION.md` (how to run the fan-out: worktrees, ports, merge protocol, dev hub) and `roadmap/plans/<branch>.md` (one plan per feature branch — the subagent's brief).
 
@@ -14,7 +15,7 @@
 Facts the source roadmap got wrong or didn't know. Do not re-litigate these; re-verify only if the code has moved.
 
 1. **The timeout-parse gap is already fixed.** `apps/api/src/deck/battlelog.ts` handles `<anything>. <name> wins.` endings (see the "battle-#8 miss" comment). Not a work item.
-2. **holo-card.jsx is gone by choice.** The prototype from the source conversation was procedural art, not real scans; Chey elected not to preserve it. The foil track starts from this spec's description, not from code.
+2. **Reserved historical item.** The former foil prototype and renderer workstream belong to the separate Project Holo project; see the 2026-09-13 entry in `DECISIONS.md`.
 3. **`battle_log` needs a deliberate schema decision for non-owned games** (migration 019): `deck_id` is NOT NULL and the row is anchored by a composite FK `(deck_id, deck_version) → deck_version`; format is only derivable through that snapshot, and `raw_log` is NOT NULL. Recommended resolution (W0's call, rationale required in the migration comments): keep one table; make `deck_id`/`deck_version` nullable together (`CHECK ((deck_id IS NULL) = (deck_version IS NULL))`), add nullable `format_code` FK for deckless rows, add `source`, and relax `raw_log` to nullable so simulated games can be events-only (no fake Live text).
 4. **`opponent_deck` is freetext.** `matchup_stats` needs canonical archetype labels before A2 writes structured fields — an archetype registry is W0 scope, not an afterthought.
 5. **Embedding infra already exists.** pgvector 0.8.0 is available in the Postgres cluster with HNSW; `nomic-embed-text` is in local ollama (OpenAI-compatible `/v1/embeddings`). `CREATE EXTENSION vector` in the deckpal DB + ollama embeddings. No new infra, no GPU.
@@ -31,7 +32,6 @@ Facts the source roadmap got wrong or didn't know. Do not re-litigate these; re-
 - **Board input is phased:** v1 is tap-to-act — the board renders state and the engine's legal-action list drives tappable choices (tap Active → attack options, tap hand card → play targets). Full direct manipulation (drag from hand, drag energy) is a later enhancement on the same component, not a rewrite.
 - **One board component, two data sources.** The board is a pure renderer of game state / event streams; a live match (engine-fed) and a replay of a logged game (battle_events-fed) are the same component. Replay scrubbing therefore ships *before* the engine is done, against real logged games.
 - **Coaching is chat-first** (`coach_review` cites turn numbers and comparable games); turn-pinned annotations inside the replay UI are a later enhancement once scrubbing exists.
-- **The foil renderer is quarantined**: its own long-lived branch, its own prototype route, zero imports from collection views until Chey explicitly merges it. He wants unhurried craft time on it. The prototype page is a **tuning workbench**: one owned card/variant at a time, real scan, plus dev controls — shader-uniform sliders, pattern override, mask overlay toggle — for tuning recipes against reference photos.
 
 ## 3. Feature decomposition
 
@@ -61,10 +61,6 @@ Extend the pure parser to emit the full event stream. First task: an **event cen
 **B1 · `feat/engine-fork`** (depends: nothing)
 The fork-vs-greenfield gate. Clone RyuuPlay; evaluate `@ptcg/common`'s state model firsthand (how effects/prompts/replacement effects are modeled; whether `@ptcg/sets` card behavior is declarative or imperative; how SimpleBot enumerates and scores). Deliverables: (a) the **written B2 gap analysis** — engine primitives that exist vs. what Standard 2026 requires, derived from actual card text of Chey's decks + the meta pool; (b) the fork/greenfield decision **in writing** in DECISIONS.md; (c) if fork: `@ptcg/common` + bot vendored as `packages/engine`, building and type-checking in CI, DP-era cruft removed. Vendor into the monorepo (decided — separate-repo option rejected 2026-08-01); expect root-file churn (`pnpm-workspace.yaml`, lockfile), which is why B1 merges early.
 **Done:** engine package builds in CI with a smoke test (a legal game of vanilla basics plays to completion); gap analysis + decision documented.
-
-**E1 · `feat/foil-workbench` → long-lived branch `foil/main`** (depends: nothing; interleave anytime)
-The quarantined track. Sub-branches off `foil/main` per sub-feature so multiple agents can jam: pattern library (the craft time — 15–20 shader recipes tuned against reference photos, starting with the eras Chey owns), era layout spec (data, not code), mask derivation pipeline (layout-driven tier first; art-driven and hand-corrected tiers later), resolver table + `foil_recipe` MCP tool, and the workbench page itself (own route, real scans, uniform sliders, pattern override, mask overlay toggle; gyro tilt on phone, pointer on desktop, reduced-motion respected). `foil-effects` SKILL.md and a mask-pipeline SKILL.md are part of done for their sub-features. **Nothing under `foil/` imports into, or is imported by, collection views until Chey merges to main.**
-**Done (workbench v1):** any owned card/variant renders its real scan with a selectable pattern and a layout-driven mask on the workbench page, tunable live.
 
 ### Wave 2 — first consumables
 
@@ -118,7 +114,6 @@ Live-match mode on the board component: tap-to-act from the engine's legal-actio
 - Persistent gauntlet report page + markdown artifact history (render C2's stored JSON).
 - Turn-pinned coaching annotations in the replay UI.
 - Battle-intel Pokédex UI surfaces (deck battle tab, matchup views).
-- Foil integration into collection views ("inspect" → 3D) — gated on Chey merging `foil/main`.
 
 ## 4. Merge order & parallelization
 
@@ -129,21 +124,20 @@ W0 ──┬── A1 ──┬── D2 (board replay)
      │                │
 B1 ── B2 ── B3 ──┬────┴── C2 (sim)      B1 needs no W0; merge it early
      │           ├── D1 ── D1b          (root-file churn, see §5)
-     ├── C1 ─────┘
-     └── E1 (foil/main — fully parallel, merges to main only on Chey's call)
+     └── C1 ─────┘
 ```
 
-Wave boundaries are also **checkpoint boundaries** (source roadmap rule, kept): at each one, write a short retro — what shipped, what the next wave's real cost looks like — and get Chey's explicit go. The five-project shape of this roadmap is exactly the over-engineering pattern he watches for; the checkpoint is the guardrail.
+Wave boundaries are also **checkpoint boundaries** (source roadmap rule, kept): at each one, write a short retro — what shipped, what the next wave's real cost looks like — and get Chey's explicit go. The multi-project shape of this roadmap is exactly the over-engineering pattern he watches for; the checkpoint is the guardrail.
 
 ## 5. Cross-cutting rules for the orchestrator
 
 - **Migrations are the serialization point.** Numbered sequentially (019 is current). Only W0-style contract branches create migrations where possible; when a feature branch genuinely needs one, it takes the next free number **at merge time** (renumber on rebase — never merge a colliding number). Two in-flight branches must never both hold an unmerged migration without the orchestrator knowing.
-- **Root-file churn is scheduled, not suffered.** Adding `packages/engine` touches `pnpm-workspace.yaml` + lockfile; land B1 before fanning out Wave-2+ worktrees, and rebase long-lived branches (`foil/main`) after root-touching merges.
+- **Root-file churn is scheduled, not suffered.** Adding `packages/engine` touches `pnpm-workspace.yaml` + lockfile; land B1 before fanning out Wave-2+ worktrees, and rebase other feature branches after root-touching merges.
 - **Every merge appends a dated DECISIONS.md entry** (repo convention) and updates `research/SCHEMA.md` if schema moved.
 - **MCP conventions are inherited, not optional:** mutating tools default `dry_run: true`; atomic tools; compact rows; pagination; honest empty states; result-size budgets (see `apps/mcp/SPEC.md`).
 - **Honesty in stats is a layer, not a habit:** sample sizes always stated; sim vs. real never silently merged; bot-quality caveats standing.
 - **CI purity:** engine/parser/DSL tests are pure (fixtures from real logs); live-DB tests stay out of CI.
-- **SKILL.md debt is real debt.** card-implementation, state-serialization, foil-effects, mask-pipeline — each ships with its feature, not after.
+- **SKILL.md debt is real debt.** card-implementation and state-serialization — each ships with its feature, not after.
 - **House rules apply in every worktree:** connection budget (Ground Truth #6), never run the TCGdex API server, image cache is a contract, no shared-infra changes without Chey's OK, rtk-prefix every shell command.
 - **Deploy reality:** the app serves from this working tree. Feature branches in worktrees don't touch the live deployment; only merges to main followed by the documented build/restart do.
 
@@ -153,7 +147,6 @@ Wave boundaries are also **checkpoint boundaries** (source roadmap rule, kept): 
 - Embedding density for simulated games (C2).
 - State-serialization format (D1 — design doc first, please).
 - Board component internals; whether it lives in `apps/web` or a package.
-- Mask-derivation image-analysis approach (classical CV vs. small segmentation model — whatever runs sanely on the Pi).
 - SimpleBot successor policy, if the greedy baseline embarrasses itself.
 
 ## 7. Sources
@@ -162,4 +155,3 @@ Wave boundaries are also **checkpoint boundaries** (source roadmap rule, kept): 
 - deckgym-core: github.com/bcollazo/deckgym-core — the agent-facing card-implementation SKILL.md shape to copy.
 - LimitlessTCG: limitlesstcg.com/decks — check API/terms at C1 build time.
 - Rulings: official rules docs + community rulings compendium — verify canonical location at B3 build time.
-- Foil taxonomy: bulbapedia.bulbagarden.net/wiki/Holofoil (canonical); Collexy "Database Insight: Holofoil" series; simeydotme/pokemon-cards-css; Daniel Ilett's holofoil Shader Graph tutorials.
