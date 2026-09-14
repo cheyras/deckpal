@@ -862,6 +862,76 @@ the componentization ledger. It has two modes with one structural rule:
   design endpoints keep the deployed page read-only: tokens are parsed from
   bundled CSS, saves/composers stay hidden, and ephemeral previews remain.
 
+### Reusable administration DataTable — 2026-09-14
+
+`DataTable<T>` and `DataTableToolbar` are exported from
+`apps/web/src/components/ui.tsx`. The caller owns rows, stable `getRowId`,
+queries and all filtering/sorting/paging; the table never transforms rows.
+Columns define `id`, `header` and `cell(row)`, with optional `sortable`,
+`align`, `className` and `headerClassName`. Sorting is controlled by
+`sort: {columnId, direction}` and `onSortChange`; a header becomes a sort
+button only when both its column and the caller support sorting.
+
+Pagination takes `{offset, pageSize, total, onOffsetChange,
+onPageSizeChange?}`. Supply the exact total for the applied query. The optional
+size callback enables 25/50/100 choices and a reset to offset zero; callers
+also reset offset with applied filters/sort. Settled out-of-range pages request
+the last valid offset. Loading/refreshing/error states withhold old rows and
+expanded details; placeholder totals cannot trigger recovery while pending.
+Pass `loading`/`refreshing` until rows and total match the applied query,
+plus `error`/`onRetry` and custom `empty` content as appropriate.
+
+The toolbar composes labelled search, child filters, actions, submit and reset
+controls; callers choose submitted server filters or live local transforms.
+`renderExpandedRow` and `getRowLabel` provide explicit details buttons;
+expansion is scoped to the supplied rows array. One semantic table serves
+desktop and 390px. Its named region becomes keyboard-scrollable when it
+overflows; the scroll hint appears only then. Horizontal overflow stays inside
+the content column. Captions, column scope, aria-sort, result announcements and
+explicit links/actions preserve table semantics without mobile record cards.
+
+| Consumer | Matching and order |
+|---|---|
+| Users | Server username/email search or exact ID, status and exact assigned role; created-at/ID ascending, with no client-page sort. Role filtering needs roles.read without blocking users.read access. |
+| Audit | Exact server actor/action/target filters, newest-first order and paged totals; before/after JSON uses row details. |
+| Credit orders | Server status/exact user ID filters and paging; no invented global sorting. |
+| Roles | Complete-list name/key/description and protected/custom filters; name/member-count/permission-count sorting before local paging. |
+| Credit packs | Complete-list name and active/inactive filters; name/credits/sale-price sorting before local paging. |
+| User credit ledger | Existing server order and fixed 25-row pages; credit/debt/reason information remains. |
+
+Minimal fixed-page consumer, after the caller has resolved one matching page:
+
+```tsx
+import { DataTable, type DataTableColumn } from '../../components/ui'
+
+type RecordRow = { id: string; name: string }
+const columns: DataTableColumn<RecordRow>[] = [
+  { id: 'name', header: 'Name', cell: row => row.name },
+]
+export function RecordPage(props: {
+  rows: readonly RecordRow[]; total: number; offset: number
+  onOffsetChange: (offset: number) => void
+}) {
+  return <DataTable label="Records" rows={props.rows} columns={columns}
+    getRowId={row => row.id}
+    pagination={{ offset: props.offset, pageSize: 25, total: props.total,
+      onOffsetChange: props.onOffsetChange }} />
+}
+```
+
+The co-located `DataTable.gallery.tsx` is discovered by the existing
+`CatalogSection` glob: find **DataTable** in the `/design` component catalog.
+Its 63 fictional records demonstrate complete-list search/status/sort, paging,
+disclosure and loading/empty/error-and-retry states. Existing permissions,
+private query scoping, action sheets and financial rules remain with callers.
+This adds no virtualization, column persistence, exports or backend-query
+optimization. On 2026-09-14, the complete isolated browser suite passed 57 groups,
+including these table consumers and the design gallery, in cloud/self-host builds.
+Desktop 1280px and phone 390px screenshots were directly reviewed; actual
+keyboard scrolling and compact action-row bounds were also checked. The table
+branch has a preview. Fixture acceptance does not establish a production release
+or live authentication, database or payment behavior.
+
 ## 15. Deck-E — the 3D character runtime
 
 **Status: implemented runtime; access is permission-based.** The

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Field, FormAlert } from '../../components/ui'
+import { Button, Field, FormAlert, EmptyState, DataTable, DataTableToolbar, type DataTableSort } from '../../components/ui'
 import { Sheet } from '../../components/ui/Sheet'
 import { api } from '../../lib/api'
 import { useAccess } from '../../lib/access'
@@ -50,6 +50,25 @@ function PackEditor({ pack, close }: { pack: CreditPack | null; close: () => voi
     <Field label="Pack name" required maxLength={80} value={name} onChange={e => setName(e.target.value)} /><Field label="Credits in pack" inputMode="numeric" value={credits} required onChange={e => setCredits(e.target.value)} /><Field label="Sale price (USD)" inputMode="decimal" value={price} required onChange={e => setPrice(e.target.value)} hint="The customer pays this price. The usage markup is not added to it." /><label className="flex gap-[10px] text-text-primary"><input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} />Available for new purchases</label><p className="text-[14px] text-text-muted">Changes affect new checkouts. Pending orders retain their original price and credit quantity.</p>{state.error && <><FormAlert kind="error">{state.error}</FormAlert><Button variant="ghost" onClick={() => window.location.reload()}>Discard draft and reload latest</Button></>}<Button type="submit" loading={state.busy} disabled={!valid}>Save credit pack</Button>
   </form></Sheet>
 }
+function CreditPackTable({ packs, loading, refreshing, error, retry, edit }: { packs: CreditPack[]; loading: boolean; refreshing: boolean; error?: string; retry: () => void; edit: (pack: CreditPack) => void }) {
+  const canManage = useAccess().permissions.includes('credits.manage')
+  const [search, setSearch] = useState(''), [status, setStatus] = useState('all'), [offset, setOffset] = useState(0), [pageSize, setPageSize] = useState(25), [sort, setSort] = useState<DataTableSort>({ columnId: 'name', direction: 'asc' })
+  const filtered = packs.filter(pack => pack.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()) && (status === 'all' || pack.active === (status === 'active'))).sort((a, b) => {
+    const order = sort.columnId === 'credits' ? a.credits - b.credits : sort.columnId === 'price' ? a.priceCents - b.priceCents : a.name.localeCompare(b.name)
+    return (sort.direction === 'asc' ? 1 : -1) * (order || a.id.localeCompare(b.id))
+  })
+  return <DataTable label="Credit packs" rows={filtered.slice(offset, offset + pageSize)} getRowId={pack => pack.id} loading={loading} refreshing={refreshing} error={error} onRetry={retry}
+    empty={<EmptyState icon="lists" title="No matching credit packs" body="Try fewer filters, or create a credit pack." />}
+    sort={sort} onSortChange={next => { setSort(next); setOffset(0) }} pagination={{ offset, pageSize, total: filtered.length, onOffsetChange: setOffset, onPageSizeChange: setPageSize }}
+    toolbar={<DataTableToolbar label="Filter credit packs" search={{ label: 'Search packs', value: search, onChange: value => { setSearch(value); setOffset(0) }, placeholder: 'Pack name' }} onReset={() => { setSearch(''); setStatus('all'); setOffset(0) }} resetDisabled={!search && status === 'all'}><label className="text-[14px] font-semibold text-text-secondary">Pack status<select aria-label="Pack status" className={selectClass + ' mt-[6px]'} value={status} onChange={e => { setStatus(e.target.value); setOffset(0) }}><option value="all">All packs</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label></DataTableToolbar>}
+    columns={[
+      { id: 'name', header: 'Pack', sortable: true, className: 'min-w-[180px] max-w-[260px] break-words', cell: pack => <strong>{pack.name}</strong> },
+      { id: 'credits', header: 'Credits', sortable: true, align: 'right', cell: pack => pack.credits.toLocaleString() },
+      { id: 'price', header: 'Sale price', sortable: true, align: 'right', className: 'whitespace-nowrap', cell: pack => dollars(pack.priceCents) },
+      { id: 'status', header: 'Status', cell: pack => pack.active ? 'Active' : 'Inactive' },
+      ...(canManage ? [{ id: 'actions', header: 'Actions', cell: (pack: CreditPack) => <Button variant="ghost" size="sm" aria-label={'Edit ' + pack.name} onClick={() => edit(pack)}>Edit</Button> }] : []),
+    ]} />
+}
 export function AdminSettings() {
   const access = useAccess()
   const defaults = useAdminQuery(['settings'], signal => api.adminSettings(signal), 'settings.read')
@@ -60,9 +79,9 @@ export function AdminSettings() {
   return <section className="space-y-[24px]"><h2 className="font-display text-[24px] text-text-primary">Settings</h2>
     {access.permissions.includes('settings.read') && <><LoadState loading={defaults.isLoading} error={defaults.error} retry={defaults.refetch} />{defaults.data && <DefaultsForm key={defaults.data.revision} data={defaults.data} />}</>}
     {access.permissions.includes('credits.read') && <><LoadState loading={economy.isLoading} error={economy.error} retry={economy.refetch} />{economy.data && <EconomyForm key={economy.data.revision} data={economy.data} />}
-      <Panel title="Credit packs"><p className="mb-[16px] text-text-muted">Sell whole credits at an explicit USD price. No packs are offered until you create and activate them.</p><LoadState loading={packs.isLoading} error={packs.error} retry={packs.refetch} /><div className="space-y-[12px]">{packs.data?.packs.map(pack => <div key={pack.id} className="flex flex-wrap items-center justify-between gap-[12px] rounded-[10px] bg-surface-tertiary p-[14px]"><div><h3 className="break-words font-semibold text-text-primary">{pack.name}</h3><p className="text-[14px] text-text-muted">{pack.credits.toLocaleString()} credits · {dollars(pack.priceCents)} · {pack.active ? 'Active' : 'Inactive'}</p></div>{access.permissions.includes('credits.manage') && <Button variant="ghost" onClick={() => setEditing({ pack })}>Edit {pack.name}</Button>}</div>)}</div>{access.permissions.includes('credits.manage') && <Button className="mt-[16px]" onClick={() => setEditing({ pack: null })}>Create credit pack</Button>}</Panel>
+      <Panel title="Credit packs"><p className="mb-[16px] text-text-muted">Sell whole credits at an explicit USD price. No packs are offered until you create and activate them.</p><CreditPackTable packs={packs.data?.packs ?? []} loading={packs.isPending} refreshing={packs.isFetching && !packs.isPending} error={packs.error?.message} retry={() => void packs.refetch()} edit={pack => setEditing({ pack })} />{access.permissions.includes('credits.manage') && <Button className="mt-[16px]" onClick={() => setEditing({ pack: null })}>Create credit pack</Button>}</Panel>
       <Panel title="Payment readiness"><LoadState loading={payment.isLoading} error={payment.error} retry={payment.refetch} />{payment.data && <><p className="font-semibold text-text-primary">{payment.data.ready ? 'Ready for credit purchases' : 'Credit purchases unavailable'}</p><p className="mt-[8px] text-text-muted">{payment.data.reason ?? 'Payment configuration and required webhook subscriptions are present.'}</p><p className="mt-[8px] text-[13px] text-text-muted">Checked {fmtDate(payment.data.checkedAt)}</p><details className="my-[12px] text-[14px] text-text-muted"><summary className="cursor-pointer text-link">Required payment events</summary><ul className="mt-[8px] break-all">{payment.data.requiredEvents.map(event => <li key={event}>{event}</li>)}</ul></details></>}<Button variant="ghost" onClick={() => void payment.refetch()}>Check payment readiness</Button></Panel>
     </>}
-    {editing && <PackEditor pack={editing.pack} close={() => setEditing(null)} />}
+    {access.permissions.includes('credits.manage') && editing && <PackEditor pack={editing.pack} close={() => setEditing(null)} />}
   </section>
 }

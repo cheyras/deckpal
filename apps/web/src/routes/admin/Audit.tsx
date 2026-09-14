@@ -1,14 +1,26 @@
 import { useState } from 'react'
-import { Button, Field, EmptyState } from '../../components/ui'
+import { Field, EmptyState, DataTable, DataTableToolbar } from '../../components/ui'
 import { api } from '../../lib/api'
-import { useAdminQuery, LoadState, Paging, fmtDate } from './shared'
+import { useAccess } from '../../lib/access'
+import { useAdminQuery, fmtDate } from './shared'
 export function AdminAudit() {
-  const [draft, setDraft] = useState({ actor: '', action: '', target: '' }), [filters, setFilters] = useState(draft), [offset, setOffset] = useState(0)
-  const params = new URLSearchParams({ ...filters, limit: '25', offset: String(offset) })
+  const access = useAccess()
+  const [draft, setDraft] = useState({ actor: '', action: '', target: '' }), [filters, setFilters] = useState(draft), [offset, setOffset] = useState(0), [pageSize, setPageSize] = useState(25)
+  const params = new URLSearchParams({ ...filters, limit: String(pageSize), offset: String(offset) })
   const query = useAdminQuery(['audit', params.toString()], signal => api.adminAudit(params.toString(), signal), 'audit.read')
-  return <section className="space-y-[20px]"><h2 className="font-display text-[24px] text-text-primary">Audit log</h2><p className="text-text-muted">Administrative changes, recorded with the actor, target, and reason.</p>
-    <form className="grid items-end gap-[12px] md:grid-cols-4" onSubmit={e => { e.preventDefault(); setFilters(draft); setOffset(0) }}>{(['actor', 'action', 'target'] as const).map(key => <Field key={key} label={{ actor: 'Actor ID', action: 'Action', target: 'Target ID' }[key]} value={draft[key]} maxLength={200} onChange={e => setDraft({ ...draft, [key]: e.target.value })} />)}<Button className="mb-[16px]" type="submit">Filter audit log</Button></form>
-    <LoadState loading={query.isLoading} error={query.error} retry={query.refetch} />
-    {query.data && <>{!query.data.events.length && <EmptyState icon="lists" title="No matching events" body="Try fewer filters. Future administrative changes will appear here." />}<ol className="space-y-[12px]">{query.data.events.map(event => <li key={event.id} className="rounded-[14px] border border-border-default bg-surface-secondary p-[16px]"><div className="flex flex-wrap justify-between gap-[8px]"><strong className="break-all text-text-primary">{event.action}</strong><time title={event.createdAt} dateTime={event.createdAt} className="text-[13px] text-text-muted">{fmtDate(event.createdAt)}</time></div><p className="mt-[8px] break-all text-[14px] text-text-body">{event.actorName ?? event.actorId} → {event.targetType}{event.targetId ? ': ' + event.targetId : ''}</p>{event.reason && <p className="mt-[8px] break-words text-text-muted">{event.reason}</p>}<details className="mt-[12px] text-[14px]"><summary className="cursor-pointer text-link">View change</summary><div className="mt-[12px] grid gap-[12px] md:grid-cols-2">{[['Before', event.before], ['After', event.after]].map(([label, value]) => <div key={String(label)}><h3 className="font-semibold text-text-primary">{String(label)}</h3><pre className="mt-[6px] max-h-[260px] overflow-auto whitespace-pre-wrap break-all rounded-[8px] bg-surface-tertiary p-[12px] text-[12px] text-text-muted">{JSON.stringify(value, null, 2) ?? '—'}</pre></div>)}</div></details></li>)}</ol><Paging total={query.data.total} offset={offset} setOffset={setOffset} /></>}
+  return <section className="min-w-0 space-y-[20px]"><h2 className="font-display text-[24px] text-text-primary">Audit log</h2><p className="text-text-muted">Administrative changes, newest first. Filters match the exact actor ID, action, and target ID.</p>
+    <DataTable label="Administrative audit events" rows={access.permissions.includes('audit.read') ? query.data?.events ?? [] : []} getRowId={event => event.id} getRowLabel={event => event.action + ' at ' + fmtDate(event.createdAt)}
+      loading={query.isPending} refreshing={query.isFetching && !query.isPending} error={query.error?.message} onRetry={() => void query.refetch()}
+      empty={<EmptyState icon="lists" title="No matching events" body="Try fewer filters. Future administrative changes will appear here." />}
+      pagination={{ offset, pageSize, total: query.data?.total ?? 0, onOffsetChange: setOffset, onPageSizeChange: setPageSize }}
+      toolbar={<DataTableToolbar label="Filter audit log" onSubmit={() => { setFilters({ actor: draft.actor.trim(), action: draft.action.trim(), target: draft.target.trim() }); setOffset(0) }} submitLabel="Filter audit log" onReset={() => { setDraft({ actor: '', action: '', target: '' }); setFilters({ actor: '', action: '', target: '' }); setOffset(0) }} resetDisabled={!Object.values(draft).some(Boolean) && !Object.values(filters).some(Boolean)}>{(['actor', 'action', 'target'] as const).map(key => <Field key={key} label={{ actor: 'Actor ID', action: 'Exact action', target: 'Target ID' }[key]} value={draft[key]} maxLength={200} onChange={e => setDraft({ ...draft, [key]: e.target.value })} />)}</DataTableToolbar>}
+      columns={[
+        { id: 'time', header: 'Time', className: 'min-w-[170px]', cell: event => <time title={event.createdAt} dateTime={event.createdAt}>{fmtDate(event.createdAt)}</time> },
+        { id: 'action', header: 'Action', className: 'min-w-[160px] max-w-[240px] break-all', cell: event => <strong>{event.action}</strong> },
+        { id: 'actor', header: 'Actor', className: 'min-w-[180px] max-w-[240px] break-all', cell: event => <>{event.actorName || event.actorId}{event.actorName && <p className="mt-[4px] text-[12px] text-text-muted">{event.actorId}</p>}</> },
+        { id: 'target', header: 'Target', className: 'min-w-[180px] max-w-[240px] break-all', cell: event => <>{event.targetType}{event.targetId && <p className="mt-[4px] text-[12px] text-text-muted">{event.targetId}</p>}</> },
+        { id: 'reason', header: 'Reason', className: 'min-w-[200px] max-w-[320px] break-words', cell: event => event.reason || '—' },
+      ]}
+      renderExpandedRow={event => <div className="grid gap-[12px] md:grid-cols-2">{[['Before', event.before], ['After', event.after]].map(([label, value]) => <div key={String(label)} className="min-w-0"><h3 className="font-semibold text-text-primary">{String(label)}</h3><pre className="mt-[6px] max-h-[260px] overflow-auto whitespace-pre-wrap break-all rounded-[8px] bg-surface-tertiary p-[12px] text-[12px] text-text-muted">{JSON.stringify(value, null, 2) ?? '—'}</pre></div>)}</div>} />
   </section>
 }

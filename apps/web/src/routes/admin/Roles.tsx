@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { Button, Field, FormAlert, EmptyState } from '../../components/ui'
+import { Button, Field, FormAlert, EmptyState, DataTable, DataTableToolbar, type DataTableSort } from '../../components/ui'
 import { Sheet } from '../../components/ui/Sheet'
 import { api } from '../../lib/api'
 import { useAccess, invalidateAccess } from '../../lib/access'
 import type { AdminRole, Permission } from '../../lib/adminTypes'
-import { useAdminQuery, useAdminSave, LoadState, ConfirmAction, Panel } from './shared'
+import { useAdminQuery, useAdminSave, ConfirmAction, selectClass } from './shared'
 
 function RoleEditor({ role, clone, catalog, close }: { role?: AdminRole; clone: boolean; catalog: Permission[]; close: () => void }) {
   const access = useAccess(), state = useAdminSave()
@@ -23,14 +23,28 @@ export function AdminRoles() {
   const access = useAccess(), canManage = access.permissions.includes('roles.manage')
   const query = useAdminQuery(['roles'], signal => api.adminRoles(signal), 'roles.read')
   const [editing, setEditing] = useState<{ role?: AdminRole; clone: boolean } | null>(null), [deleting, setDeleting] = useState<AdminRole | null>(null)
-  return <section className="space-y-[20px]"><div className="flex flex-wrap items-center justify-between gap-[12px]"><h2 className="font-display text-[24px] text-text-primary">Roles</h2>{canManage && <Button onClick={() => setEditing({ clone: false })}>Create role</Button>}</div>
+  const [search, setSearch] = useState(''), [kind, setKind] = useState('all'), [offset, setOffset] = useState(0), [pageSize, setPageSize] = useState(25), [sort, setSort] = useState<DataTableSort>({ columnId: 'name', direction: 'asc' })
+  const term = search.trim().toLocaleLowerCase()
+  const filtered = (access.permissions.includes('roles.read') ? query.data?.roles ?? [] : []).filter(role => (!term || [role.name, role.key, role.description].some(value => value.toLocaleLowerCase().includes(term))) && (kind === 'all' || role.protected === (kind === 'protected'))).sort((a, b) => {
+    const order = sort.columnId === 'members' ? a.memberCount - b.memberCount : sort.columnId === 'permissions' ? a.permissions.length - b.permissions.length : a.name.localeCompare(b.name)
+    return (sort.direction === 'asc' ? 1 : -1) * (order || a.id.localeCompare(b.id))
+  })
+  return <section className="min-w-0 space-y-[20px]"><div className="flex flex-wrap items-center justify-between gap-[12px]"><h2 className="font-display text-[24px] text-text-primary">Roles</h2>{canManage && <Button onClick={() => setEditing({ clone: false })}>Create role</Button>}</div>
     <p className="max-w-[760px] text-text-muted">Assign roles from a user's account. A person receives the combined permissions of all their roles. The built-in super administrator role is protected.</p>
-    <LoadState loading={query.isLoading} error={query.error} retry={query.refetch} />
-    {query.data?.roles.length === 0 && <EmptyState icon="lists" title="No roles available" body="Create a role to define a contributor's access." />}
-    <div className="grid gap-[16px] lg:grid-cols-2">{query.data?.roles.map(role => <Panel key={role.id} title={role.name}><p className="text-text-muted">{role.description}</p><p className="mt-[12px] text-[14px] text-text-body">{role.memberCount} member{role.memberCount === 1 ? '' : 's'} · {role.permissions.length} permissions{role.protected ? ' · Protected' : ''}</p><details className="mt-[12px] text-[14px] text-text-muted"><summary className="cursor-pointer text-link">View permissions</summary><ul className="mt-[8px] space-y-[4px]">{role.permissions.map(p => <li key={p}>{p}</li>)}</ul></details>
-      {canManage && <div className="mt-[16px] flex flex-wrap gap-[10px]">{!role.protected && <Button variant="ghost" onClick={() => setEditing({ role, clone: false })}>Edit {role.name}</Button>}<Button variant="ghost" onClick={() => setEditing({ role, clone: true })}>Clone {role.name}</Button>{!role.protected && <Button variant="ghost" disabled={role.memberCount > 0} title={role.memberCount ? 'Remove assignments before deleting this role.' : undefined} onClick={() => setDeleting(role)}>Delete {role.name}</Button>}</div>}
-    </Panel>)}</div>
-    {editing && query.data && <RoleEditor {...editing} catalog={query.data.permissions} close={() => setEditing(null)} />}
-    {deleting && <ConfirmAction title="Delete role" reasonRequired={false} description={'Delete ' + deleting.name + '? Assigned roles cannot be deleted. This action is recorded in the audit log.'} close={() => setDeleting(null)} action={() => api.adminDeleteRole(deleting.id, deleting.revision)} />}
+    <DataTable label="Administration roles" rows={filtered.slice(offset, offset + pageSize)} getRowId={role => role.id} getRowLabel={role => role.name}
+      loading={query.isPending} refreshing={query.isFetching && !query.isPending} error={query.error?.message} onRetry={() => void query.refetch()}
+      empty={<EmptyState icon="lists" title="No matching roles" body="Try a different filter, or create a role to define a contributor's access." />}
+      sort={sort} onSortChange={next => { setSort(next); setOffset(0) }} pagination={{ offset, pageSize, total: filtered.length, onOffsetChange: setOffset, onPageSizeChange: setPageSize }}
+      toolbar={<DataTableToolbar label="Filter roles" search={{ label: 'Search roles', value: search, onChange: value => { setSearch(value); setOffset(0) }, placeholder: 'Name, key, or description' }} onReset={() => { setSearch(''); setKind('all'); setOffset(0) }} resetDisabled={!search && kind === 'all'}><label className="text-[14px] font-semibold text-text-secondary">Role type<select aria-label="Role type" className={selectClass + ' mt-[6px]'} value={kind} onChange={e => { setKind(e.target.value); setOffset(0) }}><option value="all">All roles</option><option value="protected">Protected</option><option value="custom">Custom</option></select></label></DataTableToolbar>}
+      columns={[
+        { id: 'name', header: 'Role', sortable: true, className: 'min-w-[200px] max-w-[280px] break-words', cell: role => <><strong>{role.name}</strong><p className="mt-[4px] text-[12px] text-text-muted">{role.key}</p></> },
+        { id: 'type', header: 'Type', cell: role => role.protected ? 'Protected' : 'Custom' },
+        { id: 'members', header: 'Members', sortable: true, align: 'right', cell: role => role.memberCount.toLocaleString() },
+        { id: 'permissions', header: 'Permissions', sortable: true, align: 'right', cell: role => role.permissions.length.toLocaleString() },
+        ...(canManage ? [{ id: 'actions', header: 'Actions', className: 'min-w-[260px]', cell: (role: AdminRole) => <div className="flex flex-wrap gap-[8px]">{!role.protected && <Button variant="ghost" size="sm" aria-label={'Edit ' + role.name} onClick={() => setEditing({ role, clone: false })}>Edit</Button>}<Button variant="ghost" size="sm" aria-label={'Clone ' + role.name} onClick={() => setEditing({ role, clone: true })}>Clone</Button>{!role.protected && <Button variant="ghost" size="sm" aria-label={'Delete ' + role.name} disabled={role.memberCount > 0} title={role.memberCount ? 'Remove assignments before deleting this role.' : undefined} onClick={() => setDeleting(role)}>Delete</Button>}</div> }] : []),
+      ]}
+      renderExpandedRow={role => <div className="max-w-[760px] space-y-[12px]"><p className="break-words text-text-body">{role.description || 'No description.'}</p><h3 className="font-semibold text-text-primary">Permissions for {role.name}</h3>{role.permissions.length ? <ul className="grid gap-[4px] break-words text-text-muted sm:grid-cols-2">{role.permissions.map(permission => <li key={permission}>{permission}</li>)}</ul> : <p className="text-text-muted">No permissions.</p>}<p className="text-[12px] text-text-muted">Revision {role.revision}</p></div>} />
+    {canManage && editing && query.data && <RoleEditor {...editing} catalog={query.data.permissions} close={() => setEditing(null)} />}
+    {canManage && deleting && <ConfirmAction title="Delete role" reasonRequired={false} description={'Delete ' + deleting.name + '? Assigned roles cannot be deleted. This action is recorded in the audit log.'} close={() => setDeleting(null)} action={() => api.adminDeleteRole(deleting.id, deleting.revision)} />}
   </section>
 }

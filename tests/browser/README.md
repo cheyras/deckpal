@@ -5,7 +5,7 @@ Build `@deckpal/storage` and `@deckpal/matching` first on a clean checkout.
 `pnpm test:deploy-assets` runs the asset controls without starting a browser.
 The workflow uses Node 24 and a frozen pnpm lockfile.
 
-Reports and eight PNGs go to `TEST_ARTIFACT_DIR` (default `.cache/browser-tests`).
+Reports and screenshots go to `TEST_ARTIFACT_DIR` (default `.cache/browser-tests`).
 A local installation can set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; CI installs
 the Chromium revision selected by pinned Playwright 1.63.0.
 
@@ -48,3 +48,30 @@ unrelated caches excluded. Removing each exact exception in a scratch matcher
 must exclude the logo. Omitting each logo from a scratch copy of the real build
 must fail the actual build gate. Git supplies gitignore-compatible matching;
 the Vercel CLI and deployment service are not invoked.
+
+## Administration DataTable coverage
+
+`tests/browser/admin.mjs` exercises the real DataTable in Users,
+Roles, Audit, credit packs/orders and the user-detail ledger at 1280 and 390px
+in both builds. Fixtures span multiple pages, including a matching user outside
+page one. Cases check server filter/limit/offset requests and totals, complete-list
+role/pack sorting and aria-sort, page-size/reset behavior, fixed ledger pages,
+late/failed query withholding, disclosures and protected/read-only actions.
+Layout checks require one semantic table, contained document width, visible
+keyboard focus and actual rightward scrolling from the left edge of the inner
+region. Role action geometry must keep all three buttons on one line inside
+their cell at both widths. The real design catalog is also exercised for
+discovery, search, paging and error-mode reset after retry. Exact fictional
+card/set requests from its existing examples are answered locally; arbitrary
+unknown requests still fail.
+
+The complete isolated browser suite passed 57 groups on 2026-09-14, including
+these table checks. Desktop and 390px screenshots were directly reviewed.
+Artifacts include full-page PNGs and viewport JPEGs for table/gallery review;
+inspect the current run's results and screenshots when changing this code.
+
+The co-located DataTable gallery uses fictional records and the same primitive.
+Core tests cover controlled paging and semantic/state behavior; browser checks
+exercise built SPA interaction. Neither local fixture lane proves live database
+filtering, production authorization, Stripe processing or deployment. This UI
+change adds no API, schema or production test target.
