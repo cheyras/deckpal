@@ -334,13 +334,11 @@ test('the LIVE conversation reaches the list, and its row does not open', () => 
   // Through `code()` so a pin cannot be satisfied by a comment mentioning it.
   const hook = code(read('../useDeckeChat.ts'))
   const host = code(read('../DeckeHost.tsx'))
-  // TWICE, and the count is the point. `conversationId: conversationRef.current`
-  // appears once in the `recordTurn` call that FILES the turn and once in the
-  // hook's RETURN that tells the list which conversation it is. The first
-  // version of this pin matched either, so replacing the return with `null` came
-  // back green — the recording call was still satisfying it.
-  const uses = (hook.match(/conversationId: conversationRef\.current/g) ?? []).length
-  assert.equal(uses, 2, `expected the id to be both recorded and returned, found ${uses} use(s)`)
+  // The live list follows the current conversation; recording uses the captured
+  // exchange conversation. Real multileg request/history correlation is exercised
+  // through the built SPA in tests/browser/feedback.mjs.
+  assert.equal((hook.match(/conversationId: conversationRef\.current/g) ?? []).length, 1,
+    'the returned live conversation id must remain wired independently of recording')
   assert.match(host, /conversationId=\{chat\.conversationId\}/, 'the host stopped passing it')
   assert.match(code(PANEL), /liveId=\{conversationId \?\? null\}/, 'the panel stopped forwarding it')
   assert.match(code(MENU), /live=\{c\.id === liveId\}/, 'no row is ever marked live')

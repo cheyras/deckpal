@@ -27,6 +27,7 @@
  * who just came back.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useWallet } from '../../routes/credits/Credits'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
 import { isChromelessPathname } from '../../lib/landingRoute'
@@ -386,6 +387,7 @@ export function DeckeHost() {
    */
   const rulerRef = useRef<ComposerRuler | null>(null)
   const navigate = useNavigate()
+  const wallet = useWallet(entitled && !chromeless)
   /** True while a journey step owns the transition. Read by the route watcher
    *  below; written by the chat's sequencer through `onStepping`. */
   const journeyStepRef = useRef(false)
@@ -501,6 +503,13 @@ export function DeckeHost() {
       seeYouOut()
     },
   )
+
+  const wasCharging = useRef(false)
+  useEffect(() => {
+    const charging = chat.busy || chat.approvalBusy
+    if (wasCharging.current && !charging) void wallet.refetch()
+    wasCharging.current = charging
+  }, [chat.busy, chat.approvalBusy, wallet.refetch])
 
   useEffect(() => {
     const mq = window.matchMedia(`(min-width: ${NAV_BREAKPOINT}px)`)
@@ -1907,7 +1916,8 @@ function settledRect(el: HTMLElement): DOMRect {
         // replacement were all built and tested before this line existed, which
         // is the shape of defect this pass has now produced seven times: the
         // panel rendered `unknown` forever and looked completely correct.
-        credits={chat.credits}
+        credits={wallet.data ? wallet.data.enabled ? { remaining: wallet.data.balance, allowance: wallet.data.balance, lowAt: wallet.data.lowAt } : null : chat.credits}
+        onTopUp={() => { setChatOpen(false); void navigate({ to: '/credits' }) }}
         // So the history list can mark the row the reader is actually in. It
         // cannot be inferred from the list itself — see `liveId`.
         conversationId={chat.conversationId}

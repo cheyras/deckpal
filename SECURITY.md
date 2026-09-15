@@ -66,7 +66,8 @@ TTL, and the token the flow ultimately mints is the exact same `api_token`
 row the manual flow produces -- OAuth is a bridge onto the existing
 credential, not a second one. `oauth_client` and `oauth_code` have RLS
 enabled with zero grants (migration 033): only the server's RLS-bypassing
-pool connection can ever read or write them.
+pool connection or narrowly authorized SECURITY DEFINER consent functions can
+access them; browsers receive no direct table grants.
 
 **Deck-E (the AI assistant, `POST /api/chat`).** Entitlement is decided on the
 server, not the browser. `entitlement.ts`'s browser-side gate only decides
@@ -74,17 +75,14 @@ whether to draw a button — verified against the deployed endpoint before this
 was fixed, an ordinary signed-in account got a full model turn, billed to the
 owner's Gateway key, by asking for one (DECISIONS.md 2026-08-21, "`/api/chat`
 had no server-side entitlement, rate limit or spend cap"). The route now
-checks `DECKE_ENTITLED_USER_IDS` plus the owner before the request body is
-parsed, and every account is metered against a durable daily cap in Postgres
-(`decke_usage`, migrations 039/040) — conversational turns and deep-tier calls
-capped separately, since the two differ roughly 250x in price. The cap is
-enforced by a single `INSERT … ON CONFLICT DO UPDATE … WHERE` statement so the
-check and the charge cannot race under concurrent requests; migration 040
-grants `authenticated` a SELECT policy on that table and nothing else, since an
-UPDATE policy would let a signed-in user zero their own counter through
-Supabase's Data API. `GET /api/health` reports `deckeEntitlement` (a status —
-`nobody` / `owner-only` / `owner-plus-list` / `self-host` — never the ids, since
-`/health` is unauthenticated) and `deckeLimits`.
+checks lifecycle-derived database `decke.use` permission and account status. Enabled
+credit policy reserves an atomic debit/ledger/pricing snapshot before provider
+work and refuses accounting failures; disabled credit policy retains the
+existing daily counters for ordinary accounts. An explicit unlimited override
+still requires current access and holds/budgets. Exact accepted-request replays are rejected rather
+than granting free repeated work. The public health response reports
+`administration` and `deckeEntitlement` readiness/status without account IDs.
+
 
 Deck-E holds **no credential of his own**. He carries the caller's own
 Supabase JWT — the same one the browser sent — and forwards it to deckpal-api
@@ -343,17 +341,23 @@ input. The Stripe raw-body webhook and the bare-origin OAuth discovery /
 router and are outside this guard; the MCP transport at `/mcp` is a separate
 function (`api/mcp.mjs`).
 
-**Per-user session routes.** `/tokens` (20/min), `/avatar` (10/min) and
-`/oauth` (30/min) are guarded **after** authentication but **before** the RLS
-`pool.connect`; `requireSession` rejects personal access tokens and
-anonymous requests cheaply first. On self-host, where `authMiddleware` leaves
-`req.user` unset, the account guards key on the socket peer; on cloud
-`requireSession` still rejects anonymous/PAT before any per-user budget is
-checked. Refusal is `429` with a `Retry-After` header in seconds. Each request
-is charged **once per applicable budget** — it may consume both the ingress
-budget and a per-user session budget, but there is no duplicate route-level
-charge (the routers below carry no second limiter). Existing `requireSession`
-policies are unchanged.
+**Per-user session routes.** `/tokens` (20/min), `/avatar` (10/min),
+`/oauth` (30/min), all `/admin` (120/min) and all `/me/credits` (180/min)
+are guarded after authentication/resolved self-host identity and
+`requireSession`, before RLS acquires its request connection. Cloud
+anonymous/PAT callers are rejected before their per-user budget. Self-host uses
+its resolved local account. Authentication lookup and trusted bootstrap can
+access their own pool earlier, so this is specifically an RLS-connection
+boundary. Active-account and action/SQL permission checks still follow RLS.
+
+Ingress, admin and wallet use genuine `express-rate-limit` 8.7.0 middleware
+with `BoundedExpressStore` over the existing store. All adapters share its
+10,000-key cap with distinct prefixes; admission at capacity fails without
+evicting an active key. Store errors fail closed. No skip rules, response-based
+counter refunds or validation suppression are configured. Budget exhaustion returns
+429 with Retry-After seconds and Cache-Control: no-store. Each request consumes
+each applicable budget once, so nested credit routes do not double-charge
+administration. Token/avatar/OAuth guards retain their existing implementation.
 
 **What these budgets are — and are not.** All application budgets are bounded
 in-memory fixed windows, **per process / per serverless function instance**,
@@ -695,3 +699,84 @@ properties are load-bearing:
 
 The snapshots contain card ids, quantities, list/deck names and strategy-guide
 text — the same user data as the tables they describe, and no more.
+
+## Administration, ownership, consent and credits (2026-09-15)
+
+Every account has one canonical role. Tier ceilings, immutable built-in identity
+and the current target role constrain mutations under the governance lock.
+Admin can assign User/Superuser only to current built-in User/Superuser targets;
+Superadmin cannot alter Owner or assign Owner. Role definitions are
+Superadmin/Owner operations; editable permissions never grant reserved governance.
+Protected Owner membership is seeded from trusted bootstrap state and is
+independent of mutable email/JWT profile data. Last-active-Owner protection is
+checked in SQL. A read-only old-reader facade does not create a second authority.
+
+Contributor has no administrative APIs or other-user/global financial controls.
+Contributor retains ordinary own-account profile, subscriptions and credit wallet
+through an active browser session. PAT/OAuth tokens cannot administer, inspect
+wallets, purchase credits or change sharing; no new administrative agent tools
+exist. Dev tools is a separate capability-filtered browser surface.
+
+A central SQL resolver derives Scanner/Deck-E access from lifecycle and personal
+opt-in. Raw permission grants and preview hostnames cannot bypass it. Disabled
+blocks new requests/provider attempts, including retries/nested work, for Owner
+too; already-started remote work may finish. Suspension remains application
+access control, separate from an Auth ban, and affects new requests, token/MCP
+resolution and restrictive owned-data policy. Revoke-all also consumes OAuth
+codes and coordinates with mint/exchange; reactivation does not revive them.
+
+Only Owner may mutate user unlimited/nullable-markup revisions. Unlimited
+reserves zero credits explicitly without synthetic grants and retains debt,
+refund/dispute holds, access and operational budgets. New reservations cannot
+select revoked policy; legitimate reserved and bounded nested work use frozen
+snapshots. Flat quoted charges, idempotent pre-start refunds/recovery,
+nonnegative spendable balances, debt repayment and Stripe reconciliation
+remain unchanged. No automatic token-cost settlement exists.
+
+Server usage accepts a durable request before invocation and writes distinct
+local provider-attempt rows. It stores allowlisted cost/token/build/status fields,
+never raw prompts, responses, tool arguments/output, hidden context or raw errors
+in general telemetry. Reported decimal zero is distinct from missing/unknown;
+upstream retries unreported by Gateway cannot be reconstructed.
+
+The first credit start and provider-attempt row commit atomically after current
+authority and payment holds are checked under the relevant locks. The SDK call
+sets a synchronous invocation latch. A known cancellation or lost database
+acknowledgement before that call retains an exact-operation compensation path;
+it cannot refund completed/failed invocations or an earlier real retry attempt.
+
+Optional content is stored separately from metadata. Sharing defaults off;
+the first accepted exchange leg fixes consent epoch. Every administrative detail
+and conversation read requires active target, current enabled consent and that
+same epoch. Off deletes optional excerpts; off-on cannot resurrect old content.
+Active users can withdraw after losing Deck-E access or when it is disabled.
+Only the current user message and visible assistant response qualify. Personal
+history may retain the user's own tool records but is never the source of
+administrative cost/build authority. Exact owned accepted correlation is checked
+before a supplied exchange is linked; immutable duplicate writes cannot rewrite
+the generation stamp. Deleting own history also removes its administrative
+excerpts, preserving metadata.
+
+Usage reads require an active application session, tier 40 or higher and current
+`admin.access`. Custom roles lose metadata and shared-content access immediately
+when that permission is removed; the capability projection uses the same rule.
+Contributor is denied. Lists, aggregates, observation filters and errors contain no shared text.
+All private APIs are no-store. Identity/consent changes clear sensitive browser
+queries; open detail uses zero cache lifetime, refetches on focus/every 10 seconds,
+and hides stale content while refetching or unavailable. Previously seen/copied
+text cannot be recalled. Service-worker private/authorized requests remain
+NetworkOnly; existing anonymous catalog/art/shell cache boundaries remain.
+
+Creation ACLs close new objects before numbered migration commits; web roles
+receive only named checked functions. The normal runner commits each file
+independently, so a failed migration rolls back that file, not earlier committed
+files. Preserve shipped checksums and finish the reviewed sequence. An old-reader
+view is compatibility for reading, not permission to restore multi-role writes.
+No schema-wide grants or credential/configuration shortcuts are part of recovery.
+
+The shared admin limiter remains120requests/60seconds and the wallet 180/60,
+per user/API instance; 429 includes Retry-After. Database checkout limits remain.
+Signed financial events validate current identity, amount, currency, mode,
+refund and dispute state before unique settlement. Protected delivery queries
+may match the correct HTTPS origin/exact webhook path without appearing in
+readiness output. Configuration discovery is not proof of real delivery.

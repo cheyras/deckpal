@@ -184,14 +184,8 @@ test('the server rebuilds the failure ledger from those parts', () => {
   assert.match(CHAT, /\n\s*failing,\r?\n\s*retryRequested,/)
 })
 
-test('the conversation id reaches the request, for the breaker log line', () => {
-  // LOG-ONLY. `decke/failing.ts` writes one structured line when a breaker
-  // opens; without an id two outages read as one.
-  assert.match(HOOK, /await streamLeg\(wire, conversationRef\.current, ac\.signal, \{/)
-  assert.match(HOOK, /body: JSON\.stringify\(\{[\s\S]{0,200}?conversationId,/)
-  // The SAME id the turn is filed under, so the log and the transcript line up.
-  assert.match(HOOK, /conversationId: conversationRef\.current,/)
-})
+// Captured conversation/exchange correlation is verified through actual HTTP
+// legs and history writes by tests/browser/feedback.mjs, not source spelling.
 
 test('a real decline tells him what a repeat decline is already told', () => {
   // Measured: the reader cancelled an approval and the next reply read as

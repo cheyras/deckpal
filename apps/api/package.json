@@ -24,7 +24,9 @@
     "test:export": "node --import tsx --test src/export/__tests__/*.test.ts",
     "fingerprint:index": "node --import tsx src/deck/indexFingerprints.ts",
     "test:scan": "node --import tsx --test src/scan/__tests__/*.test.ts",
-    "test:ratelimit": "node --import tsx --test src/__tests__/rateLimit.test.ts"
+    "test:ratelimit": "node --import tsx --test src/__tests__/rateLimit.test.ts",
+    "test:admin": "node --import tsx --test src/admin/__tests__/*.test.ts",
+    "test:admin-credits": "node --import tsx --test src/credits/__tests__/*.test.ts"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^4.0.76",
@@ -34,6 +36,7 @@
     "@deckpal/storage": "workspace:*",
     "ai": "7.0.94",
     "express": "^5.0.0",
+    "express-rate-limit": "8.7.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.0",

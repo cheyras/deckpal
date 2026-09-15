@@ -3248,3 +3248,32 @@ The catalog import path remains undemonstrated end-to-end: `docker save` extract
 `generated/en/cards.json` is blocked in this sandbox, and GraphQL — the path that *does* work — does
 not expose `variantId`, `thirdParty` or `pricing`, which are exactly what `card_variant` needs.
 The third pass did not change this, and it is still the largest unvalidated assumption in the build.
+
+## Application governance, feature and AI usage schema (2026-09-15)
+
+This current extension does not rewrite the dated catalog research above.
+Migrations 064–067 remain checksum-immutable; 068–071 extend them:
+
+| Migration | Current storage boundary |
+|---|---|
+| 068 | Canonical non-null `admin_account.role_id` defaults User; built-in tiers and safe custom ceilings. Private `admin_role_migration_snapshot` and `admin_user_role_archive` preserve prior assignments. `admin_user_role` is a read-only one-row projection. |
+| 069 | `app_feature` stores released/beta/experimental/disabled lifecycle and revision; `app_feature_opt_in` stores separate per-user opt-in. Scanner and Deck-E initialize experimental. |
+| 070 | Append-only `credit_user_ai_override` revisions hold unlimited/nullable markup, actor and reason. `credit_spend` adds charge_mode, override_revision and pricing_snapshot; zero credits require unlimited mode. |
+| 071 | `decke_sharing` stores enabled/revision epoch; `decke_ai_request` records server parent, exchange and frozen consent/build/pricing; `decke_ai_operation` records local attempts, bound credit_spend_id/start/cancellation provenance and nullable cost/token evidence; `decke_ai_content` contains separately gated optional excerpts. `decke_turn.exchange_id` binds own history. |
+
+New web-facing functions are narrow session/authority-checked SECURITY DEFINER
+entry points with fixed search paths; direct client table writes and raw usage
+runtime functions are not granted. Request-key uniqueness rejects replay;
+operation IDs and terminal conditional updates prevent double finalization.
+A continued exchange reuses its first consent epoch. Withdrawal and append
+serialize; every admin content projection also checks current enabled epoch.
+Deleting own history removes excerpts, preserving usage metadata.
+
+Existing `credit_policy_revision/current`, packs/orders, wallet debt, immutable
+events and idempotent settlement/reconciliation remain authoritative for money.
+No actual-cost settlement or denomination migration is introduced.
+
+Normal deployment accounts are UUIDs. The role migration additionally tests
+legacy bigint access; the economy/history fixtures cover current UUID self-host
+and cloud shapes. This is selected real migration/ACL/concurrency coverage, not
+a full historical replay or evidence that production has applied 068–071.

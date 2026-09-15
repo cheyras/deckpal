@@ -50,7 +50,8 @@ import express from 'express';
 import type Stripe from 'stripe';
 import { q, q1 } from '../db.js';
 import { SUPPORT_METADATA_KEY, pullState, sweepDuplicatePayingSubscriptions } from './service.js';
-import { stripeClient, webhookSecret } from './stripe.js';
+import { handleCreditWebhook } from '../credits/webhook.js';
+import { stripeClient, creditStripeClient, webhookSecret } from './stripe.js';
 
 /**
  * The events worth a round trip to Stripe.
@@ -326,7 +327,7 @@ async function syncCustomer(stripe: Stripe, customerId: string, deleted: boolean
 }
 
 async function handle(req: Request, res: Response): Promise<void> {
-  const stripe = stripeClient();
+  const stripe = stripeClient() ?? creditStripeClient();
   const secret = webhookSecret();
   if (!stripe || !secret) {
     // 503, not 500: this is a deployment that has not been finished, and
@@ -376,6 +377,16 @@ async function handle(req: Request, res: Response): Promise<void> {
     // signatures found matching") from a replay ("Timestamp outside tolerance").
     console.error('[deckpal-api] stripe webhook: signature verification failed —', (err as Error).message);
     res.status(400).json({ error: { code: 'bad_signature', message: 'Signature verification failed.' } });
+    return;
+  }
+
+  try {
+    if (await handleCreditWebhook(event, creditStripeClient() ?? stripe)) {
+      res.json({ received: true, handled: true });
+      return;
+    }
+  } catch {
+    res.status(500).json({ error: { code: 'credit_webhook_failed', message: 'Credit payment reconciliation will be retried.' } });
     return;
   }
 

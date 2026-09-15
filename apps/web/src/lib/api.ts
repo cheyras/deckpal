@@ -1,3 +1,4 @@
+import type { ActorCapabilities, FeatureAccess, RoleRef, SharingPreference, AiOverride, AiUsagePage, AiUsageDetail, CostObservations } from './adminTypes'
 // API client — consumes deckpal-api (read-only contract, API.md).
 // Cloud: /api (Vercel). Self-host: /deckpal/api (behind nginx proxy).
 //
@@ -16,6 +17,7 @@ import { isPublicPathname } from './landingRoute'
 import { isJsonContentType } from './jsonContentType'
 import type { ValueRangeKey } from './insightsCaption'
 import type { PriceGrain, PriceHistoryPoint } from './priceGrain'
+import type { AppDefaults, AdminUser, PageResult, RoleList, AuditEvent, CreditSettings, CreditPolicy, CreditPack, CreditEvent, Wallet, CreditOrder, CreditSummary, AdminCreditOrder } from './adminTypes'
 import type { Goal } from '../routes/setSearch'
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
@@ -131,6 +133,7 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
     const retry = await handle401(path, init)
     if (retry) res = retry
   }
+  if (res.status === 403 && path !== '/me') window.dispatchEvent(new Event('deckpal:forbidden'))
   if (!res.ok) throw await apiError(res)
   return jsonBody<T>(res, path)
 }
@@ -1188,6 +1191,14 @@ export interface ScanFlagLabel {
 }
 
 export interface MeResponse {
+  role?: RoleRef
+  isOwner?: boolean
+  accessRevision?: string
+  actorCapabilities?: ActorCapabilities
+  features?: FeatureAccess[]
+  permissions?: string[]
+  roles?: { id: string; name: string }[]
+  adminReady?: boolean
   username: string
   /** True when this account may open /design in production (owner only).
    *  Retained for that gate; new surfaces should read `owner`. */
@@ -1485,6 +1496,36 @@ export interface DeckeConversation {
 }
 
 export const api = {
+  // Administration and credit wallet share the authenticated, tier-aware transport.
+  publicDefaults: (signal?: AbortSignal) => get<{ defaults?: AppDefaults }>('/public-config', signal),
+  adminOverview: (signal?: AbortSignal) => get<{ adminReady: boolean; counts: { users?: number; suspended?: number; roles?: number; auditEvents?: number }; status: { bootstrap: string; mode: string } }>('/admin/overview', signal),
+  adminUsers: (query: string, signal?: AbortSignal) => get<PageResult & { users: AdminUser[] }>('/admin/users?' + query, signal),
+  adminUser: (id: string, signal?: AbortSignal) => get<{ user: AdminUser; permissions: string[]; stats: { collectionItems: number; decks: number; connectors: number } }>('/admin/users/' + encodeURIComponent(id), signal),
+  adminUserRole: (id: string, roleId: string, expectedRevision: number, expectedRoleRevision: number, reason: string) => send('PUT', '/admin/users/' + encodeURIComponent(id) + '/role', { roleId, expectedRevision, expectedRoleRevision, reason }),
+  adminUserStatus: (id: string, suspended: boolean, expectedRevision: number, reason: string) => send('PATCH', '/admin/users/' + encodeURIComponent(id) + '/status', { suspended, expectedRevision, reason }),
+  adminRevokeTokens: (id: string, reason: string) => send('POST', '/admin/users/' + encodeURIComponent(id) + '/revoke-tokens', { reason }),
+  adminRoles: (signal?: AbortSignal) => get<RoleList>('/admin/roles', signal),
+  adminCreateRole: (body: { name: string; description: string; permissions: string[]; tier: number }) => send('POST', '/admin/roles', body),
+  adminUpdateRole: (id: string, body: { name: string; description: string; permissions: string[]; expectedRevision: number }) => send('PATCH', '/admin/roles/' + encodeURIComponent(id), body),
+  adminDeleteRole: (id: string, expectedRevision: number) => send('DELETE', '/admin/roles/' + encodeURIComponent(id), { expectedRevision }),
+  adminSettings: (signal?: AbortSignal) => get<{ settings: AppDefaults; revision: number; updatedAt: string }>('/admin/settings', signal),
+  adminSaveSettings: (settings: AppDefaults, expectedRevision: number) => send('PUT', '/admin/settings', { settings, expectedRevision }),
+  adminAudit: (query: string, signal?: AbortSignal) => get<PageResult & { events: AuditEvent[] }>('/admin/audit?' + query, signal),
+  adminCreditSettings: (signal?: AbortSignal) => get<CreditSettings>('/admin/credits/settings', signal),
+  adminSaveCreditSettings: (policy: CreditPolicy, expectedRevision: number) => send('PUT', '/admin/credits/settings', { policy, expectedRevision }),
+  adminCreditPacks: (signal?: AbortSignal) => get<{ packs: CreditPack[] }>('/admin/credits/packs', signal),
+  adminSaveCreditPack: (id: string | null, body: { name: string; credits: number; priceCents: number; currency: 'usd'; active: boolean; expectedRevision?: number }) => send(id ? 'PATCH' : 'POST', '/admin/credits/packs' + (id ? '/' + encodeURIComponent(id) : ''), body),
+  adminCreditSummary: (days: number, signal?: AbortSignal) => get<CreditSummary>('/admin/credits/summary?days=' + days, signal),
+  adminCreditOrders: (query: string, signal?: AbortSignal) => get<PageResult & { orders: AdminCreditOrder[] }>('/admin/credits/orders?' + query, signal),
+  adminCreditPaymentStatus: (signal?: AbortSignal) => get<{ ready: boolean; reason: string | null; requiredEvents: string[]; checkedAt: string }>('/admin/credits/payment-status?refresh=true', signal),
+  adminResolveCreditHold: (id: string, reason: string) => send('POST', '/admin/credits/users/' + encodeURIComponent(id) + '/resolve-hold', { reason }),
+  adminUserCredits: (id: string, signal?: AbortSignal, offset = 0) => get<PageResult & { balance: number; debt: number; purchaseHold: boolean; events?: CreditEvent[] }>('/admin/credits/users/' + encodeURIComponent(id) + '?limit=25&offset=' + offset, signal),
+  adminAdjustCredits: (id: string, delta: number, reason: string, idempotencyKey: string) => send('POST', '/admin/credits/users/' + encodeURIComponent(id) + '/adjustments', { delta, reason, idempotencyKey }),
+  creditWallet: (signal?: AbortSignal) => get<Wallet>('/me/credits', signal),
+  creditEvents: (offset: number, signal?: AbortSignal) => get<PageResult & { events: CreditEvent[] }>('/me/credits/events?limit=25&offset=' + offset, signal),
+  creditCheckout: (packId: string, idempotencyKey: string) => send<{ url: string; orderId: string }>('POST', '/me/credits/checkout', { packId, idempotencyKey }),
+  creditOrder: (id: string, signal?: AbortSignal) => get<CreditOrder>('/me/credits/orders/' + encodeURIComponent(id), signal),
+
   // ── DECK-E'S TRANSCRIPT HISTORY ───────────────────────────────────────────
   //
   // Gated server-side to the accounts that have Deck-E at all, so every one of
@@ -1492,6 +1533,7 @@ export const api = {
   // empty list would claim the feature exists for you and you simply have not
   // used it.
   deckeHistoryRecord: (body: {
+    exchangeId: string
     conversationId: string
     seq: number
     asked: string
@@ -1671,7 +1713,7 @@ export const api = {
       const retry = await handle401(path, { headers, signal })
       if (retry) res = retry
     }
-    if (!res.ok) throw await apiError(res)
+  if (!res.ok) throw await apiError(res)
     return res.blob()
   },
 
@@ -1701,7 +1743,7 @@ export const api = {
       const retry = await handle401(`/dev/scan-flags/${id}.${ext}`, { headers, signal })
       if (retry) res = retry
     }
-    if (!res.ok) throw await apiError(res)
+  if (!res.ok) throw await apiError(res)
     return res.blob()
   },
 
@@ -1815,10 +1857,22 @@ export const api = {
     send<{ deleted: number }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
+  deckeSharing: (signal?: AbortSignal) => get<SharingPreference>('/me/decke-sharing', signal),
+  setDeckeSharing: (enabled: boolean, expectedRevision: number) => send<SharingPreference>('PUT', '/me/decke-sharing', { enabled, expectedRevision }),
+  adminAiOverride: (id: string, signal?: AbortSignal) => get<AiOverride>('/admin/users/' + encodeURIComponent(id) + '/ai-override', signal),
+  adminSetAiOverride: (id: string, body: { expectedRevision: number; unlimited: boolean; markupBps: number | null; reason: string }) => send<AiOverride>('PUT', '/admin/users/' + encodeURIComponent(id) + '/ai-override', body),
+  adminCostObservations: (params: string, signal?: AbortSignal) => get<CostObservations>('/admin/ai-usage/observations?' + params, signal),
+  adminAiUsage: (params: string, signal?: AbortSignal) => get<AiUsagePage>('/admin/ai-usage?' + params, signal),
+  adminAiRequest: (id: string, signal?: AbortSignal) => get<AiUsageDetail>('/admin/ai-usage/requests/' + encodeURIComponent(id), signal),
+  adminAiConversation: (id: string, params: string, signal?: AbortSignal) => get<{ items: AiUsageDetail[]; total: number; limit: number; offset: number }>('/admin/ai-usage/conversations/' + encodeURIComponent(id) + '?' + params, signal),
+  meFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/me/features', signal),
+  setMeFeature: (key: string, optedIn: boolean, expectedRevision: number) => send<{ features: FeatureAccess[] }>('PATCH', '/me/features/' + encodeURIComponent(key), { optedIn, expectedRevision }),
+  adminFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/admin/features', signal),
+  adminSetFeature: (key: string, lifecycle: FeatureAccess['lifecycle'], expectedRevision: number, reason: string) => send<{ features: FeatureAccess[] }>('PATCH', '/admin/features/' + encodeURIComponent(key), { lifecycle, expectedRevision, reason }),
   me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
   // Account settings (migration 049) — the server-side home of what used to be
   // device-only preferences. PATCH takes any subset and returns the whole row.
-  settings: (signal?: AbortSignal) => get<{ settings: UserSettings }>('/me/settings', signal),
+  settings: (signal?: AbortSignal) => get<{ settings: UserSettings; defaults?: AppDefaults }>('/me/settings', signal),
   updateSettings: (patch: Partial<UserSettings>) => send<{ settings: UserSettings }>('PATCH', '/me/settings', patch),
   // Profile showcase — the user_showcase table, replacing the old
   // localStorage-only `deckpal.showcase.v1`. PUT replaces the whole set; the

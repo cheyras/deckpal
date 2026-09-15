@@ -44,6 +44,8 @@ export async function withUserContext<T>(
 
   if (!SUPABASE_MODE()) {
     try {
+      const active = (await client.query<{active:boolean}>('SELECT public.admin_account_active($1) AS active',[userId])).rows[0]?.active;
+      if (!active) throw new Error('This account is suspended or unavailable');
       return await fn(client);
     } finally {
       client.release();
@@ -51,10 +53,12 @@ export async function withUserContext<T>(
   }
 
   try {
-    const claims = client.escapeLiteral(JSON.stringify({ sub: userId, role: 'authenticated' }));
+    const claims = client.escapeLiteral(JSON.stringify({ sub: userId, role: 'authenticated', deckpal_auth_kind: 'token' }));
     await client.query(
       `BEGIN; SELECT set_config('request.jwt.claims', ${claims}, true); SET LOCAL role = 'authenticated'`,
     );
+    const access = (await client.query<{access:{suspended:boolean}}>('SELECT public.admin_access($1) AS access',[userId])).rows[0]?.access;
+    if (!access || access.suspended) throw new Error('This account is suspended or unavailable');
     const out = await fn(client);
     await client.query('COMMIT');
     return out;

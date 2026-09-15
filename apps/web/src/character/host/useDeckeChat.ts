@@ -152,6 +152,7 @@ const nextId = () => `m${++seq}`
  * duplicate.
  */
 function recordTurn(body: {
+  exchangeId: string
   conversationId: string
   seq: number
   asked: string
@@ -749,6 +750,9 @@ export function useDeckeChat(
       const userMsg: ChatMessage | null = alreadyShown
         ? null
         : { id: nextId(), role: 'user', parts: [{ kind: 'text', id: nextId(), text }] }
+      const exchangeId = crypto.randomUUID()
+      const exchangeSeq = seqRef.current++
+      const exchangeConversation = conversationRef.current
       const replyId = nextId()
       // CAPTURED BEFORE the setState, not read from the ref afterwards. The ref
       // only catches up on the next render, so reading it later in this same
@@ -997,7 +1001,7 @@ export function useDeckeChat(
         /** Tool call ids already carried into a later leg. See `lookupRecord`. */
         const replayedChips = new Set<string>()
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
-          const outcome = await streamLeg(wire, conversationRef.current, ac.signal, {
+          const outcome = await streamLeg(wire, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
             onText: (chunk) => {
               if (!saidSoFar) {
                 // The talk overlay latches on the FIRST token and is released in
@@ -1553,50 +1557,30 @@ export function useDeckeChat(
         // one thing a record of what the reader saw may not do.
         // ── FILE THE EXCHANGE ────────────────────────────────────────────
         //
-        // Read from `messagesRef`, not from the `messages` this callback
-        // closed over when the turn STARTED — that one has no reply in it yet.
-        //
-        // The user's line is the last thing THEY said rather than the `text`
-        // argument, because an approval replay re-enters `send` with no new
-        // question and would otherwise file an empty `asked` against a turn
-        // that plainly had one.
-        const all = messagesRef.current
-        const reply = all.find((m) => m.id === replyId)
-        const asked = [...all]
-          .reverse()
-          .find((m) => m.role === 'user')
-        if (reply) {
-          const tools = messageTools(reply).map((c) => ({
-            name: c.name,
-            phase: c.phase,
-            title: c.title ?? '',
-            summary: c.summary ?? '',
-            // OMITTED when absent rather than sent as `{}`, matching the
-            // server: a no-argument tool records no args, and an empty
-            // object beside `health` would suggest it takes some.
-            ...(c.args ? { args: c.args } : {}),
-          }))
-          const answered = messageText(reply)
-          const question = asked ? messageText(asked) : ''
-          // THE QUESTION COUNTS AS SOMETHING TO RECORD. This required an answer
-          // or a tool call, so a turn he chose to answer with SILENCE — which
-          // the prompt explicitly encourages, "silence is a valid emission" —
-          // recorded nothing, and the reader's own question disappeared with it.
-          // A history missing the questions that got no reply is missing exactly
-          // the turns somebody would go looking for.
-          if (question || answered || tools.length > 0) {
-            recordTurn({
-              conversationId: conversationRef.current,
-              seq: seqRef.current++,
-              asked: question,
-              answered,
-              tools,
-              // OMITTED when the server did not say, rather than defaulted:
-              // a NULL here means "unknown", and reading it as a clean finish
-              // would turn an absence of evidence into evidence. Migration 046.
-              ...(finishReason ? { finishReason } : {}),
-            })
-          }
+        // React may not have committed the final streamed text yet. Capture
+        // the exchange text directly, and use the transcript for completed tool
+        // rows or locally rendered failures. Never borrow a newer user's question
+        // if this turn was superseded before its finally block ran.
+        const reply = messagesRef.current.find((m) => m.id === replyId)
+        const tools = (reply ? messageTools(reply) : []).map((c) => ({
+          name: c.name,
+          phase: c.phase,
+          title: c.title ?? '',
+          summary: c.summary ?? '',
+          ...(c.args ? { args: c.args } : {}),
+        }))
+        const answered = saidSoFar || (reply ? messageText(reply) : '')
+        const question = text
+        if (question || answered || tools.length > 0) {
+          recordTurn({
+            conversationId: exchangeConversation,
+            exchangeId,
+            seq: exchangeSeq,
+            asked: question,
+            answered,
+            tools,
+            ...(finishReason ? { finishReason } : {}),
+          })
         }
 
         if (abortRef.current === ac) {
@@ -1969,16 +1953,10 @@ export { APPROVAL_PHRASE }
  */
 async function streamLeg(
   wire: WireMessage[],
-  /**
-   * This conversation's id, LOG-ONLY on the server.
-   *
-   * It names the conversation on the one structured line a tripped tool-circuit
-   * breaker writes, so an operator reading Vercel's log can tell one outage
-   * from two. Nothing on the server reads it for a decision — see
-   * `decke/failing.ts` — and the same id is already what `recordTurn` files the
-   * turn under, so the log line and the transcript line up.
-   */
+  /** Owned conversation correlation, validated by the server with exchangeId and seq. */
   conversationId: string,
+  exchangeId: string,
+  seq: number,
   signal: AbortSignal,
   handlers: LegHandlers,
 ): Promise<LegOutcome> {
@@ -2016,7 +1994,7 @@ async function streamLeg(
       messages: wire,
       route: window.location.pathname,
       landmarks: collectLandmarks(),
-      conversationId,
+      conversationId, exchangeId, seq,
     }),
   })
 

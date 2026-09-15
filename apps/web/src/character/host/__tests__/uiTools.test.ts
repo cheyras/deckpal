@@ -299,7 +299,7 @@ test('every sidebar route a marked nav row can reach is on the allowlist', () =>
   assert.ok(m, 'could not find the NAV array in components/AppShell.tsx')
   const entries = [...m[1]!.matchAll(/\{[^{}]*\bto:\s*'([^']*)'[^{}]*\}/g)].map((x) => ({
     route: x[1]!,
-    ownerOnly: /ownerOnly:\s*true/.test(x[0]),
+    permission: /permission:\s*'[^']+'/.test(x[0]),
   }))
 
   // A finder that finds nothing passes vacuously, which reads exactly like
@@ -311,14 +311,14 @@ test('every sidebar route a marked nav row can reach is on the allowlist', () =>
   // claim about a code path that is not there.
   assert.match(
     src,
-    /if \(item\.to && item\.ownerOnly\) \{[\s\S]*?<Link to=\{item\.to\} className="block">/,
+    /if \(item\.to && item\.permission\) \{[\s\S]*?<Link to=\{item\.to\} className="block">/,
     'NavRow no longer has an unmarked branch for owner-only rows, so an owner-only entry would ' +
       'inherit data-decke-clickable and become pressable — pointing at a route that is off the ' +
       'allowlist on purpose.',
   )
 
-  for (const { route, ownerOnly } of entries) {
-    if (ownerOnly) {
+  for (const { route, permission } of entries) {
+    if (permission) {
       assert.ok(
         !routeAllowed(route),
         `${route} is an ownerOnly nav row AND on ROUTE_ALLOWLIST. Pick one: either it is a normal ` +

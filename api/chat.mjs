@@ -95,22 +95,15 @@ import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/
 import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
 import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
-import { isDeckeEntitled } from '../apps/api/dist/decke/entitlement.js'
+import { creditWork } from '../apps/api/dist/credits/work.js'
+import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
+import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, safeUsageCode } from '../apps/api/dist/decke/usage.js'
+import { assertDeckeAccess, readPolicy, reserveCredits, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls, researchRanInConversation } from '../apps/api/dist/decke/declined.js'
 import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
-import {
-  BALANCE_SQL,
-  COST,
-  SPEND_LOG_SQL,
-  SPEND_SQL,
-  LOW_BALANCE,
-  creditVerdictFrom,
-  creditsEnabled,
-  deepCost,
-  outOfCreditsText,
-} from '../apps/api/dist/decke/credits.js'
+import { outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
@@ -309,63 +302,6 @@ const withDeadline = (promise, label) => {
  * recoverable, free work is not. So the log is written after and its failure is
  * swallowed with a loud line rather than rolled back.
  */
-async function spend(userId, credits, reason) {
-  let client
-  try {
-    client = await withDeadline(chatPool().connect(), 'credits: pool connect')
-    const res = await withDeadline(client.query(SPEND_SQL, [userId, credits]), 'credits: spend')
-    let left = 0
-    if (res.rows.length === 0) {
-      // Refused. Read what they DO have so the refusal can say a number —
-      // "you have 12 and this costs 75" is answerable, "no" is not.
-      const b = await withDeadline(client.query(BALANCE_SQL, [userId]), 'credits: balance').catch(() => null)
-      left = Number(b?.rows?.[0]?.balance ?? 0)
-    } else {
-      // AWAITED, and it was not — which meant it never ran.
-      //
-      // This was `client.query(...).catch(...)` with no `await`, on a pooled
-      // client that the `finally` below releases the moment this function
-      // returns. The insert was issued against a connection going back into the
-      // pool and never landed: the balance moved on every turn and the ledger
-      // recorded nothing but the original grants. Caught by reading the table
-      // after a real spend rather than by trusting the code.
-      //
-      // Awaiting it does NOT change the failure direction, which is the thing
-      // that made fire-and-forget look reasonable. The balance has already
-      // moved; if this insert fails the credits are still gone, and that is
-      // correct — a gap in a statement is recoverable, free work is not. It is
-      // caught and logged, never rethrown, so a broken audit table cannot take
-      // down a turn.
-      await client.query(SPEND_LOG_SQL, [userId, credits, reason]).catch((e) => {
-        console.error('[decke] credit log failed (balance already moved). Cause code:', errCode(e))
-      })
-    }
-    return creditVerdictFrom(res.rows, credits, left)
-  } catch (err) {
-    console.error('[decke] credits unavailable — serving unmetered. Cause code:', errCode(err))
-    return { allowed: true, balance: Number.NaN, spent: credits }
-  } finally {
-    client?.release()
-  }
-}
-
-/**
- * ONE ENTRY POINT, so both call sites switch together.
- *
- * The failure this shape prevents is the obvious one: metering the chat turn
- * against credits and the deep tier against the old daily counter, because two
- * call sites were changed on different days. `DECKE_CREDITS_ENABLED` is read
- * here and nowhere else.
- *
- * The returned verdict is a superset of both shapes — `cap` for the meter's
- * refusal sentence, `balance` for the credits one — so nothing downstream has
- * to know which system answered.
- */
-async function meterTurn(userId, { tier, credits, reason }) {
-  if (!creditsEnabled()) return { ...(await charge(userId, tier)), credits: false }
-  return { ...(await spend(userId, credits, reason)), credits: true }
-}
-
 async function charge(userId, tier) {
   const cap = capFor(tier)
   if (cap <= 0) return { allowed: false, used: 0, cap }
@@ -452,8 +388,11 @@ async function serve(request) {
   //
   // BEFORE the body is even parsed, so a rejected caller costs one JWT
   // verification and nothing else.
-  if (!isDeckeEntitled(user.id)) {
-    return json({ error: 'deck-e is not available on this account' }, 403)
+  try {
+    if (!await ensureAdminBootstrap()) return json({ error: 'Account permissions are not ready.' }, 503)
+    await assertDeckeAccess(user.id)
+  } catch (error) {
+    return json({ error: error.status === 403 ? error.message : 'Account authorization is unavailable.' }, error.status === 403 ? 403 : 503)
   }
 
   let body
@@ -468,7 +407,7 @@ async function serve(request) {
   // apart as one outage or two. Nothing reads it for a decision, and an older
   // browser that does not send it logs `conversation=unknown` rather than
   // suppressing the line. See `decke/failing.ts`.
-  const { messages, route = '/', landmarks = [], conversationId } = body ?? {}
+  const { messages, route = '/', landmarks = [], conversationId, exchangeId, seq } = body ?? {}
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages must be a non-empty array' }, 400)
   }
@@ -514,12 +453,32 @@ async function serve(request) {
   // One turn is one BILLED REQUEST, not one thing the reader typed — a journey
   // costs up to four. Migration 039's header explains why that is the honest
   // unit even though it reads stingier than it is.
-  const meter = await meterTurn(user.id, {
-    tier: 'chat_turns',
-    credits: COST.chat_turn,
-    reason: 'chat_turn',
-  })
+  let quote, reference, meter, usage
+  const meterTurn = async (userId, { tier, reason, toolCallId, args }) => {
+    await assertDeckeAccess(userId)
+    if (!quote.policy.enabled && !quote.unlimited) return { ...(await charge(userId, tier)), credits: false,
+      ...creditWork(async () => {}, request.signal) }
+    const tool = reason === 'chat_turn' ? 'chat_turn' : reason.slice(5)
+    const spendKey = toolCallId ? `${reference.key}:deep:${toolCallId}` : reference.key
+    const hash = toolCallId ? payloadHash({ tool, args, toolCallId }) : reference.hash
+    const result = await reserveCredits(chatPool(), userId, tool, quote, spendKey, hash)
+    return { ...result, credits: true, ...creditWork(
+      () => refundUnstarted(chatPool(), userId, result.spendId),
+      request.signal,
+    ) }
+  }
+  try {
+    quote = await readPolicy(chatPool(), user.id)
+    reference = chatChargeReference(conversationId, messages, route, landmarks)
+    usage = await beginAiRequest(chatPool(), { userId: user.id, conversationId, exchangeId, seq, requestKey: reference.key, payloadHash: reference.hash, quote, messages, signal: request.signal })
+    meter = await meterTurn(user.id, { tier: 'chat_turns', reason: 'chat_turn' })
+  } catch (error) {
+    if (usage) await finishAiRequest(usage, 'failed')
+    const status = [400,403,409].includes(error.status) ? error.status : 503
+    return json({ error: status === 503 ? 'Credit accounting is unavailable. No model work was started.' : error.message }, status)
+  }
   if (!meter.allowed) {
+    await finishAiRequest(usage, 'failed', 0)
     // A SPOKEN REFUSAL, not a 500. The browser turns this status into his own
     // words in the transcript, so a budget reads as a budget rather than as a
     // malfunction. 429 and not 403: the account is entitled, it has simply
@@ -530,12 +489,13 @@ async function serve(request) {
     // can offer the top-up instead.
     return meter.credits
       ? json(
-          { error: outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed } },
+          { error: meter.held ? 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.' : outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed } },
           429,
         )
       : json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
   }
 
+  try {
   // Where this instance is reachable, for the API hop a tool makes. Derived
   // from the request rather than hardcoded, so a preview deployment talks to
   // ITSELF instead of to production — which matters most when the thing being
@@ -658,7 +618,8 @@ async function serve(request) {
 
   const choice = MODELS.chat
   const stream = createUIMessageStream({
-    execute: async ({ writer }) => {
+    execute: async ({ writer }) => runAiUsage(usage, async () => {
+      try {
       // EXPLICIT PROVIDER, EXPLICIT KEY.
       //
       // Passing the key as a `headers` entry does nothing: the gateway provider
@@ -798,10 +759,10 @@ async function serve(request) {
           // call at ~$0.036 — a 20x spread that a single "one deep call" unit
           // cannot express, and the reason the old meter needed a separate
           // counter for the tier at all.
-          charge: async (toolName) =>
+          charge: async (toolName, toolCallId, args) =>
             meterTurn(user.id, {
               tier: 'deep_calls',
-              credits: deepCost(toolName),
+              toolCallId, args,
               reason: `deep:${toolName}`,
             }),
           // `research_meta` was declined four times across the corpus, twice in
@@ -827,8 +788,9 @@ async function serve(request) {
         }),
       }
 
+      const preparedMessages = await convertToModelMessages(stripPriorCommands(messages))
       const result = streamText({
-        model: gateway(choice.id),
+        model: observeUsageModel(gateway(choice.id), meter),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
         // `instructions` is the field that accepts a SystemModelMessage, which
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
@@ -851,7 +813,7 @@ async function serve(request) {
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
         // `standardizePrompt` as "messages.some is not a function" — which
         // names neither this call nor the missing await.
-        messages: await convertToModelMessages(stripPriorCommands(messages)),
+        messages: preparedMessages,
         // THE BODY AND THE DATA, in one set.
         //
         // `buildTools` is the cosmetic ones — express, showScreen, and the
@@ -1087,6 +1049,7 @@ async function serve(request) {
         // rather than only the visible part of it.
         abortSignal,
         onError: ({ error }) => {
+          usage.failed = true;
           // Surfaced rather than swallowed: a silent empty turn is
           // indistinguishable from a broken feature.
           //
@@ -1106,7 +1069,7 @@ async function serve(request) {
             )
             return
           }
-          console.error('[deck-e] stream error', error)
+          console.error('[deck-e] stream error', safeUsageCode(error))
         },
       })
 
@@ -1142,8 +1105,8 @@ async function serve(request) {
             // now renders it as a failed row rather than as silence.
             onError: (error) => {
               const message = error instanceof Error ? error.message : String(error)
-              console.warn('[deck-e] stream/tool error surfaced to the client:', message)
-              return message.slice(0, 300)
+              console.warn('[deck-e] stream/tool error surfaced to the client:', safeUsageCode(error))
+              return 'The model request could not finish. Please try again.'
             },
           }),
         ),
@@ -1369,7 +1332,13 @@ async function serve(request) {
         // A guard must never manufacture a second failure on a turn that may
         // already have one. The detection is best-effort; the turn stands.
       }
-    },
+      } catch (error) {
+        usage.failed = true
+        throw error
+      } finally {
+        try { await meter.refund() } finally { await finishAiRequest(usage, 'completed', meter.spent) }
+      }
+    }),
   })
 
   // ── THE BALANCE RIDES ON A HEADER ────────────────────────────────────────
@@ -1380,8 +1349,7 @@ async function serve(request) {
   // emit one, which is exactly the turn where "how much is left" is least
   // certain and most worth knowing.
   //
-  // `-1` for "not applicable": credits are off, or the meter failed open and
-  // the number is not real. The client renders nothing for it rather than
+  // `-1` means credit charging is off. The client renders nothing for it rather than
   // guessing a balance, because a made-up number on a screen about money is
   // worse than no number.
   return createUIMessageStreamResponse({
@@ -1392,9 +1360,13 @@ async function serve(request) {
       // The threshold too, so the panel does not carry a second opinion about
       // what "low" means. The server prices the work; it is the only thing that
       // knows whether what is left still buys the expensive one.
-      'x-decke-credits-low': String(LOW_BALANCE),
+      'x-decke-credits-low': String(quote.policy.lowBalance),
     },
   })
+  } catch (error) {
+    await meter.refund()
+    throw error
+  }
 }
 
 /**
@@ -1582,7 +1554,7 @@ export default async function handler(req, res) {
     // Surfaced, not swallowed: an unhandled throw here is an opaque
     // FUNCTION_INVOCATION_FAILED with no stack in the response, which is what
     // made this bug take three deploys to find.
-    console.error('[decke] /api/chat failed:', err)
+    console.error('[decke] /api/chat failed:', safeUsageCode(err))
     if (!res.headersSent) {
       res.statusCode = 500
       res.setHeader('content-type', 'application/json')

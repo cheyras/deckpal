@@ -86,7 +86,7 @@ export function prFromCommitMessage(message: unknown): number | null {
 export interface BuildStamp {
   /** The PR this build is immediately after, or null when not attributable. */
   buildPr: number | null;
-  /** The exact commit, short form. Null outside a Vercel build. */
+  /** The full exact commit. Null outside a Vercel build. */
   buildSha: string | null;
 }
 
@@ -106,9 +106,12 @@ export interface BuildStamp {
 export function buildStamp(): BuildStamp {
   const sha = process.env.VERCEL_GIT_COMMIT_SHA;
   return {
-    buildPr: prFromCommitMessage(process.env.VERCEL_GIT_COMMIT_MESSAGE),
-    // Seven characters is what `git log --oneline` shows and what a person will
-    // paste back. The full forty is available in Vercel if anybody needs it.
-    buildSha: typeof sha === 'string' && sha ? sha.slice(0, 7) : null,
+    buildPr: prFromSystemId(process.env.VERCEL_GIT_PULL_REQUEST_ID) ?? prFromCommitMessage(process.env.VERCEL_GIT_COMMIT_MESSAGE),
+    buildSha: typeof sha === 'string' && /^[a-fA-F0-9]{40}$/.test(sha) ? sha.toLowerCase() : null,
   };
+}
+
+/** Preview PR system field is authoritative when Vercel supplies it. */
+export function prFromSystemId(value: unknown): number | null {
+  return typeof value === 'string' && /^[1-9]\d{0,6}$/.test(value) ? Number(value) : null;
 }

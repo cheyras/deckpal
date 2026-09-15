@@ -77,6 +77,12 @@ jobs:
       - name: Deck-E screen schema tests (pure, no DB)
         run: pnpm --filter deckpal-api test:decke
 
+      - name: Administration permission and transaction tests (pure)
+        run: pnpm --filter deckpal-api test:admin
+
+      - name: Credit economics and payment contract tests (pure)
+        run: pnpm --filter deckpal-api test:admin-credits
+
       # The PDF exports' brand mark, read back out of a rendered PDF. Every
       # export shipped a header saying `pokédex` — a name two renames old —
       # for as long as the feature has existed, because nothing rendered a PDF

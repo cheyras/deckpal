@@ -649,3 +649,36 @@ there.
 3. Auth: request without `x-brain-key` → 401; with → 200.
 4. Deployment (separate phase): process-manager entry, reverse-proxy routes for
    `/mcp` (key-header auth, allowed-hosts env), reboot-safe.
+
+## Administration, features and personal-account boundary (2026-09-15)
+
+The shared MCP catalog remains 24 tools (13 read/11 write); no administrative tools
+were added. Owner and Superadmin are distinct browser-session authorities, and
+neither expands a connector token's scope. PAT/OAuth tokens cannot call admin,
+wallet/purchase, feature-preference or conversation-sharing APIs. Connector
+collection/deck access remains scoped to its account and current suspension.
+
+Every account has one canonical role. Contributor has development-tool
+capabilities without Administration, while retaining ordinary own profile,
+subscription and credit-wallet self-service in an active browser session.
+Product Scanner/Deck-E access comes from lifecycle and opt-in, not editable role
+grants or preview hostnames. Disabled stops new provider starts, including Owner.
+
+Deck-E independently logs server request/provider-attempt metadata and honors
+its flat credit/daily policy. Owner-only unlimited/markup overrides do not grant
+MCP administration or bypass feature, suspension, debt, holds or budgets.
+Support subscriptions and gifts do not purchase AI credits.
+
+Conversation sharing is a separate default-off browser preference. Current
+exchange-start and present consent must match before an administrator reads
+optional current-message/assistant content. Withdrawal hides prior shared text;
+off-on never restores it. Own history and metadata are distinct, and no prompt/
+tool context is added to general telemetry or connector tools. Private APIs
+remain no-store and outside anonymous service-worker caching.
+
+Suspension/token revoke-all still cover API, token resolver, standalone MCP
+context and restrictive data policies; OAuth codes are consumed as well.
+Mint/exchange and revoke-all coordinate through commit. Reactivation does not
+revive credentials. Already-running work and previously downloaded content
+cannot be recalled. Administrative UI routes/actions remain outside Deck-E's
+navigation/click allowlists.

@@ -34,6 +34,8 @@ export type Topbar = 'cover' | 'flat'
  */
 export const DEFAULT_TOPBAR: Topbar = 'flat'
 
+let appDefault: Topbar = DEFAULT_TOPBAR
+
 const STORAGE_KEY = 'deckpal:topbar'
 
 function isTopbar(v: string | null): v is Topbar {
@@ -51,7 +53,7 @@ export function readStoredTopbar(): Topbar | null {
 }
 
 export function readTopbar(): Topbar {
-  if (typeof window === 'undefined') return DEFAULT_TOPBAR
+  if (typeof window === 'undefined') return appDefault
   try {
     const fromUrl = new URLSearchParams(window.location.search).get('topbar')
     if (isTopbar(fromUrl)) {
@@ -63,7 +65,7 @@ export function readTopbar(): Topbar {
   } catch {
     // Private-mode / disabled storage: fall back rather than break the app.
   }
-  return DEFAULT_TOPBAR
+  return appDefault
 }
 
 export function applyTopbar(t: Topbar): void {
@@ -84,4 +86,14 @@ export function initTopbar(): Topbar {
   const t = readTopbar()
   applyTopbar(t)
   return t
+}
+
+/** Apply server defaults without turning them into a personal choice. */
+export function setTopbarDefault(value: Topbar): void {
+  appDefault = value
+  if (!readStoredTopbar()) applyTopbar(value)
+}
+export function clearStoredTopbar(): void {
+  try { window.localStorage.removeItem(STORAGE_KEY) } catch { /* optional cache */ }
+  applyTopbar(appDefault)
 }

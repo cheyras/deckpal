@@ -25,7 +25,7 @@ const LOG = join(ARTIFACTS, 'integration.log');
 writeFileSync(LOG, '');
 const result = {
   status: 'running',
-  scope: 'Real PostgreSQL, production Express series/prices routes, shared history tool and default chat adapter. Focused fixture schema; not full migrations, RLS or production infrastructure.',
+  scope: 'Real PostgreSQL routes plus actual administration/credit migrations with authenticated, anon and service roles. No production infrastructure.',
   isolation: {
     externalTargetAccepted: false,
     inheritedConnectionEnvironmentIgnored: Object.keys(process.env)
@@ -225,6 +225,34 @@ try {
     assert.equal(evidence.timezone, timezone);
     assert.equal(evidence.status, 'passed');
     result.cases.push(evidence);
+  }
+  // Separate databases keep governance fixtures isolated from catalog tests.
+  // The runner alone provisions fixture roles on its owned socket cluster.
+  for (const mode of ['legacy-self-host','self-host','cloud']) {
+    // Rehearse both self-host forms before any Supabase-like roles exist.
+    if(mode==='cloud') await run(join(bindir,'psql'),['-X','-v','ON_ERROR_STOP=1','-c',
+      'CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; GRANT anon,authenticated,service_role TO deckpal_ci_fixture;']);
+    const database = mode === 'cloud' ? 'deckpal_ci_admin_test' : mode === 'self-host' ? 'deckpal_ci_selfhost_test' : 'deckpal_ci_legacy_test';
+    await run(join(bindir,'psql'), ['-X','-v','ON_ERROR_STOP=1','-c', 'CREATE DATABASE '+database+' OWNER deckpal_ci_fixture']);
+    const caseFile=join(scratch,'admin-'+mode+'.json');
+    await run(process.execPath, ['--import',join(REPO,'node_modules','tsx','dist','loader.mjs'),join(REPO,'apps','api','src','__integration__','admin.mjs')], {
+      timeoutMs:180_000,
+      env:{PGUSER:'deckpal_ci_fixture',PGDATABASE:database,DECKPAL_TEST_ROOT:scratch,DECKPAL_TEST_MARKER:marker,DECKPAL_TEST_RESULT:caseFile,DECKPAL_TEST_ADMIN_MODE:mode},
+    });
+    const evidence=JSON.parse(readFileSync(caseFile,'utf8'));
+    assert.equal(evidence.status,'passed');
+    result.cases.push(evidence);
+    for (const phase of ['before','after']) {
+      const accessDb='deckpal_ci_access_'+mode.replaceAll('-','_')+'_'+phase;
+      await run(join(bindir,'psql'),['-X','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE '+accessDb+' OWNER deckpal_ci_fixture']);
+      const accessFile=join(scratch,'access-'+mode+'-'+phase+'.json');
+      await run(process.execPath,['--import',join(REPO,'node_modules','tsx','dist','loader.mjs'),join(REPO,'apps','api','src','__integration__','access.mjs')],{
+        timeoutMs:180_000,
+        env:{PGUSER:'deckpal_ci_fixture',PGDATABASE:accessDb,DECKPAL_TEST_ROOT:scratch,DECKPAL_TEST_MARKER:marker,DECKPAL_TEST_RESULT:accessFile,DECKPAL_TEST_ADMIN_MODE:mode,DECKPAL_TEST_BOOTSTRAP:phase},
+      });
+      const accessEvidence=JSON.parse(readFileSync(accessFile,'utf8'));
+      assert.equal(accessEvidence.status,'passed');result.cases.push(accessEvidence);
+    }
   }
   result.status = 'passed';
 } catch (error) {

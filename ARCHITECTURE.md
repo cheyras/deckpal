@@ -150,45 +150,41 @@ role is used (bypasses RLS, since catalog tables are world-readable).
 
 ### Request pipeline order
 
-The `createApp` pipeline (`apps/api/src/index.ts`, which exports `createApp`)
-orders the base-path API router (`api`, mounted at `/api` on Vercel /
-`/deckpal/api` self-host) so that a request **rejected by the limiter** stops
-before token lookup and RLS work. Accepted anonymous catalog reads still use
-the existing RLS flow — they are not turned away, and they do acquire a
-connection:
+The `createApp` pipeline (`apps/api/src/index.ts`) orders the base-path API
+router (`/api` on Vercel, `/deckpal/api` self-host) as follows:
 
-1. **Pre-auth ingress guard** (`preAuthFloodGuard`, `rateLimit.ts`) — 600
-   req/min per source IP per process, mounted on the `api` router **before**
-   everything else on it. The RLS middleware acquires a connection even for
-   anonymous catalog reads, so a Bearer-only guard would leave no-header
-   floods unbounded. Client identity is platform-aware: on Vercel
-   (`process.env.VERCEL === '1'`) the validated `x-vercel-forwarded-for`
-   (preferred) or `x-forwarded-for` is used — Vercel overwrites both at
-   ingress; off Vercel, forwarding headers are ignored and the raw socket peer
-   is used. Express `trust proxy` stays at its default `false` (not loopback);
-   no new env variable is required.
-2. **`authMiddleware`** — **verifies** the `Authorization: Bearer` JWT and
-   resolves a personal access token (PAT) to `req.user`; it never rejects.
-   User-scoped routers are gated by `resolveIdentity` below, session-only ones
-   by `requireSession` too. A PAT lookup runs on the base pool and may access
-   the database during authentication — so RLS is **not** the first database
-   access; distinguish that lookup from the per-request transaction the RLS
-   context opens below.
-3. **Per-user session limits** — `/tokens` 20/min, `/avatar` 10/min,
-   `/oauth` 30/min, mounted **after** auth (so `req.user` is settled) but
-   **before** the RLS `pool.connect`. `requireSession` rejects PATs (403) and
-   anonymous (401) cheaply first; a blocked request never begins a transaction.
-   A request is charged **once per applicable budget** — it may consume both
-   the ingress budget and a per-user budget, but there is no duplicate
-   route-level charge (the routers below carry no second limiter).
-4. **RLS context** (`withUserContext`) — `pool.connect()` + `SET LOCAL role =
-   'authenticated'` + `request.jwt.claims`. This opens the per-request
-   transaction the lookup above is distinct from.
+1. **Pre-auth ingress guard** — 600 requests/min per source IP per process,
+   before authentication or RLS. It covers anonymous catalog reads too.
+   Vercel's validated `x-vercel-forwarded-for` (then `x-forwarded-for`)
+   identifies the client; outside Vercel, forwarded headers are ignored and
+   the raw socket peer is used. Express `trust proxy` remains false.
+2. **Authentication and local identity** — `authMiddleware` verifies a JWT
+   or resolves a PAT. Self-host resolves its single local account before the
+   session limits. The trusted bootstrap check also precedes RLS. Token lookup,
+   local-identity lookup or initialization may use the base/trusted pool here;
+   RLS is not necessarily the first database access.
+3. **Session gates and per-user limits** — `requireSession` rejects cloud
+   anonymous callers (401) and PATs (403), then applies `/tokens` 20/min,
+   `/avatar` 10/min, `/oauth` 30/min, the whole `/admin` subtree 120/min
+   and the whole `/me/credits` subtree 180/min. Credit administration consumes
+   the parent admin budget once; wallet polling has its own budget. Rejection
+   happens before the RLS request connection is acquired.
+4. **RLS context** — acquire the per-request connection and establish claims/
+   SQL role. Cloud requests, including accepted anonymous catalog reads, use
+   the existing transaction path. Self-host request transactions are scoped
+   to admin, wallet and OAuth; other local routes retain their prior pool use.
+5. **Account/action authorization and handlers** — user routes resolve identity,
+   check active-account state, then enforce action permissions in their router
+   and SQL functions. Early rate limiting does not replace authorization.
 
-All budgets are in-memory fixed windows **per process / per serverless
-instance**, reset on cold start — speed bumps against retry storms and casual
-abuse, not a distributed quota; reverse-proxy / platform controls remain the
-deployment boundary. Refusals are `429` with a `Retry-After` header (seconds).
+Ingress, admin and wallet guards use pinned `express-rate-limit` 8.7.0 with
+`BoundedExpressStore` adapting the existing shared 10,000-key process bound.
+Prefixes keep budgets separate; fixed windows, bounded admission and amortized
+expiry remain. No skip rules, response-based count refunds or validation
+suppression are configured. Store errors do not admit the request. These are
+per-process/function-instance budgets, reset on restart; they are not global
+distributed quotas. Budget exhaustion returns 429, Retry-After seconds and no-store.
+Existing token/avatar/OAuth guards keep their existing implementation and rates.
 
 The guard is on the ordinary base-path API router only. Two flows are mounted
 **separately on `app`, ahead of that router**, and are deliberately **not**
@@ -860,23 +856,88 @@ the componentization ledger. It has two modes with one structural rule:
   an agent with judgment (Lane B, `design-requests/`). The endpoints exist
   only while `vite dev` runs; they are absent from build output by
   construction, not by configuration.
-- **Production:** the route ships in the bundle but is gated to the owner:
-  `GET /me` returns a server-verified `designEditor` flag (cloud: the account
-  named by `DESIGN_EDITOR_USER_ID`; self-host: the single user), and the
-  route's `beforeLoad` renders not-found for anyone else. The page detects
-  the missing dev endpoints and runs read-only — tokens parsed client-side
-  from the bundled `theme.css` text by the same parser the plugin uses
-  (`routes/design/themeTokens.ts`), saves and composers hidden, live
-  ephemeral overrides still available.
+- **Deployed app:** the route requires `design.view` from the server's current
+  database permissions, including on preview. The compatibility
+  `designEditor` flag is derived from the same permission. The missing local
+  design endpoints keep the deployed page read-only: tokens are parsed from
+  bundled CSS, saves/composers stay hidden, and ephemeral previews remain.
+
+### Reusable administration DataTable — 2026-09-14
+
+`DataTable<T>` and `DataTableToolbar` are exported from
+`apps/web/src/components/ui.tsx`. The caller owns rows, stable `getRowId`,
+queries and all filtering/sorting/paging; the table never transforms rows.
+Columns define `id`, `header` and `cell(row)`, with optional `sortable`,
+`align`, `className` and `headerClassName`. Sorting is controlled by
+`sort: {columnId, direction}` and `onSortChange`; a header becomes a sort
+button only when both its column and the caller support sorting.
+
+Pagination takes `{offset, pageSize, total, onOffsetChange,
+onPageSizeChange?}`. Supply the exact total for the applied query. The optional
+size callback enables 25/50/100 choices and a reset to offset zero; callers
+also reset offset with applied filters/sort. Settled out-of-range pages request
+the last valid offset. Loading/refreshing/error states withhold old rows and
+expanded details; placeholder totals cannot trigger recovery while pending.
+Pass `loading`/`refreshing` until rows and total match the applied query,
+plus `error`/`onRetry` and custom `empty` content as appropriate.
+
+The toolbar composes labelled search, child filters, actions, submit and reset
+controls; callers choose submitted server filters or live local transforms.
+`renderExpandedRow` and `getRowLabel` provide explicit details buttons;
+expansion is scoped to the supplied rows array. One semantic table serves
+desktop and 390px. Its named region becomes keyboard-scrollable when it
+overflows; the scroll hint appears only then. Horizontal overflow stays inside
+the content column. Captions, column scope, aria-sort, result announcements and
+explicit links/actions preserve table semantics without mobile record cards.
+
+| Consumer | Matching and order |
+|---|---|
+| Users | Server username/email search or exact ID, status and exact assigned role; created-at/ID ascending, with no client-page sort. Role filtering needs roles.read without blocking users.read access. |
+| Audit | Exact server actor/action/target filters, newest-first order and paged totals; before/after JSON uses row details. |
+| Credit orders | Server status/exact user ID filters and paging; no invented global sorting. |
+| Roles | Complete-list name/key/description and protected/custom filters; name/member-count/permission-count sorting before local paging. |
+| Credit packs | Complete-list name and active/inactive filters; name/credits/sale-price sorting before local paging. |
+| User credit ledger | Existing server order and fixed 25-row pages; credit/debt/reason information remains. |
+
+Minimal fixed-page consumer, after the caller has resolved one matching page:
+
+```tsx
+import { DataTable, type DataTableColumn } from '../../components/ui'
+
+type RecordRow = { id: string; name: string }
+const columns: DataTableColumn<RecordRow>[] = [
+  { id: 'name', header: 'Name', cell: row => row.name },
+]
+export function RecordPage(props: {
+  rows: readonly RecordRow[]; total: number; offset: number
+  onOffsetChange: (offset: number) => void
+}) {
+  return <DataTable label="Records" rows={props.rows} columns={columns}
+    getRowId={row => row.id}
+    pagination={{ offset: props.offset, pageSize: 25, total: props.total,
+      onOffsetChange: props.onOffsetChange }} />
+}
+```
+
+The co-located `DataTable.gallery.tsx` is discovered by the existing
+`CatalogSection` glob: find **DataTable** in the `/design` component catalog.
+Its 63 fictional records demonstrate complete-list search/status/sort, paging,
+disclosure and loading/empty/error-and-retry states. Existing permissions,
+private query scoping, action sheets and financial rules remain with callers.
+This adds no virtualization, column persistence, exports or backend-query
+optimization. On 2026-09-14, the complete isolated browser suite passed 57 groups,
+including these table consumers and the design gallery, in cloud/self-host builds.
+Desktop 1280px and phone 390px screenshots were directly reviewed; actual
+keyboard scrolling and compact action-row bounds were also checked. The table
+branch has a preview. Fixture acceptance does not establish a production release
+or live authentication, database or payment behavior.
 
 ## 15. Deck-E — the 3D character runtime
 
-**Status: complete. Ships to production, owner-only.** Route `/dev/decke`,
-gated the same way as `/design`: `beforeLoad` checks the server-verified `owner`
-flag on `GET /me` and throws `notFound()` for everyone else, so for any other
-visitor the route is indistinguishable from one that never existed. The identity
-check lives server-side (`DESIGN_EDITOR_USER_ID`), so nothing about who the owner
-is enters the bundle, and an unset variable means nobody — it fails closed.
+**Status: implemented runtime; access is permission-based.** The
+`/dev/decke` review route requires `diagnostics.view`. Browser guards and
+server-side gates use current database authority; no owner UUID enters the
+bundle, and preview does not bypass permission checks.
 
 Shipping it means the chunk is emitted (~1.17 MB of three.js and the runtime,
 measured 2026-08-22 and approximate on purpose — the precise figure drifts with
@@ -1128,15 +1189,15 @@ enums, numbers and plain strings, and `DeckeScreen.tsx` is a switch that renders
 schema that carries HTML, a class name, a style, a URL or a selector — so it is
 not a sanitised injection surface, it is not an injection surface.
 
-**Who may talk to him, and how much, is decided on the server.** The browser's
-own gate (`entitlement.ts`) only decides whether to draw a button; `POST
-/api/chat` re-checks it before the request body is parsed
-(`DECKE_ENTITLED_USER_IDS` plus the owner — a list, not a single id, because
-several of the plan's browser gates run as the QA account, never the owner,
-per B12) and meters every account against a durable daily cap in Postgres
-(`decke_usage`, migrations 039/040) — chat turns and deep calls capped
-separately, ~250x apart in price. See SECURITY.md for the reasoning; this is
-the mechanism.
+**Who may talk to him, and how much, is decided on the server.** Deck-E
+requires current `decke.use` permission and an active account. When database
+credit policy is enabled, each priced operation reserves an atomic flat charge
+with its policy snapshot before invocation; accounting errors fail closed.
+When charging is disabled, ordinary accounts use the daily chat/deep counters;
+explicit unlimited overrides retain access/hold/budget checks without debit or
+daily allowance. Lifecycle policy derives product permission; retired entitlement
+allowlists do not grant it. The credits-enable flag initializes policy once. See ADMINISTRATION.md and
+SECURITY.md for limits, refunds and suspension.
 
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly
@@ -1170,7 +1231,7 @@ apps/web/src/lib/markdownSafety.ts   what model-written markdown may become,
 apps/api/src/decke/
   ctx.ts               builds a Ctx from the caller's JWT; lazy Ctx.db (§15c)
   rls.ts               the per-tool-call RLS session + its watchdog (§15c)
-  entitlement.ts        DECKE_ENTITLED_USER_IDS + the owner gate
+  entitlement.ts        current database decke.use permission
   meter.ts              the daily chat_turns / deep_calls cap, check-and-charge in one statement
   models.ts             which model each job gets, and why (measured, not assumed)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
@@ -1639,3 +1700,69 @@ both "what happened to this card" and "which operation did it belong to".
 `mutation_event` is append-only at the policy level — SELECT and INSERT, no
 UPDATE — so a revert appends compensating events rather than editing history.
 See SECURITY.md for why that matters on Supabase specifically.
+
+## Administration, lifecycle and AI usage (2026-09-15)
+
+Migrations 068–071 extend the immutable 064–067 foundation. Every account has
+one canonical `admin_account.role_id`, default User. Built-in tiers are
+User 10, Superuser 20, Contributor 30, Admin 40, Superadmin 50 and Owner 60; custom
+roles are limited to10/20/30/40 with enforced permission ceilings.
+Owner authority derives from protected canonical membership seeded from trusted
+bootstrap state. It is not an editable permission or a synonym for Superadmin.
+
+Assignment checks the actor, destination and current target tier under the
+governance lock. Definitions distinguish protected identity from safe editing.
+The old junction is archived privately; a read-only projection and deprecated
+single-summary `roles[]` preserve older readers, projecting Owner as existing
+Superadmin only there. New authorization uses singular role/isOwner.
+Ambiguous mappings fail the migration transaction for explicit operator review.
+
+One SQL feature resolver derives product permissions from lifecycle and opt-in:
+released for active users, beta by opt-in for every tier, experiments by tier 20+
+opt-in with automatic Superadmin/Owner access, disabled for nobody. Scanner and
+Deck-E initialize experimental. Opt-in, character visibility and sharing consent
+are independent. Dev tools is a separate permission-filtered directory;
+Contributor keeps ordinary personal self-service without Administration.
+
+Owner per-user overrides are revisioned/audited and independent of role. Null
+markup inherits; zero remains valid. Unlimited means a zero-debit reservation,
+not a synthetic balance grant. New reservations require current policy; existing
+reserved work and bounded children retain immutable pricing. Access, debt,
+refund/dispute holds and operational limits still apply. Flat quoted settlement
+and existing financial recovery/reconciliation are unchanged.
+
+The chat server durably accepts a parent request before provider work.
+The first credit start and provider-attempt row commit atomically after current
+authority and payment holds are checked under the relevant locks. The SDK call
+sets a synchronous invocation latch. A known cancellation or lost database
+acknowledgement before that call retains an exact-operation compensation path;
+it cannot refund completed/failed invocations or an earlier real retry attempt.
+AI SDK middleware instruments actual local calls and nested/retry/fallback
+attempts; finalization records safe status/tokens and reported decimal cost or
+unknown. It does not persist whole SDK callbacks, tool payloads, private context
+or raw errors. Full server SHA and strict preview PR ID, falling back to merge
+subject, identify the generation build. Unreported upstream work remains unknown.
+
+Usage reads require an active application session, tier 40 or higher and current
+`admin.access`. Custom roles lose metadata and shared-content access immediately
+when that permission is removed; the capability projection uses the same rule.
+
+Consent is default-off. First-leg exchange consent plus current enabled same
+epoch and active account are required on every administrative content read.
+Withdrawal deletes optional excerpts and re-enable cannot resurrect them.
+Usage metadata survives missing browser saves; history correlation is validated
+against owned server acceptance and cannot forge build/cost. Own-history deletion
+withdraws excerpts while preserving metadata. No-store responses and sensitive
+query clearing/refetch complement server checks; previously viewed text cannot
+be recalled.
+
+The shared DataTable keeps server filtering/paging or complete-list sorting at
+the caller and uses semantic rows at desktop/mobile widths. Sort indicators and
+core controls use the shared SVG Icon with accessible labels. Administration,
+feature preferences, Dev tools, usage and cost observations reuse that system.
+Observed complete/unknown samples inform an explicit estimate draft and pricing
+revision save; actual provider cost never silently changes a wallet charge.
+
+ADMINISTRATION.md documents the controls; API.md gives DTOs, SECURITY.md the
+trust boundaries, and DEPLOYMENT.md the schema-first mapping/rollout runbook.
+Local fixtures do not establish live Stripe delivery or production readiness.

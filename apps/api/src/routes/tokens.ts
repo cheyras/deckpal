@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { pool, rlsStore } from '../db.js';
-import { asyncHandler, badRequest, notFound, userCache, UUID_RE } from '../http.js';
+import { adminError } from '../admin/access.js';
+import { pool, rlsStore, withTx, commitRequestTx } from '../db.js';
+import { asyncHandler, badRequest, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { createToken, listTokens, revokeToken, type Queryable } from '@deckpal/db';
 
@@ -37,7 +38,7 @@ function db(): Queryable {
 tokensRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    userCache(res);
+    res.setHeader('Cache-Control','no-store');
     const userId = currentUserId(req);
     res.json({ tokens: await listTokens(db(), userId) });
   }),
@@ -53,13 +54,19 @@ tokensRouter.post(
     if (name.length > MAX_NAME_LEN) throw badRequest(`name must be ${MAX_NAME_LEN} characters or fewer`);
 
     const userId = currentUserId(req);
-    const existing = await listTokens(db(), userId);
-    if (existing.filter((t) => !t.revokedAt).length >= MAX_ACTIVE_TOKENS) {
-      throw badRequest(`You already have ${MAX_ACTIVE_TOKENS} active tokens. Revoke one first.`);
-    }
-
-    const created = await createToken(db(), userId, name);
-    userCache(res);
+    const created = await withTx(async client => {
+      // Serialize the cap check and mint with revoke-all/suspension. The SQL
+      // INSERT trigger independently covers clients bypassing this route.
+      await client.query('SELECT pg_advisory_xact_lock(741290064)');
+      const existing = await listTokens(client, userId);
+      if (existing.filter(t => !t.revokedAt).length >= MAX_ACTIVE_TOKENS) {
+        throw badRequest(`You already have ${MAX_ACTIVE_TOKENS} active tokens. Revoke one first.`);
+      }
+      return createToken(client, userId, name);
+    }).catch(error=>{throw adminError(error);});
+    // Never hand out the only copy of a secret before its row is durable.
+    await commitRequestTx(userId);
+    res.setHeader('Cache-Control','no-store');
     // 201 with the one and only copy of the secret.
     res.status(201).json({ token: created.token, secret: created.raw });
   }),
@@ -78,7 +85,8 @@ tokensRouter.delete(
     const userId = currentUserId(req);
     const revoked = await revokeToken(db(), userId, id);
     if (!revoked) throw notFound('No such token');
-    userCache(res);
+    await commitRequestTx(userId);
+    res.setHeader('Cache-Control','no-store');
     res.json({ token: revoked });
   }),
 );

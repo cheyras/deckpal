@@ -20026,3 +20026,257 @@ representative scanner dependency hashes or pre-existing absence, and unchanged
 retained top-level scanner metadata. This is documentation and local-artifact
 cleanup, with no application, package or test changes; no CI or deployment
 result is claimed.
+
+---
+
+## 2026-09-13 — Add owner administration and an explicit AI credit economy
+
+**Decided by:** @cheyras; recorded by Codex.
+
+**Trigger.** The owner needs to delegate contributor access, discover existing
+privileged tools, manage users and defaults, and set credit meaning, usage
+markup and pack prices without code changes. Environment owner/QA lists and
+fixed credit constants do not support those workflows.
+
+**Decision.** Add a permission-filtered Administration area with Overview,
+Users, Roles, Settings, Audit and Tools, plus a Profile/chat-linked AI credit
+wallet. Migrations 064–067 define application roles, permissions, account state,
+audited mutations and effective skin/topbar defaults for unset preferences.
+Roles compose a fixed permission catalog; delegation cannot exceed the actor's
+authority. The protected last active Super admin cannot be removed through
+concurrent demotion or suspension. A private, one-time transaction imports the
+existing configured owner/QA accounts and exact legacy credit-enable flag.
+Database changes then govern access and charging; there is no first-user
+enrollment, permanent environment bypass or preview exemption.
+
+Administrative and wallet endpoints require active sessions, never personal
+or OAuth connector tokens. SQL independently authorizes scoped functions.
+Governance writes, financial administration, token insertion and OAuth exchange
+share a transaction lock with revocation and recheck state after acquiring it.
+Manual token responses follow a successful commit. This closes the initial
+Astra finding where an uncommitted mint could survive revoke-all. Restrictive
+owned-table policies and three narrow legacy-billing guards extend suspension
+beyond Express; already-running work and downloaded/signed-URL data remain
+outside recall.
+
+Credit policies use integer microUSD estimates, a denomination and markup to
+round future flat charges up to whole credits. Initial 1/4/75 prices and all
+existing integer balances/events are preserved; the stale initial chat estimate
+is called out before sales. Each HTTP chat leg and its deep work keep one
+pricing revision. Debit, snapshot and reservation are atomic; cancellation
+before provider start refunds, while provider-started work retains its quoted
+charge. Accounting connections are released across model streaming, and an
+accepted replay cannot obtain another free invocation. This is estimated
+pricing, not actual token settlement or a realized-profit report.
+
+Packs start empty and have independent USD sale prices. Checkout freezes order
+terms server-side and signed webhooks reconcile current Stripe state before a
+unique grant. Refunds/disputes reverse credits into explicit debt when already
+spent; pending refunds and unresolved disputes hold purchases/work. Positive
+grants repay debt first, and a reasoned closed-dispute hold resolution cannot
+override debt or open payment work. Per-order reconciliation revisions reject
+stale remote snapshots; deterministic order-before-wallet locking coordinates
+hold resolution and settlement. Existing voluntary support/gifts remain separate.
+Readiness inspects the existing webhook configuration read-only, including nine
+credit event subscriptions; no readiness flag or automatic endpoint mutation
+is introduced.
+
+The actual SPA clears sensitive state across account changes. Its service
+worker bypasses both runtime and HTTP caches for private or Authorization-bearing
+APIs, retires mixed API caches, and preserves anonymous cloud catalog/art/shell
+caching. Self-host APIs are all network-only because reverse-proxy identity is
+opaque; art/shell caching remains.
+
+**Rollout and observed verification.** The owner guide and deployment runbook
+require schema before code: 065 alone is Supabase-only, while 067's cloud grants
+are conditional and its functions also support UUID self-host. Worker reports
+record passing pure/type checks, real disposable PostgreSQL governance,
+credential-race and 17 financial suites, and 27 browser groups across both build
+modes. The supervisor inspected desktop and 390px screenshots. These fixtures
+use selected dependencies/new migrations, synthetic sessions and local
+Stripe/model responses; they do not rehearse every historical migration.
+Final independent PR review/CI, production schema/bootstrap and actual payment
+or refund/dispute delivery remain unverified at authoring. This documentation
+worker changed only docs and executed no product tests or production requests.
+
+---
+
+## 2026-09-13 — Close new-object client permissions within creation migrations
+
+**Decided by:** @cheyras; recorded by Codex during the super-admin review.
+
+**Why.** The migration runner commits each numbered SQL file separately.
+Deferring client-permission cleanup from creation files 064/066 to 065/067
+can leave new objects accessible through deployment default grants when an
+upgrade stops between those files. A correct completed schema alone does not
+prove a safe interrupted upgrade.
+
+**Decision.** End each creation migration with explicitly scoped revocations
+for its new tables, sequences and functions: PUBLIC always, and anon and
+authenticated only when those roles already exist. Revocations occur inside
+the same transaction as object creation. Existing explicit trusted-server
+access is preserved. This does not create platform roles, alter schema-wide
+default privileges or sweep unrelated objects. Later security migrations
+retain their narrow function grants unchanged. A stop after creation leaves
+the new client surfaces private; complete 064–067 and verify checksums before
+serving the new application.
+
+**Observed verification.** The backend's declared check passed all 54
+disposable PostgreSQL integration cases. Cloud staging checks verified 52
+client privilege denials after 064 and 36 after 066, including closed PUBLIC
+access and retained creator authority. Current UUID self-host stages passed
+without cloud roles, and the final 065/067 authorized flows remained green.
+The private cluster was stopped and removed. These checks establish the
+isolated interrupted-upgrade boundary; final independent approval and CI
+remain pending. Production migration access is still unavailable, so no live
+schema/bootstrap, Stripe subscriptions or payment delivery are verified.
+
+---
+
+## 2026-09-13 — Use maintained Express limiters before request RLS acquisition
+
+**Decided by:** @cheyras; recorded by Codex during the super-admin CI repair.
+
+**Why and decision.** Replace the ingress/admin/wallet middleware with genuine
+express-rate-limit 8.7.0, pinned in the API dependencies, and adapt the existing
+bounded store rather than substituting a static-analysis suppression. Preserve
+the 600/min ingress, 120/min shared admin and 180/min wallet budgets, separate
+prefixes and shared 10,000-key per-process capacity. No skip rules, response-based
+counter refunds or validation suppression are introduced. Store errors refuse
+requests; throttled responses retain 429, Retry-After and no-store.
+
+Place the admin/wallet session gates and limiters after authentication and
+resolved self-host identity, before RLS acquires its request connection. Keep
+active-account and action/SQL authorization before handlers. Nested credit
+administration is counted once; database checkout quotas and owner-facing
+behavior remain unchanged. Authentication lookup and trusted bootstrap can
+use their own pool earlier, so the guarantee concerns the RLS request connection,
+not all possible database access. These remain per-instance budgets, not
+distributed quotas.
+
+**Observed verification.** The implementation author's final check passed
+API typechecking, 33 actual rate-limit tests, six admin tests and the declared
+CodeQL-repair check. The supervisor also reran the declared check through Ringer
+baseline, passing 1/1. Tests covered real HTTP 120/180 enforcement, single nested
+admin accounting, independent user/wallet budgets, PAT/anonymous denial, local
+identity keys, 600/min ingress rejection before authentication, self-host
+forwarding-header handling, window reset and 10,000-key saturation. No skip rules
+or package validation warnings were reported.
+[PR #188](https://github.com/cheyras/deckpal/pull/188) holds current review/CI
+status. Production migration access, live schema/bootstrap and actual payments
+remain outside this isolated verification and have not been established.
+
+---
+
+## 2026-09-14 — Reuse one semantic table for administration records
+
+**Decided by:** @cheyras; recorded by Codex.
+
+**Why and decision.** The owner rejected one-card-per-record lists and requested
+a reusable filterable row table matching the current UI kit. Add DataTable and
+DataTableToolbar with caller-owned rows/columns, controlled sort/paging,
+explicit loading/error/empty/recovery states and optional row disclosure.
+The same table remains on desktop and 390px with contained horizontal scrolling.
+
+Use it for Users, Roles, Audit, credit packs/orders and the user-detail ledger.
+Users/audit/orders retain supported server filters, exact totals and server
+ordering; sorting only a fetched page must not imply a globally sorted result.
+Roles/packs filter and sort the complete loaded list before local paging.
+Preserve permission gates, user links, protected actions, revision/reason
+workflows, audit details, money/debt display and private-query responsibilities.
+Overview statistics, tool-navigation cards and configuration forms stay intact.
+
+**Scope and evidence at authoring.** This is frontend presentation, with no new
+API, migration, environment or security rules and no virtualization/backend-query
+optimization. The core author reports six focused tests and TypeScript passing.
+The gallery and six consumer conversions are implemented, and the branch preview
+is available. The final built-SPA browser suite passed 57 groups in cloud and
+self-host modes, including table and gallery interactions at 1280px and 390px.
+Screenshots were directly reviewed; final role action sizing keeps its controls
+on one line on phones, verified by actual button/cell geometry. Keyboard checks
+measure rightward scroll movement from the left edge and visible focus. These
+checks use local API/session/payment fixtures and cannot establish live auth,
+SQL, payments or a production frontend release.
+
+
+## 2026-09-15 — Single-role governance, feature lifecycle and consented AI usage
+
+**Decided by:** @cheyras; implemented and documented by Codex under the
+verified feedback workflow.
+
+**Decision:** Every account has one canonical role, default User, with built-in
+User/Superuser/Contributor/Admin/Superadmin/Owner tiers. Contributor keeps
+ordinary personal self-service and development tools but receives no
+Administration. A separate Dev tools directory excludes product experiments.
+Admin assignment checks the current target as well as the destination.
+Superadmin/Owner edit safe role definitions; immutable identities, permission
+ceilings and protected Owner authority cannot be manufactured by editable bits.
+Owner is seeded from trusted bootstrap state, distinct from Superadmin, with
+last-active-Owner protection and no ordinary transfer UI.
+
+Product access is a revisioned lifecycle plus personal opt-in. Released is
+available to active users; beta requires explicit opt-in for every tier;
+Superuser/Contributor/Admin can opt into every experiment, Superadmin/Owner
+receive experiments automatically, and disabled stops new requests/attempts for
+everyone. Scanner/Deck-E initialize experimental. Character visibility,
+feature opt-in and conversation sharing are separate preferences.
+
+Owner may set per-user unlimited usage and nullable markup independently of
+role. Null inherits and zero is valid. Reservations freeze policy/override
+revisions; new work cannot select a revoked revision. Unlimited uses explicit
+zero debit with no synthetic grant and retains access, holds/debt and operational
+budgets. Existing flat quoted charging, refunds/recovery and Stripe settlement
+remain intact.
+
+Chat now records durable server request and local provider-attempt metadata
+independently of browser history, including nested/retry/fallback/failure/cancel
+paths. Reported decimal cost, nullable token evidence, full SHA and trusted PR
+provenance remain honest when unavailable. Observations expose complete/unknown
+samples and populate explicit estimate drafts; they never settle wallets by
+actual cost automatically. Optional current-message/visible-response content
+requires both first-leg and current enabled consent at the same epoch.
+Sharing defaults off; withdrawal hides prior content and off-on cannot restore
+it. Personal history uses validated owned exchange correlation and cannot forge
+server cost/build. No raw tool/context/error payloads enter general telemetry.
+
+Core UI controls, navigation and statuses use the shared SVG Icon or a deliberate
+semantic CSS mark with accessible labels. Semantic DataTable rows retain
+controlled sort/filter/page and mobile overflow behavior; no parallel component
+system is introduced.
+
+**Why:** These boundaries make delegated authority, feature eligibility and
+financial policy explicit while supporting useful real usage observations.
+They prevent role unions/demotion shortcuts, stale override selection, accidental
+sharing of earlier exchanges, unknown cost being presented as zero, and browser
+history being mistaken for server evidence.
+
+**Implications:** Apply reviewed migrations 068–071 through the normal runner
+without altering shipped checksums. 068 archives prior assignments and offers
+read compatibility only; ambiguous mappings fail atomically. Local PostgreSQL
+verified process-scoped PGOPTIONS mapping across runner transactions, but actual
+pooler forwarding needs operator verification. A failed file does not undo
+earlier committed files; rollback requires verified compatibility or a reviewed
+backup plan. Stripe readiness recognizes protected-query delivery on the exact
+HTTPS origin/path and required mode/events; a dedicated stable sandbox endpoint
+is separate from existing production support payments.
+
+The implementation passed isolated API/SDK/financial tests and the full guarded
+PostgreSQL runner, including the actual history HTTP/SQL/consent chain in cloud
+and UUID self-host fixtures. This documentation pass changed Markdown only and
+made no live configuration, payment, migration or deployment calls. Production
+rollout, pooler forwarding and actual new webhook delivery require separately
+recorded operator evidence. Previously viewed or copied shared text cannot be
+recalled.
+
+### Review corrections: current permissions and provider charge boundary
+
+Usage SQL and its capability projection require current admin.access as well as
+an active session and tier >=40. Editing a custom role revokes usage metadata and
+consented content together. First provider-operation persistence and the credit
+start marker now commit atomically, with fresh authorization after lock waits.
+Known pre-invocation cancellation uses exact-operation compensation; actual
+provider attempts, including retries, keep their flat charge. Financial
+summaries accept historical flat and current effective-policy snapshots and
+count missing estimates as unpriced. UI aggregate counts name provider
+operations. Disposable SQL/HTTP and SDK lifecycle regressions cover these paths;
+these changes do not establish production deployment or live payment readiness.

@@ -1,4 +1,8 @@
+import { ConversationSharing } from '../components/ConversationSharing'
+import { useAccess } from '../lib/access'
+import { FeaturePreferences } from '../components/FeaturePreferences'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { CreditProfileCard } from './credits/Credits'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
@@ -78,6 +82,7 @@ const TABS = [
 ] as const
 
 export function Profile() {
+  const access = useAccess()
   const navigate = useNavigate()
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
   // Issue #49: the wrapper entrance fires while this is still a spinner.
@@ -408,8 +413,10 @@ export function Profile() {
               somebody arriving from that modal must not have to hunt. It is
               cloud-only and self-gating -- SupportSettings renders nothing at
               all on a deployment with no Stripe, rather than an empty card. */}
-          <SupportSettings />
+          {access.ready && <><CreditProfileCard /><SupportSettings /></>}
           {isCloudMode && <ChangePassword />}
+          <FeaturePreferences />
+          <ConversationSharing key={access.identity} />
           <DeckeVisibility />
           <AgentAccess />
         </div>

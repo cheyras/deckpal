@@ -88,7 +88,7 @@ Three independent workflows run for PRs and pushes to `main`:
 | Workflow | Coverage |
 |---|---|
 | `.github/workflows/ci.yml` | Frozen install; shared-package builds; workspace typechecks; the pure API, agent-tool, adapter, web, storage, matching and other wired suites; deployable builds and serverless-function loading. No database. |
-| `.github/workflows/db-integration.yml` | Real PostgreSQL in a private disposable cluster: series date/order behavior and the price route → shared history tool → conversational adapter boundary in UTC and America/Denver. |
+| `.github/workflows/db-integration.yml` | Real PostgreSQL in a private disposable cluster: series/price/adapter boundaries in UTC/Denver; selected admin/credit migrations, direct SQL/RLS, bootstrap, role/token races and financial accounting in cloud and self-host fixtures. |
 | `.github/workflows/browser.yml` | Deployment asset inclusion checks, actual cloud/self-host SPA builds at desktop and 390px, and real chat components exercised through a test-only Vite entry. Deterministic local fixtures; results and screenshots retained as artifacts. |
 
 The database and browser workflows retain their result artifacts even when a
@@ -121,10 +121,27 @@ controls; it does not upload to Vercel.
 
 **Production-targeting tests remain excluded.** The existing
 `pnpm --filter deckpal-api test:collection` suite is manual and is not called
-by any CI workflow. The new database fixture schema is focused boundary
-coverage, not full migration or RLS validation.
+by any CI workflow. The catalog fixture is focused boundary coverage;
+administration/credits also rehearse selected dependency migrations and 064–067 with direct RLS/grant and
+concurrency checks. This is not a full historical migration replay or proof of
+production auth/payment configuration.
 
 ## Testing expectations
+
+For administration or credit changes, also run:
+
+```bash
+pnpm --filter deckpal-api test:admin
+pnpm --filter deckpal-api test:admin-credits
+```
+
+Both are wired into pure CI. The existing `test:integration` runner exercises
+actual selected governance/economy migrations, trusted bootstrap, direct-session
+and token denials, suspension/revocation races, frozen orders, reservations,
+refund/debt and stale-reconciliation boundaries. `test:browser` includes real
+admin/wallet routes, role workflows, defaults/pricing conflicts, host Top up
+and identity/service-worker privacy at desktop/390px. Browser API sessions and
+Stripe/model responses remain local fixtures; never use production for tests.
 
 - Run the pure suites relevant to the change; `test:deck` is only the deck
   engine suite, not a substitute for the rest of CI.

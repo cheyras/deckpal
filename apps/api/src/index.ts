@@ -1,3 +1,9 @@
+import { adminBootstrapStatus, appDefaults, ensureAdminBootstrap, requireActiveAccount, requestAccessStore } from './admin/access.js';
+import { adminRouter } from './routes/admin.js';
+import { adminFeatureRouter, meFeatureRouter } from './routes/features.js';
+import { selfSharingRouter, adminUsageRouter } from './decke/usageRoutes.js';
+import { userAiOverrideRouter } from './credits/overrides.js';
+import { adminCreditRouter, meCreditRouter } from './credits/routes.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +15,6 @@ import { labelerEntitlementStatus } from './ownerGate.js';
 import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
 import { checkModels, modelCheckStatus, modelCheckWarning, type ModelCheck } from './decke/modelCheck.js';
 import {
-  deckeEntitledCount,
   deckeEntitlementStatus,
   deckeEntitlementWarning,
 } from './decke/entitlement.js';
@@ -43,7 +48,7 @@ import { mountOAuthServer } from './oauthServer.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
-import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard } from './rateLimit.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -63,12 +68,8 @@ export function createApp(): express.Express {
   // closed is correct; failing closed SILENTLY cost four days of `/design`
   // being shut with nothing to indicate it. One line in the deploy log turns
   // that into something you notice. See AGENTS.md B11.
-  if (ownerGateStatus() === 'unset') {
-    console.warn(
-      '[deckpal-api] DESIGN_EDITOR_USER_ID is unset — owner-only surfaces ' +
-        '(/design, /dev/decke) are closed to EVERY account. Set it to the ' +
-        "owner's auth.users UUID and redeploy.",
-    );
+  if (adminBootstrapStatus() !== 'ready') {
+    console.warn('[deckpal-api] Account administration initializes from the database on the first request; /health reports readiness.');
   }
 
   // Same rule, same reason, for the feature that also costs money when it is
@@ -202,6 +203,9 @@ export function createApp(): express.Express {
   // and the session-only ones (/me/billing, /tokens, /avatar, /oauth) by
   // requireSession too.
   api.use(authMiddleware);
+  if (!SUPABASE_MODE) api.use(resolveOptionalIdentity);
+  // Bootstrap uses the trusted pool before RLS owns its one request connection.
+  api.use((_req,_res,next)=>{ensureAdminBootstrap().then(()=>next()).catch(next);});
 
   // ── Per-user rate limits for session-only routes ─────────────────────────
   //
@@ -215,13 +219,20 @@ export function createApp(): express.Express {
   api.use('/tokens', requireSession, tokensRateLimit);
   api.use('/avatar', requireSession, avatarRateLimit);
   api.use('/oauth', requireSession, oauthRateLimit);
+  // Shared /admin parent counts its credit subtree once; wallet polling has
+  // an independent budget. Reject before RLS obtains a request connection.
+  api.use('/admin', requireSession, adminRateLimit);
+  api.use('/me/credits', requireSession, creditWalletRateLimit);
+  api.use(['/me/features','/me/decke-sharing'], requireSession, adminRateLimit);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS
   // policies fire on every query — defense-in-depth on top of the parameterized
   // WHERE user_id = $1 clauses. q(), q1(), and withTx() automatically use the
   // per-request client via AsyncLocalStorage, so routes need no changes.
-  if (SUPABASE_MODE) {
+  {
+    // Self-host also gets one transaction context so session-only SQL
+    // derives the trusted local actor without an auth schema or second pool.
     // How long one request may hold its pooled connection before it is
     // reclaimed. No endpoint in this API streams or long-polls, so anything
     // still holding after this is stuck — and holding forever is precisely what
@@ -232,6 +243,12 @@ export function createApp(): express.Express {
     const CLEANUP_MS = Number(process.env.PGRLS_CLEANUP_MS ?? 5_000);
 
     api.use((req, res, next) => {
+      // Legacy self-host handlers retain their established direct-pool shape.
+      // Only the new session-derived SQL surfaces need a request transaction.
+      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$))/.test(req.path)) {
+        next();
+        return;
+      }
       const userId = req.user?.id ?? null;
       pool.connect().then(async (client) => {
         let cleaned = false;
@@ -314,9 +331,9 @@ export function createApp(): express.Express {
           // (see DECISIONS.md 2026-08-10).
           const setup = userId
             ? `BEGIN; SELECT set_config('request.jwt.claims', ${client.escapeLiteral(
-                JSON.stringify({ sub: userId, role: 'authenticated' }),
-              )}, true); SET LOCAL role = 'authenticated'`
-            : `BEGIN; SET LOCAL role = 'anon'`;
+                JSON.stringify({ sub: userId, role: SUPABASE_MODE ? 'authenticated' : 'local', deckpal_auth_kind: req.authKind }),
+               )}, true); ${SUPABASE_MODE ? "SET LOCAL role = 'authenticated'" : ''}`
+            : `BEGIN; ${SUPABASE_MODE ? "SET LOCAL role = 'anon'" : ''}`;
           await client.query(setup);
           // The request may have been aborted while that was in flight; cleanup
           // has then already run and the client is no longer ours to use.
@@ -324,7 +341,7 @@ export function createApp(): express.Express {
 
           // Run the rest of the middleware chain inside the RLS store context
           // so q()/q1()/withTx() pick up the client transparently.
-          rlsStore.run(client, () => next());
+          rlsStore.run(client, () => requestAccessStore.run(new Map(), () => next()));
         } catch (err) {
           void cleanup('rollback');
           next(err);
@@ -332,6 +349,8 @@ export function createApp(): express.Express {
       }).catch(next);
     });
   }
+
+  api.use(requireActiveAccount);
 
   // Health: DB liveness + per-sync freshness (cheap; single grouped query).
   // Public — no requireAuth.
@@ -369,6 +388,7 @@ export function createApp(): express.Express {
         // owner-only surface is closed to everyone, which is a deployment
         // mistake that is otherwise invisible from outside. See AGENTS.md B11.
         ownerGate: ownerGateStatus(),
+        administration: adminBootstrapStatus(),
         // Whether Deck-E's brain has a Gateway credential — never which one,
         // and never any part of its value. `unset` means POST /api/chat 503s
         // for everybody, which is otherwise invisible from outside. B11 again.
@@ -389,7 +409,6 @@ export function createApp(): express.Express {
         // outside.
         deckeEntitlement: {
           status: deckeEntitlementStatus(),
-          extraAccounts: deckeEntitledCount(),
         },
         // WHO may open the quad training surface and write labels. Reported
         // for B11's reason and no other: `owner-plus-decke-list` is a real,
@@ -438,7 +457,7 @@ export function createApp(): express.Express {
   //
   // ⚠️ Only ever add values here that are already public in the client bundle.
   // The service-role key and the JWT secret are NOT, and must never be.
-  api.get('/public-config', (_req, res) => {
+  api.get('/public-config', asyncHandler(async (_req, res) => {
     catalogCache(res, 300);
     res.json({
       // Self-host answers with empty strings and mode 'self-host': it has no
@@ -447,8 +466,9 @@ export function createApp(): express.Express {
       supabaseUrl: SUPABASE_MODE ? (process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '') : '',
       supabaseAnonKey: SUPABASE_MODE ? (process.env.VITE_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '') : '',
       mode: SUPABASE_MODE ? 'cloud' : 'self-host',
+      defaults: await appDefaults().catch(()=>({skin:'premium',topbar:'cover'})),
     });
-  });
+  }));
 
   // A tiny index so hitting the base is not a 404.
   api.get('/', (_req, res) => {
@@ -512,17 +532,6 @@ export function createApp(): express.Express {
   // report on YOUR collection and stays gated below.
   api.use('/insights', publicPokedexRouter);
 
-  // The scan-harness dev-only flag uploader. Mounted here, ahead of
-  // resolveIdentity, so its own ownerGate (see dev/scanFlags.ts) is the only
-  // check: a Vercel preview deployment is already fronted by Vercel SSO and
-  // must not ALSO be forced through resolveIdentity's 401 for having no app
-  // session, and self-host has no Supabase auth to resolve identity from.
-  api.use('/dev/scan-flags', scanFlagsRouter);
-  // The labeler's pending-photo queue. Same mount point in the chain as the
-  // corpus router above and for the same reasons — its own gate is the only
-  // check, and a preview deployment must not meet resolveIdentity's 401.
-  api.use('/dev/scan-queue', scanQueueRouter);
-
   // ── User-scoped routes ────────────────────────────────────────────────────
   // resolveIdentity settles "who is calling" once, for both deployments:
   //   cloud     → the verified JWT/token subject, or 401 with no fallback;
@@ -531,6 +540,21 @@ export function createApp(): express.Express {
   // Every router below reads it through currentUserId(req) and never branches
   // on deployment. See identity.ts.
   api.use(resolveIdentity);
+  api.use(requireActiveAccount);
+  api.use('/dev/scan-flags', scanFlagsRouter);
+  api.use('/dev/scan-queue', scanQueueRouter);
+  // One administration budget covers both routers, without charging credit
+  // requests twice when an unmatched subroute falls through.
+  const administration = express.Router();
+  administration.use('/credits', adminCreditRouter);
+  administration.use('/features', adminFeatureRouter);
+  administration.use('/ai-usage', adminUsageRouter);
+  administration.use('/users/:id/ai-override', userAiOverrideRouter);
+  administration.use(adminRouter);
+  api.use('/admin', administration);
+  api.use('/me/credits', meCreditRouter);
+  api.use('/me/features', meFeatureRouter);
+  api.use('/me/decke-sharing', selfSharingRouter);
 
   // Mounted ahead of `/me` so the two-segment path resolves here; meRouter has
   // no `/billing` route, so nothing is shadowed either way, but the order says

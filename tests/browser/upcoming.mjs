@@ -23,6 +23,7 @@ export function seriesFixture(scenario) {
     sets: [...rows, ...placeholders].sort(compareSetOrder) }
 }
 export function appResponses(scenario, rel) {
+  if (rel === '/api/public-config') return { body: { defaults: { skin: 'premium', topbar: 'flat' } } }
   const detail = seriesFixture(scenario)
   if (rel === '/api/series/' + announcement.seriesSlug) return { body: detail }
   if (rel === '/api/series') return { body: { series: [{ ...detail.series, setCount: detail.sets.filter(s => !s.upcoming).length, cardCount: 200, sortOrder: 1 }] } }
@@ -67,6 +68,10 @@ export async function checkUpcoming(browser, server, mount, label, out) {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Page overflows viewport')
       await page.screenshot({ path: path.join(out, label + '-' + (width === 390 ? 'mobile390' : 'desktop') + '.png'), fullPage: true })
       results.push({ case: 'upcoming-layout', label, width, mount, date, placeholderExcludedFromCount: true, logoLoaded: !!announcement.logoAssetPath })
+    } catch (error) {
+      await page.screenshot({ path: path.join(out, label + '-failure.png'), fullPage: true })
+      error.message += '\nPage: ' + (await page.locator('body').innerText()).slice(0,1500) + '\nUnexpected: ' + JSON.stringify(server.unexpected)
+      throw error
     } finally { await context.close() }
   }
   return results

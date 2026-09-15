@@ -37,6 +37,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../Icon'
@@ -139,6 +140,7 @@ export function Sheet({
   headerSlot,
   headerRight,
   contentClassName = '',
+  contentRef,
 }: {
   /** Rendered as the sheet's heading and used as its accessible name. */
   title: string
@@ -180,6 +182,8 @@ export function Sheet({
    */
   headerRight?: ReactNode
   contentClassName?: string
+  /** Access to the sole scrolling body for bounded, programmatic content navigation. */
+  contentRef?: Ref<HTMLDivElement>
 }) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -362,6 +366,8 @@ export function Sheet({
         {/* The ONLY scroll container. overscroll-contain stops a flick at the
             end of the list from scrolling the page underneath. */}
         <div
+          ref={contentRef}
+          data-sheet-content
           className={[
             'min-h-0 flex-1 overflow-y-auto overscroll-contain p-[20px] nav:p-[24px]',
             contentClassName,

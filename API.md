@@ -5,7 +5,7 @@ The React frontend's contract. TypeScript/Express, ~55 routes.
 **Scope.** This documents the surface the web frontend's data layer consumes.
 Registered on the same app but documented elsewhere, not repeated here: OAuth
 2.1 + personal-access-token management (`/oauth`, `/tokens`) in
-`apps/mcp/SPEC.md`; Deck-E's history and owner-gate/account routes (`/decke`,
+`apps/mcp/SPEC.md`; Deck-E's history and permission/account routes (`/decke`,
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
 the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
 itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
@@ -93,9 +93,12 @@ omit the host.
   `false`). The Stripe raw-body webhook and the bare-origin OAuth discovery /
   `/register` / `/token` handlers are mounted separately on `app` ahead of that
   router and are outside this guard; the MCP transport at `/mcp` is a separate
-  function. Three per-user session routes are limited **after** auth but
-  **before** the RLS `pool.connect`: `/tokens` 20/min, `/avatar` 10/min,
-  `/oauth` 30/min. Refusal is **`429`** with a **`Retry-After`** header in
+  function. Session budgets run **after** auth/self-host identity and
+  `requireSession` but **before** RLS request-connection acquisition:
+  `/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min, all `/admin`
+  120/min and all `/me/credits` 180/min. Active-account/action permissions
+  and handlers follow RLS. Authentication and trusted bootstrap may access
+  their own pool earlier. Refusal is **`429`** with a **`Retry-After`** header in
   seconds; a request is charged once per applicable budget (it may consume
   both ingress and a per-user session budget, with no duplicate route-level
   charge). Budgets are in-memory fixed windows, per process / per serverless
@@ -1308,17 +1311,13 @@ dex id or the slug. `404` when no such species. Returns the
 
 ## Scan — perceptual-hash card matcher
 
-> **OWNER-ONLY ON PRODUCTION (since 2026-09-07).** Every endpoint in this
-> section answers **`404 not_found`** on `deckpal.app` unless the verified JWT
-> subject is `DESIGN_EDITOR_USER_ID`. Preview deployments, local dev and
-> self-host are unrestricted — the gate keys off `VERCEL_ENV === 'production'`
-> (`apps/api/src/ownerGate.ts`). 404 rather than 403 is deliberate and matches
-> the `/scan` route guard in the web app: a 403 would tell a prober that
-> deckpal.app has a scanner behind a door, and the pair would leak whatever
-> either half gives away. The endpoints are also absent from `GET /api`'s
-> public index for the same reason. This is why the scanner does not appear in
-> the nav for anybody else, and it is the half of that pair which is a control
-> rather than a decoration.
+> **Session and permission required.** Scanner endpoints require current
+> `scanner.use` permission and an active application session in every
+> deployment, including cloud preview. Missing scanner authority is hidden
+> with `404 not_found`; connector/PAT credentials cannot use this private
+> tool. The web route and navigation use the same server permission. Existing
+> owner/QA environment lists are imported once into database roles; they are
+> no longer a continuing runtime bypass.
 
 ### POST /deckpal/api/scan
 Offline card scanner: image → catalog match. Send the **raw image bytes** as the
@@ -1650,3 +1649,129 @@ so a guess that misses would otherwise void the whole cart.
 `DELETE /lists/:id` and `DELETE /decks/:id` are now soft by default and answer
 `{ deleted, restorable: true, batchId }`; `?purge=true` answers
 `{ purged, restorable: false }`.
+
+## Administration, lifecycle and AI usage APIs
+
+Paths are relative to `/api` on cloud or `/deckpal/api` on self-host. These
+private APIs require an active application session and return no-store.
+PAT/OAuth connector tokens do not acquire administration, wallet or sharing
+authority. Server-side SQL reauthorizes mutations under the governance lock.
+Success follows commit; stale revisions return 409 and invalid bodies return
+400. Structural role/target gates supplement ordinary permissions.
+
+`GET /me` returns singular `role:{id,key,name,tier}`, `isOwner`,
+`accessRevision`, `actorCapabilities` and `features`, alongside existing
+identity/permission flags. Deprecated `roles[]` is read compatibility only:
+Owner is projected as the existing Superadmin summary. Never authorize from
+that facade. Role definitions include `protectedIdentity`, `canEdit`,
+`canDelete`, `editablePermissions` and `revision`; user rows include
+server-derived `actions` and `assignableRoleIds`.
+
+| Method/path | Authority | Request / purpose |
+|---|---|---|
+| GET `/admin/overview` | `admin.access` | Permitted overview counts and readiness. |
+| GET `/admin/users` | `users.read` | `search,status,role,limit,offset`; singular assigned role. |
+| GET `/admin/users/:id` | `users.read` | Identity/activity, role, revision and target actions. |
+| PUT `/admin/users/:id/role` | Structural `roles.assign` | `{roleId,expectedRevision,expectedRoleRevision,reason}`. Admin can modify only current User/Superuser targets to those same built-ins. |
+| PUT `/admin/users/:id/roles` | Compatibility only | `{roleIds,expectedRevision,reason}`; rejects zero/multiple IDs and applies the same one-role target ceiling. Use the singular endpoint. |
+| PATCH `/admin/users/:id/status` | `users.manage` plus target gate | `{suspended,expectedRevision,reason}`. |
+| POST `/admin/users/:id/revoke-tokens` | `users.manage` plus target gate | `{reason}`; tokens and pending OAuth codes. |
+| GET `/admin/roles` | `roles.read` | Definitions, editable permission catalog and tier ceilings. |
+| POST `/admin/roles` | Superadmin/Owner | `{name,description,permissions,tier}`; custom tier 10/20/30/40, default 40 if omitted. |
+| PATCH `/admin/roles/:id` | Superadmin/Owner | `{name,description,permissions,expectedRevision}`; identity/key/tier immutable; Owner not editable. |
+| DELETE `/admin/roles/:id` | Superadmin/Owner | `{expectedRevision}`; nonbuilt-in and unassigned only. |
+| GET / PUT `/admin/settings` | `settings.read` / `settings.write` | Read defaults; write `{settings:{skin,topbar},expectedRevision}`. |
+| GET `/admin/audit` | `audit.read` | Bounded actor/action/target filters. |
+| GET `/me/features` | Session | `{features:FeatureAccess[]}`. |
+| PATCH `/me/features/:key` | Session + lifecycle eligibility | `{optedIn,expectedRevision}`; revision must be current positive safe integer. |
+| GET / PATCH `/admin/features[/:key]` | Superadmin/Owner | Read catalog; update `{lifecycle,expectedRevision,reason}`. |
+| GET / PUT `/me/decke-sharing` | Active session, independent of Deck-E access | Read `{enabled,revision,updatedAt}`; write `{enabled,expectedRevision}`. Default false/revision 0. |
+| GET `/admin/users/:id/ai-override` | `credits.read` | `{userId,revision,unlimited,markupBps,effectiveMarkupBps,globalPolicyRevision,updatedAt,canEdit}`. |
+| PUT `/admin/users/:id/ai-override` | Owner only | `{expectedRevision,unlimited,markupBps,reason}`; markup null or integer0–100000bps; zero is valid. |
+
+`FeatureAccess` is `{key,label,lifecycle,revision,optedIn,eligible,enabled,reason}`.
+Released is available to active users; beta requires personal opt-in for every
+tier; experiments allow tier 20+ opt-in and automatic Superadmin/Owner access;
+disabled allows no new work. Raw role grants do not override the resolver.
+
+Admin directory/audit limits default 50/max 100; one admin budget is 120 requests
+per 60 seconds per account/API instance. Wallet routes have180/60 seconds;
+database Checkout quotas remain60 requests/hour and10 new orders/hour.
+429 includes Retry-After. Neither in-memory budget is a distributed quota.
+
+### Usage and owned history
+
+| Method/path | Response |
+|---|---|
+| GET `/admin/ai-usage` | `{items,total,limit,offset,aggregate:{knownUsd,knownCount,unknownCount}}`; filters `userId,conversationId,category,status,from,to,modelId,buildSha,buildPr,costSource`. |
+| GET `/admin/ai-usage/requests/:id` | `{request,operations,contentStatus,content}`. |
+| GET `/admin/ai-usage/conversations/:id` | Bounded `{items:requestDetails[],total,limit,offset}`. |
+| GET `/admin/ai-usage/observations` | `days=7|30|90` and optional `buildSha`; grouped complete/unknown sample counts, mean/p95 microUSD, model/build and notice. |
+| POST `/decke/history` | Existing personal `asked,answered,tools,finishReason` plus `conversationId,seq,exchangeId`. Supplied exchange must match an owned accepted request; duplicate position remains immutable. |
+| GET `/decke/history/:id` | Own turns add `exchangeId` and `usage:AiUsageRow[]` for exact accepted correlation. Legacy/unlinked usage is empty and generation build unknown. |
+| DELETE `/decke/history/:id` | Deletes own history and optional administrative excerpts; usage metadata remains. |
+
+Usage list/conversation page sizes default 25/max 100, offset max1000000.
+Categories are `response|research|planning`; status is
+`started|completed|failed|cancelled|abandoned`. Request rows include IDs,
+nullable conversation/sequence, start/end, full server build SHA/nullable PR,
+pricing/override revisions, charge mode, charged credits, operation count,
+nullable input/output tokens and `cost`. Operations additionally include
+model/provider/tool key and nullable cache-read/write/reasoning tokens.
+
+`AiCost` is `{source,usd,currency:"USD",coverage}`. Source is
+`provider_reported|token_rate_estimate|unknown`; this implementation supplies
+validated Gateway-reported costs or unknown, not guessed rate estimates.
+`usd` is a bounded decimal string or null; coverage is complete/partial/unknown.
+A known subtotal is not a complete total when some operations are unpriced.
+Aggregate knownCount/unknownCount count provider operations; the list total counts
+parent requests. Financial summary estimates support both historical flat and
+current effective-policy snapshots, and missing estimates count as unpriced.
+
+Usage is server-authored independently of client history. Lists/observations
+never include conversation content. Detail content is null unless both
+exchange-start consent and current active-account consent share the same
+enabled epoch. `contentStatus` is shared/not_shared/revoked/unavailable.
+Only current user text and visible assistant response may be shared; raw tool
+records, prior context and errors are excluded.
+Usage reads require an active application session, tier 40 or higher and current
+`admin.access`. Custom roles lose metadata and shared-content access immediately
+when that permission is removed; the capability projection uses the same rule.
+Contributor is denied. Disabling sharing remains available after Deck-E access
+is lost and does not delete personal history. Re-enable never restores old text.
+
+
+### Credit economy endpoints
+
+| Method/path | Permission | Request / purpose |
+|---|---|---|
+| GET / PUT `/admin/credits/settings` | `credits.read` / `credits.manage` | Versioned policy and notices; write `{policy, expectedRevision}`. |
+| GET / POST `/admin/credits/packs` | `credits.read` / `credits.manage` | List packs; create `{name,credits,priceCents,currency:"usd",active}`. |
+| PATCH `/admin/credits/packs/:id` | `credits.manage` | Same pack fields plus `expectedRevision`. |
+| GET `/admin/credits/payment-status` | `credits.read` | `refresh=true` bypasses the 60-second readiness cache; returns ready/reason/requiredEvents/checkedAt. |
+| GET `/admin/credits/users/:id` | `credits.read` | Wallet, debt/hold and paginated events. |
+| POST `/admin/credits/users/:id/adjustments` | `credits.manage` | `{delta,reason,idempotencyKey}`; nonzero integer delta, bounded ±1,000,000. |
+| POST `/admin/credits/users/:id/resolve-hold` | `credits.manage` | `{reason}`; only eligible closed lost-dispute holds. |
+| GET `/admin/credits/summary` | `credits.read` | `days=7|30|90` (default 30); cohort sales/refunds, estimated usage cost, current order/hold/debt counts. |
+| GET `/admin/credits/orders` | `credits.read` | `status`, `user`, `limit`, `offset`. |
+| GET `/me/credits` | Session | Own balance, debt, purchaseHold, prices, unlimited, overrideRevision, lowAt, packs, pricingRevision and purchase availability/reason. |
+| GET `/me/credits/events` | Session | Own paginated credit/debt statement; finance-only provider estimates are excluded. |
+| GET `/me/credits/orders/:id` | Session | Own server-confirmed frozen order state. |
+| POST `/me/credits/checkout` | Session + eligible account | `{packId,idempotencyKey}` only; returns hosted `url` and `orderId`. |
+
+Wallet reads recover expired, unstarted reservations idempotently. Reservations
+locked by a concurrent transaction are skipped and can recover on a later read;
+a successful response does not promise every busy reservation was refunded.
+
+Credit list limits default to 25 and cap at 100. Attempt keys contain 8–100
+letters, digits, underscores or hyphens; financial reasons contain 3–500
+characters. Checkout permits 60 requests/hour and 10 new order attempts/hour
+per account. Browser-supplied amounts/customer/session IDs are not accepted.
+
+Policy fields are `enabled`, `microUsdPerCredit`, `markupBps`,
+`estimatedMicroUsd:{chatTurn,analysis,planDeck}` and `lowBalance`.
+Values are bounded safe integers; operation prices use ceiling division and
+minimum one for paid work; unlimited explicitly spends zero. Historical balances/events and pending order terms are unchanged
+by policy edits. Credits use USD card-only Checkout, separate from support
+subscriptions/gifts; signed webhook reconciliation, never a return URL,
+fulfills an order. See ADMINISTRATION.md for charge/refund/debt semantics.

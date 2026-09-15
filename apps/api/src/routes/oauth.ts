@@ -1,8 +1,13 @@
 import { Router } from 'express';
-import { pool } from '../db.js';
+import { q1, q, withTx, commitRequestTx } from '../db.js';
+import { adminError } from '../admin/access.js';
 import { asyncHandler, badRequest, notFound } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { createAuthCode, getClient } from '@deckpal/db';
+import { randomBytes } from 'node:crypto';
+async function getClient(id:string) {
+ const row=await q1<{client:{clientId:string;clientName:string;redirectUris:string[]}|null}>('SELECT public.admin_connector_client($1) AS client',[id]);
+ return row?.client;
+}
 
 /**
  * The signed-in half of the OAuth "Connect" flow — showing what a client is
@@ -16,14 +21,9 @@ import { createAuthCode, getClient } from '@deckpal/db';
  * before any DeckPal session exists — is oauthServer.ts, mounted at the
  * bare origin.
  *
- * Deliberately queries `pool` directly, never the per-request RLS client:
- * `oauth_client`/`oauth_code` (migration 033) enable RLS with ZERO policies —
- * every role but the pool's own (which bypasses RLS as table owner) is
- * default-denied, on purpose (see 033's comment). Routing through the RLS
- * client here would run as `authenticated`, which that migration means to
- * block — client lookup would always come back empty and code creation would
- * fail RLS outright. Safety instead comes from `requireSession` plus
- * `currentUserId(req)`, exactly as designed.
+ * Narrow session-only RPCs use the caller's request transaction; no direct
+ * OAuth table policy or second pool connection is needed. Code issue and
+ * administrative revocation serialize on the same governance lock.
  */
 export const oauthRouter: Router = Router();
 
@@ -42,7 +42,7 @@ oauthRouter.get(
     const redirectUri = String(req.query.redirect_uri ?? '');
     if (!clientId || !redirectUri) throw badRequest('client_id and redirect_uri are required');
 
-    const client = await getClient(pool, clientId);
+    const client = await getClient(clientId);
     if (!client) throw notFound('Unknown client_id. This connector may not be registered with DeckPal.');
     if (!client.redirectUris.includes(redirectUri)) {
       throw badRequest('redirect_uri does not match what this client registered.');
@@ -99,7 +99,7 @@ oauthRouter.post(
     if (decision !== 'allow' && decision !== 'deny') throw badRequest('decision must be "allow" or "deny"');
     if (!clientId || !redirectUri) throw badRequest('clientId and redirectUri are required');
 
-    const client = await getClient(pool, clientId);
+    const client = await getClient(clientId);
     if (!client) throw notFound('Unknown client_id');
     if (!client.redirectUris.includes(redirectUri)) {
       // Deliberately not a redirect: redirectUri is exactly what we cannot trust yet.
@@ -121,7 +121,12 @@ oauthRouter.post(
     }
 
     const userId = currentUserId(req);
-    const { code } = await createAuthCode(pool, { clientId, userId, redirectUri, codeChallenge, resource });
+    const code='dsac_'+randomBytes(32).toString('base64url');
+    try {
+      await withTx(async()=>{await q('SELECT public.admin_connector_issue($1,$2,$3,$4,$5)',[code,clientId,redirectUri,codeChallenge,resource??null]);});
+      await commitRequestTx(userId);
+    } catch(error) { throw adminError(error); }
+    res.setHeader('Cache-Control','no-store');
     res.json({ redirectTo: withParams(redirectUri, { code, ...(state ? { state } : {}) }) });
   }),
 );
