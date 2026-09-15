@@ -739,19 +739,63 @@ describe('production ingress and session limits over real HTTP', () => {
   });
 
   it('production source mounts actual gates before RLS and mounts no duplicate later limiter', () => {
-    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
-    const ingress = source.indexOf('api.use(preAuthFloodGuard)');
-    const auth = source.indexOf('api.use(authMiddleware)');
-    const local = source.indexOf('api.use(resolveOptionalIdentity)');
-    const admin = source.indexOf("api.use('/admin', requireSession, adminRateLimit)");
-    const wallet = source.indexOf("api.use('/me/credits', requireSession, creditWalletRateLimit)");
+    // Check individual registrations, not global handler-name counts or
+    // neighboring lines. Reading source avoids loading the app or its pools.
+    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const mounts = Array.from(source.matchAll(/\b(api|administration)\s*\.\s*use\s*\(([^;]*?)\)\s*;/g),
+      match => ({
+        receiver: match[1],
+        args: match[2]!.replace(/\s+/g, '').replace(/"/g, "'"),
+        position: match.index,
+      }));
+    const apiMounts = mounts.filter(mount => mount.receiver === 'api');
+    const once = (args: string) => {
+      const matches = apiMounts.filter(mount => mount.args === args);
+      assert.equal(matches.length, 1, 'expected one api.use registration: ' + args);
+      return matches[0]!.position;
+    };
+    const ingress = once('preAuthFloodGuard');
+    const auth = once('authMiddleware');
+    // Self-host identity resolves before limits; public routes also resolve it later.
+    const local = apiMounts.find(mount => mount.args === 'resolveOptionalIdentity')?.position;
+    assert.ok(local !== undefined, 'optional identity middleware exists');
+    const admin = once("'/admin',requireSession,adminRateLimit");
+    const wallet = once("'/me/credits',requireSession,creditWalletRateLimit");
+    const preferences = once("['/me/features','/me/decke-sharing'],requireSession,adminRateLimit");
     const database = source.indexOf('pool.connect()');
-    assert.ok(ingress >= 0 && ingress < auth && auth < local && local < admin && admin < database);
-    assert.ok(local < wallet && wallet < database);
-    assert.equal((source.match(/requireSession, adminRateLimit/g) ?? []).length, 1);
-    assert.equal((source.match(/requireSession, creditWalletRateLimit/g) ?? []).length, 1);
-    assert.match(source, /administration\.use\('\/credits', adminCreditRouter\);\s*administration\.use\(adminRouter\);\s*api\.use\('\/admin', administration\);/);
-    assert.match(source, /api\.use\('\/me\/credits', meCreditRouter\)/);
-    assert.doesNotMatch(source, /api\.use\('\/admin\/credits'/);
+    assert.ok(database >= 0, 'RLS connection acquisition exists');
+    assert.ok(ingress < auth && auth < local);
+    for (const gate of [admin, wallet, preferences]) {
+      assert.ok(local < gate && gate < database, 'session limiter precedes RLS connection acquisition');
+    }
+    assert.deepEqual(mounts.filter(({ args }) => /\badminRateLimit\b/.test(args)).map(({ args }) => args), [
+      "'/admin',requireSession,adminRateLimit",
+      "['/me/features','/me/decke-sharing'],requireSession,adminRateLimit",
+    ], 'one admin subtree limiter and one shared preferences limiter, with no nested duplicate');
+    assert.deepEqual(mounts.filter(({ args }) => /\bcreditWalletRateLimit\b/.test(args)).map(({ args }) => args), [
+      "'/me/credits',requireSession,creditWalletRateLimit",
+    ]);
+    const administration = mounts.filter(mount => mount.receiver === 'administration');
+    assert.deepEqual(administration.map(({ args }) => args), [
+      "'/credits',adminCreditRouter",
+      "'/features',adminFeatureRouter",
+      "'/ai-usage',adminUsageRouter",
+      "'/users/:id/ai-override',userAiOverrideRouter",
+      'adminRouter',
+    ], 'all administration routers are registered once without additional limiters');
+    const adminRouterMount = once("'/admin',administration");
+    for (const { position } of administration) {
+      assert.ok(database < position && position < adminRouterMount);
+    }
+    assert.deepEqual(apiMounts.filter(({ args }) => /^'\/admin(?:\/|')/.test(args)).map(({ args }) => args), [
+      "'/admin',requireSession,adminRateLimit",
+      "'/admin',administration",
+    ], 'admin subtrees cannot bypass or duplicate the parent limiter');
+    for (const args of [
+      "'/me/credits',meCreditRouter",
+      "'/me/features',meFeatureRouter",
+      "'/me/decke-sharing',selfSharingRouter",
+    ]) assert.ok(database < once(args), 'personal routes mount after the RLS boundary');
   });
 });
