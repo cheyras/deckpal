@@ -1,9 +1,10 @@
+import { initFeedback, normalizeFeedback, feedbackResponse } from './feedback.mjs'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { contextFor } from './support.mjs'
 import { appResponses, announcement } from './upcoming.mjs'
 
-export const PERMISSIONS = ['admin.access','users.read','users.manage','roles.read','roles.manage','settings.read','settings.write','credits.read','credits.manage','audit.read','scanner.use','scanner.label','design.view','diagnostics.view','decke.use']
+export const PERMISSIONS = ['devtools.access','admin.access','users.read','users.manage','roles.read','roles.manage','settings.read','settings.write','credits.read','credits.manage','audit.read','scanner.use','scanner.label','design.view','diagnostics.view','decke.use']
 const OWNER = '10000000-0000-4000-8000-000000000001', USER = '10000000-0000-4000-8000-000000000002'
 const now = '2026-09-12T18:00:00Z'
 export function adminFixture(mount) {
@@ -24,13 +25,26 @@ export function adminFixture(mount) {
   state.audit = Array.from({ length: 36 }, (_, i) => ({ id: 'audit-' + i, actorId: i % 2 ? USER : OWNER, actorName: i % 2 ? 'Future Contributor' : 'Owner', action: i % 3 ? 'role.update' : 'user.suspend', targetType: 'user', targetId: i % 2 ? USER : OWNER, before: { suspended: false }, after: { suspended: true, note: '<script>window.fixtureUnsafe = true</script>' }, reason: 'Reviewed change ' + i, createdAt: new Date(Date.parse(now) - i * 60000).toISOString() }))
   state.orders = Array.from({ length: 38 }, (_, i) => ({ id: 'credit-order-' + i, userId: i % 2 ? USER : OWNER, username: i % 2 ? 'Future Contributor' : 'Owner', packName: 'Starter', credits: 500, priceCents: 500, currency: 'usd', status: i % 3 === 0 ? 'refunded' : 'paid', refundedCents: i % 3 === 0 ? 100 : 0, reversedCredits: i % 3 === 0 ? 100 : 0, disputeStatus: i === 0 ? 'closed' : null, createdAt: now, paidAt: now }))
   state.ledger = Array.from({ length: 32 }, (_, i) => ({ id: 'ledger-' + i, delta: i % 2 ? -5 : 20, debtDelta: i === 0 ? -10 : 0, kind: i % 2 ? 'usage' : 'adjustment', reason: 'Ledger review ' + i, createdAt: now, pricingRevision: 1 }))
+  initFeedback(state, PERMISSIONS)
   const allowMutation = (pathname, method) => {
     const rel = pathname.slice(mount.length)
-    return ['POST','PUT','PATCH','DELETE'].includes(method) && (/^\/api\/admin\/(roles(?:\/[^/]+)?|settings|users\/[^/]+\/(roles|status|revoke-tokens)|credits\/(settings|packs(?:\/[^/]+)?|users\/[^/]+\/(adjustments|resolve-hold)))$/.test(rel) || rel === '/api/me/credits/checkout' || (method === 'POST' && rel === '/api/me/billing/visit'))
+    return ['POST','PUT','PATCH','DELETE'].includes(method) && ((state.chatProbe && ['/api/chat','/api/decke/history'].includes(rel)) || /^\/api\/(?:me\/(?:features\/[^/]+|decke-sharing)|admin\/(?:features\/[^/]+|users\/[^/]+\/(?:role|ai-override)))$/.test(rel) || /^\/api\/admin\/(roles(?:\/[^/]+)?|settings|users\/[^/]+\/(roles|status|revoke-tokens)|credits\/(settings|packs(?:\/[^/]+)?|users\/[^/]+\/(adjustments|resolve-hold)))$/.test(rel) || rel === '/api/me/credits/checkout' || (method === 'POST' && rel === '/api/me/billing/visit'))
   }
   const response = (rel, url, req = { method: 'GET' }) => {
     const { method, body } = req
+    normalizeFeedback(state)
     if (rel.startsWith('/api/')) state.requests.push({ rel, method, body, query: url.search })
+    // Hold only the requested fictional mutation so animated close refusal and
+    // failure recovery can be exercised against a real pending HTTP response.
+    if (state.heldMutation?.rel === rel && state.heldMutation.method === method) {
+      const held = state.heldMutation; state.heldMutation = null
+      return new Promise(resolve => {
+        held.finish = () => resolve({ status: 503, body: { error: { message: 'Fixture save failed after pending close' } } })
+        held.onStart()
+      })
+    }
+    const feedback = feedbackResponse(state, rel, url, req)
+    if (feedback) return feedback
     const ok = value => ({ body: value, headers: { 'Cache-Control': 'no-store, private' } })
     // The shared catalog also mounts existing card/set examples. Keep their exact
     // fictional requests local without allowing arbitrary assets or API routes.
@@ -39,7 +53,7 @@ export function adminFixture(mount) {
     if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud' } }
     if (rel === '/api/me') return state.signedOut ? { status: 401, body: { error: { message: 'Signed out' } } } : ok({ id: state.actor === 'owner' ? OWNER : USER, username: state.actor, permissions: state.permissions, roles: state.actor === 'owner' ? [{ id: 'super-role', name: 'Super administrator' }] : [], adminReady: true, owner: state.actor === 'owner', decke: state.permissions.includes('decke.use') })
     if (rel === '/api/me/settings') return ok({ settings: { defaultGoal: 'complete', displayCurrency: 'USD', pricingEnabled: true, showCollectionValue: true, binderPocketSize: 9, binderStackVariants: true, binderAdditionalVariants: 'hide', deckeHidden: false, skin: null, topbar: null, seriesSortKey: 'recency', seriesSortDir: 'desc', seriesGroupOwned: false }, defaults: state.defaults.settings })
-    if (rel === '/api/insights/overview') return ok({ trainer: { level: 1 }, collection: {}, pokedex: { captured: 0, total: 1 }, tcg: {}, completion: {}, value: {} })
+    if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0 }, collectionValue: [], collection: {}, pokedex: { captured: 0, total: 1 }, tcg: {}, completion: {}, value: {} })
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/decke/history') return ok({ conversations: [] })
@@ -59,17 +73,17 @@ export function adminFixture(mount) {
       return state.delayedSearch && search === state.delayedSearch ? new Promise(resolve => setTimeout(() => resolve(result), 400)) : result
     }
     if (rel === '/api/admin/users/' + USER) return ok({ user: state.users[0], permissions: state.users[0].roles.flatMap(r => state.roles.find(role => role.id === r.id)?.permissions ?? []), stats: { collectionItems: 3, decks: 1, connectors: 2 } })
-    if (rel === '/api/admin/users/' + USER + '/roles') {
+    if (rel === '/api/admin/users/' + USER + '/role') {
       assert.equal(body.expectedRevision, state.users[0].revision)
       assert.ok(body.reason.length >= 3)
-      state.users[0].roles = state.roles.filter(r => body.roleIds.includes(r.id)).map(({id,name})=>({id,name})); state.users[0].revision++; return ok({ ok: true })
+      assert.equal(body.expectedRoleRevision, state.roles.find(r=>r.id===body.roleId).revision); assert.deepEqual(Object.keys(body).sort(), ['expectedRevision','expectedRoleRevision','reason','roleId']); state.users[0].roles = state.roles.filter(r => body.roleId===r.id).map(({id,name})=>({id,name})); state.users[0].revision++; return ok({ ok: true })
     }
     if (rel === '/api/admin/users/' + USER + '/status') { state.users[0].suspended = body.suspended; state.users[0].revision++; return ok({ ok: true }) }
     if (rel === '/api/admin/users/' + USER + '/revoke-tokens') return ok({ revoked: 2 })
     if (rel === '/api/admin/roles' && method === 'POST') { state.roles.push({ ...body, id: 'role-'+state.roles.length, key: 'custom', memberCount: 0, protected: false, revision: 1 }); return ok({ role: state.roles.at(-1) }) }
     if (rel === '/api/admin/roles' && state.rolesFail) return { status: 503, body: { error: { message: 'Fixture roles temporarily unavailable' } } }
-    if (rel === '/api/admin/roles') return ok({ roles: state.roles, permissions: PERMISSIONS.map(key => ({ key, group: key.split('.')[0], description: 'Controls ' + key })) })
-    if (/^\/api\/admin\/roles\/role-\d+$/.test(rel)) {
+    if (rel === '/api/admin/roles') return ok({ roles: state.roles, permissions: PERMISSIONS.map(key => ({ key, group: key.split('.')[0], description: 'Controls ' + key })), permissionCeilings: {'10':[], '20':[], '30':['devtools.access','design.view','diagnostics.view','scanner.label'], '40':PERMISSIONS.filter(p=>!['decke.use','scanner.use'].includes(p))} })
+    if (rel.startsWith('/api/admin/roles/') && state.roles.some(r => r.id === rel.split('/').at(-1))) {
       const role = state.roles.find(r => r.id === rel.split('/').at(-1))
       if (method === 'DELETE') state.roles = state.roles.filter(r => r !== role)
       else Object.assign(role, body, { revision: role.revision + 1 })
@@ -107,7 +121,7 @@ export function adminFixture(mount) {
   }
   return {state,response,allowMutation}
 }
-async function signIn(context, id = OWNER) {
+export async function signIn(context, id = OWNER) {
   await context.addInitScript(({ id }) => {
     const token = btoa(JSON.stringify({alg:'HS256',typ:'JWT'}))+'.'+btoa(JSON.stringify({sub:id,exp:4102444800,role:'authenticated'}))+'.fixture'
     localStorage.setItem('sb-127-auth-token', JSON.stringify({ access_token: token, refresh_token: 'fixture-refresh', token_type: 'bearer', expires_in: 3600, expires_at:4102444800,user:{id,email:'fixture@example.invalid',aud:'authenticated',role:'authenticated',app_metadata:{},user_metadata:{},created_at:'2026-09-12T18:00:00Z'} }))
@@ -131,6 +145,7 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
       let dialog=page.getByRole('dialog',{name:'Create role',exact:true})
       await dialog.getByLabel('Role name',{exact:true}).fill('Scanner helper '+width)
       await dialog.getByLabel('Description',{exact:true}).fill('Can reach the training tools')
+      await dialog.getByLabel('Role tier',{exact:true}).selectOption('40')
       await dialog.getByLabel('admin.access', {exact:false}).check()
       await dialog.getByLabel('scanner.label', {exact:false}).check()
       await page.screenshot({path:path.join(out,label+'-role-form-'+width+'.png'),fullPage:true})
@@ -164,20 +179,20 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
       await page.getByRole('link',{name:'Future Contributor',exact:true}).waitFor()
       assert.ok(state.requests.filter(r => r.rel === '/api/admin/users').every(r => ['all','active','suspended'].includes(new URLSearchParams(r.query).get('status') ?? 'all')), 'UI must send a valid SQL status filter')
       await page.getByRole('link',{name:'Future Contributor',exact:true}).click()
-      await page.getByRole('button',{name:'Assign roles',exact:true}).click()
-      dialog=page.getByRole('dialog',{name:'Assign roles',exact:true})
-      await dialog.getByLabel('Scanner helper '+width,{exact:false}).check()
+      await page.getByRole('button',{name:'Assign role',exact:true}).click()
+      dialog=page.getByRole('dialog',{name:'Assign role',exact:true})
+      await dialog.getByLabel('Assigned role',{exact:true}).selectOption({label:'Scanner helper '+width})
       await dialog.getByLabel('Reason',{exact:true}).fill('Contributor onboarding')
-      await dialog.getByRole('button',{name:'Save role assignments'}).click()
+      await dialog.getByRole('button',{name:'Save role assignment'}).click()
       await dialog.waitFor({state:'hidden'})
-      await page.getByRole('button',{name:'Assign roles',exact:true}).waitFor()
+      await page.getByRole('button',{name:'Assign role',exact:true}).waitFor()
       assert.ok(state.users[0].roles.some(r=>r.name==='Scanner helper '+width))
       await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:path.join(out,label+'-user-'+width+'.png'),fullPage:true})
-      await page.getByRole('button',{name:'Assign roles',exact:true}).click()
-      dialog=page.getByRole('dialog',{name:'Assign roles',exact:true})
-      await dialog.getByLabel('Scanner helper '+width,{exact:false}).uncheck()
+      await page.getByRole('button',{name:'Assign role',exact:true}).click()
+      dialog=page.getByRole('dialog',{name:'Assign role',exact:true})
+      await dialog.getByLabel('Assigned role',{exact:true}).selectOption('user-role')
       await dialog.getByLabel('Reason',{exact:true}).fill('Revoke completed assignment')
-      await dialog.getByRole('button',{name:'Save role assignments'}).click();await dialog.waitFor({state:'hidden'})
+      await dialog.getByRole('button',{name:'Save role assignment'}).click();await dialog.waitFor({state:'hidden'})
       assert.equal(state.users[0].roles.some(r=>r.name==='Scanner helper '+width),false)
       await page.getByRole('link',{name:'Settings',exact:true}).click()
       if(width===1280){
@@ -224,18 +239,18 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
     }catch(error){await page.screenshot({path:path.join(out,label+'-admin-failure.png'),fullPage:true});error.message+='\nPage: '+(await page.locator('body').innerText()).slice(0,1800)+'\nUnexpected: '+JSON.stringify(server.unexpected);throw error}finally{await context.close()}
   }
   results.push(...await checkAdminTables(browser,server,mount,label,out,fixture))
-  for(const [actor,permissions] of [['readonly',['admin.access','users.read']],['labeler',['admin.access','scanner.label']],['ordinary',[]]]){
+  for(const [actor,permissions] of [['readonly',['admin.access','users.read','devtools.access','design.view']],['labeler',['devtools.access','scanner.label']],['ordinary',[]]]){
     state.actor=actor;state.permissions=permissions
     const {context,page}=await contextFor(browser,server,390);await signIn(context,USER)
     try{
       await page.goto(server.origin+mount+(actor==='ordinary'?'/admin/users':'/admin/tools'),{waitUntil:'networkidle'})
       if(actor==='ordinary'){assert.equal(await page.getByRole('heading',{name:'Users',exact:true}).count(),0)}
       else{
-        await page.getByRole('heading',{name:'Tools',exact:true}).waitFor()
+        await page.getByRole('heading',{name:'Dev tools',exact:true}).waitFor()
         assert.equal(await page.getByRole('link',{name:'Roles',exact:true}).count(),0)
         assert.equal(await page.getByRole('link',{name:'Settings',exact:true}).count(),0)
         if(actor==='labeler'){assert.equal(await page.getByRole('link',{name:/Quad labeler/}).count(),1);assert.equal(await page.getByRole('link',{name:/Card scanner/}).count(),0)}
-        if(actor==='readonly'){const beforeRoles = state.requests.filter(r=>r.rel==='/api/admin/roles').length;await page.getByRole('link',{name:'Users',exact:true}).click();await page.getByText('Role filtering requires permission to view roles.',{exact:true}).waitFor();assert.equal(await page.getByLabel('Role',{exact:true}).isDisabled(),true);assert.equal(state.requests.filter(r=>r.rel==='/api/admin/roles').length,beforeRoles);await page.getByRole('link',{name:'Future Contributor',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Assign roles',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Adjust credits',exact:true}).count(),0)}
+        if(actor==='readonly'){const beforeRoles = state.requests.filter(r=>r.rel==='/api/admin/roles').length;await page.goto(server.origin+mount+'/admin/users',{waitUntil:'networkidle'});await page.getByText('Role filtering requires permission to view roles.',{exact:true}).waitFor();assert.equal(await page.getByLabel('Role',{exact:true}).isDisabled(),true);assert.equal(state.requests.filter(r=>r.rel==='/api/admin/roles').length,beforeRoles);await page.getByRole('link',{name:'Future Contributor',exact:true}).click();assert.equal(await page.getByRole('button',{name:'Assign role',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Adjust credits',exact:true}).count(),0)}
         state.permissions=[];await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await page.getByText('Access unavailable',{exact:true}).waitFor()
         assert.equal(await page.getByText('contributor-with-a-long-address@example.invalid',{exact:true}).count(),0)
       }
@@ -370,7 +385,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
       const roles=page.getByRole('region',{name:'Administration roles',exact:true}), roleTable=roles.getByRole('table')
       await roles.getByRole('status').filter({hasText:'1–25 of'}).waitFor()
       assert.equal(await roleTable.locator('tbody > tr').count(),25)
-      assert.equal(await roles.getByRole('button',{name:'Edit Super administrator',exact:true}).count(),0)
+      assert.equal(await roles.getByRole('button',{name:'Edit Super administrator',exact:true}).count(),1)
       assert.equal(await roles.getByRole('button',{name:'Delete Super administrator',exact:true}).count(),0)
       assert.equal(await roles.getByRole('button',{name:'Delete Support reader',exact:true}).isDisabled(),true)
       await roles.getByRole('button',{name:'Members: sort ascending',exact:true}).click()
@@ -379,7 +394,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
       assert.equal(await roleTable.getByRole('columnheader',{name:/Members/}).getAttribute('aria-sort'),'descending')
       await roles.getByLabel('Search roles',{exact:true}).fill('team_27');await waitRange(roles,'1–1 of 1 results');await roleTable.getByText('Team 28',{exact:true}).waitFor()
       await roles.getByRole('button',{name:'Clear filters',exact:true}).click()
-      await roles.getByLabel('Role type',{exact:true}).selectOption('protected');await waitRange(roles,'1–1 of 1 results')
+      await roles.getByLabel('Role type',{exact:true}).selectOption('protected');await waitRange(roles,'1–2 of 2 results')
       const disclosure=roles.getByRole('button',{name:'Details for Super administrator',exact:true});await disclosure.focus();await page.keyboard.press('Enter')
       assert.equal(await disclosure.getAttribute('aria-expanded'),'true')
       await roles.getByRole('region',{name:'Details for Super administrator',exact:true}).getByText('credits.manage',{exact:true}).waitFor()

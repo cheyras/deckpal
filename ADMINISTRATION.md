@@ -1,124 +1,126 @@
 # DeckPal administration
 
-Administration lets the owner delegate access, configure app defaults and manage
-AI credits without changing code. Open **Administration** in the desktop sidebar
-or mobile navigation, or visit `/admin` while signed in. The navigation and
-sections reflect your current permissions. The Profile **AI credits** panel
-provides **Open credit wallet** and, with `admin.access`, **Administration**
-links; the latter opens `/admin`.
+Open **Administration** at `/admin` from desktop or mobile navigation. It shows
+the sections and target actions authorized by the current server response.
+**Dev tools** is a separate destination at `/devtools`.
 
-**Release record, 2026-09-13:** see [PR #188](https://github.com/cheyras/deckpal/pull/188)
-for current review and CI status. Earlier security and financial findings have
-repairs, and the interrupted-upgrade permissions repair passed isolated
-integration. Production migration/bootstrap and actual payments have not been
-verified. Release awaits
-access to the existing authorized migration/deployment workflow; deployed
-configuration and Stripe subscriptions remain unverified. See DEPLOYMENT.md
-before serving the new code.
+**Implementation record, 2026-09-15:** this guide describes the code through
+migrations 068–071 and its isolated verification. It does not assert those
+migrations, a production release, or new Stripe configuration have been applied.
+Use the schema-first runbook in DEPLOYMENT.md and record live results separately.
 
-## First setup and access recovery
+## One role per account
 
-Apply migrations **064–067 before deploying this application version**. In cloud
-mode, the trusted server initializes the existing `DESIGN_EDITOR_USER_ID`
-account as Super admin once; that UUID must already exist in `app_user`.
-It imports existing Deck-E and labeler allowlists in the same transaction and
-records an audit entry and initialization sentinel. This is not a first-user
-claim: signing up, setting profile metadata, or submitting an owner ID never
-creates administrative authority.
+Every existing and newly created account has exactly one canonical role, default
+User. Roles do not combine into a permission union.
 
-Creation migrations 064 and 066 close client permissions on their new objects
-before each file commits. An upgrade stopping between files therefore leaves
-those objects private; finish all required migrations before serving new code.
+| Built-in role | Tier | Main boundary |
+|---|---:|---|
+| User | 10 | Ordinary personal product access; may opt into beta features. |
+| Superuser | 20 | User access plus eligibility to opt into every experiment. |
+| Contributor | 30 | Ordinary personal access plus permitted development tools; no Administration. |
+| Admin | 40 | Permitted administration; may assign only User or Superuser to targets currently in those built-in roles. |
+| Superadmin | 50 | May assign roles through Superadmin and edit allowed role definitions; cannot modify an existing Owner or assign Owner. |
+| Owner | 60 | Protected ownership and exclusive per-user AI override authority. |
 
-After initialization, roles are database-managed. Changing an old allowlist
-environment variable does not restore a revoked grant or add a new administrator.
-`DECKE_CREDITS_ENABLED` is likewise imported once using the exact string
-`true`, after successful owner initialization; later enablement belongs in
-Settings. Secrets remain in trusted server configuration.
+Contributor's restriction concerns administration of other users, roles, global
+settings and finances. Contributors retain their own profile, subscription,
+credit wallet and other ordinary User self-service. A custom tier-30 role has
+the same ceiling: editable permission bits cannot create administrative access.
 
-Keep a second trusted, active Super admin and verify its sign-in before changing
-the original account. The database refuses to remove or suspend the last active
-Super admin, including concurrent changes. The protected role cannot be edited
-or deleted, and only a current Super admin may assign it.
+Assignment checks both the destination and the target's current role, including
+suspended targets. An Admin cannot demote a Contributor/Admin/Superadmin to User
+as a way around the boundary. Use the server's `actions` and
+`assignableRoleIds`; stale account or role revisions require reload and review.
 
-If the owner cannot sign in, use the other Super admin or recover the existing
-owner's authentication through the deployment's trusted account-recovery
-process. An application suspension is distinct from an Auth-provider ban.
-If database state itself is damaged, a trusted database operator must restore
-a verified backup or prepare an explicitly reviewed, audited repair. Preserve
-the role, membership, account-state, audit and credit records together. Do not
-clear the bootstrap sentinel, edit JWT claims, or change an old allowlist as a
-recovery shortcut. There is no browser SQL editor, impersonation or account
-deletion control.
+Superadmins and Owners can create custom roles at tiers 10, 20, 30 or 40 and
+edit permitted names, descriptions and permissions. Built-in identity, key, tier
+and deletion are protected; protection is separate from `canEdit`/`canDelete`.
+Safe built-in definitions remain editable except Owner. Custom roles cannot
+manufacture reserved ownership, role-governance or lifecycle authority.
+Role deletion requires no remaining members.
 
-Self-host starts from the configured single local account and stays behind its
-reverse proxy's authentication boundary. Current deployments use UUID accounts
-since migration 020; legacy bigint coverage is extra compatibility testing.
-Cloud preview deployments enforce the same session and permission checks as
-production. A preview URL does not grant access.
+## Bootstrap, migration and recovery
 
-## Onboard a contributor
+For an existing initialized deployment, migration 068 seeds canonical Owner
+from the trusted `admin_state.bootstrap_owner` record. For new initialization,
+the trusted existing cloud account configured by `DESIGN_EDITOR_USER_ID`, or
+the supported self-host local identity, is recorded once and assigned Owner.
+Runtime authority is protected Owner membership, never mutable email, browser
+input or JWT profile metadata. Owner and Superadmin are distinct.
 
-1. Have the person create and sign in to their ordinary DeckPal account.
-2. In **Users**, search by email, username or ID; inspect the matching account.
-3. In **Roles**, create a named role or clone an existing one. Select only the
-   catalog permissions required for the person's work.
-4. Return to the user, choose **Assign roles**, review the resulting permission
-   union and enter a reason. Save.
-5. Have the person reopen the relevant tool. Check **Audit** for the assignment.
+Migration 068 preserves prior assignments in a private snapshot and archive.
+The old `admin_user_role` name becomes a read-only compatibility projection over
+`admin_account.role_id`. Deprecated `roles[]` readers receive one summary;
+Owner appears there using the existing Superadmin summary. New authority uses
+`role` and `isOwner`, never that facade. No second writable membership store
+exists. Ambiguous legacy custom/multiple assignments require explicit reviewed
+mapping; the migration fails atomically rather than guessing. See DEPLOYMENT.md.
 
-Roles combine permissions; they do not define new server capabilities. An
-administrator cannot grant or remove authority beyond their own, including
-authority assigned to a suspended account. Role deletion requires no remaining
-members. Save conflicts mean someone changed the record: review the latest
-version before retrying. Settings retain a conflicting draft and offer
-**Discard draft and reload latest**.
+The database protects the last active Owner under the governance lock. There is
+no ordinary Owner-transfer UI. Keep tested recovery access to the existing
+Owner's authentication and a verified backup. Superadmin is useful operational
+access but does not replace Owner authority. Do not clear the bootstrap sentinel,
+edit JWT claims, change retired allowlists or modify archives as recovery.
+An application suspension is separate from an Auth-provider ban.
 
-If a burst of requests returns **429**, wait the response's **Retry-After**
-seconds before retrying. Administration shares a 120-request budget per
-60 seconds, including credit administration; the wallet has a separate
-180-request budget. These are per-account, per-API-instance limits. Checkout
-also retains its database limits of 60 requests and 10 new orders per hour.
+Old Deck-E and labeler environment lists no longer grant feature access or
+silently promote new accounts. Existing legacy labelers retain their narrow
+development capability through reviewed migration; legacy Deck-E alone becomes
+ordinary User. Self-host remains behind its reverse proxy. Preview hostnames
+never bypass permission or feature checks.
 
-### Permission catalog
+## Onboard and find development tools
 
-Every administrative endpoint requires `admin.access` plus its action
-permission. Product tool permissions can be assigned without user or finance
-administration.
+1. Have the person sign in with an ordinary account, then identify it in Users.
+2. An authorized Superadmin/Owner chooses the one suitable role; a restricted
+   Admin may assign only User/Superuser within the target boundary above.
+3. Review the server-enabled action, revisions and reason, then save once.
+4. The person opens **Dev tools**; verify the assignment in Audit.
 
-| Permission | What it permits |
+Dev tools lists Design system, Chat UI gallery, Character comparison, Scanner
+harness, Quad labeler and Training photo review according to capability.
+Product Scanner and Deck-E experiments belong in normal product navigation and
+Profile feature preferences, not this directory. Training photos can contain
+private contributor captures. Design editing still requires its local service.
+No administrative MCP or Deck-E automation tools are added.
+
+## Feature lifecycle and personal opt-in
+
+Scanner and Deck-E begin as experimental. Superadmins and Owners configure
+release stages; opt-ins are personal and revisioned.
+
+| Lifecycle | Access for an active account |
 |---|---|
-| `admin.access` | Open Administration and its permitted tool links. |
-| `users.read` | Search the directory; read email/account summaries. |
-| `users.manage` | Suspend/reactivate accounts and revoke connectors. |
-| `roles.read` | Read roles, permissions and membership counts. |
-| `roles.manage` | Create/edit/delete roles and assign permitted roles. |
-| `settings.read` | Read app defaults. |
-| `settings.write` | Change defaults for unset preferences. |
-| `credits.read` | Read economics, wallet histories, orders and financial summaries. |
-| `credits.manage` | Change future usage prices/packs, adjust credits and resolve eligible holds. |
-| `audit.read` | Read recorded administrative changes and account identifiers. |
-| `scanner.use` | Use the card scanner. |
-| `scanner.label` | Access private training photos and labeling/review tools. |
-| `design.view` | View the design system; production is read-only. |
-| `diagnostics.view` | Open internal scanner, character and chat diagnostics. |
-| `decke.use` | Use Deck-E, subject to account and credit restrictions. |
+| Released | Available to every User and higher role. |
+| Beta | Every user, including Superadmin/Owner, must explicitly opt in. |
+| Experimental | Superuser, Contributor and Admin may opt into every experiment; Superadmin/Owner access is automatic. |
+| Disabled | Unavailable to everyone, including Owner. |
 
-For a labeler, `admin.access` + `scanner.label` makes the tools discoverable
-without exposing users or money. For user-role assignment through the UI,
-combine `users.read`, `roles.read` and `roles.manage` with
-`admin.access`. Status/connector actions additionally need `users.manage`.
-Defaults editors need their read/write pair; finance editors need
-`credits.read` + `credits.manage`. User-specific finance controls also need
-`users.read` to open the detail page. These are UI workflow dependencies,
-not a claim that a read permission itself grants write access.
+Disabled stops new requests and provider attempts, including nested attempts
+and retries. Work already sent to a provider may finish. Role grants for
+`scanner.use`/`decke.use` do not bypass lifecycle policy; SQL derives these
+permissions centrally. Feature opt-in is separate from Deck-E visibility and
+conversation-sharing consent.
 
-**Tools** lists Card scanner, Design system, Deck-E character, Chat UI gallery,
-Character comparison, Scanner harness, Quad labeler and Training photo review
-according to permission. Design editing requires the local design service.
-Training-photo permission includes sensitive contributor captures. Admin links
-and actions are excluded from Deck-E automation; no administrative agent tools
-are added.
+## Permission and table conventions
+
+`roles.assign` and `roles.manage` are structural governance capabilities, not
+checkboxes in editable role permission sets. Read/write pairs such as
+`users.read`/`users.manage` and `credits.read`/`credits.manage` still gate their
+ordinary actions. The server also returns role definition capabilities,
+per-target actions and current feature access; hiding a button is not authority.
+
+Growing lists use the shared semantic DataTable: Users, Roles, Audit, credit
+orders/packs/statements, usage, feature catalog and Dev tools. Supported filters,
+stable server paging or complete-list sorting, loading/error/empty states and
+explicit row actions remain inside the content column at mobile widths.
+Sort direction uses the shared SVG Icon with accessible header labels.
+
+Administration shares a 120-request budget per 60 seconds, including its credit
+routes; the wallet has a separate 180-request budget. These are per-account,
+per-API-instance limits. On 429, respect Retry-After. Database Checkout retains
+60 requests and 10 new orders per hour.
 
 ## Suspend access, revoke connectors and review changes
 
@@ -163,9 +165,9 @@ credits = max(1, ceil(estimated provider USD × (1 + markup % / 100)
                       / USD value per credit))
 ```
 
-The API stores dollar amounts in microUSD (1 USD = 1,000,000 microUSD) and markup
+Pricing estimates store dollar amounts in microUSD (1 USD = 1,000,000 microUSD) and markup
 in basis points (1% = 100 bps); the UI accepts decimal USD and percentages.
-Calculations round up to whole credits with a minimum of one. Analysis/research
+Paid calculations round up to whole credits with a minimum of one; an explicit unlimited reservation spends zero. Analysis/research
 uses the analysis price; deck plans/strategies and unrecognized deep operations
 use the deck-plan price.
 
@@ -177,11 +179,11 @@ $1.00** has that effective unit price; pricing the same pack at $2.00 changes
 its sales economics independently. Usage markup is not added to the pack
 checkout price. None of these estimates measures realized profit.
 
-Initial values deliberately preserve the old **1/4/75** operation prices and
-all existing balances/events. The initial chat estimate is stale: the UI
-contrasts its $0.000143 with the $0.01153 estimate in internal model notes.
-Review estimates deliberately before selling packs; neither figure is a
-guarantee of actual provider billing.
+Initial policy values preserve the former 1/4/75 quotes and existing balances.
+Review logged **Observed provider costs** before changing estimates. Complete
+samples, unknown counts, model/build and the 7/30/90-day window qualify the
+mean and p95 values. Applying an observation fills an estimate draft; only an
+explicit authorized pricing-revision save changes future quotes.
 
 Saving creates a prospective pricing revision. Existing integer balances and
 past charges are not recalculated; accepted work keeps its pricing snapshot.
@@ -193,13 +195,20 @@ independently.
 Ensure eligible users have appropriate balances before enabling charging.
 Use **Users → AI credits → Adjust credits** with a signed whole-number delta
 and reason. Positive credits repay debt first. Disabling credit charging
-returns Deck-E to the existing daily-cap mode; it does not erase the ledger.
+returns ordinary accounts to daily-cap mode; an explicit unlimited override
+bypasses debit/daily allowance but retains operational budgets and all access,
+debt and hold restrictions. Neither mode erases the ledger.
 
 ### What cancellations cost
 
 The charge and ledger reservation are atomic and fail closed if accounting
 cannot establish the policy or balance. Cancellation or setup failure before
-provider invocation is refunded idempotently. Once provider work begins,
+provider invocation is refunded idempotently. The first credit start and provider-attempt row commit atomically after current
+authority and payment holds are checked under the relevant locks. The SDK call
+sets a synchronous invocation latch. A known cancellation or lost database
+acknowledgement before that call retains an exact-operation compensation path;
+it cannot refund completed/failed invocations or an earlier real retry attempt.
+Once provider work begins,
 failures and cancellations retain the quoted flat charge; there is no
 token-by-token settlement. Unstarted reservations expire after five minutes
 and are eligible for idempotent recovery on wallet reads. Recovery skips
@@ -208,6 +217,72 @@ with direct cancellation. That transaction may refund the reservation; otherwise
 a later wallet read recovers it after the lock is released. Refresh the wallet
 later if a refund has not appeared. Accounting connections are released across
 a model stream.
+
+## Owner controls: user AI overrides
+
+Only Owner can change a user's unlimited AI setting or optional provider-cost
+markup override. These settings belong to the user independently of role.
+`markupBps: null` inherits the global policy; `0` is valid zero markup.
+Changes require the current override revision and a reason, and are audited.
+
+Unlimited uses an explicit zero-debit reservation and records actual usage;
+it does not mint a large balance or manufacture a refund. Debt, refund/dispute
+holds, suspension, feature restrictions and operational limits still apply.
+New work cannot select a revoked override or stale global price. Already
+reserved work keeps its frozen terms; bound nested work can inherit the
+started, unrefunded parent's snapshot within its operational window.
+Existing integer balances, debts and past settlements are not repriced.
+
+## Review AI usage and conversation consent
+
+AI usage is server-written before model work and independently of browser
+history saves. A parent records each HTTP request; distinct provider-attempt
+rows capture response, research and planning work, including local SDK retries,
+fallbacks, nested calls, cancellation and failure. Attempt IDs and idempotent
+finalization prevent double counting. Upstream attempts that the Gateway does
+not report cannot be invented.
+
+Cost is a validated reported USD decimal or unknown. Explicit reported zero is
+valid; absent/malformed cost is never zero. Rows include token/cache/reasoning
+evidence when supplied, status and timestamps, known/unknown coverage, full
+server commit SHA and PR attribution. The trusted preview PR system ID takes
+precedence over a squash-merge subject; missing provenance remains null.
+The implementation supplies no guessed token-rate fallback. Aggregate known and
+unknown counts refer to provider operations, not parent requests. Financial
+estimates read both historical flat snapshots and effective-policy envelopes;
+a missing operation estimate is counted as unpriced.
+
+**AI usage** filters user, conversation, category, status, date, model, build,
+PR and cost source with bounded paging. Lists and observations contain no
+prompts, responses, tool arguments/output, raw errors or hidden context.
+Admin, Superadmin and Owner may inspect metadata and current-consented detail;
+Contributor has no administrative usage access.
+Usage reads require an active application session, tier 40 or higher and current
+`admin.access`. Custom roles lose metadata and shared-content access immediately
+when that permission is removed; the capability projection uses the same rule.
+
+Profile **Allow my conversations to improve Deck-E** is off by default. Consent
+is fixed at the first accepted leg of a human exchange. Every administrative
+content read also requires current enabled consent at that same epoch and an
+active account. Turning sharing off removes optional administrative excerpts
+immediately; turning it on again cannot resurrect older exchanges.
+An active user can withdraw even after losing Deck-E access or while the
+feature is disabled.
+
+Shared content contains only the current user message and visible assistant
+response. Own history remains separate and may contain personal tool records;
+client-posted content/build/cost is never administrative telemetry authority.
+The browser sends the same conversation ID, sequence and exchange UUID on every
+leg and history POST. The server validates ownership and accepted correlation,
+retains immutable personal history, and reuses the request's generation build.
+Old/missing correlation stays private and unattributed. Deleting own history
+also withdraws its optional administrative excerpts while preserving metadata.
+
+Private responses are no-store. The browser clears sensitive state on identity
+and consent changes; open administrative detail refetches every ten seconds
+and on focus, withholding content while unavailable/refetching. Withdrawal
+cannot recall text already seen or copied. Observed costs inform explicit
+estimates only; flat quoted billing and refund semantics remain unchanged.
 
 ## Offer credit packs and diagnose payment setup
 
@@ -225,8 +300,11 @@ does not itself grant credits: the wallet waits for a server-confirmed order.
 
 **Payment readiness** inspects existing Stripe configuration read-only. It
 requires hosted mode, a trusted HTTPS return origin, the secret key/signing
-secret and an enabled webhook matching this origin, mode and required event
-subscriptions. Results may be cached for 60 seconds. No new readiness flag is
+secret and an enabled webhook matching this HTTPS origin, exact `/api/stripe/webhook`
+path, mode and all nine required credit event subscriptions. A delivery query
+is allowed for deployment protection and never displayed by readiness; credentials
+and fragments are rejected. Pagination is bounded and reports incomplete
+verification rather than success. Results may be cached for 60 seconds. No new readiness flag is
 needed, and the app does not create or modify a Stripe webhook. See
 DEPLOYMENT.md for the nine credit events; retain the existing support events.
 
@@ -244,7 +322,8 @@ a separate product and do not purchase credits.
 describe the cohort of purchases paid in that window; the refund value is
 cumulative refunds on those purchases, not necessarily refunds issued inside
 the same window. Pending orders, held wallets and debt counts describe current
-state. Provider cost is estimated for priced usage; older unpriced spends are
+state. This financial summary estimates cost for priced spends; the separate AI usage
+view shows observed reported/unknown provider costs. Older unpriced spends are
 reported separately. Filter **Credit orders** by user ID/status.
 
 Signed webhooks reconcile current Stripe session, payment, customer, refund
@@ -271,6 +350,6 @@ refund-issuing button or manual “mark paid” shortcut in Administration.
 Run the focused `test:admin` and `test:admin-credits` API suites, the guarded
 `test:integration` PostgreSQL runner, and root `test:browser` as documented
 in CONTRIBUTING.md. The database fixture rehearses selected dependencies and
-migrations 064–067, including direct SQL/RLS and concurrency boundaries; it is
+migrations 064–071, including direct SQL/RLS and concurrency boundaries; it is
 not a full historical migration replay. Browser APIs/sessions and Stripe/model
 responses are isolated fixtures. They do not establish live payment readiness.

@@ -250,17 +250,17 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `NODE_ENV` | `production` | |
 | `SUPABASE_MODE` | `1` | **Set in cloud, unset in self-host — and the billing tier is off without it.** It selects the RLS request-transaction middleware and the `SECURITY DEFINER` write path, and `billingAvailable()` requires it, so an unset value makes `GET /health` answer `billingGate: "self-host"` and every money route refuse, no matter how correct the four Stripe variables are. It also gates the migration runner: `packages/db` **skips every `-- @supabase-only` migration when it is unset** (054, 056, 058, 059, 060, 062, 065) and the CLI prints them as `present`, which reads identically to "already applied". Load it before any migration run. |
 | `DECKE_VERCEL_AI_GATEWAY_KEY` | `<Vercel AI Gateway key>` | **Deck-E's brain. Unset = his chat is off.** The credential `POST /api/chat` uses to reach the Vercel AI Gateway. **Unset means every chat request 503s** and the client hides the character's entry point — fail-closed, and reported rather than silent: the API warns on boot and returns `deckeGate` on `GET /health` (`configured` / `unset` / `borrowed`). **It must be a key with paid credits attached.** A free-tier key authenticates fine and lists every model, then returns a bare `429` — no `retry-after`, no `x-ratelimit-*` headers — on *every* model, so a model fallback does not help and retrying only burns budget. **Deliberately separate from `AI_GATEWAY_API_KEY`**, which belongs to the marketing image generator (`scripts/gen-marketing-images.mjs`): two keys means Deck-E's per-user spend is legible on its own and revocable without breaking a build script. Local development falls back to `AI_GATEWAY_API_KEY` when this is unset; **production never falls back**, because quietly billing the wrong key is worse than being off. |
-| `DESIGN_EDITOR_USER_ID` | `<existing auth.users UUID>` | One-time trusted cloud bootstrap input for the initial Super admin. The account must already exist in app_user. Missing/invalid owner leaves administration uninitialized and visible on /health. After bootstrap, database roles govern scanner/design/diagnostics/admin access; changing this value does not override role changes. Preview has the same permission checks as production. |
-| `DECKE_ENTITLED_USER_IDS` | `<uuid>,<uuid>` | One-time import into the editable Deck-E access role. Only valid existing accounts are imported. Later grants/revocations use Administration; the environment list is not reimported after the sentinel. |
-| `LABELER_ENTITLED_USER_IDS` | `<uuid>,<uuid>` | One-time labeler-role import. If no valid dedicated UUIDs are supplied, bootstrap uses the valid Deck-E list. The imported role includes admin.access and scanner.label; later assignment is database-managed. |
+| `DESIGN_EDITOR_USER_ID` | `<existing auth.users UUID>` | Trusted one-time cloud initialization input for Owner after 068; must identify an existing app_user. Existing initialized deployments seed Owner from admin_state.bootstrap_owner. Runtime authority is protected canonical membership. Missing owner/schema is visible on /health. Preview uses the same gates. |
+| `DECKE_ENTITLED_USER_IDS` | retired compatibility input | The server may pass this legacy argument to signature-compatible bootstrap, but 068 does not import new grants. It does not grant Scanner/Deck-E or experimental eligibility. Use canonical role plus lifecycle/opt-in; reviewed migration handles prior rows. |
+| `LABELER_ENTITLED_USER_IDS` | retired compatibility input | Not an authorization list after 068. Existing legacy labeler assignments retain their narrow developer permissions through reviewed migration; no new account is silently promoted and Contributor gets no admin.access. |
 | `DECKE_MAX_TURNS_PER_DAY` | `120` (default) | Per-account daily cap on Deck-E conversation, enforced in Postgres (`decke_usage`, migration 039). **One "turn" is one BILLED MODEL REQUEST, not one thing the reader typed** — a client-side tool ends the server turn, so a journey ("take me to that set") spends up to four. At a measured $0.000143 a turn the default is under two cents a day per account. Over cap returns **429** with a spoken refusal, not a 500. Empty falls back to the default; an explicit `0` switches the tier off. |
 | `DECKE_MAX_DEEP_CALLS_PER_DAY` | `10` (default) | The same, for the analysis/research tier (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Capped **separately and far tighter** because it is ~250x the price: `models.ts` measures one analysis call at $0.0356, and a realistic `plan_deck` — large collection context plus research plus thinking — at $0.50-$1. Owner's standing decision: Claude Sonnet by default, Opus only on an explicit ask. |
 | `PGPOOL_MAX_API` | **unset** in cloud — ⚠️ and the billing routes are the heaviest consumer of what it sizes: each holds its pooled connection across 8-22 sequential Stripe round trips, so twelve concurrent billing requests take the whole pool and every other request answers 500 after a 10s connect timeout (executed against the real `pg-pool`). `lockAccount` caps a same-account waiter at 4s rather than the 30s watchdog, which removes the "one person with twelve tabs" trigger; the shape itself — a connection held across a network call — is unfixed and recorded in DECISIONS.md. Watch `/health`'s pool census (`waiting > 0` with `idle: 0`) after go-live. | Size of the Express API's `request` pool (`apps/api/src/db.ts`), and the ONE knob that can override contract B2's role/backend sizing. **Leave it unset here.** Unset means `makePool` picks the role default — **12** against the Supabase transaction pooler, hard-capped at 24 — which is the number the pooler's whole design assumes: it multiplexes, so clients need not ration. `2` is the DIRECT-Postgres self-host number and belongs only to that deployment; `.env.example` stopped shipping it on 2026-08-11 for exactly this reason (DECISIONS.md). **Setting it low in cloud is invisible until it isn't**: in SUPABASE_MODE the RLS middleware holds one pooled connection for the whole lifetime of every request, so this value IS the server's maximum concurrency, and exceeding it does not queue politely — requests block until `connectionTimeoutMillis` (10 s) and answer **500 `Internal server error`** with a bare `pg-pool` connect-timeout stack. Boot logs the chosen value (`[db] pool role=request … max=…`) and now warns when it is below the pooled default; `GET /health`'s pool census (`waiting > 0` with `idle: 0`) is the live symptom. |
-| `PGPOOL_MAX_CHAT` | `2` (default) | Size of the pool `api/chat.mjs` opens for the meter. **A separate process from the Express app**, so `/health`'s live pool census cannot see it and never will — health reports the configured value under `deckeLimits.chatPoolMaxConfigured` and says which it is. Two is enough because the connection is held for ONE statement before the stream starts and released immediately; nothing inside the stream touches the pool. Contract B2's `request` role. |
+| `PGPOOL_MAX_CHAT` | `2` default | Separate serverless chat request pool; /health reports its configured size, not its live census. Usage/credit statements acquire and release connections before and during streams; no connection is held across provider streaming. Follow contract B2 sizing. |
 | `DECKE_METER_TIMEOUT_MS` | `5000` (default) | Watchdog on the meter's connect and query. A database that has stopped answering must not turn every Deck-E request into a hung socket holding a pooled connection on an instance Vercel is about to freeze. On timeout the meter **fails open** and logs loudly — accounting fails open, access control does not, and they are separate checks for exactly that reason. |
 | `DECKE_PGRLS_MAX_HOLD_MS` | `10000` (default) | How long ONE Deck-E tool call may hold its pooled connection. Deliberately far below the API's 30 s `PGRLS_MAX_HOLD_MS`, because the unit differs: that budget covers a whole request, this one covers a single `search_cards`. A read taking ten seconds is not slow, it is stuck, and on a conversational path the reader gave up several seconds ago. On expiry the connection is **destroyed rather than pooled** — it may be mid-statement inside an open transaction carrying that turn's RLS claims, and returning it would let the next request race a still-running query from someone else's session. |
 | `DECKE_DEEP_BUDGET_MS` | `210000` (default) | Wall-clock ceiling for ONE deep-tier sub-agent (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Must stay comfortably under `api/chat.mjs`'s `maxDuration` (300 s) — the gap is not slack, it is the time needed to write the partial answer out, let the conversational model comment on it, and close the stream properly. A sub-agent that hits this returns **what it has so far, labelled incomplete**, rather than being killed: it streams for exactly that reason, since a call that is simply killed produced nothing and was billed anyway. |
-| `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_MESSAGE` | set by Vercel | **Not set by hand — but the feature that reads them can be switched off by accident.** Deck-E's transcript history stamps every turn with the build that served it, so *"did this get worse, and when"* is a query rather than a guess. The PR number is parsed from the squash-merge subject (`Title (#78)`) and the sha is the commit. Both arrive as ordinary runtime environment variables **only while the project's "Automatically expose System Environment Variables" setting is ON** (Vercel → Project → Settings → Environment Variables). Turn it off and every new turn records `buildPr: null, buildSha: null` — silently, and indistinguishably from a run of preview deploys, which is the failure this row exists to make findable. Nothing else depends on them; the history keeps working and simply stops being correlatable. Verified live: a turn recorded on a preview came back stamped with the deploying commit. |
+| `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_PULL_REQUEST_ID`, `VERCEL_GIT_COMMIT_MESSAGE` | Vercel system values | Read on the server at request acceptance. SHA must be full 40 hex; a strict positive preview PR ID takes precedence over a PR parsed from the first commit-message line. Missing/invalid tags remain null. Check system-variable exposure on the intended deployment; never infer it from source or accept browser stamps. See [official system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables). |
 | `DECKE_CREDITS_ENABLED` | unset (default) | Imported exactly once as enabled only for the exact string true, after owner bootstrap succeeds. Thereafter Administration → Settings is authoritative. Existing balances/events remain unchanged; initial quoted prices preserve 1/4/75 and must be reviewed before sales. No pack is created or activated automatically. |
 | `SCAN_EMBED_MATCH` | unset (default) | **Switches on the scanner's embedding matcher — `POST /api/scan/embed`, and the vector's part in `POST /api/scan/resolve`.** Unset, or anything other than the exact string `true`, and `/embed` answers **404** (the honest answer: this deployment does not have that endpoint) while `/resolve` ignores any `vectorMatches` in the body and returns exactly what it returned before the matcher was written — same keys, no `similarity` field, same ordering. The dHash path (`POST /api/scan`) is untouched either way. **THREE things must be true before setting it, and none of them is checked from the API**: migration 051 applied (which needs `pgvector`, see below), `tools/embed-catalog` run for the current stamp, and the ONNX checkpoint present at `SCAN_EMBED_MODEL_PATH`. A serverless function has no boot to verify them in, so each surfaces on the first request instead — a missing table or extension degrades **silently back to the old ladder** (one warning in the log, no 500), while a missing model file is a 500 whose message names the path. Turn it on in **Preview first**, run one real scan, then Production. `GET /health` reports `scanEmbed: "on" \| "off"`, and the API logs one line at boot when it is on. |
 | `SCAN_EMBED_MODEL_PATH` | `apps/api/assets/embed/<EMBED_MODEL_ID>.onnx` (default) | **Where the API finds the identity model it embeds uploaded crops with.** Not committed — an int8 CLIP ViT-B/32 export is ~88 MB and this repo carries no binaries — so the file is placed by hand and carried into the serverless bundle by `vercel.json`'s `includeFiles`. `tools/embed-catalog/README.md` has the export snippet that produces it, and it is deliberately the *same file* the catalogue job uses: a query vector and a catalogue vector are comparable only when one model made both. Absent, `POST /api/scan/embed` fails with a message naming the missing path rather than a stack trace about a file handle. |
@@ -938,11 +938,12 @@ the device instantly and revalidates in the background. These headers are what
 the visit *before* the worker takes over gets, plus every browser where a
 service worker never activates.
 
-### Administration and credit rollout (064–067)
+### Administration, lifecycle and usage rollout (064–071)
 
-Deploy the additive schema before the new code serves authenticated traffic.
-Build/use the checkout containing all four files; a status command from an old
-checkout cannot report migrations it does not contain:
+Use the reviewed checkout containing migrations 068–071 and deploy the required
+schema before this application version serves authenticated traffic. Preserve
+all shipped files/checksums through 067; a status command from an older checkout
+cannot report migrations it does not contain:
 
 ```bash
 pnpm --filter @deckpal/db build
@@ -961,6 +962,10 @@ production. Verify the runner's applied/checksum state against this exact list:
 | `065_admin_security.sql` | `@supabase-only`: explicit cloud grants, restrictive suspension policies and narrow legacy-billing guards. |
 | `066_credit_economy.sql` | Credit policy/revisions, packs, orders, debt, reservations and audited adjustments. |
 | `067_credit_economy_security.sql` | Session/permission-aware wallet/checkout/finance functions and trusted settlement; conditional grants for existing cloud roles. |
+| `068_single_role_tiers.sql` | Mandatory canonical role, trusted Owner seed, structural tier/target rules, private migration snapshot/archive and old-reader view. |
+| `069_feature_lifecycle.sql` | Lifecycle catalog and personal opt-ins; Scanner/Deck-E initially experimental. |
+| `070_credit_user_overrides.sql` | Owner-only override revisions and frozen explicit paid/unlimited reservations. |
+| `071_decke_usage.sql` | Server request/attempt metadata, current-epoch optional content and owned history correlation. |
 
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its
@@ -988,25 +993,58 @@ bootstrap/access/account-permission helpers. 067 grants `authenticated` the
 explicit quote/wallet/events/packs/order and finance entry points, with finance
 authorization inside SQL. It does not expose initialization, raw spend,
 fulfillment, reversal or settlement helpers to web roles. No direct governance
-or financial table grants are added. Preserve the function grants shipped by
-064–067 instead of granting all functions/tables to resolve an error.
+or financial table grants are added. Preserve the explicit function grants shipped by
+064–071 instead of granting all functions/tables to resolve an error.
 
-Before the first authenticated request, confirm the existing cloud owner UUID
-is configured and present. Bootstrap imports owner/QA role memberships and the
-legacy credit flag privately, atomically and once; only committed success is
-cached. `GET /health` reports `administration` as `pending`, `ready`,
-`owner-missing` or `schema-unavailable`. Missing schema/bootstrap must be
-resolved before relying on private features. Inspect schema status and the
-configured existing account; do not clear the sentinel or let a newly signed-up
-user claim ownership. Recovery guidance is in ADMINISTRATION.md.
+### Review the canonical-role conversion
 
-After deploying code, use the owner guide to verify permissions, add a backup
-Super admin, review the inherited role assignments, set defaults and deliberately
-review credit estimates. Grant appropriate starting balances before enabling
-charging. Packs start empty and must be created/activated explicitly.
-Turning charging off is now a database policy change in Settings; the daily-cap
-path remains available and historical credits remain intact. Changing the old
-environment flag after bootstrap does not change policy.
+Inspect current roles, assignments, suspension state and the trusted bootstrap
+owner before running 068. Unknown custom role tiers or ambiguous multi-role
+assignments produce diagnostics and roll back 068 atomically. Do not infer a
+tier from a name or combine permissions. Prepare an explicit reviewed mapping:
+
+```bash
+mapping='{"roles":{"<existing-role-uuid>":30},"users":{"<account-id>":"<destination-role-uuid>"}}'
+PGOPTIONS="-c deckpal.role_migration_map=$mapping" pnpm --filter @deckpal/db migrate
+```
+
+This is a template, not a list of authorized accounts. Supply compact JSON only
+for the intended normal migration process. The installed pg driver forwards
+PGOPTIONS locally; disposable PostgreSQL verified this setting persists through
+the runner's transactions. Forwarding through the actual deployed pooler is
+unverified until the operator reads
+`current_setting('deckpal.role_migration_map',true)` on the connection that will
+migrate and confirms the reviewed value. A prior connection's SET LOCAL is not
+a substitute; SET LOCAL works only inside the same transaction. Do not invent
+a new migration runner or persist the mapping as product configuration.
+
+068 preserves old assignments privately, then exposes one read-only
+`admin_user_role` projection over the mandatory role. Owner maps to the existing
+Superadmin summary only in deprecated `roles[]` output. This preserves old
+readers, not old multiple-assignment writes. New code uses `role` and `isOwner`.
+
+A failed numbered file rolls back that file; earlier files have already
+committed. Prefer a verified compatible code rollback after checking the
+actual applied set. Do not drop new tables, restore archived memberships as
+live authority, edit checksums or clear bootstrap to undo an upgrade. A data
+restore requires a reviewed backup/write-pause plan retaining accounts, audit,
+consent and financial ledgers together. Complete and verify 068–071 before
+serving the new routes.
+
+Before new initialization, verify the configured existing cloud owner account.
+For an initialized deployment, verify trusted `admin_state.bootstrap_owner`;
+068 seeds canonical Owner from that record. New bootstrap assigns Owner once
+and ignores retired grant lists. `GET /health` reports administration readiness
+without exposing account IDs. A new signup or changed email/JWT profile cannot
+claim ownership. No ordinary Owner-transfer UI was added.
+
+After tests, fresh review, green PR checks and merge, use the authorized rollout
+workflow to verify schema checksums, Owner/single-role access, representative
+assignment/feature denials, consent withdrawal and no-store responses. Review
+pricing estimates and packs explicitly; disabling charging preserves daily
+mode for ordinary users and the existing ledger. Unlimited remains Owner-only
+and retains access/hold/budget checks. Record deployment SHA and observed results;
+this runbook itself is not evidence that production was changed.
 
 ### Credit Checkout readiness
 
@@ -1033,26 +1071,36 @@ test/live mode:
 - `refund.updated`
 - `refund.failed`
 
-Administration's Payment readiness check uses the existing server key to list
-webhook endpoints read-only. That key needs permission to inspect the endpoint
-list. No new readiness environment flag exists, and the app never creates or
-edits Stripe endpoints. It reports missing signing/key setup, wrong origin/mode,
-missing subscriptions or an unreadable endpoint list; results cache for up to
-60 seconds. This configuration check does not prove a successful real payment
-or authenticate the configured signing secret against a delivery.
+Payment readiness parses HTTPS origin plus the exact `/api/stripe/webhook`
+pathname, requires enabled status and matching test/live mode, and accepts all
+nine credit subscriptions or Stripe's wildcard. Credentials and fragments are
+invalid. A delivery query may carry deployment-protection parameters; it does
+not change endpoint identity and is never returned in status output. The scan
+uses up to five 100-row pages and reports bounded incompleteness or unreadable
+lists as unavailable rather than claiming success. Status retains
+`ready,reason,requiredEvents,checkedAt` and a 60-second cache; refresh explicitly
+after configuration changes.
 
-Local tests use isolated Stripe/model fixtures and selected real SQL migrations.
-Earlier security/accounting findings have repairs, including skipped locked
-reservations during wallet recovery. The creation-time permissions repair passed
-54 isolated integration cases, including denied client access after 064/066,
-UUID self-host without cloud roles, and the final 065/067 authorized flows.
-See [PR #188](https://github.com/cheyras/deckpal/pull/188) for current independent
-review and CI status. Production schema/bootstrap and real payment/refund/dispute
-delivery remain unverified: release awaits access
-to the existing authorized migration/deployment workflow. The intended Vercel
-project has been identified, but available access has not established its
-sensitive configuration or Stripe subscriptions. Check those through the
-authorized operator workflow before serving the new code or enabling sales.
+For sandbox verification, use a dedicated stable preview origin with the intended
+Stripe test account and corresponding endpoint/signing secret. Keep existing
+production support/gift keys, mode and subscriptions separate and working.
+A branch's changing deployment hostname should not silently become the long-term
+sandbox destination. Preserve support events when adding credit subscriptions;
+do not replace production billing configuration to make a preview status green.
+
+Through the authorized operator workflow, verify account, key mode, destination,
+subscriptions and signing-secret delivery on the actual target. Readiness only
+finds configuration; it does not validate a real purchase/refund/dispute or prove
+the signing secret authenticates delivery. The previous sandbox finding was a
+preview endpoint without all nine credit events; the matcher source repair does
+not establish that its live configuration was corrected.
+
+Isolated API/SDK/Stripe fixtures and the guarded PostgreSQL runner validate the
+implemented behavior, including the real history HTTP/SQL/consent chain.
+Production068–071 application, actual pooler mapping forwarding, deployment and
+new payment delivery remain separate evidence requirements until the root
+operator records them. No secret, protection query or credential belongs in
+published runbook output.
 
 
 | `DECKE_APPROVAL_SECRET` | `<long random string>` | **Signs Deck-E write approvals so they cannot be forged.** Every write is held for a human to approve — but the SDK verifies the approval's signature ONLY when this is set (`ai/dist/index.js:5164`); unset, the approval is taken at face value. That matters because Deck-E's client replays the whole conversation on every leg, so a crafted caller could append `state: "approval-responded", approval: { approved: true }` to a tool call it was never granted — or approve "add 1 card" and send back "add 4000" against the same approval. The tool INPUT is inside the signature; without it nothing binds them. **Unset is not broken** (it is what every deployment did before this existed) so it does not fail closed, but it is a security control that is OFF: the API warns at boot and `GET /health` reports `deckeApprovals: "unsigned"`. Generate with `openssl rand -base64 32` and set it in Production and Preview. |

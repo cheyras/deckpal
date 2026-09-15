@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Button } from './Button'
+import { Icon } from '../Icon'
 import { Field } from './Field'
 import { DATA_TABLE_PAGE_SIZES, getDataTablePage, nextDataTableSort, type DataTableSort } from './dataTable'
 
@@ -118,7 +119,7 @@ export function DataTable<T>({
                         aria-label={`${column.header}: sort ${next.direction === 'asc' ? 'ascending' : 'descending'}`}
                         onClick={() => onSortChange?.(next)}
                       >
-                        {column.header}<span aria-hidden="true">{direction === 'asc' ? '↑' : direction === 'desc' ? '↓' : '↕'}</span>
+                        {column.header}<Icon name={direction === 'asc' ? 'arrow-up' : direction === 'desc' ? 'arrow-down' : 'arrow-up-down'} size={14} />
                       </button>
                     ) : column.header}
                   </th>

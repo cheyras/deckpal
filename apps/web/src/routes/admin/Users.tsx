@@ -1,3 +1,4 @@
+import { UserAiOverride } from './AiOverride'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import { Button, Field, FormAlert, EmptyState, DataTable, DataTableToolbar } from '../../components/ui'
@@ -28,31 +29,29 @@ export function AdminUsers() {
       </DataTableToolbar>}
       columns={[
         { id: 'user', header: 'User', className: 'min-w-[220px] max-w-[320px]', cell: user => <><Link to="/admin/users/$userId" params={{ userId: user.id }} className="break-words font-semibold text-link">{user.username || 'Unnamed user'}</Link><p className="mt-[4px] break-all text-text-muted">{user.email ?? user.id}</p></> },
-        { id: 'roles', header: 'Roles', className: 'min-w-[180px] max-w-[260px] break-words', cell: user => user.roles.map(r => r.name).join(', ') || 'No assigned roles' },
+        { id: 'role', header: 'Role', className: 'min-w-[180px] max-w-[260px] break-words', cell: user => user.role?.name ?? 'User' },
         { id: 'status', header: 'Status', className: 'min-w-[110px]', cell: user => <span className={user.suspended ? 'text-error' : 'text-text-body'}>{user.suspended ? 'Suspended' : 'Active'}</span> },
         { id: 'joined', header: 'Joined', className: 'whitespace-nowrap', cell: user => new Date(user.createdAt).toLocaleDateString() },
       ]} />
   </section>
 }
-function AssignRoles({ user, roles, close }: { user: AdminUser; roles: AdminRole[]; close: () => void }) {
-  const access = useAccess(), state = useAdminSave()
-  const [chosen, setChosen] = useState(user.roles.map(r => r.id)), [reason, setReason] = useState('')
-  const superAdmin = roles.some(r => r.key === 'super_admin' && access.roles.some(own => own.id === r.id))
-  return <Sheet title="Assign roles" onClose={() => { if (!state.busy) close() }}><form onSubmit={e => { e.preventDefault(); void state.save(() => api.adminUserRoles(user.id, chosen, user.revision, reason.trim()), () => { close(); invalidateAccess() }) }} className="space-y-[16px]">
-    <p className="text-text-muted">Roles combine their permissions. The server protects the last active super administrator.</p>
-    <fieldset className="space-y-[12px]"><legend className="mb-[12px] font-semibold text-text-primary">Roles for {user.username}</legend>{roles.map(role => {
-      const canGrant = role.protected ? superAdmin : role.permissions.every(p => access.permissions.includes(p))
-      return <label key={role.id} className="flex items-start gap-[12px] rounded-[10px] border border-border-default p-[12px]"><input type="checkbox" className="mt-[4px]" checked={chosen.includes(role.id)} disabled={!canGrant} onChange={e => setChosen(e.target.checked ? [...chosen, role.id] : chosen.filter(id => id !== role.id))} /><span className="min-w-0"><span className="break-words font-semibold text-text-primary">{role.name}</span><span className="mt-[4px] block text-[13px] text-text-muted">{role.description}</span></span></label>
-    })}</fieldset>
-    <p className="break-words text-[14px] text-text-muted">Resulting permissions: {[...new Set(roles.filter(r => chosen.includes(r.id)).flatMap(r => r.permissions))].sort().join(', ') || 'None'}</p>
+function AssignRole({ user, roles, close }: { user: AdminUser; roles: AdminRole[]; close: () => void }) {
+  const state = useAdminSave()
+  const allowed = roles.filter(role => user.actions.assignableRoleIds.includes(role.id))
+  const [chosen, setChosen] = useState(user.role.id), [reason, setReason] = useState('')
+  const selected = allowed.find(role => role.id === chosen)
+  return <Sheet title="Assign role" onClose={() => { if (state.busy) return false; close() }}><form onSubmit={e => { e.preventDefault(); if (selected) void state.save(() => api.adminUserRole(user.id, selected.id, user.revision, selected.revision, reason.trim()), () => { close(); invalidateAccess() }) }} className="space-y-[16px]">
+    <p className="text-text-muted">Each account has exactly one role. Available choices reflect your authority over this account. Owner is reserved and cannot be granted here.</p>
+    <label className="block font-semibold text-text-secondary">Role for {user.username}<select aria-label="Assigned role" className={selectClass + ' mt-[8px]'} value={chosen} onChange={e => setChosen(e.target.value)} required>{!allowed.some(role => role.id === user.role.id) && <option value={user.role.id} disabled>{user.role.name} (current)</option>}{allowed.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+    {selected && <p className="break-words text-[14px] text-text-muted">{selected.description}</p>}
     <Field label="Reason" value={reason} onChange={e => setReason(e.target.value)} required minLength={3} maxLength={500} />
-    {state.error && <FormAlert kind="error">{state.error}</FormAlert>}<Button type="submit" loading={state.busy}>Save role assignments</Button>
+    {state.error && <FormAlert kind="error">{state.error}</FormAlert>}<Button type="submit" loading={state.busy} disabled={!selected || !user.actions.canAssignRole}>Save role assignment</Button>
   </form></Sheet>
 }
 function AdjustCredits({ id, close }: { id: string; close: () => void }) {
   const [delta, setDelta] = useState(''), [reason, setReason] = useState(''), [key] = useState(() => crypto.randomUUID())
   const state = useAdminSave()
-  return <Sheet title="Adjust AI credits" onClose={() => { if (!state.busy) close() }}><form onSubmit={e => { e.preventDefault(); if (Number.isSafeInteger(Number(delta)) && Number(delta) !== 0) void state.save(() => api.adminAdjustCredits(id, Number(delta), reason.trim(), key), close) }} className="space-y-[16px]">
+  return <Sheet title="Adjust AI credits" onClose={() => { if (state.busy) return false; close() }}><form onSubmit={e => { e.preventDefault(); if (Number.isSafeInteger(Number(delta)) && Number(delta) !== 0) void state.save(() => api.adminAdjustCredits(id, Number(delta), reason.trim(), key), close) }} className="space-y-[16px]">
     <p className="text-text-muted">Positive credits repay any refund debt first. Negative adjustments remove spendable credits; any amount beyond the balance becomes debt. This creates a permanent ledger entry.</p>
     <Field label="Credit adjustment" type="number" step="1" required value={delta} onChange={e => setDelta(e.target.value)} hint="Use a positive number to add credits or a negative number to remove them." />
     <Field label="Reason" required minLength={3} maxLength={500} value={reason} onChange={e => setReason(e.target.value)} />
@@ -67,12 +66,13 @@ export function AdminUserDetail() {
   const [creditOffset, setCreditOffset] = useState(0)
   const credits = useAdminQuery(['user-credits', userId, creditOffset], signal => api.adminUserCredits(userId, signal, creditOffset), 'credits.read')
   const [dialog, setDialog] = useState<'roles' | 'status' | 'tokens' | 'credits' | 'hold' | null>(null)
+  useEffect(() => { setDialog(null); setCreditOffset(0) }, [userId, access.identity, access.revision])
   const user = userQuery.data?.user
   return <div className="space-y-[20px]"><Link to="/admin/users" className="text-link">← All users</Link><LoadState loading={userQuery.isLoading} error={userQuery.error} retry={userQuery.refetch} />
     {user && <><Panel title={user.username || 'User account'}><dl className="grid gap-[16px] sm:grid-cols-2">{[['Email', user.email ?? 'Not available'], ['User ID', user.id], ['Joined', fmtDate(user.createdAt)], ['Last sign in', fmtDate(user.lastSignInAt)], ['Status', user.suspended ? 'Suspended' : 'Active']].map(([label, value]) => <div key={label}><dt className="text-[14px] text-text-muted">{label}</dt><dd className="mt-[4px] break-all text-text-primary">{value}</dd></div>)}</dl>
-      <div className="mt-[20px] flex flex-wrap gap-[12px]">{access.permissions.includes('users.manage') && <><Button variant="ghost" onClick={() => setDialog('status')}>{user.suspended ? 'Reactivate account' : 'Suspend account'}</Button><Button variant="ghost" onClick={() => setDialog('tokens')}>Revoke connectors</Button></>}</div></Panel>
-      <Panel title="Roles and permissions"><p className="break-words text-text-body">{user.roles.map(r => r.name).join(', ') || 'No assigned roles'}</p><p className="my-[16px] break-words text-[14px] text-text-muted">{userQuery.data?.permissions.join(', ') || 'No privileged permissions'}</p>
-        {access.permissions.includes('roles.manage') && roles.data && <Button onClick={() => setDialog('roles')}>Assign roles</Button>}</Panel>
+      <div className="mt-[20px] flex flex-wrap gap-[12px]">{user.actions?.canChangeStatus && <Button variant="ghost" onClick={() => setDialog('status')}>{user.suspended ? 'Reactivate account' : 'Suspend account'}</Button>}{user.actions?.canRevokeTokens && <Button variant="ghost" onClick={() => setDialog('tokens')}>Revoke connectors</Button>}</div></Panel>
+      <Panel title="Role and permissions"><p className="break-words text-text-body">{user.role?.name ?? 'User'}</p><p className="my-[16px] break-words text-[14px] text-text-muted">{userQuery.data?.permissions.join(', ') || 'No privileged permissions'}</p>
+        {user.actions?.canAssignRole && roles.data && <Button onClick={() => setDialog('roles')}>Assign role</Button>}</Panel>
       <Panel title="Account activity"><dl className="flex flex-wrap gap-[24px]">{Object.entries(userQuery.data?.stats ?? {}).map(([key, count]) => <div key={key}><dt className="text-text-muted">{({ collectionItems: 'Collection items', decks: 'Decks', connectors: 'Connectors' } as Record<string, string>)[key]}</dt><dd className="text-[22px] text-text-primary">{count}</dd></div>)}</dl></Panel>
       {access.permissions.includes('credits.read') && <Panel title="AI credits"><LoadState loading={credits.isLoading} error={credits.error} retry={credits.refetch} />{credits.data && <><p className="text-[28px] font-bold text-text-primary">{credits.data.balance.toLocaleString()} credits</p>{credits.data.debt > 0 && <p className="mt-[8px] text-error">Refund debt: {credits.data.debt} credits. Incoming credits repay this first.</p>}{credits.data.purchaseHold && <p className="mt-[8px] text-error">Purchases are on hold pending payment review.</p>}<DataTable label="User credit ledger" className="mt-[16px]" rows={credits.data.events ?? []} getRowId={event => event.id}
         loading={credits.isPending} refreshing={credits.isFetching && !credits.isPending} error={credits.error?.message} onRetry={() => void credits.refetch()}
@@ -85,10 +85,11 @@ export function AdminUserDetail() {
           { id: 'debt', header: 'Debt change', align: 'right', cell: event => event.debtDelta ? (event.debtDelta > 0 ? '+' : '') + event.debtDelta.toLocaleString() : '—' },
           { id: 'reason', header: 'Reason', className: 'min-w-[200px] max-w-[360px] break-words', cell: event => event.reason || '—' },
         ]} /></>}{access.permissions.includes('credits.manage') && <div className="mt-[16px] flex flex-wrap gap-[12px]"><Button onClick={() => setDialog('credits')}>Adjust credits</Button>{credits.data?.purchaseHold && !credits.data.debt && <Button variant="ghost" onClick={() => setDialog('hold')}>Resolve purchase hold</Button>}</div>}</Panel>}
-      {dialog === 'roles' && roles.data && <AssignRoles user={user} roles={roles.data.roles} close={() => setDialog(null)} />}
+      {access.actorCapabilities.canManageUserOverrides && <UserAiOverride userId={user.id} />}
+      {dialog === 'roles' && user.actions?.canAssignRole && roles.data && <AssignRole user={user} roles={roles.data.roles} close={() => setDialog(null)} />}
       {dialog === 'credits' && <AdjustCredits id={user.id} close={() => setDialog(null)} />}
-      {dialog === 'status' && <ConfirmAction title={user.suspended ? 'Reactivate account' : 'Suspend account'} description={user.suspended ? 'Restore app access. Previously revoked connector tokens remain revoked.' : 'Block new app requests and connector access. Work already sent to an external provider may finish.'} close={() => setDialog(null)} action={reason => api.adminUserStatus(user.id, !user.suspended, user.revision, reason)} />}
-      {dialog === 'tokens' && <ConfirmAction title="Revoke connectors" description="Revoke all connector tokens. The user will need to reconnect their assistants. This does not sign them out of the app." close={() => setDialog(null)} action={reason => api.adminRevokeTokens(user.id, reason)} />}
+      {dialog === 'status' && user.actions?.canChangeStatus && <ConfirmAction title={user.suspended ? 'Reactivate account' : 'Suspend account'} description={user.suspended ? 'Restore app access. Previously revoked connector tokens remain revoked.' : 'Block new app requests and connector access. Work already sent to an external provider may finish.'} close={() => setDialog(null)} action={reason => api.adminUserStatus(user.id, !user.suspended, user.revision, reason)} />}
+      {dialog === 'tokens' && user.actions?.canRevokeTokens && <ConfirmAction title="Revoke connectors" description="Revoke all connector tokens. The user will need to reconnect their assistants. This does not sign them out of the app." close={() => setDialog(null)} action={reason => api.adminRevokeTokens(user.id, reason)} />}
       {dialog === 'hold' && <ConfirmAction title="Resolve purchase hold" description="Clear a closed dispute hold after reviewing the payment. Open disputes and unpaid credit debt cannot be cleared." close={() => setDialog(null)} action={reason => api.adminResolveCreditHold(user.id, reason)} />}
     </>}
   </div>

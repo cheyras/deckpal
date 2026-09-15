@@ -242,6 +242,17 @@ try {
     const evidence=JSON.parse(readFileSync(caseFile,'utf8'));
     assert.equal(evidence.status,'passed');
     result.cases.push(evidence);
+    for (const phase of ['before','after']) {
+      const accessDb='deckpal_ci_access_'+mode.replaceAll('-','_')+'_'+phase;
+      await run(join(bindir,'psql'),['-X','-v','ON_ERROR_STOP=1','-c','CREATE DATABASE '+accessDb+' OWNER deckpal_ci_fixture']);
+      const accessFile=join(scratch,'access-'+mode+'-'+phase+'.json');
+      await run(process.execPath,['--import',join(REPO,'node_modules','tsx','dist','loader.mjs'),join(REPO,'apps','api','src','__integration__','access.mjs')],{
+        timeoutMs:180_000,
+        env:{PGUSER:'deckpal_ci_fixture',PGDATABASE:accessDb,DECKPAL_TEST_ROOT:scratch,DECKPAL_TEST_MARKER:marker,DECKPAL_TEST_RESULT:accessFile,DECKPAL_TEST_ADMIN_MODE:mode,DECKPAL_TEST_BOOTSTRAP:phase},
+      });
+      const accessEvidence=JSON.parse(readFileSync(accessFile,'utf8'));
+      assert.equal(accessEvidence.status,'passed');result.cases.push(accessEvidence);
+    }
   }
   result.status = 'passed';
 } catch (error) {

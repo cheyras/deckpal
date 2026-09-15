@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { buildStamp } from '../decke/build.js';
 import { isDeckeEntitled } from '../decke/entitlement.js';
 import { pool, q, q1 } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, notFound, str, UUID_RE } from '../http.js';
@@ -54,6 +53,7 @@ import { currentUserId } from '../identity.js';
  * and would be the first thing to mislead somebody.
  */
 export const deckeHistoryRouter: Router = Router();
+deckeHistoryRouter.use((_req,res,next) => { res.setHeader('Cache-Control','private, no-store'); next(); });
 
 /** 403, in the same shape `ApiError` gives everything else. */
 const forbidden = (msg: string): ApiError => new ApiError(403, 'forbidden', msg);
@@ -273,8 +273,17 @@ deckeHistoryRouter.post(
       throw badRequest('Nothing to record.');
     }
 
-    // THE STAMP IS OURS. Never read from the body — see the header.
-    const { buildPr, buildSha } = buildStamp();
+    // Browser history is personal content only. Generation attribution comes
+    // from an accepted server request, including delayed saves after deployment.
+    const exchangeId = str(body.exchangeId) ?? null;
+    if (exchangeId !== null && !UUID.test(exchangeId)) throw badRequest('exchangeId must be a uuid.');
+    const reference = exchangeId === null ? null : await write<{ build_pr: number | null; build_sha: string | null }>(
+      'SELECT build_pr, build_sha FROM public.decke_ai_request WHERE user_id=$1 AND conversation_id=$2 AND seq=$3 AND exchange_id=$4 ORDER BY started_at,id LIMIT 1',
+      [userId, conversationId, seq, exchangeId],
+    );
+    if (exchangeId !== null && !reference) throw notFound('No accepted exchange matches this history.');
+    const buildPr = reference?.build_pr ?? null;
+    const buildSha = reference?.build_sha ?? null;
 
     // The conversation first, so the turn's foreign key always resolves. The
     // title is the FIRST question and is not overwritten afterwards: a
@@ -321,54 +330,20 @@ deckeHistoryRouter.post(
     // the idempotency the unique constraint was added for and leaves no path to
     // revise a recorded turn. A conflict is reported as `recorded: false` rather
     // than as an error: the turn IS on file, which is what the caller wanted.
-    // ── THE DEPLOY CAN LAND BEFORE THE MIGRATION ────────────────────────────
-    //
-    // Migrations are run BY HAND (`pnpm --filter @deckpal/db migrate`,
-    // DEPLOYMENT.md §2) and Vercel deploys on merge, so between those two
-    // moments this code names a column 046 has not added yet. Every insert
-    // would fail with 42703 — and the client posts this fire-and-forget with
-    // the error swallowed to a console warning, so the history would simply
-    // stop, silently, and stay stopped until somebody noticed months of
-    // conversations were missing.
-    //
-    // So the column is OPTIONAL at runtime: one retry without it, and a loud
-    // warning naming the migration. This is the B11 shape — a deployment that
-    // is missing something must say so rather than degrade quietly — applied to
-    // schema rather than to configuration.
-    //
-    // It is deliberately not a capability probe cached in module state: this
-    // path runs once per turn, the fallback runs at most once per process per
-    // missing column, and a `information_schema` round trip on every insert
-    // would cost more than the case it guards.
-    const columns = '(conversation_id, user_id, seq, asked, answered, tools, build_pr, build_sha';
-    const values = 'VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8';
-    const tail = `ON CONFLICT (conversation_id, seq) DO NOTHING RETURNING id`;
-    const params = [conversationId, userId, seq, asked, answered, JSON.stringify(tools), buildPr, buildSha];
-
-    let row: { id: string } | null;
-    try {
-      row = await write<{ id: string }>(
-        `INSERT INTO decke_turn ${columns}, finish_reason) ${values}, $9) ${tail}`,
-        [...params, finishReason],
-      );
-    } catch (err) {
-      if ((err as { code?: string })?.code !== '42703') throw err;
-      console.warn(
-        '[decke] decke_turn.finish_reason is missing — migration 046 has not been run against ' +
-          'this database. The turn is being recorded WITHOUT it; run `pnpm --filter @deckpal/db ' +
-          'migrate` to stop losing why turns end.',
-      );
-      row = await write<{ id: string }>(`INSERT INTO decke_turn ${columns}) ${values}) ${tail}`, params);
-    }
+    const row = await write<{ id: string }>(
+      'INSERT INTO decke_turn (conversation_id,user_id,seq,asked,answered,tools,build_pr,build_sha,finish_reason,exchange_id) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10) ON CONFLICT (conversation_id, seq) DO NOTHING RETURNING id',
+      [conversationId,userId,seq,asked,answered,JSON.stringify(tools),buildPr,buildSha,finishReason,exchangeId],
+    );
 
     // Derived rather than incremented, so a repost cannot inflate it and a
     // deleted turn cannot leave it wrong.
     await write(
       `UPDATE decke_conversation
           SET turns = (SELECT count(*) FROM decke_turn WHERE conversation_id = $1),
+              title = CASE WHEN title = '' THEN $3 ELSE title END,
               updated_at = now()
         WHERE id = $1 AND user_id = $2`,
-      [conversationId, userId],
+      [conversationId, userId, asked.slice(0, MAX_TITLE)],
     );
 
     res.json({ ok: true, recorded: row !== null, id: row?.id ?? null, buildPr, buildSha });
@@ -435,32 +410,22 @@ deckeHistoryRouter.get(
     // A 403 here would confirm the id exists, which is a fact about another
     // account's data.
     if (!head) throw notFound('No such conversation.');
-    // OPTIONAL AT RUNTIME, for the reason the POST handler gives at length: the
-    // deploy can land before 046 is run by hand. Here it matters more — this
-    // route is what draws the transcript viewer, so an unmigrated database
-    // would answer a reader's click with a 500 rather than losing a field.
-    const TURN_COLUMNS = 'seq, asked, answered, tools, build_pr, build_sha';
-    let turns;
-    try {
-      turns = await q(
-        `SELECT ${TURN_COLUMNS}, finish_reason, created_at
-           FROM decke_turn WHERE conversation_id = $1 AND user_id = $2 ORDER BY seq`,
-        [id, userId],
-      );
-    } catch (err) {
-      if ((err as { code?: string })?.code !== '42703') throw err;
-      turns = await q(
-        `SELECT ${TURN_COLUMNS}, created_at
-           FROM decke_turn WHERE conversation_id = $1 AND user_id = $2 ORDER BY seq`,
-        [id, userId],
-      );
-    }
+    const turns = await q(
+      'SELECT seq,asked,answered,tools,build_pr,build_sha,finish_reason,created_at,exchange_id FROM decke_turn WHERE conversation_id=$1 AND user_id=$2 ORDER BY seq',
+      [id,userId],
+    );
+    const usageRows = await pool.query<{ seq: number; exchange_id: string; usage: unknown }>(
+      'SELECT seq,exchange_id,public.decke_usage_request_json(id) AS usage FROM public.decke_ai_request WHERE conversation_id=$1 AND user_id=$2 ORDER BY started_at,id',
+      [id,userId],
+    );
     res.json({
       id: head.id,
       title: head.title,
       startedAt: head.started_at,
       turns: turns.map((t) => ({
         seq: Number(t.seq),
+        exchangeId: t.exchange_id ?? null,
+        usage: t.exchange_id ? usageRows.rows.filter(r => r.seq === Number(t.seq) && r.exchange_id === t.exchange_id).map(r => r.usage) : [],
         asked: t.asked,
         answered: t.answered,
         tools: t.tools ?? [],

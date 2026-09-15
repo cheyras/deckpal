@@ -1,5 +1,8 @@
 import { adminBootstrapStatus, appDefaults, ensureAdminBootstrap, requireActiveAccount, requestAccessStore } from './admin/access.js';
 import { adminRouter } from './routes/admin.js';
+import { adminFeatureRouter, meFeatureRouter } from './routes/features.js';
+import { selfSharingRouter, adminUsageRouter } from './decke/usageRoutes.js';
+import { userAiOverrideRouter } from './credits/overrides.js';
 import { adminCreditRouter, meCreditRouter } from './credits/routes.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -220,6 +223,7 @@ export function createApp(): express.Express {
   // an independent budget. Reject before RLS obtains a request connection.
   api.use('/admin', requireSession, adminRateLimit);
   api.use('/me/credits', requireSession, creditWalletRateLimit);
+  api.use(['/me/features','/me/decke-sharing'], requireSession, adminRateLimit);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS
@@ -241,7 +245,7 @@ export function createApp(): express.Express {
     api.use((req, res, next) => {
       // Legacy self-host handlers retain their established direct-pool shape.
       // Only the new session-derived SQL surfaces need a request transaction.
-      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/credits(?:\/|$)|oauth(?:\/|$))/.test(req.path)) {
+      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$))/.test(req.path)) {
         next();
         return;
       }
@@ -543,9 +547,14 @@ export function createApp(): express.Express {
   // requests twice when an unmatched subroute falls through.
   const administration = express.Router();
   administration.use('/credits', adminCreditRouter);
+  administration.use('/features', adminFeatureRouter);
+  administration.use('/ai-usage', adminUsageRouter);
+  administration.use('/users/:id/ai-override', userAiOverrideRouter);
   administration.use(adminRouter);
   api.use('/admin', administration);
   api.use('/me/credits', meCreditRouter);
+  api.use('/me/features', meFeatureRouter);
+  api.use('/me/decke-sharing', selfSharingRouter);
 
   // Mounted ahead of `/me` so the two-segment path resolves here; meRouter has
   // no `/billing` route, so nothing is shadowed either way, but the order says

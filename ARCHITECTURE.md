@@ -1193,9 +1193,10 @@ not a sanitised injection surface, it is not an injection surface.
 requires current `decke.use` permission and an active account. When database
 credit policy is enabled, each priced operation reserves an atomic flat charge
 with its policy snapshot before invocation; accounting errors fail closed.
-When disabled, the existing daily chat/deep counters remain. Old entitlement
-allowlists and the credits-enable flag are one-time bootstrap inputs, not
-continuing authorization/configuration sources. See ADMINISTRATION.md and
+When charging is disabled, ordinary accounts use the daily chat/deep counters;
+explicit unlimited overrides retain access/hold/budget checks without debit or
+daily allowance. Lifecycle policy derives product permission; retired entitlement
+allowlists do not grant it. The credits-enable flag initializes policy once. See ADMINISTRATION.md and
 SECURITY.md for limits, refunds and suspension.
 
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
@@ -1700,45 +1701,68 @@ both "what happened to this card" and "which operation did it belong to".
 UPDATE — so a revert appends compensating events rather than editing history.
 See SECURITY.md for why that matters on Supabase specifically.
 
-## Administration and the AI credit economy (2026-09-13)
+## Administration, lifecycle and AI usage (2026-09-15)
 
-Migrations 064–067 add database-backed application roles/permissions, account
-status, defaults and audit, plus immutable credit-policy revisions, packs,
-orders, spend reservations and debt controls. The protected Super admin role
-cannot be edited or lost through concurrent demotion/suspension. Application
-roles are rows, not new PostgreSQL login roles. A trusted one-time bootstrap
-imports the existing owner/QA configuration, then database changes become
-authoritative. The runner commits migrations individually, so 064/066 revoke
-PUBLIC and existing anon/authenticated access to their new objects before
-committing. Interrupted upgrades keep those objects private until the later
-narrow grants in 065/067; deployment still requires the complete sequence.
+Migrations 068–071 extend the immutable 064–067 foundation. Every account has
+one canonical `admin_account.role_id`, default User. Built-in tiers are
+User 10, Superuser 20, Contributor 30, Admin 40, Superadmin 50 and Owner 60; custom
+roles are limited to10/20/30/40 with enforced permission ceilings.
+Owner authority derives from protected canonical membership seeded from trusted
+bootstrap state. It is not an editable permission or a synonym for Superadmin.
 
-All administrative routes and wallet routes require an application session,
-excluding personal/connector tokens. Request-local access coalescing never
-caches positive authority across requests. SQL functions independently validate
-sessions and permissions; governance mutations and financial administration
-take the same advisory transaction lock before reauthorizing. Token mint,
-OAuth exchange and revoke-all share this boundary. Restrictive account policies
-and narrow legacy-billing guards extend suspension beyond Express.
+Assignment checks the actor, destination and current target tier under the
+governance lock. Definitions distinguish protected identity from safe editing.
+The old junction is archived privately; a read-only projection and deprecated
+single-summary `roles[]` preserve older readers, projecting Owner as existing
+Superadmin only there. New authorization uses singular role/isOwner.
+Ambiguous mappings fail the migration transaction for explicit operator review.
 
-Pricing revisions change future flat estimated quotes without redenominating
-existing balances or recalculating historical events. Each chat leg and its
-deep work share one revision; debit, snapshot and reservation are atomic.
-Unstarted work can be refunded; provider-started work retains its quoted charge.
-Accounting connections are released across provider streaming. Frozen USD pack
-orders are fulfilled once after signed Stripe events and current remote state
-validation. Per-order reconciliation revisions reject stale refund/dispute
-snapshots; reversal debt is explicit and spendable balances remain nonnegative.
-Voluntary support/gifts remain separate.
+One SQL feature resolver derives product permissions from lifecycle and opt-in:
+released for active users, beta by opt-in for every tier, experiments by tier 20+
+opt-in with automatic Superadmin/Owner access, disabled for nobody. Scanner and
+Deck-E initialize experimental. Opt-in, character visibility and sharing consent
+are independent. Dev tools is a separate permission-filtered directory;
+Contributor keeps ordinary personal self-service without Administration.
 
-Administration is a lazy route tree inside the normal application shell.
-Permission-filtered navigation makes contributor tools discoverable without
-granting finance/users access. Identity changes clear query state and remount
-sensitive surfaces. The service worker makes private and Authorization-bearing
-API requests network-only, retires old mixed API caches, and keeps anonymous
-cloud catalog/art/shell caching. Self-host API data is all network-only because
-reverse-proxy identity is opaque; its art/shell caching remains.
+Owner per-user overrides are revisioned/audited and independent of role. Null
+markup inherits; zero remains valid. Unlimited means a zero-debit reservation,
+not a synthetic balance grant. New reservations require current policy; existing
+reserved work and bounded children retain immutable pricing. Access, debt,
+refund/dispute holds and operational limits still apply. Flat quoted settlement
+and existing financial recovery/reconciliation are unchanged.
 
-The owner guide is ADMINISTRATION.md. DEPLOYMENT.md records schema-first rollout
-and readiness; test fixtures and browser evidence are not proof of live Stripe
-payments or production configuration.
+The chat server durably accepts a parent request before provider work.
+The first credit start and provider-attempt row commit atomically after current
+authority and payment holds are checked under the relevant locks. The SDK call
+sets a synchronous invocation latch. A known cancellation or lost database
+acknowledgement before that call retains an exact-operation compensation path;
+it cannot refund completed/failed invocations or an earlier real retry attempt.
+AI SDK middleware instruments actual local calls and nested/retry/fallback
+attempts; finalization records safe status/tokens and reported decimal cost or
+unknown. It does not persist whole SDK callbacks, tool payloads, private context
+or raw errors. Full server SHA and strict preview PR ID, falling back to merge
+subject, identify the generation build. Unreported upstream work remains unknown.
+
+Usage reads require an active application session, tier 40 or higher and current
+`admin.access`. Custom roles lose metadata and shared-content access immediately
+when that permission is removed; the capability projection uses the same rule.
+
+Consent is default-off. First-leg exchange consent plus current enabled same
+epoch and active account are required on every administrative content read.
+Withdrawal deletes optional excerpts and re-enable cannot resurrect them.
+Usage metadata survives missing browser saves; history correlation is validated
+against owned server acceptance and cannot forge build/cost. Own-history deletion
+withdraws excerpts while preserving metadata. No-store responses and sensitive
+query clearing/refetch complement server checks; previously viewed text cannot
+be recalled.
+
+The shared DataTable keeps server filtering/paging or complete-list sorting at
+the caller and uses semantic rows at desktop/mobile widths. Sort indicators and
+core controls use the shared SVG Icon with accessible labels. Administration,
+feature preferences, Dev tools, usage and cost observations reuse that system.
+Observed complete/unknown samples inform an explicit estimate draft and pricing
+revision save; actual provider cost never silently changes a wallet charge.
+
+ADMINISTRATION.md documents the controls; API.md gives DTOs, SECURITY.md the
+trust boundaries, and DEPLOYMENT.md the schema-first mapping/rollout runbook.
+Local fixtures do not establish live Stripe delivery or production readiness.

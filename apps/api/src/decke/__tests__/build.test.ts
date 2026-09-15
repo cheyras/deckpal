@@ -71,12 +71,12 @@ test('an absurd number is not treated as a PR', () => {
   assert.equal(prFromCommitMessage('Something (#12345678901)'), null);
 });
 
-test('the stamp reads the environment, and shortens the sha', () => {
+test('the stamp retains a full validated server commit SHA', () => {
   const prev = { m: process.env.VERCEL_GIT_COMMIT_MESSAGE, s: process.env.VERCEL_GIT_COMMIT_SHA };
   try {
     process.env.VERCEL_GIT_COMMIT_MESSAGE = 'Deck-E: something (#78)';
-    process.env.VERCEL_GIT_COMMIT_SHA = '2a8bef7c0ffee1234567890abcdef1234567890a';
-    assert.deepEqual(buildStamp(), { buildPr: 78, buildSha: '2a8bef7' });
+    process.env.VERCEL_GIT_COMMIT_SHA = '0123456789abcdef0123456789abcdef01234567';
+    assert.deepEqual(buildStamp(), { buildPr: 78, buildSha: '0123456789abcdef0123456789abcdef01234567' });
 
     // Outside a Vercel build there is nothing to read, and that is not an error.
     delete process.env.VERCEL_GIT_COMMIT_MESSAGE;

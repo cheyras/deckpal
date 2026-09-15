@@ -34,11 +34,12 @@ function write(method:'post'|'patch'|'put'|'delete',path:string,permission:strin
 read('/overview','admin.access','overview');
 read('/users','users.read','users');
 read('/users/:id','users.read','user');
-write('put','/users/:id/roles','roles.manage','user.roles',['roleIds','expectedRevision','reason']);
+write('put','/users/:id/roles','roles.assign','user.roles',['roleIds','expectedRevision','reason']);
 write('patch','/users/:id/status','users.manage','user.status',['suspended','expectedRevision','reason']);
 write('post','/users/:id/revoke-tokens','users.manage','user.revoke-tokens',['reason']);
+write('put','/users/:id/role','roles.assign','user.role',['roleId','expectedRevision','expectedRoleRevision','reason']);
 read('/roles','roles.read','roles');
-write('post','/roles','roles.manage','role.create',['name','description','permissions']);
+write('post','/roles','roles.manage','role.create',['name','description','permissions','tier']);
 write('patch','/roles/:id','roles.manage','role.update',['name','description','permissions','expectedRevision']);
 write('delete','/roles/:id','roles.manage','role.delete',['expectedRevision']);
 read('/settings','settings.read','settings');

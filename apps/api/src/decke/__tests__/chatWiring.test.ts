@@ -119,9 +119,11 @@ test('the already-told ledger is rebuilt per request and handed to the data tool
   assert.match(CODE, /priorSummaries: told,/);
 });
 
-test('the conversation id is read from the body and used for nothing but the log', () => {
-  assert.match(CODE, /const \{ messages, route = '\/', landmarks = \[\], conversationId \} = body \?\? \{\}/);
-  // It must never gate a decision: a browser that does not send one still gets
-  // the breaker, and `failing.ts` logs `conversation=unknown`.
-  assert.doesNotMatch(CODE, /if \(conversationId\)/);
+test('chat sends correlation into the server acceptance boundary before metering and model work', () => {
+  assert.match(CODE, /conversationId, exchangeId, seq/);
+  const begin = CODE.indexOf('usage = await beginAiRequest(');
+  assert.ok(begin > 0);
+  assert.ok(begin < CODE.indexOf('meter = await meterTurn('));
+  assert.ok(begin < CODE.indexOf('model: observeUsageModel('));
+  assert.match(CODE, /userId: user.id, conversationId, exchangeId, seq/);
 });

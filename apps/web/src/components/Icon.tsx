@@ -15,6 +15,9 @@ export type IconName =
   | 'grid'
   | 'table'
   | 'binder'
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'arrow-up-down'
   | 'chevron-down'
   | 'chevron-left'
   | 'chevron-right'
@@ -131,6 +134,9 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M4 9h16M4 15h16M12 3v18" />
     </>
   ),
+  'arrow-up': <path d="M12 20V4M6 10l6-6 6 6" />,
+  'arrow-down': <path d="M12 4v16M6 14l6 6 6-6" />,
+  'arrow-up-down': <path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4" />,
   'chevron-down': <path d="M6 9l6 6 6-6" />,
   'chevron-left': <path d="M15 6l-6 6 6 6" />,
   'chevron-right': <path d="M9 6l6 6-6 6" />,

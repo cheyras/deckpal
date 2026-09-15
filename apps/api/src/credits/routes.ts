@@ -94,7 +94,7 @@ adminCreditRouter.post('/users/:id/resolve-hold', requireAdminPermission('credit
   await commitRequestTx(currentUserId(req)); res.json(result);
 }));
 meCreditRouter.get('/', asyncHandler(async (req, res) => {
-  const quote = await call<{enabled:boolean;lowAt:number;prices:Record<string,number>;pricingRevision:number}>('SELECT public.credit_quote_read() AS data');
+  const quote = await call<{enabled:boolean;lowAt:number;prices:Record<string,number>;pricingRevision:number;unlimited:boolean;overrideRevision:number}>('SELECT public.credit_quote_read() AS data');
   const state = await wallet(currentUserId(req));
   const canUse = (await getAccessForUser(currentUserId(req))).permissions.includes('decke.use');
   const packs = await call<{ packs: unknown[] }>('SELECT public.credit_packs_read(false) AS data');
@@ -106,7 +106,7 @@ meCreditRouter.get('/', asyncHandler(async (req, res) => {
     : setup?.reason ?? null;
   await commitRequestTx(currentUserId(req));
   res.json({ ...state, enabled: quote.enabled, lowAt: quote.lowAt,
-    prices: quote.prices, ...packs, purchasesEnabled: !!setup?.ready, purchaseUnavailableReason: reason,
+    prices: quote.prices, unlimited: quote.unlimited, overrideRevision: quote.overrideRevision, ...packs, purchasesEnabled: !!setup?.ready, purchaseUnavailableReason: reason,
     pricingRevision: quote.pricingRevision, chargeNotice: CHARGE_NOTICE });
 }));
 meCreditRouter.get('/events', asyncHandler(async (req, res) => {

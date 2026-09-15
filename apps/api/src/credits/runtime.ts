@@ -4,11 +4,11 @@ import { ApiError } from '../http.js';
 import { getAccessForUser } from '../admin/access.js';
 import { normalizePolicy, operationFor, type PolicyRevision } from './policy.js';
 
-export async function readPolicy(db: Queryable): Promise<PolicyRevision> {
-  const { rows } = await db.query('SELECT public.credit_policy_read() AS data');
+export async function readPolicy(db: Queryable, userId?: string): Promise<PolicyRevision> {
+  const { rows } = await db.query(userId ? 'SELECT public.credit_effective_policy($1) AS data' : 'SELECT public.credit_policy_read() AS data', userId ? [userId] : []);
   const data = rows[0]?.data;
   if (!data) throw new ApiError(503, 'credit_setup_required', 'Credit accounting is not ready.');
-  return { policy: normalizePolicy(data.policy), revision: Number(data.revision), updatedAt: String(data.updatedAt) };
+  return { policy: normalizePolicy(data.policy), revision: Number(data.revision), updatedAt: String(data.updatedAt), unlimited: data.unlimited === true, overrideRevision: Number(data.overrideRevision ?? 0) };
 }
 export function payloadHash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -28,13 +28,13 @@ export async function assertDeckeAccess(userId: string): Promise<void> {
   if (access.suspended || !access.permissions.includes('decke.use')) throw new ApiError(403, 'forbidden', 'Deck-E is not available on this account.');
 }
 export interface SpendResult {
-  allowed: boolean; balance: number; spent?: number; needed?: number; debt?: number; held?: boolean; spendId?: string;
+  allowed: boolean; balance: number; spent?: number; needed?: number; debt?: number; held?: boolean; spendId?: string; unlimited?: boolean;
 }
 export async function reserveCredits(db: Queryable, userId: string, tool: string, quote: PolicyRevision, key: string, hash: string): Promise<SpendResult> {
   await assertDeckeAccess(userId);
   try {
-    const { rows } = await db.query('SELECT public.credit_spend_create($1,$2,$3,$4,$5) AS data',
-      [userId, operationFor(tool), quote.revision, key, hash]);
+    const { rows } = await db.query('SELECT public.credit_spend_create_effective($1,$2,$3,$4,$5,$6) AS data',
+      [userId, operationFor(tool), quote.revision, quote.overrideRevision ?? 0, key, hash]);
     if (!rows[0]?.data) throw new Error('Missing accounting result');
     return rows[0].data as SpendResult;
   } catch (error) {

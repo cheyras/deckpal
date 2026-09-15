@@ -97,7 +97,8 @@ import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/t
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { creditWork } from '../apps/api/dist/credits/work.js'
 import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
-import { assertDeckeAccess, readPolicy, reserveCredits, startCreditWork, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
+import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, safeUsageCode } from '../apps/api/dist/decke/usage.js'
+import { assertDeckeAccess, readPolicy, reserveCredits, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls, researchRanInConversation } from '../apps/api/dist/decke/declined.js'
@@ -406,7 +407,7 @@ async function serve(request) {
   // apart as one outage or two. Nothing reads it for a decision, and an older
   // browser that does not send it logs `conversation=unknown` rather than
   // suppressing the line. See `decke/failing.ts`.
-  const { messages, route = '/', landmarks = [], conversationId } = body ?? {}
+  const { messages, route = '/', landmarks = [], conversationId, exchangeId, seq } = body ?? {}
   if (!Array.isArray(messages) || messages.length === 0) {
     return json({ error: 'messages must be a non-empty array' }, 400)
   }
@@ -452,30 +453,32 @@ async function serve(request) {
   // One turn is one BILLED REQUEST, not one thing the reader typed — a journey
   // costs up to four. Migration 039's header explains why that is the honest
   // unit even though it reads stingier than it is.
-  let quote, reference, meter
+  let quote, reference, meter, usage
   const meterTurn = async (userId, { tier, reason, toolCallId, args }) => {
     await assertDeckeAccess(userId)
-    if (!quote.policy.enabled) return { ...(await charge(userId, tier)), credits: false,
-      start: () => assertDeckeAccess(userId), refund: async () => {} }
+    if (!quote.policy.enabled && !quote.unlimited) return { ...(await charge(userId, tier)), credits: false,
+      ...creditWork(async () => {}, request.signal) }
     const tool = reason === 'chat_turn' ? 'chat_turn' : reason.slice(5)
     const spendKey = toolCallId ? `${reference.key}:deep:${toolCallId}` : reference.key
     const hash = toolCallId ? payloadHash({ tool, args, toolCallId }) : reference.hash
     const result = await reserveCredits(chatPool(), userId, tool, quote, spendKey, hash)
     return { ...result, credits: true, ...creditWork(
-      () => startCreditWork(chatPool(), userId, result.spendId),
       () => refundUnstarted(chatPool(), userId, result.spendId),
       request.signal,
     ) }
   }
   try {
-    quote = await readPolicy(chatPool())
-    reference = quote.policy.enabled ? chatChargeReference(conversationId, messages, route, landmarks) : null
+    quote = await readPolicy(chatPool(), user.id)
+    reference = chatChargeReference(conversationId, messages, route, landmarks)
+    usage = await beginAiRequest(chatPool(), { userId: user.id, conversationId, exchangeId, seq, requestKey: reference.key, payloadHash: reference.hash, quote, messages, signal: request.signal })
     meter = await meterTurn(user.id, { tier: 'chat_turns', reason: 'chat_turn' })
   } catch (error) {
+    if (usage) await finishAiRequest(usage, 'failed')
     const status = [400,403,409].includes(error.status) ? error.status : 503
     return json({ error: status === 503 ? 'Credit accounting is unavailable. No model work was started.' : error.message }, status)
   }
   if (!meter.allowed) {
+    await finishAiRequest(usage, 'failed', 0)
     // A SPOKEN REFUSAL, not a 500. The browser turns this status into his own
     // words in the transcript, so a budget reads as a budget rather than as a
     // malfunction. 429 and not 403: the account is entitled, it has simply
@@ -615,7 +618,7 @@ async function serve(request) {
 
   const choice = MODELS.chat
   const stream = createUIMessageStream({
-    execute: async ({ writer }) => {
+    execute: async ({ writer }) => runAiUsage(usage, async () => {
       try {
       // EXPLICIT PROVIDER, EXPLICIT KEY.
       //
@@ -786,9 +789,8 @@ async function serve(request) {
       }
 
       const preparedMessages = await convertToModelMessages(stripPriorCommands(messages))
-      await meter.start()
       const result = streamText({
-        model: gateway(choice.id),
+        model: observeUsageModel(gateway(choice.id), meter),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
         // `instructions` is the field that accepts a SystemModelMessage, which
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
@@ -1047,6 +1049,7 @@ async function serve(request) {
         // rather than only the visible part of it.
         abortSignal,
         onError: ({ error }) => {
+          usage.failed = true;
           // Surfaced rather than swallowed: a silent empty turn is
           // indistinguishable from a broken feature.
           //
@@ -1066,7 +1069,7 @@ async function serve(request) {
             )
             return
           }
-          console.error('[deck-e] stream error', error)
+          console.error('[deck-e] stream error', safeUsageCode(error))
         },
       })
 
@@ -1102,8 +1105,8 @@ async function serve(request) {
             // now renders it as a failed row rather than as silence.
             onError: (error) => {
               const message = error instanceof Error ? error.message : String(error)
-              console.warn('[deck-e] stream/tool error surfaced to the client:', message)
-              return message.slice(0, 300)
+              console.warn('[deck-e] stream/tool error surfaced to the client:', safeUsageCode(error))
+              return 'The model request could not finish. Please try again.'
             },
           }),
         ),
@@ -1329,10 +1332,13 @@ async function serve(request) {
         // A guard must never manufacture a second failure on a turn that may
         // already have one. The detection is best-effort; the turn stands.
       }
+      } catch (error) {
+        usage.failed = true
+        throw error
       } finally {
-        await meter.refund()
+        try { await meter.refund() } finally { await finishAiRequest(usage, 'completed', meter.spent) }
       }
-    },
+    }),
   })
 
   // ── THE BALANCE RIDES ON A HEADER ────────────────────────────────────────
@@ -1548,7 +1554,7 @@ export default async function handler(req, res) {
     // Surfaced, not swallowed: an unhandled throw here is an opaque
     // FUNCTION_INVOCATION_FAILED with no stack in the response, which is what
     // made this bug take three deploys to find.
-    console.error('[decke] /api/chat failed:', err)
+    console.error('[decke] /api/chat failed:', safeUsageCode(err))
     if (!res.headersSent) {
       res.statusCode = 500
       res.setHeader('content-type', 'application/json')

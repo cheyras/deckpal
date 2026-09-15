@@ -1,3 +1,4 @@
+import { CostObservations } from './CostObservations'
 import { useState } from 'react'
 import { Button, Field, FormAlert, EmptyState, DataTable, DataTableToolbar, type DataTableSort } from '../../components/ui'
 import { Sheet } from '../../components/ui/Sheet'
@@ -18,7 +19,7 @@ function DefaultsForm({ data }: { data: { settings: AppDefaults; revision: numbe
 }
 function EconomyForm({ data }: { data: CreditSettings }) {
   const [draft, setDraft] = useState({ enabled: data.policy.enabled, denomination: String(data.policy.microUsdPerCredit / 1e6), markup: String(data.policy.markupBps / 100), chatTurn: String(data.policy.estimatedMicroUsd.chatTurn / 1e6), analysis: String(data.policy.estimatedMicroUsd.analysis / 1e6), planDeck: String(data.policy.estimatedMicroUsd.planDeck / 1e6), lowBalance: String(data.policy.lowBalance) })
-  const state = useAdminSave(), canWrite = useAccess().permissions.includes('credits.manage')
+  const state = useAdminSave(), access = useAccess(), canWrite = access.permissions.includes('credits.manage')
   const denomination = decimalUnits(draft.denomination, 6), markup = decimalUnits(draft.markup, 2)
   const estimates = { chatTurn: decimalUnits(draft.chatTurn, 6), analysis: decimalUnits(draft.analysis, 6), planDeck: decimalUnits(draft.planDeck, 6) }
   const valid = denomination !== null && denomination > 0 && markup !== null && Object.values(estimates).every(v => v !== null) && /^\d+$/.test(draft.lowBalance) && Number.isSafeInteger(Number(draft.lowBalance))
@@ -30,7 +31,7 @@ function EconomyForm({ data }: { data: CreditSettings }) {
     { key: 'planDeck', label: 'Estimated provider cost: deck plan (USD)', hint: 'Charged in addition to a chat turn when this operation starts.' },
     { key: 'lowBalance', label: 'Low-balance warning (credits)', hint: 'Whole credits remaining before the low-balance message.' },
   ] as const
-  return <Panel title="AI credit economy"><form className="space-y-[20px]" onSubmit={e => { e.preventDefault(); if (valid) void state.save(() => api.adminSaveCreditSettings({ enabled: draft.enabled, microUsdPerCredit: denomination!, markupBps: markup!, estimatedMicroUsd: { chatTurn: estimates.chatTurn!, analysis: estimates.analysis!, planDeck: estimates.planDeck! }, lowBalance: Number(draft.lowBalance) }, data.revision)) }}>
+  return <Panel title="AI credit economy">{access.actorCapabilities.canReadSharedConversations && <CostObservations canWrite={canWrite} onUse={(operation, microUsd) => setDraft(current => ({ ...current, [operation]: String(microUsd / 1e6) }))} />}<form className="space-y-[20px]" onSubmit={e => { e.preventDefault(); if (valid) void state.save(() => api.adminSaveCreditSettings({ enabled: draft.enabled, microUsdPerCredit: denomination!, markupBps: markup!, estimatedMicroUsd: { chatTurn: estimates.chatTurn!, analysis: estimates.analysis!, planDeck: estimates.planDeck! }, lowBalance: Number(draft.lowBalance) }, data.revision)) }}>
     <p className="text-text-muted">Set what a credit means for future AI usage. Credit-pack sale prices are configured independently below.</p>
     <label className="flex items-center gap-[10px] text-text-primary"><input type="checkbox" checked={draft.enabled} disabled={!canWrite} onChange={e => setDraft({ ...draft, enabled: e.target.checked })} />Charge AI usage in credits</label>
     <div className="grid gap-x-[20px] md:grid-cols-2">{fields.map(field => <Field key={field.key} label={field.label} hint={field.hint} value={draft[field.key]} onChange={e => setDraft({ ...draft, [field.key]: e.target.value })} inputMode="decimal" required disabled={!canWrite} />)}</div>
@@ -46,7 +47,7 @@ function PackEditor({ pack, close }: { pack: CreditPack | null; close: () => voi
   const [name, setName] = useState(pack?.name ?? ''), [credits, setCredits] = useState(String(pack?.credits ?? '')), [price, setPrice] = useState(pack ? (pack.priceCents / 100).toFixed(2) : ''), [active, setActive] = useState(pack?.active ?? false)
   const state = useAdminSave(), cents = decimalUnits(price, 2)
   const valid = /^\d+$/.test(credits) && Number.isSafeInteger(Number(credits)) && Number(credits) > 0 && cents !== null && cents > 0
-  return <Sheet title={pack ? 'Edit credit pack' : 'Create credit pack'} onClose={() => { if (!state.busy) close() }}><form className="space-y-[16px]" onSubmit={e => { e.preventDefault(); if (valid) void state.save(() => api.adminSaveCreditPack(pack?.id ?? null, { name: name.trim(), credits: Number(credits), priceCents: cents!, currency: 'usd', active, ...(pack ? { expectedRevision: pack.revision } : {}) }), close) }}>
+  return <Sheet title={pack ? 'Edit credit pack' : 'Create credit pack'} onClose={() => { if (state.busy) return false; close() }}><form className="space-y-[16px]" onSubmit={e => { e.preventDefault(); if (valid) void state.save(() => api.adminSaveCreditPack(pack?.id ?? null, { name: name.trim(), credits: Number(credits), priceCents: cents!, currency: 'usd', active, ...(pack ? { expectedRevision: pack.revision } : {}) }), close) }}>
     <Field label="Pack name" required maxLength={80} value={name} onChange={e => setName(e.target.value)} /><Field label="Credits in pack" inputMode="numeric" value={credits} required onChange={e => setCredits(e.target.value)} /><Field label="Sale price (USD)" inputMode="decimal" value={price} required onChange={e => setPrice(e.target.value)} hint="The customer pays this price. The usage markup is not added to it." /><label className="flex gap-[10px] text-text-primary"><input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} />Available for new purchases</label><p className="text-[14px] text-text-muted">Changes affect new checkouts. Pending orders retain their original price and credit quantity.</p>{state.error && <><FormAlert kind="error">{state.error}</FormAlert><Button variant="ghost" onClick={() => window.location.reload()}>Discard draft and reload latest</Button></>}<Button type="submit" loading={state.busy} disabled={!valid}>Save credit pack</Button>
   </form></Sheet>
 }

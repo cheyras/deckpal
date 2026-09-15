@@ -27,13 +27,21 @@ export async function inspectWebhookSetup(stripe: Stripe, origin: string, live: 
   const result = (ready: boolean, reason: string | null): PaymentStatus => ({ ready, reason, requiredEvents: CREDIT_EVENTS, checkedAt });
   try {
     // Read only. Never creates or changes a Stripe endpoint.
-    const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
-    const matching = endpoints.data.filter(e => e.url === `${origin}/api/stripe/webhook` && e.status === 'enabled' && e.livemode === live);
-    if (!matching.length) return result(false, 'No enabled Stripe webhook matches this app URL and payment mode.');
-    if (!matching.some(e => e.enabled_events.includes('*') || CREDIT_EVENTS.every(t => e.enabled_events.includes(t)))) {
-      return result(false, 'Stripe webhook subscriptions are missing required credit purchase, refund, or dispute events.');
+    let cursor: string | undefined;
+    let matched = false;
+    for (let page = 0; page < 5; page += 1) {
+      const endpoints = await stripe.webhookEndpoints.list({ limit: 100, ...(cursor ? { starting_after: cursor } : {}) });
+      const matching = endpoints.data.filter(e => matchesWebhookDestination(e.url, origin) && e.status === 'enabled' && e.livemode === live);
+      matched ||= matching.length > 0;
+      if (matching.some(e => e.enabled_events.includes('*') || CREDIT_EVENTS.every(t => e.enabled_events.includes(t)))) return result(true, null);
+      if (!endpoints.has_more) return result(false, matched
+        ? 'Stripe webhook subscriptions are missing required credit purchase, refund, or dispute events.'
+        : 'No enabled Stripe webhook matches this app URL and payment mode.');
+      const next = endpoints.data.at(-1)?.id;
+      if (!next || next === cursor) break;
+      cursor = next;
     }
-    return result(true, null);
+    return result(false, 'Stripe webhook verification was incomplete. Narrow the endpoint configuration or retry.');
   } catch {
     return result(false, 'Could not verify Stripe webhook subscriptions. The server key needs read access to webhook endpoints; check payment setup.');
   }
@@ -97,4 +105,14 @@ export function checkoutParameters(order: FrozenOrder, origin: string): Stripe.C
     cancel_url: `${origin}/credits?order=${order.id}&cancelled=1`,
     expires_at: Math.floor(new Date(order.created_at).getTime() / 1000) + 3600,
   };
+}
+
+/** Delivery query parameters do not change endpoint identity and are never returned. */
+export function matchesWebhookDestination(value: string, origin: string): boolean {
+  try {
+    const expected = new URL(origin), url = new URL(value);
+    return expected.protocol === 'https:' && expected.origin === origin && !expected.username && !expected.password
+      && url.protocol === 'https:' && !url.username && !url.password && !value.includes('#')
+      && url.origin === origin && url.pathname === '/api/stripe/webhook';
+  } catch { return false; }
 }

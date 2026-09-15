@@ -7,7 +7,7 @@ export interface CreditPolicy {
   estimatedMicroUsd: { chatTurn: number; analysis: number; planDeck: number };
   lowBalance: number;
 }
-export interface PolicyRevision { policy: CreditPolicy; revision: number; updatedAt: string }
+export interface PolicyRevision { policy: CreditPolicy; revision: number; updatedAt: string; unlimited?: boolean; overrideRevision?: number }
 export const DEFAULT_POLICY: CreditPolicy = {
   enabled: false, microUsdPerCredit: 10_000, markupBps: 0,
   estimatedMicroUsd: { chatTurn: 143, analysis: 35_600, planDeck: 750_000 }, lowBalance: 100,

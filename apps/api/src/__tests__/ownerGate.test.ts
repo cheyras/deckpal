@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import type { Request,Response,RequestHandler } from 'express';
 import { isOwner,isLabelerEntitled,ownerOnlyInProduction,labelerOnlyInProduction } from '../ownerGate.js';
 import type { Access } from '../admin/access.js';
-const snapshot=(permissions:string[]=[],superAdmin=false):Access=>({ready:true,suspended:false,permissions,roles:superAdmin?[{id:'r',key:'super_admin',name:'Owner'}]:[]});
+const snapshot=(permissions:string[]=[],superAdmin=false):Access=>({ready:true,suspended:false,permissions,isOwner:superAdmin,roles:superAdmin?[{id:'r',key:'super_admin',name:'Owner'}]:[]});
 function invoke(handler:RequestHandler,kind='jwt'){return new Promise<unknown>(resolve=>handler({user:{id:'u'},authKind:kind} as Request,{setHeader(){}} as unknown as Response,e=>resolve(e??null)));}
-test('owner compatibility comes from the protected database role',async()=>{
+test('Owner authority uses the canonical SQL flag rather than deprecated superadmin aliases',async()=>{
  assert.equal(await isOwner('u',async()=>snapshot([],true)),true);
  assert.equal(await isOwner('u',async()=>snapshot(['admin.access'])),false);
+ assert.equal(await isOwner('u',async()=>({...snapshot([],true),isOwner:false})),false);
+ assert.equal(await isOwner('u',async()=>({...snapshot([],true),isOwner:undefined})),false);
  assert.equal(await isOwner(undefined,async()=>{throw new Error('must not query');}),false);
 });
 test('labeler is separately assignable without scanner or owner access',async()=>{

@@ -3,8 +3,12 @@ import type { RequestHandler } from 'express';
 import { defaultUserId, q1, rlsStore, withTx } from '../db.js';
 import { ApiError } from '../http.js';
 
+export interface RoleSummary { id:string; key:string; name:string; tier:number }
+export interface FeatureAccess { key:string; label:string; lifecycle:'released'|'beta'|'experimental'|'disabled'; revision:number; optedIn:boolean; eligible:boolean; enabled:boolean; reason:string }
+export interface ActorCapabilities { canEditRoles:boolean; canAssignRoles:boolean; canManageUserOverrides:boolean; canReadSharedConversations:boolean; assignableRoleIds:string[] }
 export interface Access {
  ready: boolean; suspended: boolean; permissions: string[];
+ role?:RoleSummary; isOwner?:boolean; revision?:string; actorCapabilities?:ActorCapabilities; features?:FeatureAccess[];
  roles: { id: string; key: string; name: string }[];
 }
 export const requestAccessStore=new AsyncLocalStorage<Map<string,Promise<Access>>>();

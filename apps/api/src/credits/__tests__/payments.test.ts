@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import Stripe from 'stripe';
-import { CREDIT_EVENTS, CREDIT_PURPOSE, checkoutParameters, inspectWebhookSetup, validateCheckout, type FrozenOrder } from '../payments.js';
+import { CREDIT_EVENTS, CREDIT_PURPOSE, matchesWebhookDestination, checkoutParameters, inspectWebhookSetup, validateCheckout, type FrozenOrder } from '../payments.js';
 import { handleCreditWebhook, reconcileCreditSession } from '../webhook.js';
 import type { Queryable } from '@deckpal/db';
 
@@ -102,4 +102,35 @@ test('forged customer ownership and inconsistent charge amounts cannot settle',a
  const g=fake();g.charge.currency='eur';
  await assert.rejects(()=>reconcileCreditSession(g.stripe,session,g.db),/mismatch/);
  assert.equal(g.settlements.length,0);
+});
+
+test('webhook URL parser accepts protected delivery queries and rejects unsafe destinations',()=>{
+ const origin='https://deckpal.example';
+ assert.equal(CREDIT_EVENTS.length,9);
+ assert.equal(matchesWebhookDestination(origin+'/api/stripe/webhook?x-vercel-protection-bypass=PRIVATE_QUERY',origin),true);
+ for(const url of [
+  'http://deckpal.example/api/stripe/webhook',
+  'https://user:pass@deckpal.example/api/stripe/webhook',
+  'https://deckpal.example.evil.test/api/stripe/webhook',
+  origin+'/api/stripe/webhook/extra',origin+'/api/stripe/webhook/',
+  origin+'/api/stripe/webhook#secret',origin+'/api/stripe/webhook#',
+  origin+'/api/stripe%2fwebhook','not a URL'
+ ])assert.equal(matchesWebhookDestination(url,origin),false,url);
+ assert.equal(matchesWebhookDestination(origin+'/api/stripe/webhook',origin+'/'),false);
+});
+test('webhook readiness paginates and never exposes a protection query',async()=>{
+ let calls=0;const cursors:unknown[]=[];
+ const stripe={webhookEndpoints:{list:async(args:{starting_after?:string})=>{
+  cursors.push(args.starting_after);calls++;
+  return calls===1?{data:[{id:'we_first',url:'https://old.example/api/stripe/webhook',status:'enabled',livemode:false,enabled_events:CREDIT_EVENTS}],has_more:true}:
+   {data:[{id:'we_last',url:'https://deckpal.example/api/stripe/webhook?secret=PRIVATE_QUERY',status:'enabled',livemode:false,enabled_events:CREDIT_EVENTS}],has_more:false};
+ }}} as unknown as Stripe;
+ const status=await inspectWebhookSetup(stripe,'https://deckpal.example',false);
+ assert.equal(status.ready,true);assert.deepEqual(cursors,[undefined,'we_first']);
+ assert.equal(JSON.stringify(status).includes('PRIVATE_QUERY'),false);
+});
+test('webhook pagination cycles and disabled endpoints cannot report ready',async()=>{
+ const stripe={webhookEndpoints:{list:async()=>({data:[{id:'we_same',url:'https://deckpal.example/api/stripe/webhook',status:'disabled',livemode:false,enabled_events:CREDIT_EVENTS}],has_more:true})}} as unknown as Stripe;
+ const result=await inspectWebhookSetup(stripe,'https://deckpal.example',false);
+ assert.equal(result.ready,false);assert.match(result.reason!,/incomplete/);
 });

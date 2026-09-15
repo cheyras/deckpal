@@ -41,22 +41,17 @@ meRouter.get(
     if (!row) throw notFound('No such user');
     res.setHeader('Cache-Control','no-store');
     const access = await getAccessForUser(userId);
-    const owner = access.roles.some(role=>role.key==='super_admin') && !access.suspended;
-    // `designEditor` is retained for the existing /design gate. `owner` is the
-    // same answer under the name that actually describes it, and is what new
-    // owner-only surfaces should use.
-    //
-    // `labeler` is a THIRD answer and has to be: the quad training surface is
-    // open to the owner plus the QA account, so reporting `owner` there would
-    // hide the surface from the only account AGENTS.md B12 permits to drive
-    // it. Same reason `decke` is not `owner` — see the comment on
-    // `MeResponse.decke` in apps/web/src/lib/api.ts for what happened when a
-    // client gate and a server gate answered different questions.
+    const owner = access.ready && !access.suspended && access.isOwner===true;
     res.json({
       username: row.username,
       designEditor: hasPermission(access,'design.view'),
       permissions: access.permissions,
-      roles: access.roles,
+      roles: access.roles, // Deprecated compatibility summary; authority is singular.
+      role: access.role,
+      isOwner: owner,
+      accessRevision: access.revision,
+      actorCapabilities: access.actorCapabilities,
+      features: access.features,
       adminReady: access.ready,
       owner,
       decke: hasPermission(access,'decke.use'),

@@ -1,3 +1,4 @@
+import { Icon } from '../Icon'
 /**
  * Progress primitives — ProgressBar (linear) and ProgressRing (circular).
  *
@@ -66,7 +67,7 @@ export function ProgressBar({
                 color: passed ? milestoneColor : 'var(--color-text-muted)',
               }}
             >
-              {passed ? '★' : '●'}
+              {passed ? <Icon name="star-filled" size={14} /> : <span aria-hidden="true" className="block h-[6px] w-[6px] rounded-full bg-current" />}
             </span>
           )
         })}

@@ -13,7 +13,7 @@ export function Panel({ title, children }: { title: string; children: ReactNode 
 }
 export function useAdminQuery<T>(key: readonly unknown[], queryFn: (signal: AbortSignal) => Promise<T>, permission: string) {
   const access = useAccess()
-  return useQuery({ queryKey: ['admin', access.identity, ...key], queryFn: ({ signal }) => queryFn(signal),
+  return useQuery({ queryKey: ['admin', access.identity, access.revision, ...key], queryFn: ({ signal }) => queryFn(signal),
     enabled: access.ready && access.permissions.includes('admin.access') && access.permissions.includes(permission),
     staleTime: 0, gcTime: 0, retry: false, refetchOnWindowFocus: false })
 }
@@ -45,7 +45,7 @@ export function ConfirmAction({ title, description, action, close, reasonRequire
   const [reason, setReason] = useState('')
   const state = useAdminSave()
   const submit = (e: FormEvent) => { e.preventDefault(); void state.save(() => action(reason.trim()), close) }
-  return <Sheet title={title} onClose={() => { if (!state.busy) close() }}><form onSubmit={submit} className="space-y-[16px]">
+  return <Sheet title={title} onClose={() => { if (state.busy) return false; close() }}><form onSubmit={submit} className="space-y-[16px]">
     <p className="text-text-body">{description}</p>
     {reasonRequired && <Field label="Reason" required minLength={3} maxLength={500} value={reason} onChange={e => setReason(e.target.value)} hint="Recorded in the administrative audit log." />}
     {state.error && <FormAlert kind="error">{state.error}</FormAlert>}

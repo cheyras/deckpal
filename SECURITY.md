@@ -75,10 +75,11 @@ whether to draw a button — verified against the deployed endpoint before this
 was fixed, an ordinary signed-in account got a full model turn, billed to the
 owner's Gateway key, by asking for one (DECISIONS.md 2026-08-21, "`/api/chat`
 had no server-side entitlement, rate limit or spend cap"). The route now
-checks current database `decke.use` permission and account status. Enabled
+checks lifecycle-derived database `decke.use` permission and account status. Enabled
 credit policy reserves an atomic debit/ledger/pricing snapshot before provider
 work and refuses accounting failures; disabled credit policy retains the
-existing daily counters. Exact accepted-request replays are rejected rather
+existing daily counters for ordinary accounts. An explicit unlimited override
+still requires current access and holds/budgets. Exact accepted-request replays are rejected rather
 than granting free repeated work. The public health response reports
 `administration` and `deckeEntitlement` readiness/status without account IDs.
 
@@ -699,69 +700,83 @@ properties are load-bearing:
 The snapshots contain card ids, quantities, list/deck names and strategy-guide
 text — the same user data as the tables they describe, and no more.
 
-## Administration, suspension and credit security (2026-09-13)
+## Administration, ownership, consent and credits (2026-09-15)
 
-Administration requires an active application session plus `admin.access`
-and action-specific database permissions. PATs and OAuth connector tokens
-cannot administer, read wallets or purchase credits, even when their owner is
-a Super admin. Preview follows the same authorization rules; self-host trusts
-its reverse proxy and single local identity. No administrative MCP/Deck-E tools,
-impersonation, arbitrary SQL or account-deletion UI are introduced.
+Every account has one canonical role. Tier ceilings, immutable built-in identity
+and the current target role constrain mutations under the governance lock.
+Admin can assign User/Superuser only to current built-in User/Superuser targets;
+Superadmin cannot alter Owner or assign Owner. Role definitions are
+Superadmin/Owner operations; editable permissions never grant reserved governance.
+Protected Owner membership is seeded from trusted bootstrap state and is
+independent of mutable email/JWT profile data. Last-active-Owner protection is
+checked in SQL. A read-only old-reader facade does not create a second authority.
 
-After verified-session gating and before RLS request-connection acquisition,
-one limiter covers all `/admin` requests, including credit administration,
-at 120 per 60 seconds per user. Wallet routes
-under `/me/credits` have a separate 180-per-60-second budget. The existing
-bounded in-memory store is per API process/function instance, resets on restart,
-and returns 429 with Retry-After; it is not a distributed quota. Nested credit
-routes consume the admin budget once. Database checkout quotas remain in force.
+Contributor has no administrative APIs or other-user/global financial controls.
+Contributor retains ordinary own-account profile, subscriptions and credit wallet
+through an active browser session. PAT/OAuth tokens cannot administer, inspect
+wallets, purchase credits or change sharing; no new administrative agent tools
+exist. Dev tools is a separate capability-filtered browser surface.
 
-Trusted bootstrap imports existing configured accounts exactly once before
-request RLS; it has no public first-user enrollment path. A missing owner/schema
-is observable and closes authenticated capabilities. Environment changes cannot
-undo later role revocations. SQL functions pin search paths, schema-qualify
-relations, constrain safe projections and reauthorize independently of Express.
-Web roles receive specific EXECUTE grants, never unrestricted governance or
-financial table access.
+A central SQL resolver derives Scanner/Deck-E access from lifecycle and personal
+opt-in. Raw permission grants and preview hostnames cannot bypass it. Disabled
+blocks new requests/provider attempts, including retries/nested work, for Owner
+too; already-started remote work may finish. Suspension remains application
+access control, separate from an Auth ban, and affects new requests, token/MCP
+resolution and restrictive owned-data policy. Revoke-all also consumes OAuth
+codes and coordinates with mint/exchange; reactivation does not revive them.
 
-Creation migrations 064/066 revoke all privileges on their explicitly listed
-new tables, sequences and functions from PUBLIC and any existing anon and
-authenticated roles before each file commits. Because the runner commits files
-independently, this prevents default client grants from exposing intermediate
-schema if an upgrade stops before 065/067. The later scoped grants remain
-unchanged. No platform roles, schema-wide default privileges or unrelated
-objects are modified; existing explicit trusted-server access is preserved.
+Only Owner may mutate user unlimited/nullable-markup revisions. Unlimited
+reserves zero credits explicitly without synthetic grants and retains debt,
+refund/dispute holds, access and operational budgets. New reservations cannot
+select revoked policy; legitimate reserved and bounded nested work use frozen
+snapshots. Flat quoted charges, idempotent pre-start refunds/recovery,
+nonnegative spendable balances, debt repayment and Stripe reconciliation
+remain unchanged. No automatic token-cost settlement exists.
 
-Governance and financial administrative writes serialize and recheck authority
-under the shared lock. The protected role and last-active-admin invariant live
-in SQL. Credential minting, including direct token inserts, coordinates with
-revoke-all/suspension; successful manual token responses follow COMMIT, so a
-failed commit cannot leak an unusable secret. OAuth codes are consumed during
-revocation as well as active token rows being revoked.
+Server usage accepts a durable request before invocation and writes distinct
+local provider-attempt rows. It stores allowlisted cost/token/build/status fields,
+never raw prompts, responses, tool arguments/output, hidden context or raw errors
+in general telemetry. Reported decimal zero is distinct from missing/unknown;
+upstream retries unreported by Gateway cannot be reconstructed.
 
-Suspension denies new private access through Express, token resolution, MCP
-context, restrictive owned-table RLS and the three legacy billing write guards.
-Trusted payment reconciliation remains possible. Already-running requests or
-provider work can finish, and downloaded data/signed URLs cannot be recalled.
-This is application suspension, not an Auth-provider ban.
+The first credit start and provider-attempt row commit atomically after current
+authority and payment holds are checked under the relevant locks. The SDK call
+sets a synchronous invocation latch. A known cancellation or lost database
+acknowledgement before that call retains an exact-operation compensation path;
+it cannot refund completed/failed invocations or an earlier real retry attempt.
 
-Credit policy/pack/adjustment writes require finance permissions in both API and
-SQL. Historical balances remain integers. Provider-cost snapshots are restricted
-to finance readers; ordinary wallets expose service prices and their own ledger.
-Atomic order fulfillment is independent of webhook event IDs. Signed events
-are revalidated against current Stripe identity, amount, currency, mode, refunds
-and disputes. Per-order revisions reject stale snapshots. Debt/holds block new
-work; holds cannot be cleared while debt or open refund/dispute work remains.
-Refunds before provider start are compensating events; started flat-priced work
-retains its charge. Expired-reservation recovery uses FOR UPDATE SKIP LOCKED
-so it does not wait on a spend row while another cancellation waits for its
-wallet; skipped rows recover on a later read unless already refunded. No
-realized-margin or token-settlement guarantee is made.
+Optional content is stored separately from metadata. Sharing defaults off;
+the first accepted exchange leg fixes consent epoch. Every administrative detail
+and conversation read requires active target, current enabled consent and that
+same epoch. Off deletes optional excerpts; off-on cannot resurrect old content.
+Active users can withdraw after losing Deck-E access or when it is disabled.
+Only the current user message and visible assistant response qualify. Personal
+history may retain the user's own tool records but is never the source of
+administrative cost/build authority. Exact owned accepted correlation is checked
+before a supplied exchange is linked; immutable duplicate writes cannot rewrite
+the generation stamp. Deleting own history also removes its administrative
+excerpts, preserving metadata.
 
-Identity, admin and wallet responses use no-store. The browser clears sensitive
-query state on account changes and invalidates authority on 403/focus/session
-refresh. The service worker routes private or authorized APIs NetworkOnly with
-HTTP no-store, rejects private/no-store responses from cache admission, and
-deletes `deckpal-api-v1`/`deckpal-api-v2` on activation. Only eligible anonymous
-cloud catalog responses use `deckpal-public-api-v3`; self-host API responses
-remain network-only. Art and shell caching are preserved.
+Usage reads require an active application session, tier 40 or higher and current
+`admin.access`. Custom roles lose metadata and shared-content access immediately
+when that permission is removed; the capability projection uses the same rule.
+Contributor is denied. Lists, aggregates, observation filters and errors contain no shared text.
+All private APIs are no-store. Identity/consent changes clear sensitive browser
+queries; open detail uses zero cache lifetime, refetches on focus/every 10 seconds,
+and hides stale content while refetching or unavailable. Previously seen/copied
+text cannot be recalled. Service-worker private/authorized requests remain
+NetworkOnly; existing anonymous catalog/art/shell cache boundaries remain.
+
+Creation ACLs close new objects before numbered migration commits; web roles
+receive only named checked functions. The normal runner commits each file
+independently, so a failed migration rolls back that file, not earlier committed
+files. Preserve shipped checksums and finish the reviewed sequence. An old-reader
+view is compatibility for reading, not permission to restore multi-role writes.
+No schema-wide grants or credential/configuration shortcuts are part of recovery.
+
+The shared admin limiter remains120requests/60seconds and the wallet 180/60,
+per user/API instance; 429 includes Retry-After. Database checkout limits remain.
+Signed financial events validate current identity, amount, currency, mode,
+refund and dispute state before unique settlement. Protected delivery queries
+may match the correct HTTPS origin/exact webhook path without appearing in
+readiness output. Configuration discovery is not proof of real delivery.

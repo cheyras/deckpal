@@ -372,6 +372,24 @@ decision, injected via `define`), `apps/web/live-backend.ts`,
 
 ---
 
+### B13 — Shared core UI icons
+
+**Rule:** Core visual controls, navigation and status indicators use the
+established shared SVG `Icon` component, or a deliberately semantic CSS mark,
+instead of hardcoded emoji or glyph substitutes. Preserve accessible labels,
+keyboard behavior and meaningful text; an icon alone is not an accessible name.
+Use the existing reusable component system rather than creating duplicate icon
+or table components.
+
+This rule concerns application chrome, including table sort indicators and
+action/status controls. It does not prohibit user-authored content, ordinary
+prose, mathematical/technical notation, or historical documentation quotations.
+
+**Where enforced:** `apps/web/src/components/Icon.tsx` and the shared
+`DataTable`/UI kit; source review and browser checks at desktop and mobile sizes.
+
+---
+
 ## Verification standards
 
 These are non-negotiable quality gates:

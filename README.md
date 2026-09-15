@@ -23,7 +23,7 @@ self-hosters.
 
 ## Features
 
-- **Administration** — database roles, contributor tools, account access, app defaults and estimated AI credit pricing/packs. See [the owner guide](ADMINISTRATION.md).
+- **Administration** — one tiered role per account, protected Owner controls, feature lifecycle/opt-ins, consent-based AI usage review and flat AI credit pricing/packs. Contributors use a separate Dev tools directory and retain personal self-service. See [the owner guide](ADMINISTRATION.md).
 
 - **Full card catalog** -- series, sets, cards, and variant-level detail
   (reverse holos, foils, stamps, promos), imported from TCGdex open data.

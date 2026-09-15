@@ -51,6 +51,7 @@
  *    and closed the tab.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { observeUsageModel, runUsageOperation, safeUsageCode, type ProviderCreditWork } from './usage.js';
 import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { GatewayProvider } from '@ai-sdk/gateway';
@@ -130,7 +131,7 @@ export const HEARTBEAT_MS = 4_000;
  */
 export const NO_RESEARCH_FINDINGS_MIN = 80;
 
-const providerCreditWork = new AsyncLocalStorage<{ start?: () => Promise<void> }>();
+const providerCreditWork = new AsyncLocalStorage<ProviderCreditWork>();
 
 export interface DeepToolOptions {
   /** Everything a data tool needs; the sub-agents get their own read tools. */
@@ -145,7 +146,9 @@ export interface DeepToolOptions {
    * module has no business knowing how the chat function gets one.
    */
   charge: (toolName: string, toolCallId?: string, args?: Record<string, unknown>) => Promise<{
-    start?: () => Promise<void>;
+    spendId?: string;
+    prepareRefund?: (recover: () => Promise<void>) => void;
+    invoke?: <T>(provider: () => T) => T;
     refund?: () => Promise<void>;
     allowed: boolean;
     /** The daily cap, when the old meter answered. */
@@ -394,9 +397,8 @@ async function runSubAgent(opts: {
 
   try {
     if (opts.signal?.aborted) throw new Error('Operation cancelled before provider invocation');
-    await providerCreditWork.getStore()?.start?.();
     const result = streamText({
-      model: opts.gateway(opts.modelId),
+      model: observeUsageModel(opts.gateway(opts.modelId), providerCreditWork.getStore()),
       instructions: opts.instructions,
       prompt: opts.prompt,
       ...(opts.tools ? { tools: opts.tools } : {}),
@@ -679,7 +681,7 @@ function sourceList(urls: readonly string[], max = 10): string {
  * summary goes to the model, and the two are no longer forced to be one string.
  */
 function logRealFailure(modelId: string, err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = safeUsageCode(err);
   const status = (err as { statusCode?: unknown } | null)?.statusCode;
   console.error(
     `[deck-e] sub-agent call to '${modelId}' failed` +
@@ -1032,7 +1034,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       const opening = openingBeat(spec.name);
       if (opening) progress(opening);
       try {
-        const out = await providerCreditWork.run(meter, () => spec.run(args, progress));
+        const out = await runUsageOperation(spec.name, () => providerCreditWork.run(meter, () => spec.run(args, progress)), toolCallId);
         const summary = out.text.slice(0, 110);
         // ── GROUND WHAT THIS TOOL RESOLVED, SO IT CAN BE SHOWN ──────────────
         //

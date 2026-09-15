@@ -1,3 +1,4 @@
+import type { ActorCapabilities, FeatureAccess, RoleRef, SharingPreference, AiOverride, AiUsagePage, AiUsageDetail, CostObservations } from './adminTypes'
 // API client — consumes deckpal-api (read-only contract, API.md).
 // Cloud: /api (Vercel). Self-host: /deckpal/api (behind nginx proxy).
 //
@@ -1190,6 +1191,11 @@ export interface ScanFlagLabel {
 }
 
 export interface MeResponse {
+  role?: RoleRef
+  isOwner?: boolean
+  accessRevision?: string
+  actorCapabilities?: ActorCapabilities
+  features?: FeatureAccess[]
   permissions?: string[]
   roles?: { id: string; name: string }[]
   adminReady?: boolean
@@ -1495,11 +1501,11 @@ export const api = {
   adminOverview: (signal?: AbortSignal) => get<{ adminReady: boolean; counts: { users?: number; suspended?: number; roles?: number; auditEvents?: number }; status: { bootstrap: string; mode: string } }>('/admin/overview', signal),
   adminUsers: (query: string, signal?: AbortSignal) => get<PageResult & { users: AdminUser[] }>('/admin/users?' + query, signal),
   adminUser: (id: string, signal?: AbortSignal) => get<{ user: AdminUser; permissions: string[]; stats: { collectionItems: number; decks: number; connectors: number } }>('/admin/users/' + encodeURIComponent(id), signal),
-  adminUserRoles: (id: string, roleIds: string[], expectedRevision: number, reason: string) => send('PUT', '/admin/users/' + encodeURIComponent(id) + '/roles', { roleIds, expectedRevision, reason }),
+  adminUserRole: (id: string, roleId: string, expectedRevision: number, expectedRoleRevision: number, reason: string) => send('PUT', '/admin/users/' + encodeURIComponent(id) + '/role', { roleId, expectedRevision, expectedRoleRevision, reason }),
   adminUserStatus: (id: string, suspended: boolean, expectedRevision: number, reason: string) => send('PATCH', '/admin/users/' + encodeURIComponent(id) + '/status', { suspended, expectedRevision, reason }),
   adminRevokeTokens: (id: string, reason: string) => send('POST', '/admin/users/' + encodeURIComponent(id) + '/revoke-tokens', { reason }),
   adminRoles: (signal?: AbortSignal) => get<RoleList>('/admin/roles', signal),
-  adminCreateRole: (body: { name: string; description: string; permissions: string[] }) => send('POST', '/admin/roles', body),
+  adminCreateRole: (body: { name: string; description: string; permissions: string[]; tier: number }) => send('POST', '/admin/roles', body),
   adminUpdateRole: (id: string, body: { name: string; description: string; permissions: string[]; expectedRevision: number }) => send('PATCH', '/admin/roles/' + encodeURIComponent(id), body),
   adminDeleteRole: (id: string, expectedRevision: number) => send('DELETE', '/admin/roles/' + encodeURIComponent(id), { expectedRevision }),
   adminSettings: (signal?: AbortSignal) => get<{ settings: AppDefaults; revision: number; updatedAt: string }>('/admin/settings', signal),
@@ -1527,6 +1533,7 @@ export const api = {
   // empty list would claim the feature exists for you and you simply have not
   // used it.
   deckeHistoryRecord: (body: {
+    exchangeId: string
     conversationId: string
     seq: number
     asked: string
@@ -1850,6 +1857,18 @@ export const api = {
     send<{ deleted: number }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
+  deckeSharing: (signal?: AbortSignal) => get<SharingPreference>('/me/decke-sharing', signal),
+  setDeckeSharing: (enabled: boolean, expectedRevision: number) => send<SharingPreference>('PUT', '/me/decke-sharing', { enabled, expectedRevision }),
+  adminAiOverride: (id: string, signal?: AbortSignal) => get<AiOverride>('/admin/users/' + encodeURIComponent(id) + '/ai-override', signal),
+  adminSetAiOverride: (id: string, body: { expectedRevision: number; unlimited: boolean; markupBps: number | null; reason: string }) => send<AiOverride>('PUT', '/admin/users/' + encodeURIComponent(id) + '/ai-override', body),
+  adminCostObservations: (params: string, signal?: AbortSignal) => get<CostObservations>('/admin/ai-usage/observations?' + params, signal),
+  adminAiUsage: (params: string, signal?: AbortSignal) => get<AiUsagePage>('/admin/ai-usage?' + params, signal),
+  adminAiRequest: (id: string, signal?: AbortSignal) => get<AiUsageDetail>('/admin/ai-usage/requests/' + encodeURIComponent(id), signal),
+  adminAiConversation: (id: string, params: string, signal?: AbortSignal) => get<{ items: AiUsageDetail[]; total: number; limit: number; offset: number }>('/admin/ai-usage/conversations/' + encodeURIComponent(id) + '?' + params, signal),
+  meFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/me/features', signal),
+  setMeFeature: (key: string, optedIn: boolean, expectedRevision: number) => send<{ features: FeatureAccess[] }>('PATCH', '/me/features/' + encodeURIComponent(key), { optedIn, expectedRevision }),
+  adminFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/admin/features', signal),
+  adminSetFeature: (key: string, lifecycle: FeatureAccess['lifecycle'], expectedRevision: number, reason: string) => send<{ features: FeatureAccess[] }>('PATCH', '/admin/features/' + encodeURIComponent(key), { lifecycle, expectedRevision, reason }),
   me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
   // Account settings (migration 049) — the server-side home of what used to be
   // device-only preferences. PATCH takes any subset and returns the whole row.

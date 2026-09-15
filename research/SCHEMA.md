@@ -3249,31 +3249,31 @@ The catalog import path remains undemonstrated end-to-end: `docker save` extract
 not expose `variantId`, `thirdParty` or `pricing`, which are exactly what `card_variant` needs.
 The third pass did not change this, and it is still the largest unvalidated assumption in the build.
 
-## 2026-09-13 — Application governance and credit economy extension
+## Application governance, feature and AI usage schema (2026-09-15)
 
 This current extension does not rewrite the dated catalog research above.
-The schema of record is migrations 064–067:
+Migrations 064–067 remain checksum-immutable; 068–071 extend them:
 
-- `admin_permission`, `admin_role`, `admin_role_permission`,
-  `admin_account`, `admin_user_role` and `admin_state` hold the permission
-  catalog, role union, suspension and one-time bootstrap state.
-- `admin_app_settings` holds revisioned skin/topbar defaults;
-  `admin_audit` records validated before/after administrative changes.
-- `credit_policy_revision` and `credit_policy_current` separate immutable
-  future-price snapshots from the current pointer. `credit_pack` and
-  `credit_order` freeze purchase terms and track reconciliation revisions.
-- `credit_wallet_control` records explicit debt; `credit_spend` records
-  reserved/started/refunded flat charges; `credit_adjustment` and
-  `credit_checkout_rate` support idempotent adjustments and throttling.
-- Existing `decke_credit_balance` integers and historical
-  `decke_credit_event` deltas are unchanged. New events can include pricing
-  revision/snapshot and debt delta; a reversal never makes spendable balance
-  negative, and positive grants repay debt first.
+| Migration | Current storage boundary |
+|---|---|
+| 068 | Canonical non-null `admin_account.role_id` defaults User; built-in tiers and safe custom ceilings. Private `admin_role_migration_snapshot` and `admin_user_role_archive` preserve prior assignments. `admin_user_role` is a read-only one-row projection. |
+| 069 | `app_feature` stores released/beta/experimental/disabled lifecycle and revision; `app_feature_opt_in` stores separate per-user opt-in. Scanner and Deck-E initialize experimental. |
+| 070 | Append-only `credit_user_ai_override` revisions hold unlimited/nullable markup, actor and reason. `credit_spend` adds charge_mode, override_revision and pricing_snapshot; zero credits require unlimited mode. |
+| 071 | `decke_sharing` stores enabled/revision epoch; `decke_ai_request` records server parent, exchange and frozen consent/build/pricing; `decke_ai_operation` records local attempts, bound credit_spend_id/start/cancellation provenance and nullable cost/token evidence; `decke_ai_content` contains separately gated optional excerpts. `decke_turn.exchange_id` binds own history. |
 
-Text account references support current UUID accounts and tolerate legacy
-bigint IDs; UUID remains the normal self-host identity since migration 020.
-065 alone is Supabase-only; 067 conditionally grants existing cloud roles and
-also supplies self-host functions. Web roles receive scoped functions, not
-direct governance/financial writes. Selected migration/RLS/concurrency fixtures
-are exercised locally; this is not a claim that production migrations were run.
-See ADMINISTRATION.md and DEPLOYMENT.md for behavior and rollout.
+New web-facing functions are narrow session/authority-checked SECURITY DEFINER
+entry points with fixed search paths; direct client table writes and raw usage
+runtime functions are not granted. Request-key uniqueness rejects replay;
+operation IDs and terminal conditional updates prevent double finalization.
+A continued exchange reuses its first consent epoch. Withdrawal and append
+serialize; every admin content projection also checks current enabled epoch.
+Deleting own history removes excerpts, preserving usage metadata.
+
+Existing `credit_policy_revision/current`, packs/orders, wallet debt, immutable
+events and idempotent settlement/reconciliation remain authoritative for money.
+No actual-cost settlement or denomination migration is introduced.
+
+Normal deployment accounts are UUIDs. The role migration additionally tests
+legacy bigint access; the economy/history fixtures cover current UUID self-host
+and cloud shapes. This is selected real migration/ACL/concurrency coverage, not
+a full historical replay or evidence that production has applied 068–071.

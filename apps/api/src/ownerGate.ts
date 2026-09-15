@@ -5,7 +5,7 @@ export type OwnerRefusal='forbidden'|'not-found';
 export async function isOwner(userId:string|undefined|null,resolver:AccessResolver=getAccessForUser):Promise<boolean> {
  if(!userId) return false;
  const access=await resolver(userId);
- return access.ready&&!access.suspended&&access.roles.some(r=>r.key==='super_admin');
+ return access.ready&&!access.suspended&&access.isOwner===true;
 }
 export async function isLabelerEntitled(userId:string|undefined|null,resolver:AccessResolver=getAccessForUser):Promise<boolean> {
  return !!userId&&hasPermission(await resolver(userId),'scanner.label');

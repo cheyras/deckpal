@@ -1,3 +1,6 @@
+import { AdminFeatures } from './routes/admin/Features'
+import { AdminAiUsage } from './routes/admin/AiUsage'
+import { Devtools } from './routes/Devtools'
 import { StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -28,10 +31,10 @@ import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
-import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED } from './lib/access'
+import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED, ACCESS_CHANGED } from './lib/access'
 import { requireVerifiedCapability } from './lib/capabilities'
 import { Content, EmptyState } from './components/ui'
-import Admin, { AdminOverview, AdminTools } from './routes/admin/Admin'
+import Admin, { AdminOverview } from './routes/admin/Admin'
 import { AdminUsers, AdminUserDetail } from './routes/admin/Users'
 import { AdminRoles } from './routes/admin/Roles'
 import { AdminSettings } from './routes/admin/Settings'
@@ -79,10 +82,14 @@ const queryClient = new QueryClient({
 })
 
 window.addEventListener(IDENTITY_CHANGED, () => queryClient.clear())
+window.addEventListener(ACCESS_CHANGED, () => {
+  void queryClient.cancelQueries({ queryKey: ['admin'] })
+  queryClient.removeQueries({ queryKey: ['admin'] })
+})
 
 const requireCapability = (permission: string) => requireVerifiedCapability(permission, getAccess, notFound)
 const TOOL_PERMISSIONS: Record<string, string> = {
-  '/scan': 'scanner.use', '/design': 'design.view', '/dev/decke': 'diagnostics.view',
+  '/devtools': 'devtools.access', '/scan': 'scanner.use', '/design': 'design.view', '/dev/decke': 'diagnostics.view',
   '/dev/chat-ui': 'diagnostics.view', '/dev/decke-compare': 'diagnostics.view',
   '/dev/scan-harness': 'diagnostics.view', '/dev/quad-labeler': 'scanner.label', '/dev/quad-harvest': 'scanner.label',
 }
@@ -145,7 +152,7 @@ function RootComponent() {
           per page load, which is the unit visit_count is supposed to count.
           It renders nothing at all when signed out, on a chromeless page, or
           on a deployment with no Stripe. */}
-      <SupportPrompt />
+      {access.ready && <SupportPrompt />}
     </>
   )
 }
@@ -622,6 +629,8 @@ const quadHarvestRoute = createRoute({
 })
 
 const adminRoute = createRoute({ getParentRoute: () => rootRoute, path: '/admin', beforeLoad: () => requireCapability('admin.access'), component: Admin })
+const adminFeaturesRoute = createRoute({ getParentRoute: () => adminRoute, path: '/features', component: AdminFeatures })
+const adminUsageRoute = createRoute({ getParentRoute: () => adminRoute, path: '/usage', component: AdminAiUsage })
 const adminIndexRoute = createRoute({ getParentRoute: () => adminRoute, path: '/', component: AdminOverview })
 const adminUsersRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users', beforeLoad: () => requireCapability('users.read'), component: AdminUsers })
 const adminUserRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users/$userId', beforeLoad: () => requireCapability('users.read'), component: AdminUserDetail })
@@ -630,7 +639,8 @@ const adminSettingsRoute = createRoute({ getParentRoute: () => adminRoute, path:
   if (!(await hasPermission('settings.read')) && !(await hasPermission('credits.read'))) throw notFound()
 }, component: AdminSettings })
 const adminAuditRoute = createRoute({ getParentRoute: () => adminRoute, path: '/audit', beforeLoad: () => requireCapability('audit.read'), component: AdminAudit })
-const adminToolsRoute = createRoute({ getParentRoute: () => adminRoute, path: '/tools', component: AdminTools })
+const adminToolsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/admin/tools', beforeLoad: () => { throw redirect({ to: '/devtools' }) } })
+const devtoolsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/devtools', beforeLoad: () => requireCapability('devtools.access'), component: Devtools })
 const creditsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/credits', validateSearch: (raw: Record<string, unknown>): { order?: string; checkout?: string; cancelled?: string } => ({
   cancelled: raw.cancelled === '1' ? '1' : undefined,
   order: typeof raw.order === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(raw.order) ? raw.order : undefined,
@@ -638,7 +648,8 @@ const creditsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/cred
 }), component: Credits })
 
 const routeTree = rootRoute.addChildren([
-  adminRoute.addChildren([adminIndexRoute, adminUsersRoute, adminUserRoute, adminRolesRoute, adminSettingsRoute, adminAuditRoute, adminToolsRoute]),
+  devtoolsRoute, adminToolsRoute,
+  adminRoute.addChildren([adminFeaturesRoute, adminUsageRoute, adminIndexRoute, adminUsersRoute, adminUserRoute, adminRolesRoute, adminSettingsRoute, adminAuditRoute]),
   creditsRoute,
   ...coreRoutes,
   designRoute,

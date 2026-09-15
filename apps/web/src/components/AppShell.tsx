@@ -107,6 +107,7 @@ const NAV: NavItem[] = [
   // (apps/api/src/scan/router.ts) both refuse everyone else on production, so a
   // row here for anybody else would lead to a Not Found. See `ownerOnly` above.
   { label: 'Scan Card', icon: 'camera', to: '/scan', gated: true, permission: 'scanner.use' },
+  { label: 'Dev tools', icon: 'gear', to: '/devtools', gated: true, permission: 'devtools.access' },
   { label: 'Administration', icon: 'lists', to: '/admin', gated: true, permission: 'admin.access' },
 ]
 
