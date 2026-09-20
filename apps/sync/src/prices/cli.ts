@@ -44,8 +44,9 @@ import { crossFillReverse, AFFECTED_SERIES } from './crossfill.js';
 import { backfillPricesFromArchive } from './backfill.js';
 import { runRollup, DEFAULT_MONTH_LIMIT } from './rollup.js';
 import {
-  backfillValuePoints, ledgerAgreesWithCollection, snapshotAllUsers, valueParity,
+  backfillValuePoints, ledgerAgreesWithCollection, valueParity,
 } from '../jobs/valueSnapshot.js';
+import { runCloudSnapshot } from '../jobs/cloudSnapshot.js';
 import { recomputeCoverage } from './coverage.js';
 import { tryLock, unlock, type Queryable } from './db.js';
 
@@ -232,7 +233,7 @@ async function main(): Promise<void> {
         process.exitCode = 1;
       }
     } else if (cmd === 'snapshot') {
-      const r = await snapshotAllUsers(client, { observedOn: flag('on') ?? null });
+      const r = await runCloudSnapshot(client, { observedOn: flag('on') ?? null });
       console.log(JSON.stringify(r, null, 2));
     } else if (cmd === 'snapshot-backfill') {
       const from = flag('from');

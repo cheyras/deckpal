@@ -81,27 +81,9 @@ export interface UpcomingSet {
  * refreshes but not a quarter.
  */
 export const UPCOMING_SETS: readonly UpcomingSet[] = [
-  {
-    // Mega Evolution, not a series of its own: TCGplayer files both 30th
-    // Celebration products under the same `ME:` prefix as ME01-ME06, and the
-    // direct precedent is Celebrations — the 25th anniversary set — which
-    // TCGdex files as `serie: swsh`, inside Sword & Shield. There is no
-    // anniversary series in TCGdex's 21.
-    placeholderId: 'upcoming-pokemon-30th-celebration',
-    seriesSlug: 'mega-evolution',
-    name: '30th Celebration',
-    releasedOn: '2026-09-16',
-    // 128 printed; TCGCSV's presale listing runs to #158, so there are secrets
-    // on top. The printed number is the one that is certain, and the row shows
-    // a count rather than a completion bar, so an approximate total would read
-    // as a fact it is not.
-    printedCount: 128,
-    logoAssetPath: '/brand/pokemon-30th-celebration-logo.webp',
-    // ~6 weeks: the catalog refresh is weekly (Sunday 04:30, see
-    // .github/workflows/catalog-refresh.yml), so this covers six chances for
-    // upstream to publish before the row stops being served regardless.
-    expiresOn: '2026-10-31',
-  },
+  // 30th Celebration removed 2026-09-19: TCGdex published the set as '30th'
+  // (158 cards) on 2026-09-16. The approved bundled logo is preserved for the
+  // released set via releasedSetAssets.ts → SetLogo fallback.
 ];
 
 /** Collapse the incidental differences between an announced name and a catalog one. */

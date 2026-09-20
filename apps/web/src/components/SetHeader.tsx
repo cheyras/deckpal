@@ -11,6 +11,7 @@ import { Icon } from './Icon'
 import { PurchaseSetMenu } from './PurchaseSetMenu'
 import { SignInPrompt } from './SignInPrompt'
 import { useSignedIn } from '../lib/session'
+import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 
 export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal }) {
@@ -126,7 +127,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
           <div className="flex h-[132px] min-w-[135px] items-center">
             {/* logoError: display set name as plain text (React-rendered, not
                 innerHTML) to prevent XSS from a crafted set name. */}
-            {set.images.logoUrl && !logoError ? (
+            {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
               <SetLogo
                 setId={set.setId}
                 alt={set.name}

@@ -7,6 +7,7 @@ import { UpcomingSetRow } from '../components/UpcomingSetRow'
 import { fmtDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
   // Absent for a logged-out visitor — the row then shows the set's own facts
@@ -58,7 +59,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
             'linear-gradient(135deg, var(--color-surface-quaternary), var(--color-surface-tertiary))',
         }}
       >
-        {set.logoUrl ? (
+        {set.logoUrl || bundledSetLogo(set.setId) ? (
           <SetLogo
             setId={set.setId}
             imgClassName="max-h-[64px] max-w-[112px]"

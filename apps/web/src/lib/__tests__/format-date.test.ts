@@ -47,6 +47,21 @@ test('the upcoming 30th Celebration release date is Sep 16 across UTC and Denver
   }
 });
 
+test('midnight-UTC DATE serialization is treated as a calendar day, not an instant', () => {
+  // The live API serializes SQL DATE columns as T00:00:00Z (or T00:00:00.000Z).
+  // In America/Denver (MDT = UTC-6), UTC midnight is 18:00 the prior evening,
+  // which would shift the calendar day back by one if treated as an instant.
+  // Both forms must render as the named calendar day in every timezone.
+  const midnightForms = ['2026-09-16T00:00:00Z', '2026-09-16T00:00:00.000Z'];
+  for (const tz of ['UTC', 'America/Denver', 'Pacific/Auckland']) {
+    withTz(tz, () => {
+      for (const form of midnightForms) {
+        assert.equal(fmtDate(form), 'Sep 16, 2026', `${form} in ${tz}`);
+      }
+    });
+  }
+});
+
 test('a timestamp with an offset converts to the local calendar day', () => {
   // 00:30 UTC on Sep 16 is the evening of Sep 15 in America/Denver (MDT, UTC-6).
   // That is the correct "when did this happen here" reading for an instant.

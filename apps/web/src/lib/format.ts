@@ -41,8 +41,19 @@ export function fmtDate(iso: string | null | undefined): string {
   // arrive in this calendar-string shape; a bare `YYYY-MM-DD` is the contract
   // this branch handles, not a quirk of the Postgres driver (which would
   // otherwise hand back a JS Date that JSON-serializes as a UTC timestamp).
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-    const [y, m, d] = iso.split('-').map(Number)
+  //
+  // The live API also serializes SQL DATE columns as UTC midnight timestamps
+  // (`YYYY-MM-DDT00:00:00Z` or `YYYY-MM-DDT00:00:00.000Z`). These are still
+  // calendar days, not instants — a UTC midnight that falls at 18:00 the prior
+  // evening in America/Denver must not shift the date. Detect and promote them
+  // to the same calendar-parts path used for bare YYYY-MM-DD strings.
+  const calendarStr = /^\d{4}-\d{2}-\d{2}$/.test(iso)
+    ? iso
+    : /^\d{4}-\d{2}-\d{2}T00:00:00(\.000)?Z$/.test(iso)
+    ? iso.substring(0, 10)
+    : null
+  if (calendarStr !== null) {
+    const [y, m, d] = calendarStr.split('-').map(Number)
     const date = new Date(y, m - 1, d)
     if (isNaN(date.getTime())) return '—'
     // The local-zone constructor rolls overflow into a valid neighbour
@@ -53,9 +64,10 @@ export function fmtDate(iso: string | null | undefined): string {
     if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return '—'
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
   }
-  // Anything with a time or offset is an instant; convert to the local calendar
-  // day as before (a 00:30 UTC price-timestamp lands on the previous evening in
-  // Denver, which is correct for "when did this happen here").
+  // Anything with a time or offset that is NOT a UTC midnight DATE serialization
+  // is a genuine instant; convert to the local calendar day (a 00:30 UTC
+  // price-timestamp lands on the previous evening in Denver, which is correct
+  // for "when did this happen here").
   const dt = new Date(iso)
   if (isNaN(dt.getTime())) return '—'
   return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })

@@ -245,12 +245,12 @@ test('the real detail route projects dates, sorts mixed rows, and omits anonymou
   assert.equal(body.series.firstReleaseOn, '2025-09-26');
   assert.match(body.series.firstReleaseOn ?? '', /^\d{4}-\d{2}-\d{2}$/);
 
-  // Mixed real + upcoming, descending date, same-day names ascending, nulls last.
+  // Catalog-only (UPCOMING_SETS is empty now that 30th Celebration is
+  // published), descending date, same-day names ascending, nulls last.
   assert.deepEqual(
     body.sets.map((s) => s.name),
     [
       'Newer real set',
-      '30th Celebration',
       'Older real set',
       'A same-day set',
       'Z same-day set',
