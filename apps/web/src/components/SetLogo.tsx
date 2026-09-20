@@ -1,6 +1,7 @@
 import { setAssetUrl } from './ui'
 import { useArtSrc } from '../lib/useArtSrc'
 import { setLogoNeedsLightPlate } from '../lib/setLogoContrast'
+import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 /**
  * A set's logo, with a light plate behind it when the artwork needs one.
@@ -45,16 +46,42 @@ export function SetLogo({
   // Object URL first, image tier as the fallback — see lib/cardArt.ts. A series
   // page draws one of these per set, so they were one serverless hop each.
   const art = useArtSrc(setAssetUrl(setId, 'logo'))
+
+  // Sets whose upstream logo is absent but a bundled asset exists (e.g. the
+  // 30th Celebration logo carried over from the upcoming-set placeholder).
+  // Used as a final fallback after the image tier exhausts its sources.
+  const bundled = bundledSetLogo(setId)
+
+  // Resolve the effective src: image-tier sources first, then the bundled
+  // fallback (BASE_URL-prefixed so it works under both / and /deckpal/).
+  const effectiveSrc = art.src ?? (bundled
+    ? `${import.meta.env.BASE_URL}${bundled.replace(/^\/+/, '')}`
+    : null)
+  const usingBundled = art.failed && bundled != null
+
   const img = (
     <img
-      key={art.step}
-      src={art.src ?? undefined}
-      {...(art.crossOrigin ? { crossOrigin: art.crossOrigin } : {})}
+      key={usingBundled ? 'bundled' : art.step}
+      src={effectiveSrc ?? undefined}
+      {...(!usingBundled && art.crossOrigin ? { crossOrigin: art.crossOrigin } : {})}
       alt={alt}
       className={`${(plated && platedImgClassName) || imgClassName} object-contain`}
       onError={(e) => {
         // Not exhausted yet: step to the next source and let it try.
         if (!art.failed && art.step === 0) {
+          art.onError()
+          return
+        }
+        // Bundled fallback is active — if IT fails, fall through to the
+        // caller's handler or hide the element.
+        if (usingBundled) {
+          if (onError) onError(e)
+          else e.currentTarget.style.display = 'none'
+          return
+        }
+        // Image tier not yet exhausted and there is a bundled fallback —
+        // advance past the tier so the next render picks up effectiveSrc.
+        if (!art.failed && bundled != null) {
           art.onError()
           return
         }

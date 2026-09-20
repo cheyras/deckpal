@@ -20,6 +20,7 @@ import {
   cardTextLines,
   NON_ERROR_SUBTYPES, SYNTHESIZED_FACET, TIER_RULE_VERSION, type RawCard, type Facet,
 } from './transform.js';
+import { getOverlay, resolveReleasePriceLink } from './releasePriceLinks.js';
 
 interface RawSet {
   id: string;
@@ -374,7 +375,7 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
           // languages would want `localized ?? official`; this importer only
           // ever loads CATALOGUE = 'en'.
           st.abbreviation?.official ?? st.abbreviations?.official ?? null,
-          st.thirdParty?.tcgplayer ?? null,
+          st.thirdParty?.tcgplayer ?? getOverlay(st.id)?.groupId ?? null,
           /promo/i.test(st.name), st.logo ?? null, st.symbol ?? null,
         ],
       );
@@ -513,6 +514,7 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
       );
 
       const varRows: unknown[][] = [];
+      const setOverlay = getOverlay(st.id);
       for (const c of setCards) {
         const cid = cardIdByTcgdex.get(c.id)!;
         const plan = planCardVariants(c);
@@ -529,10 +531,33 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
         for (const v of plan.variants) {
           if (v.isSynthesized) summary.synthesized++;
           summary.variants++;
+          // Release-scoped price-link overlay: resolve a verified (group,product,
+          // printing) link for this planned variant, or null to refuse. The
+          // resolver checks language/set/collector/name/group identity and the
+          // canonical synthesized-singleton facet; on refusal the original
+          // upstream fields are kept. The set-level group fallback (getOverlay)
+          // is applied separately above; here we pass the RAW upstream group id
+          // so a conflicting upstream group prevents the product fallback.
+          let productId = v.tcgplayerProductId;
+          let printing = v.tcgplayerPrinting;
+          let idSource = v.idSource;
+          let idConfidence = v.idConfidence;
+          if (setOverlay) {
+            const resolved = resolveReleasePriceLink({
+              language: CATALOGUE, setId: st.id, groupId: st.thirdParty?.tcgplayer ?? null,
+              card: c, variant: v, variantCount: plan.variants.length,
+            });
+            if (resolved) {
+              productId = resolved.productId;
+              printing = resolved.printing;
+              idSource = 'variant';
+              idConfidence = 100;
+            }
+          }
           varRows.push([
             cid, v.code, v.tcgdexVariantId, v.sortOrder, v.isPrimary, v.isSynthesized,
-            v.tcgplayerProductId, v.tcgplayerPrinting, v.cardmarketProductId, v.cardtraderProductId,
-            v.idSource, v.idConfidence, v.displayName, v.provenance, 'tcgdex',
+            productId, printing, v.cardmarketProductId, v.cardtraderProductId,
+            idSource, idConfidence, v.displayName, v.provenance, 'tcgdex',
           ]);
         }
       }

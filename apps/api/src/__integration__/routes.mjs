@@ -94,7 +94,7 @@ try {
   const { seriesRouter } = await import('../routes/series.ts');
   const { cardsRouter } = await import('../routes/cards.ts');
   const { errorMiddleware } = await import('../http.ts');
-  const { fmtDate } = await import('../../../web/src/lib/format.ts');
+  const { fmtDate, fmtCalendarDate } = await import('../../../web/src/lib/format.ts');
   const { allTools, makeApi } = await import('@deckpal/agent-tools');
   const { buildDataTools, DEFAULT_MAX_TOOL_CHARS } = await import('../decke/adapters/aisdk.ts');
   const { toCallToolResult } = await import('../../../mcp/src/adapters/mcp.ts');
@@ -132,11 +132,16 @@ try {
     ['mega-evolution', '2025-09-26'], ['unknown', null],
   ]);
   const detail = await get('/series/mega-evolution');
+  // UPCOMING_SETS retired the '30th Celebration' placeholder on 2026-09-19
+  // after TCGdex published the set as '30th'. The detail response is catalog-
+  // only: released_on DESC NULLS LAST, same-day names ascending.
   const expectedNames = [
-    'Newer real set', '30th Celebration', 'September real set', 'Older real set',
+    'Newer real set', 'September real set', 'Older real set',
     'A same-day set', 'Z same-day set', 'A unknown', 'Z unknown',
   ];
   assert.deepEqual(detail.sets.map((set) => set.name), expectedNames);
+  assert.equal(detail.sets.some((set) => set.upcoming), false,
+    'no upcoming placeholder now the 30th set is a released catalog row');
   assert.equal(detail.series.firstReleaseOn, '2025-09-26');
   assert.equal(detail.sets.some((set) => set.setId === 'zero-card'), false);
   for (const set of detail.sets) {
@@ -145,12 +150,13 @@ try {
     assert.equal('progress' in set, false);
   }
   const september = detail.sets.find((set) => set.setId === 'september');
-  const upcoming = detail.sets.find((set) => set.upcoming);
   assert.equal(september.releasedOn, '2026-09-16');
-  assert.equal(fmtDate(september.releasedOn), 'Sep 16, 2026');
-  assert.equal(fmtDate(upcoming.releasedOn), 'Sep 16, 2026');
-  assert.equal(fmtDate(detail.series.firstReleaseOn), 'Sep 26, 2025');
-  assert.equal(fmtDate(null), '—');
+  assert.equal(fmtCalendarDate(september.releasedOn), 'Sep 16, 2026');
+  assert.equal(fmtCalendarDate(detail.series.firstReleaseOn), 'Sep 26, 2025');
+  assert.equal(fmtCalendarDate(null), '—');
+  // A genuine UTC-midnight instant (not a SQL DATE) still converts as an
+  // instant: in America/Denver 2026-09-16T00:00:00Z lands on Sep 15. fmtDate,
+  // not fmtCalendarDate, is correct for timestamps carrying a time component.
   assert.equal(fmtDate('2026-09-16T00:00:00.000Z'),
     process.env.TZ === 'America/Denver' ? 'Sep 15, 2026' : 'Sep 16, 2026');
   evidence.cases.push({
@@ -158,20 +164,49 @@ try {
     firstReleaseOn: detail.series.firstReleaseOn,
     names: detail.sets.map((set) => set.name),
     releaseDates: detail.sets.map((set) => set.releasedOn),
-    renderedRealDate: fmtDate(september.releasedOn),
-    renderedUpcomingDate: fmtDate(upcoming.releasedOn),
+    renderedRealDate: fmtCalendarDate(september.releasedOn),
+    upcomingRows: 0,
     zeroCardExcluded: true,
     anonymousProgressAbsent: true,
     nullableSeriesDate: list.series[1].firstReleaseOn,
   });
 
-  // Exercise announcement suppression using an actual catalog row, then restore
-  // the focused fixture for the subsequent price route calls.
-  await client.query("UPDATE card_set SET name = ' 30TH   CELEBRATION ' WHERE id = 8");
-  const suppressed = await get('/series/mega-evolution');
-  assert.equal(suppressed.sets.some((set) => set.upcoming), false);
-  await client.query("UPDATE card_set SET name = 'September real set' WHERE id = 8");
-  evidence.cases.push({ name: 'real_catalog_name_suppresses_announcement', upcomingRows: 0 });
+  // Real RELEASED catalog-row regression: the retired '30th Celebration'
+  // placeholder is now the published '30th' set. Mutate the existing fixture
+  // row 8 to the canonical 30th identity/name/slug, prove the catalog serves
+  // exactly one real released row with no announcement duplicate, then restore
+  // the row before the price route calls.
+  const row8 = (await client.query(
+    'SELECT tcgdex_id, slug, name FROM card_set WHERE id = 8',
+  )).rows[0];
+  await client.query(
+    "UPDATE card_set SET tcgdex_id = '30th', slug = '30th', name = '30th' WHERE id = 8",
+  );
+  const released = await get('/series/mega-evolution');
+  const thirtieth = released.sets.filter((set) => set.setId === '30th');
+  assert.equal(thirtieth.length, 1, 'exactly one real released 30th catalog row');
+  assert.equal(thirtieth[0].name, '30th');
+  assert.equal('upcoming' in thirtieth[0], false, 'released 30th row is not an announcement placeholder');
+  assert.equal(thirtieth[0].releasedOn, '2026-09-16');
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(thirtieth[0].releasedOn),
+    'released 30th row must serialize an actual SQL DATE as YYYY-MM-DD');
+  assert.equal(fmtCalendarDate(thirtieth[0].releasedOn), 'Sep 16, 2026');
+  assert.equal(released.sets.some((set) => set.upcoming), false,
+    'no announcement duplicate now the real 30th set is in the catalog');
+  assert.deepEqual(released.sets.map((set) => set.name), [
+    'Newer real set', '30th', 'Older real set',
+    'A same-day set', 'Z same-day set', 'A unknown', 'Z unknown',
+  ]);
+  await client.query(
+    'UPDATE card_set SET tcgdex_id = $1, slug = $2, name = $3 WHERE id = 8',
+    [row8.tcgdex_id, row8.slug, row8.name],
+  );
+  evidence.cases.push({
+    name: 'real_released_30th_catalog_row_no_announcement_duplicate',
+    released30thRows: thirtieth.length,
+    upcomingRows: 0,
+    names: released.sets.map((set) => set.name),
+  });
 
   const history = await get('/cards/base1-1/prices?range=30d&currency=JPY');
   assert.equal(history.currency, 'JPY');

@@ -4,9 +4,10 @@ import { api, type SetSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { UpcomingSetRow } from '../components/UpcomingSetRow'
-import { fmtDate, setLevelLabel } from '../lib/format'
+import { fmtCalendarDate, setLevelLabel } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
   // Absent for a logged-out visitor — the row then shows the set's own facts
@@ -58,7 +59,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
             'linear-gradient(135deg, var(--color-surface-quaternary), var(--color-surface-tertiary))',
         }}
       >
-        {set.logoUrl ? (
+        {set.logoUrl || bundledSetLogo(set.setId) ? (
           <SetLogo
             setId={set.setId}
             imgClassName="max-h-[64px] max-w-[112px]"
@@ -74,7 +75,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
         <div className="flex items-start gap-[10px]">
           <div className="min-w-0 flex-1">
             <div className="font-display truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
-            <div className="text-[14px] text-text-muted">{fmtDate(set.releasedOn)}</div>
+            <div className="text-[14px] text-text-muted">{fmtCalendarDate(set.releasedOn)}</div>
           </div>
           <SetSymbolTile setId={set.setId} name={set.name} size={36} />
         </div>

@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router'
 import type { SetDetailResponse } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
 import { api } from '../lib/api'
-import { fmtDate, fmtUsd } from '../lib/format'
+import { fmtCalendarDate, fmtUsd } from '../lib/format'
 import { SetSymbolTile, StatTile } from './ui'
 import { SetLogo } from './SetLogo'
 import { ProgressCluster } from './ProgressCluster'
@@ -11,6 +11,7 @@ import { Icon } from './Icon'
 import { PurchaseSetMenu } from './PurchaseSetMenu'
 import { SignInPrompt } from './SignInPrompt'
 import { useSignedIn } from '../lib/session'
+import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 
 export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal }) {
@@ -126,7 +127,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
           <div className="flex h-[132px] min-w-[135px] items-center">
             {/* logoError: display set name as plain text (React-rendered, not
                 innerHTML) to prevent XSS from a crafted set name. */}
-            {set.images.logoUrl && !logoError ? (
+            {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
               <SetLogo
                 setId={set.setId}
                 alt={set.name}
@@ -249,7 +250,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
               {set.series.name}
             </Link>
           </div>
-          <StatTile label="Release Date" value={fmtDate(set.releasedOn)} />
+          <StatTile label="Release Date" value={fmtCalendarDate(set.releasedOn)} />
           <StatTile
             label="Cards"
             value={set.secretCount > 0 ? `${set.printedCount} + ${set.secretCount} Secret` : `${set.printedCount}`}

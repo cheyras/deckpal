@@ -1,5 +1,5 @@
 import type { SetSummary } from '../lib/api'
-import { fmtDate } from '../lib/format'
+import { fmtCalendarDate } from '../lib/format'
 
 /**
  * An announced set that upstream has not published yet — see apps/api's
@@ -63,7 +63,7 @@ export function UpcomingSetRow({ set }: { set: SetSummary }) {
             <div className="font-display text-[16px] font-semibold text-text-body break-words">
               {set.name}
             </div>
-            <div className="text-[14px] text-text-muted">{fmtDate(set.releasedOn)}</div>
+            <div className="text-[14px] text-text-muted">{fmtCalendarDate(set.releasedOn)}</div>
           </div>
           <span className="self-start shrink-0 whitespace-nowrap rounded-full border border-border-default px-[8px] py-[2px] text-[12px] font-semibold uppercase tracking-wide text-text-secondary">
             Coming Soon
