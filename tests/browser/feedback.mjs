@@ -489,6 +489,7 @@ export async function checkPendingAdminSheets(browser,server,mount,label,out,fix
       await dialog.getByLabel(test.field,{exact:true}).fill(test.value)
       await dialog.getByRole('button',{name:test.save,exact:true}).click()
       await dialog.waitFor({state:'hidden'})
+      await page.waitForFunction(() => document.body.style.position !== 'fixed', undefined, {timeout:2000})
       assert.equal(await page.evaluate(()=>document.body.style.position==='fixed'),false)
       results.push({case:'feedback-pending-sheet-escape-close-error-retry',label,form:test.id,width:390})
     } catch(error) {
