@@ -181,17 +181,6 @@ jobs:
         if: steps.what.outputs.job == 'nightly' || steps.what.outputs.job == 'snapshot'
         run: pnpm --filter deckpal-sync prices snapshot
 
-      # `prices snapshot` calls snapshotAllUsers() directly (SQL path) and never
-      # writes a sync_run row, so /api/health snapshot-collection.finishedAt stays
-      # permanently stale. Write the row here, only on success, so the health
-      # endpoint can report a fresh timestamp.
-      - name: Record snapshot-collection sync_run
-        if: (steps.what.outputs.job == 'nightly' || steps.what.outputs.job == 'snapshot') && success()
-        run: |
-          set -euo pipefail
-          psql -c "INSERT INTO sync_run (job, status, finished_at, rows_written)
-                   VALUES ('snapshot-collection', 'ok', now(), 0)"
-
       # ── WHY THERE IS NO RECONCILE STEP ──────────────────────────────────
       # `run-once reconcile` POSTs `${DECKPAL_API_BASE}/collection/reconcile`
       # (jobs/api-jobs.ts), defaulting to 127.0.0.1:3700. There is no API on an

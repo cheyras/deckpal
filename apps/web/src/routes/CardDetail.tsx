@@ -7,7 +7,7 @@ import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
-import { fmtPrice, fmtDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
+import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta, seriesColors } from '../lib/variantStyle'
@@ -951,7 +951,7 @@ function CardTab({
           </Attribute>
         )}
         <Attribute label="Release Date">
-          <Chip>{fmtDate(c.releasedOn)}</Chip>
+          <Chip>{fmtCalendarDate(c.releasedOn)}</Chip>
         </Attribute>
       </div>
     </>

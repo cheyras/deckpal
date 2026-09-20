@@ -29,45 +29,55 @@ export function fmtMoney(v: number, currency: string, maximumFractionDigits?: nu
   }
 }
 
+// SQL DATE / catalog release-date contexts. Accepts bare `YYYY-MM-DD` strings
+// and exactly midnight-UTC serializations (`YYYY-MM-DDT00:00:00Z` and
+// `YYYY-MM-DDT00:00:00.000Z`), both of which name a calendar day rather than
+// an instant. In America/Denver (UTC−6), `2026-09-16T00:00:00Z` is 18:00 the
+// prior evening — treating it as an instant would shift the displayed date one
+// day early. Use this for set.releasedOn and any other SQL DATE column value.
+// For genuine timestamps (price ingest, audit, credit, deck history, admin
+// events) use fmtDate, which preserves true instant-to-local-day conversion.
+export function fmtCalendarDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const calendarStr = /^\d{4}-\d{2}-\d{2}$/.test(iso)
+    ? iso
+    : /^\d{4}-\d{2}-\d{2}T00:00:00(\.000)?Z$/.test(iso)
+    ? iso.substring(0, 10)
+    : null
+  if (calendarStr === null) return '—'
+  const [y, m, d] = calendarStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  if (isNaN(date.getTime())) return '—'
+  // The local-zone constructor rolls overflow into a valid neighbour
+  // (2026-13-01 → Jan 2027, 2026-02-30 → Mar 2, 2026-02-29 in a non-leap
+  // year → Mar 1), so verify the parts round-trip exactly before formatting;
+  // anything that was normalised is an impossible calendar date and falls
+  // back to the em dash. A real leap day like 2024-02-29 survives intact.
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return '—'
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   // A calendar-only date (`YYYY-MM-DD`, no time or offset) names a DAY, not an
   // instant. `new Date('2026-09-16')` parses that as UTC midnight, so
   // `toLocaleDateString` shifts it a calendar day early in zones behind UTC
   // (Sep 15 in America/Denver). Build the Date from the calendar parts in the
-  // local zone instead, so the named day renders as that day everywhere. The
-  // API projects SQL DATE columns to bare `YYYY-MM-DD` text (see
-  // routes/series.ts), so catalog `released_on`/`first_release_on` values
-  // arrive in this calendar-string shape; a bare `YYYY-MM-DD` is the contract
-  // this branch handles, not a quirk of the Postgres driver (which would
-  // otherwise hand back a JS Date that JSON-serializes as a UTC timestamp).
-  //
-  // The live API also serializes SQL DATE columns as UTC midnight timestamps
-  // (`YYYY-MM-DDT00:00:00Z` or `YYYY-MM-DDT00:00:00.000Z`). These are still
-  // calendar days, not instants — a UTC midnight that falls at 18:00 the prior
-  // evening in America/Denver must not shift the date. Detect and promote them
-  // to the same calendar-parts path used for bare YYYY-MM-DD strings.
-  const calendarStr = /^\d{4}-\d{2}-\d{2}$/.test(iso)
-    ? iso
-    : /^\d{4}-\d{2}-\d{2}T00:00:00(\.000)?Z$/.test(iso)
-    ? iso.substring(0, 10)
-    : null
-  if (calendarStr !== null) {
-    const [y, m, d] = calendarStr.split('-').map(Number)
+  // local zone instead, so the named day renders as that day everywhere.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [y, m, d] = iso.split('-').map(Number)
     const date = new Date(y, m - 1, d)
     if (isNaN(date.getTime())) return '—'
-    // The local-zone constructor rolls overflow into a valid neighbour
-    // (2026-13-01 → Jan 2027, 2026-02-30 → Mar 2, 2026-02-29 in a non-leap
-    // year → Mar 1), so verify the parts round-trip exactly before formatting;
-    // anything that was normalised is an impossible calendar date and falls
-    // back to the em dash. A real leap day like 2024-02-29 survives intact.
+    // Round-trip overflow check: see fmtCalendarDate for the rationale.
     if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return '—'
     return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
   }
-  // Anything with a time or offset that is NOT a UTC midnight DATE serialization
-  // is a genuine instant; convert to the local calendar day (a 00:30 UTC
-  // price-timestamp lands on the previous evening in Denver, which is correct
-  // for "when did this happen here").
+  // Anything with a time or offset is a genuine instant; convert to the local
+  // calendar day (a 00:00 UTC midnight timestamp lands on the prior evening in
+  // Denver — that is the correct "when did this happen here" reading for
+  // timestamps such as price ingest events, audit rows, credit entries and deck
+  // history). For SQL DATE columns serialized as midnight-UTC, use
+  // fmtCalendarDate instead.
   const dt = new Date(iso)
   if (isNaN(dt.getTime())) return '—'
   return dt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })

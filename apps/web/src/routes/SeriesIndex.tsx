@@ -5,7 +5,7 @@ import { api, type SeriesSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, SetSymbolTile, ProgressRing, useDismiss } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { Icon } from '../components/Icon'
-import { fmtDate } from '../lib/format'
+import { fmtCalendarDate } from '../lib/format'
 import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
 import { tailwindGradientStops } from '../lib/gradientPalette'
@@ -138,7 +138,7 @@ function SeriesCard({ s }: { s: SeriesSummary }) {
               ))}
           </div>
           <div className="font-display text-[18px] font-semibold leading-[27px] text-text-primary">{s.name}</div>
-          <div className="mt-[2px] text-[14px] text-text-muted">First released {fmtDate(s.firstReleaseOn)}</div>
+          <div className="mt-[2px] text-[14px] text-text-muted">First released {fmtCalendarDate(s.firstReleaseOn)}</div>
         </div>
         <div className="mt-[16px] flex gap-[24px]">
           <div>
