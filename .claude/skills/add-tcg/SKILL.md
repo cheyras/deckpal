@@ -313,6 +313,14 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
   definitive answer as absent, and re-probe anything inconclusive serially before it reaches a
   "missing" total.
 
+- **Follow actual API image URL fields, not the host you expect.** A catalog API's `images.logo`
+  may resolve to a CDN that differs from the primary catalog host (e.g. pokemontcg.io pointing at
+  scrydex.com). Fetch and inspect that URL before declaring a logo absent or sourcing a replacement
+  — the field is the evidence that a logo exists; the hosting CDN is an implementation detail and
+  can migrate between releases without a schema change. Cross-referencing two catalog APIs
+  (e.g. TCGdex vs pokemontcg.io) can confirm that a logo field is null on one source while a real
+  image exists at the URL the other source returns for the same set.
+
 ## Definition of done (adding a TCG, or a refresh)
 
 1. A research note naming the chosen catalog/image/price sources + licensing posture (approved).

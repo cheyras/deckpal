@@ -56,34 +56,29 @@ expansion (Mega Evolution series, street date 2026-09-16).
 | Shipped | 448×247 WebP, 19,292 bytes — resized with `sharp` (q88), nothing else |
 | Added | 2026-09-11 |
 
-**Why this file is here and not in the image tier.** Every other set logo is
-served by `deckpal-images` off `card_set.logo_url`, keyed by TCGdex id. This set
-has no catalog row yet — TCGdex has not published it — so there is no id to key
-on and nothing for the warmer to fetch. It is rendered by the Coming Soon row in
-`routes/SeriesDetail.tsx` (`UpcomingSetRow`), driven by `UPCOMING_SETS` in
-`apps/api/src/upcomingSets.ts`.
+**Why this file is here and not in the image tier.** Both `30th` and `30th-c`
+released 2026-09-16. TCGdex publishes both sets (`30th`, 158 cards; `30th-c`,
+30 cards) with `logo: null` and `symbol: null` — neither the object tier nor the
+image tier returns art for these paths. The asset is now a permanent bundled
+fallback, not an upcoming placeholder. `SetLogo` checks `bundledSetLogo(setId)`
+from `apps/web/src/lib/releasedSetAssets.ts` after the image-tier sources are
+exhausted; `BUNDLED_SET_LOGOS` maps both `'30th'` and `'30th-c'` to
+`'/brand/pokemon-30th-celebration-logo.webp'`. When the image tier is eventually
+populated by upstream, it wins and this fallback is silently bypassed — stale
+`BUNDLED_SET_LOGOS` entries are harmless.
 
 **Bulbagarden Archives is an already-approved source for set imagery**, not a
 new one: `SET_IMAGE_FALLBACK_TABLE` in `@deckpal/storage` sources the `mfb` logo
 and nine set symbols from it under the owner's 2026-08-29 approval. That table
-is deliberately NOT touched here — it is frozen, and this asset is a temporary
-placeholder rather than a permanent crosswalk entry.
+is deliberately NOT touched here — it is frozen. The approval for this specific
+asset (`File:30th_Celebration_Logo_EN.png`) extends to both set entries in
+`BUNDLED_SET_LOGOS`; it does NOT extend to any other asset, CDN, or source.
 
 **Deployment inclusion.** This WebP needs the exact
 `!apps/web/public/brand/pokemon-30th-celebration-logo.webp` exception in both
 `.gitignore` and `.vercelignore`. The first keeps it in Git; the second keeps it
 in Vercel's upload. A successful local build alone does not prove both.
 
-The web build's `check-precache.mjs` gate reads local `logoAssetPath` literals
-from `apps/api/src/upcomingSets.ts` and requires the referenced logos in
-`dist`, with diagnostics for both ignore files. Keep this metadata path local
-(`/brand/pokemon-30th-celebration-logo.webp`). `UpcomingSetRow` prefixes it with
-`import.meta.env.BASE_URL` so the same asset loads at cloud `/` and self-host
-`/deckpal/`. Adding a new local announcement logo therefore extends the
-build gate automatically.
-
-**It is disposable, and that is the point.** When TCGdex publishes the set, the
-weekly catalog refresh creates the real row with the real `logo_url`, the
-name-match rule in `upcomingSetsFor()` retires the placeholder, and this file
-plus its `UPCOMING_SETS` entry should be deleted in the same change. Remove
-its unused exact exceptions from both ignore files at the same time.
+Keep the metadata path local (`/brand/pokemon-30th-celebration-logo.webp`).
+`SetLogo` prefixes it with `import.meta.env.BASE_URL` so the same asset loads
+at cloud `/` and self-host `/deckpal/`.

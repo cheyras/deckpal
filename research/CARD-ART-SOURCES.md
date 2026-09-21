@@ -360,4 +360,6 @@ See `DECISIONS.md` 2026-08-31 for the compact version of this same story.
 
 ---
 
-_Last updated by Claude Fable 5 on behalf of @cheyras — 2026-08-31_
+**2026-09-21 sourcing lesson — CDN migration:** When a data source migrates to a new CDN domain (here: `images.pokemontcg.io` → `images.scrydex.com`), confirming that the two domains serve the same content from the same operator does NOT mean the prior permission automatically carries. Host identity and permission are separate questions: the allowlist entry requires an explicit update regardless, and the ToS of the successor domain must be read independently. Finding all 30 images at a new host is not authorization to rehost them.
+
+_Last updated by art-doc worker (Claude Sonnet 4.6) on behalf of @cheyras — 2026-09-21_

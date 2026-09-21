@@ -21,6 +21,11 @@ const BUNDLED_SET_LOGOS: Readonly<Record<string, string>> = {
   // placeholder before the set was published by TCGdex on 2026-09-16.
   // TCGdex set id: 30th; upstream logo/symbol fields are empty at launch.
   '30th': '/brand/pokemon-30th-celebration-logo.webp',
+  // 30th Celebration: Classic Collection — shares the same parent wordmark.
+  // pokemontcg.io/me55c confirms the logo resolves to the same gold 30th
+  // Celebration visual; TCGdex 30th-c ships with logo/symbol null at launch.
+  // Reuses the existing approved bundled parent asset; no new bytes added.
+  '30th-c': '/brand/pokemon-30th-celebration-logo.webp',
 }
 
 /**
