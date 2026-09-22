@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
 import { test } from 'node:test'
+import { convertToModelMessages, generateText, tool } from 'ai'
+import { MockLanguageModelV4 } from 'ai/test'
+import { z } from 'zod'
 import type { PendingApproval, Verdict } from '../approval'
 import { replayLegParts, type ReplayPart, type ReplayPendingTool } from '../approvalReplay'
-
-const requireFromSource = createRequire('/home/cheyras/work/deckpal-todoist/chat-source/package.json')
-const { convertToModelMessages, generateText, tool } = requireFromSource('ai') as typeof import('ai')
-const { MockLanguageModelV4 } = requireFromSource('ai/test') as typeof import('ai/test')
-const { z } = requireFromSource('zod') as typeof import('zod')
 
 const browserCall: ReplayPendingTool = {
   id: 'call_browser',
