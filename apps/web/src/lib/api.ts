@@ -1270,6 +1270,26 @@ export interface UserSettings {
 /** Which ask is due, if any. `null` is by far the commonest answer. */
 export type SupportPromptKind = 'onboarding' | 'checkin' | 'payment_issue'
 
+export type PaymentHistoryKind = 'support' | 'credits'
+export interface PaymentHistoryItem {
+  id: string
+  type: string
+  createdAt: string
+  amountMinor: number
+  currency: string
+  status: 'paid' | 'authorized' | 'pending' | 'failed'
+  refundedMinor: number
+  disputed: boolean
+  receiptUrl?: string
+}
+export interface PaymentHistoryPage {
+  kind: PaymentHistoryKind
+  items: PaymentHistoryItem[]
+  nextCursor: string | null
+  coverage: string
+  billingAccountPresent: boolean
+}
+
 export interface BillingState {
   /**
    * False on a deployment with no Stripe -- self-host, or a preview build with
@@ -1885,6 +1905,7 @@ export const api = {
   // a side effect gets fired by anything that prefetches, and the side effect
   // here decides when somebody is asked for money. Called once per app boot.
   billing: (signal?: AbortSignal) => get<BillingState>('/me/billing', signal),
+  billingHistory: (kind: PaymentHistoryKind, cursor?: string, signal?: AbortSignal) => get<PaymentHistoryPage>(`/me/billing/history?kind=${kind}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, signal),
   billingVisit: () => send<BillingState>('POST', '/me/billing/visit'),
   /**
    * Stamp "we asked". `dismissed` distinguishes walking away from answering:

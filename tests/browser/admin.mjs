@@ -56,6 +56,12 @@ export function adminFixture(mount) {
     if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0 }, collectionValue: [], collection: {}, pokedex: { captured: 0, total: 1 }, tcg: {}, completion: {}, value: {} })
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
+    if (rel === '/api/me/billing/history') {
+      if (state.signedOut) return { status: 401, body: { error: { message: 'Signed out' } } }
+      const kind = url.searchParams.get('kind')
+      if (kind !== 'support' && kind !== 'credits') return { status: 400, body: { error: { message: 'Invalid billing history kind' } } }
+      return ok({ kind, items: [], nextCursor: null, coverage: 'Shows the current billing account only. Payments on older replaced or deleted billing accounts may be missing.', billingAccountPresent: false })
+    }
     if (rel === '/api/decke/history') return ok({ conversations: [] })
     if (rel === '/api/me/credits') return ok({ enabled: true, balance: state.balance, debt: 0, purchaseHold: false, lowAt: 100, prices: { chatTurn: 1, analysis: 4, planDeck: 75 }, packs: state.packs.filter(p => p.active), purchasesEnabled: state.purchasesEnabled, purchaseUnavailableReason: state.purchasesEnabled ? null : 'Required Stripe webhook events are missing.' })
     if (rel === '/api/me/credits/events') return ok({ events: state.events, total: state.events.length, limit: 25, offset: 0 })

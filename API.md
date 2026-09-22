@@ -571,6 +571,13 @@ surfaces, because that is help rather than an ask. There is no client-side "have
 flag: clearing site data must not restart the cadence, and signing in on a
 second device must not re-ask a question already answered.
 
+### GET /deckpal/api/me/billing/history?kind=support|credits&cursor=…
+Read-only, authenticated history for the selected **current** Stripe customer. The server derives the customer from the caller’s support row or `credit_customer_read()`; browser-supplied user/customer ids are never accepted. Each request retrieves the customer and requires exact `metadata.deckpal_user_id` ownership plus the configured live/test mode before listing charges, always with Stripe’s customer filter.
+
+Returns safe charge-attempt fields only: opaque row id, generic type, ISO date, integer provider-unit amount/currency, `paid|authorized|pending|failed`, refunded provider units, dispute flag, and an optional receipt URL restricted to credential-free HTTPS on exactly `pay.stripe.com`. Settled rows use Stripe’s actual `amount_captured` and cap refunds against it; failed/pending attempts and uncaptured authorizations retain the intended amount with an explicit non-paid status. Pages are 20 rows. The signed opaque cursor is bound to actor, kind, and current customer generation; malformed, forged, cross-kind, and replaced-account cursors are rejected generically. Responses are `private, no-store`.
+
+Coverage is deliberately explicit: this reads the current billing account only; older replaced/deleted accounts may be missing. A missing current pointer is a successful empty current-account result. Provider/ownership/deleted-customer failures are explicit errors, never empty-history success. The support pointer is a parameterized SELECT under request RLS and an absent row returns null; this endpoint does not call the shared row-ensuring reader, create/recover customers, enrich invoices, write a ledger, or mutate Stripe/database state. Both Stripe reads use per-call `timeout: 4000` and `maxNetworkRetries: 0`; the request-scoped pooled connection remains middleware-owned for the request lifetime.
+
 ### GET /deckpal/api/me/billing
 The shape above. Pure read — no visit is counted.
 

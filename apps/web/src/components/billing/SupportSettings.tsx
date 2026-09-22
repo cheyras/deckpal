@@ -13,9 +13,9 @@
  *
  *   • Change the amount (including to $0) — inline, this component.
  *   • Replace the card — inline, Stripe's Payment Element.
- *   • Everything else — invoices, receipts, billing address, the full history —
- *     Stripe's own portal. Rebuilding that surface would mean rebuilding an
- *     audited one, worse. See `service.ts`.
+ *   • Provider-managed invoices, billing address and payment details — Stripe's
+ *     own portal. The read-only charge history is shown in the next profile card,
+ *     including standalone gifts that do not produce portal invoices.
  *
  * The portal button is not a dark-pattern escape hatch and is not treated as
  * one: cancelling is the inline path, one tap on the `$0` preset, and it never

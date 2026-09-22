@@ -20,7 +20,7 @@
     "build": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-images build && pnpm --filter deckpal-sync build",
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter deckpal-api dev",
-    "test:browser": "node --import tsx scripts/test-browser.mjs",
+    "test:browser": "node --import tsx scripts/test-browser.mjs && node --import tsx tests/browser/paymentHistory.mts",
     "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs"
   },
   "devDependencies": {
