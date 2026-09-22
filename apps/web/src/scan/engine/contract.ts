@@ -157,10 +157,20 @@ export interface EngineState {
   perf: { detectMs: number; hz: number; jitterPx: number }
 }
 
+export interface RectifiedPixels {
+  readonly width: number
+  readonly height: number
+  readonly data: Uint8ClampedArray<ArrayBuffer>
+}
+
 export interface CaptureResult {
   /** Fronto-parallel JPEG (63:88, ~480px wide) rectified from the locked quad —
    *  the body for POST /scan. */
   blob: Blob
+  /** Lossless rectified RGBA sampled before JPEG encoding. Ephemeral: callers
+   *  may inspect it in memory, but it is not part of the scan identity body,
+   *  feed entries, telemetry, or durable storage. */
+  raw: RectifiedPixels
   quad: Quad
   /** Track id, so the UI can refractory-dedupe re-presentations of the card. */
   trackId: number

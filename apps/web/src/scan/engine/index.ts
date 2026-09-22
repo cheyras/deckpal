@@ -64,7 +64,7 @@ import {
 import { loadModel, type ModelSession } from './model'
 import { computeLetterbox, rgbaToBGRPlanar, MODEL_SIZE, type LetterboxTransform } from './preprocess'
 import { gradientField, quadMeanSaturation, refineQuadChecked } from './refine'
-import { cardRectSize, CAPTURE_QUALITY, rectifyToJpeg } from './rectify'
+import { cardRectSize, CAPTURE_QUALITY, rectifyToCapture } from './rectify'
 import { createTracker } from './tracker'
 
 /** Detect-tick floor. ~8 Hz: fast enough that a tracked quad reads as
@@ -822,21 +822,21 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       // smoothed pose: that is the best available, and auto-capture never takes
       // this path because a coasting track cannot lock.
       const quad = track.raw ?? track.quad
-      // rectifyToJpeg widens the quad by rectify.CAPTURE_MARGIN before warping:
+      // rectifyToCapture widens the quad by rectify.CAPTURE_MARGIN before warping:
       // the server trims background and cannot restore card. The quad REPORTED
       // back is the CANONICAL detection — the UI draws in canonical coordinates
       // and telemetry records what the engine claimed — while the WARP runs in
       // full-resolution crop coordinates.
       const out = cardRectSize(cardAspect)
-      const blob = await rectifyToJpeg(
+      const capture = await rectifyToCapture(
         frame,
         canonicalQuadToCrop(quad, toCrop),
         CAPTURE_QUALITY,
         out.width,
         out.height,
       )
-      if (!blob) throw new Error('scan engine: quad could not be rectified')
-      return { blob, quad, trackId }
+      if (!capture) throw new Error('scan engine: quad could not be rectified or encoded')
+      return { blob: capture.blob, raw: capture.raw, quad, trackId }
     },
   }
 }
