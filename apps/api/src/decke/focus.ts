@@ -114,6 +114,33 @@ export function openingTools(tools: ToolSet): string[] {
  * delete it on step two. One extra step, and the alternative is a capability
  * that silently does not exist.
  */
-export function focusedTools(tools: ToolSet, stepNumber: number): string[] {
-  return stepNumber === 0 ? openingTools(tools) : Object.keys(tools);
+export function focusedTools(
+  tools: ToolSet,
+  stepNumber: number,
+  /**
+   * Tools that have become IMPOSSIBLE during this turn — currently the deep
+   * tier after a tier-wide meter refusal (a spent daily cap, a held wallet).
+   * See `meteredRefusals.ts`.
+   *
+   * ── WHY THIS IS A REMOVAL AND THE DECLINE LEDGER IS NOT ──────────────────
+   *
+   * `declined.ts` argues at length AGAINST taking a tool away: a reader who
+   * changes their mind would find "go on then, do it now" producing nothing,
+   * because this file's own measurement showed `activeTools` is a boundary and
+   * not a hint. Every word of that stands — for a DECLINE, which is a choice
+   * the reader can reverse in the next sentence.
+   *
+   * A spent cap is not a choice. Saying "go on then" cannot make the account
+   * able, so leaving the tool in view buys nothing and costs the exact loop
+   * this closes: another approval card, another trip to the meter, another
+   * refusal, more of the turn's steps. And it is not the conversation-wide
+   * removal `declined.ts` rejects either — the ledger is seeded per turn, so
+   * the reader's next message re-evaluates a balance that may have changed.
+   *
+   * Absent means nothing is removed, which is the previous behaviour exactly.
+   */
+  impossible?: (name: string) => boolean,
+): string[] {
+  const visible = stepNumber === 0 ? openingTools(tools) : Object.keys(tools);
+  return impossible ? visible.filter((n) => !impossible(n)) : visible;
 }

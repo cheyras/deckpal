@@ -56,7 +56,8 @@ import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { GatewayProvider } from '@ai-sdk/gateway';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
-import { deepFailed, deepRefused } from './deepOutcome.js';
+import { deepFailed, deepRefused, type MeterRefusalScope } from './deepOutcome.js';
+import { blockedReason, seedMeteredRefusals, type MeteredRefusals } from './meteredRefusals.js';
 import { alreadyDeclinedMessage } from './declined.js';
 import { checkResearchQuery } from './researchQuery.js';
 import { researchProviderOptions, topicInstructions, type ResearchTopic } from './researchSources.js';
@@ -168,6 +169,21 @@ export interface DeepToolOptions {
    * means nothing was refused. See `declined.ts`.
    */
   declined?: ReadonlySet<string>;
+  /**
+   * What the METER has already refused in THIS turn.
+   *
+   * The other half of `declined`, and a genuinely different fact: a decline is
+   * the reader saying no, a meter refusal is the account being unable. Both end
+   * in "do not ask again", and `needsApproval` used to know only the first —
+   * which is why an approved, cap-refused write came straight back as a second
+   * approval card for identical work in the same turn.
+   *
+   * Wired by `api/chat.mjs` as `seedMeteredRefusals(messages)` so it survives
+   * the browser's approval legs; see `meteredRefusals.ts`. Absent means nothing
+   * has been refused yet, which is the right default for the first leg of a
+   * turn and for every caller that does not replay a conversation at all.
+   */
+  refusals?: MeteredRefusals;
   /**
    * Did research (or a card read) actually run in this conversation?
    *
@@ -832,6 +848,9 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
   const declined = opts.declined ?? new Set<string>();
   const alreadyDeclined = (name: string, input: unknown): boolean =>
     declined.size > 0 && declined.has(callKey(name, input));
+  // Absent means "this turn has refused nothing yet" — a fresh ledger, never a
+  // shared one. Module-level state here would be state across USERS.
+  const refusals = opts.refusals ?? seedMeteredRefusals(null);
   // Provenance for the no_research bar — absent means "do not second-guess it",
   // so the bar falls back to findings length alone (the previous behaviour).
   const researchRan = opts.researchRan ?? (() => true);
@@ -943,7 +962,19 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
     // done it." `false` here means RAISE NO DIALOG, not "run it" — `execute`
     // refuses it below, and both read the same predicate so they cannot
     // disagree about which calls are exempt.
+    // ── AND ONE THE METER ALREADY REFUSED, WHICH IS ALSO NOT ASKED AGAIN ────
+    //
+    // Same `false` as a decline, for a different reason and with the same
+    // meaning: RAISE NO DIALOG. `execute` refuses it below whether or not a
+    // call is somehow forced, and `focus.ts` takes tier-wide-blocked deep tools
+    // out of `activeTools` entirely — three layers, one predicate, because the
+    // measured bug got through a system that had only the innermost one.
+    //
+    // Checked FIRST, before the no_research injection: a call that cannot run
+    // must not mutate the input a card would have rendered, because there is no
+    // card.
     needsApproval: (input: unknown) => {
+      if (refusals.blocked(spec.name, input)) return false;
       const declined = alreadyDeclined(spec.name, input);
       // ── THE NO-RESEARCH NOTE, put where the reader can see it ──────────────
       //
@@ -992,6 +1023,22 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         // it has — for a question the reader had already closed.
         return alreadyDeclinedMessage(spec.name);
       }
+      // ── THE EXECUTION GUARD, which is not the same check twice ────────────
+      //
+      // `needsApproval` returning false stops the DIALOG. It does not stop the
+      // call: a model can still emit one, and the SDK will still execute it.
+      // Without this, a blocked tool skipped the card and went straight to the
+      // meter — a quieter version of the same loop, and a charged one.
+      //
+      // BEFORE the charge, like the decline above and for the same reason: the
+      // account must not be billed a query to be told a limit it has already
+      // been told this turn.
+      const blocked = refusals.blocked(spec.name, args);
+      if (blocked) {
+        const summary = blockedReason(blocked);
+        opts.onEvent?.({ phase: 'error', ...chip, summary });
+        return deepRefused(summary, blocked);
+      }
       opts.onEvent?.({ phase: 'start', ...chip, ...argsPart(args) });
       const progress = (b: Beat): void => {
         opts.onEvent?.({
@@ -1005,6 +1052,18 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       // path that is expensive is a denial path worth exercising.
       const meter = await opts.charge(spec.name, toolCallId, args);
       if (!meter.allowed) {
+        // WHICH limit said no, recorded before anything else, because the two
+        // have different blast radii. A spent cap or a held wallet is a
+        // property of the TIER — every deep tool is impossible for the rest of
+        // this turn. A thin balance is a property of THIS call — a cheaper deep
+        // tool may still be affordable, so only the identical call is blocked.
+        //
+        // Only a REAL verdict lands here: `api/chat.mjs`'s `charge` fails OPEN
+        // (`allowed: true`) when the database is unreachable, so a transient
+        // outage can never be recorded as a spent meter. Provider faults take
+        // the `deepFailed` path below and carry no scope at all.
+        const scope: MeterRefusalScope = meter.held ? 'hold' : meter.credits ? 'credits' : 'cap';
+        refusals.note(spec.name, args, scope);
         // TWO DIFFERENT SENTENCES, because they send someone to two different
         // places. A daily cap comes back tomorrow; a spent balance does not, and
         // telling somebody to wait when what they need is a top-up wastes their
@@ -1018,10 +1077,14 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         // it were the start of an answer — measured, on camera: two refused
         // `plan_deck` calls followed by "Perfect, let's build! I'm pulling
         // together a 60-card list…". See `deepOutcome.ts`.
+        // The `scope` is carried IN the string — the only per-call field that
+        // survives the browser's next approval POST, which is the leg the
+        // original retry loop lived on. See `meteredRefusals.ts`.
         return deepRefused(
           meter.held ? 'AI credits are on hold; open the credit wallet for details' : meter.credits
             ? `this needs ${meter.needed} credits and only ${meter.balance} are left`
             : `today's ${meter.cap} deep-thinking questions are spent`,
+          scope,
         );
       }
       // D2's beat, emitted AFTER the charge and not with the `start` chip.
