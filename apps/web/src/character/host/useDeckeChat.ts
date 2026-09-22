@@ -58,6 +58,13 @@ import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { failureParts, freshCalls, isShownInTranscript, lookupRecord } from './chat/lookupRecord'
 import {
+  MAX_REPLAYED_REFUSALS,
+  meterRefusalParts,
+  readMeterRefusal,
+  wireCallIdentities,
+  type MeterRefusal,
+} from './chat/meterRefusal'
+import {
   CLIENT_TOOLS,
   isClientTool,
   isPressable,
@@ -268,6 +275,14 @@ type LegOutcome = {
    * away the only useful part of it.
    */
   refused: boolean
+  /**
+   * Deep calls the METER refused on this leg.
+   *
+   * Carried into the next leg's request because the server keeps nothing
+   * between requests and re-derives what is already impossible from the wire.
+   * See `chat/meterRefusal.ts`.
+   */
+  refusals: MeterRefusal[]
 }
 
 export function useDeckeChat(
@@ -1291,6 +1306,17 @@ export function useDeckeChat(
             parts.push(record)
             for (const id of mark) replayedChips.add(id)
           }
+          // ── AND WHAT THE METER REFUSED, WHICH THE NEXT LEG MUST NOT REDO ──
+          //
+          // In the PREFIX, so it precedes this leg's browser-tool results and
+          // the approval answers the helper appends last — the SDK collects
+          // approvals from the final parts of the final message, and a tool
+          // result after them would break the round trip. See `replayLegParts`.
+          //
+          // Sent once, on the leg that saw the refusal: `wire` accumulates
+          // across the whole turn, so leg 4 still carries leg 2's refusal
+          // without re-sending it.
+          for (const refusal of meterRefusalParts(outcome.refusals)) parts.push(refusal)
           const replayed = await replayLegParts({
             prefix: parts,
             pending: outcome.pending,
@@ -1953,6 +1979,7 @@ async function streamLeg(
     screen: null,
     error: null,
     refused: false,
+    refusals: [],
   }
 
   // A tool-approval request carries only ids. The NAME arrived earlier, on
@@ -1963,6 +1990,19 @@ async function streamLeg(
   // The ARGUMENTS too. Answering an approval replays the whole tool call, so
   // without these the replayed part is not a valid call and cannot be resumed.
   const approvalInputs = new Map<string, Record<string, unknown>>()
+
+  // ── SEEDED FROM THE OUTGOING WIRE, BEFORE A BYTE COMES BACK ───────────────
+  //
+  // An APPROVAL CONTINUATION leg gets no `tool-input-available` at all: the
+  // call was emitted last leg, `wire` is replaying it with the reader's answer,
+  // and the SDK resumes it and streams only its output. So a refusal on that
+  // leg — the leg this whole mechanism exists for — would arrive with a
+  // toolCallId and nothing to name it. The request we are about to send
+  // already says what that call is; see `wireCallIdentities`.
+  for (const call of wireCallIdentities(wire)) {
+    approvalNames.set(call.toolCallId, call.name)
+    approvalInputs.set(call.toolCallId, call.input)
+  }
 
   // Bounded (lib/sessionDeadline.ts). Past the deadline the request goes out
   // unauthenticated and /api/chat answers 401, which the chat renders as an
@@ -2032,6 +2072,7 @@ async function streamLeg(
         toolCallId?: string
         toolName?: string
         input?: unknown
+        output?: unknown
         approvalId?: string
         signature?: string
       }
@@ -2139,6 +2180,26 @@ async function streamLeg(
         approvalNames.set(part.toolCallId, String(part.toolName ?? ''))
         approvalTitles.set(part.toolCallId, titleFor(String(part.toolName ?? '')))
         approvalInputs.set(part.toolCallId, (part.input ?? {}) as Record<string, unknown>)
+      } else if (part.type === 'tool-output-available' && typeof part.toolCallId === 'string') {
+        // ── A DEEP CALL THE METER REFUSED, WHICH USED TO DIE HERE ───────────
+        //
+        // This chunk matched NOTHING before. Server results are deliberately
+        // not replayed — `lookupRecord` sends one-line summaries instead, and
+        // the reasoning is in its header — but a meter refusal is the one
+        // result whose loss costs money: the server re-derives "already
+        // refused" from the wire, found nothing, and raised a second approval
+        // card for identical work against the same spent cap.
+        //
+        // FILTERED to the server's own `[meter:…]` marker, so only a refusal
+        // travels and only the server can mint one. Everything else still
+        // falls through untouched.
+        const refusal = readMeterRefusal(
+          part.toolCallId,
+          approvalNames.get(part.toolCallId),
+          approvalInputs.get(part.toolCallId),
+          part.output,
+        )
+        if (refusal && out.refusals.length < MAX_REPLAYED_REFUSALS) out.refusals.push(refusal)
       } else if (
         part.type === 'tool-input-available' &&
         typeof part.toolCallId === 'string' &&

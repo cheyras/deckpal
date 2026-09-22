@@ -127,3 +127,31 @@ test('chat sends correlation into the server acceptance boundary before metering
   assert.ok(begin < CODE.indexOf('model: observeUsageModel('));
   assert.match(CODE, /userId: user.id, conversationId, exchangeId, seq/);
 });
+
+// ── THE METER-REFUSAL LEDGER ────────────────────────────────────────────────
+//
+// `meteredRefusals.ts` can be perfect and change nothing: the retry loop it
+// closes lives in the serverless function, across HTTP legs, and both ends of
+// the wiring are one line each. Unplugging either leaves the whole api suite
+// green — which is precisely the mutation this file exists to catch.
+
+test('the deep tier is given the turn\'s meter refusals, seeded from the replayed history', () => {
+  assert.match(
+    SRC,
+    /import \{ seedMeteredRefusals \} from '\.\.\/apps\/api\/dist\/decke\/meteredRefusals\.js'/,
+    'the ledger is no longer imported from the built module',
+  );
+  // SEEDED FROM `messages`. A bare `seedMeteredRefusals(null)` would be an
+  // in-memory closure with a longer name: correct across the SDK's own steps,
+  // blind to the browser's approval legs, which is where the bug was measured.
+  assert.match(SRC, /const deepRefusals = seedMeteredRefusals\(messages\)/);
+  assert.match(SRC, /refusals: deepRefusals/, 'buildDeepTools no longer receives the ledger');
+});
+
+test('the same ledger narrows activeTools, so a spent tier leaves the model\'s view', () => {
+  assert.match(
+    SRC,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\)\)/,
+    'prepareStep no longer removes a spent deep tier from activeTools',
+  );
+});

@@ -177,6 +177,57 @@ test('the next turn carries what FAILED, not only what was found', () => {
   assert.match(wire.slice(0, 1600), /failureParts\(/)
 })
 
+// ── NOR A METER REFUSAL ─────────────────────────────────────────────────────
+//
+// Same defect a third time, and the reason the previous pass shipped green with
+// the wire still broken. The server refused a deep call for a spent meter, the
+// SDK sent a `tool-output-available` chunk, and `streamLeg` matched it with
+// NOTHING — so the next leg's request carried no trace of the refusal, the
+// server re-derived "nothing has been refused", and raised a second approval
+// card for the identical work against the same spent meter.
+//
+// `meterRefusal.ts` has real unit tests in `chat/__tests__/meterRefusal.test.ts`
+// and the end-to-end proof is `tests/browser/chat.mjs`, which drives this hook
+// over a real fetch. These pin the CALL SITE, which is where it was missing.
+
+test('the leg loop reads the SDK chunk a refusal actually arrives in', () => {
+  assert.match(
+    HOOK,
+    /part\.type === 'tool-output-available'/,
+    'streamLeg stopped reading tool outputs — a refusal dies on the floor again',
+  )
+  assert.match(HOOK, /readMeterRefusal\(/, 'the chunk is read and never judged')
+  assert.match(
+    HOOK,
+    /for \(const refusal of meterRefusalParts\(outcome\.refusals\)\) parts\.push\(refusal\)/,
+    'the refusal is collected and never sent',
+  )
+})
+
+test('a refused call is named from the REQUEST, not from the reply', () => {
+  // The real SDK resumes an already-approved call and streams only its
+  // `tool-output-available` — no second `tool-input-available`. So on the
+  // approval continuation leg, which is the leg this whole mechanism exists
+  // for, the name and arguments exist ONLY in the wire about to be sent.
+  const identity = HOOK.slice(
+    HOOK.indexOf('const approvalNames ='),
+    HOOK.indexOf('await readSession()', HOOK.indexOf('const approvalNames =')),
+  )
+  assert.match(identity, /wireCallIdentities\(wire\)/, 'identity is seeded from the stream alone again')
+  assert.match(identity, /approvalInputs\.set\(/, 'the arguments are looked up and never stored')
+})
+
+test('the refusal goes in the PREFIX, ahead of the approval answers', () => {
+  // The SDK collects approvals from the final parts of the final replay
+  // message. A tool result appended after them breaks the signed round trip,
+  // so this ordering is load-bearing, not cosmetic.
+  const leg = HOOK.slice(HOOK.indexOf('const record = lookupRecord(send)'))
+  assert.ok(
+    leg.indexOf('meterRefusalParts(outcome.refusals)') < leg.indexOf('replayLegParts({'),
+    'the refusal is pushed after the approval answers are appended',
+  )
+})
+
 test('the server rebuilds the failure ledger from those parts', () => {
   // The client half is worthless without the server half, and the server half
   // is worthless without the client half — so both are pinned in one place.

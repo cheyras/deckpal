@@ -60,13 +60,65 @@ const TAIL =
   `Say plainly that it did not happen and why, and stop.`;
 
 /**
+ * WHICH limit refused a deep call, in one machine-readable word.
+ *
+ *   `cap`      the daily deep-call cap is spent — EVERY deep tool is impossible
+ *              for the rest of this turn.
+ *   `hold`     AI credits are on hold — same blast radius as `cap`.
+ *   `credits`  this particular call costs more than the balance left. A CHEAPER
+ *              deep tool may still be affordable, so this blocks the identical
+ *              call and nothing else.
+ *
+ * Not a failure mode. A provider that throws is `deepFailed`, which carries no
+ * scope at all — a transient 503 must never read as a spent meter.
+ */
+export type MeterRefusalScope = 'cap' | 'hold' | 'credits';
+
+/**
+ * The scope, written into the refusal string itself.
+ *
+ * ── WHY IT TRAVELS IN THE TEXT, WHICH LOOKS LIKE A SMELL ─────────────────────
+ *
+ * The browser re-POSTs the whole conversation on every approval leg and the
+ * server keeps nothing between requests — `declined.ts` says the same thing
+ * about declines. A tool result is the only per-call field that survives that
+ * round trip, so a refusal that wants to be remembered on the NEXT leg has to
+ * put its evidence there.
+ *
+ * This is not "parse the prose". It is a fixed token THIS module emitted, read
+ * back by an anchored pattern that cannot match anywhere a real answer could
+ * reach: `[[NO_WORK]]` is already the marker no plan contains, and the bracket
+ * form is matched at the very start of the string.
+ */
+const SCOPE_RE = /^\[\[NO_WORK\]\] REFUSED \[meter:(cap|hold|credits)\]/;
+
+/**
  * A deep call that never ran a model, because it was refused before it started.
  *
  * `reason` is the machine's reason, not his voice — he writes the sentence the
  * reader sees. Keep it short and factual.
+ *
+ * `scope` is present only for METER refusals. A decline, a vetted-off research
+ * query and every other refusal omit it, and are therefore invisible to
+ * `meterRefusalScope` — which is correct: they are not evidence that the
+ * account has run out of anything.
  */
-export function deepRefused(reason: string): string {
-  return `${NO_WORK} REFUSED — this tool did not run. ${reason}. ${TAIL}`;
+export function deepRefused(reason: string, scope?: MeterRefusalScope): string {
+  const tag = scope ? ` [meter:${scope}]` : '';
+  return `${NO_WORK} REFUSED${tag} — this tool did not run. ${reason}. ${TAIL}`;
+}
+
+/**
+ * Read the scope back off a refusal, wherever it has been since.
+ *
+ * Returns undefined for every other string — a real answer, a failure, a
+ * decline — so "the meter refused this" is never inferred from anything but the
+ * token this module wrote.
+ */
+export function meterRefusalScope(text: unknown): MeterRefusalScope | undefined {
+  if (typeof text !== 'string') return undefined;
+  const m = SCOPE_RE.exec(text);
+  return m ? (m[1] as MeterRefusalScope) : undefined;
 }
 
 /**

@@ -30,6 +30,8 @@ jobs:
         run: |
           pnpm --filter @deckpal/storage build
           pnpm --filter @deckpal/matching build
+          pnpm --filter @deckpal/db build
+          pnpm --filter @deckpal/agent-tools build
       - name: Cloud and self-host browser journeys, rendered chat and deployment controls
         run: pnpm test:browser
         env:

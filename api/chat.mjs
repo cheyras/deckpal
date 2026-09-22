@@ -107,6 +107,7 @@ import { outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
+import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
@@ -424,6 +425,24 @@ async function serve(request) {
   // cannot fake, and what re-opens a name-level family (guide / research) the
   // reader raises again. See `declined.ts`'s bypass section.
   const declined = declinedCalls(messages, latestUserText(messages))
+
+  // ── AND WHAT THE METER ALREADY REFUSED IN THIS TURN ───────────────────────
+  //
+  // The other half of `declined`, and a different fact: a decline is the reader
+  // saying no, a meter refusal is the account being unable. Both end in "do not
+  // ask again", and only the first was known — so an approved, cap-refused
+  // `write_strategy_guide` came straight back as a SECOND approval card for
+  // identical work in the same turn, charged against the same spent cap.
+  //
+  // SEEDED FROM THE REPLAYED HISTORY for the reason this whole function
+  // re-derives everything: each approval is a fresh POST and the server keeps
+  // nothing between requests, so an in-memory closure would cover the SDK's own
+  // steps and miss the browser leg the measured bug actually lived on.
+  //
+  // TURN-SCOPED, not conversation-scoped: the seed reads only what follows the
+  // reader's last message, so their next message re-evaluates a balance that a
+  // top-up or a daily reset may have changed. See `decke/meteredRefusals.ts`.
+  const deepRefusals = seedMeteredRefusals(messages)
 
   // ── AND WHAT HAS BEEN FAILING ALL CONVERSATION ────────────────────────────
   //
@@ -769,6 +788,9 @@ async function serve(request) {
           // consecutive turns, with the reader saying in the chat that being
           // re-asked was the problem. Same set as the data tools above.
           declined,
+          // What the meter already refused in this turn — no second card, no
+          // second charge, no second sub-agent for work that cannot happen.
+          refusals: deepRefusals,
           // The turn grounding, so a card a deep tool RESOLVED survives into the
           // panel. Without it every id that exists only in a plan_deck result is
           // partitioned invented and stripped — the payoff turn renders an empty
@@ -943,8 +965,16 @@ async function serve(request) {
         //
         // Everything comes back on step two, so a capability is delayed by one
         // step and never removed.
+        //
+        // AND WHAT HAS BECOME IMPOSSIBLE. Once the deep tier's own limit has
+        // refused once this turn — a spent daily cap, a held wallet — the four
+        // deep tools leave `activeTools` for the rest of it. This file's own
+        // measurement is why that is worth doing: with a tool absent from
+        // `activeTools`, "a prompt begging the model to call it produced no
+        // call". A decline is never removed this way (the reader can change
+        // their mind mid-turn); a spent cap cannot be talked around.
         prepareStep: ({ stepNumber }) => ({
-          activeTools: focusedTools(allDeckeTools, stepNumber),
+          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n)),
         }),
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
