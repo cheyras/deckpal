@@ -35,6 +35,15 @@ describe('read-only payment history', () => {
     const broken = fake({ retrieveCustomer: async () => { throw new Error('secret customer dump') } }).provider;
     await assert.rejects(request(broken), (e: HistoryError) => e.code === 'provider_unavailable' && !e.message.includes('secret'));
   });
+  test('rejects tampered cursor parameter types before provider work', async () => {
+    for (const cursor of [[], {}, 0, false, null, '']) {
+      for (const customerId of ['cus_current', null]) {
+        const f = fake();
+        await assert.rejects(request(f.provider, { customerId, cursor }), (e: HistoryError) => e.code === 'invalid_request');
+        assert.equal(f.calls.length, 0);
+      }
+    }
+  });
   test('binds cursors to actor, kind, and current customer generation', async () => {
     const first = fake({ listCharges: async () => ({ data: [base], has_more: true }) });
     const page = await request(first.provider);

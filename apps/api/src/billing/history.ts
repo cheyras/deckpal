@@ -58,7 +58,8 @@ function encodeCursor(data: object, secret: string): string {
   const payload = Buffer.from(JSON.stringify(data)).toString('base64url');
   return `${payload}.${signature(payload, secret)}`;
 }
-function decodeCursor(raw: string, secret: string): Record<string, unknown> {
+function decodeCursor(raw: unknown, secret: string): Record<string, unknown> {
+  if (typeof raw !== 'string') throw new HistoryError('invalid_request', 'Invalid payment history cursor.');
   if (raw.length > 1000) throw new HistoryError('invalid_request', 'Invalid payment history cursor.');
   const parts = raw.split('.');
   if (parts.length !== 2 || !B64.test(parts[0]!) || !B64.test(parts[1]!)) throw new HistoryError('invalid_request', 'Invalid payment history cursor.');
@@ -91,17 +92,18 @@ export async function paymentHistory(input: {
   kind: HistoryKind;
   customerId: string | null;
   expectedLive: boolean;
-  cursor?: string;
+  cursor?: unknown;
   limit?: number;
   cursorSecret: string;
   provider: HistoryProvider;
 }): Promise<HistoryPage> {
   const limit = input.limit ?? 20;
   if (!Number.isInteger(limit) || limit < 1 || limit > 50 || input.cursorSecret.length < 16) throw new HistoryError('invalid_request', 'Invalid payment history request.');
+  if (input.cursor !== undefined && (typeof input.cursor !== 'string' || input.cursor.length === 0)) throw new HistoryError('invalid_request', 'Invalid payment history cursor.');
   if (!input.customerId) return { kind: input.kind, items: [], nextCursor: null, coverage: COVERAGE, billingAccountPresent: false };
   const binding = { a: digest(input.actorId), k: input.kind, c: digest(input.customerId) };
   let starting_after: string | undefined;
-  if (input.cursor) {
+  if (input.cursor !== undefined) {
     const cursor = decodeCursor(input.cursor, input.cursorSecret);
     if (cursor.v !== 1 || cursor.a !== binding.a || cursor.k !== binding.k || cursor.c !== binding.c || typeof cursor.p !== 'string' || !/^ch_[A-Za-z0-9_]{1,200}$/.test(cursor.p)) throw new HistoryError('invalid_request', 'Invalid payment history cursor.');
     starting_after = cursor.p;
