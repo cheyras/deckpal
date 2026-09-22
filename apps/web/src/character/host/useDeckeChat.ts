@@ -48,11 +48,11 @@ import {
   MAX_LEGS,
   type PendingApproval,
   type Verdict,
-  approvalReplayPart,
   legBudget,
   mayAskApproval,
   pendingApprovalFromChunk,
 } from './approval'
+import { replayLegParts } from './approvalReplay'
 import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
@@ -1190,6 +1190,7 @@ export function useDeckeChat(
           // This is a real control rather than a prompt instruction, which is
           // the whole point — this codebase records twice, in the same words,
           // that "a prompt is not an enforcement mechanism."
+          let approvalAnswers: Map<string, Verdict> | undefined
           if (outcome.approvals.length) {
             if (ac.signal.aborted) return
             // ── DO NOT ASK WHAT YOU CANNOT ANSWER ────────────────────────────
@@ -1231,43 +1232,11 @@ export function useDeckeChat(
               console.warn('[decke] approval replay budget exhausted; the write was NOT applied')
               break
             }
-            const answers = await askApproval(outcome.approvals)
+            approvalAnswers = await askApproval(outcome.approvals)
             if (ac.signal.aborted) return
-
-            const parts: WirePart[] = []
-            if (outcome.text.trim()) parts.push({ type: 'text', text: outcome.text })
-            for (const a of outcome.approvals) {
-              // THE REASON RIDES WITH THE DENIAL, and it is not decoration.
-              // `convertToModelMessages` turns a denied approval part directly
-              // into `tool-result {type:'execution-denied', reason}`, so this
-              // string is what he is told happened — and on the edited path it
-              // was built from the real response to a real write. Dropping it
-              // would leave him to guess, in front of the reader, on the write
-              // path.
-              const v = answers.get(a.approvalId)
-              const approved = v?.approved === true
-              parts.push(approvalReplayPart(a, approved, approved ? undefined : v?.reason))
-            }
-            // ── NOTHING MAY BE APPENDED AFTER THIS ────────────────────────────
-            //
-            // `collectToolApprovals` requires the LAST message of the replayed
-            // conversation to be the one carrying the approval response
-            // (`ai/src/generate-text/collect-tool-approvals.ts:33`). If anything
-            // follows it — a stray user turn, an injected context note — the
-            // approved tool is SILENTLY SKIPPED: no error, no execution, and a
-            // dangling tool_use that some providers then reject outright.
-            //
-            // That is vercel/ai#17033, still open. We are clear of it because
-            // this pushes last and immediately continues to the next leg, which
-            // POSTs straight away. It is an accident of ordering rather than a
-            // guarantee, so: if you ever add anything between this push and the
-            // request, put it BEFORE the approval message, not after.
-            wire.push({ role: 'assistant', parts })
-            approvalReplays++
-            continue
           }
 
-          if (!outcome.pending.length) break
+          if (!outcome.pending.length && !outcome.approvals.length) break
           if (ac.signal.aborted) return
 
           // ── The tools he asked the browser to run ─────────────────────────
@@ -1322,7 +1291,13 @@ export function useDeckeChat(
             parts.push(record)
             for (const id of mark) replayedChips.add(id)
           }
-          for (const call of outcome.pending) {
+          const replayed = await replayLegParts({
+            prefix: parts,
+            pending: outcome.pending,
+            approvals: outcome.approvals,
+            answers: approvalAnswers,
+            signal: ac.signal,
+            runPending: async (call) => {
             // ── A JOURNEY IS NOT AN ORDINARY CLIENT TOOL ────────────────────
             //
             // It runs through the same boundary — same allowlist, same
@@ -1374,7 +1349,7 @@ export function useDeckeChat(
             if (call.name === 'goTo' && !journeySteps && (result as UiToolResult).ok) {
               navigatedAwayRef.current = true
             }
-            if (ac.signal.aborted) return
+            if (ac.signal.aborted) return { type: 'tool-aborted' }
             // ── A ROW FOR WHAT HE DID TO THE PAGE ──────────────────────────
             //
             // Chips have only ever come from the server's execute wrapper, for
@@ -1426,15 +1401,26 @@ export function useDeckeChat(
             // which is the thing this is. It is not a field on the stream chunk
             // that delivered the call, and confusing the two is what broke this
             // file for its whole life.
-            parts.push({
+            return {
               type: `tool-${call.name}`,
               toolCallId: call.id,
               state: 'output-available',
               input: call.input,
               output: result satisfies UiToolResult,
-            })
+            }
+            },
+          })
+          if (!replayed || ac.signal.aborted) return
+          wire.push({ role: 'assistant', parts: replayed })
+
+          // Approval answers must be in the final message and the final parts
+          // of that message. The shared replay helper appends them only after
+          // every mixed-leg browser result, and this continue POSTs them without
+          // allowing lookup records or tool outputs to follow.
+          if (outcome.approvals.length) {
+            approvalReplays++
+            continue
           }
-          wire.push({ role: 'assistant', parts })
 
           if (leg === legBudget(approvalReplays) - 1) {
             // ── OUT OF LEGS, WITH WORK IN HAND ──────────────────────────────
