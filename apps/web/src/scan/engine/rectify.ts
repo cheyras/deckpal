@@ -14,7 +14,7 @@
 // The quad is warped INTO that aspect rather than cropped to it, so a quad
 // whose aspect is slightly off is corrected instead of clipped.
 
-import type { Quad } from './contract'
+import type { Quad, RectifiedPixels } from './contract'
 import { CARD_ASPECT_W_OVER_H, centroid, cloneQuad, orderQuad, type ImageDataLike, type Point } from './geometry'
 
 /** ~480 px wide, per the scan contract; the height follows from the GAME's
@@ -139,10 +139,14 @@ export type Mat3 = [number, number, number, number, number, number, number, numb
 
 /** Like ImageDataLike, but pinned to a non-shared buffer so the result can be
  *  handed straight to `new ImageData(...)` without a copy. */
-export interface RectifiedImage {
-  readonly width: number
-  readonly height: number
-  readonly data: Uint8ClampedArray<ArrayBuffer>
+export type RectifiedImage = RectifiedPixels
+
+/** One rectification, exposed losslessly and encoded for the existing identity
+ *  request. `raw` is the exact pre-JPEG buffer; it is never reconstructed by
+ *  decoding the lossy blob. */
+export interface RectifiedCapture {
+  readonly blob: Blob
+  readonly raw: RectifiedImage
 }
 
 /**
@@ -370,6 +374,46 @@ export function rectifyImageData(
  * "show me this quad" caller are unaffected; only the thing that goes over the
  * wire is loosened. Pass `margin: 0` for an exact-quad crop.
  */
+async function encodeRectifiedToJpeg(out: RectifiedImage, quality: number): Promise<Blob | null> {
+  const image = new ImageData(out.data, out.width, out.height)
+  if (typeof OffscreenCanvas !== 'undefined') {
+    const c = new OffscreenCanvas(out.width, out.height)
+    const ctx = c.getContext('2d')
+    if (!ctx) return null
+    ctx.putImageData(image, 0, 0)
+    try {
+      return await c.convertToBlob({ type: CAPTURE_MIME, quality })
+    } catch {
+      return null
+    }
+  }
+  if (typeof document === 'undefined') return null
+  const c = document.createElement('canvas')
+  c.width = out.width
+  c.height = out.height
+  const ctx = c.getContext('2d')
+  if (!ctx) return null
+  ctx.putImageData(image, 0, 0)
+  return await new Promise<Blob | null>((resolve) => c.toBlob(resolve, CAPTURE_MIME, quality))
+}
+
+/** Rectify exactly once, retain those lossless pixels, then encode that same
+ *  buffer as the JPEG used by the identity API. */
+export async function rectifyToCapture(
+  src: ImageDataLike,
+  quad: Quad,
+  quality = CAPTURE_QUALITY,
+  outW = CARD_RECT_WIDTH,
+  outH = CARD_RECT_HEIGHT,
+  margin = CAPTURE_MARGIN,
+): Promise<RectifiedCapture | null> {
+  const out = rectifyImageData(src, expandQuad(quad, margin), outW, outH)
+  if (!out) return null
+  const blob = await encodeRectifiedToJpeg(out, quality)
+  return blob ? { blob, raw: out } : null
+}
+
+/** Backward-compatible JPEG-only wrapper for existing callers. */
 export async function rectifyToJpeg(
   src: ImageDataLike,
   quad: Quad,
@@ -378,21 +422,5 @@ export async function rectifyToJpeg(
   outH = CARD_RECT_HEIGHT,
   margin = CAPTURE_MARGIN,
 ): Promise<Blob | null> {
-  const out = rectifyImageData(src, expandQuad(quad, margin), outW, outH)
-  if (!out) return null
-  const image = new ImageData(out.data, out.width, out.height)
-  if (typeof OffscreenCanvas !== 'undefined') {
-    const c = new OffscreenCanvas(out.width, out.height)
-    const ctx = c.getContext('2d')
-    if (!ctx) return null
-    ctx.putImageData(image, 0, 0)
-    return await c.convertToBlob({ type: CAPTURE_MIME, quality })
-  }
-  const c = document.createElement('canvas')
-  c.width = out.width
-  c.height = out.height
-  const ctx = c.getContext('2d')
-  if (!ctx) return null
-  ctx.putImageData(image, 0, 0)
-  return await new Promise<Blob | null>((resolve) => c.toBlob(resolve, CAPTURE_MIME, quality))
+  return (await rectifyToCapture(src, quad, quality, outW, outH, margin))?.blob ?? null
 }
