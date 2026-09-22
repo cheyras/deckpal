@@ -66,13 +66,14 @@
  */
 import { Router, type Request, type RequestHandler } from 'express';
 import type Stripe from 'stripe';
-import { commitRequestTx } from '../db.js';
+import { commitRequestTx, q1 } from '../db.js';
 import { ApiError, asyncHandler, badRequest, userCache } from '../http.js';
 import { currentUserEmail, currentUserId } from '../identity.js';
 import {
   SUPPORT_MAX_CENTS,
   SUPPORT_MIN_CENTS,
   billingAvailable,
+  creditStripeClient,
   normalizeAmountCents,
   publishableKey,
   stripeClient,
@@ -89,6 +90,7 @@ import {
   retryOpenInvoice,
   setSupport,
 } from '../billing/service.js';
+import { paymentHistory, HistoryError, type HistoryProvider } from '../billing/history.js';
 import {
   ackPrompt,
   applyStripe,
@@ -599,6 +601,80 @@ export function promptContext(req: Pick<Request, 'body'>, kind: string): string 
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
+
+// The provider adapter deliberately exposes only the two read operations this
+// endpoint needs. Tests inject the same interface and can prove no create/update
+// operation is reachable from this path.
+export function historyProvider(stripe: Stripe): HistoryProvider {
+  return {
+    async retrieveCustomer(id) {
+      try {
+        const customer = await stripe.customers.retrieve(id, {}, { timeout: 4_000, maxNetworkRetries: 0 });
+        return customer.deleted
+          ? { id: customer.id, deleted: true }
+          : { id: customer.id, livemode: customer.livemode, metadata: customer.metadata };
+      } catch (error) {
+        if ((error as { code?: string }).code === 'resource_missing') return null;
+        throw error;
+      }
+    },
+    async listCharges(args) {
+      const page = await stripe.charges.list(args, { timeout: 4_000, maxNetworkRetries: 0 });
+      return { has_more: page.has_more, data: page.data.map(charge => ({
+        id: charge.id,
+        amount: charge.amount,
+        amount_captured: charge.amount_captured,
+        amount_refunded: charge.amount_refunded,
+        currency: charge.currency,
+        created: charge.created,
+        paid: charge.paid,
+        captured: charge.captured,
+        status: charge.status,
+        disputed: charge.disputed,
+        receipt_url: charge.receipt_url,
+      })) };
+    },
+  };
+}
+
+billingRouter.get(
+  '/history',
+  asyncHandler(async (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
+    const keys = Object.keys(req.query);
+    if (keys.some(key => key !== 'kind' && key !== 'cursor') || (req.query.kind !== 'support' && req.query.kind !== 'credits') || (req.query.cursor !== undefined && typeof req.query.cursor !== 'string')) {
+      throw badRequest('Invalid payment history request.');
+    }
+    const actorId = currentUserId(req);
+    const kind = req.query.kind;
+    const customerId = kind === 'support'
+      ? (await q1<{ customer: string | null }>(
+          'SELECT stripe_customer_id AS customer FROM billing_account WHERE user_id = $1',
+          [actorId],
+        ))?.customer ?? null
+      : (await q1<{ customer: string | null }>('SELECT public.credit_customer_read() AS customer'))?.customer ?? null;
+    if (!customerId) {
+      if (req.query.cursor !== undefined) throw badRequest('Invalid payment history cursor.');
+      res.json({ kind, items: [], nextCursor: null, coverage: 'Shows the current billing account only. Payments on older replaced or deleted billing accounts may be missing.', billingAccountPresent: false });
+      return;
+    }
+    const stripe = stripeClient() ?? creditStripeClient();
+    if (!stripe) throw new ApiError(503, 'provider_unavailable', 'Payment history is temporarily unavailable. Try again later.');
+    const cursorSecret = process.env.SUPABASE_JWT_SECRET ?? process.env.STRIPE_SECRET_KEY ?? '';
+    try {
+      res.json(await paymentHistory({
+        actorId, kind, customerId, expectedLive: stripeMode() === 'live', cursor: req.query.cursor,
+        cursorSecret, provider: historyProvider(stripe),
+      }));
+    } catch (error) {
+      if (error instanceof HistoryError) {
+        const status = error.code === 'invalid_request' ? 400 : error.code === 'billing_account_unavailable' ? 409 : 502;
+        throw new ApiError(status, error.code, error.message);
+      }
+      throw error;
+    }
+  }),
+);
 
 billingRouter.get(
   '/',

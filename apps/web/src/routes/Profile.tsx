@@ -16,6 +16,7 @@ import { AvatarDisc, AvatarSpinner, useAvatarEditor } from '../components/Avatar
 import { ChangePassword } from './auth/ChangePassword'
 import { AgentAccess } from '../components/AgentAccess'
 import { SupportSettings } from '../components/billing/SupportSettings'
+import { PaymentHistory } from '../components/billing/PaymentHistory'
 import { DeckeVisibility } from '../components/DeckeVisibility'
 import { Sheet } from '../components/ui/Sheet'
 import { fmtUsd } from '../lib/format'
@@ -413,7 +414,7 @@ export function Profile() {
               somebody arriving from that modal must not have to hunt. It is
               cloud-only and self-gating -- SupportSettings renders nothing at
               all on a deployment with no Stripe, rather than an empty card. */}
-          {access.ready && <><CreditProfileCard /><SupportSettings /></>}
+          {access.ready && <><CreditProfileCard /><SupportSettings /><PaymentHistory /></>}
           {isCloudMode && <ChangePassword />}
           <FeaturePreferences />
           <ConversationSharing key={access.identity} />

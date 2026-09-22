@@ -20389,3 +20389,11 @@ these changes do not establish production deployment or live payment readiness.
 **Why:** A future validated foil classifier needs lossless rectified colour data. Decoding the identity JPEG would introduce chroma loss and make classification depend on compression rather than the observed frame.
 
 **Implications:** The raw buffer is in-memory only and is not added to feed entries, storage, telemetry, or network requests. Identity behavior, detect cadence, and single-variant UI behavior are unchanged. Task 6hJWCpj6FhjPQGFP remains partial: no production foil classifier exists, and no classifier accuracy or threshold is claimed until one is validated against real data.
+
+## 2026-09-22 — Payment history is a read-only current-customer Stripe view, not a new ledger
+
+**Decision:** Profile payment history reads Stripe charges for one selected current billing account (`support` or `credits`). It adds no ledger, migration, webhook reconciliation, invoice enrichment, or money-path writes. Settled rows show actual `amount_captured` and bound refunds to it; non-settled attempts retain intended amount with explicit status. ISK/UGX use Stripe’s hundredths API scaling while Intl still localizes display.
+
+**Why:** Stripe’s customer-scoped charge list includes standalone contributions plus current refund, dispute, capture, and receipt state. The support pointer is now a parameterized SELECT under actor RLS, so an absent row returns null without `ensureRow`. Exact customer ownership/mode checks and actor/kind/customer-generation-bound cursors keep the provider view scoped.
+
+**Boundary and coverage:** B2 retains one middleware-owned pooled connection for each in-flight request; this feature does not release it early or alter global transaction lifecycle. Instead, customer retrieval and charge listing each set `timeout: 4000` and `maxNetworkRetries: 0`, bounding provider work to 8 seconds inside the 30-second watchdog. Responses remain private/no-store and allowlisted, receipts require credential-free HTTPS on exactly `pay.stripe.com`, and coverage states that older replaced/deleted accounts may be missing. The UI resets pagination on each last-request-wins kind selection, supplies native radio keyboard semantics, and identity unmount/cache-clear prevents stale-account rows from returning.

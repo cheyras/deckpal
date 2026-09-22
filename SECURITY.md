@@ -473,6 +473,12 @@ Stripe's own limits. What the limiter stops is a broken client or a retry storm
 becoming a wall of Stripe customers before anyone notices. It fails **open**: a
 false positive would refuse a payment somebody is trying to make.
 
+### Payment history is an ownership-checked provider read
+
+`GET /me/billing/history` accepts only a validated `support|credits` selector and a bounded signed cursor. It derives the customer pointer from the authenticated actor’s rows, treats that pointer as untrusted, retrieves the Stripe customer, and requires exact `metadata.deckpal_user_id` ownership and the configured live/test mode before every customer-filtered charge list. Cursors bind actor, kind, and a hash of the current customer generation; they expose no customer id and cannot cross accounts or history types. Responses are `private, no-store`; the identity-change cache reset removes browser history queries. The support pointer comes from a parameterized SELECT under request RLS, so an absent row stays absent rather than invoking the shared row-creation path.
+
+The adapter exposes only customer retrieval and customer-scoped charge listing. It never calls customer recovery/creation, payment mutation, webhooks, invoices, or accounting writes. Returned fields are allowlisted, settled amounts use `amount_captured`, refunds cannot exceed captured money, provider errors are generic, and receipt links require credential-free HTTPS on exactly `pay.stripe.com`. Each of the two Stripe calls is independently capped at 4 seconds with zero network retries; middleware continues to own the pooled request connection through response cleanup, as required by B2. Missing pointers are explicitly scoped empty current-account results; foreign/deleted customers and provider outages fail rather than claiming no payments. Coverage is not a permanent ledger: payments attached to older replaced/deleted customers may be absent.
+
 ### No card data reaches this system, and none could be stored
 
 The card number, expiry and CVC are typed into **Stripe's own cross-origin
