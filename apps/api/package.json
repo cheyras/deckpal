@@ -29,24 +29,24 @@
     "test:admin-credits": "node --import tsx --test src/credits/__tests__/*.test.ts"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "^4.0.76",
+    "@ai-sdk/gateway": "^4.0.87",
     "@deckpal/agent-tools": "workspace:*",
     "@deckpal/db": "workspace:*",
     "@deckpal/matching": "workspace:*",
     "@deckpal/storage": "workspace:*",
-    "ai": "7.0.94",
+    "ai": "7.0.107",
     "express": "^5.0.0",
     "express-rate-limit": "8.7.0",
     "helmet": "^8.0.0",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.0",
     "sharp": "^0.35.4",
-    "stripe": "^22.6.1",
-    "zod": "4.5.4"
+    "stripe": "^22.6.2",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.6.2",
     "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.13",
