@@ -64,6 +64,7 @@ import {
   PREVIEW_CARD_CHANGES_DESCRIPTION,
   applyLogInput,
   approvalEligible,
+  conversationalApplyLogSchema,
   conversationalLogSchema,
   exposedLogInput,
   previewLogInput,
@@ -1480,10 +1481,11 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
     const logDef = allTools().find((d) => d.name === 'log_cards');
     if (!logDef) throw new Error('log_cards disappeared from the shared registry');
     const inputSchema = conversationalLogSchema(logDef);
+    const applyInputSchema = conversationalApplyLogSchema(logDef);
     out.log_cards = {
       ...shared,
       description: APPLY_LOG_CARDS_DESCRIPTION,
-      inputSchema,
+      inputSchema: applyInputSchema,
       needsApproval: (input: unknown, options: { toolCallId: string }) =>
         shared.needsApproval?.(applyLogInput(input), options) ?? false,
       onInputAvailable: (options: { input: unknown; toolCallId: string }) =>

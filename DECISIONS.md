@@ -20400,12 +20400,21 @@ these changes do not establish production deployment or live payment readiness.
 
 ## 2026-09-23 — Split conversational card logging into APPLY and PREVIEW intents
 
+**Decided by:** GPT-5.6 Sol on behalf of @cheyras
+
 **Decision:** Only the conversation route opts into a split contract. Its
 `log_cards` is explicitly APPLY intent and exposes no model-facing `dry_run`;
 the server normalizes `dry_run:false` behind the existing signed approval gate.
 `preview_card_changes` is a read-only alias over the same handler with
 `dry_run:true` forced. The default `buildDataTools` behavior, shared tool
 definition and MCP schema remain preview-first and unchanged.
+
+For deployment-boundary compatibility, the APPLY tool's advertised JSON schema
+still contains no `dry_run`, while its SDK runtime validator also accepts the
+exact legacy signed representation with `dry_run:false`. It rejects
+`dry_run:true` and unrelated keys. Validation preserves the input covered by
+the existing HMAC; normalization happens only inside the already-approved tool
+callbacks, with no signature-format change.
 
 **Safety:** APPLY runs a request-local forced preview before approval issuance.
 Only a successful, non-empty, fully actionable plan may ask; invalid,

@@ -150,7 +150,7 @@ async function drain(result: ReturnType<typeof streamText>): Promise<Record<stri
   }
 }
 
-test('conversation exposes APPLY + preview schemas without dry_run; defaults and shared schema stay unchanged', () => {
+test('conversation advertises no dry_run while APPLY runtime accepts only current or legacy false', async () => {
   const f = fixture();
   try {
     const tools = f.build();
@@ -161,6 +161,14 @@ test('conversation exposes APPLY + preview schemas without dry_run; defaults and
     assert.match(tools.log_cards.description, /^APPLY /);
     assert.match(tools.preview_card_changes.description, /^PREVIEW /);
     assert.equal(tools.log_cards.inputSchema.safeParse({ ...INPUT, dry_run: false }).success, false);
+    const advertised = await tools.log_cards.inputSchema.jsonSchema;
+    assert.equal(JSON.stringify(advertised).includes('dry_run'), false);
+    assert.equal(advertised.additionalProperties, false);
+    const validate = tools.log_cards.inputSchema.validate;
+    assert.equal((await validate(INPUT)).success, true, 'current APPLY input rejected');
+    assert.equal((await validate({ ...INPUT, dry_run: false })).success, true, 'legacy false rejected');
+    assert.equal((await validate({ ...INPUT, dry_run: true })).success, false, 'legacy true accepted');
+    assert.equal((await validate({ ...INPUT, forged_extra: 1 })).success, false, 'unknown key accepted');
 
     const ordinary = buildDataTools({
       pool: null as never, userId: 'u', jwt: 'j', apiBase: 'x', include: (d) => d.name === 'log_cards',
@@ -333,5 +341,45 @@ test('real SDK holds signed exposed input; approve writes once, decline/tamper/r
       assert.ok(tampered.some((p) => p.type === 'error'), 'tampered approval did not fail closed');
       assert.equal(f.counts().writes, 1, 'tampered signed input mutated');
     }
+
+    const legacyFixture = fixture();
+    try {
+      const legacy = { ...INPUT, dry_run: false };
+      const legacyIssued = await drain(streamText({
+        model: mockModel([{ toolCallId: 'legacy-1', toolName: 'log_cards', input: legacy }]),
+        messages: [{ role: 'user', content: 'add one Bulbasaur' }],
+        tools: legacyFixture.build({ conversationalLogging: false }),
+        experimental_toolApprovalSecret: secret,
+      }));
+      const legacyRequest = legacyIssued.find((p) => p.type === 'tool-approval-request');
+      assert.ok(legacyRequest && typeof legacyRequest.signature === 'string');
+      const legacyReplay = async (input: unknown) => convertToModelMessages([
+        { id: 'u2', role: 'user', parts: [{ type: 'text', text: 'add one Bulbasaur' }] },
+        {
+          id: 'a2', role: 'assistant', parts: [{
+            type: 'tool-log_cards', toolCallId: 'legacy-1', input, state: 'approval-responded',
+            approval: {
+              id: legacyRequest.approvalId,
+              approved: true,
+              signature: legacyRequest.signature,
+            },
+          }],
+        },
+      ] as never);
+      const legacyApproved = await drain(streamText({
+        model: mockModel(), messages: await legacyReplay(legacy), tools: legacyFixture.build(),
+        experimental_toolApprovalSecret: secret, onError: () => {},
+      }));
+      assert.equal(legacyApproved.some((p) => p.type === 'error'), false);
+      assert.equal(legacyFixture.counts().writes, 1, 'valid signed legacy false did not apply');
+
+      const tamperedLegacy = await drain(streamText({
+        model: mockModel(),
+        messages: await legacyReplay({ items: [{ card_id: 'me05-001', delta: 2 }], dry_run: false }),
+        tools: legacyFixture.build(), experimental_toolApprovalSecret: secret, onError: () => {},
+      }));
+      assert.ok(tamperedLegacy.some((p) => p.type === 'error'), 'tampered legacy approval passed HMAC');
+      assert.equal(legacyFixture.counts().writes, 1, 'tampered legacy signed input mutated');
+    } finally { legacyFixture.restore(); }
   } finally { f.restore(); }
 });

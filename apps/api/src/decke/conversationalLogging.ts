@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { asSchema, jsonSchema, type Schema } from 'ai';
 import type { ToolDefinition } from '@deckpal/agent-tools';
 import type { ApprovalPreview } from './adapters/aisdk.js';
 
@@ -10,12 +11,37 @@ export const APPLY_LOG_CARDS_DESCRIPTION =
 export const PREVIEW_CARD_CHANGES_DESCRIPTION =
   'PREVIEW hypothetical collection changes without writing. Use this only for explicit previews, what-if questions, or quantity checks. It is read-only and can never apply changes.';
 
-export function conversationalLogSchema(def: ToolDefinition): z.ZodTypeAny {
+export function conversationalLogSchema(def: ToolDefinition): z.ZodObject<any> {
   const schema = def.inputSchema;
   if (!(schema instanceof z.ZodObject) || !('dry_run' in schema.shape)) {
     throw new Error('log_cards must remain a Zod object with dry_run in the shared contract');
   }
   return schema.omit({ dry_run: true }).strict();
+}
+
+/**
+ * Advertise only the current APPLY shape while accepting one pre-split wire
+ * shape during SDK replay. `safeParse` intentionally remains the advertised
+ * current-shape check; the SDK uses `validate` for runtime input validation.
+ */
+export function conversationalApplyLogSchema(
+  def: ToolDefinition,
+): Schema<unknown> & Pick<z.ZodObject<any>, 'shape' | 'safeParse'> {
+  const current = conversationalLogSchema(def);
+  const legacy = current.extend({ dry_run: z.literal(false) }).strict();
+  const runtime = z.union([current, legacy]);
+  const sdkSchema = jsonSchema(asSchema(current).jsonSchema, {
+    validate: (value: unknown) => {
+      const parsed = runtime.safeParse(value);
+      return parsed.success
+        ? { success: true as const, value }
+        : { success: false as const, error: parsed.error };
+    },
+  });
+  return Object.assign(sdkSchema, {
+    shape: current.shape,
+    safeParse: current.safeParse.bind(current),
+  }) as unknown as Schema<unknown> & Pick<z.ZodObject<any>, 'shape' | 'safeParse'>;
 }
 
 function record(input: unknown): Record<string, unknown> {
