@@ -6,10 +6,10 @@ import type { ApprovalPreview } from './adapters/aisdk.js';
 export const PREVIEW_CARD_CHANGES = 'preview_card_changes';
 
 export const APPLY_LOG_CARDS_DESCRIPTION =
-  'APPLY collection changes after the reader approves them. Use this when the reader asked to add, remove, or set card quantities. Calling it starts the server-verified approval flow; it never means preview-only.';
+  'APPLY collection changes only after reader approval. Adding N copies uses delta:+N; removing N uses delta:-N. Use quantity only when the reader explicitly asks to set total N. “Add one” is delta:1 even when one is owned. Starts server-verified approval; never preview-only.';
 
 export const PREVIEW_CARD_CHANGES_DESCRIPTION =
-  'PREVIEW hypothetical collection changes without writing. Use this only for explicit previews, what-if questions, or quantity checks. It is read-only and can never apply changes.';
+  'PREVIEW hypothetical collection changes for explicit previews, what-if questions, or quantity checks. Same quantity semantics: adding N copies uses delta:+N; removing N uses delta:-N; quantity only when explicitly setting total N. “Add one” is delta:1 even when one is owned. Read-only; never applies changes.';
 
 export function conversationalLogSchema(def: ToolDefinition): z.ZodObject<any> {
   const schema = def.inputSchema;
