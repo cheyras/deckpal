@@ -6,7 +6,7 @@ import type { ApprovalPreview } from './adapters/aisdk.js';
 export const PREVIEW_CARD_CHANGES = 'preview_card_changes';
 
 export const APPLY_LOG_CARDS_DESCRIPTION =
-  'APPLY collection changes only after reader approval. Adding N copies uses delta:+N; removing N uses delta:-N. Use quantity only when the reader explicitly asks to set total N. “Add one” is delta:1 even when one is owned. Starts server-verified approval; never preview-only.';
+  'REQUEST APPROVAL When the reader requests a collection change, call now to open the signed approval dialog; do not ask for confirmation in prose. Calling prepares the change and requests approval; nothing is applied until the reader approves. Adding N uses delta:+N; removing N uses delta:-N; quantity only for an explicit set-total request. Add one is delta:1 even when one is owned. Use preview_card_changes for explicit hypothetical previews.';
 
 export const PREVIEW_CARD_CHANGES_DESCRIPTION =
   'PREVIEW hypothetical collection changes for explicit previews, what-if questions, or quantity checks. Same quantity semantics: adding N copies uses delta:+N; removing N uses delta:-N; quantity only when explicitly setting total N. “Add one” is delta:1 even when one is owned. Read-only; never applies changes.';

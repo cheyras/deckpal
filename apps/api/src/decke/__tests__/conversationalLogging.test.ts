@@ -158,7 +158,7 @@ test('conversation advertises no dry_run while APPLY runtime accepts only curren
     for (const name of Object.keys(tools)) {
       assert.equal('dry_run' in tools[name].inputSchema.shape, false, `${name} leaked dry_run`);
     }
-    assert.match(tools.log_cards.description, /^APPLY /);
+    assert.match(tools.log_cards.description, /^REQUEST APPROVAL /);
     assert.match(tools.preview_card_changes.description, /^PREVIEW /);
     assert.equal(tools.log_cards.inputSchema.safeParse({ ...INPUT, dry_run: false }).success, false);
     const advertised = await tools.log_cards.inputSchema.jsonSchema;
