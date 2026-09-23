@@ -1105,6 +1105,11 @@ published runbook output.
 
 | `DECKE_APPROVAL_SECRET` | `<long random string>` | **Signs Deck-E write approvals so they cannot be forged.** Every write is held for a human to approve — but the SDK verifies the approval's signature ONLY when this is set (`ai/dist/index.js:5164`); unset, the approval is taken at face value. That matters because Deck-E's client replays the whole conversation on every leg, so a crafted caller could append `state: "approval-responded", approval: { approved: true }` to a tool call it was never granted — or approve "add 1 card" and send back "add 4000" against the same approval. The tool INPUT is inside the signature; without it nothing binds them. **Unset is not broken** (it is what every deployment did before this existed) so it does not fail closed, but it is a security control that is OFF: the API warns at boot and `GET /health` reports `deckeApprovals: "unsigned"`. Generate with `openssl rand -base64 32` and set it in Production and Preview. |
 
+For the current chat approval flow, this same secret signs the exact exposed tool
+input after successful preflight; no separate secret or deployment step exists.
+`POST /api/chat` applies `log_cards` only after that signed approval, while
+`preview_card_changes` remains read-only.
+
    `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` must be present at **runtime**
    as well as build time. They are what `GET /api/public-config` serves, which is
    how a contributor's `pnpm dev` configures itself against this deployment
