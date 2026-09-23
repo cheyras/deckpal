@@ -20397,3 +20397,32 @@ these changes do not establish production deployment or live payment readiness.
 **Why:** Stripe’s customer-scoped charge list includes standalone contributions plus current refund, dispute, capture, and receipt state. The support pointer is now a parameterized SELECT under actor RLS, so an absent row returns null without `ensureRow`. Exact customer ownership/mode checks and actor/kind/customer-generation-bound cursors keep the provider view scoped.
 
 **Boundary and coverage:** B2 retains one middleware-owned pooled connection for each in-flight request; this feature does not release it early or alter global transaction lifecycle. Instead, customer retrieval and charge listing each set `timeout: 4000` and `maxNetworkRetries: 0`, bounding provider work to 8 seconds inside the 30-second watchdog. Responses remain private/no-store and allowlisted, receipts require credential-free HTTPS on exactly `pay.stripe.com`, and coverage states that older replaced/deleted accounts may be missing. The UI resets pagination on each last-request-wins kind selection, supplies native radio keyboard semantics, and identity unmount/cache-clear prevents stale-account rows from returning.
+
+## 2026-09-23 — Split conversational card logging into APPLY and PREVIEW intents
+
+**Decision:** Only the conversation route opts into a split contract. Its
+`log_cards` is explicitly APPLY intent and exposes no model-facing `dry_run`;
+the server normalizes `dry_run:false` behind the existing signed approval gate.
+`preview_card_changes` is a read-only alias over the same handler with
+`dry_run:true` forced. The default `buildDataTools` behavior, shared tool
+definition and MCP schema remain preview-first and unchanged.
+
+**Safety:** APPLY runs a request-local forced preview before approval issuance.
+Only a successful, non-empty, fully actionable plan may ask; invalid,
+unresolvable, errored and skipped-only plans return evidence without approval or
+mutation. The cache is keyed by tool-call id plus canonical exposed arguments,
+so the SDK's racing callbacks share work without cross-call/user reuse. The HMAC
+continues to bind the SDK's actual exposed input; server normalization neither
+changes signed wire arguments nor creates an unsigned write path. A
+candidate-bearing ambiguous printing row remains approval-eligible solely to
+preserve the existing picker: an edited choice denies the signed original and
+uses the reader-authenticated corrected-batch path.
+
+**Evidence and status:** The pre-fix production baseline is 17/20 overall:
+explicit “Go ahead” dialogs were 10/10, while otherwise identical short prompts
+were 7/10 with three prose-confirmation stalls after `log_cards` previews. That
+baseline cost $0.24692235 and made zero writes. Local mocked tests cover schema,
+normalization, preflight failures/cache isolation, alias read-only behavior, and
+the installed SDK's signed approve/decline/tamper/replay path. This is not a
+post-fix success claim; paid/live verification remains to be run after review
+and deployment.

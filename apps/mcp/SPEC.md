@@ -213,6 +213,10 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   explicit `variant_id` or variant kind code wins; omitted → the card's primary variant
   (`card_variant.is_primary`); "set absolute quantity" on a card where the user owns multiple
   variants and no variant was given → refuse with the owned-variant list.
+  The shared MCP `log_cards` contract remains `dry_run: true` by default; only
+  explicit `false` applies a write. Do not infer the separate Deck-E chat
+  contract (where `POST /api/chat` handles apply intent and signed approval)
+  from this MCP tool, and do not add an MCP alias.
 - **Set / deck / list resolution** (`entities.ts`, added 2026-08-25) applies the same doctrine to
   the other three id types, which had none: exact id → exact name → prefix/fuzzy, `strict` for
   writes, candidates-with-ids for an ambiguity. A uuid that matches nothing is never fuzzed

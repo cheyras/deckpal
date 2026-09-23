@@ -710,6 +710,10 @@ async function serve(request) {
         ...buildDataTools({
           ...toolCtx,
           include: () => true,
+          // Chat-only split intent: log_cards means APPLY (server-owned
+          // dry_run:false after signed approval); preview_card_changes is the
+          // read-only hypothetical path. Shared MCP/default schemas stay as-is.
+          conversationalLogging: true,
           onEvent: emitToolEvent(writer),
           // ONLY HERE. The deep tier's sub-agents below get no
           // `onApprovalPreview`, because there is no reader watching a dialog
@@ -829,7 +833,7 @@ async function serve(request) {
           // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING, three lines below.
           // Hand-writing this list is how the previous prompt came to spend
           // every turn offering to look things up with no tool that could look.
-          dataTools: dataToolSummary({ include: () => true }),
+          dataTools: dataToolSummary({ include: () => true, conversationalLogging: true }),
         }),
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside

@@ -1357,6 +1357,25 @@ of stopping mid-turn with no explanation, and an abort resolves the question as
 a denial — otherwise pressing stop with an approval on screen parks the turn's
 promise for ever.
 
+`log_cards` has a narrower conversation-only contract. The model sees an APPLY
+tool with no `dry_run` property; the adapter owns `dry_run:false`, runs and
+caches a forced preview first, and lets `needsApproval` return true only for a
+successful, non-empty, fully actionable plan. Failed, invalid, unresolvable and
+skipped-only plans return their evidence without a dialog and cannot fall
+through to the write handler. `preview_card_changes` is the matching read-only
+alias: it uses the same shared handler with `dry_run:true` forced even if an
+unvalidated caller injects false. This opt-in exists only in `api/chat.mjs`;
+the shared `log_cards` schema, MCP behavior and `buildDataTools` default remain
+preview-first. Both tools are visible on the opening step.
+
+The preflight cache is per `buildDataTools` request and keyed by both
+`toolCallId` and canonical exposed arguments. That detail follows the installed
+SDK rather than an assumed callback order: the streaming path enqueues the tool
+call before it finishes awaiting `onInputAvailable`, so `needsApproval` joins
+the same in-flight promise before an approval can be issued. The HMAC still
+binds the SDK's actual exposed input (which contains no `dry_run`); normalization
+happens inside the adapter after signing and never rewrites replayed wire input.
+
 **Two calls are answered without a dialog, and both are refusals to interrupt
 somebody for nothing.** A call whose (tool, arguments) the reader has already
 declined in this conversation is refused with a sentence rather than asked a
@@ -1423,7 +1442,7 @@ including the five hypotheses that measured 0/5 and the harness bug that made an
 earlier fix look like it worked. Gate 9 of `scripts/decke-gates.mjs` pins it.
 
 **The card the reader answers is segmented by variant provenance.** A held
-`log_cards` gets a real dry run at hold time, whose rows the server streams as a
+`log_cards` gets a real dry run before hold eligibility is decided, whose rows the server streams as a
 `data-decke-approval-preview` part keyed by `toolCallId` — every field from a
 real invocation of the real handler with `dry_run` forced, because a fabricated
 row on a consent dialog is a fabricated authorisation, and no chip is emitted
@@ -1455,8 +1474,10 @@ the second identical correction anyone ever made write nothing while reciting
 the first one's numbers as fresh. `editable: false` is the safe answer and is
 taken often — any tool that is not `log_cards`, a dry run that failed, a
 `structured` row with no certainty field (the rolling-deploy case: new browser,
-old server) — and the card then renders as the plain dialog on the signed path,
-because a broken preview must degrade the UI and never the write.
+old server) — and conversational APPLY now refuses approval for those cases.
+Candidate-bearing ambiguous printing rows are the deliberate exception to
+"fully resolved": they are actionable through the existing picker, whose edited
+path denies the signed original and commits the reader's corrected batch.
 
 **One behaviour change worth knowing before someone files it as a bug:** a card
 with more than one printing and no stated variant used to be silently resolved
@@ -1555,8 +1576,9 @@ restraint regression accepted as a direction by the owner.
 **Per-step tool narrowing, recorded with its uncertainty intact.** `focus.ts`
 recomputes `activeTools` per step through `prepareStep`: on the first step he
 sees 24 of his 34 tools, everything except the ten heavy deck-and-list writes,
-and everything returns on step two. `log_cards` stays visible from step one,
-because "add these cards" is the request this feature exists to serve. The
+and everything returns on step two. Conversation-only `log_cards` APPLY and
+`preview_card_changes` both stay visible from step one, because acting on or
+hypothesizing about card quantities are opening-turn requests. The
 bisection that motivated it — 34 tools narrated 5/5, 23 tools 1/5, 10 tools 3/5,
 so fewer was NOT better — **did not replicate**: a follow-up run saw 0/24 on the
 primary trigger, found a real bug in its own harness, and could not rule out an

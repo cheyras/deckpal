@@ -58,6 +58,16 @@ import {
 import { NoOpMemo, noOpMessage } from '../noOp.js';
 import { ALREADY_TOLD_NOTE, alreadyTold } from '../toldAlready.js';
 import { briefArgs } from '../toolArgs.js';
+import {
+  APPLY_LOG_CARDS_DESCRIPTION,
+  PREVIEW_CARD_CHANGES,
+  PREVIEW_CARD_CHANGES_DESCRIPTION,
+  applyLogInput,
+  approvalEligible,
+  conversationalLogSchema,
+  exposedLogInput,
+  previewLogInput,
+} from '../conversationalLogging.js';
 
 /**
  * A tool-call lifecycle event, for the chip the reader sees.
@@ -262,6 +272,8 @@ export type ApprovalPreview = {
 };
 
 export interface AiSdkAdapterOptions extends ToolCtxOptions {
+  /** Split log_cards into explicit apply and read-only preview intents. Chat only. */
+  conversationalLogging?: boolean;
   /**
    * Which tools to expose. Defaults to every read-only tool.
    *
@@ -1028,8 +1040,18 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   // refused" — the right default for a sub-agent, which has no reader and no
   // dialog, and for the tests.
   const declined = opts.declined ?? new Set<string>();
-  const alreadyDeclined = (name: string, input: unknown): boolean =>
-    declined.size > 0 && declined.has(callKey(name, input));
+  const alreadyDeclined = (name: string, input: unknown): boolean => {
+    if (declined.size === 0) return false;
+    if (declined.has(callKey(name, input))) return true;
+    if (!opts.conversationalLogging || name !== 'log_cards') return false;
+    // New chat history carries the signed exposed shape (no dry_run); accept
+    // the former normalized shape too so an in-flight pre-deploy decline does
+    // not get asked again after the deployment changes underneath it.
+    return (
+      declined.has(callKey(name, exposedLogInput(input))) ||
+      declined.has(callKey(name, applyLogInput(input)))
+    );
+  };
   // ── AND WHAT HAS BEEN FAILING ALL CONVERSATION ────────────────────────────
   //
   // Same shape as `declined` above and for the same reason: rebuilt per request
@@ -1061,6 +1083,55 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const maxChars = opts.maxChars ?? DEFAULT_MAX_TOOL_CHARS;
   const out: ToolSet = {};
 
+  type LogPreflight = {
+    result: ToolResult;
+    preview: ApprovalPreview;
+    eligible: boolean;
+  };
+  // One map per buildDataTools call, hence per request. The call id AND the
+  // canonical exposed arguments are part of the key: neither another user nor
+  // another call can inherit a preview. Memoise the promise so the SDK's
+  // concurrent onInputAvailable/needsApproval paths join the same dry run.
+  const logPreflights = new Map<string, Promise<LogPreflight>>();
+  const logPreflightKey = (toolCallId: string, input: unknown): string =>
+    `${toolCallId}\u0000${callKey('log_cards', exposedLogInput(input))}`;
+  const preflightLogCards = (
+    def: ToolDefinition,
+    input: unknown,
+    toolCallId: string,
+  ): Promise<LogPreflight> => {
+    const key = logPreflightKey(toolCallId, input);
+    const found = logPreflights.get(key);
+    if (found) return found;
+    const pending = (async (): Promise<LogPreflight> => {
+      const parsed = conversationalLogSchema(def).safeParse(exposedLogInput(input));
+      let result: ToolResult;
+      if (!parsed.success) {
+        result = {
+          isError: true,
+          text: `log_cards did not run: invalid input — ${parsed.error.issues[0]?.message ?? 'check the requested card changes'}`,
+        };
+      } else {
+        try {
+          result = await withToolCtx(opts, (ctx: Ctx) =>
+            def.handler(previewLogInput(parsed.data), ctx),
+          );
+        } catch (err) {
+          result = { isError: true, text: `log_cards did not run: ${safeToolError(err)}` };
+        }
+      }
+      const preview = buildApprovalPreview(
+        def,
+        toolCallId,
+        result,
+        opts.readerNamedPrinting === true,
+      );
+      return { result, preview, eligible: approvalEligible(preview) };
+    })();
+    logPreflights.set(key, pending);
+    return pending;
+  };
+
   for (const def of allTools()) {
     if (!include(def)) continue;
 
@@ -1090,9 +1161,13 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
       needsApproval:
         opts.approvals === 'upstream'
           ? false
-          : async (input: unknown) => {
+          : async (input: unknown, context?: { toolCallId: string }) => {
               if (!requiresApproval(def, input)) return false;
               if (alreadyDeclined(def.name, input)) return false;
+              if (opts.conversationalLogging && def.name === 'log_cards') {
+                const toolCallId = context?.toolCallId ?? `direct:${callKey(def.name, input)}`;
+                return (await preflightLogCards(def, input, toolCallId)).eligible;
+              }
               // AND NOT FOR A WRITE THAT CHANGES NOTHING. `noOp.ts` carries the
               // measurement: asked for insights about a deck, he read the
               // stored strategy guide and proposed saving it back byte for
@@ -1131,6 +1206,13 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
        */
       onInputAvailable: async ({ input, toolCallId }) => {
         const emit = opts.onApprovalPreview;
+        if (opts.conversationalLogging && def.name === 'log_cards') {
+          if (opts.approvals === 'upstream') return;
+          if (alreadyDeclined(def.name, input)) return;
+          const preflight = await preflightLogCards(def, input, toolCallId);
+          emit?.(preflight.preview);
+          return;
+        }
         if (!emit) return;
         if (opts.approvals === 'upstream') return;
         // ALREADY REFUSED — no dialog will open, so a preview here is work
@@ -1228,6 +1310,24 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
               ...argsPart(args),
             });
             return circuitMessage(def.name, failures);
+          }
+
+          // APPLY-intent log_cards is fail-closed around its preflight. The SDK
+          // executes immediately when needsApproval says false, so every
+          // unsuccessful/empty/unresolved dry run must return its evidence here
+          // instead of falling through to the normalized dry_run:false handler.
+          if (opts.conversationalLogging && def.name === 'log_cards') {
+            const preflight = await preflightLogCards(def, args, toolCallId);
+            if (!preflight.eligible) {
+              opts.onEvent?.({
+                phase: preflight.result.isError ? 'error' : 'ok',
+                ...chip,
+                summary: preflight.result.isError
+                  ? summariseError(preflight.result)
+                  : summarise(preflight.result),
+              });
+              return clampToolText(preflight.result.text, maxChars);
+            }
           }
 
           // NOT EXECUTED EITHER, and this is the half that keeps the pair in
@@ -1369,6 +1469,66 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
     });
   }
 
+  if (opts.conversationalLogging && out.log_cards) {
+    const shared = out.log_cards as {
+      inputSchema: unknown;
+      needsApproval?: (input: unknown, options: { toolCallId: string }) => boolean | Promise<boolean>;
+      onInputAvailable?: (options: { input: unknown; toolCallId: string }) => void | Promise<void>;
+      execute?: (input: unknown, options: { toolCallId: string }) => unknown;
+      [key: string]: unknown;
+    };
+    const logDef = allTools().find((d) => d.name === 'log_cards');
+    if (!logDef) throw new Error('log_cards disappeared from the shared registry');
+    const inputSchema = conversationalLogSchema(logDef);
+    out.log_cards = {
+      ...shared,
+      description: APPLY_LOG_CARDS_DESCRIPTION,
+      inputSchema,
+      needsApproval: (input: unknown, options: { toolCallId: string }) =>
+        shared.needsApproval?.(applyLogInput(input), options) ?? false,
+      onInputAvailable: (options: { input: unknown; toolCallId: string }) =>
+        shared.onInputAvailable?.({ ...options, input: applyLogInput(options.input) }),
+      execute: (input: unknown, options: { toolCallId: string }) =>
+        shared.execute?.(applyLogInput(input), options),
+    } as never;
+    out[PREVIEW_CARD_CHANGES] = {
+      ...shared,
+      description: PREVIEW_CARD_CHANGES_DESCRIPTION,
+      inputSchema,
+      needsApproval: false,
+      onInputAvailable: undefined,
+      execute: async (input: unknown, { toolCallId }: { toolCallId: string }) => {
+        const chip = {
+          id: toolCallId,
+          name: PREVIEW_CARD_CHANGES,
+          title: 'Preview card changes',
+        };
+        opts.onEvent?.({ phase: 'start', ...chip, ...argsPart(input) });
+        try {
+          const parsed = inputSchema.safeParse(exposedLogInput(input));
+          if (!parsed.success) {
+            const message = `invalid preview input — ${parsed.error.issues[0]?.message ?? 'check the requested card changes'}`;
+            opts.onEvent?.({ phase: 'error', ...chip, summary: message });
+            return message;
+          }
+          const result = await withToolCtx(opts, (ctx: Ctx) =>
+            logDef.handler(previewLogInput(parsed.data), ctx),
+          );
+          opts.onEvent?.({
+            phase: result.isError ? 'error' : 'ok',
+            ...chip,
+            summary: result.isError ? summariseError(result) : summarise(result),
+          });
+          return clampToolText(result.text, maxChars);
+        } catch (err) {
+          const message = safeToolError(err);
+          opts.onEvent?.({ phase: 'error', ...chip, summary: message });
+          return `That did not work: ${message}`;
+        }
+      },
+    } as never;
+  }
+
   return out;
 }
 
@@ -1382,9 +1542,14 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
  */
 export function dataToolSummary(opts?: {
   include?: (def: ToolDefinition) => boolean;
+  conversationalLogging?: boolean;
 }): { name: string; title: string }[] {
   const include = opts?.include ?? ((d: ToolDefinition) => d.annotations.readOnlyHint);
-  return allTools()
+  const summary = allTools()
     .filter(include)
     .map((d) => ({ name: d.name, title: d.title }));
+  if (opts?.conversationalLogging && summary.some((t) => t.name === 'log_cards')) {
+    summary.push({ name: PREVIEW_CARD_CHANGES, title: 'Preview card changes' });
+  }
+  return summary;
 }

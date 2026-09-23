@@ -113,6 +113,13 @@ annotations and schema: anything `destructiveHint` always, any real write always
 a preview never; when a call is classified as a preview the server writes
 `dry_run: true` into the arguments explicitly rather than trusting the tool's
 default, and only an explicit boolean `false` counts as permission to write.
+This shared adapter policy remains the MCP contract; the narrow conversational
+exception is `POST /api/chat`: its `log_cards` apply intent omits model-facing
+`dry_run`, and after mandatory successful preflight the server forces
+`dry_run: false` only with the SDK-signed approval. Read-only
+`preview_card_changes` always forces `dry_run: true`; failed or unresolved plans
+return evidence without writing. Existing human approval, replay, identity and
+idempotency protections remain in force.
 `ARCHITECTURE.md` §15e carries the protocol.
 
 **The consent card can commit a corrected batch from the browser, and that is a
