@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DataTable, DataTableToolbar, type DataTableProps } from '../DataTable'
-import { getDataTablePage, nextDataTableSort } from '../dataTable'
+import { getDataTablePage, nextDataTableSort } from '../dataTableHelpers'
 
 test('pagination has honest zero, partial-last-page and deleted-page boundaries', () => {
   const empty = getDataTablePage(0, 25, 0, 0)

@@ -24,6 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # Runs before install/build: needs only `git ls-files`, so it's nearly
+      # free, and it catches a class of bug this runner otherwise cannot see
+      # at all -- Linux is case-sensitive, so a filename collision that only
+      # breaks a standard Mac's case-insensitive APFS volume builds clean
+      # here every time. See scripts/check-case-collisions.mjs.
+      - name: Case-insensitive filename collisions
+        run: node scripts/check-case-collisions.mjs
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
