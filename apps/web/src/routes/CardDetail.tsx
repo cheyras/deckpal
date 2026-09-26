@@ -9,6 +9,7 @@ import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
 import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
+import { currentPathAsNext } from '../lib/landingRoute'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta, seriesColors } from '../lib/variantStyle'
 
@@ -279,9 +280,12 @@ function VariantRow({
             replaced by the reason it is missing. */}
         <div className="col-[2] row-[1] flex justify-end gap:col-[auto] gap:row-[auto]">
           {v.quantity === undefined ? (
+            // UXC-06: labelled "Sign in to track" but opened `?mode=signup` —
+            // same mislabel as the rail's locked rows. `next` returns to this
+            // exact card once signed in, rather than the generic default.
             <Link
               to="/auth"
-              search={{ mode: 'signup' } as never}
+              search={{ next: currentPathAsNext() } as never}
               className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[14px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
             >
               Sign in to track

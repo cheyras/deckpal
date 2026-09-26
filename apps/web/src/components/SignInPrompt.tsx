@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { currentPathAsNext } from '../lib/landingRoute'
 
 /**
  * What stands where a collection control would be, for a logged-out visitor.
@@ -29,6 +30,9 @@ export function SignInPrompt({
   variant?: 'inline' | 'banner'
 }) {
   const banner = variant === 'banner'
+  // UXC-06: sign in (or up) from here and land back on this exact page — the
+  // whole point of the prompt is what THIS page would show once signed in.
+  const next = currentPathAsNext()
   return (
     <div
       className={[
@@ -45,13 +49,14 @@ export function SignInPrompt({
       <div className="flex shrink-0 items-center gap-[8px]">
         <Link
           to="/auth"
-          search={{ mode: 'signup' } as never}
+          search={{ mode: 'signup', next } as never}
           className="flex h-[38px] items-center rounded-lg bg-action-primary px-[16px] text-[14px] font-semibold text-action-primary-text hover:opacity-90"
         >
           Sign up free
         </Link>
         <Link
           to="/auth"
+          search={{ next } as never}
           className="flex h-[38px] items-center rounded-lg border border-border-default px-[14px] text-[14px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
         >
           Sign in

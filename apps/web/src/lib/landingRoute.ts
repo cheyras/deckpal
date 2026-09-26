@@ -58,15 +58,70 @@ export function isPublicPathname(pathname: string): boolean {
   return isChromelessPathname(pathname) || isCatalogPathname(pathname)
 }
 
-// A same-origin relative path, safe to hand to `navigate`/`window.location`
-// as a post-sign-in redirect target (currently /auth's `next` param, set by
-// /authorize). `//host/...` and `/\host/...` are both browser-recognised
-// spellings of a protocol-relative URL to a DIFFERENT origin — a leading
-// backslash is silently treated as a forward slash by every major browser's
-// URL parser, so `/\evil.com` resolves exactly like `//evil.com` even though
-// neither `startsWith('http')` nor `startsWith('//')` would catch it. One
-// predicate, used everywhere `next` is both written (validateSearch) and read
-// (Auth.tsx) — the whole point is that those two checks cannot drift apart.
-export function isSafeNextPath(value: unknown): value is string {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\')
+/**
+ * The one place `?next=` is turned into something safe to navigate to.
+ *
+ * SEC-05: the previous version was a hand-written blocklist — `startsWith('/')`,
+ * not `//`, not `/\` — and `/\t/evil.example/phish` walked straight through
+ * it: `startsWith` sees a tab, not a slash, so none of those three rules
+ * fired. `window.location.assign()` then handed the same string to the
+ * WHATWG URL parser, which strips tab/newline/CR *before* resolving, so
+ * `/\t/evil.example/phish` became `//evil.example/phish` and then a real
+ * `https://evil.example` navigation. DECISIONS 2026-08-10 closed `/\` the
+ * same way this predicate now closes the tab — one more character the
+ * blocklist hadn't met yet, and there will always be another.
+ *
+ * A blocklist is a queue of the next bypass. Parsing with the platform's
+ * own resolver and comparing origins is not: `new URL(value, location.origin)`
+ * runs the exact algorithm the eventual navigation runs, so this function and
+ * its caller can never disagree about where a string points. Every character
+ * below 0x20 (tab, newline, CR, NUL, …), every whitespace character, and `\`
+ * are rejected up front — that is exactly what the parser's own
+ * pre-processing would otherwise turn into a slash or a swallowed segment,
+ * so rejecting them before the parse ever runs closes the whole family, not
+ * just the one payload that was caught.
+ *
+ * Returns the origin-verified value as `pathname + search + hash` — never
+ * the raw string a caller passed in — so a caller that assigns the result
+ * can never end up carrying something this function did not itself resolve.
+ *
+ * `origin` defaults to `window.location.origin` and every real call site
+ * leaves it at that default; it is a parameter (rather than reading `window`
+ * directly in the body) only so the unit tests covering the bypass corpus can
+ * run under Node's test runner, which has no `window`, without reaching for a
+ * DOM shim just for this one function.
+ */
+export function safeNextPath(value: unknown, origin: string = window.location.origin): string | null {
+  if (typeof value !== 'string' || value === '') return null
+  if (/[\s\u0000-\u001f\u007f\\]/.test(value)) return null
+  if (!value.startsWith('/') || value.startsWith('//')) return null
+  let url: URL
+  try {
+    url = new URL(value, origin)
+  } catch {
+    return null
+  }
+  if (url.origin !== origin) return null
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
+// One predicate, used everywhere `next` is both written (validateSearch) and
+// read (Auth.tsx, ResetPassword.tsx) — the whole point is that those checks
+// cannot drift apart the way the rail's sign-in pill and AuthGuard's redirect
+// already had (UXC-06).
+export function isSafeNextPath(value: unknown, origin?: string): value is string {
+  return safeNextPath(value, origin) !== null
+}
+
+/**
+ * The current page as a `next=` value — read from the address bar, not from
+ * user input, so it needs no validation before being handed to `/auth`.
+ * Shared so every "sign in to unlock this" spot (the rail's locked rows, the
+ * card sheet's per-variant prompt, the header's sign-in chip) agrees on the
+ * shape: `pathname + search`, no hash. A hash on the CURRENT page is scroll
+ * position or a client-only UI flag, never something worth restoring through
+ * a full sign-in round trip.
+ */
+export function currentPathAsNext(): string {
+  return `${window.location.pathname}${window.location.search}`
 }
