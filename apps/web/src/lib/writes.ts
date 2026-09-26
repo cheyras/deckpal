@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
-import { NotSentError, WriteLane, outcomeKnown, type WriteOutcome, type WriteRequest } from './writeLane'
+import { NotSentError, UNCERTAIN_FOR_MS, WriteLane, outcomeKnown, type WriteOutcome, type WriteRequest } from './writeLane'
 import { failureMessage } from './writeFailure'
 import { dismissToast, showToast } from './toast'
 import { IDENTITY_CHANGED } from './access'
@@ -80,6 +80,10 @@ class AccountChangedError extends NotSentError {
  * it is sent, that the session is still the one it was asked under.
  */
 export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<WriteOutcome<R>> {
+  // Refused on the spot while offline, not queued: a write waiting behind
+  // another would otherwise sit there and go out by itself on reconnecting —
+  // the offline queue this app deliberately does not have.
+  if (!online()) return Promise.resolve({ status: 'failed', error: new NotSentError(), final: true })
   const askedBy = sessionIdentity()
   return laneFor(laneKey)
     .write({
@@ -87,9 +91,10 @@ export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<Wri
       send: async (signal) => {
         const [asked, now] = await Promise.all([askedBy, sessionIdentity()])
         if (asked !== null && now !== null && asked !== now) throw new AccountChangedError()
-        // Decided BEFORE sending: a request refused here certainly never
-        // reached the server, so there is nothing that could still land. A
-        // connection that drops after the request left stays an uncertain
+        // Checked again at the moment of sending, for a write accepted online
+        // that waited its turn. Decided BEFORE sending, a refusal certainly
+        // never reached the server, so there is nothing that could still land;
+        // a connection that drops after the request left stays an uncertain
         // failure, however offline the device reports itself by then.
         if (!online()) throw new NotSentError()
         return request.send(signal)
@@ -121,7 +126,9 @@ export interface Save<R> extends WriteRequest<R> {
   success?: { message: string; undo: () => void }
   /** Re-read what this write changes, after a failure the server never
    *  answered: it may still have been applied, and the screen (and the next
-   *  absolute target built on it) must not keep showing the old value. */
+   *  absolute target built on it) must not keep showing the old value. Run at
+   *  once and again when the request can no longer land, since a late commit
+   *  would be missed by the first read. */
   refresh?: () => void
 }
 
@@ -129,7 +136,10 @@ export interface Save<R> extends WriteRequest<R> {
 export function save<R>(laneKey: string, request: Save<R>): Promise<WriteOutcome<R>> {
   return write(laneKey, request).then((outcome) => {
     if (outcome.status === 'failed' && outcome.final) {
-      if (!outcomeKnown(outcome.error)) request.refresh?.()
+      if (!outcomeKnown(outcome.error) && request.refresh) {
+        request.refresh()
+        setTimeout(request.refresh, UNCERTAIN_FOR_MS)
+      }
       reportWriteFailure(request.failure, outcome.error, request.retry)
     } else if (outcome.status === 'saved' && outcome.final && request.success) {
       showToast({ tone: 'info', message: request.success.message, action: { label: 'Undo', run: request.success.undo } })

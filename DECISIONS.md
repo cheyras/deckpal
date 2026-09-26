@@ -20553,6 +20553,10 @@ reordered latency and offline (`tests/browser/writes.mjs`).
   60 s `maxDuration`, so it can no longer land after its replacement. A unit
   test holds that margin against `vercel.json`. Failures the server answered
   (a 500), and requests that never left an offline device, fence nothing.
+  After an unanswered failure the surface re-reads what the write touched,
+  at once and again when the window closes, in case the change landed late.
+- Offline, a write is refused when it is asked for, not queued: one waiting
+  behind another would otherwise go out by itself on reconnecting.
 - `applyAnswer` cancels every read of the data a write touched that is in
   flight when its answer arrives, applies the answer, then asks those reads
   again, so a slow GET can neither undo the edit on screen nor be lost (an
