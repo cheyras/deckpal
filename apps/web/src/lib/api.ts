@@ -15,6 +15,7 @@ import { isCloudMode } from './supabase'
 import { readSession, refreshSessionBounded } from './authSession'
 import { isPublicPathname } from './landingRoute'
 import { isJsonContentType } from './jsonContentType'
+import { remainingPages } from './pagePlan'
 import type { ValueRangeKey } from './insightsCaption'
 import type { PriceGrain, PriceHistoryPoint } from './priceGrain'
 import type { AppDefaults, AdminUser, PageResult, RoleList, AuditEvent, CreditSettings, CreditPolicy, CreditPack, CreditEvent, Wallet, CreditOrder, CreditSummary, AdminCreditOrder } from './adminTypes'
@@ -1581,6 +1582,33 @@ export const api = {
     get<SeriesDetailResponse>(`/series/${encodeURIComponent(slug)}`, signal),
   set: (setId: string, params: URLSearchParams, signal?: AbortSignal) =>
     get<SetDetailResponse>(`/sets/${encodeURIComponent(setId)}?${params.toString()}`, signal),
+  /**
+   * A set's FULL card list, following `pagination.pageCount` past the API's
+   * single-request cap (250 — `clampInt` in `apps/api/src/routes/sets.ts`).
+   *
+   * 9 sets today (Ascended Heroes at 295, SWSH Promos at 307, …) have more
+   * cards than that cap, and `api.set()` alone silently returns only the
+   * first page — the highest numbers, where the chase rares sit, never come
+   * back (UXC-01). `pagination.total`/`pageCount` on page 1 are already
+   * correct regardless of how many cards page 1 itself carries, so this
+   * fetches page 1, asks `remainingPages` whether there's more, and — for
+   * those 9 sets only — fetches the rest in parallel with the same filters
+   * before concatenating `cards`. One extra request, only when the set needs
+   * it; every other set is unaffected.
+   */
+  setAllCards: async (setId: string, params: URLSearchParams, signal?: AbortSignal): Promise<SetDetailResponse> => {
+    const first = await api.set(setId, params, signal)
+    const rest = remainingPages(first.pagination)
+    if (rest.length === 0) return first
+    const pages = await Promise.all(
+      rest.map((page) => {
+        const p = new URLSearchParams(params)
+        p.set('page', String(page))
+        return api.set(setId, p, signal)
+      }),
+    )
+    return { ...first, cards: [...first.cards, ...pages.flatMap((r) => r.cards)] }
+  },
   /**
    * A TCGplayer cart deep link for everything still needed to finish a set.
    *
