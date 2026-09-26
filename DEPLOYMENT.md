@@ -332,28 +332,36 @@ reverse-proxy / platform controls remain the deployment boundary.
 
 Every REST route's JSON body limit is now sized per route rather than one
 12 MB parser for the whole API (see `SECURITY.md`'s "Body-size limits" section
-for the full table and the reasoning). Nothing here is configurable and
-nothing needs to be: `/bugs` (12 MB, the screenshot), `/dev/scan-queue` and
-`/dev/scan-flags` (4200 KB, labeler/harness photos, owner-only in production),
-`/decke` (1 MB, one transcript-history turn), `/lists` (1 MB, a bulk item
-add), `/decks` (256 KB, the strategy-guide and battle-log text), and 100 KB
-for everything else. `/register` and `/token` keep their existing 16 KB
-parsers in `oauthServer.ts`, now actually effective. Deck-E's live chat
-(`api/chat.mjs`) is a separate Vercel function with its own body handling
-and is untouched by any of this.
+for the full table and the reasoning), mounted immediately after the pre-auth
+ingress guard — ahead of authentication, since bounding a body's size needs
+none. Nothing here is configurable and nothing needs to be: `/bugs` (12 MB,
+the screenshot), `/dev/scan-queue` and `/dev/scan-flags` (4200 KB,
+labeler/harness photos, owner-only in production), `/decke` (2 MB, one
+transcript-history turn), `/lists` (2 MB, a bulk item add), `/decks` (512 KB,
+the strategy-guide and battle-log text), and 100 KB for everything else.
+`/register` and `/token` keep their existing 16 KB parsers in
+`oauthServer.ts`, now actually effective. Deck-E's live chat (`api/chat.mjs`)
+is a separate Vercel function with its own body handling and is untouched by
+any of this.
 
 Every one of the numbers above is sized in **bytes on the wire**, not
-characters: a character-count cap elsewhere in this codebase (e.g.
-`STRATEGY_MAX`, `RAW_LOG_MAX`) counts JS string length (UTF-16 code units),
-and a non-Latin character (CJK, Hangul, Cyrillic) costs up to 3 UTF-8 bytes
-per code unit. `/decke` and `/decks` are both sized at that ×3 worst case —
-an earlier pass that assumed 1 byte per character sized `/decke` with almost
-no headroom and missed `/decks` entirely, which would have 413'd a
-legitimate non-English strategy guide or battle log. `/dev/scan-queue` and
-`/dev/scan-flags` have the inverse problem: their decoded caps (3 MB) divide
-evenly by 3, so base64 encoding produces EXACTLY 4 MB on the wire with
-nothing left for the JSON wrapper around it — a bare 4 MB parser 413'd a
-real max-size upload, so both get 4200 KB instead.
+characters, and `/decke`, `/lists` and `/decks` are reachable over the plain
+REST API (a personal access token, an MCP client, a script) — not only this
+repo's own browser client — so the limit has to hold for whatever a caller's
+own JSON encoder does. A character-count cap elsewhere in this codebase (e.g.
+`STRATEGY_MAX`, `RAW_LOG_MAX`) counts JS string length (UTF-16 code units); a
+raw-UTF-8 client costs up to 3 bytes per non-Latin code unit (CJK, Hangul,
+Cyrillic), and an ASCII-safe-escaping client — Python's `json.dumps` defaults
+to `ensure_ascii=True` — costs 6 (`\uXXXX` is 6 ASCII bytes for 1 code unit).
+`/decke`, `/lists` and `/decks` are all sized at that ×6 worst case: two
+review passes each caught a version of this undersizing — the first pass
+assumed 1 byte per character and missed `/decks` entirely; a second pass
+found the first fix's ×3 estimate itself insufficient once measured against
+an actual ASCII-escaped body. `/dev/scan-queue` and `/dev/scan-flags` have
+the inverse problem: their decoded caps (3 MB) divide evenly by 3, so base64
+encoding (pure ASCII, no further escaping possible) produces EXACTLY 4 MB on
+the wire with nothing left for the JSON wrapper around it — a bare 4 MB
+parser 413'd a real max-size upload, so both get 4200 KB instead.
 
 #### `pgvector` is a prerequisite of migration 051
 

@@ -810,12 +810,14 @@ describe('production ingress and session limits over real HTTP', () => {
       return matches[0]!.position;
     };
     const ingress = once('preAuthFloodGuard');
+    const auth = once('authMiddleware');
     const database = source.indexOf('pool.connect()');
     assert.ok(database >= 0, 'RLS connection acquisition exists');
 
-    // SEC-11: keyed on the account, mounted before RLS.
+    // SEC-11: keyed on the account, so it needs authMiddleware to have
+    // settled req.user first, and it still has to land before RLS.
     const bugsLimiter = once("'/bugs',bugsRateLimit");
-    assert.ok(ingress < bugsLimiter && bugsLimiter < database, 'bugsRateLimit sits after ingress and before RLS');
+    assert.ok(auth < bugsLimiter && bugsLimiter < database, 'bugsRateLimit sits after authMiddleware and before RLS');
 
     // SEC-08: each named exception, in most-specific-first order, then the
     // blanket default last — reversing this order would let the default cap
@@ -825,17 +827,24 @@ describe('production ingress and session limits over real HTTP', () => {
       "'/bugs',express.json({limit:'12mb'})",
       "'/dev/scan-queue',express.json({limit:'4200kb'})",
       "'/dev/scan-flags',express.json({limit:'4200kb'})",
-      "'/decke',express.json({limit:'1mb'})",
-      "'/lists',express.json({limit:'1mb'})",
-      "'/decks',express.json({limit:'256kb'})",
+      "'/decke',express.json({limit:'2mb'})",
+      "'/lists',express.json({limit:'2mb'})",
+      "'/decks',express.json({limit:'512kb'})",
       "express.json({limit:'100kb'})",
     ];
     const positions = bodyLimitOrder.map(once);
     for (let i = 1; i < positions.length; i++) {
       assert.ok(positions[i - 1]! < positions[i]!, `body-size mounts out of order at "${bodyLimitOrder[i]}"`);
     }
-    assert.ok(bugsLimiter < positions[0]!, 'bugsRateLimit rejects before the body is even parsed');
-    assert.ok(ingress < positions[0]!, 'body-size limits sit after the pre-auth flood guard');
+    // Body-size limiting needs no identity, so it is mounted ahead of
+    // authMiddleware (and therefore ahead of bugsRateLimit too) rather than
+    // after it — deliberately the same insertion point right after the
+    // ingress guard that a route with no identity requirement of its own
+    // would reach for, so a second PR adding one there produces a merge
+    // conflict to resolve consciously instead of a silent, no-conflict merge
+    // that leaves that route with no body parser at all.
+    assert.ok(ingress < positions[0]!, 'body-size limits sit right after the pre-auth flood guard');
+    assert.ok(positions[positions.length - 1]! < auth, 'the blanket default still precedes authMiddleware');
     assert.ok(positions[positions.length - 1]! < database, 'the blanket default still precedes RLS');
 
     // Regression guard: the blanket 12mb parser this PR removed must not

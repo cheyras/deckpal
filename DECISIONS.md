@@ -20506,13 +20506,17 @@ security audit's edge-hardening findings.
    single `express.json({limit:'12mb'})` that sat on `app` ahead of every
    route (including `preAuthFloodGuard`, `authMiddleware`, and the bare-origin
    OAuth routes). In its place, `apps/api/src/index.ts` mounts named,
-   most-specific-first parsers inside the base-path router: `/bugs` 12mb,
-   `/dev/scan-queue` 4mb, `/dev/scan-flags` 4mb, `/decke` 1mb, `/lists` 1mb,
-   `/decks` 256kb, and a 100kb default for everything else. `/register` and
-   `/token` keep their existing 16kb parsers in `oauthServer.ts`, which are
-   now actually reachable. `apps/api/src/http.ts`'s `errorMiddleware` now
-   translates a body-parser `entity.too.large` error into a proper
-   `413 payload_too_large` JSON response instead of a generic `500`.
+   most-specific-first parsers *immediately after `preAuthFloodGuard` and
+   ahead of `authMiddleware`* (see finding 5 below for why that exact
+   position matters), inside the base-path router: `/bugs` 12mb,
+   `/dev/scan-queue` 4200kb, `/dev/scan-flags` 4200kb, `/decke` 2mb, `/lists`
+   2mb, `/decks` 512kb (see findings 3–4 below for why these three aren't
+   rounder, smaller numbers), and a 100kb default for everything else.
+   `/register` and `/token` keep their existing 16kb parsers in
+   `oauthServer.ts`, which are now actually reachable.
+   `apps/api/src/http.ts`'s `errorMiddleware` now translates a body-parser
+   `entity.too.large` error into a proper `413 payload_too_large` JSON
+   response instead of a generic `500`.
 2. **`/register`, `/token`, the two `.well-known` OAuth discovery routes, and
    `/mcp` each get a rate limiter.** The first four share a new
    `oauthPublicRateLimit` (`apps/api/src/rateLimit.ts`), 30/min per source IP,
@@ -20614,15 +20618,49 @@ here:**
    says. The test now encodes and sends a real 3 MiB buffer rather than an
    ASCII fixture, so this class of "estimated size, not measured size" bug
    cannot silently regress again.
+4. **[P2] The ×3 multibyte fix in finding 2 was itself insufficient for a
+   real client.** `/decke`, `/lists` and `/decks` are reachable over the
+   plain REST API (a personal access token, an MCP client, a script), not
+   only this repo's own browser client — so a limit sized only against this
+   repo's `JSON.stringify` (which never escapes non-ASCII) is sized against
+   the wrong client. Reproduced directly: Python's `json.dumps`
+   (`ensure_ascii=True`, the default) encodes a supported 50,000-character
+   `rawLog` as 300,013 bytes — `\uXXXX` costs 6 ASCII bytes for what a raw
+   UTF-8 encoder spends 3 on — comfortably over the ×3-sized `/decks`
+   exception finding 2 added. Fixed by resizing all three character-based
+   exceptions to the ×6 worst case (`/decke` 1mb→2mb, `/lists` 1mb→2mb,
+   `/decks` 256kb→512kb) and adding a second test per route that sends the
+   ASCII-escaped serialization, not just the raw-UTF-8 one.
+5. **A merge-order hazard with a concurrently open PR, found while verifying
+   the coordinator's own note about it.** PR #209 (`fix/error-boundaries`)
+   adds `POST /client-errors`, mounted immediately after `preAuthFloodGuard`
+   and reading `req.body` directly with no parser of its own — relying, like
+   every other route in this codebase, on a shared parser having already
+   run. The coordinator's framing ("make sure your default covers ~16kb")
+   was addressing body SIZE; checking the actual diff found a different,
+   more serious problem: that route sits before this PR's entire body-size
+   block (which, until this finding, sat after `authMiddleware` and the
+   per-user rate limits) — so once both PRs merge, `/client-errors` would
+   run with NO body parser having executed at all, silently logging every
+   crash report as empty rather than erroring. Fixed by moving the whole
+   SEC-08 block to mount immediately after `preAuthFloodGuard`, ahead of
+   `authMiddleware` — a genuine improvement on its own (bodies bounded
+   before spending any auth work) that also means a future PR inserting
+   something at that same insertion point produces a textual merge conflict
+   to resolve consciously, rather than a silent, no-conflict merge that
+   quietly breaks whichever route arrived first.
 
-All three findings are the kind that plausible reasoning and ASCII-only test
+All five findings are the kind that plausible reasoning and ASCII-only test
 fixtures cannot catch — the first needed an adversarial "what can an attacker
-who never authenticates do" pass, the second and third needed an actual
-multibyte string and an actual base64-encoded buffer respectively, not an
-estimate of what one would look like. Recorded here because the pattern
-(character length vs. byte length in both directions; per-credential vs.
-global admission for unauthenticated traffic) will recur the next time
-someone sizes a limit in this codebase.
+who never authenticates do" pass; the second, third and fourth each needed an
+actual multibyte string, an actual base64-encoded buffer, or an actual
+ASCII-escaped serialization, not an estimate of what one would look like; the
+fifth needed reading the other PR's actual diff instead of trusting a
+secondhand description of it. Recorded here because the pattern (character
+length vs. byte length, in both directions and both serializations;
+per-credential vs. global admission for unauthenticated traffic; verify a
+cross-PR claim against the real diff) will recur the next time someone sizes
+a limit or coordinates a shared file in this codebase.
 
 **Implications:**
 
@@ -20630,13 +20668,20 @@ someone sizes a limit in this codebase.
   API), per route" sections, and `DEPLOYMENT.md`'s "Rate limiting" and new
   "Body-size limits" subsections, document the exact numbers and the ordering
   mechanism above. Read those before changing any of these limits again — the
-  ordering (most-specific-first, default last) is load-bearing, not cosmetic.
+  ordering (most-specific-first, default last, all of it ahead of
+  `authMiddleware`) is load-bearing, not cosmetic.
 - No new environment variable: every number above is a hardcoded constant,
   matching the existing style of every other limiter in `rateLimit.ts`.
 - If a future route needs a body bigger than 100kb, it needs its own scoped
   `express.json()` mounted *before* the 100kb default in `index.ts`'s ordered
   block — appending it after the default is the exact bug this decision
-  fixes.
+  fixes. If a future route needs no identity at all (like `/client-errors`),
+  its natural home is that same block, right after `preAuthFloodGuard` —
+  which is exactly why finding 5 above moved the block there.
+- If a future character-count cap needs a body-size exception, size it at
+  ×6, not ×3: a raw-UTF-8 client is the CHEAPEST case, not the worst one, once
+  the route is reachable from anything other than this repo's own browser
+  code.
 - Deck-E's live chat (`api/chat.mjs`, SEC-04 in the same audit) is a separate
   Vercel function with its own body handling and is untouched by any of this;
   an open PR (`fix/decke-hardening`) bounds its request body with zod

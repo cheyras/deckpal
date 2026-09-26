@@ -158,12 +158,38 @@ router (`/api` on Vercel, `/deckpal/api` self-host) as follows:
    Vercel's validated `x-vercel-forwarded-for` (then `x-forwarded-for`)
    identifies the client; outside Vercel, forwarded headers are ignored and
    the raw socket peer is used. Express `trust proxy` remains false.
-2. **Authentication and local identity** — `authMiddleware` verifies a JWT
+2. **Body-size limits, per route (SEC-08)** — mounted immediately after the
+   ingress guard and *ahead of authentication*, since bounding a body's size
+   needs no identity: named exceptions mounted most-specific-first, then a
+   100kb default. `/bugs` 12mb, `/dev/scan-queue` and `/dev/scan-flags`
+   4200kb (not a bare 4mb — a max-size upload's base64 form is exactly 4mb,
+   with nothing left for its JSON wrapper), `/decke` 2mb, `/lists` 2mb,
+   `/decks` 512kb.
+   Order is load-bearing here, not cosmetic: `express.json()` no-ops on a
+   request whose body a *prior* matching parser already consumed, so
+   whichever parser for a path runs first decides its limit — the exceptions
+   must precede the default, which is why there is no longer a single
+   blanket parser on `app` ahead of everything (that parser used to shadow
+   `/register`'s and `/token`'s own smaller ones the same way). This is also
+   deliberately the same insertion point right after the ingress guard that
+   a future route with no identity requirement of its own would reach for —
+   a second addition there should produce a merge conflict to resolve
+   consciously, not a silent, no-conflict merge that leaves that route with
+   no body parser at all. Every number here is sized in bytes on the wire,
+   not characters, for whatever a caller's OWN JSON encoder does — `/decke`,
+   `/lists` and `/decks` are reachable over the plain REST API (a personal
+   access token, an MCP client, a script), not only this repo's browser
+   client. A character-count cap elsewhere in the codebase (`STRATEGY_MAX`,
+   `RAW_LOG_MAX`, …) counts UTF-16 code units; a raw-UTF-8 client costs up to
+   3 bytes per non-Latin unit, and an ASCII-safe-escaping client (Python's
+   `json.dumps` default) costs 6. `/decke`, `/lists` and `/decks` are all
+   sized at that ×6 worst case.
+3. **Authentication and local identity** — `authMiddleware` verifies a JWT
    or resolves a PAT. Self-host resolves its single local account before the
    session limits. The trusted bootstrap check also precedes RLS. Token lookup,
    local-identity lookup or initialization may use the base/trusted pool here;
    RLS is not necessarily the first database access.
-3. **Session gates and per-user limits** — `requireSession` rejects cloud
+4. **Session gates and per-user limits** — `requireSession` rejects cloud
    anonymous callers (401) and PATs (403) for `/tokens` (20/min), `/avatar`
    (10/min), `/oauth` (30/min), the whole `/admin` subtree (120/min) and the
    whole `/me/credits` subtree (180/min). `/bugs` (10/hour, SEC-11) sits beside
@@ -172,23 +198,6 @@ router (`/api` on Vercel, `/deckpal/api` self-host) as follows:
    has already settled. Credit administration consumes the parent admin
    budget once; wallet polling has its own budget. Rejection happens before
    the RLS request connection is acquired.
-4. **Body-size limits, per route (SEC-08)** — named exceptions mounted
-   most-specific-first, then a 100kb default: `/bugs` 12mb, `/dev/scan-queue`
-   and `/dev/scan-flags` 4200kb (not a bare 4mb — a max-size upload's base64
-   form is exactly 4mb, with nothing left for its JSON wrapper), `/decke`
-   1mb, `/lists` 1mb, `/decks` 256kb.
-   Order is load-bearing here, not cosmetic: `express.json()` no-ops on a
-   request whose body a *prior* matching parser already consumed, so
-   whichever parser for a path runs first decides its limit — the exceptions
-   must precede the default, which is why there is no longer a single
-   blanket parser on `app` ahead of everything (that parser used to shadow
-   `/register`'s and `/token`'s own smaller ones the same way). Also before
-   the RLS connection is acquired, so an oversized body never claims one
-   either. Every number here is sized in bytes on the wire, not characters —
-   a character-count cap elsewhere in the codebase (`STRATEGY_MAX`,
-   `RAW_LOG_MAX`, …) counts UTF-16 code units, and a non-Latin character can
-   cost 3 UTF-8 bytes per unit; `/decke` and `/decks` are both sized at that
-   ×3 worst case.
 5. **RLS context** — acquire the per-request connection and establish claims/
    SQL role. Cloud requests, including accepted anonymous catalog reads, use
    the existing transaction path. Self-host request transactions are scoped

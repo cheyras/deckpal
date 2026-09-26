@@ -211,6 +211,84 @@ export function createApp(): express.Express {
   // not loopback — see expressjs.com/en/guide/behind-proxies.html).
   api.use(preAuthFloodGuard);
 
+  // ── SEC-08: body-size limits, sized per route ─────────────────────────────
+  //
+  // Mounted here: immediately after preAuthFloodGuard, so a flood is
+  // throttled before a byte of any body is read, and ahead of authMiddleware
+  // and everything after it, since nothing about body-size limiting needs
+  // identity. (This is also deliberately the same insertion point another
+  // route with no identity requirement of its own would reach for — a
+  // second PR adding one here should produce a merge conflict to resolve
+  // consciously, not a silent, no-conflict merge that leaves that route
+  // running with no body parser at all because this block moved past it.)
+  // Ordered most-specific-first on purpose -- express.json() no-ops on a
+  // request whose body a prior matching parser already consumed (see the
+  // note above mountOAuthServer), so whichever line below matches a request
+  // FIRST decides its limit. The blanket default is last so it can never
+  // shadow one of the named exceptions above it.
+  //
+  // routes/bugs.ts's MAX_IMG_BYTES is 8mb decoded; base64 costs +33%, so a
+  // full-size screenshot is ~10.7mb on the wire before the JSON wrapper and
+  // the 20kb text fields. 12mb is what this repo already sized for exactly
+  // this upload -- this line replaces the identical number that used to sit
+  // on `app`, unscoped, above.
+  api.use('/bugs', express.json({ limit: '12mb' }));
+  // dev/scanQueue.ts's MAX_PHOTO_BYTES is 3mb decoded. 3,145,728 bytes is
+  // exactly divisible by 3, so its base64 form is exactly 4,194,304 bytes
+  // (4mb) on the wire -- a photo AT the supported limit, wrapped in
+  // {"jpg":"...","name":"...","source":"..."}, needs more than 4mb, not
+  // "room for the wrapper" as that file's own comment assumed (review
+  // caught this: a real max-size upload 413'd against a bare 4mb parser).
+  // 4200kb leaves ~104kb of headroom for the wrapper and any base64 padding.
+  api.use('/dev/scan-queue', express.json({ limit: '4200kb' }));
+  // dev/scanFlags.ts's MAX_UPLOAD_BYTES (3mb) bounds pngBytes + metaJson
+  // COMBINED, decoded -- the same arithmetic as scan-queue above applies
+  // when nearly the whole budget is the base64 png, so this gets the same
+  // 4200kb headroom rather than a bare 4mb.
+  api.use('/dev/scan-flags', express.json({ limit: '4200kb' }));
+  // Every character-count cap in this file (MAX_TEXT, STRATEGY_MAX, etc.) is
+  // a JS string length -- UTF-16 CODE UNITS, not the UTF-8 BYTES a limit
+  // here actually measures, and these routes are reachable over the plain
+  // REST API (a personal access token, an MCP client, a script) as well as
+  // this repo's own browser client, which never assumes the CALLER's JSON
+  // serialization. A raw UTF-8 client costs up to 3 bytes per BMP code unit
+  // outside Latin-1 (CJK, Hangul, Cyrillic). An ASCII-SAFE-escaping client --
+  // Python's `json.dumps` defaults to `ensure_ascii=True`, and it is a common
+  // default elsewhere too -- costs 6: `\uXXXX` is 6 ASCII bytes for one
+  // character that was 1 UTF-16 code unit. Sizing at x3 (measured against
+  // this repo's own browser client, which does not escape) 413'd a
+  // perfectly valid escaped-JSON request from any other client -- reproduced
+  // directly: a supported 50,000-character rawLog, encoded the way Python's
+  // standard library encodes it, is 300,013 bytes, comfortably over a x3
+  // budget. Every number below is now sized at x6.
+  //
+  // routes/deckeHistory.ts writes one transcript turn per call: two MAX_TEXT
+  // fields (24,000 chars each) plus up to MAX_TOOLS (60) tool records, each up
+  // to name+phase+title+summary+MAX_ARGS_CHARS (roughly 790+1,200 chars). At
+  // x6 that's (48,000 + 60*1,990) * 6 =~ 1004kb before the JSON structure
+  // itself; 2mb leaves real headroom.
+  api.use('/decke', express.json({ limit: '2mb' }));
+  // routes/lists.ts's POST /:id/items/bulk allows BULK_MAX (500) items, each
+  // with its own NOTE_MAX (500-char) note. At x6 that's 500*500*6 =~ 1.43mb
+  // before structure; 2mb leaves headroom without reopening the ceiling for
+  // every other /lists route (a single list's own fields cap out at
+  // DESC_MAX, 2,000 chars).
+  api.use('/lists', express.json({ limit: '2mb' }));
+  // routes/decks.ts's PUT /:id/strategy (STRATEGY_MAX 40,000 chars) and
+  // POST /:id/logs + /log-preview (RAW_LOG_MAX 50,000 chars) are the two
+  // biggest single-field text caps outside the routes above. At x6 the
+  // larger is 50,000*6 =~ 293kb (matches the 300,013-byte reproduction
+  // above almost exactly) -- already over the 100kb default below, so this
+  // route gets its own exception rather than 413ing a legitimate escaped-JSON
+  // or non-English battle log or strategy guide (the regression an
+  // insufficient x3 estimate produced in an earlier version of this block).
+  api.use('/decks', express.json({ limit: '512kb' }));
+  // Every other route posts small JSON (ids, filters, short text) with no
+  // field anywhere near this file's largest caps. 100kb is generous headroom
+  // even at x6 over the biggest of those (list-rules and mass-entry batches,
+  // a few KB of ids).
+  api.use(express.json({ limit: '100kb' }));
+
   // JWT verification runs on every request (extracts req.user from Bearer token).
   // It never rejects — user-scoped routers are gated by resolveIdentity below,
   // and the session-only ones (/me/billing, /tokens, /avatar, /oauth) by
@@ -244,74 +322,6 @@ export function createApp(): express.Express {
   // lets this be per-account instead of routes/bugs.ts's old per-`req.ip`
   // bucket (one shared bucket behind a proxy, defeating the whole limit).
   api.use('/bugs', bugsRateLimit);
-
-  // ── SEC-08: body-size limits, sized per route ─────────────────────────────
-  //
-  // Mounted here: after preAuthFloodGuard, so a flood is throttled before a
-  // byte of any body is read, and before the RLS block below, so an oversized
-  // body never claims a pooled connection either. Ordered most-specific-first
-  // on purpose -- express.json() no-ops on a request whose body a prior
-  // matching parser already consumed (see the note above mountOAuthServer),
-  // so whichever line below matches a request FIRST decides its limit. The
-  // blanket default is last so it can never shadow one of the named
-  // exceptions above it.
-  //
-  // routes/bugs.ts's MAX_IMG_BYTES is 8mb decoded; base64 costs +33%, so a
-  // full-size screenshot is ~10.7mb on the wire before the JSON wrapper and
-  // the 20kb text fields. 12mb is what this repo already sized for exactly
-  // this upload -- this line replaces the identical number that used to sit
-  // on `app`, unscoped, above.
-  api.use('/bugs', express.json({ limit: '12mb' }));
-  // dev/scanQueue.ts's MAX_PHOTO_BYTES is 3mb decoded. 3,145,728 bytes is
-  // exactly divisible by 3, so its base64 form is exactly 4,194,304 bytes
-  // (4mb) on the wire -- a photo AT the supported limit, wrapped in
-  // {"jpg":"...","name":"...","source":"..."}, needs more than 4mb, not
-  // "room for the wrapper" as that file's own comment assumed (review
-  // caught this: a real max-size upload 413'd against a bare 4mb parser).
-  // 4200kb leaves ~104kb of headroom for the wrapper and any base64 padding.
-  api.use('/dev/scan-queue', express.json({ limit: '4200kb' }));
-  // dev/scanFlags.ts's MAX_UPLOAD_BYTES (3mb) bounds pngBytes + metaJson
-  // COMBINED, decoded -- the same arithmetic as scan-queue above applies
-  // when nearly the whole budget is the base64 png, so this gets the same
-  // 4200kb headroom rather than a bare 4mb.
-  api.use('/dev/scan-flags', express.json({ limit: '4200kb' }));
-  // Every character-count cap in this file (MAX_TEXT, STRATEGY_MAX, etc.) is
-  // a JS string length -- UTF-16 CODE UNITS, not the UTF-8 BYTES a limit
-  // here actually measures. The ratio is 1 for ASCII, but a single BMP
-  // character outside Latin-1 (CJK ideographs, Hangul, Cyrillic, most of
-  // the world's scripts) is 1 code unit and 2-3 UTF-8 bytes -- a legitimate
-  // strategy guide or transcript turn written in Japanese can be 3x the size
-  // an ASCII-only estimate predicts. Every sizing note below already
-  // multiplies by 3 for exactly this reason; a caller who assumes 1 byte per
-  // character will 413 a real, honest, non-English request. (Astral/emoji
-  // characters cost 2 code units for 4 bytes -- a ratio of 2, already
-  // covered by the x3 headroom used below.)
-  //
-  // routes/deckeHistory.ts writes one transcript turn per call: two MAX_TEXT
-  // fields (24,000 chars each) plus up to MAX_TOOLS (60) tool records, each up
-  // to name+phase+title+summary+MAX_ARGS_CHARS (roughly 790+1,200 chars). At
-  // x3 that's (48,000 + 60*1,990) * 3 =~ 502kb before the JSON structure
-  // itself; 1mb leaves real headroom rather than the ~2% this had at 512kb.
-  api.use('/decke', express.json({ limit: '1mb' }));
-  // routes/lists.ts's POST /:id/items/bulk allows BULK_MAX (500) items, each
-  // with its own NOTE_MAX (500-char) note. At x3 that's 500*500*3 =~ 750kb
-  // before structure; 1mb leaves headroom without reopening the ceiling for
-  // every other /lists route (a single list's own fields cap out at
-  // DESC_MAX, 2,000 chars).
-  api.use('/lists', express.json({ limit: '1mb' }));
-  // routes/decks.ts's PUT /:id/strategy (STRATEGY_MAX 40,000 chars) and
-  // POST /:id/logs + /log-preview (RAW_LOG_MAX 50,000 chars) are the two
-  // biggest single-field text caps outside the routes above. At x3 the
-  // larger is 50,000*3 =~ 150kb -- already over the 100kb default below, so
-  // this route gets its own exception rather than 413ing a legitimate
-  // non-English battle log or strategy guide (the regression a character-only
-  // estimate produced in an earlier version of this block).
-  api.use('/decks', express.json({ limit: '256kb' }));
-  // Every other route posts small JSON (ids, filters, short text) with no
-  // field anywhere near this file's largest caps. 100kb is generous headroom
-  // even at x3 over the biggest of those (list-rules and mass-entry batches,
-  // a few KB of ids).
-  api.use(express.json({ limit: '100kb' }));
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS

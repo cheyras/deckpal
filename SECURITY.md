@@ -468,28 +468,41 @@ whichever parser for a given path ran **first** decided its limit — and the
 blanket 12 MB parser on `app` always ran first for every path.
 
 **The fix is per-route parsers, most-specific first**, mounted on the ordinary
-base-path router (`createApp` in `apps/api/src/index.ts`) after
-`preAuthFloodGuard` and the per-user rate limits, before the RLS connection is
-acquired — so a flood is throttled, and an oversized body rejected, before
-either a byte is read or a pooled connection is claimed. Every character-count
+base-path router (`createApp` in `apps/api/src/index.ts`) immediately after
+`preAuthFloodGuard` — ahead of `authMiddleware`, the per-user rate limits and
+the RLS connection acquisition, since none of them are needed to bound a
+body's size — so a flood is throttled, and an oversized body rejected, before
+either a byte is read or a pooled connection is claimed. (This is also
+deliberately the same insertion point a future route with no identity
+requirement of its own would reach for: a second addition there should
+produce a merge conflict to resolve consciously, not a silent, no-conflict
+merge that leaves that route with no body parser at all.) Every character-count
 cap this repo already had (`MAX_TEXT`, `STRATEGY_MAX`, `RAW_LOG_MAX`, …) is a
 JS string length — UTF-16 **code units**, not the UTF-8 **bytes** a limit
-here actually measures. The ratio is 1 for ASCII, but a single BMP character
-outside Latin-1 (CJK, Hangul, Cyrillic — most of the world's scripts) is 1
-code unit and 3 bytes: a legitimate strategy guide or battle log written in
-Japanese can be **3×** the size an ASCII-only estimate predicts. An earlier
-version of the table below sized `/decke` and omitted `/decks` entirely on
-exactly that mistaken assumption; both numbers below already account for it.
+here actually measures — and `/decke`, `/lists` and `/decks` are reachable
+over the plain REST API (a personal access token, an MCP client, a script),
+not only this repo's own browser client, so the limit has to hold for
+whatever a caller's OWN JSON encoder does, not just this repo's. A raw-UTF-8
+client (this repo's browser code, `JSON.stringify`) costs up to 3 bytes per
+BMP code unit outside Latin-1 (CJK, Hangul, Cyrillic — most of the world's
+scripts). An ASCII-safe-escaping client — Python's `json.dumps` defaults to
+`ensure_ascii=True`, and it is a common default elsewhere too — costs **6**:
+`\uXXXX` is 6 ASCII bytes for what was 1 code unit. Two review passes each
+caught a version of this: the first sized the table below at ×3 and omitted
+`/decks` entirely; the second found ×3 itself insufficient once measured
+against an actual ASCII-escaped body (a supported 50,000-character `rawLog`,
+`json.dumps`-encoded, is 300,013 bytes). Every number below is now the ×6
+worst case.
 
 | Route | Limit | Why |
 |---|---|---|
-| `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields (×3 for multibyte text is still negligible against the image). |
-| `/dev/scan-queue` | 4200 KB | The labeler queue photo. `MAX_PHOTO_BYTES` (3 MB decoded) divides evenly by 3, so its base64 form is EXACTLY 4 MB on the wire — leaving no room for the `{"jpg":…,"name":…,"source":…}` wrapper around it. A bare 4 MB parser 413'd a real max-size upload (caught in review); 4200 KB leaves ~104 KB of headroom. Base64 is pure ASCII, so the ×3 multibyte ratio above doesn't apply. Owner-only in production. |
+| `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields (×6 for escaped multibyte text is still negligible against the image). |
+| `/dev/scan-queue` | 4200 KB | The labeler queue photo. `MAX_PHOTO_BYTES` (3 MB decoded) divides evenly by 3, so its base64 form is EXACTLY 4 MB on the wire — leaving no room for the `{"jpg":…,"name":…,"source":…}` wrapper around it. A bare 4 MB parser 413'd a real max-size upload (caught in review); 4200 KB leaves ~104 KB of headroom. Base64 is pure ASCII with no characters JSON needs to escape further, so neither multibyte ratio above applies. Owner-only in production. |
 | `/dev/scan-flags` | 4200 KB | The scan-harness flag capture: `pngBytes + metaJson` combined, decoded, capped at 3 MB — same exact-boundary arithmetic as `/dev/scan-queue` above when nearly the whole budget is the base64 PNG. Owner-only in production. |
-| `/decke` | 1 MB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars. At the ×3 worst case that's ~502 KB before JSON structure; 1 MB leaves real headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
-| `/lists` | 1 MB | `POST /:id/items/bulk` allows 500 items, each with its own 500-char note — at ×3 that's ~750 KB before structure. 1 MB leaves headroom without reopening the ceiling for every other `/lists` route. |
-| `/decks` | 256 KB | `PUT /:id/strategy` (`STRATEGY_MAX` 40,000 chars) and `POST /:id/logs` / `/log-preview` (`RAW_LOG_MAX` 50,000 chars) are the two biggest single-field caps outside the routes above — at ×3 the larger is ~150 KB, already over the 100 KB default. |
-| everything else | **100 KB** | Every other route posts small JSON (ids, filters, short text) with nothing near the caps above, even at ×3. |
+| `/decke` | 2 MB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars. At the ×6 worst case that's ~1 MB before JSON structure; 2 MB leaves real headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
+| `/lists` | 2 MB | `POST /:id/items/bulk` allows 500 items, each with its own 500-char note — at ×6 that's ~1.43 MB before structure. 2 MB leaves headroom without reopening the ceiling for every other `/lists` route. |
+| `/decks` | 512 KB | `PUT /:id/strategy` (`STRATEGY_MAX` 40,000 chars) and `POST /:id/logs` / `/log-preview` (`RAW_LOG_MAX` 50,000 chars) are the two biggest single-field caps outside the routes above — at ×6 the larger is ~293 KB (matches the 300,013-byte reproduction above almost exactly), already over the 100 KB default. |
+| everything else | **100 KB** | Every other route posts small JSON (ids, filters, short text) with nothing near the caps above, even at ×6. |
 
 `/register` and `/token` keep their own existing 16 KB parsers
 (`apps/api/src/oauthServer.ts`) — unchanged code, now actually effective, for
@@ -505,13 +518,15 @@ already did by hand for its own raw-body parser, now done once for every
 requests at each boundary (just under / just over each limit) and asserts the
 413/200 split, including a real multibyte case (a full-length Japanese
 strategy guide and battle log against `/decks`, and a full-length Japanese
-transcript turn against `/decke`), a real base64-encoded max-size photo
+transcript turn against `/decke`) in BOTH raw-UTF-8 and ASCII-escaped
+serialization, a real base64-encoded max-size photo
 (`Buffer.alloc(3*1024*1024).toString('base64')`, not an ASCII approximation)
 against `/dev/scan-queue` and `/dev/scan-flags`, and a regression control
 that reproduces the shadowing bug on purpose by reversing the mount order —
 proving the ordering above is load-bearing, not cosmetic.
 `apps/api/src/__tests__/rateLimit.test.ts` separately asserts the exact mount
-order in `index.ts`'s own source.
+order in `index.ts`'s own source, including that the whole block now
+precedes `authMiddleware`.
 
 ### Self-host images rate limiting
 

@@ -31,16 +31,29 @@ function jsonBodyOfSize(bytes: number): string {
 
 /**
  * A body with exactly `chars` CHARACTERS (JS string length / UTF-16 code
- * units) of a real multibyte character, not bytes. This is the distinction
- * an earlier version of this PR's sizing got wrong: every character-count
- * cap in this codebase (STRATEGY_MAX, RAW_LOG_MAX, MAX_TEXT, …) is measured
- * in JS string length, but an `express.json()` limit is measured in UTF-8
- * BYTES on the wire. '戦' is one BMP character outside Latin-1 — one UTF-16
- * code unit, three UTF-8 bytes — the worst realistic ratio (astral/emoji
- * characters cost two code units for four bytes, a ratio of two, not three).
+ * units) of a real multibyte character, encoded as raw UTF-8 — this repo's
+ * own browser client's `JSON.stringify` never escapes non-ASCII. '戦' is one
+ * BMP character outside Latin-1 — one UTF-16 code unit, three UTF-8 bytes —
+ * the worst realistic RAW-UTF-8 ratio (astral/emoji characters cost two code
+ * units for four bytes, a ratio of two, not three).
  */
 function jsonBodyOfCharCount(field: string, chars: number): string {
   return JSON.stringify({ [field]: '戦'.repeat(chars) });
+}
+
+/**
+ * The same, but ASCII-escaped the way a non-browser client commonly
+ * serializes JSON — Python's `json.dumps` defaults to `ensure_ascii=True`,
+ * and it is a common default in other ecosystems too. These routes are
+ * reachable over the plain REST API (a personal access token, an MCP
+ * client, any script), not only this repo's own browser client, so this is
+ * a real client shape, not a hypothetical one. `\uXXXX` costs 6 ASCII bytes
+ * per character that was 1 UTF-16 code unit — a ratio of 6, not 3, which is
+ * exactly the gap an earlier version of this PR's x3 sizing missed.
+ */
+function jsonBodyOfCharCountEscaped(field: string, chars: number): string {
+  const raw = JSON.stringify({ [field]: '戦'.repeat(chars) });
+  return raw.replace(/[^\x00-\x7f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
 
 async function withServer(app: express.Express, run: (origin: string) => Promise<void>): Promise<void> {
@@ -68,9 +81,9 @@ function buildBodyLimitFixture(): express.Express {
   app.use('/bugs', express.json({ limit: '12mb' }));
   app.use('/dev/scan-queue', express.json({ limit: '4200kb' }));
   app.use('/dev/scan-flags', express.json({ limit: '4200kb' }));
-  app.use('/decke', express.json({ limit: '1mb' }));
-  app.use('/lists', express.json({ limit: '1mb' }));
-  app.use('/decks', express.json({ limit: '256kb' }));
+  app.use('/decke', express.json({ limit: '2mb' }));
+  app.use('/lists', express.json({ limit: '2mb' }));
+  app.use('/decks', express.json({ limit: '512kb' }));
   app.use(express.json({ limit: '100kb' }));
   const echo: express.RequestHandler = (req, res) => {
     const body = req.body as { text?: string; strategyMd?: string; rawLog?: string; jpg?: string; png?: string };
@@ -137,12 +150,12 @@ describe('per-route body-size limits (SEC-08)', () => {
     });
   });
 
-  it('/decke accepts up to ~1mb (MAX_TEXT x2 + MAX_TOOLS worth of tool records)', async () => {
+  it('/decke accepts up to ~2mb (MAX_TEXT x2 + MAX_TOOLS worth of tool records)', async () => {
     const app = buildBodyLimitFixture();
     await withServer(app, async (origin) => {
-      const ok = await postJson(origin, '/decke', jsonBodyOfSize(700_000));
-      assert.equal(ok.status, 200, "a worst-case transcript turn must fit /decke's 1mb parser");
-      const tooBig = await postJson(origin, '/decke', jsonBodyOfSize(1_200_000));
+      const ok = await postJson(origin, '/decke', jsonBodyOfSize(1_500_000));
+      assert.equal(ok.status, 200, "a worst-case transcript turn must fit /decke's 2mb parser");
+      const tooBig = await postJson(origin, '/decke', jsonBodyOfSize(2_300_000));
       assert.equal(tooBig.status, 413);
     });
   });
@@ -161,21 +174,39 @@ describe('per-route body-size limits (SEC-08)', () => {
     });
   });
 
-  it('/lists accepts up to ~1mb (BULK_MAX items x NOTE_MAX notes)', async () => {
+  it('/decke accepts the same transcript turn ASCII-escaped, the way a non-browser client serializes it', async () => {
+    // /decke is reachable over the plain REST API (a personal access token
+    // or MCP client), not only this repo's own browser client. A second
+    // review pass found that x3 (raw UTF-8) is not the true worst case: a
+    // client whose JSON encoder escapes non-ASCII (Python's `json.dumps`
+    // defaults to this) costs 6 ASCII bytes per character, not 3.
     const app = buildBodyLimitFixture();
     await withServer(app, async (origin) => {
-      const ok = await postJson(origin, '/lists', jsonBodyOfSize(700_000));
-      assert.equal(ok.status, 200, "a worst-case bulk add must fit /lists's 1mb parser");
-      const tooBig = await postJson(origin, '/lists', jsonBodyOfSize(1_200_000));
+      const raw = JSON.stringify({ asked: '戦'.repeat(24_000), answered: '戦'.repeat(24_000) });
+      const body = raw.replace(/[^\x00-\x7f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+      const res = await fetch(origin + '/decke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      assert.equal(res.status, 200, 'an ASCII-escaped transcript turn at both MAX_TEXT fields must not 413');
+    });
+  });
+
+  it('/lists accepts up to ~2mb (BULK_MAX items x NOTE_MAX notes, sized for escaped JSON)', async () => {
+    const app = buildBodyLimitFixture();
+    await withServer(app, async (origin) => {
+      const ok = await postJson(origin, '/lists', jsonBodyOfSize(1_500_000));
+      assert.equal(ok.status, 200, "a worst-case bulk add must fit /lists's 2mb parser");
+      const tooBig = await postJson(origin, '/lists', jsonBodyOfSize(2_300_000));
       assert.equal(tooBig.status, 413);
     });
   });
 
-  it('/decks accepts a legitimate non-English strategy guide and battle log that the 100kb default would have rejected', async () => {
+  it('/decks accepts a legitimate non-English strategy guide and battle log, raw UTF-8 or ASCII-escaped', async () => {
     // decks.ts's STRATEGY_MAX (40,000 chars) and RAW_LOG_MAX (50,000 chars)
-    // are character counts, and at the x3 worst-case byte ratio a full-length
-    // battle log is ~150kb on the wire — already over the 100kb default.
-    // This is the exact route review found missing an exception at all.
+    // are character counts. Review caught this route missing an exception
+    // entirely on the first pass, and then caught the x3 sizing itself as
+    // insufficient on the second: Python's `json.dumps` (ensure_ascii=True,
+    // the default) encodes a supported 50,000-character rawLog as 300,013
+    // bytes, over any x3-sized limit. This checks both serializations a real
+    // client might actually send, not an estimate of either.
     const app = buildBodyLimitFixture();
     await withServer(app, async (origin) => {
       const strategy = await fetch(origin + '/decks', {
@@ -183,17 +214,24 @@ describe('per-route body-size limits (SEC-08)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: jsonBodyOfCharCount('strategyMd', 40_000),
       });
-      assert.equal(strategy.status, 200, 'a full-length multibyte strategy guide must not 413 on /decks');
+      assert.equal(strategy.status, 200, 'a full-length raw-UTF-8 strategy guide must not 413 on /decks');
 
       const log = await fetch(origin + '/decks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: jsonBodyOfCharCount('rawLog', 50_000),
       });
-      assert.equal(log.status, 200, 'a full-length multibyte battle log must not 413 on /decks');
+      assert.equal(log.status, 200, 'a full-length raw-UTF-8 battle log must not 413 on /decks');
 
-      const tooBig = await postJson(origin, '/decks', jsonBodyOfSize(300_000));
-      assert.equal(tooBig.status, 413, '/decks still caps at 256kb for anything genuinely oversized');
+      const escapedLog = await fetch(origin + '/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonBodyOfCharCountEscaped('rawLog', 50_000),
+      });
+      assert.equal(escapedLog.status, 200, 'the same battle log, ASCII-escaped like a Python client would send it, must not 413 either');
+
+      const tooBig = await postJson(origin, '/decks', jsonBodyOfSize(600_000));
+      assert.equal(tooBig.status, 413, '/decks still caps at 512kb for anything genuinely oversized');
     });
   });
 
