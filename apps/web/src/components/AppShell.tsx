@@ -9,7 +9,7 @@ import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
 import { api } from '../lib/api'
 import { isCloudMode } from '../lib/supabase'
-import { isChromelessPathname } from '../lib/landingRoute'
+import { isChromelessPathname, useCurrentPathAsNext } from '../lib/landingRoute'
 import { useSignedIn } from '../lib/session'
 import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
@@ -57,17 +57,23 @@ function ProfileChip() {
 // point. ProfileChip's ['insights','overview'] call 401s while signed out, and
 // a 401 on a page the visitor is allowed to be on is how the reload loop starts.
 function SignInChip() {
+  // Whatever catalog page this chip is floating on (a set, a card, the
+  // Pokédex) — sign in and land back on it, rather than the generic /series
+  // default (UXC-06). A hook, not a one-off read, so paging/sorting/filtering
+  // the current page updates `next` too (Astra review, PR #212).
+  const next = useCurrentPathAsNext()
   return (
     <div className="flex items-center gap-[8px]">
       <Link
         to="/auth"
+        search={{ next } as never}
         className="flex h-[38px] items-center rounded-full px-[14px] text-[14px] font-semibold text-text-body hover:text-text-primary"
       >
         Sign in
       </Link>
       <Link
         to="/auth"
-        search={{ mode: 'signup' } as never}
+        search={{ mode: 'signup', next } as never}
         className="flex h-[38px] items-center rounded-full bg-action-primary px-[16px] text-[14px] font-semibold text-action-primary-text hover:opacity-90"
       >
         Sign up free
@@ -187,8 +193,13 @@ function NavRow({
     </span>
   )
   if (locked) {
+    // UXC-06: the badge on this row says "Sign in", but it linked to
+    // `?mode=signup` — a visitor who wants to sign in got the create-account
+    // form instead. `next: item.to` sends them back to the row's OWN
+    // destination once they're in, rather than the generic default (which
+    // used to be /series regardless of which locked row was tapped).
     return (
-      <Link to="/auth" search={{ mode: 'signup' } as never} className="block">
+      <Link to="/auth" search={{ next: item.to } as never} className="block">
         {body}
       </Link>
     )
@@ -452,6 +463,10 @@ function MobileDrawer({
   const signedOut = signedIn === false
   const avatar = useAvatar(signedIn === true)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // Reactive, not a one-off `window.location` read, so paging/sorting the
+  // current page keeps the "Sign up free" CTA's return path current
+  // (UXC-06; Astra review, PR #212).
+  const next = useCurrentPathAsNext()
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -479,7 +494,7 @@ function MobileDrawer({
           {signedOut ? (
             <Link
               to="/auth"
-              search={{ mode: 'signup' } as never}
+              search={{ mode: 'signup', next } as never}
               className="flex h-[48px] items-center justify-center rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
             >
               Sign up free
