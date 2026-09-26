@@ -35,13 +35,17 @@ const ID_RE = /^\d+$/;
 const PREFIX = 'dev-flags/';
 
 // ~3MB for the decoded frame + its sidecar JSON combined. index.ts mounts a
-// 4mb express.json() scoped to this router's own path (SEC-08), ahead of the
-// blanket 100kb default the rest of the API gets, so the parser itself now
-// rejects an oversize body before this handler ever sees it. The check below
-// is kept anyway, same as avatar.ts's "belt to the parser's braces": the
-// number is the contract, decoded size is what actually matters (base64
-// overhead means the wire size the parser sees is not the same number), and
-// stating it twice is cheap.
+// 4200kb express.json() scoped to this router's own path (SEC-08), ahead of
+// the blanket 100kb default the rest of the API gets, so the parser itself
+// now rejects an oversize body before this handler ever sees it. 4200kb, not
+// a bare 4mb: a max-size upload's base64 form is EXACTLY 4mb on the wire
+// (3,145,728 decoded bytes divides evenly by 3), leaving no room for the
+// `{"png":…,"meta":…}` wrapper — review caught a bare-4mb parser 413ing a
+// real max-size upload for exactly this reason. The check below is kept
+// anyway, same as avatar.ts's "belt to the parser's braces": the number is
+// the contract, decoded size is what actually matters (base64 overhead means
+// the wire size the parser sees is not the same number), and stating it
+// twice is cheap.
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
 // A comment is a short owner annotation, not a report; 4KB is generous for that.

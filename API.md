@@ -113,8 +113,10 @@ omit the host.
   `SECURITY.md` → Rate limiting.
 - **Body-size limits.** Per route, not one limit for the whole API: `/bugs`
   12mb (the bug-report screenshot), `/dev/scan-queue` and `/dev/scan-flags`
-  4mb (labeler/harness photos), `/decke` 1mb (one transcript-history turn),
-  `/lists` 1mb (a bulk item add), `/decks` 256kb (the strategy-guide and
+  4200kb (labeler/harness photos — not a bare 4mb, since a max-size upload's
+  base64 form is exactly 4mb with no room for its JSON wrapper), `/decke`
+  1mb (one transcript-history turn), `/lists` 1mb (a bulk item add), `/decks`
+  256kb (the strategy-guide and
   battle-log text), `/register`/`/token` 16kb each, and 100kb for every other
   route. Every limit is sized in bytes on the wire, not characters — a
   non-Latin character can cost 3 UTF-8 bytes per JS-string code unit. An

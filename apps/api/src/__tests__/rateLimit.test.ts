@@ -823,8 +823,8 @@ describe('production ingress and session limits over real HTTP', () => {
     // comment for why order is load-bearing here).
     const bodyLimitOrder = [
       "'/bugs',express.json({limit:'12mb'})",
-      "'/dev/scan-queue',express.json({limit:'4mb'})",
-      "'/dev/scan-flags',express.json({limit:'4mb'})",
+      "'/dev/scan-queue',express.json({limit:'4200kb'})",
+      "'/dev/scan-flags',express.json({limit:'4200kb'})",
       "'/decke',express.json({limit:'1mb'})",
       "'/lists',express.json({limit:'1mb'})",
       "'/decks',express.json({limit:'256kb'})",

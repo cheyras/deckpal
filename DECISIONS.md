@@ -20599,13 +20599,30 @@ here:**
    at the ×3 worst-case ratio, and by adding real multibyte HTTP tests
    (`apps/api/src/__tests__/bodyLimits.test.ts`) rather than trusting
    ASCII-only fixtures again.
+3. **[P2] `/dev/scan-queue` and `/dev/scan-flags` had the mirror-image
+   problem: 1 decoded byte was assumed to need less than 1.34 wire bytes.**
+   `MAX_PHOTO_BYTES`/`MAX_UPLOAD_BYTES` (3 MB decoded) divides evenly by 3, so
+   base64 encoding produces EXACTLY 4 MB on the wire — leaving zero room for
+   the `{"jpg":…,"name":…,"source":…}` wrapper around it, not "room for the
+   JSON wrapper" as `dev/scanQueue.ts`'s own pre-existing comment claimed.
+   Reproduced with an actual `Buffer.alloc(3*1024*1024).toString('base64')`,
+   not an ASCII estimate: a real max-size upload from a client that had done
+   everything right — normalized correctly, stayed under the documented
+   decoded cap — still 413'd against a bare 4mb parser. Fixed by widening
+   both to 4200kb (~104kb of real headroom) and correcting the stale comment
+   in `dev/scanQueue.ts` that asserted the opposite of what the arithmetic
+   says. The test now encodes and sends a real 3 MiB buffer rather than an
+   ASCII fixture, so this class of "estimated size, not measured size" bug
+   cannot silently regress again.
 
-Both findings are the kind that pure character-count reasoning and ASCII-only
-test fixtures cannot catch — the first needed an adversarial "what can an
-attacker who never authenticates do" pass, the second needed an actual
-multibyte string. Recorded here because the pattern (character length vs.
-byte length; per-credential vs. global admission for unauthenticated traffic)
-will recur the next time someone sizes a limit in this codebase.
+All three findings are the kind that plausible reasoning and ASCII-only test
+fixtures cannot catch — the first needed an adversarial "what can an attacker
+who never authenticates do" pass, the second and third needed an actual
+multibyte string and an actual base64-encoded buffer respectively, not an
+estimate of what one would look like. Recorded here because the pattern
+(character length vs. byte length in both directions; per-credential vs.
+global admission for unauthenticated traffic) will recur the next time
+someone sizes a limit in this codebase.
 
 **Implications:**
 

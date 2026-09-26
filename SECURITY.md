@@ -484,8 +484,8 @@ exactly that mistaken assumption; both numbers below already account for it.
 | Route | Limit | Why |
 |---|---|---|
 | `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields (×3 for multibyte text is still negligible against the image). |
-| `/dev/scan-queue` | 4 MB | The labeler queue photo. `MAX_PHOTO_BYTES` is 3 MB decoded → ~4 MB on the wire. Base64 is pure ASCII, so the multibyte ratio above doesn't apply. Owner-only in production. |
-| `/dev/scan-flags` | 4 MB | The scan-harness flag capture: decoded frame + sidecar JSON, ~3 MB combined → ~4 MB on the wire. Same as above. Owner-only in production. |
+| `/dev/scan-queue` | 4200 KB | The labeler queue photo. `MAX_PHOTO_BYTES` (3 MB decoded) divides evenly by 3, so its base64 form is EXACTLY 4 MB on the wire — leaving no room for the `{"jpg":…,"name":…,"source":…}` wrapper around it. A bare 4 MB parser 413'd a real max-size upload (caught in review); 4200 KB leaves ~104 KB of headroom. Base64 is pure ASCII, so the ×3 multibyte ratio above doesn't apply. Owner-only in production. |
+| `/dev/scan-flags` | 4200 KB | The scan-harness flag capture: `pngBytes + metaJson` combined, decoded, capped at 3 MB — same exact-boundary arithmetic as `/dev/scan-queue` above when nearly the whole budget is the base64 PNG. Owner-only in production. |
 | `/decke` | 1 MB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars. At the ×3 worst case that's ~502 KB before JSON structure; 1 MB leaves real headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
 | `/lists` | 1 MB | `POST /:id/items/bulk` allows 500 items, each with its own 500-char note — at ×3 that's ~750 KB before structure. 1 MB leaves headroom without reopening the ceiling for every other `/lists` route. |
 | `/decks` | 256 KB | `PUT /:id/strategy` (`STRATEGY_MAX` 40,000 chars) and `POST /:id/logs` / `/log-preview` (`RAW_LOG_MAX` 50,000 chars) are the two biggest single-field caps outside the routes above — at ×3 the larger is ~150 KB, already over the 100 KB default. |
@@ -505,10 +505,13 @@ already did by hand for its own raw-body parser, now done once for every
 requests at each boundary (just under / just over each limit) and asserts the
 413/200 split, including a real multibyte case (a full-length Japanese
 strategy guide and battle log against `/decks`, and a full-length Japanese
-transcript turn against `/decke`) and a regression control that reproduces
-the shadowing bug on purpose by reversing the mount order — proving the
-ordering above is load-bearing, not cosmetic. `apps/api/src/__tests__/rateLimit.test.ts`
-separately asserts the exact mount order in `index.ts`'s own source.
+transcript turn against `/decke`), a real base64-encoded max-size photo
+(`Buffer.alloc(3*1024*1024).toString('base64')`, not an ASCII approximation)
+against `/dev/scan-queue` and `/dev/scan-flags`, and a regression control
+that reproduces the shadowing bug on purpose by reversing the mount order —
+proving the ordering above is load-bearing, not cosmetic.
+`apps/api/src/__tests__/rateLimit.test.ts` separately asserts the exact mount
+order in `index.ts`'s own source.
 
 ### Self-host images rate limiting
 

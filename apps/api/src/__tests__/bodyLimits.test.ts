@@ -66,15 +66,15 @@ function postJson(origin: string, path: string, body: string): Promise<Response>
 function buildBodyLimitFixture(): express.Express {
   const app = express();
   app.use('/bugs', express.json({ limit: '12mb' }));
-  app.use('/dev/scan-queue', express.json({ limit: '4mb' }));
-  app.use('/dev/scan-flags', express.json({ limit: '4mb' }));
+  app.use('/dev/scan-queue', express.json({ limit: '4200kb' }));
+  app.use('/dev/scan-flags', express.json({ limit: '4200kb' }));
   app.use('/decke', express.json({ limit: '1mb' }));
   app.use('/lists', express.json({ limit: '1mb' }));
   app.use('/decks', express.json({ limit: '256kb' }));
   app.use(express.json({ limit: '100kb' }));
   const echo: express.RequestHandler = (req, res) => {
-    const body = req.body as { text?: string; strategyMd?: string; rawLog?: string };
-    res.status(200).json({ received: (body.text ?? body.strategyMd ?? body.rawLog)?.length ?? 0 });
+    const body = req.body as { text?: string; strategyMd?: string; rawLog?: string; jpg?: string; png?: string };
+    res.status(200).json({ received: (body.text ?? body.strategyMd ?? body.rawLog ?? body.jpg ?? body.png)?.length ?? 0 });
   };
   for (const path of ['/bugs', '/dev/scan-queue', '/dev/scan-flags', '/decke', '/lists', '/decks', '/generic']) {
     app.post(path, echo);
@@ -107,14 +107,32 @@ describe('per-route body-size limits (SEC-08)', () => {
     });
   });
 
-  it('/dev/scan-queue and /dev/scan-flags accept up to ~4mb', async () => {
+  it('/dev/scan-queue and /dev/scan-flags accept a REAL max-size (3 MiB decoded) base64 photo', async () => {
+    // The regression review found: 3,145,728 decoded bytes (MAX_PHOTO_BYTES /
+    // MAX_UPLOAD_BYTES) divides evenly by 3, so its base64 form is EXACTLY
+    // 4,194,304 bytes (4mb) on the wire -- leaving no room at all for the
+    // {"jpg":...,"name":...,"source":...} wrapper around it. A bare 4mb
+    // parser 413'd a real max-size upload from a client that had done
+    // everything right. This sends an ACTUAL base64-encoded 3 MiB buffer,
+    // not an ASCII approximation, to prove the real (not estimated) wire size
+    // fits.
     const app = buildBodyLimitFixture();
     await withServer(app, async (origin) => {
+      const maxSizePhoto = Buffer.alloc(3 * 1024 * 1024).toString('base64');
+      assert.equal(Buffer.byteLength(maxSizePhoto), 4 * 1024 * 1024, 'sanity: base64 of an exact 3 MiB buffer is an exact 4 MiB string');
+
+      const queueBody = JSON.stringify({ jpg: maxSizePhoto, name: 'photo-1.jpg', source: 'upload' });
+      const queueRes = await fetch(origin + '/dev/scan-queue', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: queueBody });
+      assert.equal(queueRes.status, 200, 'a real max-size (3 MiB decoded) queue photo, with its wrapper, must not 413');
+
+      const flagsBody = JSON.stringify({ png: maxSizePhoto, meta: { note: 'flagged' } });
+      const flagsRes = await fetch(origin + '/dev/scan-flags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: flagsBody });
+      assert.equal(flagsRes.status, 200, 'a real max-size (3 MiB decoded) flagged frame, with its wrapper, must not 413');
+
+      // Still caps well short of the earlier, far more generous defaults.
       for (const path of ['/dev/scan-queue', '/dev/scan-flags']) {
-        const ok = await postJson(origin, path, jsonBodyOfSize(3_500_000));
-        assert.equal(ok.status, 200, `${path}'s 4mb parser must accept a real labeler photo`);
         const tooBig = await postJson(origin, path, jsonBodyOfSize(4_500_000));
-        assert.equal(tooBig.status, 413, `${path} must still cap at 4mb`);
+        assert.equal(tooBig.status, 413, `${path} still caps well under the old 12mb default`);
       }
     });
   });

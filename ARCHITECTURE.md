@@ -174,7 +174,9 @@ router (`/api` on Vercel, `/deckpal/api` self-host) as follows:
    the RLS request connection is acquired.
 4. **Body-size limits, per route (SEC-08)** — named exceptions mounted
    most-specific-first, then a 100kb default: `/bugs` 12mb, `/dev/scan-queue`
-   and `/dev/scan-flags` 4mb, `/decke` 1mb, `/lists` 1mb, `/decks` 256kb.
+   and `/dev/scan-flags` 4200kb (not a bare 4mb — a max-size upload's base64
+   form is exactly 4mb, with nothing left for its JSON wrapper), `/decke`
+   1mb, `/lists` 1mb, `/decks` 256kb.
    Order is load-bearing here, not cosmetic: `express.json()` no-ops on a
    request whose body a *prior* matching parser already consumed, so
    whichever parser for a path runs first decides its limit — the exceptions

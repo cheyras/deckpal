@@ -334,7 +334,7 @@ Every REST route's JSON body limit is now sized per route rather than one
 12 MB parser for the whole API (see `SECURITY.md`'s "Body-size limits" section
 for the full table and the reasoning). Nothing here is configurable and
 nothing needs to be: `/bugs` (12 MB, the screenshot), `/dev/scan-queue` and
-`/dev/scan-flags` (4 MB, labeler/harness photos, owner-only in production),
+`/dev/scan-flags` (4200 KB, labeler/harness photos, owner-only in production),
 `/decke` (1 MB, one transcript-history turn), `/lists` (1 MB, a bulk item
 add), `/decks` (256 KB, the strategy-guide and battle-log text), and 100 KB
 for everything else. `/register` and `/token` keep their existing 16 KB
@@ -349,7 +349,11 @@ and a non-Latin character (CJK, Hangul, Cyrillic) costs up to 3 UTF-8 bytes
 per code unit. `/decke` and `/decks` are both sized at that ×3 worst case —
 an earlier pass that assumed 1 byte per character sized `/decke` with almost
 no headroom and missed `/decks` entirely, which would have 413'd a
-legitimate non-English strategy guide or battle log.
+legitimate non-English strategy guide or battle log. `/dev/scan-queue` and
+`/dev/scan-flags` have the inverse problem: their decoded caps (3 MB) divide
+evenly by 3, so base64 encoding produces EXACTLY 4 MB on the wire with
+nothing left for the JSON wrapper around it — a bare 4 MB parser 413'd a
+real max-size upload, so both get 4200 KB instead.
 
 #### `pgvector` is a prerequisite of migration 051
 

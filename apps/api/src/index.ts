@@ -262,12 +262,19 @@ export function createApp(): express.Express {
   // this upload -- this line replaces the identical number that used to sit
   // on `app`, unscoped, above.
   api.use('/bugs', express.json({ limit: '12mb' }));
-  // dev/scanQueue.ts's MAX_PHOTO_BYTES is 3mb decoded -> ~4mb on the wire,
-  // "with room for the JSON wrapper" (that file's own comment).
-  api.use('/dev/scan-queue', express.json({ limit: '4mb' }));
-  // dev/scanFlags.ts's MAX_UPLOAD_BYTES is "~3MB for the decoded frame + its
-  // sidecar JSON combined" (that file's own comment) -> the same 4mb parser.
-  api.use('/dev/scan-flags', express.json({ limit: '4mb' }));
+  // dev/scanQueue.ts's MAX_PHOTO_BYTES is 3mb decoded. 3,145,728 bytes is
+  // exactly divisible by 3, so its base64 form is exactly 4,194,304 bytes
+  // (4mb) on the wire -- a photo AT the supported limit, wrapped in
+  // {"jpg":"...","name":"...","source":"..."}, needs more than 4mb, not
+  // "room for the wrapper" as that file's own comment assumed (review
+  // caught this: a real max-size upload 413'd against a bare 4mb parser).
+  // 4200kb leaves ~104kb of headroom for the wrapper and any base64 padding.
+  api.use('/dev/scan-queue', express.json({ limit: '4200kb' }));
+  // dev/scanFlags.ts's MAX_UPLOAD_BYTES (3mb) bounds pngBytes + metaJson
+  // COMBINED, decoded -- the same arithmetic as scan-queue above applies
+  // when nearly the whole budget is the base64 png, so this gets the same
+  // 4200kb headroom rather than a bare 4mb.
+  api.use('/dev/scan-flags', express.json({ limit: '4200kb' }));
   // Every character-count cap in this file (MAX_TEXT, STRATEGY_MAX, etc.) is
   // a JS string length -- UTF-16 CODE UNITS, not the UTF-8 BYTES a limit
   // here actually measures. The ratio is 1 for ASCII, but a single BMP
