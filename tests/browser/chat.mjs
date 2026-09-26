@@ -299,6 +299,21 @@ async function assertClear(page, width, targets, label) {
   const park = page.locator('[data-decke-park]')
   if (width < 1068) {
     assert.equal(await park.count(), 1, label + ': the phone park box is missing')
+    // MEASURED ONCE THE LAYOUT HAS SETTLED. A card that grows in place is
+    // re-measured by a ResizeObserver and a React render, which can land a
+    // frame or two after the change — CI's WebKit caught it mid-way, with the
+    // box still where the SHORT preview had put it. He is not flown there until
+    // the mark has held still for `MARK_SETTLE_MS` (420 ms) anyway, so the box
+    // a reader sees him arrive at is the settled one; that is the one tested.
+    const key = () => page.evaluate(() => [document.querySelector('[data-decke-park]'), document.querySelector('[data-decke-approval]')]
+      .map(el => el ? Math.round(el.getBoundingClientRect().top) + ':' + Math.round(el.getBoundingClientRect().bottom) : '-').join('|'))
+    let last = await key(), still = 0
+    for (let i = 0; i < 60 && still < 5; i++) {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())))
+      const next = await key()
+      still = next === last ? still + 1 : 0
+      last = next
+    }
     const him = await rect(park)
     for (const [name, loc] of Object.entries(targets)) {
       const r = await rect(loc)
