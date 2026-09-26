@@ -131,8 +131,15 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   // anything. A clean list imports at once; otherwise every unmatched line is
   // shown here, while the text is still in front of them, to fix or to skip.
   const [checked, setChecked] = useState<{ text: string; formatCode: DeckFormat; summary: DeckImportSummary } | null>(null)
-  const check = useMutation({ mutationFn: () => api.checkDeckImport({ text, formatCode }) })
-  const submit = () => onSubmit({ text, formatCode, name: name.trim() || undefined })
+  const check = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.checkDeckImport(asked) })
+  // The form as it is NOW, for a check that comes back after the reader kept
+  // typing: its result describes the text it was sent, not this one.
+  const latest = useRef({ text, formatCode, name })
+  latest.current = { text, formatCode, name }
+  const submit = () => {
+    const now = latest.current
+    onSubmit({ text: now.text, formatCode: now.formatCode, name: now.name.trim() || undefined })
+  }
 
   const unmatched = checked?.summary.unresolvedLines ?? []
   // Resolution depends on the text AND the format, so either change means the
@@ -143,10 +150,15 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
 
   const run = () => {
     if (skipping) return submit()
-    check.mutate(undefined, {
+    const asked = { text, formatCode }
+    check.mutate(asked, {
       onSuccess: ({ import: summary }) => {
-        setChecked({ text, formatCode, summary })
-        if (summary.unresolvedLines.length === 0) submit()
+        setChecked({ ...asked, summary })
+        // Only a clean check of the list still on screen imports by itself. An
+        // edit made while it ran leaves the result stale, and the reader's next
+        // press checks what they actually wrote.
+        const now = latest.current
+        if (summary.unresolvedLines.length === 0 && now.text === asked.text && now.formatCode === asked.formatCode) submit()
       },
     })
   }
