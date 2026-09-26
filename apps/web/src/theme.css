@@ -285,8 +285,17 @@
   --z-overlay: 10;
   --z-popover: 13;
   --z-chrome: 20;
+  /* BELOW --z-modal on purpose. PwaUi's install pill / offline banner /
+     update toast used to sit at 9999 — above absolutely everything,
+     including an open Sheet — so the offline banner painted over the Bug
+     Report sheet's Submit/Cancel footer and the Add Cards results,
+     unreachable underneath it. A toast is above app chrome, never above a
+     modal the user is actively looking at; Sheet's scrim (`--z-modal`, a
+     0.75-alpha dark overlay) now dims it exactly like the rest of the page
+     behind the sheet, instead of floating on top of the sheet's own
+     controls. */
+  --z-toast: 50;
   --z-modal: 100;
-  --z-toast: 9999;
 
   /* ── The app shell's geometry, for anything that has to sit inside it ──────
    *

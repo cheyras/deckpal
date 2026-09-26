@@ -12,6 +12,11 @@ export default defineConfig({
   resolve: { alias: {
     react: fileURLToPath(new URL('../../apps/web/node_modules/react', import.meta.url)),
     'react-dom': fileURLToPath(new URL('../../apps/web/node_modules/react-dom', import.meta.url)),
+    // `PwaUi` (fixture's `?offline` mode) pulls in `apps/web/src/pwa.ts`,
+    // which imports the real app's `virtual:pwa-register` — only resolvable
+    // when the `vite-plugin-pwa` plugin is registered. This fixture doesn't
+    // need real SW registration, just a module the bundler can resolve.
+    'virtual:pwa-register': fileURLToPath(new URL('pwaRegisterStub.ts', import.meta.url)),
   } },
   define: {
     'import.meta.env.VITE_SUPABASE_URL': '""',

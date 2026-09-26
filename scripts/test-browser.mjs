@@ -9,6 +9,7 @@ import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { checkChat } from '../tests/browser/chat.mjs'
+import { checkOffline } from '../tests/browser/offline.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
@@ -59,6 +60,7 @@ try {
     ? { body: { username: 'Browser Reader', owner: false, decke: false } } : null, 'fixture.html')
   try {
     results.push(...await checkChat(browser, server, out))
+    results.push(...await checkOffline(browser, server, out))
     assert.deepEqual(server.unexpected, [], 'Rendered chat fixture: unexpected network/error events')
   } finally { await server.close() }
 } catch (error) {

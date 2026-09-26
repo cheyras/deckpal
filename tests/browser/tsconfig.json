@@ -17,7 +17,8 @@
     ]
   },
   "include": [
-    "fixture.tsx"
+    "fixture.tsx",
+    "../../apps/web/src/pwa-env.d.ts"
   ],
   "exclude": []
 }

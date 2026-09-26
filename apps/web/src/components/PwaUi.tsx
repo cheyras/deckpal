@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Icon } from './Icon'
-import { useOnline } from '../lib/useOnline'
+import { useConnectivity } from '../lib/useConnectivity'
 import { applyUpdate, needRefresh as initialNeedRefresh, onNeedRefresh } from '../pwa'
 
 // Chromium fires this before offering an install; we stash it to drive our own
@@ -85,10 +85,13 @@ function UpdateToast() {
  * full metadata browse + collection + art you've already viewed stay available;
  * unvisited card art shows the skeleton, not real art. Collection edits are
  * network-only, so the steppers disable while offline (see CardDetail).
+ *
+ * `useConnectivity`, not `useOnline` — this makes a claim ("Offline.") that
+ * has to be right, not just a hint (see `lib/connectivity.ts`).
  */
 function OfflineBanner() {
-  const online = useOnline()
-  if (online) return null
+  const offline = useConnectivity()
+  if (!offline) return null
   return (
     <div
       role="status"
@@ -117,16 +120,23 @@ export function PwaUi() {
   const suppressInstall =
     typeof window !== 'undefined' &&
     (window.location.pathname.startsWith('/scan') || window.location.pathname.startsWith('/dev/quad-labeler'))
+  // calc(), not the bare 16px both used before a Home-Screen install put a
+  // home indicator under them (flagged, unfixed, in
+  // roadmap/plans/decke-experience-pass/research/R5-mobile-layout.md) — same
+  // idiom as Sheet.tsx's footer padding, so the 16px gap from the edge is
+  // preserved and the safe-area inset stacks on top of it rather than
+  // replacing it.
+  const bottomOffset = 'bottom-[calc(16px_+_env(safe-area-inset-bottom))]'
   return (
     <>
       {/* bottom-left: install */}
       {!suppressInstall && (
-        <div className="pointer-events-none fixed bottom-[16px] left-[16px] z-(--z-toast) nav:left-[98px]">
+        <div className={`pointer-events-none fixed ${bottomOffset} left-[16px] z-(--z-toast) nav:left-[98px]`}>
           <InstallButton />
         </div>
       )}
       {/* bottom-right: offline banner stacked above the update toast */}
-      <div className="pointer-events-none fixed bottom-[16px] right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px]">
+      <div className={`pointer-events-none fixed ${bottomOffset} right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px]`}>
         <OfflineBanner />
         <UpdateToast />
       </div>
