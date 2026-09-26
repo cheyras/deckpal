@@ -102,6 +102,7 @@ describe('quantity', () => {
     const cases: [string, number][] = [
       ['two of those', 2], ['2 of them', 2], ['three copies', 3], ['times four', 4], ['x3', 3],
       ['make it five', 5], ['I have two of those', 2], ['two', 2], ['Two.', 2], ['twelve', 12],
+      ['twenty two of those', 22], ['make it twenty two', 22], ['thirty', 30],
     ]
     for (const [heard, n] of cases) assert.equal(edit(heard).quantity, n, heard)
   })
@@ -151,11 +152,15 @@ describe('remove, undo, stop', () => {
     assert.equal(command('no no undo the remove')?.kind, 'undo')
   })
 
-  it('never acts on a negated command', () => {
-    for (const heard of ['never remove that', "don't remove it", 'do not remove it', "don't undo"]) {
+  it('never acts on anything said with a negation in it', () => {
+    for (const heard of [
+      'never remove that', "don't remove it", 'do not remove it', "don't undo",
+      'do not make it two', 'do not change it to holo', 'not two, three of those',
+    ]) {
       assert.equal(command(heard), null, heard)
     }
-    assert.equal(edit('not two, three of those').quantity, 3)
+    // "No" starts a correction; it is not a negation.
+    assert.equal(command('no, remove it')?.kind, 'remove')
   })
 
   it('stops listening on request', () => {
@@ -187,7 +192,7 @@ describe('targeting', () => {
   })
 
   it('refuses a name it cannot find instead of changing the latest scan', () => {
-    for (const heard of ['the pikachu is a holo', 'pikachu is a reverse holo', 'remove the pikachu']) {
+    for (const heard of ['the pikachu is a holo', 'pikachu is a reverse holo', 'remove the pikachu', 'please remove pikachu now', 'remove that pikachu please']) {
       const parsed = parseUtterance(heard, ROWS)
       assert.equal(parsed.command, null, heard)
       assert.equal(parsed.unresolvedName, 'pikachu', heard)
@@ -216,6 +221,14 @@ describe('chatter', () => {
     ]) {
       assert.equal(command(heard), null, heard)
     }
+  })
+
+  it('needs every word explained before acting on "that one"', () => {
+    // One stray word is as likely a name we could not find as it is noise.
+    assert.equal(command('it is a reverse holo for sure'), null)
+    // A command that names its card can carry a little noise.
+    const c = parseUtterance('the charizard is a reverse holo for sure', ROWS).command
+    assert.ok(c?.kind === 'edit' && c.target.kind === 'row')
   })
 
   it('accepts a command wrapped in the words people put around one', () => {

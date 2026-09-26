@@ -21,9 +21,12 @@
 //
 // People talk about cards while they scan cards. "I still need a reverse holo of
 // this one" contains a printing and is not a command. So a parse has to explain
-// most of the utterance (`MIN_COVERAGE`) before it is acted on: the command
-// words, the filler around them ("that one's a…") and a card name all count;
-// anything else is evidence the reader was talking to someone, not to us.
+// the utterance before it is acted on: the command words, the filler around
+// them ("that one's a…") and a card name all count; anything else is evidence
+// the reader was talking to someone, not to us. A command about "that one" —
+// the path that silently lands on whatever was scanned last — must be explained
+// completely; one that names its card gets `MIN_COVERAGE`. And anything said
+// with "not", "don't" or "never" in it is an objection, never a request.
 //
 // Pure and dependency-light on purpose, like `feed.ts` and `printing.ts`: the
 // tests in `__tests__/grammar.test.ts` drive the shipping parser with real
@@ -71,10 +74,11 @@ export interface NamedRow {
   name: string
 }
 
-/** Below this share of explained words an utterance is conversation, not a
- *  command. 0.7 accepts "I think that's a reverse hollow" (every word explained)
- *  and refuses "I still need to find a reverse holo of this" (four of nine words
- *  unexplained). The tests pin both sides. */
+/** Below this share of explained words, a command that NAMES its card is
+ *  conversation. A command about "that one" needs every word explained, because
+ *  an unexplained word there is as likely a card name we could not find ("remove
+ *  that Pikachu") as it is noise, and guessing sends the change to the wrong
+ *  card. The tests pin both sides. */
 export const MIN_COVERAGE = 0.7
 
 /** Quantities the grammar will set. A reader with more than 99 of one printing
@@ -208,7 +212,8 @@ const LEXICON: readonly { slot: Slot; phrases: readonly string[] }[] = [
 const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
   eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
-  eighteen: 18, nineteen: 19, twenty: 20,
+  eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70,
+  eighty: 80, ninety: 90,
 }
 /** Homophones of numbers, believed ONLY inside a quantity frame: "change it to
  *  reverse" must not set a quantity of two. */
@@ -311,10 +316,13 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
   while (i < words.length) {
     const word = words[i]
     // Numbers first and literally — "two" and "to" are not a fuzzy question.
+    // "Twenty two" is one number, not a twenty and a two.
     const literal = /^\d{1,3}$/.test(word) ? Number(word) : NUMBER_WORDS[word]
     if (literal !== undefined) {
-      out.push({ kind: 'number', value: literal, frameOnly: false, from: i, to: i + 1 })
-      i += 1
+      const unit = literal >= 20 && literal % 10 === 0 ? NUMBER_WORDS[words[i + 1] ?? ''] : undefined
+      const compound = unit !== undefined && unit < 10
+      out.push({ kind: 'number', value: compound ? literal + unit : literal, frameOnly: false, from: i, to: i + (compound ? 2 : 1) })
+      i += compound ? 2 : 1
       continue
     }
     if (FRAME_ONLY_NUMBERS[word] !== undefined) {
@@ -388,16 +396,11 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   if (!words.length) return { command: null, coverage: 0 }
   const segs = segment(words, rows)
 
-  // "Never remove that", "it's not first edition", "don't undo": a negated
-  // word is an objection to that action, never a request for it. ("No, remove
-  // it" is not negation — "no" is how people start a correction.)
-  const negated = (k: number) => slotKind(neighbour(segs, k, -1)) === 'negation'
-
   const used = new Set<number>() // indices into `segs` a rule consumed
   let quantity: number | null = null
   for (let k = 0; k < segs.length && quantity === null; k++) {
     const s = segs[k]
-    if (s.kind !== 'number' || negated(k)) continue
+    if (s.kind !== 'number') continue
     const next = neighbour(segs, k, 1)
     const prev = neighbour(segs, k, -1)
     // "two of those", "two copies", "times two", "make it two" — the frames. A
@@ -437,18 +440,16 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   }
   const coverage = explained / words.length
 
-  const has = (kind: Slot['kind']) => segs.some((s, k) => slotKind(s) === kind && !negated(k))
+  const has = (kind: Slot['kind']) => segs.some((s) => slotKind(s) === kind)
   const nameSeg = [...segs].reverse().find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
   // The LAST finish said wins — people correct themselves forwards ("holo, no,
-  // reverse") — and a negated one is not a request for that printing at all.
-  // "Not a holo" never gets here: the lexicon reads it as Normal, whole.
+  // reverse").
   let finish: Finish | null = null
   const modifiers: Modifier[] = []
-  for (let k = 0; k < segs.length; k++) {
-    const s = segs[k]
-    if (s.kind !== 'slot' || negated(k)) continue
+  for (const s of segs) {
+    if (s.kind !== 'slot') continue
     if (s.slot.kind === 'finish') finish = s.slot.value
     else if (s.slot.kind === 'modifier' && !modifiers.includes(s.slot.value)) modifiers.push(s.slot.value)
   }
@@ -461,17 +462,24 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     const printing = finish || modifiers.length ? { finish, modifiers, label: printingLabel({ finish, modifiers }) } : null
     command = { kind: 'edit', target, printing, quantity }
   }
-  // A word where a card's name goes — after "the", or before "is" — that is no
-  // row's name. The reader named a card we cannot find, and sending the change
-  // to "that one" instead would edit a card they did not mean. Said even below
-  // the coverage bar (the unknown name is what pulled it down), though not for
-  // outright conversation.
-  if (command && command.kind !== 'undo' && command.kind !== 'stop' && target.kind === 'anchor' && coverage >= 0.5) {
+  // "Never remove that", "that's not first edition", "do not make it two":
+  // said with a negation anywhere, it is an objection and nothing happens. ("No,
+  // remove it" is not negation — "no" is how people start a correction — and
+  // "not a holo" never gets here: the lexicon reads it whole, as Normal.)
+  if (has('negation')) return { command: null, coverage }
+
+  const aboutAnchor = !!command && command.kind !== 'undo' && command.kind !== 'stop' && target.kind === 'anchor'
+  if (aboutAnchor && coverage < 1) {
+    // Say which word looked like a card we could not find — one right after
+    // "the/that/this" or "remove", or right before "is" — so the reader can
+    // try again, instead of the change going to "that one".
     const said = (s: Segment | undefined) => (s ? words.slice(s.from, s.to).join(' ') : '')
     const missing = segs.find(
-      (s, k) => s.kind === 'unknown' && (said(segs[k - 1]) === 'the' || ['is', 'was', 'are'].includes(said(segs[k + 1]))),
+      (s, k) =>
+        s.kind === 'unknown' &&
+        (['the', 'that', 'this'].includes(said(segs[k - 1])) || slotKind(segs[k - 1]) === 'remove' || ['is', 'was', 'are'].includes(said(segs[k + 1]))),
     )
-    if (missing) return { command: null, coverage, unresolvedName: said(missing) }
+    return coverage >= 0.5 && missing ? { command: null, coverage, unresolvedName: said(missing) } : { command: null, coverage }
   }
   if (coverage < MIN_COVERAGE) command = null
   return { command, coverage }
