@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { Modal } from './ListModals'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
@@ -165,7 +165,24 @@ const KIND_COPY: Record<ReportKind, { title: string; helper: string; placeholder
   },
 }
 
-export function BugButton() {
+export interface BugButtonProps {
+  /**
+   * Pre-fills the report body — e.g. a route's crash boundary handing this a
+   * one-line "what broke" summary so the maintainer gets a stack trace
+   * without the reporter having to describe it themselves. Never sent on its
+   * own: the modal still opens for the human to review, edit, and click
+   * Submit, same as every other report.
+   */
+  initialText?: string
+  /**
+   * Custom trigger in place of the default nav icon button — e.g. a text
+   * "Report this" link inside an error fallback. Called with `open`, the
+   * same handler the default button binds to `onClick`.
+   */
+  trigger?: (open: () => void) => ReactNode
+}
+
+export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
   const [open, setOpen] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [shot, setShot] = useState<string | undefined>(undefined)
@@ -180,7 +197,7 @@ export function BugButton() {
   function begin() {
     setShot(undefined)
     setKind('bug')
-    setText('')
+    setText(initialText ?? '')
     setSavedId(null)
     setIssueUrl(null)
     setError(null)
@@ -287,14 +304,18 @@ export function BugButton() {
 
   return (
     <>
-      <button
-        onClick={begin}
-        aria-label="Report a bug or feature request"
-        title="Report a bug or feature request"
-        className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover disabled:opacity-60 nav:h-[42px]"
-      >
-        <Icon name="bug" size={20} />
-      </button>
+      {trigger ? (
+        trigger(begin)
+      ) : (
+        <button
+          onClick={begin}
+          aria-label="Report a bug or feature request"
+          title="Report a bug or feature request"
+          className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover disabled:opacity-60 nav:h-[42px]"
+        >
+          <Icon name="bug" size={20} />
+        </button>
+      )}
 
       {open && (
         <Modal

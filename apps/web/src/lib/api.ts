@@ -138,6 +138,32 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   return jsonBody<T>(res, path)
 }
 
+/**
+ * Report an uncaught render error to the maintainer (see
+ * `components/ErrorBoundary.tsx`, `apps/api/src/routes/clientErrors.ts`).
+ *
+ * Deliberately NOT `request()`/`send()`: this runs from inside an error
+ * boundary, which is exactly the wrong place for a second failure mode to
+ * appear from. No auth (the endpoint takes none — a signed-out visitor's
+ * crash on the public catalog is just as worth knowing about), no 401
+ * retry, no thrown `ApiError`, no parsed response — the server answers 204
+ * and there is nothing to do with success or failure alike. `keepalive`
+ * so the report still lands if the same click that triggered it also
+ * navigates away (e.g. the fallback's own "Go home").
+ */
+export function reportClientError(payload: { route: string; message: string; stack?: string; buildId?: string }): void {
+  void fetch(`${BASE}/client-errors`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {
+    // Nothing to do — see the function comment. Swallowed, not logged: a
+    // console.error for a telemetry beacon that failed to send its own
+    // console.error would be noise on top of noise.
+  })
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const headers = await authHeaders()
   return request<T>(path, { signal, headers })
@@ -2058,6 +2084,8 @@ export const api = {
     kind?: 'bug' | 'feature'
   }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),
+  // See the standalone `reportClientError` above for why this is not `send()`.
+  reportClientError,
   cardPriceHistory: (cardId: string, range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
     get<CardPriceHistoryResponse>(
       `/cards/${encodeURIComponent(cardId)}/prices?range=${range}&currency=${encodeURIComponent(currency)}`,

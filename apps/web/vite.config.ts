@@ -115,6 +115,13 @@ export default defineConfig(async ({ command }) => {
     // production build is production even on its vercel.app alias.
     define: {
       'import.meta.env.VITE_VERCEL_ENV': JSON.stringify(process.env.VERCEL_ENV ?? ''),
+      // The commit this bundle was built from — empty outside a Vercel build
+      // (self-host, local `vite build`, CI). Same source and the same
+      // "null is an answer" philosophy as `apps/api/src/decke/build.ts`'s
+      // `buildStamp()`; this is the client-side twin, read by
+      // `src/lib/buildInfo.ts` so a crash report can say which build was
+      // actually running in the browser that hit it.
+      'import.meta.env.VITE_BUILD_SHA': JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA ?? ''),
     },
     // Only injected when the dev server derived these itself. On `vite build`
     // both are undefined and Vite's ordinary .env handling applies untouched.
@@ -122,6 +129,7 @@ export default defineConfig(async ({ command }) => {
       ? {
           define: {
             'import.meta.env.VITE_VERCEL_ENV': JSON.stringify(process.env.VERCEL_ENV ?? ''),
+            'import.meta.env.VITE_BUILD_SHA': JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA ?? ''),
             'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
             'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnon),
             // Drives the in-app LIVE ribbon (src/components/DevBackendRibbon.tsx).
