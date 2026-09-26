@@ -1536,6 +1536,18 @@ export function DeckeChat({
   // while the openers stayed put would read as a glitch rather than as variety.
   const name = useDeckeUserName()
   const [said, setSaid] = useState<SaidThisOpening>(() => chooseWhatToSay())
+  // CHOSEN AS IT OPENS, because the openers now depend on the PAGE. This used to
+  // be re-rolled on close, which was fine while every chip was generic; with a
+  // deck page leading with "this deck", a pick made on the page he was closed on
+  // followed the reader to whatever page they opened him on next (found in
+  // review). The rising edge is still before the panel is on screen — `visible`
+  // is false here until the entrance starts — so nothing swaps mid-flight, and a
+  // close that is cancelled mid-exit keeps what is already showing.
+  const [saidAtOpen, setSaidAtOpen] = useState(open)
+  if (saidAtOpen !== open) {
+    setSaidAtOpen(open)
+    if (open && !visible) setSaid(chooseWhatToSay())
+  }
 
   // THE NAME ARRIVES LATE, AND THE GREETING HAS TO SURVIVE THAT. `/me` is a real
   // request; on a cold session it lands after the panel has opened. Re-composing
@@ -1565,18 +1577,12 @@ export function DeckeChat({
     })
   }, [open, empty, said])
 
-  // Closing re-arms the choice, so the NEXT opening reads what this one wrote.
-  // Doing it on close rather than on open means the fresh set is already in
-  // place before the panel animates in, with no swap mid-flight.
-  //
-  // Which is now `visible` rather than `open`, because "no swap mid-flight" has
-  // acquired a second flight. On an empty panel the greeting and the three
-  // opener chips are the whole screen; re-rolling them the instant `open` fell
-  // would rewrite every word on the panel during the 220ms it spends leaving.
+  // Closing re-arms the sighting log, so the NEXT opening — chosen on its rising
+  // edge, above — records what it shows. Keyed on `visible` rather than `open`:
+  // the panel is still on screen for the 220ms it spends leaving.
   useEffect(() => {
     if (visible) return
     openersLoggedRef.current = false
-    setSaid(chooseWhatToSay())
   }, [visible])
 
   // ── What a screen reader is told, and when ────────────────────────────────
