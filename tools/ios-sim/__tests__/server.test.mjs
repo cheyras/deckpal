@@ -80,6 +80,29 @@ describe('createFixture lists routes', () => {
     const response = get(respondApi, '/api/lists/does-not-exist')
     assert.equal(response.status, 404)
   })
+  it('delete moves a list to Recently Deleted, and restore moves it back', () => {
+    // Astra's finding: a delete that reports success without changing this fixture's own
+    // state meant ListDetail's post-delete navigation showed the list right back where it
+    // started, and the Recently Deleted / restore flow could never be exercised at all.
+    const { respondApi } = createFixture()
+    assert.equal(get(respondApi, '/api/lists').body.lists.length, 1)
+    assert.equal(get(respondApi, '/api/lists?deleted=true').body.lists.length, 0)
+    const deleted = get(respondApi, '/api/lists/list-1', { method: 'DELETE' })
+    assert.equal(deleted.body.deleted, 'list-1')
+    assert.equal(get(respondApi, '/api/lists').body.lists.length, 0, 'deleted list must leave the active list')
+    const recentlyDeleted = get(respondApi, '/api/lists?deleted=true').body.lists
+    assert.equal(recentlyDeleted.length, 1)
+    assert.equal(recentlyDeleted[0].id, 'list-1')
+    const restored = get(respondApi, '/api/lists/list-1/restore', { method: 'POST' })
+    assert.equal(restored.body.list.id, 'list-1')
+    assert.equal(get(respondApi, '/api/lists').body.lists.length, 1, 'restored list must return to the active list')
+    assert.equal(get(respondApi, '/api/lists?deleted=true').body.lists.length, 0)
+  })
+  it('deleting or restoring a nonexistent list id 404s', () => {
+    const { respondApi } = createFixture()
+    assert.equal(get(respondApi, '/api/lists/does-not-exist', { method: 'DELETE' }).status, 404)
+    assert.equal(get(respondApi, '/api/lists/does-not-exist/restore', { method: 'POST' }).status, 404)
+  })
   it('adding then removing an item keeps itemCount in sync AND the item actually renders', () => {
     // Astra's finding: itemCount alone is not enough -- ListDetail.tsx refetches GET
     // /api/lists/:id after every mutation and renders from `items`, so a fixture that

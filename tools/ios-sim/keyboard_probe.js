@@ -35,7 +35,6 @@
   var vv = window.visualViewport;
   var doc = document.documentElement;
   var active = document.activeElement;
-  var visibleHeight = vv ? vv.height : window.innerHeight;
 
   var visualViewport = vv ? {
     width: vv.width, height: vv.height,
@@ -48,7 +47,14 @@
   // The gap between the layout viewport and the visual one is roughly the
   // keyboard's height (plus any toolbar the keyboard itself adds).
   var keyboardHeightEstimate = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : null;
-  var documentPannable = doc.scrollHeight > visibleHeight + 1;
+  // Root scrollability must be measured against the LAYOUT viewport
+  // (window.innerHeight, which iOS Safari does not shrink for the keyboard),
+  // never the visual one (vv.height, which always shrinks while the keyboard
+  // is up). Comparing against vv.height instead reports every ordinary
+  // keyboard appearance as "the document became pannable," even on a page
+  // with no overflow bug at all (scrollHeight === clientHeight === innerHeight)
+  // -- caught by Astra's review; see DECISIONS.md.
+  var documentPannable = doc.scrollHeight > window.innerHeight + 1;
 
   return {
     activeElement: active && active !== document.body ? {

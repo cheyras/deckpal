@@ -90,7 +90,7 @@ export function createFixture() {
     id: 'list-1', kind: 'dynamic', name: 'My Simulator List', description: 'A fixture list for iOS keyboard testing',
     visibility: 'private', isFavorite: false, coverRender: '', pocketSize: null, itemCount: 0,
     progress: null, marketValueUsd: 0, coverImage: null, coverImages: [],
-    rule: null, ruleEvaluatedAt: null, createdAt: NOW, updatedAt: NOW,
+    rule: null, ruleEvaluatedAt: null, createdAt: NOW, updatedAt: NOW, deletedAt: null,
   }]
   let nextListId = 2
   let nextItemId = 1
@@ -148,16 +148,21 @@ Signing you in…
     }
 
     // ── Lists ──
+    // Soft-deleted via `deletedAt` (mirrors the real API's Recently Deleted /
+    // restore flow) rather than actually removing rows -- a delete that just
+    // said "ok" without changing this fixture's own state reported success
+    // while ListDetail's post-delete navigation showed the list right back
+    // where it started, and restoration could never be exercised at all.
     if (rel === '/api/lists' && method === 'GET') {
-      if (url.searchParams.get('deleted') === 'true') return ok({ lists: [] })
-      return ok({ lists })
+      const wantDeleted = url.searchParams.get('deleted') === 'true'
+      return ok({ lists: lists.filter((l) => !!l.deletedAt === wantDeleted) })
     }
     if (rel === '/api/lists' && method === 'POST') {
       const list = {
         id: 'list-' + nextListId++, kind: body.kind ?? 'dynamic', name: body.name, description: body.description ?? null,
         visibility: body.visibility ?? 'private', isFavorite: false, coverRender: '', pocketSize: null, itemCount: 0,
         progress: null, marketValueUsd: 0, coverImage: null, coverImages: [],
-        rule: body.rule ?? null, ruleEvaluatedAt: body.rule ? NOW : null, createdAt: NOW, updatedAt: NOW,
+        rule: body.rule ?? null, ruleEvaluatedAt: body.rule ? NOW : null, createdAt: NOW, updatedAt: NOW, deletedAt: null,
       }
       lists.push(list)
       listItems[list.id] = []
@@ -178,11 +183,19 @@ Signing you in…
     }
     if (/^\/api\/lists\/[^/]+$/.test(rel) && method === 'DELETE') {
       const id = rel.split('/').at(-1)
+      const list = lists.find((l) => l.id === id)
+      if (!list) return { status: 404, body: { error: { message: 'No such list' } } }
+      list.deletedAt = NOW
+      list.updatedAt = NOW
       return ok({ deleted: id, restorable: true })
     }
     if (/^\/api\/lists\/[^/]+\/restore$/.test(rel) && method === 'POST') {
       const id = rel.split('/')[3]
-      return ok({ restored: id, list: lists.find((l) => l.id === id) ?? lists[0] })
+      const list = lists.find((l) => l.id === id)
+      if (!list) return { status: 404, body: { error: { message: 'No such list' } } }
+      list.deletedAt = null
+      list.updatedAt = NOW
+      return ok({ restored: id, list })
     }
     if (/^\/api\/lists\/[^/]+\/items$/.test(rel) && method === 'POST') {
       const id = rel.split('/')[3]
