@@ -20561,6 +20561,20 @@ next manual audit. axe-core is a new devDependency (workspace root). See the
 PR description for axe before/after counts, screenshots, and exact contrast
 ratios.
 
+**Update (same day, post-review):** Astra's independent review (codex review
+--base origin/main) found 3 valid P2 findings, all fixed before merge with
+origin/main's #220: the mobile nav drawer had no in-dialog dismiss control
+(added a labelled "Close navigation" button — `aria-modal="true"` can make
+the header's own toggle unreachable to AT that honors modality); the route
+announcer's text-equality dedup treated a STALE heading — kept mounted by
+TanStack Query's `keepPreviousData` while a new catalog page's data loads —
+as "this navigation is done," so the real heading was never announced once it
+actually arrived (removed the dedup; `aria-live` only fires on a genuine text
+change, so writing unconditionally is safe); and the announcer's 4s fallback
+was checked only inside the `MutationObserver`'s own callback, so a route
+that fails fast with no further DOM mutations never triggered it (replaced
+with an independent `setTimeout`). Full disposition posted on the PR.
+
 ## 2026-09-26 — Deck-E stands clear of what the reader has to press, and every card and notice says what it will do
 
 **Decided by:** Chey (via Claude)
