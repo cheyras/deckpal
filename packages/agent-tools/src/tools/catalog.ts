@@ -349,8 +349,11 @@ const searchCardsTool = defineTool({
         };
         const cs = [`c.lang = 'en'`, ...use.map((f) => f.sql(p))];
         return {
+          // browsable_card, not card: Pokémon TCG Pocket is not browsable
+          // anywhere in the product (DECISIONS 2026-08-10) — search_cards is
+          // the catalog-browse tool, so it must never surface a Pocket card.
           fromWhere: `
-        FROM card c
+        FROM browsable_card c
         JOIN card_set cs ON cs.id = c.set_id
         JOIN series se    ON se.id = cs.series_id
         LEFT JOIN owned o ON o.card_id = c.id
@@ -966,9 +969,16 @@ const setProgressTool = defineTool({
           // every catalogue that shares a tcgdex_id, so a set appears once per
           // language it was printed in. Both the count and the page query carry
           // the same filter so the paging footer's total agrees with the rows.
+          //
+          // `browsable_set`, not `card_set`: Pokémon TCG Pocket's one series
+          // also carries `catalogue_code = 'en'` (it is imported alongside the
+          // physical TCG, never as its own catalogue — see migration 072), so
+          // the English-catalogue filter alone does not keep its 15 "sets" out
+          // of "every set in the catalog." DECISIONS 2026-08-10: not browsable
+          // anywhere, including here.
           const totalRow = await q1<{ total: string }>(
             ctx.db,
-            `SELECT count(*) AS total FROM card_set cs JOIN series se ON se.id = cs.series_id WHERE se.catalogue_code = 'en'`,
+            `SELECT count(*) AS total FROM browsable_set cs JOIN series se ON se.id = cs.series_id WHERE se.catalogue_code = 'en'`,
             [],
           );
           const total = Number(totalRow?.total ?? 0);
@@ -978,7 +988,7 @@ const setProgressTool = defineTool({
                     se.name AS series_name, cs.released_on::text AS released_on,
                     count(DISTINCT c.id) AS card_count,
                     count(DISTINCT o.card_id) AS owned_count
-               FROM card_set cs
+               FROM browsable_set cs
                JOIN series se ON se.id = cs.series_id
                LEFT JOIN card c ON c.set_id = cs.id AND c.lang = 'en'
                LEFT JOIN (

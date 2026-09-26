@@ -46,11 +46,16 @@ export type CardResolution =
   | { status: 'ambiguous'; candidates: ResolvedCard[]; total: number }
   | { status: 'not_found'; message: string };
 
+// FROM browsable_card, not card: Pokémon TCG Pocket is "not browsable
+// anywhere in the product" (DECISIONS 2026-08-10), and this SELECT is the
+// resolution choke point for get_card, log_cards, add_cards and edit_list
+// alike (see the file header) — one predicate here closes the loophole for
+// all of them at once, rather than four places that could each forget it.
 const CARD_SELECT = `
   SELECT c.id, c.tcgdex_id, c.name, c.local_id, c.rarity, c.category,
          cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name, se.slug AS series_slug,
          bp.best_minor
-    FROM card c
+    FROM browsable_card c
     JOIN card_set cs ON cs.id = c.set_id
     JOIN series se   ON se.id = cs.series_id
     LEFT JOIN (

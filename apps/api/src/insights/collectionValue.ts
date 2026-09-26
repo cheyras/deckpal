@@ -195,6 +195,11 @@ export interface Mover {
  * value is (market − avg30) × quantity. Only variants that carry BOTH a market
  * and an avg30 quote qualify — a sparse feed simply yields fewer movers, never a
  * wrong number. Returned biggest-absolute-move first.
+ *
+ * `browsable_card`, not `card`: Pocket cards carry no price_current rows today
+ * (the ingest never covers them), so the price join already excludes them in
+ * practice — this makes it true by construction rather than by accident of an
+ * unrelated feed gap (DECISIONS 2026-08-10).
  */
 export async function topMovers(userId: string, currency = 'USD', limit = 5): Promise<Mover[]> {
   const cur = currency.trim().toUpperCase();
@@ -206,7 +211,7 @@ export async function topMovers(userId: string, currency = 'USD', limit = 5): Pr
             pc.market_minor, pc.avg30_minor
        FROM collection_item ci
        JOIN card_variant cv ON cv.id = ci.card_variant_id
-       JOIN card c ON c.id = cv.card_id
+       JOIN browsable_card c ON c.id = cv.card_id
        JOIN price_current pc ON pc.card_variant_id = cv.id AND pc.currency_code = $2
       WHERE ci.user_id = $1 AND ci.quantity > 0
         AND pc.market_minor IS NOT NULL AND pc.avg30_minor IS NOT NULL`,
