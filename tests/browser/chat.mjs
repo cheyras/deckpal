@@ -299,12 +299,10 @@ async function assertClear(page, width, targets, label) {
   const park = page.locator('[data-decke-park]')
   if (width < 1068) {
     assert.equal(await park.count(), 1, label + ': the phone park box is missing')
-    // MEASURED ONCE THE LAYOUT HAS SETTLED. A card that grows in place is
-    // re-measured by a ResizeObserver and a React render, which can land a
-    // frame or two after the change — CI's WebKit caught it mid-way, with the
-    // box still where the SHORT preview had put it. He is not flown there until
-    // the mark has held still for `MARK_SETTLE_MS` (420 ms) anyway, so the box
-    // a reader sees him arrive at is the settled one; that is the one tested.
+    // MEASURED ONCE THE LAYOUT HAS HELD STILL for five frames. The park box is
+    // re-solved through a measurement and a React render; he is only flown to
+    // it once it has held still for `MARK_SETTLE_MS` anyway, so the settled box
+    // is the one a reader sees him land on.
     const key = () => page.evaluate(() => [document.querySelector('[data-decke-park]'), document.querySelector('[data-decke-approval]')]
       .map(el => el ? Math.round(el.getBoundingClientRect().top) + ':' + Math.round(el.getBoundingClientRect().bottom) : '-').join('|'))
     let last = await key(), still = 0
@@ -315,9 +313,17 @@ async function assertClear(page, width, targets, label) {
       last = next
     }
     const him = await rect(park)
+    // What decided the box, for when it is wrong: the panel it is measured in
+    // (its height sets the ceiling in `parkFloor.ts`) and the offset it was given.
+    const why = await page.evaluate(() => {
+      const box = document.querySelector('[data-decke-park]')
+      const r = box?.offsetParent?.getBoundingClientRect()
+      return { panel: r ? { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height) } : null,
+        style: box?.getAttribute('style') ?? null, viewport: [innerWidth, innerHeight, visualViewport?.height ?? null] }
+    })
     for (const [name, loc] of Object.entries(targets)) {
       const r = await rect(loc)
-      assert.equal(overlap(him, r), 0, `${label}: he stands on ${name} (park ${JSON.stringify(him)}, ${name} ${JSON.stringify(r)})`)
+      assert.equal(overlap(him, r), 0, `${label}: he stands on ${name} (park ${JSON.stringify(him)}, ${name} ${JSON.stringify(r)}, ${JSON.stringify(why)})`)
     }
     return him
   }
@@ -379,10 +385,16 @@ export async function checkDeckeStates(browser, server, out, engine) {
       await page.screenshot({ path: path.join(out, 'decke-approval-' + tag + '.png') })
 
       // The longest preview the server sends: twelve lines. The list scrolls;
-      // the question and both answers stay on screen and clear of him.
+      // the question and both answers stay on screen and clear of him. A NEW
+      // held call, as it is in the product — each call mounts its own card with
+      // its preview already in hand, rather than one card growing in place.
       const long = ["CREATE a new deck called 'Everything Deck' (standard)",
         ...Array.from({ length: 10 }, (_, i) => `add x4 fixture-${i}`), '…and 9 more'].join('\n')
-      await set(page, { preview: { toolCallId: 'save-1', tool: 'save_deck', title: 'Create or edit a deck', summary: long, ok: true, editable: false, rows: [], skipped: [] } })
+      await set(page, { asking: null })
+      await card.waitFor({ state: 'detached' })
+      await set(page, { asking: [{ approvalId: 'ap-3', toolCallId: 'save-2', title: 'Save this deck', name: 'save_deck', input: { name: 'Everything Deck' } }],
+        preview: { toolCallId: 'save-2', tool: 'save_deck', title: 'Create or edit a deck', summary: long, ok: true, editable: false, rows: [], skipped: [] } })
+      await card.waitFor()
       const list = card.locator('[data-decke-dry-run]')
       assert.ok(await list.evaluate(el => el.scrollHeight > el.clientHeight + 1), 'twelve lines did not become a scrolling region')
       const viewportH = await page.evaluate(() => innerHeight)
