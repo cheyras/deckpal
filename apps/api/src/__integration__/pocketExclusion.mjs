@@ -166,16 +166,36 @@ async function bootCluster() {
   const data = join(scratch, 'data');
   const socket = join(scratch, 'socket');
   mkdirSync(socket, { recursive: true });
-  // C locale sidesteps a real failure mode on macOS Homebrew builds:
-  // "postmaster became multithreaded during startup" when LC_ALL/LANG are
-  // unset or non-C, per the same fix scripts/test-db-integration.mjs applies.
-  const env = { ...process.env, LANG: 'C', LC_ALL: 'C' };
+  // An ALLOWLIST, not `{...process.env, ...}` — deliberately not the same
+  // shape as the isolation block later in main(), which only overwrites the
+  // handful of vars this repo's own code reads. `psql` here is real libpq,
+  // and libpq honours several connection-target env vars this script never
+  // sets and has no reason to allow through: `PGHOSTADDR` in particular
+  // takes precedence over `-h`/`PGHOST` for the actual TCP target, so an
+  // inherited one would silently redirect these `CREATE ROLE`/`CREATE
+  // DATABASE` calls to a real, unrelated server (caught in review). C locale
+  // (LANG/LC_ALL) sidesteps a real failure mode on macOS Homebrew builds:
+  // "postmaster became multithreaded during startup" when they're unset or
+  // non-C, per the same fix scripts/test-db-integration.mjs applies.
+  const env = {
+    PATH: `${bindir}:/usr/bin:/bin`,
+    LANG: 'C', LC_ALL: 'C', HOME: scratch, TMPDIR: scratch, TZ: 'UTC',
+  };
   await run(join(bindir, 'initdb'), ['-D', data, '-U', 'deckpal_pocket_admin', '--auth=trust', '--no-locale', '--encoding=UTF8'], { env });
   await run(join(bindir, 'pg_ctl'), [
     '-D', data, '-l', join(scratch, 'postgres.log'), '-w', '-t', '30', 'start',
     '-o', `-c listen_addresses='' -c unix_socket_directories='${socket}' -c port=55491 -c fsync=off -c timezone=UTC`,
   ], { env });
-  const psql = (sql) => run(join(bindir, 'psql'), ['-h', socket, '-p', '55491', '-U', 'deckpal_pocket_admin', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-c', sql], { env });
+  // Every libpq connection-target var explicitly named and pinned, not just
+  // `-h`/`-p`/`-U`/`-d`: PGHOSTADDR/PGSERVICE/PGSSLMODE/etc. are all absent
+  // from `env` above already, but naming the ones a stray shell is most
+  // likely to carry (PGHOST/PGPORT/PGHOSTADDR) as empty makes the refusal to
+  // inherit them explicit rather than relying on the allowlist's silence.
+  const psqlEnv = { ...env, PGHOST: '', PGPORT: '', PGHOSTADDR: '', PGSSLMODE: 'disable', PGPASSWORD: '' };
+  const psql = (sql) =>
+    run(join(bindir, 'psql'), ['-h', socket, '-p', '55491', '-U', 'deckpal_pocket_admin', '-d', 'postgres', '-X', '-v', 'ON_ERROR_STOP=1', '-c', sql], {
+      env: psqlEnv,
+    });
   // The role is named `pokedex`, matching what several migrations assume is
   // the connecting role (e.g. 007_pricing.sql REVOKEs privileges from it),
   // and SUPERUSER because migration 051 does `CREATE EXTENSION vector`,
