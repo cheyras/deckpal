@@ -361,3 +361,13 @@ test('anywhere else, the rotation is exactly what it was', () => {
   // Under a self-host base path the deck page is still the deck page.
   assert.equal(pageOpeners('/deckpal/decks/deck-drag').length, DECK_PAGE_OPENERS.length)
 })
+
+test('deck-page sightings survive the storage round trip, so they rotate by what was seen', () => {
+  // Found in review: the reader kept only ids in OPENER_POOL, so the deck
+  // questions were ranked by dice on every opening instead of by the log.
+  const data = new Map<string, string>()
+  const store: OpenerStore = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) }
+  const shown = noteShown({}, DECK_PAGE_OPENERS)
+  writeOpenerLog(store, shown)
+  assert.deepEqual(readOpenerLog(store), shown)
+})
