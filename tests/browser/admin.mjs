@@ -332,7 +332,16 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
       assert.equal(await region.evaluate(node=>{const style=getComputedStyle(node);return (style.outlineStyle!=='none' && parseFloat(style.outlineWidth)>0)||style.boxShadow!=='none'}),true,'Keyboard focus must have a visible outline or ring')
       await region.evaluate(node=>{node.scrollLeft=0})
       const before=await region.evaluate(node=>node.scrollLeft)
-      await page.keyboard.press('ArrowRight');await page.waitForTimeout(120)
+      await page.keyboard.press('ArrowRight')
+      // Native keyboard scrolling of a focused overflow region is not synchronous
+      // under CPU throttling (CI and slower machines): a fixed sleep here raced the
+      // browser's own scroll timing (#210, #224). Poll the real scrollLeft instead
+      // of guessing a delay; the assertion below still fails loudly if it never moves.
+      await region.evaluate((node,before)=>new Promise(resolve=>{
+        const deadline=performance.now()+4000
+        const check=()=>{ if(node.scrollLeft>before||performance.now()>deadline) resolve(); else requestAnimationFrame(check) }
+        check()
+      }),before)
       assert.equal(await region.evaluate(node=>node.scrollLeft)>before,true,'ArrowRight must actually scroll overflowing columns')
     }
     if(width===390)assert.equal(await region.evaluate(node=>node.scrollWidth>node.clientWidth),true,'Phone retains columns in an overflowing table')
