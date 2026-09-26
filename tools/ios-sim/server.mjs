@@ -178,7 +178,22 @@ Signing you in…
       const id = rel.split('/').at(-1)
       const list = lists.find((l) => l.id === id)
       if (!list) return { status: 404, body: { error: { message: 'No such list' } } }
-      Object.assign(list, body, { updatedAt: NOW })
+      // itemOrder reorders the stored items themselves (apps/api/src/routes/lists.ts's
+      // reorder: the full ordered array of itemIds, anything unnamed keeps a position
+      // after those) -- it is not a ListSummary field, so it must not also land on
+      // `list` via the blind Object.assign below. Without this, ListDetail's optimistic
+      // reorder looked right until the next refetch put everything back where it
+      // started, because the fixture had accepted the PATCH but never reordered anything.
+      const { itemOrder, ...summaryPatch } = body
+      if (Array.isArray(itemOrder)) {
+        const items = listItems[id] ?? []
+        const byId = new Map(items.map((item) => [item.itemId, item]))
+        const ordered = itemOrder.map((itemId) => byId.get(itemId)).filter(Boolean)
+        const remaining = items.filter((item) => !itemOrder.includes(item.itemId))
+        listItems[id] = [...ordered, ...remaining]
+        listItems[id].forEach((item, index) => { item.position = index })
+      }
+      Object.assign(list, summaryPatch, { updatedAt: NOW })
       return ok({ list })
     }
     if (/^\/api\/lists\/[^/]+$/.test(rel) && method === 'DELETE') {
@@ -204,6 +219,15 @@ Signing you in…
       const card = cardForVariantId(body.cardVariantId)
       if (!card) return { status: 400, body: { error: { message: 'Unknown fixture cardVariantId: ' + body.cardVariantId } } }
       const items = listItems[id] ?? (listItems[id] = [])
+      // Real rule (apps/api/src/routes/lists.ts): a dynamic list's (list_id, card_variant_id)
+      // is unique -- adding an already-present variant is a silent no-op that reports
+      // alreadyPresent, never a second row or a second itemCount bump. Only a static list
+      // allows duplicates (distinct physical copies). Skipping this let repeated Add taps
+      // build up collection states the real app can never actually produce.
+      if (list.kind !== 'static') {
+        const existing = items.find((item) => item.variantId === body.cardVariantId)
+        if (existing) return ok({ itemId: existing.itemId, alreadyPresent: true, list })
+      }
       const itemId = 'item-' + nextItemId++
       // A real ListItem (extends CardRow -- see apps/web/src/lib/api.ts), so GridView/
       // TableView/BinderView render it exactly as they would a real list's rows.

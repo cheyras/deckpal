@@ -132,6 +132,47 @@ describe('createFixture lists routes', () => {
     const detail = get(respondApi, '/api/lists/' + created.body.list.id)
     assert.deepEqual(detail.body.items, [])
   })
+  it('a dynamic list dedupes a repeated add by variant instead of creating a second row', () => {
+    // Real rule (apps/api/src/routes/lists.ts): (list_id, card_variant_id) is unique on a
+    // dynamic list; a repeat add reports alreadyPresent and changes nothing. Only a static
+    // list allows duplicates. Without this, two taps on the same search result built up a
+    // collection state (2 rows, itemCount 2) the real app can never produce.
+    const { respondApi } = createFixture()
+    assert.equal(get(respondApi, '/api/lists/list-1').body.list.kind, 'dynamic')
+    const first = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 9002 } })
+    assert.equal(first.body.alreadyPresent, false)
+    assert.equal(first.body.list.itemCount, 1)
+    const second = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 9002 } })
+    assert.equal(second.body.alreadyPresent, true)
+    assert.equal(second.body.itemId, first.body.itemId, 'the repeat reports the SAME item, not a new one')
+    assert.equal(second.body.list.itemCount, 1, 'itemCount must not double-count a dedup')
+    assert.equal(get(respondApi, '/api/lists/list-1').body.items.length, 1)
+  })
+  it('a static list allows the same variant twice (distinct physical copies)', () => {
+    const { respondApi } = createFixture()
+    const list = get(respondApi, '/api/lists', { method: 'POST', body: { name: 'Binder', kind: 'static' } }).body.list
+    const first = get(respondApi, '/api/lists/' + list.id + '/items', { method: 'POST', body: { cardVariantId: 9001, staticQuantity: 1 } })
+    const second = get(respondApi, '/api/lists/' + list.id + '/items', { method: 'POST', body: { cardVariantId: 9001, staticQuantity: 1 } })
+    assert.equal(first.body.alreadyPresent, false)
+    assert.equal(second.body.alreadyPresent, false)
+    assert.notEqual(second.body.itemId, first.body.itemId)
+    assert.equal(second.body.list.itemCount, 2)
+  })
+  it('PATCH itemOrder reorders the stored items, not just the list summary', () => {
+    // Astra's finding: this used to Object.assign(list, {itemOrder: [...]}) -- stamping a
+    // nonexistent field onto the summary -- while listItems stayed in insertion order, so
+    // ListDetail's optimistic reorder reverted itself on the next refetch.
+    const { respondApi } = createFixture()
+    const a = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 9001 } }).body.itemId
+    const b = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 9002 } }).body.itemId
+    const c = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 9003 } }).body.itemId
+    assert.deepEqual(get(respondApi, '/api/lists/list-1').body.items.map((i) => i.itemId), [a, b, c])
+    get(respondApi, '/api/lists/list-1', { method: 'PATCH', body: { itemOrder: [c, a, b] } })
+    const reordered = get(respondApi, '/api/lists/list-1').body.items
+    assert.deepEqual(reordered.map((i) => i.itemId), [c, a, b])
+    assert.deepEqual(reordered.map((i) => i.position), [0, 1, 2])
+    assert.equal(get(respondApi, '/api/lists/list-1').body.list.itemOrder, undefined, 'itemOrder is not a real ListSummary field')
+  })
 })
 
 describe('createFixture card search', () => {
