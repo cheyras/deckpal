@@ -1240,9 +1240,20 @@ apps/api/src/decke/
   grounding.ts          the card ids a tool actually returned this turn (§15f)
   narration.ts          tool syntax that reached the reader as prose, removed (§15f)
   deep.ts               the four sub-agent tools -- the deep tier (§15d)
+  jev.ts                typed judgments from Jev, and null (= today's behaviour) on any failure
+  reflex.ts             the pre-turn read: force the consent card, steer the walk, hear a spoken no
+  eval/                 the labelled, synthetic judgment eval set and its scorer
   prompt.ts, tools.ts, screens.ts, gate.ts   system prompt, express/showScreen, screen palette, owner gate
 api/chat.mjs          the standalone serverless brain
 ```
+
+**Judgments ride under the words.** `DECKE_JEV=on` adds one typed evaluation
+per reader message (`reflex.ts`, ~0.3 s, ~$0.00004): it can pin step one to
+`log_cards` — which only ever raises the signed consent card — hide `escort`,
+and add a spoken refusal to the declined ledger. Every answer acts only above a
+threshold chosen on `eval/judgments.json`; a timeout, an error or a low answer
+is today's harness exactly. Jev never approves a write and is not a security
+control.
 
 `api/chat.mjs` is deliberately standalone rather than a route on the Express app:
 production needs streaming under the RLS-authenticated request, and the two did

@@ -273,6 +273,24 @@ domain-allowlist control available on this Gateway for other research tools —
 provider-side; the compensating controls here are structural rather than that
 allowlist.)
 
+**Jev is a new data processor, and its retention is unconfirmed** (2026-09-26).
+With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
+AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
+(`apps/api/src/decke/reflex.ts`). What it receives: the reader's latest message
+(clipped to 2,000 characters), Deck-E's previous reply (last 800) and the page
+path — no collection data, no ids, no photos, no account details. Every request
+sets `zeroDataRetention: true` and pins the provider with `only: ["typesafe-ai"]`.
+That pin matters: measured on 2026-09-26, the Gateway otherwise routes Jev to a
+second host (DigitalOcean) first, and with the flag it skips that host as
+ZDR-ineligible. **Whether TypeSafe itself retains what it is sent is not
+confirmed**: the Gateway's model list reports `zdr: "none"` for Jev, Vercel's
+guide says ZDR is available per request, and TypeSafe's own documentation offers
+ZDR to enterprise customers only. Jev never approves anything and is not a
+control: its vendor documents that text in its state can move its answers, so
+its judgments only ever raise a consent card, hide a tool the reader cannot use,
+or add a refusal — each fails safe, and every failure is today's behaviour. Off
+by default; `GET /health` reports `deckeJev`.
+
 **Server-side request forgery — where the server is allowed to fetch from.**
 Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
 `js/request-forgery` code-scanning alerts):

@@ -153,7 +153,7 @@ test('the deep tier is given the turn\'s meter refusals, seeded from the replaye
 test('the same ledger narrows activeTools, so a spent tier leaves the model\'s view', () => {
   assert.match(
     SRC,
-    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\)\)/,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
     'prepareStep no longer removes a spent deep tier from activeTools',
   );
 });
@@ -194,4 +194,31 @@ test('dropped replies\' evidence reaches the two ledgers and never the model', (
   const reads = CODE.match(/\.\.\.evidence\b/g) ?? [];
   assert.equal(reads.length, 2, `evidence is read ${reads.length} times; it belongs to the two ledgers only`);
   assert.doesNotMatch(CODE, /windowForModel\([^)]*evidence/);
+});
+
+// ── THE REFLEX READ ─────────────────────────────────────────────────────────
+//
+// `reflex.ts` can decide perfectly and change nothing: its three effects are
+// three expressions in this file, each one easy to drop in an edit.
+
+test('the reflex read runs after the meter, from the built module, with the turn\'s abort', () => {
+  assert.match(SRC, /import \{ readReflex \} from '\.\.\/apps\/api\/dist\/decke\/reflex\.js'/);
+  const read = CODE.indexOf('const reflex = await readReflex(messages, route, { key, signal: request.signal })');
+  assert.ok(read > 0, 'readReflex is no longer called with the validated messages, the key and the signal');
+  // A Gateway call: nothing reaches the Gateway unpaid.
+  assert.ok(CODE.indexOf('meter = await meterTurn(') < read, 'the reflex read runs before the meter');
+  assert.ok(CODE.indexOf('if (!meter.allowed)') < read, 'the reflex read runs for a refused turn');
+  assert.ok(read < CODE.indexOf('model: observeUsageModel('), 'the reflex read runs after the model starts');
+});
+
+test('a spoken refusal reaches the declined ledger', () => {
+  assert.match(CODE, /const declined = declinedCalls\(messages, latestUserText\(messages\), reflex\.declines\)/);
+});
+
+test('a read collection change forces the first step, and only the first step', () => {
+  assert.match(
+    CODE,
+    /\.\.\.\(stepNumber === 0 && reflex\.force \? \{ toolChoice: \{ type: 'tool', toolName: reflex\.force \} \} : \{\}\)/,
+    'prepareStep no longer forces the reflex tool on step one',
+  );
 });
