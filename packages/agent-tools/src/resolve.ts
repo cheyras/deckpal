@@ -46,16 +46,13 @@ export type CardResolution =
   | { status: 'ambiguous'; candidates: ResolvedCard[]; total: number }
   | { status: 'not_found'; message: string };
 
-// FROM browsable_card, not card: Pokémon TCG Pocket is "not browsable
-// anywhere in the product" (DECISIONS 2026-08-10), and this SELECT is the
-// resolution choke point for get_card, log_cards, add_cards and edit_list
-// alike (see the file header) — one predicate here closes the loophole for
-// all of them at once, rather than four places that could each forget it.
-const CARD_SELECT = `
-  SELECT c.id, c.tcgdex_id, c.name, c.local_id, c.rarity, c.category,
-         cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name, se.slug AS series_slug,
-         bp.best_minor
-    FROM browsable_card c
+// Shared column list + joins for both variants of the card select below, so
+// they can never drift apart on anything but the FROM target.
+const CARD_COLUMNS = `
+  c.id, c.tcgdex_id, c.name, c.local_id, c.rarity, c.category,
+  cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name, se.slug AS series_slug,
+  bp.best_minor`;
+const CARD_JOINS = `
     JOIN card_set cs ON cs.id = c.set_id
     JOIN series se   ON se.id = cs.series_id
     LEFT JOIN (
@@ -65,6 +62,43 @@ const CARD_SELECT = `
        WHERE pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
        GROUP BY cv.card_id
     ) bp ON bp.card_id = c.id`;
+
+// FROM browsable_card, not card: Pokémon TCG Pocket is "not browsable
+// anywhere in the product" (DECISIONS 2026-08-10), and this SELECT is the
+// resolution choke point for get_card, log_cards, add_cards and edit_list
+// alike (see the file header) — one predicate here closes the loophole for
+// all of them at once, rather than four places that could each forget it.
+const CARD_SELECT = `SELECT ${CARD_COLUMNS} FROM browsable_card c ${CARD_JOINS}`;
+
+/**
+ * The ONE exception to "not browsable anywhere": a Pocket card the caller
+ * already owns, looked up by its EXACT id only — never by name, never
+ * fuzzy, never a candidate in an ambiguity list. Not an acquisition path:
+ * `EXISTS (... quantity > 0)` means the moment a write reduces the owned
+ * quantity to zero, the next call stops resolving it, so this cannot be used
+ * to re-acquire or top up a Pocket printing, only to finish removing one.
+ *
+ * Exists because `log_cards`/`edit_list` route through `resolveCard` too —
+ * a user who already has a Pocket card in their collection (added through
+ * the web UI's count boxes, or through this same agent-tools path, before
+ * this exclusion shipped) would otherwise have no way to zero it out or
+ * remove it: resolution would fail before the write logic ever ran, and the
+ * row would sit there forever. Caught in review (Astra).
+ */
+async function ownedPocketCardById(ctx: Ctx, tcgdexId: string): Promise<Record<string, unknown> | undefined> {
+  const rows = await q(
+    ctx.db,
+    `SELECT ${CARD_COLUMNS} FROM card c ${CARD_JOINS}
+      WHERE c.tcgdex_id = $1 AND c.lang = 'en'
+        AND EXISTS (
+          SELECT 1 FROM card_variant cv2
+            JOIN collection_item ci2 ON ci2.card_variant_id = cv2.id
+           WHERE cv2.card_id = c.id AND ci2.user_id = $2 AND ci2.quantity > 0
+        )`,
+    [tcgdexId.trim(), ctx.userId],
+  );
+  return rows[0];
+}
 
 function shape(r: Record<string, unknown>): ResolvedCard {
   return {
@@ -151,8 +185,12 @@ export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolutio
     const r = await q1(ctx.db, `${CARD_SELECT} WHERE c.tcgdex_id = $1 AND c.lang = 'en'`, [
       ref.card_id.trim(),
     ]);
-    return r
-      ? { status: 'ok', card: shape(r) }
+    if (r) return { status: 'ok', card: shape(r) };
+    // Not in the browsable catalog — try the one exception (see
+    // ownedPocketCardById) before giving up.
+    const owned = await ownedPocketCardById(ctx, ref.card_id);
+    return owned
+      ? { status: 'ok', card: shape(owned) }
       : { status: 'not_found', message: `No card with id '${ref.card_id}'` };
   }
   const name = ref.name?.trim();
@@ -299,6 +337,25 @@ export async function resolveCardsBatch(ctx: Ctx, refs: readonly CardRef[]): Pro
     const ids = [...new Set(byId.map((i) => refs[i]!.card_id!.trim()))];
     const rows = await q(ctx.db, `${CARD_SELECT} WHERE c.tcgdex_id = ANY($1::text[]) AND c.lang = 'en'`, [ids]);
     const found = new Map(rows.map((r) => [String(r.tcgdex_id), shape(r)]));
+    // The batch form of the same exception resolveCard applies per item —
+    // an id that missed the browsable catalog may still be a Pocket card
+    // this caller already owns (see ownedPocketCardById). Queried only for
+    // the misses, and only once for the whole batch.
+    const missingIds = ids.filter((id) => !found.has(id));
+    if (missingIds.length > 0) {
+      const ownedRows = await q(
+        ctx.db,
+        `SELECT ${CARD_COLUMNS} FROM card c ${CARD_JOINS}
+          WHERE c.tcgdex_id = ANY($1::text[]) AND c.lang = 'en'
+            AND EXISTS (
+              SELECT 1 FROM card_variant cv2
+                JOIN collection_item ci2 ON ci2.card_variant_id = cv2.id
+               WHERE cv2.card_id = c.id AND ci2.user_id = $2 AND ci2.quantity > 0
+            )`,
+        [missingIds, ctx.userId],
+      );
+      for (const r of ownedRows) found.set(String(r.tcgdex_id), shape(r));
+    }
     for (const i of byId) {
       const hit = found.get(refs[i]!.card_id!.trim());
       if (hit) resolved.set(i, hit);

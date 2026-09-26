@@ -186,11 +186,27 @@ async function bootCluster() {
   return { host: socket, port: 55491, user: 'pokedex', database: 'deckpal' };
 }
 
+/**
+ * Stop the server and only then remove its files — CONFIRMING shutdown
+ * first, never assuming it from a swallowed error. The earlier version
+ * `.catch(() => {})`'d the stop command and deleted the data directory
+ * unconditionally, so a stop that failed for a real reason (not just
+ * "already stopped", which is `pg_ctl`'s documented exit code 3) could
+ * delete a running server's files out from under it. Caught in review.
+ */
 async function stopCluster() {
   if (!scratch) return;
   const data = join(scratch, 'data');
   if (existsSync(join(data, 'PG_VERSION'))) {
-    await run(join(bindir, 'pg_ctl'), ['-D', data, '-m', 'immediate', '-w', '-t', '15', 'stop'], { accepted: [0, 3] }).catch(() => {});
+    const status = await run(join(bindir, 'pg_ctl'), ['-D', data, 'status'], { accepted: [0, 3] });
+    if (status.code === 0) {
+      await run(join(bindir, 'pg_ctl'), ['-D', data, '-m', 'immediate', '-w', '-t', '15', 'stop'], { accepted: [0, 3] });
+      const stopped = await run(join(bindir, 'pg_ctl'), ['-D', data, 'status'], { accepted: [0, 3] });
+      if (stopped.code !== 3) {
+        console.error(`[pocketExclusion] could not confirm shutdown of the cluster at ${data} -- leaving its files in place for diagnosis rather than deleting them under a server that may still be running.`);
+        return;
+      }
+    }
   }
   rmSync(scratch, { recursive: true, force: true });
 }
@@ -245,6 +261,15 @@ async function seedFixture(client) {
       [pocketSet],
     )
   ).rows[0].id;
+  // A SECOND Pocket card the user never owns -- the control for the
+  // owned-exception below. It must never resolve by id, unlike pocketCard.
+  const pocketCardNeverOwned = (
+    await q(
+      `INSERT INTO card (set_id, tcgdex_id, lang, local_id, local_id_numeric, number_sort, name, name_normalized, category, rarity)
+       VALUES ($1, 'A1-037', 'en', '037', 37, 'A000037', 'Blastoise ex', 'blastoise ex', 'Pokemon', 'Immersive') RETURNING id`,
+      [pocketSet],
+    )
+  ).rows[0].id;
 
   await q(
     `INSERT INTO variant_kind (code, display_name, finish, size, print_run_code, tier_derived, tier_rule_version)
@@ -281,7 +306,13 @@ async function seedFixture(client) {
   // count as having captured Charizard, and it must not appear as a mover.
   await q(`INSERT INTO collection_item (user_id, card_variant_id, quantity) VALUES ($1, $2, 1)`, [userId, pocketVariant]);
 
-  return { userId, physicalCardId: 'sv01-6', pocketCardId: 'A1-036' };
+  return {
+    userId,
+    physicalCardId: 'sv01-6',
+    pocketCardId: 'A1-036',
+    pocketCardNeverOwnedId: 'A1-037',
+    pocketVariantId: pocketVariant,
+  };
 }
 
 async function main() {
@@ -344,7 +375,7 @@ async function main() {
       pathToFileURL(join(REPO, 'apps/api/src/insights/pokedex.ts'))
     );
     const { topMovers } = await import(pathToFileURL(join(REPO, 'apps/api/src/insights/collectionValue.ts')));
-    const { resolveCard } = await import(pathToFileURL(join(REPO, 'packages/agent-tools/src/resolve.ts')));
+    const { resolveCard, resolveCardsBatch } = await import(pathToFileURL(join(REPO, 'packages/agent-tools/src/resolve.ts')));
     const { resolveSet } = await import(pathToFileURL(join(REPO, 'packages/agent-tools/src/entities.ts')));
     const { catalogTools } = await import(pathToFileURL(join(REPO, 'packages/agent-tools/src/tools/catalog.ts')));
     const [searchCardsTool, , setProgressTool] = catalogTools;
@@ -377,15 +408,35 @@ async function main() {
       assert.equal(detail.cards[0].cardId, fixture.physicalCardId);
     });
 
-    await check('resolveCard: the Pocket card id does not resolve at all', async () => {
-      const res = await resolveCard(toolsCtx, { card_id: fixture.pocketCardId });
+    await check('resolveCard: a Pocket card the user has never owned does not resolve', async () => {
+      const res = await resolveCard(toolsCtx, { card_id: fixture.pocketCardNeverOwnedId });
       assert.equal(res.status, 'not_found');
     });
 
-    await check('resolveCard: a name shared with a Pocket card resolves uniquely to the physical one', async () => {
+    // The Astra-flagged case: a Pocket card the user ALREADY owns (this
+    // fixture's pocketVariant, qty 1) must still resolve by its EXACT id —
+    // otherwise log_cards/edit_list have no way to zero it out or remove it,
+    // and a user who got one before this fix shipped is stuck with it
+    // forever. It must NOT resolve by name (that would be discoverable
+    // browsing), and once its owned quantity reaches zero it must stop
+    // resolving at all, so this is cleanup-only, never re-acquisition.
+    await check('resolveCard: an OWNED Pocket card resolves by exact id, for cleanup', async () => {
+      const res = await resolveCard(toolsCtx, { card_id: fixture.pocketCardId });
+      assert.equal(res.status, 'ok');
+      assert.equal(res.card.tcgdexId, fixture.pocketCardId);
+    });
+
+    await check('resolveCardsBatch: the same owned-exception applies in the batch path log_cards uses', async () => {
+      const { resolved, fallback } = await resolveCardsBatch(toolsCtx, [{ card_id: fixture.pocketCardId }, { card_id: fixture.pocketCardNeverOwnedId }]);
+      assert.equal(resolved.get(0)?.tcgdexId, fixture.pocketCardId, 'the owned Pocket card resolves');
+      assert.equal(resolved.has(1), false, 'the never-owned Pocket card does not');
+      assert.equal(fallback.get(1)?.status, 'not_found');
+    });
+
+    await check('resolveCard: a name shared with a Pocket card resolves uniquely to the physical one, even though the Pocket printing is owned', async () => {
       const res = await resolveCard(toolsCtx, { name: 'Charizard ex' });
       assert.equal(res.status, 'ok');
-      assert.equal(res.card.tcgdexId, fixture.physicalCardId);
+      assert.equal(res.card.tcgdexId, fixture.physicalCardId, 'name resolution stays browsable-only even for an owned Pocket card');
     });
 
     await check('resolveSet: the Pocket set id does not resolve, the physical one does', async () => {
@@ -412,6 +463,15 @@ async function main() {
     await check('topMovers: excludes an owned AND priced Pocket variant', async () => {
       const movers = await topMovers(fixture.userId, 'USD');
       assert.deepEqual(movers, []);
+    });
+
+    // LAST: mutates the fixture (zeroes the owned Pocket variant), so every
+    // check above that depends on it still being owned (topMovers, the
+    // owned-exception checks) must run first.
+    await check('resolveCard: once fully removed, the same id stops resolving (not a re-acquisition path)', async () => {
+      await pool.query('UPDATE collection_item SET quantity = 0 WHERE card_variant_id = $1', [fixture.pocketVariantId]);
+      const res = await resolveCard(toolsCtx, { card_id: fixture.pocketCardId });
+      assert.equal(res.status, 'not_found');
     });
   } finally {
     await pool?.end().catch(() => {});
