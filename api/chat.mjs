@@ -500,7 +500,7 @@ async function serve(request) {
   }
   try {
     quote = await readPolicy(chatPool(), user.id)
-    reference = chatChargeReference(conversationId, messages, route, landmarks)
+    reference = chatChargeReference(conversationId, messages, route, landmarks, { exchangeId, seq })
     usage = await beginAiRequest(chatPool(), { userId: user.id, conversationId, exchangeId, seq, requestKey: reference.key, payloadHash: reference.hash, quote, messages, signal: request.signal })
     meter = await meterTurn(user.id, { tier: 'chat_turns', reason: 'chat_turn' })
   } catch (error) {

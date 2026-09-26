@@ -20548,7 +20548,10 @@ switched off however long the chat gets and however many tools are failing
 last-24 slice evicted old failures, and one message per failure could still
 cut a tool). A question queued while Deck-E loads is set aside as the current
 turn before the window is applied, so an oversized one still reaches the
-server and comes back as the 413 it is. `route` is
+server and comes back as the 413 it is. And because a bounded window can be
+byte-identical across two genuinely new exchanges, the replay-protection key
+(`chatChargeReference`) now includes the browser's `exchangeId` and `seq`; a
+retried leg of the same exchange still collides and is still refused. `route` is
 clipped to 200 characters and each landmark string to 200. **SEC-12:** both
 route allowlists (`isAllowedRoute`, `routeAllowed`) accept a path only if URL
 resolution leaves it unchanged, and refuse `%2e`/`%2f`/`%5c`/`%00` and control
