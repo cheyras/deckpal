@@ -136,8 +136,28 @@ export function TableView({
   const containerRef = useRef<HTMLDivElement>(null)
   const [offsetTop, setOffsetTop] = useState(0)
 
+  // `getBoundingClientRect().top + scrollY`, NOT `.offsetTop` (Astra caught
+  // this): `.offsetTop` is relative to the nearest ANCESTOR with a non-`none`
+  // `transform`, not the document — and `lib/lateEntrance.ts`'s late-arriving
+  // page entrance (`.px-enter`, premium skin's default) puts exactly that
+  // kind of transform on an ancestor of this list for the length of its
+  // rise-in animation. Measured with `.offsetTop` during that window, this
+  // page's real scroll offset (everything above the table: nav, list header,
+  // filters) went uncounted, so `scrollToIndex` landed a whole page-header's
+  // height short of the requested row. `getBoundingClientRect()` is always
+  // viewport-relative regardless of any ancestor's transform, so this is
+  // correct whether or not that animation is still running — re-measured on
+  // resize too, since a reflow elsewhere on the page (not just this element)
+  // can move it without this element's own size changing.
   useLayoutEffect(() => {
-    if (containerRef.current) setOffsetTop(containerRef.current.offsetTop)
+    const measure = () => {
+      if (containerRef.current) {
+        setOffsetTop(containerRef.current.getBoundingClientRect().top + window.scrollY)
+      }
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
   }, [])
 
   const virtualizer = useWindowVirtualizer({
@@ -216,22 +236,34 @@ export function TableView({
               shifting Price's own position between rows, not just relative
               to this header. Fixed widths make every row's Price and
               Variant land at the same x regardless of that row's own
-              variant/counter content. */}
-          <span className="hidden w-[110px] shrink-0 truncate text-right sm:block">Variant</span>
+              variant/counter content.
+              `md:` (768px), not `sm:` (640px) — Astra caught this too:
+              turning BOTH reserved columns on at exactly 640px needs roughly
+              658px of content width, which `Content`'s gutters don't hand
+              back until well past that breakpoint (measured: 608px available
+              at 640px). Between 640-690px the sum of fixed columns exceeded
+              the available width and `Name` collapsed to zero again — the
+              same failure as at 390px, just at a boundary my first pass
+              didn't test empirically. `md:` leaves comfortable headroom;
+              re-verified at 640/700/768/800/900px with none of the fixed
+              columns ever pushing `Name` below a readable width. */}
+          <span className="hidden w-[110px] shrink-0 truncate text-right md:block">Variant</span>
           <span className="w-[72px] shrink-0 text-right">Price</span>
-          {/* `hidden sm:block`, same as Variant above and for the same reason
+          {/* `hidden md:block`, same as Variant above and for the same reason
               as its row-side comment: reserving the full 128px this needs for
               up to 4 counter chips (wiki: Frontend-Research, "1-4 badges")
-              leaves less than nothing for Name at 390px — measured, not
-              guessed: the card's own NAME rendered at 0 width with this slot
-              shown unconditionally. FLAGGED DECISION (see DECISIONS.md this
-              date): mobile Table view no longer offers quantity counters at
-              all (previously shown, just unaligned) — switch to Grid or open
-              the card sheet to edit quantities on a phone. Reversible; a
-              compact single "+" affordance opening a picker sheet instead of
-              up to 4 inline chips was the alternative I considered but didn't
-              build without a design call on it. */}
-          {signedIn === true && <span className="hidden w-[128px] shrink-0 sm:block" />}
+              leaves less than nothing for Name below that width — measured,
+              not guessed: the card's own NAME rendered at 0 width with this
+              slot shown unconditionally, both below 640px AND in the
+              640-690px band once Variant also turned on (see that comment).
+              FLAGGED DECISION (see DECISIONS.md this date): Table view no
+              longer offers quantity counters below `md` at all (previously
+              shown, just unaligned, at every width) — switch to Grid or open
+              the card sheet to edit quantities below a tablet-ish width.
+              Reversible; a compact single "+" affordance opening a picker
+              sheet instead of up to 4 inline chips was the alternative I
+              considered but didn't build without a design call on it. */}
+          {signedIn === true && <span className="hidden w-[128px] shrink-0 md:block" />}
           <span className="w-[16px] shrink-0" />
         </div>
       </div>
@@ -321,7 +353,7 @@ export function TableView({
                       comment) and `Name` above — a long printing name
                       ("Special Illustration Rare") clips with an accessible
                       `title` rather than pushing every column after it. */}
-                  <div className="hidden w-[110px] shrink-0 justify-end sm:flex">
+                  <div className="hidden w-[110px] shrink-0 justify-end md:flex">
                     {card.variant ? (
                       <VariantChip variant={card.variant} className="min-w-0 truncate text-text-body" />
                     ) : (
@@ -334,15 +366,16 @@ export function TableView({
                     {fmtPrice(card.price)}
                   </span>
                   {/* Write affordance: hidden signed-out (the API sends no quantities
-                      and there is nothing to write to) AND below `sm` — see the
+                      and there is nothing to write to) AND below `md` — see the
                       header's comment (FLAGGED DECISION) for why counters are
-                      no longer offered on a phone at all, not just unaligned.
-                      Reserved whenever ANY row might show counters, even one
-                      whose own card has none, so `Name` doesn't grow or shrink
-                      per row depending on it — the actual cause of Astra's
-                      finding, per the header's other comment. */}
+                      no longer offered below a tablet-ish width at all, not
+                      just unaligned. Reserved whenever ANY row might show
+                      counters, even one whose own card has none, so `Name`
+                      doesn't grow or shrink per row depending on it — the
+                      actual cause of Astra's first finding, per the header's
+                      other comment. */}
                   {signedIn === true && (
-                    <div className="hidden w-[128px] shrink-0 justify-end sm:flex">
+                    <div className="hidden w-[128px] shrink-0 justify-end md:flex">
                       {set && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
                     </div>
                   )}

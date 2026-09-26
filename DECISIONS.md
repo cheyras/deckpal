@@ -20608,15 +20608,56 @@ own variant/counter content. Screenshots taken with a fixture card that genuinel
 variants (added a small `/api/cards/:id` handler to this repo's untracked `.sim/` scale fixture
 for this — not part of the PR diff) confirm it visually too.
 
-**FLAGGED DECISION, not fixed silently:** making the 128px counters column fit at 390px left
-literally 0 width for the card's own name when shown unconditionally (measured, not assumed) — a
-phone screen genuinely doesn't have room for num + name + price + 4 quantity chips + chevron at
-once. Rather than pick a smaller, less-than-honest reservation that would just move the same
-misalignment to a rarer case, quantity counters are no longer shown in mobile Table view at all
-(they still are on Grid, and the card detail sheet still offers them) — the same `sm:`-gated
-treatment the Variant column already had, extended to Counters. This is a real, visible behavior
-change from before this PR (counters used to render, just unaligned, on every viewport) and is
-called out here for Chey's review rather than left for someone to discover later. An alternative
-I considered but didn't build without a design call: collapse the up-to-4 chips into a single
-compact "+" affordance that opens a quantity picker, which could fit at 390px without dropping the
-feature — flagging it as the natural follow-up if the current mobile behavior isn't the right call.
+**FLAGGED DECISION, not fixed silently:** making the 128px counters column fit at narrow widths
+left literally 0 width for the card's own name when shown unconditionally (measured, not
+assumed) — a phone (and, it turned out on the second review pass below, a small tablet) genuinely
+doesn't have room for num + name + price + 4 quantity chips + chevron at once. Rather than pick a
+smaller, less-than-honest reservation that would just move the same misalignment to a rarer case,
+quantity counters are no longer shown below the `md` breakpoint in Table view at all (they still
+are on Grid, and the card detail sheet still offers them) — the same gated treatment the Variant
+column already had, extended to Counters. This is a real, visible behavior change from before
+this PR (counters used to render, just unaligned, at every width) and is called out here for
+Chey's review rather than left for someone to discover later. An alternative I considered but
+didn't build without a design call: collapse the up-to-4 chips into a single compact "+"
+affordance that opens a quantity picker, which could fit narrower without dropping the feature —
+flagging it as the natural follow-up if the current narrow-width behavior isn't the right call.
+
+### Addendum 2 — second Astra pass, two more valid findings, both fixed
+
+Pushed the fixes above, then re-ran the required independent review against the new diff. Two
+more valid P2 findings, both fixed:
+
+**3. `offsetTop` is relative to the nearest transformed ancestor, not the document.** This
+component's `scrollMargin` (needed so `useWindowVirtualizer` — a *window*-scroll virtualizer —
+knows how far down the page its own container sits) was computed from
+`containerRef.current.offsetTop`. `.offsetTop` is defined relative to the element's
+`offsetParent`, which per spec becomes the nearest ancestor with a computed `transform` other
+than `none` — and `lib/lateEntrance.ts`'s late-arriving page entrance (`.px-enter`, the premium
+skin's default, applies to exactly this list's ancestor) runs a `translateY(10px) → none`
+animation for `var(--px-dur-slow)` on load. Measured during that window, `offsetTop` returns a
+value relative to that animating ancestor (typically near 0) instead of the document, so
+`scrollToIndex` would land short by roughly the height of everything above the table (nav, list
+header, filters). Fixed by switching to `getBoundingClientRect().top + window.scrollY`, which is
+always viewport-relative regardless of any ancestor's transform — correct whether or not the
+entrance animation is still running — and re-measuring on window resize (a reflow elsewhere on
+the page can move this element without its own size changing, which a resize-only listener also
+doesn't fully solve, but matches what a plain `getBoundingClientRect` snapshot can do without
+adding a `MutationObserver` or similar for a component that isn't the one moving).
+
+**4. The `sm` (640px) breakpoint didn't leave room for both reserved columns.** Turning on
+Variant (110px) and Counters (128px) together right at 640px needs roughly 658px of content
+width, but `Content`'s gutters only hand back about 608px at that exact viewport width — so from
+640px up to roughly 690px, the same "`Name` collapses toward zero" failure from Addendum 1
+reappeared, just at a boundary my first verification pass (390px and 1440px only) never actually
+measured. Fixed by moving both reservations from `sm:` to `md:` (768px). Re-verified empirically
+across the whole transition, not just spot-checked: rendered `Name` width at 390/600/640/660/680/
+690/700/768/800/900/1440px is 70/280/320/340/360/370/380/178/210/310/432px — never collapses, and
+the 768px step (178px, where the two columns first turn on) is comfortably readable, not merely
+non-zero.
+
+Both fixes are in the same commit as this addendum. Not independently re-verified end-to-end for
+the exact "premium skin + cold load + mid-animation reveal" scenario Astra described (would need
+a synthetic SET fixture with the entrance animation actively running at measurement time) — the
+fix is correct by construction (`getBoundingClientRect` is unaffected by transformed ancestors by
+definition, not by observed behavior in one scenario), which is why this is noted rather than
+claimed as fully covered.
