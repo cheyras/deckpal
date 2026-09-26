@@ -1,16 +1,16 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { Queryable } from './tokens.js';
+import type { Queryable, TokenScope } from './tokens.js';
 
 /**
  * OAuth 2.1 + PKCE + Dynamic Client Registration (`oauth_client` / `oauth_code`,
  * migrations 031-033).
  *
  * A standards-based "Connect" flow that sits in front of the existing personal
- * access token system (tokens.ts, migration 026) rather than beside it: the
- * token endpoint's only real job is to call {@link createToken} from
- * tokens.ts once a code is verified, so every credential /mcp ever accepts —
- * whether pasted from Profile or minted by an OAuth exchange — is the exact
- * same `api_token` row, checked by the exact same code.
+ * access token system (tokens.ts, migration 026) rather than beside it: once
+ * a code is verified, the token endpoint opens a connection (grants.ts), which
+ * is an `api_token` row like any hand-made token, listed and revoked in the
+ * same place and resolved by the same `resolveToken()`. Since migration 075
+ * its working secrets rotate beneath that row instead of being the row's own.
  *
  * Three moving parts:
  *  - **Client registration** (RFC 7591). A client self-registers once and
@@ -66,6 +66,71 @@ function isAllowedRedirectUri(raw: string): boolean {
 }
 
 export class OAuthValidationError extends Error {}
+
+// ── Who is really on the other end (SEC-07) ────────────────────────────────
+//
+// `client_name` is whatever the registering app typed, so it cannot tell the
+// consent screen who is asking: anyone can register as "Claude". What the
+// person is really trusting is the redirect, because that is where their
+// approval is delivered. So the consent screen leads with the redirect's host,
+// and names an app itself only when the redirect is one we know belongs to it.
+//
+// Exact callback URLs, not hosts: a host match would badge any path on it,
+// including one that forwarded the code somewhere else. Anthropic documents
+// this one callback for every hosted Claude surface (claude.ai, Desktop,
+// mobile, Cowork); claude.com is the same company's other domain.
+const VERIFIED_REDIRECTS: ReadonlyMap<string, string> = new Map([
+  ['https://claude.ai/api/mcp/auth_callback', 'Claude'],
+  ['https://claude.com/api/mcp/auth_callback', 'Claude'],
+]);
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * `verified`: a callback on the list above, so we can name the app ourselves.
+ * `local`: a loopback redirect, used by CLI and desktop clients such as Claude
+ * Code. Any program on the machine can listen there, which the MCP spec says
+ * deserves its own warning. `unverified`: everything else, named by its host.
+ */
+export type RedirectTrust = 'verified' | 'local' | 'unverified';
+
+export interface RedirectIdentity {
+  /** Host (with port, if any) the approval is sent to. */
+  host: string;
+  trust: RedirectTrust;
+  /** Our own name for a verified redirect; null otherwise. */
+  verifiedName: string | null;
+}
+
+export function classifyRedirect(redirectUri: string): RedirectIdentity {
+  let url: URL;
+  try {
+    url = new URL(redirectUri);
+  } catch {
+    return { host: redirectUri, trust: 'unverified', verifiedName: null };
+  }
+  const verifiedName = VERIFIED_REDIRECTS.get(url.href) ?? null;
+  if (verifiedName) return { host: url.host, trust: 'verified', verifiedName };
+  if (LOOPBACK_HOSTS.has(url.hostname)) return { host: url.host, trust: 'local', verifiedName: null };
+  return { host: url.host, trust: 'unverified', verifiedName: null };
+}
+
+const MAX_TOKEN_NAME_LEN = 60;
+
+/**
+ * The name a connection is listed under in Profile → Agent access. It carries
+ * where the approval went, so a lookalike can never sit in that list as plain
+ * "Claude": `Claude (OAuth · claude.ai)`, `Claude (OAuth · evil.example)`.
+ * The claimed name gives way before the host does when space runs out.
+ */
+export function connectionName(clientName: string | null | undefined, redirectUri: string): string {
+  const { host, trust, verifiedName } = classifyRedirect(redirectUri);
+  const suffix = ` (OAuth · ${trust === 'local' ? 'this computer' : host})`;
+  const label = verifiedName ?? (clientName?.trim() || 'MCP client');
+  const room = Math.max(MAX_TOKEN_NAME_LEN - suffix.length, 12);
+  const clipped = label.length > room ? `${label.slice(0, room - 1)}…` : label;
+  return `${clipped}${suffix}`.slice(0, MAX_TOKEN_NAME_LEN);
+}
 
 /**
  * Register a new public OAuth client (RFC 7591). Throws
@@ -135,6 +200,8 @@ export interface AuthCodeRow {
   redirectUri: string;
   codeChallenge: string;
   resource: string | null;
+  /** What the person chose on the consent screen (migration 075). */
+  scope: TokenScope;
 }
 
 /** `dsac_` + 32 bytes CSPRNG, base64url. A short, recognisable, single-use secret. */
@@ -170,12 +237,13 @@ export async function consumeAuthCode(db: Queryable, code: string): Promise<Auth
     redirect_uri: string;
     code_challenge: string;
     resource: string | null;
+    scope: TokenScope;
   }>(
     `UPDATE oauth_code
         SET used_at = now()
       WHERE code = $1 AND used_at IS NULL AND expires_at > now()
         AND public.admin_account_active(user_id::text)
-      RETURNING code, client_id, user_id, redirect_uri, code_challenge, resource`,
+      RETURNING code, client_id, user_id, redirect_uri, code_challenge, resource, scope`,
     [code],
   );
   const row = rows[0];
@@ -187,6 +255,7 @@ export async function consumeAuthCode(db: Queryable, code: string): Promise<Auth
     redirectUri: row.redirect_uri,
     codeChallenge: row.code_challenge,
     resource: row.resource,
+    scope: row.scope,
   };
 }
 

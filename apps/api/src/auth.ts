@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { defaultUserId, pool } from './db.js';
-import { looksLikeApiToken, resolveToken, touchToken } from '@deckpal/db';
+import { looksLikeApiToken, resolveToken, touchToken, type TokenScope } from '@deckpal/db';
 import { makeResolveIdentity, makeResolveOptionalIdentity } from './identity.js';
 
 /**
@@ -63,6 +63,8 @@ declare global {
       authKind?: AuthKind;
       /** `api_token.id` behind a token-authenticated request (never the raw token). */
       apiTokenId?: string;
+      /** What that token may do (migration 075). Absent for a session. */
+      tokenScope?: TokenScope;
       /**
        * Whether an identity middleware has run, and what it concluded.
        *
@@ -291,6 +293,7 @@ async function applyApiToken(req: Request, raw: string): Promise<void> {
   req.user = { id: resolved.userId };
   req.authKind = 'token';
   req.apiTokenId = resolved.tokenId;
+  req.tokenScope = resolved.scope;
   await touchToken(pool, resolved.tokenId);
 }
 
@@ -438,4 +441,30 @@ export function requireSession(req: Request, res: Response, next: NextFunction):
     return;
   }
   requireAuth(req, res, next);
+}
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * A read-only connection (chosen on the consent screen, migration 075) may
+ * look at everything its account can and change nothing. Mounted once, right
+ * after authMiddleware, so no route has to remember it and a refused write
+ * never reaches the RLS connection. Every read-only MCP tool reads over GET or
+ * straight from Postgres, so this refuses nothing a read-only connector uses.
+ *
+ * 403 with `insufficient_scope` is RFC 6750 §3.1's answer, and what the MCP
+ * authorization spec asks for; the sentence says what to do about it.
+ */
+export function enforceTokenScope(req: Request, res: Response, next: NextFunction): void {
+  if (req.authKind === 'token' && req.tokenScope === 'read' && !READ_METHODS.has(req.method)) {
+    res.setHeader('WWW-Authenticate', 'Bearer error="insufficient_scope"');
+    res.status(403).json({
+      error: {
+        code: 'insufficient_scope',
+        message: 'This connection is read-only. To let it make changes, reconnect it and choose "Read and change".',
+      },
+    });
+    return;
+  }
+  next();
 }

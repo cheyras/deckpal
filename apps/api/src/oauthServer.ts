@@ -4,11 +4,16 @@ import { pool, withTx } from './db.js';
 import { MAX_ACTIVE_TOKENS } from './routes/tokens.js';
 import {
   OAuthValidationError,
+  connectionName,
   consumeAuthCode,
-  createToken,
+  countActiveTokens,
   getClient,
+  grantSchemaReady,
+  openConnection,
+  refreshConnection,
   registerClient,
   verifyPkceS256,
+  type IssuedTokens,
 } from '@deckpal/db';
 
 /**
@@ -75,9 +80,13 @@ export function mountOAuthServer(app: Express): void {
       token_endpoint: `${origin}/token`,
       registration_endpoint: `${origin}/register`,
       response_types_supported: ['code'],
-      grant_types_supported: ['authorization_code'],
+      grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
+      // Not a permission DeckPal checks: Claude asks for a refresh token by
+      // adding `offline_access` to its request only when it is listed here
+      // (Anthropic's connector auth docs), and every connection has one.
+      scopes_supported: ['offline_access'],
     });
   });
 
@@ -113,7 +122,7 @@ export function mountOAuthServer(app: Express): void {
           client_name: client.clientName,
           redirect_uris: client.redirectUris,
           token_endpoint_auth_method: 'none',
-          grant_types: ['authorization_code'],
+          grant_types: ['authorization_code', 'refresh_token'],
           response_types: ['code'],
         });
       } catch (err) {
@@ -129,7 +138,8 @@ export function mountOAuthServer(app: Express): void {
 
   // POST /token — RFC 6749 §3.2 token endpoint. Traditionally
   // application/x-www-form-urlencoded; some clients send JSON, so both parsers
-  // are mounted and whichever matches Content-Type does the work.
+  // are mounted and whichever matches Content-Type does the work. Two grants:
+  // the first exchange of a consent code, and every renewal after it.
   app.post(
     '/token',
     express.urlencoded({ extended: false, limit: '16kb' }),
@@ -144,53 +154,78 @@ export function mountOAuthServer(app: Express): void {
         const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
         const grantType = str(body.grant_type);
-        if (grantType !== 'authorization_code') {
-          oauthError(res, 400, 'unsupported_grant_type', 'Only authorization_code is supported.');
+        if (grantType !== 'authorization_code' && grantType !== 'refresh_token') {
+          oauthError(res, 400, 'unsupported_grant_type', 'Only authorization_code and refresh_token are supported.');
           return;
         }
+        const clientId = str(body.client_id);
         const code = str(body.code);
         const redirectUri = str(body.redirect_uri);
-        const clientId = str(body.client_id);
         const codeVerifier = str(body.code_verifier);
-        if (!code || !redirectUri || !clientId || !codeVerifier) {
+        const refreshToken = str(body.refresh_token);
+        if (grantType === 'authorization_code' && (!code || !redirectUri || !clientId || !codeVerifier)) {
           oauthError(res, 400, 'invalid_request', 'code, redirect_uri, client_id and code_verifier are all required.');
+          return;
+        }
+        if (grantType === 'refresh_token' && !refreshToken) {
+          oauthError(res, 400, 'invalid_request', 'refresh_token is required.');
           return;
         }
 
         try {
-          const outcome = await withTx(async (db) => {
-            // Serialize exchange with admin revocation/suspension, including
-            // the code that was issued before an owner clicked Revoke.
-            await db.query('SELECT pg_advisory_xact_lock(741290064)');
-            const consumed = await consumeAuthCode(db, code);
-            if (!consumed) return { error: 'Unknown, expired, revoked, or already-used code.' };
-            if (consumed.clientId !== clientId || consumed.redirectUri !== redirectUri) {
-              return { error: 'The authorization request does not match.' };
-            }
-            if (!verifyPkceS256(codeVerifier, consumed.codeChallenge)) {
-              return { error: 'The code verifier does not match.' };
-            }
-            const client = await getClient(db, clientId);
-            const name = `${client?.clientName ?? 'MCP client'} (OAuth)`.slice(0,60);
-            const activeRows = (await db.query<{count:string}>(
-              'SELECT count(*)::text AS count FROM api_token WHERE user_id=$1 AND revoked_at IS NULL',
-              [consumed.userId])).rows;
-            if (Number(activeRows[0]?.count ?? '0') >= MAX_ACTIVE_TOKENS) {
-              return { error: 'The account has the maximum number of active connectors.' };
-            }
-            const created = await createToken(db, consumed.userId, name);
-            return { token: created.raw };
-          });
-          res.setHeader('Cache-Control','no-store');
-          if (outcome.error || !outcome.token) {
-            oauthError(res,400,'invalid_grant',outcome.error);
+          res.setHeader('Cache-Control', 'no-store');
+          if (!(await grantSchemaReady(pool))) {
+            oauthError(res, 503, 'temporarily_unavailable', 'DeckPal is finishing an update. Try connecting again in a few minutes.');
             return;
           }
-          // Return a bearer credential only after its transaction has committed.
-          res.status(200).json({access_token:outcome.token,token_type:'Bearer'});
+          const outcome: { tokens?: IssuedTokens; error?: string } =
+            grantType === 'refresh_token'
+              ? await withTx(async (db) => {
+                  // No governance lock: a renewal mints no api_token row, and
+                  // every secret it issues resolves through that row, so a
+                  // revoke committed at any moment still ends it.
+                  const refreshed = await refreshConnection(db, { refreshToken, clientId });
+                  return refreshed.ok ? { tokens: refreshed.tokens } : { error: 'Unknown, expired, revoked, or already-used refresh token.' };
+                })
+              : await withTx(async (db) => {
+                  // Serialize exchange with admin revocation/suspension, including
+                  // the code that was issued before an owner clicked Revoke.
+                  await db.query('SELECT pg_advisory_xact_lock(741290064)');
+                  const consumed = await consumeAuthCode(db, code);
+                  if (!consumed) return { error: 'Unknown, expired, revoked, or already-used code.' };
+                  if (consumed.clientId !== clientId || consumed.redirectUri !== redirectUri) {
+                    return { error: 'The authorization request does not match.' };
+                  }
+                  if (!verifyPkceS256(codeVerifier, consumed.codeChallenge)) {
+                    return { error: 'The code verifier does not match.' };
+                  }
+                  if ((await countActiveTokens(db, consumed.userId)) >= MAX_ACTIVE_TOKENS) {
+                    return { error: 'The account has the maximum number of active connectors.' };
+                  }
+                  const client = await getClient(db, clientId);
+                  const tokens = await openConnection(db, {
+                    userId: consumed.userId,
+                    name: connectionName(client?.clientName, consumed.redirectUri),
+                    clientId,
+                    redirectUri: consumed.redirectUri,
+                    scope: consumed.scope,
+                  });
+                  return { tokens };
+                });
+          if (!outcome.tokens) {
+            oauthError(res, 400, 'invalid_grant', outcome.error);
+            return;
+          }
+          // Return bearer credentials only after their transaction has committed.
+          res.status(200).json({
+            access_token: outcome.tokens.accessToken,
+            token_type: 'Bearer',
+            expires_in: outcome.tokens.expiresIn,
+            refresh_token: outcome.tokens.refreshToken,
+          });
         } catch (err) {
-          console.error('[deckpal-api] /token exchange failed:',(err as Error).message);
-          oauthError(res,500,'server_error');
+          console.error('[deckpal-api] /token failed:', (err as Error).message);
+          oauthError(res, 500, 'server_error');
         }
       })();
     },

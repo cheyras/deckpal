@@ -243,7 +243,18 @@ export interface AvatarState {
 // ── Personal access tokens ─────────────────────────────────────
 // Long-lived bearer credentials for non-browser clients (the /mcp endpoint,
 // scripts). The raw value is returned once by createApiToken and never again;
-// `prefix` is all the server can show afterwards.
+// `prefix` is all the server can show afterwards. An OAuth connection is a row
+// of the same list, with a `redirect` saying where its approval went.
+
+/** How the server recognised a redirect: see classifyRedirect in @deckpal/db. */
+export type RedirectTrust = 'verified' | 'local' | 'unverified'
+
+export interface RedirectIdentity {
+  host: string
+  trust: RedirectTrust
+  verifiedName: string | null
+}
+
 export interface ApiTokenRow {
   id: string
   name: string
@@ -251,6 +262,20 @@ export interface ApiTokenRow {
   createdAt: string
   lastUsedAt: string | null
   revokedAt: string | null
+  /** Absent from a server older than migration 075; null = no expiry. */
+  expiresAt?: string | null
+  scope?: 'full' | 'read'
+  /** Set only on an OAuth connection. */
+  redirect?: RedirectIdentity | null
+}
+
+/** GET /oauth/client — the consent screen's facts. Fields past redirectUri are absent from an older server. */
+export interface OAuthClientInfo {
+  clientName: string
+  redirectUri: string
+  redirectHost?: string
+  trust?: RedirectTrust
+  verifiedName?: string | null
 }
 
 // ── Money ──────────────────────────────────────────────────────
@@ -2028,7 +2053,7 @@ export const api = {
 
   // OAuth "Connect" flow (/authorize consent screen). See apps/api/src/routes/oauth.ts.
   oauthClient: (clientId: string, redirectUri: string) =>
-    get<{ clientName: string; redirectUri: string }>(
+    get<OAuthClientInfo>(
       `/oauth/client?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
     ),
   oauthDecision: (body: {
@@ -2040,6 +2065,7 @@ export const api = {
     codeChallengeMethod: string
     state?: string
     resource?: string
+    scope?: 'full' | 'read'
   }) => send<{ redirectTo: string }>('POST', '/oauth/authorize/decision', body),
 
   // Profile photo. The server stores a 256×256 WebP re-encoded from whatever

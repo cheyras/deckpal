@@ -3,7 +3,7 @@ import { adminError } from '../admin/access.js';
 import { pool, rlsStore, withTx, commitRequestTx } from '../db.js';
 import { asyncHandler, badRequest, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { createToken, listTokens, revokeToken, type Queryable } from '@deckpal/db';
+import { classifyRedirect, countActiveTokens, createToken, listTokens, revokeToken, type Queryable } from '@deckpal/db';
 
 /**
  * Personal access tokens — `/tokens` (migration 026).
@@ -34,13 +34,22 @@ function db(): Queryable {
 // fallback — the only route that survived the cloud pivot working, and the
 // reason the breakage in its siblings was easy to miss.
 
-// GET /tokens — list, newest first. Never returns a secret.
+// GET /tokens — list, newest first. Never returns a secret. An OAuth
+// connection also says where its approval went and whether that is a
+// redirect DeckPal recognises, worked out by the same classifyRedirect the
+// consent screen used, so Profile shows exactly what the person agreed to.
 tokensRouter.get(
   '/',
   asyncHandler(async (req, res) => {
     res.setHeader('Cache-Control','no-store');
     const userId = currentUserId(req);
-    res.json({ tokens: await listTokens(db(), userId) });
+    const tokens = await listTokens(db(), userId);
+    res.json({
+      tokens: tokens.map((t) => ({
+        ...t,
+        redirect: t.oauthRedirectUri ? classifyRedirect(t.oauthRedirectUri) : null,
+      })),
+    });
   }),
 );
 
@@ -58,8 +67,7 @@ tokensRouter.post(
       // Serialize the cap check and mint with revoke-all/suspension. The SQL
       // INSERT trigger independently covers clients bypassing this route.
       await client.query('SELECT pg_advisory_xact_lock(741290064)');
-      const existing = await listTokens(client, userId);
-      if (existing.filter(t => !t.revokedAt).length >= MAX_ACTIVE_TOKENS) {
+      if ((await countActiveTokens(client, userId)) >= MAX_ACTIVE_TOKENS) {
         throw badRequest(`You already have ${MAX_ACTIVE_TOKENS} active tokens. Revoke one first.`);
       }
       return createToken(client, userId, name);

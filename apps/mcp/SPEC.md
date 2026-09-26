@@ -127,8 +127,10 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 - Token verification lives in `@deckpal/db` (`src/tokens.ts`) so the API (which mints them) and
   the MCP edge (which checks them) can never disagree about the hashing rule. SHA-256 of the raw
   value; the raw value is returned once, at creation, and never stored.
-- Missing / malformed / unknown / revoked token ⇒ bare `401` **with** `WWW-Authenticate: Bearer
-  resource_metadata="<origin>/.well-known/oauth-protected-resource"` (added 2026-08-10, issue #29).
+- Missing / malformed / unknown / revoked / expired token ⇒ bare `401` **with** `WWW-Authenticate: Bearer
+  resource_metadata="<origin>/.well-known/oauth-protected-resource"` (added 2026-08-10, issue #29),
+  plus `error="invalid_token"` when a credential was presented (2026-09-26), which is what tells an
+  OAuth client whose one-hour access token ran out to refresh rather than start over.
   A spec-compliant client that reads this hint runs real OAuth discovery and lands on a working
   `/authorize` — see below — instead of guessing one and 404ing against the SPA.
 - **Three credential paths, one credential.** OAuth 2.1 + PKCE + dynamic client registration
@@ -146,6 +148,26 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   labels that URL as a password. All three paths resolve to the same `api_token` table and the
   same `resolveToken()` at the `/mcp` edge — OAuth and dynamic client registration are a front
   door onto the existing credential, not a parallel one.
+- **OAuth connections renew, expire, and may be read-only (migration 075, 2026-09-26, security
+  audit SEC-07).** The token endpoint now opens a *connection* (`packages/db/src/grants.ts`): still
+  one `api_token` row, but its own hash is sealed and the client holds rotating secrets from
+  `oauth_token` — a one-hour access token (`dsk_…`, so every edge accepts it unchanged) and a
+  single-use 90-day refresh token (`dsr_…`, never accepted as a bearer). `/token` answers
+  `grant_type=refresh_token` with a new pair (`expires_in: 3600`), and `invalid_grant` for an
+  unknown, expired, revoked or replayed one; a replay after a one-minute retry grace revokes the
+  connection. Authorization-server metadata advertises `grant_types_supported:
+  ["authorization_code","refresh_token"]` and `scopes_supported: ["offline_access"]` (the latter
+  only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
+  string). The consent screen's own choice is the scope: a **read-only** connection resolves with
+  `scope: 'read'`, is built a server with only the 13 `readOnlyHint` tools, runs in `BEGIN READ
+  ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`). Tokens that existed
+  before 075, including hand-made ones and live claude.ai connectors, resolve exactly as before:
+  full scope, no expiry. The consent screen names the redirect's host and marks only Claude's exact
+  documented callback as Verified; see SECURITY.md. Session routes that changed shape:
+  `GET /oauth/client` adds `redirectHost`, `trust` (`verified` | `local` | `unverified`) and
+  `verifiedName`; `POST /oauth/authorize/decision` accepts `scope: "full" | "read"` (absent = full,
+  anything else 400; 503 until 075 is applied); `GET /tokens` rows add `expiresAt`, `scope`,
+  `oauthClientId`, `oauthRedirectUri` and `redirect` (`{ host, trust, verifiedName }` or null).
 - `MCP_ALLOWED_HOSTS` still gates the `Host` header; the cloud default is
   `deckpal.app,www.deckpal.app,localhost,127.0.0.1` plus any `*.vercel.app` alias.
 - The REST base is derived from the (already validated) request host — `https://<host>/api` — so
@@ -184,7 +206,10 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   Every tool has `title` + annotations: `readOnlyHint: true` on all reads; `destructiveHint: true` on
   `delete_deck` / `delete_list`; `idempotentHint` where true. `readOnlyHint` is required in this
   package's `ToolDefinition` type (MCP's own SDK type leaves it optional) — a tool that omits it fails
-  to compile rather than defaulting into whatever the approval-gate logic assumes.
+  to compile rather than defaulting into whatever the approval-gate logic assumes. It is also the
+  whole of the read-only connection's tool list (`registerAllTools(..., { readOnly: true })`), so a
+  write tool marked `readOnlyHint: true` would be served to connections that chose "Read only";
+  the REST refusal and the READ ONLY transaction behind it would still stop the write.
 - Every handler wraps in try/catch and returns the house envelope — `ok()` →
   `{ content: [{ type:'text', text }] }` (optionally `structuredContent`), `fail(msg)` →
   `{ isError: true, content:[...] }`. `apps/mcp/src/adapters/mcp.ts`'s `toCallToolResult()` is what

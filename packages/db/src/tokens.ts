@@ -8,7 +8,12 @@ import type pg from 'pg';
  * hands to a non-browser client: the MCP endpoint at /mcp, or the REST API
  * directly. It resolves to exactly one `app_user.id`, and every query that
  * follows runs in that user's RLS context — the token grants no more than the
- * user's own session would.
+ * user's own session would, and a `read` token less (migration 075).
+ *
+ * An OAuth connection is a row of this same table (grants.ts); its secrets
+ * rotate beneath it and it carries an `expires_at`. Hand-made tokens have no
+ * expiry, because the clients they exist for (a URL pasted into a connector
+ * dialog) have no way to renew one.
  *
  * Secrecy contract:
  *  - The raw token exists only in the response to POST /tokens. It is shown
@@ -42,6 +47,9 @@ export interface Queryable {
   ): Promise<pg.QueryResult<T>>;
 }
 
+/** What a credential may do. `read` is refused every write (migration 075). */
+export type TokenScope = 'full' | 'read';
+
 export interface ApiTokenRow {
   id: string;
   name: string;
@@ -49,11 +57,18 @@ export interface ApiTokenRow {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  /** NULL = never. Every token minted before migration 075 is NULL. */
+  expiresAt: string | null;
+  scope: TokenScope;
+  /** Set only on a connection approved through OAuth; NULL on a hand-made token. */
+  oauthClientId: string | null;
+  oauthRedirectUri: string | null;
 }
 
 export interface ResolvedToken {
   tokenId: string;
   userId: string;
+  scope: TokenScope;
 }
 
 /** `dsk_` + 32 bytes of CSPRNG output, base64url — 256 bits of entropy. */
@@ -78,9 +93,44 @@ export function looksLikeApiToken(raw: string): boolean {
   return raw.startsWith(TOKEN_PREFIX) && raw.length > DISPLAY_PREFIX_LEN;
 }
 
+// ── Migration 075, and the window before it is applied ──────────────────────
+//
+// Migrations are run by hand and Vercel deploys on merge (DECISIONS.md, the
+// 046 entry), so for a while this code can meet a database without 075's
+// columns. Every live token must keep resolving through that window, the
+// OAuth connectors people already use above all. So each statement below has
+// a pre-075 form, chosen by one cheap check. Only `true` is cached: the moment
+// the migration lands, the next request sees it.
+const grantsReady = new WeakMap<Queryable, true>();
+let warnedPending = false;
+
+export async function grantSchemaReady(db: Queryable): Promise<boolean> {
+  if (grantsReady.has(db)) return true;
+  const { rows } = await db.query<{ ready: boolean }>(
+    `SELECT to_regclass('public.oauth_token') IS NOT NULL AS ready`,
+  );
+  if (rows[0]?.ready) {
+    grantsReady.set(db, true);
+    return true;
+  }
+  if (!warnedPending) {
+    warnedPending = true;
+    console.warn(
+      '[deckpal] migration 075_oauth_grants is not applied: tokens resolve as before it, and new OAuth ' +
+        'connections are refused until `pnpm --filter @deckpal/db migrate` runs.',
+    );
+  }
+  return false;
+}
+
 /**
- * Resolve a raw bearer token to its owner, or null when it is unknown or
- * revoked. Returns null (never throws) for any malformed input.
+ * Resolve a raw bearer token to its owner, or null when it is unknown,
+ * revoked or expired. Returns null (never throws) for any malformed input.
+ *
+ * Two kinds of secret resolve here, and both land on an `api_token` row, whose
+ * revocation, expiry and account state decide the answer: a token's own hash
+ * (hand-made tokens, and connections approved before 075), or an OAuth access
+ * token in `oauth_token`, which has its own one-hour expiry as well.
  *
  * The `timingSafeEqual` here is belt-and-braces: the lookup is already an
  * equality on a 256-bit hash, so there is nothing to walk, but comparing the
@@ -90,19 +140,32 @@ export function looksLikeApiToken(raw: string): boolean {
 export async function resolveToken(db: Queryable, raw: string): Promise<ResolvedToken | null> {
   if (!looksLikeApiToken(raw)) return null;
   const hash = hashToken(raw);
-  const { rows } = await db.query<{ id: string; user_id: string; token_hash: string }>(
-    `SELECT id, user_id, token_hash
-       FROM api_token
-      WHERE token_hash = $1 AND revoked_at IS NULL
-        AND public.admin_account_active(user_id::text)`,
-    [hash],
-  );
+  const { rows } = (await grantSchemaReady(db))
+    ? await db.query<{ id: string; user_id: string; scope: TokenScope; token_hash: string }>(
+        `SELECT t.id, t.user_id, t.scope, h.token_hash
+           FROM (SELECT id AS token_id, token_hash FROM api_token WHERE token_hash = $1
+                 UNION ALL
+                 SELECT token_id, token_hash FROM oauth_token
+                  WHERE token_hash = $1 AND kind = 'access' AND expires_at > now()) h
+           JOIN api_token t ON t.id = h.token_id
+          WHERE t.revoked_at IS NULL
+            AND (t.expires_at IS NULL OR t.expires_at > now())
+            AND public.admin_account_active(t.user_id::text)`,
+        [hash],
+      )
+    : await db.query<{ id: string; user_id: string; scope: TokenScope; token_hash: string }>(
+        `SELECT id, user_id, 'full' AS scope, token_hash
+           FROM api_token
+          WHERE token_hash = $1 AND revoked_at IS NULL
+            AND public.admin_account_active(user_id::text)`,
+        [hash],
+      );
   const row = rows[0];
   if (!row) return null;
   const a = Buffer.from(row.token_hash, 'utf8');
   const b = Buffer.from(hash, 'utf8');
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return { tokenId: row.id, userId: row.user_id };
+  return { tokenId: row.id, userId: row.user_id, scope: row.scope };
 }
 
 /**
@@ -121,6 +184,14 @@ export async function touchToken(db: Queryable, tokenId: string): Promise<void> 
   );
 }
 
+const LEGACY_COLUMNS = 'id, name, prefix, created_at, last_used_at, revoked_at';
+const COLUMNS = `${LEGACY_COLUMNS}, expires_at, scope, oauth_client_id, oauth_redirect_uri`;
+
+/** The columns a row is read back with. `token_hash` is never among them. */
+async function columns(db: Queryable): Promise<string> {
+  return (await grantSchemaReady(db)) ? COLUMNS : LEGACY_COLUMNS;
+}
+
 function shape(r: {
   id: string;
   name: string;
@@ -128,6 +199,10 @@ function shape(r: {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  expires_at?: string | null;
+  scope?: TokenScope;
+  oauth_client_id?: string | null;
+  oauth_redirect_uri?: string | null;
 }): ApiTokenRow {
   return {
     id: r.id,
@@ -136,19 +211,39 @@ function shape(r: {
     createdAt: r.created_at,
     lastUsedAt: r.last_used_at,
     revokedAt: r.revoked_at,
+    expiresAt: r.expires_at ?? null,
+    scope: r.scope ?? 'full',
+    oauthClientId: r.oauth_client_id ?? null,
+    oauthRedirectUri: r.oauth_redirect_uri ?? null,
   };
 }
 
-/** All of a user's tokens, newest first. `token_hash` is never selected. */
+/** All of a user's tokens, newest first. */
 export async function listTokens(db: Queryable, userId: string): Promise<ApiTokenRow[]> {
   const { rows } = await db.query<Parameters<typeof shape>[0]>(
-    `SELECT id, name, prefix, created_at, last_used_at, revoked_at
+    `SELECT ${await columns(db)}
        FROM api_token
       WHERE user_id = $1
       ORDER BY created_at DESC`,
     [userId],
   );
   return rows.map(shape);
+}
+
+/**
+ * Tokens that still work: not revoked and not past their expiry. This is the
+ * count `MAX_ACTIVE_TOKENS` caps, so a connection that lapsed unused stops
+ * holding a slot without anyone having to revoke it.
+ */
+export async function countActiveTokens(db: Queryable, userId: string): Promise<number> {
+  const live = (await grantSchemaReady(db))
+    ? 'revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())'
+    : 'revoked_at IS NULL';
+  const { rows } = await db.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM api_token WHERE user_id = $1 AND ${live}`,
+    [userId],
+  );
+  return Number(rows[0]?.count ?? '0');
 }
 
 export interface CreatedToken {
@@ -162,7 +257,7 @@ export async function createToken(db: Queryable, userId: string, name: string): 
   const { rows } = await db.query<Parameters<typeof shape>[0]>(
     `INSERT INTO api_token (user_id, name, token_hash, prefix)
      VALUES ($1, $2, $3, $4)
-     RETURNING id, name, prefix, created_at, last_used_at, revoked_at`,
+     RETURNING ${await columns(db)}`,
     [userId, name, hashToken(raw), tokenPrefix(raw)],
   );
   const row = rows[0];
@@ -180,7 +275,7 @@ export async function revokeToken(db: Queryable, userId: string, id: string): Pr
     `UPDATE api_token
         SET revoked_at = COALESCE(revoked_at, now())
       WHERE id = $1 AND user_id = $2
-      RETURNING id, name, prefix, created_at, last_used_at, revoked_at`,
+      RETURNING ${await columns(db)}`,
     [id, userId],
   );
   const row = rows[0];
