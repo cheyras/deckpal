@@ -41,6 +41,7 @@ import { BugButton } from './BugReport'
 import { api } from '../lib/api'
 import { BUILD_SHA } from '../lib/buildInfo'
 import { isCloudMode } from '../lib/supabase'
+import { useSignedIn } from '../lib/session'
 
 // A plain constant, not a hook — safe for `RootErrorBoundary` to read despite
 // its "no router hooks" rule. Self-host serves the app under `/deckpal/`
@@ -110,6 +111,14 @@ const COPY = {
  */
 export function RouteErrorFallback({ error }: ErrorComponentProps) {
   const router = useRouter()
+  // `/bugs` (what `BugButton` submits to) sits behind `resolveIdentity` in
+  // cloud mode — a hard 401 with no credential, unlike the anonymous
+  // `/client-errors` beacon above. Gate "Report this" on sign-in exactly the
+  // way `AppShell` gates the nav's own `BugButton`, or a signed-out visitor
+  // who hits a crash on the public catalog could compose a whole report and
+  // have Submit fail (Astra review, PR #209). `undefined` ("not known yet")
+  // renders nothing, same call `useSignedIn` documents for the catalog.
+  const signedIn = useSignedIn()
   const stale = isStaleChunkError(error)
   const message = errorMessage(error)
 
@@ -157,18 +166,20 @@ export function RouteErrorFallback({ error }: ErrorComponentProps) {
         <Link to="/" className={buttonClass('secondary')}>
           Go home
         </Link>
-        <BugButton
-          initialText={`Crash on ${window.location.pathname}:\n${message}`}
-          trigger={(open) => (
-            <button
-              type="button"
-              onClick={open}
-              className="text-[13px] font-semibold text-text-muted underline hover:text-text-body"
-            >
-              Report this
-            </button>
-          )}
-        />
+        {signedIn === true && (
+          <BugButton
+            initialText={`Crash on ${window.location.pathname}:\n${message}`}
+            trigger={(open) => (
+              <button
+                type="button"
+                onClick={open}
+                className="text-[13px] font-semibold text-text-muted underline hover:text-text-body"
+              >
+                Report this
+              </button>
+            )}
+          />
+        )}
       </div>
     </div>
   )

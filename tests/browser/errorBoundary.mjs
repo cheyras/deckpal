@@ -73,6 +73,18 @@ export async function checkErrorBoundary(browser, server, out) {
       assert.equal(reports[0].route, '/crash')
       assert.match(reports[0].message, /deliberate render-time throw/)
       assert.equal(typeof reports[0].stack, 'string')
+      // "Report this" is gated on useSignedIn() (Astra review, PR #209: /bugs
+      // sits behind resolveIdentity in cloud mode, so an unauthenticated
+      // visitor's report would fail to submit). This fixture builds
+      // self-host-shaped (no VITE_SUPABASE_URL), where useSignedIn() resolves
+      // synchronously true — the same reason AppShell's own nav BugButton is
+      // unconditionally visible there. This assertion only pins "the gate
+      // doesn't hide it when it should show"; a cloud-mode signed-out
+      // negative case would need a much heavier fixture (a faked Supabase
+      // session) for one boolean already covered by useSignedIn's own
+      // contract, which AppShell's identical `signedIn === true` gate
+      // already relies on today.
+      await fallback.getByRole('button', { name: 'Report this', exact: true }).waitFor()
       await page.screenshot({ path: path.join(out, 'errorboundary-route-crash-' + width + '.png'), fullPage: true })
       results.push({ case: 'errorboundary-route-crash-shell-survives', width })
 
