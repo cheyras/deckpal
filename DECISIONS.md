@@ -20575,6 +20575,28 @@ was checked only inside the `MutationObserver`'s own callback, so a route
 that fails fast with no further DOM mutations never triggered it (replaced
 with an independent `setTimeout`). Full disposition posted on the PR.
 
+**Update 2 (same day, caught by CI, not by review):** The Astra fix above
+introduced a real regression — writing `routeAnnouncer.textContent`
+unconditionally on every call, combined with observing `document.body`'s
+whole subtree (`routeAnnouncer` was a sibling of the React root under
+`body`), meant every write was itself an observed mutation: write → new
+mutation record → callback fires → writes again → forever. `.textContent`
+tears down and recreates its text node on every assignment regardless of
+whether the string changed, so this looped even when the announced text was
+already correct. Effect: the main thread livelocked on an unbounded chain of
+`MutationObserver` microtasks on the FIRST route render of every single page
+load, and never yielded again — reproduced in isolation via
+`tests/browser/upcoming.mjs`'s `checkUpcoming` (`page.goto` completes, then
+every subsequent Playwright call, including a bare `body.innerText()` read,
+times out because the tab is completely unresponsive). This is what broke
+CI's `browser` job twice in a row — not flakiness, as first assumed. Fixed by
+observing the React root (`#root`) instead of `document.body`;
+`routeAnnouncer` is a sibling of it, not a descendant, so writing its text no
+longer feeds back into the observer. Verified by reproducing `checkUpcoming`
+again (clean at both viewports) and re-running the Astra-fix verification
+live (drawer close button and the keepPreviousData announcer case both
+correct, no hang).
+
 ## 2026-09-26 — Deck-E stands clear of what the reader has to press, and every card and notice says what it will do
 
 **Decided by:** Chey (via Claude)
