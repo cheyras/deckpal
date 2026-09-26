@@ -61,6 +61,37 @@ export function userCache(res: Response): void {
   res.setHeader('Cache-Control', 'private, no-cache, must-revalidate');
 }
 
+/**
+ * Chooses the cache posture for a catalog route that EMBEDS the caller's
+ * ownership at the same URL a signed-out visitor also hits (series/sets/cards:
+ * `progress`, owned counts). `userId === null` means the request is genuinely
+ * anonymous (identity.ts's `optionalUserId` — a settled "nobody", not "unknown")
+ * — the response is then the plain catalog shape, byte-identical for every such
+ * caller and safe for a shared cache. Anyone else gets the private, per-caller
+ * response, exactly as before.
+ *
+ * `Vary: Authorization` on the catalog branch only: without it, a CDN that
+ * cached the anonymous response for this URL could later hand that same body
+ * to a request that DOES carry a credential, instead of ever reaching this
+ * handler to compute that caller's ownership — the opposite failure from
+ * leaking a private response, but still a correctness bug (a signed-in visitor
+ * silently sees the signed-out shape). The web client only ever sends an
+ * Authorization header when signed in (`apps/web/src/lib/api.ts`'s
+ * `authHeaders()` returns `{}` when there is no session), so every anonymous
+ * request already shares one cache key — "no header" — and this costs the
+ * anonymous hit rate nothing. `search.ts`'s `catalogCache()` call is exempt: it
+ * has no `userId` branch at all (no personalization is ever possible there), so
+ * varying its cache by `Authorization` would only fragment it for no reason.
+ */
+export function catalogOrUserCache(res: Response, userId: string | null, seconds = 300): void {
+  if (userId === null) {
+    res.setHeader('Vary', 'Authorization');
+    catalogCache(res, seconds);
+  } else {
+    userCache(res);
+  }
+}
+
 // ── Query-param coercion (all defensive; never throws on junk) ───────────────
 
 export function str(v: unknown): string | undefined {
