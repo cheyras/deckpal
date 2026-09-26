@@ -187,6 +187,10 @@ test('the model is shown the window, and the prompt the bounded page context', (
   assert.doesNotMatch(CODE, /landmarks\.slice\(0, 40\)/, 'the old count-only slice is back');
 });
 
+test('the charge reference carries the exchange, so two new exchanges with the same window differ (Astra)', () => {
+  assert.match(CODE, /chatChargeReference\(conversationId, messages, route, landmarks, \{ exchangeId, seq \}\)/);
+});
+
 test('dropped replies\' evidence reaches the two ledgers and never the model', () => {
   assert.match(CODE, /const evidence = boundedEvidence\(body\?\.evidence\)/);
   // Read by the two ledgers and nothing else — in particular never spread into
