@@ -199,6 +199,24 @@ export function createApp(): express.Express {
   // not loopback — see expressjs.com/en/guide/behind-proxies.html).
   api.use(preAuthFloodGuard);
 
+  // Client-side crash reports (clientErrors.ts): mounted here, before
+  // authMiddleware/ensureAdminBootstrap and — the point of being THIS early —
+  // before the RLS middleware below that acquires a pooled DB connection and
+  // opens a transaction for every cloud request. This route does no database
+  // work at all; making it wait behind that acquisition would mean an
+  // exhausted or unavailable pool silently drops crash reports, exactly when
+  // observability matters most (Astra review, PR #209; B2 documents the
+  // pooled-connection budget these routes would otherwise spend for nothing).
+  // Also unauthenticated on purpose, unlike /bugs (mounted below
+  // resolveIdentity — its only caller, the nav's BugButton, is gated on
+  // signedIn === true): an error boundary can fire on ANY page, including a
+  // signed-out visitor's crash on the public catalog, and reportClientError()
+  // sends no Authorization header, so a hard 401 there would silently
+  // swallow every signed-out report. clientErrorRateLimit (20/min/IP) bounds
+  // log volume from a repeating crash loop; preAuthFloodGuard above already
+  // applies too.
+  api.use('/client-errors', clientErrorRateLimit, clientErrorsRouter);
+
   // JWT verification runs on every request (extracts req.user from Bearer token).
   // It never rejects — user-scoped routers are gated by resolveIdentity below,
   // and the session-only ones (/me/billing, /tokens, /avatar, /oauth) by
@@ -510,17 +528,6 @@ export function createApp(): express.Express {
   // Search is pure catalog — no user_id in the queries at all, so it needs no
   // identity of any kind.
   api.use('/search', searchRouter);
-  // Client-side crash reports (clientErrors.ts): unlike /bugs (mounted below
-  // resolveIdentity — its only caller, the nav's BugButton, is gated on
-  // signedIn === true), an error boundary can fire on ANY page, including a
-  // signed-out visitor's crash on this very catalog. Astra review (PR #209)
-  // caught this mounted below resolveIdentity, where cloud mode's hard 401
-  // for no credential would have silently swallowed every signed-out crash
-  // report before it ever reached the handler — reportClientError() sends no
-  // Authorization header on purpose, so it would 401 every single time.
-  // clientErrorRateLimit (20/min/IP) bounds log volume from a repeating
-  // crash loop; preAuthFloodGuard above already applies too.
-  api.use('/client-errors', clientErrorRateLimit, clientErrorsRouter);
 
   // ── Public catalog (browsable signed-out) ─────────────────────────────────
   // The catalog is the product's shop window: a visitor can read every set,
