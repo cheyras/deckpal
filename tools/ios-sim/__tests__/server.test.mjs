@@ -116,10 +116,23 @@ describe('createFixture lists routes', () => {
     assert.equal(afterAdd.body.items[0].itemId, add.body.itemId)
     assert.equal(afterAdd.body.items[0].cardId, 'sim1-001')
     assert.equal(afterAdd.body.items[0].name, 'Simuchu')
+    assert.deepEqual(afterAdd.body.items[0].ownership, {
+      totalQuantity: 0, requiredCount: 1, ownedRequired: 0, have: false, need: true, dupe: false,
+    })
     const remove = get(respondApi, '/api/lists/list-1/items/' + add.body.itemId, { method: 'DELETE' })
     assert.equal(remove.body.list.itemCount, 0)
     const afterRemove = get(respondApi, '/api/lists/list-1')
     assert.equal(afterRemove.body.items.length, 0)
+  })
+  it('a static list item shows its stored quantity without claiming the card is owned', () => {
+    const { respondApi } = createFixture()
+    const list = get(respondApi, '/api/lists', { method: 'POST', body: { name: 'Binder', kind: 'static' } }).body.list
+    get(respondApi, '/api/lists/' + list.id + '/items', { method: 'POST', body: { cardVariantId: 9001, staticQuantity: 2 } })
+    const item = get(respondApi, '/api/lists/' + list.id).body.items[0]
+    assert.equal(item.staticQuantity, 2)
+    assert.deepEqual(item.ownership, {
+      totalQuantity: 2, requiredCount: 1, ownedRequired: 0, have: false, need: true, dupe: true,
+    })
   })
   it('rejects a cardVariantId that does not resolve to a fixture card', () => {
     const { respondApi } = createFixture()

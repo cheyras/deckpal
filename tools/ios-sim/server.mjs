@@ -234,6 +234,8 @@ Signing you in…
         if (existing) return ok({ itemId: existing.itemId, alreadyPresent: true, list })
       }
       const itemId = 'item-' + nextItemId++
+      const staticQuantity = list.kind === 'static' ? (body.staticQuantity ?? 1) : null
+      const displayQuantity = staticQuantity ?? 0
       // A real ListItem (extends CardRow -- see apps/web/src/lib/api.ts), so GridView/
       // TableView/BinderView render it exactly as they would a real list's rows.
       items.push({
@@ -242,7 +244,11 @@ Signing you in…
         cardId: card.cardId, number: card.number, numberSort: card.number, name: card.name,
         category: card.category, rarity: card.rarity, artist: card.artist, variantCount: card.variantCount,
         images: card.images, price: card.price, setName: card.set.name, seriesSlug: card.series.slug, setId: card.set.setId,
-        staticQuantity: list.kind === 'static' ? (body.staticQuantity ?? 1) : null, ownedQuantity: 0,
+        staticQuantity, ownedQuantity: 0,
+        ownership: {
+          totalQuantity: displayQuantity, requiredCount: 1, ownedRequired: 0,
+          have: false, need: true, dupe: displayQuantity >= 2,
+        },
       })
       list.itemCount++
       list.updatedAt = NOW
