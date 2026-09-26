@@ -445,7 +445,10 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
       used.add(k)
     }
   }
-  if (quantity !== null && (quantity < 1 || quantity > MAX_QUANTITY)) quantity = null
+  // A count it cannot set ("0 reverse holos", "100 of those") refuses the whole
+  // utterance; applying only the printing half would be a partial answer to a
+  // request that was never valid.
+  if (quantity !== null && (quantity < 1 || quantity > MAX_QUANTITY)) return { command: null, coverage: 0 }
 
   // Coverage: every word some segment explains. An unused "one" is filler ("the
   // reverse one"), and an unused "to" is a preposition when a printing follows

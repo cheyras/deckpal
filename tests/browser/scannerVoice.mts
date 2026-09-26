@@ -121,6 +121,10 @@ try {
     await page.clock.runFor(100)
     assert.match((await live.textContent()) ?? '', /Venonat → Reverse Holofoil/)
     await page.screenshot({ path: path.join(outputDir, `${name}-pending.png`) })
+    // Measured while the chips, caption and toggle are all on screen, which is
+    // when something could be too wide.
+    const overflowAt = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    let overflow = await overflowAt()
     // The hold ends and the reader's pick is made for them.
     await page.clock.runFor(4_200)
     await pending.waitFor({ state: 'detached' })
@@ -152,6 +156,7 @@ try {
     await say(page, 'no, remove it')
     await page.locator('[data-voice-removing]').waitFor()
     await page.screenshot({ path: path.join(outputDir, `${name}-removing.png`) })
+    overflow = Math.max(overflow, await overflowAt())
     await page.clock.runFor(3_000)
     await say(page, 'exeggcute times two')
     await row(0).locator('[data-voice-pending="quantity"]').waitFor()
@@ -234,7 +239,6 @@ try {
     await page.clock.runFor(30_000)
     assert.equal((await speech(page)).starts, atUnmount.starts)
 
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     assert.ok(overflow <= 0, `${name} overflow ${overflow}`)
     assert.equal(external, 0)
     results[name] = { viewport: { width, height }, externalRequests: external, noHorizontalOverflow: true, primerBeforeRecognizer: true, pendingThenApplied: true, namedTarget: true, cancel: true, chatterIgnored: true, removeKeepUndo: true, voiceUndo: true, commandWaitsForRow: true, watchdog: true, chromeRearm: true, visibility: true, leaveStepSettles: true, fastFailStops: true, unmountStops: true }

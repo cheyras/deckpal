@@ -132,9 +132,11 @@ describe('quantity', () => {
     assert.equal(edit('just one').quantity, 1)
   })
 
-  it('refuses counts it cannot mean', () => {
+  it('refuses counts it cannot mean, and the whole command with them', () => {
     assert.equal(command('zero'), null)
     assert.equal(command('500 of those'), null)
+    assert.equal(command('0 reverse holos'), null)
+    assert.equal(command('100 reverse holos'), null)
   })
 })
 
