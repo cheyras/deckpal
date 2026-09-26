@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
-  api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type SearchCard, type RevertResult,
+  api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type RevertResult,
 } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, Button, Tabs } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
@@ -29,12 +29,6 @@ function basicEnergyType(card: DeckCard): string | null {
   if (card.category !== 'Energy') return null
   const first = card.name.split(/\s+/)[0]?.toLowerCase()
   return first && ENERGY_TYPES.includes(first) ? first : null
-}
-const MARK_POOL: Record<DeckFormat, string[] | null> = {
-  standard: ['H', 'I', 'J'],
-  expanded: ['D', 'E', 'F', 'G', 'H', 'I', 'J'],
-  glc: ['D', 'E', 'F', 'G', 'H', 'I', 'J'],
-  unlimited: null,
 }
 
 // ── Format selector + GLC type picker ─────────────────────────────────────────
@@ -313,6 +307,8 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
 }
 
 // ── Add-cards modal (reuses /search, can filter the pool by format) ───────────
+const ADD_PAGE_SIZE = 30
+
 function DeckAddModal({ format, onClose, onAdd, addingId }: {
   format: DeckFormat; onClose: () => void; onAdd: (cardId: string, qty: number) => void; addingId: string | null
 }) {
@@ -325,20 +321,30 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
     return () => clearTimeout(t)
   }, [term])
 
-  const { data, isFetching } = useQuery({
-    queryKey: ['deckSearch', debounced],
-    queryFn: ({ signal }) => {
-      const p = new URLSearchParams({ pageSize: '30', sort: 'name' })
+  // THE POOL FILTER RUNS ON THE SERVER, over the whole catalogue, with the
+  // validator's own rule (`?legal=`). It used to run here, on one 30-card page
+  // sorted by name, from a hard-coded mark list: "Pikachu" has 243 prints and
+  // none of the first 30 is H, I or J, so this said there were no legal
+  // Pikachu while 50 exist. Unlimited has no pool, so it has no filter.
+  const canFilter = format !== 'unlimited'
+  const legal = legalOnly && canFilter ? format : null
+  const search = useInfiniteQuery({
+    queryKey: ['deckSearch', debounced, legal],
+    queryFn: ({ pageParam, signal }) => {
+      const p = new URLSearchParams({ pageSize: String(ADD_PAGE_SIZE), sort: 'name', page: String(pageParam) })
       if (debounced) p.set('q', debounced)
+      if (legal) p.set('legal', legal)
       return api.searchCards(p, signal)
     },
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.pagination.page < last.pagination.pageCount ? last.pagination.page + 1 : undefined),
     enabled: debounced.length > 0,
   })
-
-  const pool = MARK_POOL[format]
-  const markLegal = (c: SearchCard) =>
-    pool === null || c.category === 'Energy' || (c.regulationMark != null && pool.includes(c.regulationMark))
-  const results = (data?.cards ?? []).filter((c) => (legalOnly ? markLegal(c) : true))
+  const data = search.data
+  const results = data?.pages.flatMap((pg) => pg.cards) ?? []
+  const total = data?.pages[0]?.pagination.total ?? 0
+  const rule = data?.pages[0]?.legal?.rule ?? null
+  const poolName = `the ${FORMAT_META[format].label} card pool`
 
   return (
     <Modal title="Add Cards" onClose={onClose} wide>
@@ -358,17 +364,27 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
             per add
           </label>
         </div>
-        {pool !== null && (
-          <label className="flex items-center gap-[8px] text-[14px] text-text-secondary">
-            <input type="checkbox" checked={legalOnly} onChange={(e) => setLegalOnly(e.target.checked)} />
-            Only cards with a {FORMAT_META[format].short}-legal regulation mark ({pool.join(', ')})
-          </label>
+        {canFilter && (
+          <div className="flex flex-col gap-[2px]">
+            <label className="flex items-center gap-[8px] text-[14px] text-text-secondary">
+              <input type="checkbox" checked={legalOnly} onChange={(e) => setLegalOnly(e.target.checked)} />
+              Only cards in {poolName}
+            </label>
+            {/* The rule comes from the server's format data, so a rotation
+                changes this sentence without a web release. */}
+            {legal && rule && <p className="pl-[21px] text-[14px] text-text-muted">{rule} Reprints of a legal card count too.</p>}
+          </div>
         )}
 
         <div className="min-h-[220px]">
           {!debounced && <div className="py-[40px] text-center text-[14px] text-text-muted">Start typing to find cards to add.</div>}
-          {debounced && isFetching && !data && <div className="py-[40px] text-center text-[14px] text-text-muted">Searching…</div>}
-          {data && results.length === 0 && <div className="py-[40px] text-center text-[14px] text-text-muted">No cards match “{debounced}”{legalOnly ? ' with a legal mark' : ''}.</div>}
+          {debounced && search.isFetching && !data && <div className="py-[40px] text-center text-[14px] text-text-muted">Searching…</div>}
+          {data && results.length === 0 && <div className="py-[40px] text-center text-[14px] text-text-muted">No cards match “{debounced}”{legal ? ` in ${poolName}` : ''}.</div>}
+          {results.length > 0 && (
+            <div className="mb-[10px] text-[14px] text-text-muted">
+              {results.length < total ? `Showing ${results.length} of ${total}` : `${total} card${total === 1 ? '' : 's'}`}
+            </div>
+          )}
           <div className="grid gap-[12px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
             {results.map((c) => (
               <button key={c.cardId} onClick={() => onAdd(c.cardId, qty)} disabled={addingId === c.cardId}
@@ -388,6 +404,12 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
               </button>
             ))}
           </div>
+          {search.hasNextPage && (
+            <button type="button" onClick={() => void search.fetchNextPage()} disabled={search.isFetchingNextPage}
+              className="mx-auto mt-[16px] flex h-[42px] items-center rounded-full bg-surface-tertiary px-[18px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover disabled:opacity-60">
+              {search.isFetchingNextPage ? 'Loading…' : `Show ${Math.min(ADD_PAGE_SIZE, total - results.length)} more`}
+            </button>
+          )}
         </div>
       </div>
     </Modal>

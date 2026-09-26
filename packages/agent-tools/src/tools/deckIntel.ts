@@ -615,12 +615,11 @@ const deckHistoryTool = defineTool({
     'actually saw play. With only deck_id: the version timeline (per-version W/L record, note, ' +
     'source, card count, current marker). With version: that snapshot in full plus the card diff ' +
     'vs the previous version. With revert_to: restore that version (cards, and its strategy ' +
-    'guide unless include_strategy: false) — non-destructive, history is never deleted, and the ' +
-    'same auto-bump rule decides whether the revert lands as a new version. revert_to defaults ' +
-    'to a dry run showing the exact card diff that would be applied; re-run with dry_run: false ' +
-    'to execute. A revert that creates a new version reports "created v<N> from v<N-1>"; one that ' +
-    'amends in place reports "amended v<N> in place (no battle logs yet)". Battle logs are read ' +
-    'with battle_logs, not here.',
+    'guide unless include_strategy: false) — non-destructive: a revert ALWAYS lands as a new ' +
+    'version, so the list it replaces stays in history even if it was never played, and history ' +
+    'is never deleted. revert_to defaults to a dry run showing the exact card diff that would be ' +
+    'applied; re-run with dry_run: false to execute. The result reports "created v<N>; v<N-1> ' +
+    'keeps the list it replaced". Battle logs are read with battle_logs, not here.',
   inputSchema: z.object({
     // Reading the timeline or a snapshot takes a NAME, the way `decks` and
     // `battle_logs` do; only revert_to demands a UUID or an exact name.
@@ -725,11 +724,8 @@ const deckHistoryTool = defineTool({
               ? `strategy: would restore v${revert_to}'s guide snapshot — ${strategyLabel(target.strategyMd)}`
               : 'strategy: untouched (include_strategy: false)',
           );
-          const curLogs = current.battleLogs.total;
           lines.push(
-            curLogs > 0
-              ? `current v${timeline.current} has ${curLogs} battle log(s) → the revert will create v${timeline.current + 1}`
-              : `current v${timeline.current} has no battle logs → v${timeline.current} is amended in place (version number stays)`,
+            `the revert will create v${timeline.current + 1}; the current v${timeline.current} keeps its list in history`,
           );
           lines.push('History is never deleted. Re-run with dry_run: false to execute.');
           return ok(lines.join('\n'));
@@ -743,10 +739,8 @@ const deckHistoryTool = defineTool({
         })) as RevertPayload;
         const r = res.revert;
         const lines = [
-          `Reverted '${res.deck.name}' to v${r.toVersion} → ` +
-            (r.bumped
-              ? `created v${r.version} from v${r.version - 1} (the previous version had battle logs; its snapshot is kept in deck_history).`
-              : `amended v${r.version} in place (no battle logs yet).`),
+          `Reverted '${res.deck.name}' to v${r.toVersion} → created v${r.version}; ` +
+            `v${r.version - 1} keeps the list it replaced (see deck_history).`,
           `deck now: ${res.counts.total} card(s), ${res.validation.legal ? 'legal' : 'NOT legal'}, strategy ${strategyLabel(res.deck.strategyMd)}`,
         ];
         for (const s of r.skippedCards) {

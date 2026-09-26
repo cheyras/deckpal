@@ -1,8 +1,9 @@
 // History tab — the deck's version timeline, newest first. Each row shows the
 // snapshot metadata + per-version W/L and the card diff vs the previous version
 // (version details are fetched eagerly — the timeline is short by construction:
-// versions only bump once the current one has battle logs). Revert applies an
-// old snapshot as a NEW version — history is never deleted.
+// versions only bump once the current one has battle logs, or on a revert).
+// Revert applies an old snapshot as a NEW version, always — the list it replaces
+// keeps its own version, played or not, so history is never deleted.
 
 import { useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -184,10 +185,12 @@ export function HistoryTab({
         <VersionRow key={v.version} v={v} detail={details[i]?.data} onRevert={() => setRevertTo(v.version)} />
       ))}
 
-      {revertTo != null && (
+      {/* The promise names both version numbers, so the reader can check it on
+          this very screen afterwards: the new one on top, theirs right below. */}
+      {revertTo != null && data && (
         <ConfirmModal
           title={`Revert to v${revertTo}`}
-          message={`Apply v${revertTo}'s card list to this deck? This creates a new version — nothing is lost, and you can revert back at any time. The strategy guide from v${revertTo} is restored too.`}
+          message={`Apply v${revertTo}'s card list to this deck? It becomes v${data.current + 1}, and your current list stays in history as v${data.current}, so nothing is lost and you can revert back at any time. The strategy guide from v${revertTo} is restored too.`}
           confirmLabel="Revert"
           busy={revert.isPending}
           onClose={() => setRevertTo(null)}

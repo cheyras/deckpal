@@ -830,6 +830,9 @@ export interface SearchCard {
 export interface SearchResponse {
   pagination: { page: number; pageSize: number; total: number; pageCount: number }
   cards: SearchCard[]
+  /** Present when `?legal=<format>` filtered the results to that format's card
+   *  pool; `rule` is the validator's own sentence for it (null: no pool limit). */
+  legal?: { format: DeckFormat; rule: string | null }
 }
 
 // ── Decks (Phase 5) ────────────────────────────────────────────
@@ -931,13 +934,20 @@ export interface DeckDetail {
   validation: ValidationResult
   cardRefs: Record<string, CardRef>
   glcTypes: string[]
-  import?: {
-    source: string
-    resolvedEntries: number
-    distinctCards: number
-    unresolved: string[]
-    warnings: ValidationWarning[]
-  }
+  import?: DeckImportSummary
+}
+/** What `POST /decks/import` made of a pasted list (with `dryRun`, all it returns). */
+export interface DeckImportSummary {
+  source: string
+  resolvedEntries: number
+  distinctCards: number
+  /** Cards the matched lines add up to. */
+  totalCards: number
+  unresolved: string[]
+  /** The lines that matched no card, verbatim as pasted. */
+  unresolvedLines: string[]
+  warnings: ValidationWarning[]
+  variantNote: string
 }
 export interface HandCard {
   cardId: string | null
@@ -1817,6 +1827,9 @@ export const api = {
   restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
+  /** The same import resolved WITHOUT creating anything, so unmatched lines can be shown first. */
+  checkDeckImport: (body: { text: string; formatCode?: DeckFormat; source?: 'ptcgl' | 'massentry' }) =>
+    send<{ import: DeckImportSummary }>('POST', '/decks/import', { ...body, dryRun: true }),
   // variantId (migration 051): which printing. Omitted = the card's primary
   // variant on add; on set/remove the server targets the card's single deck
   // row when there is exactly one and 400s when several printings would be

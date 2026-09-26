@@ -93,7 +93,7 @@ export function parsePtcgl(text: string): ParsedDeck {
     if (/^\d/.test(line)) {
       const parsed = parseCardLine(line, currentSection);
       if (Number.isNaN(parsed.quantity) || parsed.name === '') {
-        warnings.push({ code: 'UNRESOLVED_CARD', message: `Could not parse line: "${line}"` });
+        warnings.push({ code: 'UNRESOLVED_CARD', message: `Could not parse line: "${line}"`, line });
         continue;
       }
       out.push(parsed);
@@ -118,7 +118,7 @@ export function parsePtcgl(text: string): ParsedDeck {
     }
 
     // neither digit-led nor header-shaped -> junk (e.g. trailing "Random line") (§1.5 case 15)
-    warnings.push({ code: 'UNRESOLVED_CARD', message: `Ignored non-card line: "${line}"` });
+    warnings.push({ code: 'UNRESOLVED_CARD', message: `Ignored non-card line: "${line}"`, line });
   }
 
   // trailer checksum warning (§1.3): advisory only, never rejects
@@ -214,7 +214,7 @@ export function parseMassEntry(text: string): { lines: MassEntryLine[]; warnings
     if (line === '') continue;
     const m = MASS_ENTRY.exec(line);
     if (!m) {
-      warnings.push({ code: 'UNRESOLVED_CARD', message: `Could not parse Mass Entry line: "${line}"` });
+      warnings.push({ code: 'UNRESOLVED_CARD', message: `Could not parse Mass Entry line: "${line}"`, line });
       continue;
     }
     lines.push({
