@@ -13,8 +13,8 @@ import { DeadlineError } from './writeLane'
  */
 export function failureReason(error: unknown, online: boolean): string | null {
   // Checked first: offline, every failure below is really this one, and it is
-  // the only one with an obvious fix.
-  if (!online) return "You're offline."
+  // the only one with an obvious fix. (NotSentError: it was offline when sent.)
+  if (!online || (error instanceof Error && error.name === 'NotSentError')) return "You're offline."
   if (error instanceof DeadlineError) return "DeckPal didn't answer in time."
   const status = statusOf(error)
   if (status !== null) {

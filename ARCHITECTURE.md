@@ -842,17 +842,15 @@ going away. That only works because every such write states an absolute target
 that reports the outcome: a final failure raises the `Toast` with what did not
 save, why when it is actionable, and Retry when repeating is harmless; a form
 that stays open reports inline through `FormAlert`; a destructive success offers
-Undo. A write that does not answer in 75 s — longer than the API function's own
-60 s limit, so an abandoned request cannot commit after its replacement — is
-aborted so it cannot hold its document's later writes, and every lane is
-cancelled when the signed-in account
-changes. When the server never answered a write (a dropped connection), the
-newer write queued for the same item is held back rather than sent, since the
-first may still land. Answers go into the cache through `applyAnswer`, which
+Undo. A write that does not answer in 20 s is aborted so it cannot hold its
+document's later writes, and every lane is cancelled when the signed-in account
+changes. A write the server never answered (the deadline, a dropped connection)
+may still land, so for that item the lane fails the newer write queued behind
+it and sends nothing more for 75 s after the unanswered one left — past the API
+function's 60 s limit. Answers go into the cache through `applyAnswer`, which
 cancels any read of the same data still in flight and asks it again afterwards.
-Nothing is queued offline —
-the service worker keeps mutations `NetworkOnly`, and the collection counters
-stay disabled offline.
+Nothing is queued offline — the service worker keeps mutations `NetworkOnly`,
+and the collection counters stay disabled offline.
 
 ## 14. Design system and the /design editor
 

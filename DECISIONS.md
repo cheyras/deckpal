@@ -20543,16 +20543,16 @@ reordered latency and offline (`tests/browser/writes.mjs`).
   queues a write, and the collection counters stay disabled offline. Other
   writes are attempted and fail with "You're offline." — they are no longer
   held by TanStack's paused-mutation queue and replayed later.
-- A write that has not answered in 75 s is aborted and reported, so one stalled
-  request cannot freeze the writes queued behind it on the same document. The
-  deadline is deliberately longer than the API function's 60 s `maxDuration`:
-  aborting a fetch does not stop the server, and a write given up on sooner
-  could still commit after the one that replaced it. A unit test holds the
-  margin against `vercel.json`. For the same reason, when the server never
-  answered (a dropped connection, the deadline), the newer write queued for the
-  same item is not sent automatically: it fails with the first, as the item's
-  final word, and the next attempt is the person's Retry. A failure the server
-  did answer (a 500) lets the queue carry on.
+- A write that has not answered in 20 s is aborted and reported, so one stalled
+  request cannot freeze the document's other writes. Aborting a fetch does not
+  stop the server, though, so when a write got no answer (the deadline, a
+  dropped connection) its outcome is UNKNOWN: the newer write already queued
+  for that item fails with it (reported once, as the item's final word, so
+  Retry targets the latest intent), and nothing more is sent for that item
+  until 75 s after the unanswered one left — longer than the API function's
+  60 s `maxDuration`, so it can no longer land after its replacement. A unit
+  test holds that margin against `vercel.json`. Failures the server answered
+  (a 500), and requests that never left an offline device, fence nothing.
 - `applyAnswer` cancels every read of the data a write touched that is in
   flight when its answer arrives, applies the answer, then asks those reads
   again, so a slow GET can neither undo the edit on screen nor be lost (an

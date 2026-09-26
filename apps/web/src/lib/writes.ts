@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
-import { WriteLane, type WriteOutcome, type WriteRequest } from './writeLane'
+import { NotSentError, WriteLane, type WriteOutcome, type WriteRequest } from './writeLane'
 import { failureMessage } from './writeFailure'
 import { dismissToast, showToast } from './toast'
 import { IDENTITY_CHANGED } from './access'
@@ -62,9 +62,10 @@ async function sessionIdentity(): Promise<string | null> {
   return timedOut ? null : session?.user.id ?? ''
 }
 
-class AccountChangedError extends Error {
+/** Stopped before sending: the session is no longer the one the write was asked under. */
+class AccountChangedError extends NotSentError {
   constructor() {
-    super('A different account is signed in now')
+    super(undefined, 'A different account is signed in now')
     this.name = 'AccountChangedError'
   }
 }
@@ -84,7 +85,14 @@ export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<Wri
       send: async (signal) => {
         const [asked, now] = await Promise.all([askedBy, sessionIdentity()])
         if (asked !== null && now !== null && asked !== now) throw new AccountChangedError()
-        return request.send(signal)
+        try {
+          return await request.send(signal)
+        } catch (error) {
+          // Offline, fetch rejects before anything leaves the device, so there
+          // is nothing that could still land and nothing to wait out.
+          if (error instanceof TypeError && !online()) throw new NotSentError(error)
+          throw error
+        }
       },
     })
     .then((outcome): WriteOutcome<R> =>

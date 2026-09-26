@@ -28,9 +28,19 @@
  *
  * A write's outcome says whether it was the item's FINAL word. Only a final
  * failure is worth telling anyone about: a failed write that a newer one has
- * already superseded was never what the user wanted in the end. (The exception
- * runs the other way: when the server never answered, the newer write is held
- * back and fails with it — see `settle`.)
+ * already superseded was never what the user wanted in the end.
+ *
+ * ── WHEN THE SERVER NEVER ANSWERED ───────────────────────────────────────────
+ *
+ * Rule 1 only orders writes whose outcome is KNOWN. A request that timed out, or
+ * whose connection dropped after it left the device, may still be applied on
+ * the server — aborting a fetch does not stop the work — so a newer write for
+ * the same item, sent now, could be overtaken by it, and the older quantity
+ * would land last. For that item the lane then (a) fails the write waiting
+ * behind it, as the item's final word, so the person is told at once and a
+ * Retry targets what they last asked for; and (b) sends nothing more for it
+ * until the old request cannot still land (`UNCERTAIN_FOR_MS`). Other items,
+ * and failures the server did answer, carry on as normal.
  *
  * `cancel()` drops everything outstanding at once — for when the account that
  * asked for these writes is no longer the one signed in (lib/writes.ts).
@@ -39,19 +49,17 @@
  * (lib/__tests__/writeLane.test.ts). `lib/writes.ts` is the React side.
  */
 
+/** How long one request may hold the lane before it is abandoned and reported
+ *  as failed, so a stalled connection cannot freeze the document's other writes. */
+export const WRITE_DEADLINE_MS = 20_000
+
 /**
- * How long one request may hold the lane before it is abandoned as failed, so a
- * stalled connection cannot freeze every later write to the same document.
- *
- * LONGER than the API function's own limit (vercel.json: `api/index.mjs`
- * `maxDuration` 60 s), and on purpose. Aborting a fetch does not stop the
- * server: a request given up on while the server is still working could commit
- * AFTER the write that replaced it, and an older absolute quantity would
- * overwrite the newer one. Past this deadline the server has finished or been
- * stopped, so the next write cannot be overtaken. writeLane.test.ts checks
- * the margin against vercel.json.
+ * How long after it was SENT a request with no answer might still be applied:
+ * longer than the API function's own limit (vercel.json, `api/index.mjs`
+ * `maxDuration` 60 s), after which the server has finished or been stopped.
+ * writeLane.test.ts checks the margin against vercel.json.
  */
-export const WRITE_DEADLINE_MS = 75_000
+export const UNCERTAIN_FOR_MS = 75_000
 
 export type WriteOutcome<R> =
   | { status: 'saved'; value: R; final: boolean }
@@ -82,6 +90,7 @@ interface Entry {
   onSaved?: (value: unknown) => void | Promise<void>
   resolve: (outcome: WriteOutcome<unknown>) => void
   generation: number
+  sentAt: number
 }
 
 export class WriteLane {
@@ -92,10 +101,16 @@ export class WriteLane {
   private generation = 0
   /** item → the newest write asked for it, while any write for it is outstanding. */
   private latest = new Map<string, Entry>()
+  /** item → the time before which nothing more may be sent for it (see above). */
+  private fences = new Map<string, number>()
+  private wake: ReturnType<typeof setTimeout> | null = null
   private listeners = new Set<() => void>()
   private version = 0
 
-  constructor(private readonly deadlineMs = WRITE_DEADLINE_MS) {}
+  constructor(
+    private readonly deadlineMs = WRITE_DEADLINE_MS,
+    private readonly uncertainForMs = UNCERTAIN_FOR_MS,
+  ) {}
 
   write<R>(request: WriteRequest<R>): Promise<WriteOutcome<R>> {
     return new Promise<WriteOutcome<R>>((resolve) => {
@@ -106,6 +121,7 @@ export class WriteLane {
         onSaved: request.onSaved as Entry['onSaved'],
         resolve: resolve as (outcome: WriteOutcome<unknown>) => void,
         generation: this.generation,
+        sentAt: 0,
       }
       // A write for the same item that has not been sent yet can never matter
       // now. One that IS in flight cannot be recalled, so it finishes, and this
@@ -138,6 +154,9 @@ export class WriteLane {
     this.running = null
     for (const entry of this.queue.splice(0)) entry.resolve({ status: 'cancelled' })
     this.latest.clear()
+    this.fences.clear()
+    if (this.wake !== null) clearTimeout(this.wake)
+    this.wake = null
     this.emit()
   }
 
@@ -156,9 +175,24 @@ export class WriteLane {
 
   private pump(): void {
     if (this.running) return
-    const entry = this.queue.shift()
-    if (!entry) return
+    const now = Date.now()
+    for (const [item, until] of this.fences) if (until <= now) this.fences.delete(item)
+    const index = this.queue.findIndex((e) => !this.fences.has(e.item))
+    if (index < 0) {
+      // Everything waiting is fenced: come back when the first fence lifts.
+      if (this.queue.length) {
+        const next = Math.min(...this.queue.map((e) => this.fences.get(e.item)!))
+        if (this.wake !== null) clearTimeout(this.wake)
+        this.wake = setTimeout(() => {
+          this.wake = null
+          this.pump()
+        }, next - now)
+      }
+      return
+    }
+    const entry = this.queue.splice(index, 1)[0]!
     this.running = entry
+    entry.sentAt = now
     const controller = new AbortController()
     this.controller = controller
     const deadline = setTimeout(() => controller.abort(new DeadlineError()), this.deadlineMs)
@@ -198,28 +232,38 @@ export class WriteLane {
     if (cancelled()) return entry.resolve({ status: 'cancelled' })
     this.running = null
     this.controller = null
-    // A failure the server never answered (the connection dropped, the deadline
-    // passed) leaves it UNKNOWN whether this write is still being applied. The
-    // newer write for the same item, sent straight after, could be overtaken by
-    // it and the older quantity would land last. So the newer one is not sent:
-    // it fails too, as the item's final word, and the next attempt waits for a
-    // person to press Retry — after they have been told.
-    const orphan = result.status === 'failed' && !answered(result.error)
-      ? this.queue.find((e) => e.item === entry.item)
-      : undefined
-    if (orphan) this.queue.splice(this.queue.indexOf(orphan), 1)
+    let heldBack: Entry | undefined
+    if (result.status === 'failed' && !outcomeKnown(result.error)) {
+      this.fences.set(entry.item, entry.sentAt + this.uncertainForMs)
+      heldBack = this.queue.find((e) => e.item === entry.item)
+      if (heldBack) this.queue.splice(this.queue.indexOf(heldBack), 1)
+    }
     const final = this.latest.get(entry.item) === entry
-    if (final || orphan) this.latest.delete(entry.item)
+    if (final || heldBack) this.latest.delete(entry.item)
     this.emit()
     entry.resolve({ ...result, final })
-    orphan?.resolve({ ...result, final: true })
+    heldBack?.resolve({ ...result, final: true })
     this.pump()
   }
 }
 
-/** Did the server answer? An error carrying an HTTP status means it did (lib/api.ts ApiError). */
-function answered(error: unknown): boolean {
-  return error instanceof Error && typeof (error as Error & { status?: unknown }).status === 'number'
+/**
+ * Is it certain whether this failed write was applied? It is when the server
+ * answered (the error carries an HTTP status — lib/api.ts ApiError), or when the
+ * request never left the device (`NotSentError`). Anything else — a dropped
+ * connection, the deadline — is uncertain.
+ */
+function outcomeKnown(error: unknown): boolean {
+  return error instanceof NotSentError ||
+    (error instanceof Error && typeof (error as Error & { status?: unknown }).status === 'number')
+}
+
+/** A request that failed without ever leaving the device (it was offline). */
+export class NotSentError extends Error {
+  constructor(cause?: unknown, message = 'The request was never sent') {
+    super(message, { cause })
+    this.name = 'NotSentError'
+  }
 }
 
 /** What an in-flight write is aborted with by `cancel()`. */

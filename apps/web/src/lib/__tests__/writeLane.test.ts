@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { DeadlineError, WRITE_DEADLINE_MS, WriteLane, type WriteOutcome } from '../writeLane.js'
+import { DeadlineError, NotSentError, UNCERTAIN_FOR_MS, WriteLane, type WriteOutcome } from '../writeLane.js'
 import { failureMessage, failureReason } from '../writeFailure.js'
 
 function deferred<T>() {
@@ -208,12 +208,42 @@ test('a request that never answers is abandoned at the deadline, aborted, and th
   assert.equal((await next).status, 'saved')
 })
 
-test('the deadline outlasts the API function, so an abandoned write cannot commit after its replacement', () => {
+test('the uncertainty window outlasts the API function, so an unanswered write cannot land after its replacement', () => {
   // Aborting a fetch does not stop the server. Only once the function has
-  // finished or been killed is it safe to send the write queued behind it.
+  // finished or been killed is it safe to send another write for that item.
   const vercel = JSON.parse(readFileSync(new URL('../../../../../vercel.json', import.meta.url), 'utf8'))
   const apiLimitMs = vercel.functions['api/index.mjs'].maxDuration * 1000
-  assert.ok(WRITE_DEADLINE_MS >= apiLimitMs + 10_000, `deadline ${WRITE_DEADLINE_MS} ms vs API limit ${apiLimitMs} ms`)
+  assert.ok(UNCERTAIN_FOR_MS >= apiLimitMs + 10_000, `window ${UNCERTAIN_FOR_MS} ms vs API limit ${apiLimitMs} ms`)
+})
+
+test('after an unanswered failure, a new write for that item waits out the window; other items do not', async () => {
+  const lane = new WriteLane(1_000, 80)
+  const api = endpoint<number>()
+  const first = lane.write({ item: 'qty', intent: 1, send: api.send(1) })
+  api.calls[0]!.answer.reject(new TypeError('connection reset'))
+  await first
+  const retry = lane.write({ item: 'qty', intent: 2, send: api.send(2) })
+  const other = lane.write({ item: 'other', send: api.send(9) })
+  assert.deepEqual(api.calls.map((c) => c.arg), [1, 9], 'Retry is held; the other item goes straight out')
+  assert.equal(lane.intent('qty'), 2, 'the held write still shows what was asked for')
+  api.calls[1]!.answer.resolve(9)
+  await other
+  await new Promise((r) => setTimeout(r, 100))
+  assert.equal(api.calls.at(-1)!.arg, 2, 'sent once the old request can no longer land')
+  api.calls.at(-1)!.answer.resolve(2)
+  assert.equal((await retry).status, 'saved')
+})
+
+test('a write that never left the device holds nothing back', async () => {
+  const lane = new WriteLane()
+  const api = endpoint<number>()
+  lane.write({ item: 'qty', intent: 1, send: api.send(1) })
+  const newer = lane.write({ item: 'qty', intent: 2, send: api.send(2) })
+  api.calls[0]!.answer.reject(new NotSentError(new TypeError('Failed to fetch')))
+  await tick()
+  assert.equal(api.calls.length, 2, 'offline: nothing could still land, so the newer write goes')
+  api.calls[1]!.answer.resolve(2)
+  assert.equal((await newer).status, 'saved')
 })
 
 test('a bug applying an answer, or a send that throws, cannot wedge the lane', async () => {
@@ -320,5 +350,6 @@ test('the statuses a person can act on get plain words', () => {
   assert.equal(failureReason(new ApiLikeError('slow down', 429), true), 'Too many changes at once. Wait a moment, then try again.')
   assert.equal(failureReason(new ApiLikeError('x', 401), true), 'Your session has expired. Sign in again.')
   assert.equal(failureReason(new DeadlineError(), true), "DeckPal didn't answer in time.")
+  assert.equal(failureReason(new NotSentError(new TypeError('Failed to fetch')), true), "You're offline.", 'it was, when it was sent')
   assert.equal(failureReason(new TypeError('Load failed'), true), "DeckPal couldn't be reached. Check your connection.")
 })
