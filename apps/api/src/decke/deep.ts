@@ -56,7 +56,9 @@ import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
 import type { GatewayProvider } from '@ai-sdk/gateway';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
-import { deepFailed, deepRefused, type MeterRefusalScope } from './deepOutcome.js';
+import { NO_WORK, deepFailed, deepRefused, type MeterRefusalScope } from './deepOutcome.js';
+import { needDeck } from '@deckpal/agent-tools';
+import { withToolCtx } from './ctx.js';
 import { blockedReason, seedMeteredRefusals, type MeteredRefusals } from './meteredRefusals.js';
 import { alreadyDeclinedMessage } from './declined.js';
 import { checkResearchQuery } from './researchQuery.js';
@@ -842,6 +844,67 @@ function findingsPrompt(findings: string): string {
   );
 }
 
+/**
+ * The guide sub-agent's one write, bound to the deck the reader approved.
+ *
+ * `approvals: 'upstream'` means the reader was asked once, about the whole
+ * tool, and the sub-agent then writes without a dialog. The approved deck
+ * reached it only as PROMPT TEXT — and the same context carries `findings`
+ * (web text from `research_meta`) and battle-log opponent names, both written
+ * by strangers. An instruction smuggled into either could have the sub-agent
+ * replace the guides on the reader's OTHER decks with anything, links
+ * included, all under an approval that named one deck (SEC-13, security audit
+ * 2026-09-26).
+ *
+ * So the binding is code, not prose. A `deck_strategy` WRITE must resolve to
+ * the same deck as the approved `deck` argument — resolved by the server from
+ * the signed input, never from anything the sub-agent says — and one write is
+ * all an approval buys. Reads are untouched: reading another deck's guide
+ * changes nothing and the sub-agent may need it for comparison.
+ *
+ * Resolved at the first write rather than before the sub-agent starts, from
+ * the same approved argument: the answer cannot differ, and a sub-agent that
+ * fails before writing then costs no extra round trip. The approved reference
+ * resolves the way the reader's words did (loosely, like a read); the write's
+ * own target resolves strictly, exactly as `deck_strategy`'s handler will.
+ */
+export function bindGuideWrite(tools: ToolSet, ctx: AiSdkAdapterOptions, approvedDeck: string): ToolSet {
+  const inner = tools.deck_strategy;
+  if (!inner?.execute) return tools;
+  const execute = inner.execute;
+  const resolve = (ref: unknown, strict: boolean) =>
+    withToolCtx(ctx, async (c) => {
+      const picked = await needDeck(c, ref, { strict });
+      return picked.ok ? picked.value.id : null;
+    });
+  let approved: Promise<string | null> | undefined;
+  let wrote = false;
+  const refuse = (why: string) =>
+    `${NO_WORK} REFUSED — deck_strategy did not run: ${why} Nothing was written. ` +
+    'Report to the reader exactly what you stored before this, if anything, and stop.';
+  return {
+    ...tools,
+    deck_strategy: {
+      ...inner,
+      execute: async (input: unknown, options: Parameters<typeof execute>[1]) => {
+        const args = (input ?? {}) as { deck_id?: unknown; markdown?: unknown };
+        if (typeof args.markdown !== 'string') return execute(input as never, options);
+        if (wrote) return refuse('this approval covers one guide, and it has been saved.');
+        approved ??= resolve(approvedDeck, false);
+        const [want, target] = await Promise.all([approved, resolve(args.deck_id, true)]);
+        if (!want || target !== want) {
+          return refuse(`the reader approved a guide for "${approvedDeck}" only, and this call targets a different deck.`);
+        }
+        // Checked again AFTER the await: two writes in one step run
+        // concurrently, and both passed the check above before either got here.
+        if (wrote) return refuse('this approval covers one guide, and it has been saved.');
+        wrote = true;
+        return execute(input as never, options);
+      },
+    },
+  };
+}
+
 export function buildDeepTools(opts: DeepToolOptions): ToolSet {
   const budgetMs = deepBudgetMs();
 
@@ -1476,12 +1539,21 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
           //
           // `deck_strategy` is dumb storage and idempotent — it REPLACES a
           // guide rather than appending — so a retry cannot duplicate anything.
-          tools: buildDataTools({
-            ...opts.ctx,
-            maxChars: 0,
-            approvals: 'upstream',
-            include: (d) => d.annotations.readOnlyHint || d.name === 'deck_strategy',
-          }),
+          //
+          // AND THE WRITE IS BOUND TO THE APPROVED DECK, IN CODE. The approval
+          // named one deck; the prompt above is the only place that was said,
+          // and the prompt also carries stranger-written text. See
+          // `bindGuideWrite`.
+          tools: bindGuideWrite(
+            buildDataTools({
+              ...opts.ctx,
+              maxChars: 0,
+              approvals: 'upstream',
+              include: (d) => d.annotations.readOnlyHint || d.name === 'deck_strategy',
+            }),
+            opts.ctx,
+            String(args.deck ?? ''),
+          ),
           maxSteps: 14,
           signal: opts.ctx.signal,
           budgetMs,

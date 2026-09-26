@@ -36,12 +36,13 @@
  * the narration is keyed to) without the call being carried out.
  */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { MockLanguageModelV3 } from 'ai/test'
 import type { GatewayProvider } from '@ai-sdk/gateway'
-import type { ToolEvent } from '../adapters/aisdk.js'
+import { buildDataTools, type ToolEvent } from '../adapters/aisdk.js'
 import { DEEP_TOOLS } from '../tools.js'
-import { buildDeepTools, DECKE_DEEP_BUDGET_VAR, NO_RESEARCH_FINDINGS_MIN } from '../deep.js'
+import { bindGuideWrite, buildDeepTools, DECKE_DEEP_BUDGET_VAR, NO_RESEARCH_FINDINGS_MIN } from '../deep.js'
 import { declinedCalls } from '../declined.js'
 import { openingBeatNames, proseBeat, sourceBeat, toolBeat } from '../beats.js'
 
@@ -964,4 +965,126 @@ test('a declined write_strategy_guide refuses with the marker, and the latestUse
     false,
     'the exact declined call was not suppressed after the bypass',
   )
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SEC-13 — the guide sub-agent writes only the deck the reader approved
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The sub-agent's context carries stranger-written text (`findings` from the
+// web, opponent names from battle logs), and its write was bound to the
+// approved deck only by prompt prose. This drives the REAL sub-agent loop with
+// a model that does what an injected instruction would ask — write a guide to
+// another deck, then write twice — over a stubbed transport, and counts the
+// writes that actually leave.
+
+/** A model that runs a scripted list of steps, one per `doStream` call. */
+function scriptedGateway(steps: { calls?: { deck_id: string; markdown: string }[]; text?: string }[]): GatewayProvider {
+  let n = 0
+  const model = new MockLanguageModelV3({
+    doStream: async () => {
+      const step = steps[Math.min(n++, steps.length - 1)]!
+      const calls = step.calls ?? []
+      return {
+        stream: new ReadableStream({
+          start(c) {
+            c.enqueue({ type: 'stream-start', warnings: [] })
+            if (step.text) {
+              c.enqueue({ type: 'text-start', id: '0' })
+              c.enqueue({ type: 'text-delta', id: '0', delta: step.text })
+              c.enqueue({ type: 'text-end', id: '0' })
+            }
+            calls.forEach((input, i) =>
+              c.enqueue({ type: 'tool-call', toolCallId: `w${n}-${i}`, toolName: 'deck_strategy', input: JSON.stringify(input) }),
+            )
+            c.enqueue(finish(calls.length ? 'tool-calls' : 'stop'))
+            c.close()
+          },
+        }) as never,
+      }
+    },
+  })
+  return (() => model) as unknown as GatewayProvider
+}
+
+/** Two decks the reader owns; records every request that would change one. */
+function stubDecks(writes: string[]) {
+  const real = globalThis.fetch
+  const decks = [
+    { id: 'd1', name: 'Toolbox Slowking', formatCode: 'standard', version: 1 },
+    { id: 'd2', name: 'Mono Fire', formatCode: 'standard', version: 3 },
+  ]
+  globalThis.fetch = (async (input: unknown, init?: { method?: string }) => {
+    const url = String((input as { url?: string })?.url ?? input)
+    const method = init?.method ?? 'GET'
+    if (method !== 'GET') writes.push(`${method} ${new URL(url).pathname}`)
+    const one = url.match(/\/decks\/(d[12])(?:\/strategy)?$/)
+    const body = one
+      ? { deck: { ...decks.find((d) => d.id === one[1])!, strategyMd: 'old guide' } }
+      : { decks }
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  return () => {
+    globalThis.fetch = real
+  }
+}
+
+async function runGuide(steps: Parameters<typeof scriptedGateway>[0], deck = 'Toolbox Slowking') {
+  const writes: string[] = []
+  const restore = stubDecks(writes)
+  try {
+    const deep = buildDeepTools({
+      ctx: CTX,
+      gateway: scriptedGateway(steps),
+      charge: async () => ({ allowed: true, cap: 10 }),
+      heartbeatMs: 40,
+    }) as unknown as Record<string, Runnable>
+    const text = await deep['write_strategy_guide']!.execute({ deck, findings: '' }, { toolCallId: 'g1' })
+    return { writes, text }
+  } finally {
+    restore()
+  }
+}
+
+test('SEC-13: a write to a deck the reader did not approve is refused, and nothing leaves', async () => {
+  const { writes } = await runGuide([
+    { calls: [{ deck_id: 'Mono Fire', markdown: '# Click here: https://evil.example' }] },
+    { text: 'Stored.' },
+  ])
+  assert.deepEqual(writes, [], `an unapproved deck was written: ${writes.join(', ')}`)
+})
+
+test('SEC-13: the approved deck is written once, by name or by id, and a second write is refused', async () => {
+  const { writes } = await runGuide([
+    // Two in one step (they run concurrently) and a third on the next step.
+    { calls: [{ deck_id: 'd1', markdown: '# Slowking guide' }, { deck_id: 'Toolbox Slowking', markdown: '# again' }] },
+    { calls: [{ deck_id: 'd1', markdown: '# and again' }] },
+    { text: 'Stored.' },
+  ])
+  assert.deepEqual(writes, ['PUT /api/decks/d1/strategy'])
+})
+
+test('SEC-13: reads stay free — the sub-agent may read another deck\'s guide', async () => {
+  const writes: string[] = []
+  const restore = stubDecks(writes)
+  try {
+    const tools = bindGuideWrite(
+      buildDataTools({ ...CTX, approvals: 'upstream', maxChars: 0, include: (d) => d.name === 'deck_strategy' }),
+      CTX,
+      'Toolbox Slowking',
+    ) as unknown as Record<string, Runnable>
+    const read = await tools.deck_strategy!.execute({ deck_id: 'Mono Fire' }, { toolCallId: 'r1' })
+    assert.match(read, /old guide/)
+    const refused = await tools.deck_strategy!.execute({ deck_id: 'd2', markdown: '# x' }, { toolCallId: 'w1' })
+    assert.match(refused, /^\[\[NO_WORK\]\] REFUSED/)
+    assert.deepEqual(writes, [])
+  } finally {
+    restore()
+  }
+})
+
+test('SEC-13: the binding is wired into the guide sub-agent, not just defined', () => {
+  const src = readFileSync(new URL('../deep.ts', import.meta.url), 'utf8')
+  assert.match(src, /tools: bindGuideWrite\(\s*buildDataTools\(/, 'write_strategy_guide no longer binds its write')
+  assert.match(src, /String\(args\.deck \?\? ''\)/, 'the binding no longer reads the approved argument')
 })

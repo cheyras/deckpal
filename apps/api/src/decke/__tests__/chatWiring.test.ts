@@ -155,3 +155,32 @@ test('the same ledger narrows activeTools, so a spent tier leaves the model\'s v
     'prepareStep no longer removes a spent deep tier from activeTools',
   );
 });
+
+// ── SEC-04: THE CONVERSATION IS BOUNDED BEFORE ANYTHING PAYS FOR IT ─────────
+//
+// `wireBounds.ts` can be perfect and bound nothing: the body is read, parsed,
+// metered and converted here, and each of those is one line.
+
+test('the body is read through the capped reader, and the uncapped one is gone', () => {
+  assert.match(CODE, /await readBodyCapped\(req\)/, 'the handler no longer caps the body');
+  assert.match(CODE, /if \(body === null\) \{\s*res\.statusCode = 413/, 'an oversized body no longer answers 413');
+  assert.doesNotMatch(CODE, /for await \(const chunk of req\) chunks\.push\(chunk\)/, 'the uncapped reader came back');
+});
+
+test('the conversation is validated before any ledger, the meter or the model reads it', () => {
+  const at = (s: string) => CODE.indexOf(s);
+  const validate = at('const wire = validateWire(body?.messages)');
+  assert.ok(validate > 0, 'validateWire is no longer called on the body');
+  assert.match(CODE, /if \(!wire\.ok\) return json\(\{ error: wire\.error, code: wire\.code \}, wire\.status\)/);
+  assert.match(CODE, /const messages = wire\.messages/, 'later code no longer reads the VALIDATED messages');
+  for (const later of ['declinedCalls(messages', 'quote = await readPolicy(', 'usage = await beginAiRequest(', 'meter = await meterTurn(']) {
+    assert.ok(validate < at(later), `${later} runs before the conversation is validated`);
+  }
+});
+
+test('the model is shown the window, and the prompt the bounded page context', () => {
+  assert.match(CODE, /convertToModelMessages\(stripPriorCommands\(windowForModel\(messages\)\.messages\)\)/);
+  assert.match(CODE, /const route = boundedRoute\(body\?\.route\)/);
+  assert.match(CODE, /const landmarks = boundedLandmarks\(body\?\.landmarks\)/);
+  assert.doesNotMatch(CODE, /landmarks\.slice\(0, 40\)/, 'the old count-only slice is back');
+});

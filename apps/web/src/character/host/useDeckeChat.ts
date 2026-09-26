@@ -64,6 +64,7 @@ import {
   wireCallIdentities,
   type MeterRefusal,
 } from './chat/meterRefusal'
+import { windowPrior } from './chat/wireWindow'
 import {
   CLIENT_TOOLS,
   isClientTool,
@@ -324,6 +325,9 @@ export function useDeckeChat(
    * it means rather than "everything since the tab opened".
    */
   const conversationRef = useRef<string>(newConversationId())
+  /** The conversation the reader was last told has outgrown the window. Once
+   *  per conversation — see the trim in `send`. */
+  const trimToldRef = useRef<string | null>(null)
   const seqRef = useRef(0)
   /**
    * Bumped when a new conversation starts, so anything reading the id re-renders.
@@ -773,11 +777,31 @@ export function useDeckeChat(
       // only catches up on the next render, so reading it later in this same
       // function is a race whose two outcomes are "history is right" and
       // "history contains this turn twice".
-      const priorWire = messagesToWire(currentRef.current)
+      //
+      // AND ONLY AS MUCH OF IT AS THE MODEL WILL READ (SEC-04). The server
+      // shows him a window of recent history and refuses a body past a hard
+      // cap; sending more would only walk a long chat into that cap. When the
+      // window first leaves something behind, the reader is told once, above
+      // the reply, rather than finding out by asking about it. See
+      // `chat/wireWindow.ts`.
+      const { messages: priorWire, dropped } = windowPrior(messagesToWire(currentRef.current))
+      const tellTrim = dropped > 0 && trimToldRef.current !== exchangeConversation
+      if (tellTrim) trimToldRef.current = exchangeConversation
       setMessages((m) => [
         ...m,
         ...(userMsg ? [userMsg] : []),
-        { id: replyId, role: 'assistant', parts: [] },
+        {
+          id: replyId,
+          role: 'assistant',
+          parts: tellTrim
+            ? [{
+                kind: 'notice' as const,
+                id: nextId(),
+                tone: 'neutral' as const,
+                title: 'I can only see the recent part of this chat now — start a new one for a clean slate.',
+              }]
+            : [],
+        },
       ])
       setBusy(true)
 
@@ -1160,17 +1184,22 @@ export function useDeckeChat(
                     ? { tone: 'neutral' as const, title: 'You need to be signed in for me to help.' }
                     : status === 403
                       ? { tone: 'neutral' as const, title: "I'm not available on this account yet." }
-                      : status === 429
-                        ? {
-                            tone: 'limit' as const,
-                            title: "I'm out for now.",
-                            detail: 'Top up and I can pick this straight back up.',
-                          }
-                        : {
-                            tone: 'error' as const,
-                            title: 'Something went wrong reaching my brain.',
-                            detail: 'Nothing was written. Try that again in a moment.',
-                          }
+                      : status === 413
+                        // SEC-04's bound, and the one a person can reach by
+                        // pasting something enormous. Refused before the meter,
+                        // so nothing was spent and nothing was written.
+                        ? { tone: 'neutral' as const, title: "That's more than I can read in one go.", detail: 'Nothing was sent. Try something shorter.' }
+                        : status === 429
+                          ? {
+                              tone: 'limit' as const,
+                              title: "I'm out for now.",
+                              detail: 'Top up and I can pick this straight back up.',
+                            }
+                          : {
+                              tone: 'error' as const,
+                              title: 'Something went wrong reaching my brain.',
+                              detail: 'Nothing was written. Try that again in a moment.',
+                            }
               noticeInstead(n)
               decke.setState('alert_error', { mode: 'once' })
               movedRef.current = true

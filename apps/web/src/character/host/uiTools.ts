@@ -127,7 +127,25 @@ export function routeAllowed(path: unknown): path is string {
   if (typeof path !== 'string' || !path.startsWith('/')) return false
   if (path.startsWith('//') || path.startsWith('/\\')) return false
   const clean = path.split('?')[0].split('#')[0]
-  return ROUTE_ALLOWLIST.some((r) => clean === r || clean.startsWith(`${r}/`))
+  return isNormalPath(clean) && ROUTE_ALLOWLIST.some((r) => clean === r || clean.startsWith(`${r}/`))
+}
+
+/**
+ * The path the router will land on is the path that was checked (SEC-12).
+ *
+ * `/decks/../profile` used to pass the prefix match as "under /decks" and then
+ * resolve to `/profile`. Allowed only if resolving the path changes nothing —
+ * `.`/`..` segments and their `%2e` spellings all do — with encoded separators
+ * and control characters refused outright. MIRRORS `isNormalPath` in
+ * `apps/api/src/decke/tools.ts`.
+ */
+function isNormalPath(clean: string): boolean {
+  if (/[\u0000-\u001f\u007f\\]|%(2e|2f|5c|00)/i.test(clean)) return false
+  try {
+    return new URL(clean, 'https://deckpal.invalid').pathname === clean
+  } catch {
+    return false
+  }
 }
 
 /**

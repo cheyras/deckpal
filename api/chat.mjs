@@ -126,6 +126,13 @@ import {
 } from '../apps/api/dist/decke/turnGuards.js'
 import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
 import { priorSummaries } from '../apps/api/dist/decke/toldAlready.js'
+import {
+  validateWire,
+  windowForModel,
+  boundedRoute,
+  boundedLandmarks,
+  readBodyCapped,
+} from '../apps/api/dist/decke/wireBounds.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -408,10 +415,22 @@ async function serve(request) {
   // apart as one outage or two. Nothing reads it for a decision, and an older
   // browser that does not send it logs `conversation=unknown` rather than
   // suppressing the line. See `decke/failing.ts`.
-  const { messages, route = '/', landmarks = [], conversationId, exchangeId, seq } = body ?? {}
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return json({ error: 'messages must be a non-empty array' }, 400)
-  }
+  const { conversationId, exchangeId, seq } = body ?? {}
+
+  // ── HOW MUCH CONVERSATION ONE REQUEST MAY CARRY (SEC-04) ──────────────────
+  //
+  // BEFORE anything reads the history and before the meter, so a request this
+  // endpoint will not serve costs the caller nothing and the owner nothing.
+  // The shape is the browser's own — text and `tool-*` parts, `user` and
+  // `assistant` roles — and a part larger than a pasted battle log is a 413
+  // with a sentence the reader can act on. `route` and `landmarks` are page
+  // context for the prompt, so they are clipped rather than refused. See
+  // `decke/wireBounds.ts`.
+  const wire = validateWire(body?.messages)
+  if (!wire.ok) return json({ error: wire.error, code: wire.code }, wire.status)
+  const messages = wire.messages
+  const route = boundedRoute(body?.route)
+  const landmarks = boundedLandmarks(body?.landmarks)
 
   // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
   //
@@ -814,7 +833,12 @@ async function serve(request) {
         }),
       }
 
-      const preparedMessages = await convertToModelMessages(stripPriorCommands(messages))
+      // THE MODEL SEES A WINDOW; EVERYTHING ELSE SEES THE WHOLE. Declines,
+      // failures, what he already said, the paste and the charge hash above all
+      // read the full validated history, so trimming changes what he is billed
+      // to re-read and nothing about how he behaves. The reader's current turn,
+      // approvals included, is never cut. See `decke/wireBounds.ts`.
+      const preparedMessages = await convertToModelMessages(stripPriorCommands(windowForModel(messages).messages))
       const result = streamText({
         model: observeUsageModel(gateway(choice.id), meter),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
@@ -822,14 +846,14 @@ async function serve(request) {
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
         // whole animation vocabulary on every turn, so caching is load-bearing.
         instructions: buildSystemPrompt({
-          route: typeof route === 'string' ? route : '/',
+          route,
           signedIn: true,
           // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
           // which explains why the cap exists (prompt size, re-billed per leg)
-          // and what it costs. Sliced again here because the browser chooses
-          // what to send and this is the side that pays for it. Change one,
-          // change both.
-          landmarks: Array.isArray(landmarks) ? landmarks.slice(0, 40) : [],
+          // and what it costs. Bounded again here — count AND each string —
+          // because the browser chooses what to send and this is the side that
+          // pays for it. Change one, change both (`LANDMARKS_MAX`).
+          landmarks,
           // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING, three lines below.
           // Hand-writing this list is how the previous prompt came to spend
           // every turn offering to look things up with no tool that could look.
@@ -1513,13 +1537,6 @@ function stripToolSyntax(stream) {
   })
 }
 
-/** Collect a Node request body into a buffer. */
-async function readBody(req) {
-  const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
-  return Buffer.concat(chunks)
-}
-
 /**
  * THE RUNTIME HANDS US NODE'S `(req, res)`, NOT A WEB `Request`.
  *
@@ -1545,7 +1562,17 @@ export default async function handler(req, res) {
     const host = req.headers.host ?? 'localhost'
     const url = `https://${host}${req.url ?? '/'}`
     const method = req.method ?? 'GET'
-    const body = method === 'GET' || method === 'HEAD' ? undefined : await readBody(req)
+    // CAPPED WHILE IT ARRIVES (SEC-04). This buffered the whole body with no
+    // limit, which was the first half of the unbounded-conversation finding.
+    // Refused here, before auth, because nothing about a body this size is
+    // worth verifying a token for.
+    const body = method === 'GET' || method === 'HEAD' ? undefined : await readBodyCapped(req)
+    if (body === null) {
+      res.statusCode = 413
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ error: 'That message is too long for Deck-E to read in one go.', code: 'body_too_large' }))
+      return
+    }
     // ONE CONTROLLER PER REQUEST, aborted when the socket dies.
     //
     // Node tells us the client went away; the AI SDK and the tool layer both
