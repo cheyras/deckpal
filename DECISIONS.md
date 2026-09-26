@@ -20569,3 +20569,54 @@ ms for a 20-tick wheel burst), in the same range as Grid's own scroll cost, sinc
 
 **Where enforced:** `apps/web/src/components/TableView.tsx`; regression test
 `tests/browser/listTableVirtualization.mjs`.
+
+### Addendum — Astra review findings, both fixed
+
+The required independent review (`npx @openai/codex review --base origin/main`, model
+`gpt-6-astra`) returned two P2 findings against the first version of this PR. Both were valid;
+both are fixed as of this addendum.
+
+**1. Off-screen card reveals broke in `SetDetail`'s Table view.** `SetDetail.tsx`'s reveal
+handler (Deck-E asking to bring one card into view) used `document.querySelector(...)
+.scrollIntoView()`, on the documented assumption that "the table renders every row it has, so a
+reveal there is the ordinary browser problem of scrolling to an element that already exists" —
+true before this PR, false after. `TableView` now accepts an optional `reveal` prop and resolves
+it via `virtualizer.scrollToIndex`, mirroring `GridView`'s existing reveal effect exactly
+(including its "already centred, don't re-animate" check). `SetDetail`'s old handler now only
+covers Binder (which still only paginates, so a card on another page is still out of reach — a
+pre-existing, unrelated limitation, unchanged). Not covered by an automated test: reproducing it
+needs a synthetic large *set* (not just a large list), which this PR didn't already have a
+fixture for, and building one felt disproportionate to a fix that's a near-verbatim copy of
+`GridView`'s already-shipped, already-relied-upon reveal code. Verified by type-checking (the
+`GridReveal` type import and `scrollToIndex` call sites are all real, shared APIs) and by direct
+comparison against `GridView`'s working implementation, not by an end-to-end browser reveal
+test — flagging that gap rather than claiming coverage I don't have.
+
+**2. Header/row column misalignment for signed-in users.** The new column header assumed fixed
+column positions the row markup didn't actually have: `RowCounters` (0-4 quantity chips,
+depending on the card) sat between Price and the chevron with no reserved width, so `Name`'s
+`flex-1` absorbed a different amount of space on every row depending on how many chips that
+row's card happened to have — shifting Price's rendered position row-to-row, not just relative
+to the static header. Fixed with literal (not JS-constant-interpolated — Tailwind's class
+generator only sees literal strings) fixed-width columns for Variant (110px), Price (72px) and
+Counters (128px), plus `min-w-0` on two flex items that otherwise refuse to shrink below their
+content size and silently reintroduce the same drift. Verified empirically, not just reasoned
+about: measured each visible row's Price `getBoundingClientRect().left` before and after — before,
+mobile varied 262-284px across 8 rows depending on the name text length that happened to overflow;
+after, constant at 254px on mobile and 1089px on desktop, at every row, regardless of that row's
+own variant/counter content. Screenshots taken with a fixture card that genuinely has 0-4 standard
+variants (added a small `/api/cards/:id` handler to this repo's untracked `.sim/` scale fixture
+for this — not part of the PR diff) confirm it visually too.
+
+**FLAGGED DECISION, not fixed silently:** making the 128px counters column fit at 390px left
+literally 0 width for the card's own name when shown unconditionally (measured, not assumed) — a
+phone screen genuinely doesn't have room for num + name + price + 4 quantity chips + chevron at
+once. Rather than pick a smaller, less-than-honest reservation that would just move the same
+misalignment to a rarer case, quantity counters are no longer shown in mobile Table view at all
+(they still are on Grid, and the card detail sheet still offers them) — the same `sm:`-gated
+treatment the Variant column already had, extended to Counters. This is a real, visible behavior
+change from before this PR (counters used to render, just unaligned, on every viewport) and is
+called out here for Chey's review rather than left for someone to discover later. An alternative
+I considered but didn't build without a design call: collapse the up-to-4 chips into a single
+compact "+" affordance that opens a quantity picker, which could fit at 390px without dropping the
+feature — flagging it as the natural follow-up if the current mobile behavior isn't the right call.

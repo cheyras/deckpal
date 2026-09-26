@@ -1,14 +1,16 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { useSignedIn } from '../lib/session'
+import { prefersReducedMotion } from '../lib/reducedMotion'
 import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
 import { CardLink } from './CardLink'
+import { type GridReveal } from './GridView'
 
 import { VariantChip } from './VariantChip'
 
@@ -90,6 +92,9 @@ const ROW_ESTIMATE = 76
 // virtualizer's own `gap` option reproduces it without baking it into each
 // row's measured height, which would double-count it on every remeasure.
 const ROW_GAP = 20
+// How near the middle of the screen counts as "already shown" — same value
+// and purpose as `GridView`'s `CENTRED_BAND`.
+const REVEAL_CENTERED_BAND = 0.2
 
 // Table view (UI-SPEC §3.26; wiki: Frontend-Research §virtualization). No
 // <table>: a flex column of per-card rows, each a cropped art thumbnail, the
@@ -101,20 +106,31 @@ const ROW_GAP = 20
 // machine load — measured 3.0-3.5s under this repo's own scale-profiling
 // fixture, DECISIONS.md this date), at 3,200 rows, on both mobile and desktop
 // viewports — and (unlike Grid's virtualized scroll cost) it never recovered
-// afterward, because nothing here was ever released. Fixed
-// with the same `useWindowVirtualizer` GridView already uses: only rows near
-// the viewport are ever mounted, no matter how long the list is. The whole
-// *page* scrolls here (there's no inner scroll container), so this reads the
-// window's scroll position exactly like GridView does, offset by this
-// element's own position on the page (`scrollMargin`).
+// afterward, because nothing here was ever released. Fixed with the same
+// `useWindowVirtualizer` GridView already uses: only rows near the viewport
+// are ever mounted, no matter how long the list is. The whole *page* scrolls
+// here (there's no inner scroll container), so this reads the window's
+// scroll position exactly like GridView does, offset by this element's own
+// position on the page (`scrollMargin`).
+//
+// `reveal` (optional; `SetDetail` is the only caller that has one) is Deck-E
+// asking for one specific card to be brought into view. Before virtualization
+// that request was `SetDetail`'s own generic `document.querySelector(...)
+// .scrollIntoView()` — "the table renders every row it has, so a reveal there
+// is the ordinary browser problem of scrolling to something that already
+// exists." That stopped being true the moment rows outside the viewport
+// stopped being mounted, so this needs the same `scrollToIndex` handling
+// `GridView` already does for the identical reason.
 export function TableView({
   cards,
   seriesSlug,
   setId,
+  reveal,
 }: {
   cards: CardRow[]
   seriesSlug: string
   setId: string
+  reveal?: GridReveal | null
 }) {
   const signedIn = useSignedIn()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -131,6 +147,31 @@ export function TableView({
     gap: ROW_GAP,
     scrollMargin: offsetTop,
   })
+
+  // Mirrors `GridView`'s reveal effect exactly (down to the "already
+  // centred, don't re-animate" check) — one row per index here instead of
+  // one row per `cols` cards, since Table has no column count to divide by.
+  useEffect(() => {
+    if (!reveal) return
+    const index = cards.findIndex((c) => c.cardId === reveal.cardId)
+    if (index < 0) return
+    let already: Element | null = null
+    try {
+      already = document.querySelector(`[data-decke-card="${CSS.escape(reveal.cardId)}"]`)
+    } catch {
+      already = null
+    }
+    if (already) {
+      const box = already.getBoundingClientRect()
+      const centre = box.top + box.height / 2
+      const h = window.innerHeight
+      if (centre > h * (0.5 - REVEAL_CENTERED_BAND) && centre < h * (0.5 + REVEAL_CENTERED_BAND)) return
+    }
+    virtualizer.scrollToIndex(index, {
+      align: 'center',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    })
+  }, [reveal, cards, virtualizer])
 
   return (
     <div ref={containerRef}>
@@ -163,8 +204,34 @@ export function TableView({
         <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[10px]">
           <span className="w-[48px] shrink-0">#</span>
           <span className="flex-1">Name</span>
-          <span className="hidden sm:inline">Variant</span>
-          <span>Price</span>
+          {/* Fixed widths (110px/72px/128px), matched literally below on each
+              row rather than computed — Tailwind's class generator only sees
+              literal strings in source, so a shared JS constant interpolated
+              into `w-[${n}px]` would silently never generate any CSS. These
+              are what actually fixes Astra's finding: PERF-03 added this
+              header on top of a row whose trailing content (variant badge,
+              price, the counters `RowCounters` conditionally renders) was
+              flex-flowing with no reserved width, so `Name`'s flex-1 grew or
+              shrank per row depending on what happened to render after it —
+              shifting Price's own position between rows, not just relative
+              to this header. Fixed widths make every row's Price and
+              Variant land at the same x regardless of that row's own
+              variant/counter content. */}
+          <span className="hidden w-[110px] shrink-0 truncate text-right sm:block">Variant</span>
+          <span className="w-[72px] shrink-0 text-right">Price</span>
+          {/* `hidden sm:block`, same as Variant above and for the same reason
+              as its row-side comment: reserving the full 128px this needs for
+              up to 4 counter chips (wiki: Frontend-Research, "1-4 badges")
+              leaves less than nothing for Name at 390px — measured, not
+              guessed: the card's own NAME rendered at 0 width with this slot
+              shown unconditionally. FLAGGED DECISION (see DECISIONS.md this
+              date): mobile Table view no longer offers quantity counters at
+              all (previously shown, just unaligned) — switch to Grid or open
+              the card sheet to edit quantities on a phone. Reversible; a
+              compact single "+" affordance opening a picker sheet instead of
+              up to 4 inline chips was the alternative I considered but didn't
+              build without a design call on it. */}
+          {signedIn === true && <span className="hidden w-[128px] shrink-0 sm:block" />}
           <span className="w-[16px] shrink-0" />
         </div>
       </div>
@@ -227,22 +294,58 @@ export function TableView({
                     style={{ objectPosition: 'center 20%' }}
                   />
                 </div>
-                <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[12px]">
+                {/* `min-w-0`: this content div is ITSELF a flex item, a
+                    sibling of the 72px thumbnail in `CardLink`'s row — the
+                    same default-min-width issue `Name` has below applies one
+                    level up too, and without it here the whole content div
+                    refuses to shrink below its children's combined natural
+                    width, overflowing the row rather than letting `Name`
+                    (which already has its own `min-w-0`) actually give up
+                    space. Confirmed empirically at 390px: without this, the
+                    content div rendered ~100px wider than the row itself. */}
+                <div className="flex min-w-0 flex-1 items-center gap-[16px] px-[16px] py-[12px]">
                   <span className="w-[48px] shrink-0 text-[14px] text-text-muted">{fmtNumber(card.number)}</span>
-                  <span className="font-display flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
+                  {/* `min-w-0`: a flex item's default min-width is its own
+                      content size, not 0 — without this, a long name refuses
+                      to shrink for the fixed columns after it and pushes them
+                      instead, which on a narrow viewport is exactly the same
+                      row-to-row Price drift the fixed widths above exist to
+                      prevent, just caused by Name overflowing rather than
+                      Counters varying. Confirmed empirically: without this,
+                      Price's x-position varied ±20px across rows at 390px
+                      even with every column after it fixed-width. */}
+                  <span className="font-display min-w-0 flex-1 truncate text-[14px] font-medium text-text-primary">{card.name}</span>
                   {/* Same swap as the grid tile: on a list the reader wants the
-                      printing THIS row is, not how many printings exist. */}
-                  {card.variant ? (
-                    <VariantChip variant={card.variant} className="hidden text-text-body sm:inline-flex" />
-                  ) : (
-                    card.variantCount > 1 && (
-                      <span className="hidden text-[14px] text-text-muted sm:inline">{card.variantCount} variants</span>
-                    )
-                  )}
-                  <span className="text-[14px] font-medium text-change-positive">{fmtPrice(card.price)}</span>
+                      printing THIS row is, not how many printings exist.
+                      Fixed width + truncate, matching the header (see its
+                      comment) and `Name` above — a long printing name
+                      ("Special Illustration Rare") clips with an accessible
+                      `title` rather than pushing every column after it. */}
+                  <div className="hidden w-[110px] shrink-0 justify-end sm:flex">
+                    {card.variant ? (
+                      <VariantChip variant={card.variant} className="min-w-0 truncate text-text-body" />
+                    ) : (
+                      card.variantCount > 1 && (
+                        <span className="min-w-0 truncate text-[14px] text-text-muted">{card.variantCount} variants</span>
+                      )
+                    )}
+                  </div>
+                  <span className="w-[72px] shrink-0 text-right text-[14px] font-medium text-change-positive">
+                    {fmtPrice(card.price)}
+                  </span>
                   {/* Write affordance: hidden signed-out (the API sends no quantities
-                      and there is nothing to write to). The header carries the CTA. */}
-                  {set && signedIn === true && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
+                      and there is nothing to write to) AND below `sm` — see the
+                      header's comment (FLAGGED DECISION) for why counters are
+                      no longer offered on a phone at all, not just unaligned.
+                      Reserved whenever ANY row might show counters, even one
+                      whose own card has none, so `Name` doesn't grow or shrink
+                      per row depending on it — the actual cause of Astra's
+                      finding, per the header's other comment. */}
+                  {signedIn === true && (
+                    <div className="hidden w-[128px] shrink-0 justify-end sm:flex">
+                      {set && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
+                    </div>
+                  )}
                   <Icon name="chevron-right" size={16} className="text-icon-muted" />
                 </div>
               </CardLink>

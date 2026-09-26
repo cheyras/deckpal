@@ -142,16 +142,18 @@ export function SetDetail() {
     )
   }, [allCards, search.own])
 
-  // THE OTHER TWO VIEWS, answered honestly rather than not at all. Only the
-  // grid is virtualized, so only the grid needs a row index computed for it;
-  // the table renders every row it has, which means a reveal there is the
-  // ordinary browser problem of scrolling to an element that already exists.
-  // Kept out of the grid's way by the view test — in grid view `GridView` owns
-  // this, and two scrollers aiming at the same card would fight each other.
-  // (The binder paginates rather than scrolls, so a card on another binder page
-  // is still out of reach; it fails at the 6 s cap, politely, as before.)
+  // THE THIRD VIEW (binder), answered honestly rather than not at all.
+  // Table used to fall through this same generic path too — "the table
+  // renders every row it has, so a reveal there is the ordinary browser
+  // problem of scrolling to an element that already exists" — which stopped
+  // being true once Table was virtualized (PERF-03): an off-screen row isn't
+  // in the DOM to `querySelector` for. Table now takes a `reveal` prop and
+  // resolves it itself via `scrollToIndex`, the same way `GridView` does.
+  // Binder still only paginates rather than scrolls, so a card on another
+  // binder page is still out of reach here; it fails at the 6 s cap,
+  // politely, as before.
   useEffect(() => {
-    if (!reveal || search.view === 'grid') return
+    if (!reveal || search.view !== 'binder') return
     let el: Element | null = null
     try {
       el = document.querySelector(`[data-decke-card="${CSS.escape(reveal.cardId)}"]`)
@@ -228,7 +230,7 @@ export function SetDetail() {
             ) : search.view === 'binder' ? (
               <BinderView cards={cards} />
             ) : (
-              <TableView cards={cards} seriesSlug={series} setId={set} />
+              <TableView cards={cards} seriesSlug={series} setId={set} reveal={reveal} />
             )}
           </div>
         </>
