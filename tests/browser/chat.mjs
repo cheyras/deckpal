@@ -438,12 +438,22 @@ export async function checkDeckeStates(browser, server, out, engine) {
       results.push({ case: 'decke-states', engine, width, approvalClear: true, dryRunRows: 3, priceShown: true, noticeActions: true, spentClear: true })
 
       // ── On a deck, the chips are about that deck (UXD-15) ───────────────
-      await page.goto(server.origin + '/decks/deck-browser', { waitUntil: 'networkidle' })
-      await panel.waitFor({ state: 'visible' })
-      const chips = await panel.locator('ul button').allTextContents()
+      // Navigated WHILE CLOSED, the way a reader moves around the app: the pick
+      // has to follow the page he is opened on, not the one he was closed on.
       const deckQuestions = ['Is this deck legal? If not, why not?', 'What am I missing for this deck, and what will it cost?', 'Suggest one improvement to this deck']
-      assert.equal(chips.length, 3)
-      assert.ok(chips.slice(0, 2).every(c => deckQuestions.includes(c)), 'a deck page does not lead with that deck: ' + chips.join(' | '))
+      const chipsAfterOpeningOn = async (pathname) => {
+        await set(page, { open: false, messages: [], credits: { remaining: 40, allowance: 100 } })
+        await panel.waitFor({ state: 'detached' })
+        await page.evaluate(p => history.pushState(null, '', p), pathname)
+        await set(page, { open: true })
+        await panel.waitFor({ state: 'visible' })
+        return panel.locator('ul button').allTextContents()
+      }
+      const onDeck = await chipsAfterOpeningOn('/decks/deck-browser')
+      assert.equal(onDeck.length, 3)
+      assert.ok(onDeck.slice(0, 2).every(c => deckQuestions.includes(c)), 'a deck page does not lead with that deck: ' + onDeck.join(' | '))
+      const offDeck = await chipsAfterOpeningOn('/lists')
+      assert.ok(offDeck.every(c => !deckQuestions.includes(c)), '"this deck" followed the reader off the deck: ' + offDeck.join(' | '))
 
       // ── The real hook, over a real fetch: a held wallet, then a fault ───
       let reply = { status: 429, body: { error: 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.',
