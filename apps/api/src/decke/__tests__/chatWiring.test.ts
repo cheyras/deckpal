@@ -195,3 +195,15 @@ test('dropped replies\' evidence reaches the two ledgers and never the model', (
   assert.equal(reads.length, 2, `evidence is read ${reads.length} times; it belongs to the two ledgers only`);
   assert.doesNotMatch(CODE, /windowForModel\([^)]*evidence/);
 });
+
+test('a credit refusal says whether the wallet is HELD, as a flag rather than prose', () => {
+  // UXD-08: a held wallet was told to "Top up", on a page where purchases are
+  // on hold. The body's sentence differed, but `held` can be true with a short
+  // balance too (debt), so the browser needs the verdict itself to choose
+  // between "Top up credits" and "Open credit wallet". `httpNotice.ts` reads it.
+  assert.match(
+    SRC,
+    /credits: \{ balance: meter\.balance, needed: meter\.needed, held: meter\.held === true \}/,
+    'the 429 body no longer carries `held` — a held wallet will be told to top up',
+  );
+});

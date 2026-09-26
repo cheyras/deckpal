@@ -201,7 +201,8 @@ test('the browser mirrors the window, so a long honest chat never meets the body
   assert.equal(num('PART_MAX_CHARS'), PART_MAX_CHARS)
   assert.equal(num('EVIDENCE_MAX'), EVIDENCE_MAX)
   const hook = readFileSync(new URL('../../../../web/src/character/host/useDeckeChat.ts', import.meta.url), 'utf8')
-  assert.match(hook, /windowPrior\(messagesToWire\(currentRef\.current\)\)/, 'the hook no longer trims what it sends')
+  assert.match(hook, /const transcriptWire = messagesToWire\(currentRef\.current\)/)
+  assert.match(hook, /windowPrior\(transcriptWire\)/, 'the hook no longer trims what it sends')
 })
 
 // ── THE LEDGERS OUTLIVE THE WINDOW ──────────────────────────────────────────
