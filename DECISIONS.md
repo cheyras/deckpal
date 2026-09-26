@@ -20494,3 +20494,62 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 `__tests__/DataTable.test.ts`) were updated to import from the new path.
 
 **Evidence and status:** The observed live result was 9/10 signed approvals, with one residual prose-confirmation miss after `get_card`; the finite sample does not prove causation or universal liveness. This is a metadata-only correction with zero writes. Existing preview descriptor, schemas, normalization, preflight, approval eligibility/HMAC/replay, system prompt, tool routing, API transport and MCP behavior remain unchanged. Live follow-up remains pending.
+
+## 2026-09-26 — Collection, list and deck writes go through per-document lanes and always end visibly
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Collection counters, list edits and deck edits stop using one
+`useMutation` per write. They go through `lib/writeLane.ts`: one request in
+flight per document (`collection:<setId>`, `list:<id>`, `deck:<id>`); a write
+still waiting its turn is replaced by a newer write for the same item (the last
+intent wins); and the control shows the pending intent until the item's last
+write settles. Every such write states an absolute target — the counters use
+`PATCH /collection/variants/:id` instead of `…/increment`, and a deck row's ×
+is `PATCH …/cards/:cardId {quantity: 0}` — which is what makes coalescing and
+Retry safe. Outcomes are reported one way (`lib/writes.ts`): a final failure
+rolls back and raises a `Toast` naming what did not save ("Couldn't remove
+Pikachu from “Trade binder”."), adds why only when it is actionable (offline,
+timed out, deleted, a 4xx's own message), and offers Retry when repeating the
+request is harmless. A form that stays open (Edit list, the delete
+confirmations) reports inline through `FormAlert` instead. Deleting a list or a
+deck, and removing a card from a deck, offer Undo through the existing restore
+and absolute-set endpoints. The server's answer to a collection write is folded
+into the cached card and set responses instead of refetching the set. `Toast`
+is a new `components/ui` primitive: one at a time, in PwaUi's bottom-right
+stack with the offline banner, errors announced assertively.
+
+**Why:** Quality audit QUAL-02: fifteen collection/list/deck mutations failed
+with no message (restore, edit, delete, pin, add card, update deck among them);
+Restore in Recently deleted — the undo for every delete — did nothing visible
+on a 500. QUAL-06: the deck stepper fired unordered requests, and a stale
+answer landing last replaced the whole deck with an older count. UX audit
+UXC-02: the grid counters disabled themselves during a write, so the 2nd and
+3rd tap of a three-copy pull were dropped, and each tap re-downloaded the whole
+set (0.8–6.5 s on production) while dimming the grid. UXC-08: no undo in the UI,
+although the server has one. TanStack Query does not order concurrent
+`mutate()` calls, and its `scope` option serialises without coalescing or
+saying which answer is an item's last word; those three properties are the
+whole fix, so they live in one small module unit-tested on its own
+(`lib/__tests__/writeLane.test.ts`) and in a browser check that injects 500s,
+reordered latency and offline (`tests/browser/writes.mjs`).
+
+**Implications:**
+- Offline is unchanged where it was defined: the service worker still never
+  queues a write, and the collection counters stay disabled offline. Other
+  writes are attempted and fail with "You're offline." — they are no longer
+  held by TanStack's paused-mutation queue and replayed later.
+- A write that has not answered in 20 s is aborted and reported, so one stalled
+  request cannot freeze the writes queued behind it on the same document.
+- The set progress bars move when the server confirms (one round trip) rather
+  than instantly from CardDetail's client-side copy of the progress maths,
+  which is removed. Views filtered by ownership ("Need") are marked stale, not
+  refetched, after a tap: a card no longer vanishes from under the finger
+  logging it, and the view catches up the next time it is opened.
+- Additive writes — adding N copies from the deck search picker, adding to a
+  static list — get no Retry, and their tile stays disabled while saving.
+- Not done here: an exact Undo for removing a card from a list needs the list
+  item DELETE to return its mutation `batchId` for `POST /mutations/revert`.
+  Scanner and Deck-E batch commits have their own flows and are unchanged.
+- New writes to these documents should use `save()` / `laneFor()` from
+  `lib/writes.ts`, not a bare `useMutation`.

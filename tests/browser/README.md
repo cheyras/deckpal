@@ -75,3 +75,16 @@ Core tests cover controlled paging and semantic/state behavior; browser checks
 exercise built SPA interaction. Neither local fixture lane proves live database
 filtering, production authorization, Stripe processing or deployment. This UI
 change adds no API, schema or production test target.
+
+## Collection, list and deck writes
+
+`tests/browser/writes.mjs` signs in to the cloud build at 1280 and 390px and
+drives the set grid's counters, a list and a deck against a fictional set whose
+write endpoints can be slowed, reordered (each later request answers faster),
+failed with a 500, or cut off with Playwright's offline mode. It asserts the
+visible count, the announced message and what the fixture server ended up
+holding: taps made during a save are kept and coalesced, answers never overlap
+or apply out of order, the set is not re-downloaded per tap, a failure rolls
+back with a Retry that works, a form failure stays inline with the typed input
+intact, and the counters stay disabled offline while a deck edit explains that
+it is offline. Failure-state screenshots are written for both widths.

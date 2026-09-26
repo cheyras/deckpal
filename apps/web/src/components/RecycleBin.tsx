@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Icon } from './Icon'
+import { save, useLane } from '../lib/writes'
 
 /**
  * Recently deleted — the browser half of soft delete (migration 038).
@@ -26,8 +27,8 @@ interface Props {
   /** 'list' | 'deck' — used in the copy and to key the query. */
   kind: 'list' | 'deck'
   load: (signal?: AbortSignal) => Promise<BinEntry[]>
-  restore: (id: string) => Promise<unknown>
-  purge: (id: string) => Promise<unknown>
+  restore: (id: string, signal?: AbortSignal) => Promise<unknown>
+  purge: (id: string, signal?: AbortSignal) => Promise<unknown>
   /** Query keys to refresh after a restore (the live index). */
   invalidate: string[]
 }
@@ -45,14 +46,30 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
     void qc.invalidateQueries({ queryKey: binKey })
     void qc.invalidateQueries({ queryKey: invalidate })
   }
-  const doRestore = useMutation({ mutationFn: restore, onSuccess: refresh })
-  const doPurge = useMutation({
-    mutationFn: purge,
-    onSuccess: () => {
-      setConfirmPurge(null)
-      refresh()
-    },
-  })
+  // Both succeed visibly (the row leaves the bin) and fail out loud: this is
+  // the undo for every delete, so a restore that silently did nothing would be
+  // the worst failure in the app to swallow. Both are safe to repeat.
+  const laneKey = `${kind}s:bin`
+  const lane = useLane(laneKey)
+  const doRestore = (e: BinEntry) =>
+    void save(laneKey, {
+      item: `restore:${e.id}`,
+      send: (signal) => restore(e.id, signal),
+      onSaved: refresh,
+      failure: `Couldn't restore “${e.name}”.`,
+      retry: () => doRestore(e),
+    })
+  const doPurge = (e: BinEntry) =>
+    void save(laneKey, {
+      item: `purge:${e.id}`,
+      send: (signal) => purge(e.id, signal),
+      onSaved: () => {
+        setConfirmPurge(null)
+        refresh()
+      },
+      failure: `Couldn't delete “${e.name}” for good.`,
+      retry: () => doPurge(e),
+    })
 
   // Nothing deleted, nothing to say. The section only appears when it is useful.
   if (isLoading || entries.length === 0) return null
@@ -94,11 +111,11 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
                 <span className="flex items-center gap-[8px]">
                   <span className="text-[13px] text-text-muted">Delete forever?</span>
                   <button
-                    onClick={() => doPurge.mutate(e.id)}
-                    disabled={doPurge.isPending}
+                    onClick={() => doPurge(e)}
+                    disabled={lane.busy(`purge:${e.id}`)}
                     className="h-[34px] rounded-full bg-action-danger px-[14px] text-[13px] font-bold text-action-danger-text hover:bg-action-danger-hover disabled:opacity-60"
                   >
-                    {doPurge.isPending ? 'Deleting…' : 'Yes, delete'}
+                    {lane.busy(`purge:${e.id}`) ? 'Deleting…' : 'Yes, delete'}
                   </button>
                   <button
                     onClick={() => setConfirmPurge(null)}
@@ -110,11 +127,11 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
               ) : (
                 <span className="flex items-center gap-[8px]">
                   <button
-                    onClick={() => doRestore.mutate(e.id)}
-                    disabled={doRestore.isPending}
+                    onClick={() => doRestore(e)}
+                    disabled={lane.busy(`restore:${e.id}`)}
                     className="h-[34px] rounded-full bg-action-primary px-[14px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-60"
                   >
-                    Restore
+                    {lane.busy(`restore:${e.id}`) ? 'Restoring…' : 'Restore'}
                   </button>
                   <button
                     onClick={() => setConfirmPurge(e.id)}

@@ -7,6 +7,7 @@ import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { SelectableCard } from './ui/SelectableCard'
 import { Sheet } from './ui/Sheet'
+import { FormAlert } from './ui/FormAlert'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 // ── Modal shell ───────────────────────────────────────────────────────────────
@@ -188,7 +189,7 @@ export function ListFormModal({
           </div>
         </div>
 
-        {error && <div className="text-[14px] text-error">{error}</div>}
+        {error && <FormAlert kind="error">{error}</FormAlert>}
       </form>
     </Modal>
   )
@@ -199,12 +200,15 @@ export function AddCardModal({
   listKind,
   onClose,
   onAdd,
-  addingId,
+  isAdding = () => false,
+  wasAdded = () => false,
 }: {
   listKind: ListKind
   onClose: () => void
   onAdd: (card: { cardId: string; name: string }, quantity: number) => void
-  addingId?: string | null
+  isAdding?: (cardId: string) => boolean
+  /** Saved since the picker opened — said on the tile, since the list itself is hidden behind the picker. */
+  wasAdded?: (cardId: string) => boolean
 }) {
   const [term, setTerm] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -264,26 +268,34 @@ export function AddCardModal({
           {debounced && isFetching && !data && <div className="py-[40px] text-center text-[14px] text-text-muted">Searching…</div>}
           {data && data.cards.length === 0 && <div className="py-[40px] text-center text-[14px] text-text-muted">No cards match “{debounced}”.</div>}
           <div className="grid gap-[12px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
-            {data?.cards.map((c) => (
-              <button
-                key={c.cardId}
-                onClick={() => onAdd({ cardId: c.cardId, name: c.name }, qty)}
-                disabled={addingId === c.cardId}
-                className="group flex flex-col rounded-lg border border-transparent p-[6px] text-left hover:border-border-default hover:bg-surface-tertiary disabled:opacity-50"
-              >
-                <div className="relative overflow-hidden" style={{ borderRadius: CARD_RADIUS_CSS }}>
-                  <img src={c.images.low} alt={c.name} loading="lazy" className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[14px] font-bold text-white opacity-0 group-hover:opacity-100">
-                    {addingId === c.cardId ? 'Adding…' : '+ Add'}
-                  </span>
-                </div>
-                <span className="mt-[4px] truncate text-[14px] font-medium text-text-primary">{c.name}</span>
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] text-text-muted">{fmtNumber(c.number)}</span>
-                  <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
-                </div>
-              </button>
-            ))}
+            {data?.cards.map((c) => {
+              const adding = isAdding(c.cardId)
+              const added = !adding && wasAdded(c.cardId)
+              return (
+                <button
+                  key={c.cardId}
+                  onClick={() => onAdd({ cardId: c.cardId, name: c.name }, qty)}
+                  disabled={adding}
+                  className="group flex flex-col rounded-lg border border-transparent p-[6px] text-left hover:border-border-default hover:bg-surface-tertiary disabled:opacity-50"
+                >
+                  <div className="relative overflow-hidden" style={{ borderRadius: CARD_RADIUS_CSS }}>
+                    <img src={c.images.low} alt={c.name} loading="lazy" className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />
+                    {/* Hover-only at rest, but held visible while adding and once
+                        added: a touch screen has no hover to reveal either. */}
+                    <span
+                      className={`absolute inset-0 flex items-center justify-center gap-[6px] bg-black/40 text-[14px] font-bold text-white ${adding || added ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                    >
+                      {adding ? 'Adding…' : added ? <><Icon name="check" size={16} /> Added</> : '+ Add'}
+                    </span>
+                  </div>
+                  <span className="mt-[4px] truncate text-[14px] font-medium text-text-primary">{c.name}</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] text-text-muted">{fmtNumber(c.number)}</span>
+                    <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -292,7 +304,7 @@ export function AddCardModal({
 }
 
 // ── Simple confirm dialog ─────────────────────────────────────────────────────
-export function ConfirmModal({ title, message, confirmLabel, onClose, onConfirm, busy }: { title: string; message: string; confirmLabel: string; onClose: () => void; onConfirm: () => void; busy?: boolean }) {
+export function ConfirmModal({ title, message, confirmLabel, onClose, onConfirm, busy, error }: { title: string; message: string; confirmLabel: string; onClose: () => void; onConfirm: () => void; busy?: boolean; error?: string | null }) {
   return (
     <Sheet
       title={title}
@@ -309,6 +321,7 @@ export function ConfirmModal({ title, message, confirmLabel, onClose, onConfirm,
         </div>
       }
     >
+      {error && <FormAlert kind="error">{error}</FormAlert>}
       <p className="text-[14px] text-text-body">{message}</p>
     </Sheet>
   )

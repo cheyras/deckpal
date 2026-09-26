@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type CardDetailResponse, type CardRow, type Variant } from '../lib/api'
+import { useQuery } from '@tanstack/react-query'
+import { api, type CardRow } from '../lib/api'
+import { useOwnedCounts } from '../lib/collectionWrites'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { useSignedIn } from '../lib/session'
@@ -12,46 +13,18 @@ import { VariantChip } from './VariantChip'
 
 // Per-variant quantity counters for a table row — the same mechanism as the grid
 // tiles (CardTile.VariantCounters): read the card's variants from the shared
-// ['card', cardId] query and write through the existing collection endpoints with
-// an optimistic update; the ['set', setId] invalidation reconciles progress.
-function RowCounters({ cardId, setId }: { cardId: string; setId: string }) {
-  const qc = useQueryClient()
+// ['card', cardId] query and write through lib/collectionWrites.
+function RowCounters({ card, setId }: { card: { cardId: string; name: string }; setId: string }) {
   const online = useOnline()
+  const owned = useOwnedCounts(setId)
   const { data } = useQuery({
-    queryKey: ['card', cardId],
-    queryFn: ({ signal }) => api.card(cardId, signal),
-  })
-
-  const mutation = useMutation({
-    mutationFn: ({ variantId, delta }: { variantId: number; delta: number }) =>
-      api.incrementVariant(variantId, delta),
-    onMutate: async ({ variantId, delta }) => {
-      await qc.cancelQueries({ queryKey: ['card', cardId] })
-      const prevCard = qc.getQueryData<CardDetailResponse>(['card', cardId])
-      qc.setQueryData<CardDetailResponse>(['card', cardId], (old) =>
-        old
-          ? {
-              ...old,
-              variants: old.variants.map((v) =>
-                v.variantId === variantId ? { ...v, quantity: Math.max(0, (v.quantity ?? 0) + delta) } : v,
-              ),
-            }
-          : old,
-      )
-      return { prevCard }
-    },
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.prevCard) qc.setQueryData(['card', cardId], ctx.prevCard)
-    },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ['card', cardId] })
-      void qc.invalidateQueries({ queryKey: ['set', setId] })
-    },
+    queryKey: ['card', card.cardId],
+    queryFn: ({ signal }) => api.card(card.cardId, signal),
   })
 
   const standard = (data?.variants ?? [])
     .filter((v) => v.tier === 'standard')
-    .map((v) => ({ v, meta: variantMeta(v) }))
+    .map((v) => ({ v, meta: variantMeta(v), qty: owned.shown(v.variantId, v.quantity) }))
     .sort((a, b) => a.meta.order - b.meta.order)
   if (standard.length === 0) return null
 
@@ -60,17 +33,17 @@ function RowCounters({ cardId, setId }: { cardId: string; setId: string }) {
       className="flex shrink-0 items-center gap-[4px]"
       title={online ? undefined : 'Offline — reconnect to change your collection'}
     >
-      {standard.map(({ v, meta }) => (
+      {standard.map(({ v, meta, qty }) => (
         <CounterBox
           key={v.variantId}
           label={v.displayName}
           color={meta.color}
           fill={meta.fill}
           dark={meta.dark}
-          qty={v.quantity ?? 0}
-          disabled={!online || mutation.isPending}
-          onInc={() => mutation.mutate({ variantId: v.variantId, delta: 1 })}
-          onDec={() => mutation.mutate({ variantId: v.variantId, delta: -1 })}
+          qty={qty}
+          disabled={!online}
+          onInc={() => owned.set({ setId, card, variant: v }, qty + 1)}
+          onDec={() => owned.set({ setId, card, variant: v }, qty - 1)}
         />
       ))}
     </div>
@@ -130,7 +103,7 @@ export function TableView({
               <span className="text-[14px] font-medium text-change-positive">{fmtPrice(card.price)}</span>
               {/* Write affordance: hidden signed-out (the API sends no quantities
                   and there is nothing to write to). The header carries the CTA. */}
-              {set && signedIn === true && <RowCounters cardId={`${set}-${card.number}`} setId={set} />}
+              {set && signedIn === true && <RowCounters card={{ cardId: `${set}-${card.number}`, name: card.name }} setId={set} />}
               <Icon name="chevron-right" size={16} className="text-icon-muted" />
             </div>
           </CardLink>

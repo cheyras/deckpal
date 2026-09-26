@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type SearchCard, type RevertResult,
@@ -19,9 +19,25 @@ import { BattlesTab } from './deck/BattlesTab'
 import { HistoryTab } from './deck/HistoryTab'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
+import { save, useLane, writeFailureText } from '../lib/writes'
+import { showToast } from '../lib/toast'
 
 const FORMATS: DeckFormat[] = ['standard', 'expanded', 'glc', 'unlimited']
 const SECTION_TITLE = { pokemon: 'Pokémon', trainer: 'Trainer', energy: 'Energy' } as const
+
+/** A deck row's write-lane item: one printing of one card. */
+const rowKey = (c: { cardId: string; variantId: number }) => `row:${c.cardId}:${c.variantId}`
+
+/** Undo a delete: the deck comes back out of Recently deleted. */
+function restoreDeck(qc: QueryClient, id: string, name: string): void {
+  void save(`deck:${id}`, {
+    item: 'restore',
+    send: (signal) => api.restoreDeck(id, signal),
+    onSaved: () => void qc.invalidateQueries({ queryKey: ['decks'] }),
+    failure: `Couldn't restore ${name}. It's still in Recently deleted.`,
+    retry: () => restoreDeck(qc, id, name),
+  })
+}
 
 // Basic energy cards are named "<Type> Energy" (DeckCard carries no per-card type
 // field), so infer the energy symbol from the leading word for the energy section.
@@ -313,8 +329,11 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
 }
 
 // ── Add-cards modal (reuses /search, can filter the pool by format) ───────────
-function DeckAddModal({ format, onClose, onAdd, addingId }: {
-  format: DeckFormat; onClose: () => void; onAdd: (cardId: string, qty: number) => void; addingId: string | null
+function DeckAddModal({ format, onClose, onAdd, isAdding, wasAdded }: {
+  format: DeckFormat; onClose: () => void; onAdd: (card: { cardId: string; name: string }, qty: number) => void
+  isAdding: (cardId: string) => boolean
+  /** Saved since the picker opened — said on the tile, since the deck itself is hidden behind the picker. */
+  wasAdded: (cardId: string) => boolean
 }) {
   const [term, setTerm] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -370,23 +389,28 @@ function DeckAddModal({ format, onClose, onAdd, addingId }: {
           {debounced && isFetching && !data && <div className="py-[40px] text-center text-[14px] text-text-muted">Searching…</div>}
           {data && results.length === 0 && <div className="py-[40px] text-center text-[14px] text-text-muted">No cards match “{debounced}”{legalOnly ? ' with a legal mark' : ''}.</div>}
           <div className="grid gap-[12px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
-            {results.map((c) => (
-              <button key={c.cardId} onClick={() => onAdd(c.cardId, qty)} disabled={addingId === c.cardId}
-                className="group flex flex-col rounded-lg border border-transparent p-[6px] text-left hover:border-border-default hover:bg-surface-tertiary disabled:opacity-50">
-                <div className="relative overflow-hidden" style={{ borderRadius: CARD_RADIUS_CSS }}>
-                  <img src={c.images.low} alt={c.name} loading="lazy" className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />
-                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-[14px] font-bold text-white opacity-0 group-hover:opacity-100">
-                    {addingId === c.cardId ? 'Adding…' : `+ Add ${qty}`}
-                  </span>
-                  {c.regulationMark && <span className="absolute left-[4px] top-[4px] rounded bg-surface-primary/80 px-[4px] text-[14px] font-bold text-text-secondary">{c.regulationMark}</span>}
-                </div>
-                <span className="mt-[4px] truncate text-[16px] font-medium text-text-primary">{c.name}</span>
-                <div className="flex items-center justify-between">
-                  <span className="text-[14px] text-text-muted">{c.set.setId.toUpperCase()} {c.number}</span>
-                  <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
-                </div>
-              </button>
-            ))}
+            {results.map((c) => {
+              const adding = isAdding(c.cardId)
+              const added = !adding && wasAdded(c.cardId)
+              return (
+                <button key={c.cardId} onClick={() => onAdd(c, qty)} disabled={adding}
+                  className="group flex flex-col rounded-lg border border-transparent p-[6px] text-left hover:border-border-default hover:bg-surface-tertiary disabled:opacity-50">
+                  <div className="relative overflow-hidden" style={{ borderRadius: CARD_RADIUS_CSS }}>
+                    <img src={c.images.low} alt={c.name} loading="lazy" className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />
+                    {/* Held visible while adding and once added: touch has no hover. */}
+                    <span className={`absolute inset-0 flex items-center justify-center gap-[6px] bg-black/40 text-[14px] font-bold text-white ${adding || added ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                      {adding ? 'Adding…' : added ? <><Icon name="check" size={16} /> Added</> : `+ Add ${qty}`}
+                    </span>
+                    {c.regulationMark && <span className="absolute left-[4px] top-[4px] rounded bg-surface-primary/80 px-[4px] text-[14px] font-bold text-text-secondary">{c.regulationMark}</span>}
+                  </div>
+                  <span className="mt-[4px] truncate text-[16px] font-medium text-text-primary">{c.name}</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[14px] text-text-muted">{c.set.setId.toUpperCase()} {c.number}</span>
+                    <span className="text-[14px] text-change-positive">{fmtPrice(c.price)}</span>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -592,9 +616,11 @@ export function DeckBuilder() {
   const [showExport, setShowExport] = useState(false)
   const [showBuy, setShowBuy] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
-  const [addingId, setAddingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
+  // Cards added since the picker opened, so a finished add says so on its tile.
+  const [added, setAdded] = useState<ReadonlySet<string>>(new Set())
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const setDetail = (d: DeckDetail) => qc.setQueryData(key, d)
   const invalidateSideQueries = () => {
@@ -608,56 +634,106 @@ export function DeckBuilder() {
     qc.invalidateQueries({ queryKey: ['deck-versions', id] })
     qc.invalidateQueries({ queryKey: ['battle-logs', id] })
   }
+  const adopt = (d: DeckDetail) => {
+    setDetail(d)
+    invalidateSideQueries()
+  }
 
-  const setQty = useMutation({
-    mutationFn: ({ cardId, quantity, variantId }: { cardId: string; quantity: number; variantId?: number }) =>
-      api.setDeckCardQuantity(id, cardId, quantity, variantId),
-    onMutate: async ({ cardId, quantity }) => {
-      await qc.cancelQueries({ queryKey: key })
-      const prev = qc.getQueryData<DeckDetail>(key)
-      if (prev) {
-        const cards = quantity <= 0 ? prev.cards.filter((c) => c.cardId !== cardId) : prev.cards.map((c) => (c.cardId === cardId ? { ...c, quantity } : c))
-        qc.setQueryData<DeckDetail>(key, { ...prev, cards })
-      }
-      return { prev }
-    },
-    onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
-    onSuccess: (d) => { setDetail(d); invalidateSideQueries() },
-  })
-  const addCard = useMutation({
-    mutationFn: ({ cardId, quantity, variantId }: { cardId: string; quantity: number; variantId?: number }) =>
-      api.addDeckCard(id, cardId, quantity, variantId),
-    onSuccess: (d) => { setAddingId(null); setDetail(d); invalidateSideQueries() },
-    onError: () => setAddingId(null),
-  })
-  const removeCard = useMutation({
-    mutationFn: ({ cardId, variantId }: { cardId: string; variantId?: number }) => api.removeDeckCard(id, cardId, variantId),
-    onMutate: async ({ cardId, variantId }) => {
-      await qc.cancelQueries({ queryKey: key })
-      const prev = qc.getQueryData<DeckDetail>(key)
-      // Optimistic removal matches the server: one printing when named, the
-      // whole card otherwise.
-      if (prev) {
-        qc.setQueryData<DeckDetail>(key, {
-          ...prev,
-          cards: prev.cards.filter((c) => (variantId != null ? !(c.cardId === cardId && c.variantId === variantId) : c.cardId !== cardId)),
-        })
-      }
-      return { prev }
-    },
-    onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
-    onSuccess: (d) => { setDetail(d); invalidateSideQueries() },
-  })
-  const updateDeck = useMutation({
-    mutationFn: (body: Parameters<typeof api.updateDeck>[1]) => api.updateDeck(id, body),
-    onSuccess: (d) => { setDetail(d); invalidateSideQueries() },
-  })
-  const deleteDeck = useMutation({
-    mutationFn: () => api.deleteDeck(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['decks'] }); navigate({ to: '/decks' }) },
-  })
+  // ── Writes ──────────────────────────────────────────────────────────────────
+  // Every edit to this deck queues on its lane (lib/writes.ts). Each answer is
+  // the WHOLE deck, so one request at a time is what keeps an older answer from
+  // replacing a newer one (QUAL-06); and each row's count is an absolute target,
+  // so a burst of taps sends the last one asked for rather than every step.
+  const laneKey = `deck:${id}`
+  const lane = useLane(laneKey)
+  const laneVersion = lane.getVersion()
+  const named = `“${data?.deck.name ?? 'this deck'}”`
 
-  const detail = data
+  const setCopies = (c: DeckCard, quantity: number, before = c.quantity) => {
+    const target = Math.max(0, Math.min(60, quantity))
+    const deckName = named
+    void save(laneKey, {
+      item: rowKey(c),
+      intent: target,
+      // PATCH is an absolute upsert (0 removes the printing), which makes every
+      // count change — the × included — safe to retry and to undo.
+      send: (signal) => api.setDeckCardQuantity(id, c.cardId, target, c.variantId, signal),
+      onSaved: adopt,
+      failure: target === 0 ? `Couldn't remove ${c.name} from ${deckName}.` : `Couldn't change ${c.name} to ${target} in ${deckName}.`,
+      retry: () => setCopies(c, target, before),
+      success: target === 0 && before > 0 ? { message: `Removed ${c.name} from ${deckName}.`, undo: () => setCopies(c, before, 0) } : undefined,
+    })
+  }
+
+  // Adds from the search picker are ADDITIVE on the server ("2 more"), so a
+  // repeat is two more, not the same two: no Retry, and the tile stays
+  // disabled while one is saving so a double tap cannot double the add.
+  const addCard = (card: { cardId: string; name: string }, quantity: number) => {
+    const deckName = named
+    void save(laneKey, {
+      item: `add:${card.cardId}`,
+      send: (signal) => api.addDeckCard(id, card.cardId, quantity, undefined, signal),
+      onSaved: (d) => {
+        adopt(d)
+        setAdded((prev) => new Set(prev).add(card.cardId))
+      },
+      failure: `Couldn't add ${quantity} × ${card.name} to ${deckName}.`,
+    })
+  }
+
+  const rename = (name: string) => {
+    const from = named
+    void save(laneKey, {
+      item: 'name',
+      intent: name,
+      send: (signal) => api.updateDeck(id, { name }, signal),
+      onSaved: adopt,
+      failure: `Couldn't rename ${from} to “${name}”.`,
+      retry: () => rename(name),
+    })
+  }
+
+  const setFormat = (formatCode: DeckFormat, glcType?: string) => {
+    const deckName = named
+    void save(laneKey, {
+      item: 'format',
+      intent: { formatCode, glcType: glcType ?? null },
+      send: (signal) => api.updateDeck(id, { formatCode, ...(glcType ? { glcType } : {}) }, signal),
+      onSaved: adopt,
+      failure: `Couldn't change ${deckName} to ${FORMAT_META[formatCode].label}.`,
+      retry: () => setFormat(formatCode, glcType),
+    })
+  }
+
+  // The confirm dialog stays open on failure and says why, in place.
+  const deleteDeck = () => {
+    setDeleteError(null)
+    const deckName = named
+    void lane.write({ item: 'delete', send: (signal) => api.deleteDeck(id, signal) }).then((o) => {
+      if (o.status === 'failed') return setDeleteError(writeFailureText(`Couldn't delete ${deckName}.`, o.error))
+      if (o.status !== 'saved') return
+      void qc.invalidateQueries({ queryKey: ['decks'] })
+      navigate({ to: '/decks' })
+      showToast({ tone: 'info', message: `Moved ${deckName} to Recently deleted.`, action: { label: 'Undo', run: () => restoreDeck(qc, id, deckName) } })
+    })
+  }
+
+  // The deck as the person should see it: the server's copy with every write
+  // that is still saving already applied. When one fails it stops being
+  // pending, and that row, name or format is back to the server's.
+  const detail = useMemo(() => {
+    if (!data) return data
+    const name = lane.intent<string>('name')
+    const format = lane.intent<{ formatCode: DeckFormat; glcType: string | null }>('format')
+    const cards = data.cards
+      .map((c) => {
+        const quantity = lane.intent<number>(rowKey(c))
+        return quantity === undefined ? c : { ...c, quantity }
+      })
+      .filter((c) => c.quantity > 0)
+    return { ...data, cards, deck: { ...data.deck, ...(name !== undefined ? { name } : {}), ...format } }
+    // laneVersion stands in for `lane`: one stable object whose intents change underneath.
+  }, [data, lane, laneVersion])
   const deck = detail?.deck
 
   // Battle count for the tab label. Same key/params as BattlesTab's default view
@@ -788,7 +864,7 @@ export function DeckBuilder() {
                   <input
                     autoFocus defaultValue={deck.name} onFocus={() => setNameDraft(deck.name)}
                     onChange={(e) => setNameDraft(e.target.value)}
-                    onBlur={() => { setEditingName(false); if (nameDraft.trim() && nameDraft !== deck.name) updateDeck.mutate({ name: nameDraft.trim() }) }}
+                    onBlur={() => { setEditingName(false); if (nameDraft.trim() && nameDraft !== deck.name) rename(nameDraft.trim()) }}
                     onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                     className="w-full max-w-[420px] rounded-lg border border-border-default bg-surface-primary px-[10px] py-[4px] text-[26px] font-bold text-text-primary" />
                 ) : (
@@ -890,8 +966,8 @@ export function DeckBuilder() {
                         {rows.map((c) => (
                           <DeckRow key={`${c.cardId}:${c.variantId}`} card={c} offending={offending.has(c.cardId)}
                             showVariant={multiPrint.has(c.cardId) || c.variant?.isPrimary === false}
-                            onSet={(q) => setQty.mutate({ cardId: c.cardId, variantId: c.variantId, quantity: Math.max(0, Math.min(60, q)) })}
-                            onRemove={() => removeCard.mutate({ cardId: c.cardId, variantId: c.variantId })}
+                            onSet={(q) => setCopies(c, q)}
+                            onRemove={() => setCopies(c, 0)}
                             onOpen={() => patchSearch({ card: c.cardId })} />
                         ))}
                       </div>
@@ -909,8 +985,8 @@ export function DeckBuilder() {
             <div className="rounded-xl border border-border-default bg-surface-secondary p-[16px]">
               <FormatSelector
                 deck={deck} glcTypes={detail.glcTypes}
-                onFormat={(f) => updateDeck.mutate({ formatCode: f })}
-                onGlcType={(t) => updateDeck.mutate({ formatCode: 'glc', glcType: t })}
+                onFormat={(f) => setFormat(f)}
+                onGlcType={(t) => setFormat('glc', t)}
               />
             </div>
 
@@ -945,15 +1021,17 @@ export function DeckBuilder() {
       )}
 
       {showAdd && deck && (
-        <DeckAddModal format={deck.formatCode} addingId={addingId} onClose={() => setShowAdd(false)}
-          onAdd={(cardId, qty) => { setAddingId(cardId); addCard.mutate({ cardId, quantity: qty }) }} />
+        <DeckAddModal format={deck.formatCode} onAdd={addCard}
+          isAdding={(cardId) => lane.busy(`add:${cardId}`)} wasAdded={(cardId) => added.has(cardId)}
+          onClose={() => { setShowAdd(false); setAdded(new Set()) }} />
       )}
       {showTest && <TestHandModal deckId={id} onClose={() => setShowTest(false)} />}
       {showExport && <ExportModal deckId={id} onClose={() => setShowExport(false)} />}
       {showBuy && <BuyMissingModal deckId={id} onClose={() => setShowBuy(false)} />}
       {showDelete && deck && (
-        <ConfirmModal title="Delete deck" message={`Delete “${deck.name}”? This can't be undone.`} confirmLabel="Delete Deck"
-          busy={deleteDeck.isPending} onClose={() => setShowDelete(false)} onConfirm={() => deleteDeck.mutate()} />
+        <ConfirmModal title="Delete deck" message={`Delete “${deck.name}”? It moves to Recently deleted, where you can restore it.`} confirmLabel="Delete Deck"
+          busy={lane.busy('delete')} error={deleteError} onConfirm={deleteDeck}
+          onClose={() => { setShowDelete(false); setDeleteError(null) }} />
       )}
 
       {/* Deck-scoped card sheet, driven by ?card=. Rendered here so opening and
@@ -969,8 +1047,12 @@ export function DeckBuilder() {
             <DeckCardContext
               entries={sheetEntries}
               offending={offending.has(sheetCard.cardId)}
-              onSet={(variantId, q) => setQty.mutate({ cardId: sheetCard.cardId, variantId, quantity: Math.max(0, Math.min(60, q)) })}
-              onAdd={(variantId) => addCard.mutate({ cardId: sheetCard.cardId, quantity: 1, variantId })}
+              onSet={(variantId, q) => {
+                const row = sheetEntries.find((e) => e.variantId === variantId)
+                if (row) setCopies(row, q)
+              }}
+              // Another printing is a row that does not exist yet: set it to 1.
+              onAdd={(variantId) => setCopies({ ...sheetCard, variantId, quantity: 0 }, 1)}
             />
           }
         />

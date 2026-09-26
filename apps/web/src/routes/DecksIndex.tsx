@@ -260,8 +260,8 @@ export function DecksIndex() {
             detail: `${d.formatCode} · ${d.totalCount} card${d.totalCount === 1 ? '' : 's'} · v${d.version}`,
           }))
         }
-        restore={(id) => api.restoreDeck(id)}
-        purge={(id) => api.purgeDeck(id)}
+        restore={api.restoreDeck}
+        purge={api.purgeDeck}
         invalidate={['decks']}
       />
 
