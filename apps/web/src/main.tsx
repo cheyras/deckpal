@@ -715,6 +715,20 @@ routeAnnouncer.setAttribute('role', 'status')
 routeAnnouncer.setAttribute('aria-live', 'polite')
 routeAnnouncer.className = 'sr-only'
 document.body.appendChild(routeAnnouncer)
+// The React app's own mount point — grabbed by id rather than waiting for
+// `createRoot` below, since nothing here depends on anything having rendered
+// into it yet. `routeAnnouncer` is deliberately a SIBLING of this, not a
+// descendant: the `MutationObserver` further down watches this element, not
+// `document.body`, specifically so that `announceHeading()` writing
+// `routeAnnouncer.textContent` is not itself an observed mutation. Watching
+// `document.body` (which `routeAnnouncer` is also a child of) fed the write
+// back into the observer as a fresh mutation, which called `announceHeading`
+// again, which wrote again — an infinite chain of `MutationObserver`
+// microtasks that never let the event loop advance, hanging the tab solid.
+// Caught by CI's `browser` job timing out mid-screenshot on a page that had
+// gone completely unresponsive, on every load, not by anything in this
+// diff's own review.
+const appRoot = document.getElementById('root')!
 
 /**
  * The heading's announceable text — `textContent`, with one fallback.
@@ -772,7 +786,7 @@ router.subscribe('onRendered', () => {
   headingWatcher = new MutationObserver(() => {
     if (announceHeading()) settled = true
   })
-  headingWatcher.observe(document.body, { childList: true, subtree: true, characterData: true })
+  headingWatcher.observe(appRoot, { childList: true, subtree: true, characterData: true })
   // An INDEPENDENT timer, not a check piggybacked on the observer's own
   // callback — a route that fails fast (`ErrorState`, no `<h1>` at all) can
   // settle with no further DOM mutations ever, in which case the observer
