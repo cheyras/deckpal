@@ -46,7 +46,7 @@ ALTER TABLE public.api_token
 COMMENT ON COLUMN public.api_token.expires_at IS
   'When the credential stops resolving. NULL = never (hand-made tokens, and every token minted before 075). An OAuth connection''s date slides forward on each refresh.';
 COMMENT ON COLUMN public.api_token.scope IS
-  '''full'' reads and writes; ''read'' is refused every non-GET REST call and is served only read-only MCP tools, inside a READ ONLY transaction.';
+  '''full'' reads and writes; ''read'' is refused every REST write and is served only read-only MCP tools, inside a READ ONLY transaction.';
 COMMENT ON COLUMN public.api_token.oauth_client_id IS
   'The oauth_client this connection was approved for; NULL for a hand-made token. Text, not a foreign key: a client registration can be swept without taking the connection with it.';
 COMMENT ON COLUMN public.api_token.oauth_redirect_uri IS
@@ -64,11 +64,12 @@ ALTER TABLE public.oauth_code
 -- ══════════════════════════════════════════════════════════════════════════════
 --
 -- A used refresh token is not deleted: its expires_at is pulled in to one day
--- and it stays as a tripwire. Presented again inside a minute it is a network
--- retry and is answered; presented later, someone other than the client holds
--- it, and the whole connection is revoked (OAuth 2.1 §4.3.1). The token
--- endpoint sweeps anything past expires_at, so the table holds live secrets
--- and a day of tripwires, never history.
+-- and it stays as a tripwire. Presented again inside a minute it is refused
+-- (most likely the client racing its own renewal); presented later, someone
+-- other than the client holds it, and the whole connection is revoked (OAuth
+-- 2.1 §4.3.1). One refresh token never yields two pairs, so a chain cannot
+-- fork. The token endpoint sweeps anything past expires_at, so the table holds
+-- live secrets and a day of tripwires, never history.
 CREATE TABLE public.oauth_token (
   token_hash TEXT PRIMARY KEY,
   token_id   UUID NOT NULL REFERENCES public.api_token (id) ON DELETE CASCADE,

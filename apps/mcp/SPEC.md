@@ -154,13 +154,15 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   `oauth_token` — a one-hour access token (`dsk_…`, so every edge accepts it unchanged) and a
   single-use 90-day refresh token (`dsr_…`, never accepted as a bearer). `/token` answers
   `grant_type=refresh_token` with a new pair (`expires_in: 3600`), and `invalid_grant` for an
-  unknown, expired, revoked or replayed one; a replay after a one-minute retry grace revokes the
-  connection. Authorization-server metadata advertises `grant_types_supported:
+  unknown, expired, revoked or replayed one. A second use inside a minute is only refused (a client
+  racing its own renewal); a later one revokes the connection. One refresh token never yields two
+  pairs, so the chain cannot fork. Authorization-server metadata advertises `grant_types_supported:
   ["authorization_code","refresh_token"]` and `scopes_supported: ["offline_access"]` (the latter
   only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
   string). The consent screen's own choice is the scope: a **read-only** connection resolves with
   `scope: 'read'`, is built a server with only the 13 `readOnlyHint` tools, runs in `BEGIN READ
-  ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`). Tokens that existed
+  ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`) except `POST /massentry`,
+  which only builds `set_cart`'s cart links. Tokens that existed
   before 075, including hand-made ones and live claude.ai connectors, resolve exactly as before:
   full scope, no expiry. The consent screen names the redirect's host and marks only Claude's exact
   documented callback as Verified; see SECURITY.md. Session routes that changed shape:

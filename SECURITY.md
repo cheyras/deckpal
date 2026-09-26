@@ -92,13 +92,17 @@ the host receiving the approval sat in a muted line below. Now:
   never accepted as a bearer). Each refresh returns a new pair and moves the
   connection's `expires_at` 90 days out; unused for 90 days, it lapses. A used
   refresh token stays for a day as a tripwire: presented again within a minute
-  it is a lost-response retry and is answered; later, the whole connection is
-  revoked (OAuth 2.1 §4.3.1 reuse detection). Every access token resolves
+  it is refused (most likely the client racing its own renewal) and nothing
+  else happens; later, the whole connection is revoked (OAuth 2.1 §4.3.1 reuse
+  detection). One refresh token never yields two pairs, so the chain cannot
+  fork into two that renew independently. Every access token resolves
   through its row, so revoke-all, suspension and Revoke end it with no race.
 - **Read-only is a real scope.** The consent screen offers it; a `read`
   connection is served only the `readOnlyHint` tools, inside a `BEGIN READ
   ONLY` transaction, and the REST API refuses its every non-GET request with
-  `403 insufficient_scope` before any route runs (`enforceTokenScope`).
+  `403 insufficient_scope` before any route runs (`enforceTokenScope`). The one
+  exception is `POST /massentry`, which only builds cart links and which the
+  read tool `set_cart` uses.
 - **Tokens reach what the consent screen says.** `/decke` (Deck-E
   conversations), `/me/showcase` and `/me/settings` now require a session, like
   `/tokens`, `/avatar` and billing.

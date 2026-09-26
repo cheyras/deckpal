@@ -111,7 +111,8 @@ omit the host.
   2026-09-26, `/decke`, `/me/showcase` and `/me/settings` (`403 forbidden`). A
   **read-only** connection (migration 075) is refused every method but `GET`,
   `HEAD` and `OPTIONS` on every route with **`403`**, `{ "error": { "code":
-  "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`.
+  "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
+  except `POST /massentry`, which writes nothing (it builds cart links).
 - **Caching.** Pure-catalog responses (`/series` list, `/search`, the `/` index)
   send `Cache-Control: public, max-age=…`. Anything mixing in the user's
   collection or prices sends `private, no-cache, must-revalidate`.

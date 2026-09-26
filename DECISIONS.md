@@ -20518,8 +20518,11 @@ consent screen said it could not. Migration 075 and this change:
 - An approval is still one `api_token` row, but its secrets rotate beneath it in
   `oauth_token`: one-hour access tokens and single-use 90-day refresh tokens.
   Each refresh moves the connection's `expires_at` 90 days out; a connection
-  unused for 90 days lapses and stops holding a `MAX_ACTIVE_TOKENS` slot. A
-  refresh token replayed after a one-minute retry grace revokes its connection.
+  unused for 90 days lapses and stops holding a `MAX_ACTIVE_TOKENS` slot. A used
+  refresh token presented again inside a minute is refused (a client racing its
+  own renewal); presented later, it revokes the connection. One refresh token
+  never yields two pairs, so a stolen one can never fork a second live chain
+  (Astra's review caught the first version doing exactly that).
 - The person chooses **Read and change** or **Read only**. Read-only is enforced
   three times: only `readOnlyHint` tools are served, the MCP transaction is
   `READ ONLY`, and the REST API refuses every non-GET with `403

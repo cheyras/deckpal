@@ -173,10 +173,13 @@ export async function runOAuthIntegration({ db, as, id, test, legacy }) {
         assert.equal((await refused.json()).error.code, 'insufficient_scope');
       }
       assert.deepEqual(await (await bearer(reader.refresh_token)).json(), { user: null, kind: null, scope: null });
+      // The one POST that writes nothing (set_cart's cart links) still gets through.
+      const cart = await request('/t/massentry', { method: 'POST', headers: { authorization: 'Bearer ' + reader.access_token } });
+      assert.equal(cart.status, 200);
     });
 
     let second;
-    await test('refresh rotates: a new pair, the old access token lives out its hour, a retry inside a minute is answered', async () => {
+    await test('refresh rotates: a new pair, the old access token lives out its hour, a second use inside a minute is refused without forking', async () => {
       const r1 = await refresh(lookalike, reader.refresh_token);
       assert.equal(r1.status, 200);
       second = await r1.json();
@@ -184,8 +187,10 @@ export async function runOAuthIntegration({ db, as, id, test, legacy }) {
       assert.notEqual(second.refresh_token, reader.refresh_token);
       assert.equal((await resolveToken(db, second.access_token))?.scope, 'read', 'scope survives renewal');
       assert.ok(await resolveToken(db, reader.access_token));
-      const retry = await refresh(lookalike, reader.refresh_token);
-      assert.equal(retry.status, 200, 'a client that lost the response may ask again');
+      const racing = await refresh(lookalike, reader.refresh_token);
+      assert.equal(racing.status, 400, 'one refresh token never yields a second pair');
+      assert.equal((await connection(second.access_token)).revoked_at, null, 'a race inside a minute is not treated as theft');
+      assert.ok(await resolveToken(db, second.access_token), 'the first renewal stays the live chain');
       const tripwire = (await db.query('SELECT expires_at FROM oauth_token WHERE token_hash=$1', [sha(reader.refresh_token)])).rows[0];
       assert.ok(Date.parse(tripwire.expires_at) - Date.now() <= 86_400_000, 'a used refresh token is kept only a day');
     });

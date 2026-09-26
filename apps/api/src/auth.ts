@@ -446,17 +446,26 @@ export function requireSession(req: Request, res: Response, next: NextFunction):
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
+ * POSTs that change nothing. `POST /massentry` builds TCGplayer cart links from
+ * a card list too long for a query string, and `set_cart`, a read tool, calls
+ * it. Anything added here must never write.
+ */
+const READ_ONLY_POSTS = new Set(['/massentry']);
+
+/**
  * A read-only connection (chosen on the consent screen, migration 075) may
  * look at everything its account can and change nothing. Mounted once, right
  * after authMiddleware, so no route has to remember it and a refused write
- * never reaches the RLS connection. Every read-only MCP tool reads over GET or
- * straight from Postgres, so this refuses nothing a read-only connector uses.
+ * never reaches the RLS connection. Every read-only MCP tool reads over GET,
+ * straight from Postgres, or through one of READ_ONLY_POSTS, so this refuses
+ * nothing a read-only connector uses.
  *
  * 403 with `insufficient_scope` is RFC 6750 §3.1's answer, and what the MCP
  * authorization spec asks for; the sentence says what to do about it.
  */
 export function enforceTokenScope(req: Request, res: Response, next: NextFunction): void {
-  if (req.authKind === 'token' && req.tokenScope === 'read' && !READ_METHODS.has(req.method)) {
+  const reads = READ_METHODS.has(req.method) || (req.method === 'POST' && READ_ONLY_POSTS.has(req.path));
+  if (req.authKind === 'token' && req.tokenScope === 'read' && !reads) {
     res.setHeader('WWW-Authenticate', 'Bearer error="insufficient_scope"');
     res.status(403).json({
       error: {

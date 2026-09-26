@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NextFunction, Request, Response } from 'express';
 import { classifyRedirect, connectionName } from '@deckpal/db';
+import { allTools, type Ctx } from '@deckpal/agent-tools';
 import { enforceTokenScope } from '../auth.js';
 
 /**
@@ -78,6 +79,15 @@ describe('connectionName: what Profile lists the connection as', () => {
     assert.ok(name.endsWith('(OAuth · connector.evil.example)'), name);
   });
 
+  test('a long host keeps its registered domain: it is shortened from the start, never the end', () => {
+    // The lookalike Astra's review constructed: a trusted-looking prefix padding out the real owner.
+    const host = `claude.ai.${'x'.repeat(45)}.evil.example`;
+    const name = connectionName('Claude', `https://${host}/cb`);
+    assert.ok(name.length <= 60, name);
+    assert.ok(name.endsWith('.evil.example)'), name);
+    assert.ok(name.startsWith('Claude (OAuth · …'), name);
+  });
+
   test('an empty claimed name is not an empty label', () => {
     assert.equal(connectionName('   ', 'https://evil.example/cb'), 'MCP client (OAuth · evil.example)');
     assert.equal(connectionName(null, 'https://evil.example/cb'), 'MCP client (OAuth · evil.example)');
@@ -115,6 +125,35 @@ describe('enforceTokenScope: a read-only connection changes nothing', () => {
       assert.equal(r.status, 403);
       assert.equal((r.body as { error: { code: string } }).error.code, 'insufficient_scope');
       assert.equal(r.header, 'Bearer error="insufficient_scope"');
+    }
+  });
+
+  test('the one POST that writes nothing, cart links, is allowed; every other POST is not', () => {
+    assert.equal(run({ method: 'POST', path: '/massentry', authKind: 'token', tokenScope: 'read' }).passed, true);
+    for (const path of ['/lists', '/collection/log', '/massentry/extra', '/lists/x/massentry']) {
+      assert.equal(run({ method: 'POST', path, authKind: 'token', tokenScope: 'read' }).status, 403, path);
+    }
+    assert.equal(run({ method: 'DELETE', path: '/massentry', authKind: 'token', tokenScope: 'read' }).status, 403);
+  });
+
+  test('every REST call set_cart makes for a read-only connection gets through', async () => {
+    // The tool itself, not its registration: capture what it sends and replay it through the guard.
+    const setCart = allTools().find((t) => t.name === 'set_cart')!;
+    assert.equal(setCart.annotations.readOnlyHint, true);
+    const calls: Array<{ method: string; path: string }> = [];
+    const cart = { source: 'items', finishes: null, needed: { cards: 1, items: 1, unlinkable: 0, exactLines: 1, bestEffortLines: 0 },
+      lines: ['1-123'], text: '', urls: ['https://example.invalid'], exactUrls: [], bestEffortUrls: [], unlinkable: [], warnings: [], note: '' };
+    const api = {
+      base: 'http://fixture',
+      get: async (path: string) => { calls.push({ method: 'GET', path }); return cart; },
+      send: async (method: string, path: string) => { calls.push({ method, path }); return cart; },
+    };
+    const result = await setCart.handler({ items: [{ card_id: 'sv1-1', quantity: 1 }] }, { db: {} as Ctx['db'], api, userId: 'u' } as Ctx);
+    assert.ok(!('isError' in result && result.isError), JSON.stringify(result));
+    assert.ok(calls.length > 0);
+    for (const call of calls) {
+      const path = call.path.split('?')[0]!;
+      assert.equal(run({ method: call.method, path, authKind: 'token', tokenScope: 'read' }).passed, true, `${call.method} ${path}`);
     }
   });
 

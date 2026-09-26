@@ -21,9 +21,12 @@ import { generateToken, hashToken, tokenPrefix, type Queryable, type TokenScope 
  *    another 90 days, so a connection in use never ends, and one abandoned in
  *    a client nobody opens any more ends by itself.
  *  - **A used refresh token is a tripwire for a day.** Presented again within
- *    a minute it is the client retrying a response it never received, and it
- *    gets a fresh pair. Presented after that, two parties hold the chain, and
- *    the connection is revoked outright.
+ *    a minute it is most likely the client racing itself (two requests
+ *    renewing at once), so it is refused and nothing else happens: the first
+ *    renewal's pair stays the one live chain. Presented after that, two
+ *    parties hold the chain, and the connection is revoked outright. No
+ *    presentation ever issues a second pair from one refresh token, so the
+ *    chain can never fork into two that renew independently.
  *
  * Every function takes the transaction client to run on, like the rest of
  * this package; the token endpoint runs them on the base pool inside one
@@ -32,7 +35,7 @@ import { generateToken, hashToken, tokenPrefix, type Queryable, type TokenScope 
 
 export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 export const REFRESH_TOKEN_TTL_DAYS = 90;
-const REFRESH_RETRY_GRACE_SECONDS = 60;
+const REFRESH_RACE_SECONDS = 60;
 const REFRESH_TRIPWIRE_SECONDS = 24 * 60 * 60;
 
 /** Refresh tokens never start `dsk_`, so one can never be accepted as a bearer credential. */
@@ -97,19 +100,19 @@ export async function refreshConnection(
   const { rows } = await db.query<{
     token_id: string;
     used_at: string | null;
-    retry: boolean;
+    racing: boolean;
     live: boolean;
     scope: TokenScope;
     oauth_client_id: string | null;
   }>(
-    `SELECT o.token_id, o.used_at, o.used_at > now() - make_interval(secs => $2) AS retry, t.scope, t.oauth_client_id,
+    `SELECT o.token_id, o.used_at, o.used_at > now() - make_interval(secs => $2) AS racing, t.scope, t.oauth_client_id,
             t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > now())
               AND public.admin_account_active(t.user_id::text) AS live
        FROM oauth_token o
        JOIN api_token t ON t.id = o.token_id
       WHERE o.token_hash = $1 AND o.kind = 'refresh' AND o.expires_at > now()
       FOR UPDATE OF o`,
-    [hash, REFRESH_RETRY_GRACE_SECONDS],
+    [hash, REFRESH_RACE_SECONDS],
   );
   const row = rows[0];
   if (!row || !row.live) return { ok: false, reason: 'invalid' };
@@ -117,18 +120,17 @@ export async function refreshConnection(
     return { ok: false, reason: 'invalid' };
   }
 
-  if (row.used_at && !row.retry) {
+  if (row.used_at) {
+    if (row.racing) return { ok: false, reason: 'invalid' };
     await db.query(`UPDATE api_token SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, [row.token_id]);
     return { ok: false, reason: 'reused' };
   }
-  if (!row.used_at) {
-    await db.query(
-      `UPDATE oauth_token
-          SET used_at = now(), expires_at = LEAST(expires_at, now() + make_interval(secs => $2))
-        WHERE token_hash = $1`,
-      [hash, REFRESH_TRIPWIRE_SECONDS],
-    );
-  }
+  await db.query(
+    `UPDATE oauth_token
+        SET used_at = now(), expires_at = LEAST(expires_at, now() + make_interval(secs => $2))
+      WHERE token_hash = $1`,
+    [hash, REFRESH_TRIPWIRE_SECONDS],
+  );
 
   // In use, so it lives on. `revoked_at IS NULL` again because a revoke may
   // have committed since the SELECT; this UPDATE waits for it and then sees it.

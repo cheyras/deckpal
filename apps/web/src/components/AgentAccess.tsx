@@ -152,7 +152,10 @@ function TokenRow({ token: t, revoking, onRevoke }: { token: ApiTokenRow; revoki
           )}
           {!live && <span className={`${BADGE} bg-halo-error text-error`}>{state === 'revoked' ? 'Revoked' : 'Expired'}</span>}
         </div>
-        <div className="mt-[2px] text-[14px] text-text-muted">
+        <div className="mt-[2px] break-words text-[14px] text-text-muted">
+          {/* The name carries the host, but shortens a long one, and a local
+              app's says "this computer": then the full host is spelled out here. */}
+          {t.redirect && !t.name.includes(t.redirect.host) ? `Sends to ${t.redirect.host} · ` : ''}
           {t.redirect ? 'Connected' : 'Created'} {fmtDate(t.createdAt)} · Last used {fmtDate(t.lastUsedAt)}
         </div>
         <div className="text-[14px] text-text-muted">{lifetimeText(t)}</div>

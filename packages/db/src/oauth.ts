@@ -116,20 +116,25 @@ export function classifyRedirect(redirectUri: string): RedirectIdentity {
 }
 
 const MAX_TOKEN_NAME_LEN = 60;
+const MAX_NAMED_HOST_LEN = 36;
 
 /**
  * The name a connection is listed under in Profile → Agent access. It carries
  * where the approval went, so a lookalike can never sit in that list as plain
  * "Claude": `Claude (OAuth · claude.ai)`, `Claude (OAuth · evil.example)`.
- * The claimed name gives way before the host does when space runs out.
+ * When space runs out the claimed name gives way first, and a long host loses
+ * its START, never its end: the end is the registered domain, which is what
+ * says who really owns it (`claude.ai.<padding>.evil.example` stays
+ * `…evil.example`).
  */
 export function connectionName(clientName: string | null | undefined, redirectUri: string): string {
   const { host, trust, verifiedName } = classifyRedirect(redirectUri);
-  const suffix = ` (OAuth · ${trust === 'local' ? 'this computer' : host})`;
+  const where = trust === 'local' ? 'this computer' : host;
+  const shown = where.length > MAX_NAMED_HOST_LEN ? `…${where.slice(-(MAX_NAMED_HOST_LEN - 1))}` : where;
+  const suffix = ` (OAuth · ${shown})`;
   const label = verifiedName ?? (clientName?.trim() || 'MCP client');
-  const room = Math.max(MAX_TOKEN_NAME_LEN - suffix.length, 12);
-  const clipped = label.length > room ? `${label.slice(0, room - 1)}…` : label;
-  return `${clipped}${suffix}`.slice(0, MAX_TOKEN_NAME_LEN);
+  const room = MAX_TOKEN_NAME_LEN - suffix.length;
+  return `${label.length > room ? `${label.slice(0, room - 1)}…` : label}${suffix}`;
 }
 
 /**
