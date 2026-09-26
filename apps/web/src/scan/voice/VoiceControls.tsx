@@ -8,7 +8,7 @@
 // the other thing a reader reaches for mid-scan. Nothing here makes a sound —
 // audio playback silently kills the iOS recognizer (recognizer.ts) — so every
 // acknowledgement is visual, plus a vibration where the platform has one.
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
 import { Sheet } from '../../components/ui/Sheet'
@@ -125,10 +125,10 @@ export function VoiceCaption({ voice }: { voice: ScannerVoice }) {
         <span className={caption.tone === 'ignored' ? 'italic text-white/55' : 'font-semibold'}>
           {caption.tone === 'ignored' ? `“${caption.text}”` : caption.text}
         </span>
-        {caption.undo && (
+        {caption.actionIds && (
           <button
             type="button"
-            onClick={voice.undo}
+            onClick={() => voice.undoCaption(caption.actionIds!)}
             className="pointer-events-auto -my-[3px] ml-[2px] shrink-0 rounded-full bg-white/15 px-[10px] py-[3px] text-[12px] font-bold text-white hover:bg-white/25"
           >
             Undo
@@ -167,41 +167,47 @@ export function VoiceLiveRegion({ text }: { text: string }) {
  * and offers Keep; the row itself is struck through by its card.
  */
 export function VoicePendingChips({ entry, actions, onCancel }: { entry: FeedEntry; actions: readonly VoiceAction[]; onCancel: (id: string) => void }) {
-  const now = Date.now()
   return (
     <div className="mt-[5px] flex flex-wrap items-center gap-[6px]">
-      {actions.map((a) => {
-        const removing = a.kind === 'remove'
-        const label = removing ? 'Removing' : describeAction(a, entry)
-        const hold = HOLD_MS[a.kind]
-        const elapsed = a.settleAt === null ? 0 : Math.max(0, hold - (a.settleAt - now))
-        return (
-          <span
-            key={a.id}
-            data-voice-pending={a.kind}
-            className="relative inline-flex h-[26px] min-w-0 max-w-full items-center gap-[5px] overflow-hidden rounded-full border border-action-primary/60 bg-action-primary/10 pl-[8px] pr-[2px] text-[12px] font-semibold text-text-primary"
-          >
-            <Icon name="mic" size={12} className="shrink-0 text-action-primary" />
-            <span className="truncate">{label}</span>
-            <button
-              type="button"
-              onClick={() => onCancel(a.id)}
-              aria-label={removing ? `Keep ${entry.name}` : `Cancel voice change: ${label}`}
-              className={`flex h-[22px] shrink-0 items-center justify-center rounded-full text-text-secondary hover:bg-surface-tertiary hover:text-text-primary ${
-                removing ? 'px-[8px] text-[12px] font-bold' : 'w-[22px]'
-              }`}
-            >
-              {removing ? 'Keep' : <Icon name="close" size={10} />}
-            </button>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-left bg-action-primary motion-safe:animate-[voice-hold_1s_linear_forwards]"
-              style={{ animationDuration: `${hold}ms`, animationDelay: `-${elapsed}ms` }}
-            />
-          </span>
-        )
-      })}
+      {actions.map((a) => (
+        <PendingChip key={a.id} action={a} entry={entry} onCancel={onCancel} />
+      ))}
     </div>
+  )
+}
+
+function PendingChip({ action, entry, onCancel }: { action: VoiceAction; entry: FeedEntry; onCancel: (id: string) => void }) {
+  const removing = action.kind === 'remove'
+  const label = removing ? 'Removing' : describeAction(action, entry)
+  const hold = HOLD_MS[action.kind]
+  // How far into the hold this chip first appeared, read ONCE. The animation
+  // keeps its own clock from mount; recomputing a negative delay on every
+  // re-render (the scanner re-renders several times a second) would count the
+  // elapsed time twice and drain the bar in half the real window.
+  const [startOffset] = useState(() => (action.settleAt === null ? 0 : Math.max(0, hold - (action.settleAt - Date.now()))))
+  return (
+    <span
+      data-voice-pending={action.kind}
+      className="relative inline-flex h-[26px] min-w-0 max-w-full items-center gap-[5px] overflow-hidden rounded-full border border-action-primary/60 bg-action-primary/10 pl-[8px] pr-[2px] text-[12px] font-semibold text-text-primary"
+    >
+      <Icon name="mic" size={12} className="shrink-0 text-action-primary" />
+      <span className="truncate">{label}</span>
+      <button
+        type="button"
+        onClick={() => onCancel(action.id)}
+        aria-label={removing ? `Keep ${entry.name}` : `Cancel voice change: ${label}`}
+        className={`flex h-[22px] shrink-0 items-center justify-center rounded-full text-text-secondary hover:bg-surface-tertiary hover:text-text-primary ${
+          removing ? 'px-[8px] text-[12px] font-bold' : 'w-[22px]'
+        }`}
+      >
+        {removing ? 'Keep' : <Icon name="close" size={10} />}
+      </button>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-left bg-action-primary motion-safe:animate-[voice-hold_1s_linear_forwards]"
+        style={{ animationDuration: `${hold}ms`, animationDelay: `-${startOffset}ms` }}
+      />
+    </span>
   )
 }
 

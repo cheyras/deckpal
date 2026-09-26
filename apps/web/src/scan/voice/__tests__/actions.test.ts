@@ -21,6 +21,7 @@ import {
   tick,
   undoLatest,
   WAIT_FOR_ROW_MS,
+  withdraw,
   type VoiceAction,
   type VoiceQueue,
 } from '../actions'
@@ -254,6 +255,25 @@ describe('applying and undoing', () => {
     const second = undoLatest(first.queue)
     assert.equal(second.reverted?.kind, 'quantity')
     assert.equal(undoLatest(second.queue).reverted, null)
+  })
+})
+
+describe('the Undo beside a caption', () => {
+  it('undoes exactly the actions it described, pending or applied, and nothing newer', () => {
+    const feed = [row('a', { name: 'A' }), row('b', { name: 'B' })]
+    const [removeA] = propose({ kind: 'remove' }, 'a', feed, 0, mint).actions
+    const applied = applyAction(feed, { ...removeA, settleAt: 0, cardId: 'card-a' })
+    let q = remember(EMPTY_QUEUE, applied.record!)
+    q = enqueue(q, propose(spec('two of those'), 'b', applied.feed, 0, mint).actions)
+    const w = withdraw(q, [removeA.id])
+    assert.deepEqual(w.reverted.map((r) => r.rowId), ['a'])
+    assert.equal(w.cancelled.length, 0)
+    assert.deepEqual(w.queue.pending.map((p) => p.rowId), ['b'], 'the newer command on B survives')
+    assert.equal(w.queue.history.length, 0)
+    // A caption's pending actions are withdrawn rather than reverted.
+    const onB = q.pending.map((p) => p.id)
+    const w2 = withdraw(q, onB)
+    assert.deepEqual([w2.cancelled.length, w2.reverted.length, w2.queue.pending.length], [1, 0, 0])
   })
 })
 

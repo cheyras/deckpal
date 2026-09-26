@@ -146,16 +146,23 @@ try {
     await page.locator('[data-voice-caption="ignored"]').waitFor()
     assert.equal(await page.locator('[data-voice-pending]').count(), 0)
 
-    // Remove: struck through with Keep, then gone, then Undo puts it back where it was.
+    // Remove: struck through with Keep, then gone, then Undo puts it back where
+    // it was — even with a newer command pending on another card, which that
+    // Undo must leave alone.
     await say(page, 'no, remove it')
     await page.locator('[data-voice-removing]').waitFor()
     await page.screenshot({ path: path.join(outputDir, `${name}-removing.png`) })
-    await page.clock.runFor(5_200)
+    await page.clock.runFor(3_000)
+    await say(page, 'exeggcute times two')
+    await row(0).locator('[data-voice-pending="quantity"]').waitFor()
+    await page.clock.runFor(2_200)
     await page.locator('[data-voice-removing]').waitFor({ state: 'detached' })
     assert.deepEqual(await page.locator('[data-entry-state] .fe-name').allTextContents(), ['Exeggcute', 'Charizard'])
     await page.locator('[data-voice-caption="done"]').getByRole('button', { name: 'Undo' }).click()
     assert.deepEqual(await page.locator('[data-entry-state] .fe-name').allTextContents(), ['Exeggcute', 'Charizard', 'Venonat'])
+    assert.equal(await row(0).locator('[data-voice-pending="quantity"]').count(), 1, 'the newer command on Exeggcute is untouched')
     assert.deepEqual(await page.evaluate('window.harness.restored'), ['cap-3'], 'a restored row asks for its printings again')
+    await row(0).getByRole('button', { name: 'Cancel voice change: × 2' }).click()
     // "Undo" by voice walks back the next applied change: Charizard's count.
     await say(page, 'undo')
     await page.clock.runFor(100)

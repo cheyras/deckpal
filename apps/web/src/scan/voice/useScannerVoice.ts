@@ -27,6 +27,8 @@ import {
   settleAll,
   tick,
   undoLatest,
+  withdraw,
+  type UndoRecord,
   type VoiceAction,
   type VoiceQueue,
 } from './actions'
@@ -40,8 +42,9 @@ export interface VoiceCaption {
    *  ignored: not a command. info: anything else worth a line. */
   tone: 'heard' | 'done' | 'refused' | 'ignored' | 'info'
   text: string
-  /** Offer Undo beside it. */
-  undo?: boolean
+  /** The actions this caption is about. When present, an Undo beside it
+   *  undoes exactly these — not whatever happens to be newest by then. */
+  actionIds?: readonly string[]
 }
 
 const CAPTION_MS: Record<VoiceCaption['tone'], number> = { heard: 6_000, done: 6_000, refused: 4_500, ignored: 2_500, info: 6_000 }
@@ -107,9 +110,9 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
   }, [])
 
   const show = useCallback(
-    (tone: VoiceCaption['tone'], text: string, undo = false) => {
+    (tone: VoiceCaption['tone'], text: string, actionIds?: readonly string[]) => {
       captionSeq.current += 1
-      setCaption({ id: captionSeq.current, tone, text, undo })
+      setCaption({ id: captionSeq.current, tone, text, actionIds })
       if (tone !== 'ignored') announce(text)
     },
     [announce],
@@ -138,7 +141,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         q = remember(q, r.record)
         // A printing or a count changes in place on a row the reader can see
         // and edit; a removal takes the row away, so its Undo has to live here.
-        if (action.kind === 'remove') show('done', r.outcome.message, true)
+        if (action.kind === 'remove') show('done', r.outcome.message, [action.id])
         else announce(r.outcome.message)
       }
       commitQueue(q)
@@ -162,20 +165,44 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     return () => window.clearInterval(id)
   }, [hasPending, runTick])
 
+  /** Put applied changes back, each only if it still can be. */
+  const revertAll = useCallback((records: readonly UndoRecord[]) => {
+    let refused = 0
+    for (const record of records) {
+      if (!revertible(feedRef.current, record)) {
+        refused += 1
+        continue
+      }
+      feedRef.current = revert(feedRef.current, record)
+      cbRef.current.setFeed((prev) => revert(prev, record))
+      if (record.kind === 'remove') cbRef.current.onRowRestored?.(record.row)
+    }
+    return refused
+  }, [])
+
+  /** "Undo" said out loud: the newest pending change, else the newest applied. */
   const undo = useCallback(() => {
     const r = undoLatest(queueRef.current)
     commitQueue(r.queue)
     if (r.cancelled) show('info', 'Cancelled')
-    else if (r.reverted && !revertible(feedRef.current, r.reverted)) {
-      show('refused', 'Can’t undo that — the card has changed since')
-    } else if (r.reverted) {
-      const record = r.reverted
-      feedRef.current = revert(feedRef.current, record)
-      cbRef.current.setFeed((prev) => revert(prev, record))
-      if (record.kind === 'remove') cbRef.current.onRowRestored?.(record.row)
-      show('info', `Undid: ${record.label}`)
+    else if (r.reverted) {
+      if (revertAll([r.reverted])) show('refused', 'Can’t undo that — the card has changed since')
+      else show('info', `Undid: ${r.reverted.label}`)
     } else show('refused', 'Nothing to undo')
-  }, [commitQueue, show])
+  }, [commitQueue, revertAll, show])
+
+  /** The Undo beside a caption: exactly the actions it described. */
+  const undoCaption = useCallback(
+    (actionIds: readonly string[]) => {
+      const r = withdraw(queueRef.current, actionIds)
+      commitQueue(r.queue)
+      const refused = revertAll(r.reverted)
+      if (refused) show('refused', 'Can’t undo that — the card has changed since')
+      else if (r.cancelled.length || r.reverted.length) show('info', r.reverted.length ? `Undid: ${r.reverted.map((x) => x.label).join(', ')}` : 'Cancelled')
+      else show('refused', 'Nothing to undo')
+    },
+    [commitQueue, revertAll, show],
+  )
 
   const stop = useCallback(() => {
     resumeRef.current = false
@@ -223,7 +250,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         return
       }
       commitQueue(enqueue(queueRef.current, actions))
-      show('heard', outcome.message, true)
+      show('heard', outcome.message, actions.map((a) => a.id))
       // A tap you can feel where the platform allows one (not iOS Safari). Never
       // a sound: audio playback silently kills the iOS recognizer.
       if ('vibrate' in navigator) navigator.vibrate(12)
@@ -347,6 +374,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     stop,
     cancel,
     undo,
+    undoCaption,
   }
 }
 

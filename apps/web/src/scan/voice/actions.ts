@@ -58,13 +58,16 @@ export type VoiceAction = ActionBody & {
   expiresAt: number
 }
 
-export type UndoRecord =
+/** How to put back what one applied action changed. `actionId` ties it to its
+ *  action, so an Undo shown beside a particular change reverts THAT change. */
+export type UndoRecord = { actionId: string } & (
   // `cardId`: a printing belongs to one card. If the row has since been
   // corrected into another card, putting this variant back would commit the
   // old card under the new one's name, so the undo is refused instead.
   | { kind: 'printing'; rowId: string; cardId: string; label: string; before: { variantId: number | null; printingPicked: boolean } }
   | { kind: 'quantity'; rowId: string; label: string; before: { quantity: number } }
   | { kind: 'remove'; rowId: string; label: string; row: FeedEntry; index: number }
+)
 
 export interface VoiceQueue {
   /** In the order they were heard. */
@@ -228,7 +231,7 @@ export function applyAction(feed: FeedEntry[], action: VoiceAction): { feed: Fee
 
   if (action.kind === 'remove') {
     const label = `Removed ${rowName(row)}`
-    return { feed: feed.filter((e) => e.id !== row.id), record: { kind: 'remove', rowId: row.id, label, row, index }, outcome: { ok: true, message: label } }
+    return { feed: feed.filter((e) => e.id !== row.id), record: { actionId: action.id, kind: 'remove', rowId: row.id, label, row, index }, outcome: { ok: true, message: label } }
   }
   if (!row.cardId) return { feed, record: null, outcome: { ok: false, message: 'Identify that scan first — tap it in the list' } }
   if (action.cardId && row.cardId !== action.cardId) {
@@ -239,7 +242,7 @@ export function applyAction(feed: FeedEntry[], action: VoiceAction): { feed: Fee
     const label = `${row.name} × ${action.quantity}`
     return {
       feed: feed.map((e) => (e.id === row.id ? { ...e, quantity: action.quantity } : e)),
-      record: { kind: 'quantity', rowId: row.id, label, before: { quantity: row.quantity } },
+      record: { actionId: action.id, kind: 'quantity', rowId: row.id, label, before: { quantity: row.quantity } },
       outcome: { ok: true, message: label },
     }
   }
@@ -252,7 +255,7 @@ export function applyAction(feed: FeedEntry[], action: VoiceAction): { feed: Fee
     // `printingPicked`, because a spoken printing IS the reader's pick — the same
     // flag the row's own select sets (printing.ts).
     feed: feed.map((e) => (e.id === row.id ? { ...e, variantId: variant.variantId, printingPicked: true } : e)),
-    record: { kind: 'printing', rowId: row.id, cardId: row.cardId, label, before: { variantId: row.variantId, printingPicked: row.printingPicked } },
+    record: { actionId: action.id, kind: 'printing', rowId: row.id, cardId: row.cardId, label, before: { variantId: row.variantId, printingPicked: row.printingPicked } },
     outcome: { ok: true, message: label },
   }
 }
@@ -292,4 +295,20 @@ export function undoLatest(queue: VoiceQueue): { queue: VoiceQueue; cancelled: V
   if (cancelled) return { queue: cancel(queue, cancelled.id), cancelled, reverted: null }
   const [reverted = null, ...rest] = queue.history
   return { queue: { ...queue, history: rest }, cancelled: null, reverted }
+}
+
+/**
+ * Undo these particular actions — the ones an Undo button was shown beside —
+ * whether they are still pending (withdrawn) or have applied since (their
+ * records handed back to revert). Unlike `undoLatest`, a newer command on
+ * another card is left alone: "Removed Venonat · Undo" must bring Venonat back,
+ * not cancel whatever was said after it.
+ */
+export function withdraw(queue: VoiceQueue, actionIds: readonly string[]): { queue: VoiceQueue; cancelled: VoiceAction[]; reverted: UndoRecord[] } {
+  const ids = new Set(actionIds)
+  return {
+    queue: { pending: queue.pending.filter((a) => !ids.has(a.id)), history: queue.history.filter((r) => !ids.has(r.actionId)) },
+    cancelled: queue.pending.filter((a) => ids.has(a.id)),
+    reverted: queue.history.filter((r) => ids.has(r.actionId)),
+  }
 }
