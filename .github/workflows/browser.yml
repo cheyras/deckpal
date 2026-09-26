@@ -26,6 +26,12 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
+      # WebKit is used only by tests/browser/securityHeaders.mjs (the SEC-03
+      # CSP crawl needs a second engine, since Chromium and WebKit enforce CSP
+      # independently and have disagreed on real-world edge cases before --
+      # see the security audit's own Chromium-vs-WebKit CSP proof).
+      - name: Install WebKit
+        run: pnpm exec playwright install --with-deps webkit
       - name: Build browser shared packages
         run: |
           pnpm --filter @deckpal/storage build

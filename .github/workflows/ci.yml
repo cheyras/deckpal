@@ -32,6 +32,14 @@ jobs:
       - name: Case-insensitive filename collisions
         run: node scripts/check-case-collisions.mjs
 
+      # Also install-free: needs only vercel.json and apps/web/index.html.
+      # Guards the CSP/frame-ancestors/nosniff/Permissions-Policy headers
+      # (vercel.json) that protect every HTML document Vercel's static layer
+      # serves against a silent regression -- see scripts/check-security-headers.mjs
+      # and DECISIONS.md 2026-09-26.
+      - name: Security headers coverage
+        run: node scripts/check-security-headers.mjs
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 

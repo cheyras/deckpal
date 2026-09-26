@@ -938,6 +938,40 @@ the device instantly and revalidates in the background. These headers are what
 the visit *before* the worker takes over gets, plus every browser where a
 service worker never activates.
 
+### Security headers (`vercel.json` → `headers`, 2026-09-26)
+
+A third rule in the same `headers` array attaches a `Content-Security-Policy`,
+`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and
+`Permissions-Policy` to every path **except** `/api/*` (the API function
+already gets an equivalent set from `helmet()`, `apps/api/src/index.ts`). See
+`SECURITY.md`'s "HTTP security headers on the SPA" for the full reasoning;
+what matters for a fresh deploy is:
+
+- **No action is required for your own Supabase project.** The CSP's
+  `img-src`/`connect-src` allow `https://*.supabase.co` and
+  `wss://*.supabase.co` as a wildcard, not one project's hostname, so it
+  covers whatever `<project>.supabase.co` you created in step 1 without
+  editing `vercel.json`.
+- **If you front Stripe with a different provider, or add another
+  first-party API host, edit the CSP.** `https://js.stripe.com` and
+  `https://hooks.stripe.com` are hardcoded (Stripe requires loading its own
+  script for PCI reasons — you cannot self-host it), and `connect-src`
+  otherwise only allows `'self'` plus Supabase.
+- **Verify it after deploying:**
+  ```bash
+  curl -sI https://your-domain/ | grep -i 'content-security-policy\|x-frame-options'
+  ```
+  should show both. `scripts/check-security-headers.mjs` (`pnpm
+  test:security-headers`) checks the config file itself, including that the
+  CSP's `sha256-` hash for the inline first-paint watchdog script
+  (`apps/web/index.html`) still matches the file — if you ever edit that
+  script, this check tells you to update the hash in the same commit rather
+  than silently shipping a CSP that blocks it.
+- **Camera and microphone stay allowed on `self`** (`Permissions-Policy:
+  camera=(self), microphone=(self)`) for the scanner and its voice
+  annotation input — do not tighten these to `()` without checking whether
+  your fork still uses the scanner.
+
 ### Administration, lifecycle and usage rollout (064–071)
 
 Use the reviewed checkout containing migrations 068–071 and deploy the required

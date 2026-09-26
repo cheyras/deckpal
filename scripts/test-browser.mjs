@@ -9,6 +9,7 @@ import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { checkChat } from '../tests/browser/chat.mjs'
+import { checkSecurityHeaders } from '../tests/browser/securityHeaders.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
@@ -47,6 +48,12 @@ try {
       results.push(...await checkAdmin(browser, server, mount, label, out, admin))
       results.push(...await checkFeedback(browser, server, mount, label, out, admin))
       results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+      // SEC-03/SEC-14: the real vercel.json CSP against the real built app,
+      // both engines, signed out and signed in -- uses its own server (a
+      // fresh CSP header can't be added retroactively to `server` above) but
+      // the same built `dist`, so it exercises the exact bytes being tested
+      // elsewhere in this loop.
+      results.push(...await checkSecurityHeaders(browser, dist, mount, label, admin, out))
       assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
     } finally { await server.close() }
   }

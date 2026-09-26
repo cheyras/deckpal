@@ -44,7 +44,11 @@ export async function serve(dist, mount, respondApi, html = 'index.html', option
     const reject = (why, status = 404) => { unexpected.push(why); res.writeHead(status); res.end(why) }
     const mutation = !['GET', 'HEAD'].includes(req.method)
     if (mutation && !options.allowMutation?.(url.pathname, req.method)) return reject('Unexpected method ' + req.method + ' ' + url.pathname, 405)
-    if (options.csp) res.setHeader('Content-Security-Policy', options.csp)
+    // A function lets a caller mirror vercel.json's per-path CSP carve-outs
+    // (e.g. /dev/decke-compare's own frame-ancestors) instead of one flat
+    // string for every response; existing string callers are unaffected.
+    const csp = typeof options.csp === 'function' ? options.csp(url.pathname) : options.csp
+    if (csp) res.setHeader('Content-Security-Policy', csp)
     let body
     if (mutation) {
       let raw = ''

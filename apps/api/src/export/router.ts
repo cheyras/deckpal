@@ -36,7 +36,8 @@ function slug(s: string, fallback = 'export'): string {
 function sendPdfHeaders(res: import('express').Response, filename: string): void {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Cache-Control', 'private, no-cache, must-revalidate');
+  // SECURITY.md: "all private APIs are no-store" — see http.ts's userCache() for why.
+  res.setHeader('Cache-Control', 'private, no-store');
 }
 
 // ── GET /decks/:id/pdf ────────────────────────────────────────────────────────
