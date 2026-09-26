@@ -32,6 +32,16 @@ jobs:
       - name: Case-insensitive filename collisions
         run: node scripts/check-case-collisions.mjs
 
+      # Also nearly free: needs only vercel.json, no install/build. Guards the
+      # deckscout.io -> deckpal.app redirect (vercel.json) against a
+      # regression to the pre-2026-09-26 carve-out that excluded /mcp, /api,
+      # /register, /token and /.well-known/* -- a cross-origin redirect drops
+      # the Authorization header, so that carve-out existed specifically to
+      # keep MCP connectors and API clients from getting silently 401'd.
+      # See scripts/check-redirects.mjs and DECISIONS.md 2026-09-26.
+      - name: deckscout.io redirect coverage
+        run: node scripts/check-redirects.mjs
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
