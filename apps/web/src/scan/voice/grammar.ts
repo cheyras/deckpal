@@ -25,8 +25,10 @@
 // them ("that one's a…") and a card name all count; anything else is evidence
 // the reader was talking to someone, not to us. A command about "that one" —
 // the path that silently lands on whatever was scanned last — must be explained
-// completely; one that names its card gets `MIN_COVERAGE`. And anything said
-// with "not", "don't" or "never" in it is an objection, never a request.
+// completely; one that names its card gets `MIN_COVERAGE`. Anything said with
+// "not", "don't" or "never" in it is an objection, and anything asked or
+// wondered ("is this a reverse holo", "I might remove it") is not an
+// instruction; neither ever acts. One utterance is one command about one card.
 //
 // Pure and dependency-light on purpose, like `feed.ts` and `printing.ts`: the
 // tests in `__tests__/grammar.test.ts` drive the shipping parser with real
@@ -165,6 +167,7 @@ type Slot =
   | { kind: 'negation' }
   | { kind: 'of' }
   | { kind: 'qty' }
+  | { kind: 'hedge' }
   | { kind: 'filler' }
 
 /**
@@ -192,6 +195,9 @@ const LEXICON: readonly { slot: Slot; phrases: readonly string[] }[] = [
   { slot: { kind: 'undo' }, phrases: ['undo', 'un do', 'undue', 'cancel', 'never mind', 'nevermind', 'keep it', 'put it back'] },
   { slot: { kind: 'stop' }, phrases: ['stop listening', 'stop voice', 'mic off', 'microphone off'] },
   { slot: { kind: 'negation' }, phrases: ['not', 'isnt', 'aint', 'never', 'dont', 'do not', 'doesnt', 'wasnt'] },
+  // Wondering, wanting and asking about a card — not telling the scanner
+  // anything. Their presence refuses the utterance, like a negation.
+  { slot: { kind: 'hedge' }, phrases: ['might', 'maybe', 'perhaps', 'probably', 'wonder', 'whether', 'if', 'should', 'would', 'could', 'need', 'want', 'wish', 'looking for', 'do you', 'did you', 'have you', 'does it'] },
   { slot: { kind: 'of' }, phrases: ['of', 'off'] },
   // Words that turn a nearby number into a quantity: "times two", "two copies",
   // "make it two". Either side of the number, because both are said.
@@ -206,6 +212,7 @@ const LEXICON: readonly { slot: Slot; phrases: readonly string[] }[] = [
       'that one', 'this one', 'the last one', 'last one', 'that card', 'this card',
       'a', 'an', 'the', 'is', 'was', 'are', 'its', 'thats', 'ones', 'theyre', 'it', 'that', 'this', 'those', 'these', 'them', 'em', 'they',
       'uh', 'um', 'er', 'oh', 'okay', 'ok', 'so', 'and', 'actually', 'yeah', 'yes', 'no', 'wait', 'hey', 'just', 'like', 'i', 'think',
+      'right', 'alright', 'all right',
       'mark', 'set', 'change', 'please', 'now', 'well', 'also', 'then', 'pattern', 'version', 'printing', 'print', 'variant', 'card', 'really', 'one',
     ],
   },
@@ -221,6 +228,11 @@ const NUMBER_WORDS: Record<string, number> = {
  *  reverse" must not set a quantity of two. */
 const FRAME_ONLY_NUMBERS: Record<string, number> = { to: 2, too: 2, for: 4, fore: 4, won: 1, tree: 3, ate: 8 }
 
+/** Words that open a question rather than an instruction, and the
+ *  throat-clearing that may come before them. */
+const QUESTION_OPENERS = new Set(['is', 'are', 'was', 'were', 'does', 'did', 'what', 'whats', 'which', 'where', 'who', 'why', 'how'])
+const DISCOURSE = new Set(['um', 'uh', 'er', 'oh', 'okay', 'ok', 'so', 'hey', 'well', 'yeah', 'and', 'wait', 'hmm', 'right', 'alright'])
+
 /** Suffixes a spoken card name usually drops — "the Charizard" for Charizard ex. */
 const NAME_SUFFIXES = new Set(['ex', 'v', 'vmax', 'vstar', 'gx', 'break', 'lv', 'x', 'prime', 'legend', 'star', 'delta'])
 
@@ -232,7 +244,11 @@ const phraseOf = (text: string): Phrase => {
   const words = tokenize(text)
   return { key: words.map(phonetic).join(''), words: words.length }
 }
-const COMPILED = LEXICON.map((e) => ({ slot: e.slot, phrases: e.phrases.map(phraseOf) }))
+// Negations and hedges only ever REFUSE, so they must be what was said, not
+// something near it: "right" is one letter from "might", and "right, two of
+// those" is a command.
+const EXACT: ReadonlySet<Slot['kind']> = new Set(['negation', 'hedge'])
+const COMPILED = LEXICON.map((e) => ({ slot: e.slot, phrases: e.phrases.map(phraseOf), exact: EXACT.has(e.slot.kind) }))
 
 // ── SEGMENTATION ────────────────────────────────────────────────────────────
 
@@ -267,7 +283,7 @@ interface Candidate extends Match {
  * Across phrases the reading that explains the most is kept (`weight`), so
  * "reverse whole o" is one reverse holo rather than "reverse" followed by a holo.
  */
-function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase[], slack: number): Match | null {
+function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase[], slack: number, exact = false): Match | null {
   let best: Match | null = null
   for (const phrase of phrases) {
     const lo = Math.max(1, phrase.words - 1)
@@ -287,7 +303,7 @@ function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase
       const forms = heard.endsWith('s') && !phrase.key.endsWith('s') ? [heard, heard.slice(0, -1)] : [heard]
       for (const h of forms) {
         const score = similarity(h, phrase.key)
-        if (score < minSimilarity(Math.max(h.length, phrase.key.length))) continue
+        if (score < (exact ? 1 : minSimilarity(Math.max(h.length, phrase.key.length)))) continue
         if (!own || score > own.score) own = { score, size, weight: score * heard.length }
       }
     }
@@ -345,7 +361,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
       }
     }
     for (const entry of COMPILED) {
-      const hit = bestWindow(keys, i, entry.phrases, 1)
+      const hit = bestWindow(keys, i, entry.phrases, 1, entry.exact)
       if (hit && (!best || hit.weight > best.weight)) {
         best = { ...hit, make: (from, to) => ({ kind: 'slot', slot: entry.slot, from, to }) }
       }
@@ -443,7 +459,11 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   const coverage = explained / words.length
 
   const has = (kind: Slot['kind']) => segs.some((s) => slotKind(s) === kind)
-  const nameSeg = [...segs].reverse().find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
+  // One utterance, one card. Two different names ("remove Charizard, Venonat is
+  // a reverse holo") would otherwise pair one card with the other's command.
+  const named = new Set(segs.flatMap((s) => (s.kind === 'name' ? [s.rowId] : [])))
+  if (named.size > 1) return { command: null, coverage }
+  const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
   // The LAST finish said wins — people correct themselves forwards ("holo, no,
@@ -469,6 +489,11 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // remove it" is not negation — "no" is how people start a correction — and
   // "not a holo" never gets here: the lexicon reads it whole, as Normal.)
   if (has('negation')) return { command: null, coverage, negated: true }
+  // A question ("is this a reverse holo", "what's that one") or a wish ("I
+  // might remove it", "do you have a reverse holo") is conversation about a
+  // card. Openers are checked on the first word after the throat-clearing.
+  const opener = words.find((w) => !DISCOURSE.has(w))
+  if (has('hedge') || (opener && QUESTION_OPENERS.has(opener))) return { command: null, coverage }
 
   const aboutAnchor = !!command && command.kind !== 'undo' && command.kind !== 'stop' && target.kind === 'anchor'
   if (aboutAnchor && coverage < 1) {

@@ -231,6 +231,23 @@ describe('chatter', () => {
     assert.ok(c?.kind === 'edit' && c.target.kind === 'row')
   })
 
+  it('refuses questions, wishes and speculation about a card', () => {
+    for (const heard of [
+      'is this a reverse holo', 'Is that one a holo?', 'what is that one', 'I might remove the charizard',
+      'do you have a reverse holo venonat', 'maybe two of those', 'that should be reverse holo', 'I need a reverse holo',
+    ]) {
+      assert.equal(command(heard), null, heard)
+    }
+  })
+
+  it('does not mistake a near word for a hedge', () => {
+    assert.equal(edit('right, two of those').quantity, 2)
+  })
+
+  it('refuses one utterance about two cards', () => {
+    assert.equal(command('remove charizard ex, venonat is reverse holo'), null)
+  })
+
   it('accepts a command wrapped in the words people put around one', () => {
     for (const heard of ['I think that is a reverse hollow', 'okay so that one was actually a holo', 'yeah just remove it please']) {
       const parsed = parseUtterance(heard, ROWS)
