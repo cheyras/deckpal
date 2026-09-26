@@ -48,7 +48,7 @@ import { mountOAuthServer } from './oauthServer.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
-import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit } from './rateLimit.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit, bugsRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -162,23 +162,36 @@ export function createApp(): express.Express {
   // ── The Stripe webhook, and it MUST be mounted here ──────────────────────
   //
   // Signature verification hashes the exact bytes Stripe sent, so this route
-  // takes `express.raw()` and has to be registered ahead of the global JSON
-  // parser on the next line. Re-serialising a parsed body produces different
-  // bytes and every signature fails -- the ordering below is load-bearing, not
-  // stylistic. It is also outside the `/api` router on purpose: a Stripe
-  // delivery carries no session and must not meet resolveIdentity or the RLS
-  // middleware. See billing/webhook.ts.
+  // takes `express.raw()` and has to be registered ahead of any JSON parser.
+  // Re-serialising a parsed body produces different bytes and every signature
+  // fails -- the ordering below is load-bearing, not stylistic. It is also
+  // outside the `/api` router on purpose: a Stripe delivery carries no
+  // session and must not meet resolveIdentity or the RLS middleware. See
+  // billing/webhook.ts.
   mountStripeWebhook(app, basePath);
 
-  // 12mb accommodates the bug reporter's screenshot dataURL; every other route
-  // posts tiny JSON, so the raised ceiling only ever matters for /bugs.
-  app.use(express.json({ limit: '12mb' }));
-
+  // SEC-08: there is deliberately NO blanket express.json() here any more.
+  // One used to sit on `app`, sized to 12mb for the bug reporter's screenshot,
+  // ahead of EVERY route including preAuthFloodGuard, authMiddleware and the
+  // OAuth routes mounted just below -- so every route paid that same 12mb
+  // ceiling before anything unauthenticated was even throttled, and it made
+  // /register's and /token's own 16kb parsers (oauthServer.ts) dead code:
+  // body-parser no-ops on a request whose body a PRIOR matching parser
+  // already consumed, so whichever parser runs FIRST for a given path decides
+  // its limit (the same trap dev/scanFlags.ts documents for itself). Body
+  // limits are per-route now -- see the block below `api.use('/me/features'…'`
+  // for the `/api` router's parsers, and mountOAuthServer immediately below
+  // for /register's and /token's, which are effective again now that nothing
+  // upstream of them reads the body first.
+  //
   // The public half of the OAuth "Connect" flow lives at the bare origin
   // (RFC 8414/9728 well-known paths, /register, /token) — mounted on `app`
   // directly, ahead of the `basePath` API router, and only in cloud mode: the
   // flow mints api_token rows tied to a Supabase user, which self-host has no
-  // concept of (SPEC.md §3b).
+  // concept of (SPEC.md §3b). Each of its four routes carries its own
+  // oauthPublicRateLimit (SEC-09): they sit ahead of preAuthFloodGuard too, so
+  // without their own limiter an unauthenticated `POST /register` — a bare
+  // `oauth_client` INSERT — had none at all.
   if (SUPABASE_MODE) {
     mountOAuthServer(app);
   }
@@ -224,6 +237,52 @@ export function createApp(): express.Express {
   api.use('/admin', requireSession, adminRateLimit);
   api.use('/me/credits', requireSession, creditWalletRateLimit);
   api.use(['/me/features','/me/decke-sharing'], requireSession, adminRateLimit);
+  // SEC-11: no requireSession here — the bug/feature reporter is not
+  // account-administration and self-host's resolved local identity (settled by
+  // resolveOptionalIdentity above) must still be able to file one. It already
+  // has a stable req.user.id by this point in both deployments, which is what
+  // lets this be per-account instead of routes/bugs.ts's old per-`req.ip`
+  // bucket (one shared bucket behind a proxy, defeating the whole limit).
+  api.use('/bugs', bugsRateLimit);
+
+  // ── SEC-08: body-size limits, sized per route ─────────────────────────────
+  //
+  // Mounted here: after preAuthFloodGuard, so a flood is throttled before a
+  // byte of any body is read, and before the RLS block below, so an oversized
+  // body never claims a pooled connection either. Ordered most-specific-first
+  // on purpose -- express.json() no-ops on a request whose body a prior
+  // matching parser already consumed (see the note above mountOAuthServer),
+  // so whichever line below matches a request FIRST decides its limit. The
+  // blanket default is last so it can never shadow one of the named
+  // exceptions above it.
+  //
+  // routes/bugs.ts's MAX_IMG_BYTES is 8mb decoded; base64 costs +33%, so a
+  // full-size screenshot is ~10.7mb on the wire before the JSON wrapper and
+  // the 20kb text fields. 12mb is what this repo already sized for exactly
+  // this upload -- this line replaces the identical number that used to sit
+  // on `app`, unscoped, above.
+  api.use('/bugs', express.json({ limit: '12mb' }));
+  // dev/scanQueue.ts's MAX_PHOTO_BYTES is 3mb decoded -> ~4mb on the wire,
+  // "with room for the JSON wrapper" (that file's own comment).
+  api.use('/dev/scan-queue', express.json({ limit: '4mb' }));
+  // dev/scanFlags.ts's MAX_UPLOAD_BYTES is "~3MB for the decoded frame + its
+  // sidecar JSON combined" (that file's own comment) -> the same 4mb parser.
+  api.use('/dev/scan-flags', express.json({ limit: '4mb' }));
+  // routes/deckeHistory.ts writes one transcript turn per call: two MAX_TEXT
+  // fields (24,000 chars each) plus up to MAX_TOOLS (60) tool records, each up
+  // to name+phase+title+summary+MAX_ARGS_CHARS (roughly 2,000 chars on the
+  // wire). Worst case lands around 215kb; 512kb leaves real headroom.
+  api.use('/decke', express.json({ limit: '512kb' }));
+  // routes/lists.ts's POST /:id/items/bulk allows BULK_MAX (500) items, each
+  // with its own NOTE_MAX (500-char) note -- a few hundred kb once JSON puts
+  // structure and escaping around it. 1mb leaves headroom without reopening
+  // the ceiling for every other /lists route (a single list's own fields cap
+  // out at DESC_MAX, 2,000 chars).
+  api.use('/lists', express.json({ limit: '1mb' }));
+  // Every other route posts small JSON (ids, filters, short text). 100kb is
+  // generous headroom over the largest of those still on the default --
+  // decks.ts's strategy-guide and battle-log text, at 40,000-50,000 chars.
+  api.use(express.json({ limit: '100kb' }));
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS

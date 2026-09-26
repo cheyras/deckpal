@@ -61,28 +61,13 @@ function getIssuesDir(): string {
   return issuesDir;
 }
 
-// ── Per-IP rate limiter (no external dependency) ─────────────────────────────
-const RATE_MAX = 10; // max bug reports per IP per hour
-const RATE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const RATE_SWEEP_MS = 10 * 60 * 1000; // sweep stale entries every 10 min
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, bucket] of rateBuckets) {
-    if (bucket.resetAt <= now) rateBuckets.delete(ip);
-  }
-}, RATE_SWEEP_MS).unref();
-
-function rateOk(ip: string): boolean {
-  const now = Date.now();
-  let bucket = rateBuckets.get(ip);
-  if (!bucket || bucket.resetAt <= now) {
-    bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
-    rateBuckets.set(ip, bucket);
-  }
-  bucket.count++;
-  return bucket.count <= RATE_MAX;
-}
+// Rate limiting (10/hour) is a shared middleware concern now (SEC-11):
+// `bugsRateLimit` in index.ts, mounted ahead of this router and keyed on
+// `req.user.id` rather than `req.ip`. This route used to carry its own
+// hand-rolled per-IP bucket map here — behind a reverse proxy, or on a
+// platform whose forwarding headers this route never validated, that was one
+// shared bucket any single caller could exhaust for everybody. See
+// rateLimit.ts's `bugsRateLimit` doc comment for the fix.
 
 // ── Shared constants ──────────────────────────────────────────────────────────
 
@@ -313,10 +298,8 @@ async function uploadScreenshot(
 bugsRouter.post(
   '/',
   asyncHandler(async (req, res) => {
-    if (!rateOk(req.ip ?? 'unknown')) {
-      res.status(429).json({ error: { code: 'rate_limited', message: 'Too many reports — try again later.' } });
-      return;
-    }
+    // Rate limiting happens upstream now (bugsRateLimit, mounted in index.ts) —
+    // see SEC-11.
     const body = (req.body ?? {}) as Record<string, unknown>;
     const text = str(body.text)?.trim();
     if (!text) throw badRequest('A bug description is required.');

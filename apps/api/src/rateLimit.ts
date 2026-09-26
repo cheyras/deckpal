@@ -318,6 +318,43 @@ export const avatarRateLimit: RequestHandler = perUserRateLimit('avatar', 10, 60
 export const oauthRateLimit: RequestHandler = perUserRateLimit('oauth', 30, 60_000);
 
 /**
+ * Bug/feature reports (SEC-11): 10 requests per hour, per ACCOUNT rather than
+ * per source IP.
+ *
+ * `routes/bugs.ts` used to key its own hand-rolled bucket on `req.ip` — behind
+ * a reverse proxy (self-host, `trust proxy` false) that is always the same
+ * loopback peer, so the 10/hour budget was really one bucket shared by every
+ * user on the deployment; on Vercel it was the raw, unvalidated `req.ip`
+ * rather than the platform-checked header every other limiter here uses. Either
+ * way, one signed-in user filing (or scripting) 10 reports silenced reporting
+ * for everybody else. The route already requires identity by the time it
+ * runs (mounted behind `resolveIdentity`), so keying on `req.user.id` — same
+ * as `/tokens` and `/avatar` — gives each account its own budget.
+ */
+export const bugsRateLimit: RequestHandler = perUserRateLimit('bugs', 10, 60 * 60_000);
+
+/**
+ * The public half of the OAuth "Connect" flow (SEC-09): `/register`,
+ * `/token` and the two `.well-known` discovery documents. These are mounted
+ * on the bare origin, ahead of the ordinary `/api` router, so none of the
+ * limiters above ever see them — `POST /register` in particular is an
+ * unauthenticated `oauth_client` INSERT with no limiter at all upstream of it.
+ *
+ * Keyed the same way `preAuthFloodGuard` is (validated platform IP on Vercel,
+ * raw socket peer on self-host — see `resolveClientKey`), because none of
+ * these four requests carries a credential yet: there is no user or token to
+ * key on. 30/min/IP is generous for a real client's discovery + register +
+ * token-exchange sequence (a handful of requests) while still bounding an
+ * unauthenticated INSERT loop and the token-exchange advisory lock it shares
+ * with `/token`. A distinct tag from `preauth` — sharing that prefix with
+ * `preAuthFloodGuard`'s 600/min budget would mean two different limits
+ * fighting over one bucket.
+ */
+export const oauthPublicRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-public', 30, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)),
+);
+
+/**
  * Pre-auth ingress guard: 600 requests per 60s per source IP per process.
  * Applies to ALL API requests (not just bearer-authenticated ones) because
  * the RLS middleware acquires a DB connection even for anonymous catalog reads.

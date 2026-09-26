@@ -90,20 +90,31 @@ omit the host.
   IP per process**, before token resolution and before the RLS pool is
   acquired. On Vercel the key is the validated `x-vercel-forwarded-for` (or
   `x-forwarded-for`); off Vercel it is the raw socket peer (`trust proxy` stays
-  `false`). The Stripe raw-body webhook and the bare-origin OAuth discovery /
-  `/register` / `/token` handlers are mounted separately on `app` ahead of that
-  router and are outside this guard; the MCP transport at `/mcp` is a separate
-  function. Session budgets run **after** auth/self-host identity and
-  `requireSession` but **before** RLS request-connection acquisition:
-  `/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min, all `/admin`
-  120/min and all `/me/credits` 180/min. Active-account/action permissions
-  and handlers follow RLS. Authentication and trusted bootstrap may access
-  their own pool earlier. Refusal is **`429`** with a **`Retry-After`** header in
-  seconds; a request is charged once per applicable budget (it may consume
-  both ingress and a per-user session budget, with no duplicate route-level
-  charge). Budgets are in-memory fixed windows, per process / per serverless
-  instance, reset on cold start — speed bumps against retry storms and casual
-  abuse, not a distributed quota. See `SECURITY.md` → Rate limiting.
+  `false`). Session budgets run **after** auth/self-host identity but
+  **before** RLS request-connection acquisition: `/tokens` 20/min, `/avatar`
+  10/min, `/oauth` 30/min, `/bugs` 10/hour, all `/admin` 120/min and all
+  `/me/credits` 180/min (the first four keyed on identity without requiring a
+  browser session; `/admin` and `/me/credits` require one). Active-account/action
+  permissions and handlers follow RLS. Authentication and trusted bootstrap may
+  access their own pool earlier. Refusal is **`429`** with a **`Retry-After`**
+  header in seconds; a request is charged once per applicable budget. Budgets
+  are in-memory fixed windows, per process / per serverless instance, reset on
+  cold start — speed bumps against retry storms and casual abuse, not a
+  distributed quota.
+
+  Three flows sit outside this router entirely, each with its own limiter now:
+  the bare-origin OAuth discovery / `/register` / `/token` handlers (mounted on
+  `app` ahead of it; 30/min per source IP), the MCP transport at `/mcp` (a
+  separate function; 60/min per credential — keyed on the token, not the IP,
+  because hosted MCP connectors share egress IPs across users), and the Stripe
+  raw-body webhook (no application limiter; Stripe's own signature and retry
+  behavior is the control). See `SECURITY.md` → Rate limiting.
+- **Body-size limits.** Per route, not one limit for the whole API: `/bugs`
+  12mb (the bug-report screenshot), `/dev/scan-queue` and `/dev/scan-flags`
+  4mb (labeler/harness photos), `/decke` 512kb (one transcript-history turn),
+  `/lists` 1mb (a bulk item add), `/register`/`/token` 16kb each, and 100kb
+  for every other route. An oversize body is a proper `413 payload_too_large`.
+  See `SECURITY.md` → Body-size limits.
 - **Caching.** Pure-catalog responses (`/series` list, `/search`, the `/` index)
   send `Cache-Control: public, max-age=…`. Anything mixing in the user's
   collection or prices sends `private, no-cache, must-revalidate`.

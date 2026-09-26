@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import type pg from 'pg';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import { loadEnv, makePool, resolveToken, touchToken } from '@deckpal/db';
+import { loadEnv, makePool, resolveToken, touchToken, hashToken } from '@deckpal/db';
 import { makeApi, redactEndpoints, type Ctx } from '@deckpal/agent-tools';
 import { withUserContext } from './rls.js';
 import { buildServer } from './server.js';
@@ -118,6 +118,67 @@ function tokenFrom(req: Request): string {
 }
 
 /**
+ * Per-credential rate limit (SEC-09): `/mcp` used to sit outside every
+ * limiter in this codebase. Every request carrying a token-shaped credential
+ * runs a `resolveToken` lookup and a `touchToken` UPDATE against
+ * `PGPOOL_MAX_MCP=2` connections — a tiny, deliberately serverless-sized
+ * budget — so a burst on one warm instance can starve every other caller
+ * sharing it.
+ *
+ * Keyed on the CREDENTIAL, never the IP. claude.ai's (and every other hosted
+ * connector's) traffic arrives from that provider's own egress IPs, shared
+ * across every one of that provider's users — an IP-keyed limit would let one
+ * heavy user on a shared connector exhaust the bucket for everyone else
+ * behind the same egress IP, which is exactly the bug SEC-11 fixes for
+ * `/bugs` one hop downstream. `sha256(raw token)` gives each user's own
+ * credential its own budget regardless of how many others share their
+ * egress IP, and never stores the secret itself in memory. It runs on
+ * whatever string `tokenFrom` extracted — valid, unknown or revoked alike —
+ * BEFORE `resolveToken`, so a flood of unresolvable tokens never reaches the
+ * pool either; a request with no credential at all is already the cheapest
+ * path in this handler (an immediate 401, no DB), so it is not metered here.
+ *
+ * Per-instance only, like every limiter in this codebase (see
+ * apps/api/src/rateLimit.ts): a cold start gets its own budget, so a caller
+ * spread across instances gets N × this. That is an accepted trade-off
+ * already documented for the REST API's limiters, and MCP traffic — a
+ * handful of tool calls per conversational turn — is low-volume enough that
+ * it holds here too.
+ */
+export const MCP_RATE_MAX = 60;
+export const MCP_RATE_WINDOW_MS = 60_000;
+const MCP_RATE_MAX_KEYS = 10_000;
+const MCP_RATE_SWEEP_MS = 5 * 60_000;
+const mcpRateBuckets = new Map<string, { count: number; resetAt: number }>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of mcpRateBuckets) {
+    if (bucket.resetAt <= now) mcpRateBuckets.delete(key);
+  }
+}, MCP_RATE_SWEEP_MS).unref();
+
+/** Exported for `mcpRateOk`'s own tests; the HTTP handler above is the only other caller. */
+export function mcpRateOk(credentialHash: string): boolean {
+  const now = Date.now();
+  let bucket = mcpRateBuckets.get(credentialHash);
+  if (!bucket || bucket.resetAt <= now) {
+    // Bounded cardinality, same policy as RateLimitStore: never evict an
+    // active bucket to admit a fresh key, so a flood of distinct credentials
+    // cannot be used to push a real user's budget out of the map.
+    if (!bucket && mcpRateBuckets.size >= MCP_RATE_MAX_KEYS) return false;
+    bucket = { count: 0, resetAt: now + MCP_RATE_WINDOW_MS };
+    mcpRateBuckets.set(credentialHash, bucket);
+  }
+  bucket.count++;
+  return bucket.count <= MCP_RATE_MAX;
+}
+
+/** Test seam: clears every bucket so cases don't leak into each other. */
+export function __resetMcpRateLimitForTests(): void {
+  mcpRateBuckets.clear();
+}
+
+/**
  * Where `/.well-known/oauth-protected-resource` lives — same host-validated
  * derivation as {@link apiBaseFor}, minus the `/api` suffix, since the
  * metadata endpoint is served from apps/api at the bare origin
@@ -193,6 +254,15 @@ export function createCloudApp(): Express {
           'No token. Connect via OAuth in your MCP client, send Authorization: Bearer <token>, or use the ' +
             'personal connector URL https://deckpal.app/mcp/<token>. Create a token in DeckPal at Profile → Agent access.',
         );
+        return;
+      }
+
+      // SEC-09: keyed on the credential itself (see mcpRateOk's doc comment),
+      // BEFORE resolveToken so a flood of unresolvable tokens never reaches
+      // the pool either.
+      if (!mcpRateOk(hashToken(raw))) {
+        res.setHeader('Retry-After', '60');
+        res.status(429).json({ error: { code: 'rate_limited', message: 'Too many requests for this token — slow down.' } });
         return;
       }
 

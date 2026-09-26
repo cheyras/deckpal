@@ -44,6 +44,22 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     res.status(err.status).json({ error: { code: err.code, message: err.message } });
     return;
   }
+  // body-parser (express.json/express.urlencoded) signals an oversize body
+  // with a plain Error tagged `type: 'entity.too.large'` and `status: 413`,
+  // not an ApiError. Left alone that falls into the generic branch below and
+  // the caller is told "Internal server error" — wrong (it is a 413, the
+  // caller's mistake, not a server fault) and unactionable. scan/router.ts
+  // already works around this by hand for its own raw-body parser (its
+  // `readImageBody`); doing the translation here once, in the shared funnel,
+  // covers every express.json()-guarded route (SEC-08) instead of asking each
+  // one to repeat it — including /register's and /token's own parsers, whose
+  // limit only became reachable once the blanket parser that used to shadow
+  // them was removed.
+  const sized = err as { type?: string; status?: number; statusCode?: number };
+  if (sized?.type === 'entity.too.large' || sized?.status === 413 || sized?.statusCode === 413) {
+    res.status(413).json({ error: { code: 'payload_too_large', message: 'Request body is too large.' } });
+    return;
+  }
   // Log the real error server-side; send a generic message to the client.
   console.error('[deckpal-api] unhandled', err);
   res.status(500).json({ error: { code: 'internal', message: 'Internal server error' } });
