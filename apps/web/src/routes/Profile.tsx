@@ -40,25 +40,29 @@ interface ShowcasePick {
   high: string
 }
 
-// A flat snapshot of every owned card, assembled from the captured-species details.
-// Single-user, small (the demo owns a handful), so a fan-out over captured species
-// is cheap and keeps us on the read-only insights contract (no collection dump route).
-function useOwnedCards() {
+// UXC-04: this used to page the captured-species grid and then fetch EVERY
+// captured species individually (1 + N requests per Profile visit — 867 for a
+// heavy collection — whether or not the showcase picker was ever opened; a
+// single failed species request threw the whole Promise.all and the picker's
+// catch-all then told a collector with thousands of cards "You don't own any
+// cards yet"). `GET /me/cards` (apps/api/src/me/ownedCards.ts) answers "what
+// do I own" directly from `collection_item` in one query, paged and
+// optionally searched — see DECISIONS.md 2026-09-26.
+//
+// `pageSize` doubles as the query key: the small banner fetch and the picker's
+// larger, searchable fetch stay independent caches, and the banner's is cheap
+// enough (one bounded query, not a fan-out) to run unconditionally.
+function useOwnedCards(opts: { pageSize: number; q?: string; enabled?: boolean }) {
+  const q = opts.q?.trim() ?? ''
   return useQuery({
-    queryKey: ['ownedCards'],
-    staleTime: 5 * 60_000,
+    queryKey: ['ownedCards', opts.pageSize, q],
+    enabled: opts.enabled ?? true,
+    staleTime: 60_000,
     queryFn: async ({ signal }) => {
-      const grid = await api.dex(new URLSearchParams({ own: 'captured', pageSize: '1025' }), signal)
-      const details = await Promise.all(grid.species.map((s) => api.species(String(s.speciesId), signal)))
-      const byId = new Map<string, ShowcasePick>()
-      for (const d of details) {
-        for (const c of d.cards) {
-          if (c.owned && !byId.has(c.cardId)) {
-            byId.set(c.cardId, { cardId: c.cardId, name: c.name, low: c.images.low, high: c.images.high })
-          }
-        }
-      }
-      return [...byId.values()]
+      const params = new URLSearchParams({ sort: 'value', pageSize: String(opts.pageSize) })
+      if (q) params.set('q', q)
+      const res = await api.ownedCards(params, signal)
+      return res.cards.map((c): ShowcasePick => ({ cardId: c.cardId, name: c.name, low: c.images.low, high: c.images.high }))
     },
   })
 }
@@ -88,7 +92,10 @@ export function Profile() {
   const overview = useQuery({ queryKey: ['insights', 'overview'], queryFn: ({ signal }) => api.overview(signal) })
   // Issue #49: the wrapper entrance fires while this is still a spinner.
   const enter = useLateEntrance(overview.isLoading)
-  const owned = useOwnedCards()
+  // The banner's 3 card-art panels. Bounded (pageSize 3) and cheap enough to
+  // run on every visit now — the picker's own, larger fetch loads lazily
+  // below, only once it actually opens.
+  const bannerCards = useOwnedCards({ pageSize: 3 })
   // Self-host has no per-user account, so no query — 'Trainer' stays the
   // generic label there, exactly as before (issue #25 is cloud-only).
   const me = useQuery({ queryKey: ['me'], queryFn: ({ signal }) => api.me(signal), enabled: isCloudMode })
@@ -100,6 +107,18 @@ export function Profile() {
   // immediately, then let /me/showcase overwrite it when it answers.
   const [showcase, setShowcase] = useState<ShowcasePick[]>(() => loadShowcase())
   const [picking, setPicking] = useState<number | null>(null)
+  // The picker's own search box, debounced the same way AddCardModal's is
+  // (components/ListModals.tsx) — 300ms, so a search-as-you-type doesn't fire
+  // a request per keystroke.
+  const [pickerTerm, setPickerTerm] = useState('')
+  const [pickerSearch, setPickerSearch] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setPickerSearch(pickerTerm.trim()), 300)
+    return () => clearTimeout(t)
+  }, [pickerTerm])
+  // UXC-04: loads only once the sheet is actually open — not on every Profile
+  // visit — and only refetches (rather than growing) when the search changes.
+  const picker = useOwnedCards({ pageSize: 48, q: pickerSearch, enabled: picking != null })
   const serverShowcase = useQuery({ queryKey: ['showcase'], queryFn: ({ signal }) => api.showcase(signal) })
   const hydratedShowcase = useRef(false)
   useEffect(() => {
@@ -162,7 +181,7 @@ export function Profile() {
 
   const ov = overview.data
   const usd = ov?.collectionValue.find((c) => c.currency === 'USD')
-  const banner = useMemo(() => (owned.data ?? []).slice(0, 3), [owned.data])
+  const banner = useMemo(() => (bannerCards.data ?? []).slice(0, 3), [bannerCards.data])
 
   const slots: (ShowcasePick | undefined)[] = [0, 1, 2, 3].map((i) => showcase[i])
 
@@ -423,19 +442,43 @@ export function Profile() {
         </div>
       </Content>
 
-      {/* showcase picker */}
+      {/* showcase picker — UXC-04: loads lazily (only while open), searchable,
+          and an actual failure now says so instead of "you own nothing". */}
       {picking != null && (
-        <Sheet title="Pick a Showcase Card" onClose={() => setPicking(null)} size="md">
-          <>
-            {owned.isLoading ? (
+        <Sheet
+          title="Pick a Showcase Card"
+          onClose={() => {
+            setPicking(null)
+            setPickerTerm('')
+          }}
+          size="md"
+        >
+          <div className="flex flex-col gap-[16px]">
+            <label className="flex h-[44px] items-center gap-[8px] rounded-lg border border-border-default bg-surface-primary px-[14px]">
+              <Icon name="search" size={16} className="shrink-0 text-icon-muted" />
+              <input
+                data-autofocus
+                value={pickerTerm}
+                onChange={(e) => setPickerTerm(e.target.value)}
+                placeholder="Search your cards…"
+                className="h-full w-full bg-transparent text-[15px] text-text-primary placeholder:text-text-muted"
+              />
+            </label>
+
+            {picker.isLoading ? (
               <Spinner label="Loading your cards…" />
-            ) : (owned.data ?? []).length === 0 ? (
+            ) : picker.isError ? (
+              <ErrorState
+                message={picker.error instanceof Error ? picker.error.message : 'Could not load your cards.'}
+                onRetry={() => void picker.refetch()}
+              />
+            ) : (picker.data ?? []).length === 0 ? (
               <div className="py-[40px] text-center text-[14px] text-text-muted">
-                You don't own any cards yet.
+                {pickerSearch ? `No cards match "${pickerSearch}".` : "You don't own any cards yet."}
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-[10px] sm:grid-cols-4">
-                {(owned.data ?? []).map((c) => (
+                {(picker.data ?? []).map((c) => (
                   <button key={c.cardId} onClick={() => setSlot(picking, c)} className="block text-left">
                     <CardImage low={c.low} high={c.high} alt={c.name} />
                     <div className="mt-[4px] truncate text-[14px] text-text-body">{c.name}</div>
@@ -443,7 +486,7 @@ export function Profile() {
                 ))}
               </div>
             )}
-          </>
+          </div>
         </Sheet>
       )}
     </div>

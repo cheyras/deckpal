@@ -54,6 +54,12 @@ export function adminFixture(mount) {
     if (rel === '/api/me') return state.signedOut ? { status: 401, body: { error: { message: 'Signed out' } } } : ok({ id: state.actor === 'owner' ? OWNER : USER, username: state.actor, permissions: state.permissions, roles: state.actor === 'owner' ? [{ id: 'super-role', name: 'Super administrator' }] : [], adminReady: true, owner: state.actor === 'owner', decke: state.permissions.includes('decke.use') })
     if (rel === '/api/me/settings') return ok({ settings: { defaultGoal: 'complete', displayCurrency: 'USD', pricingEnabled: true, showCollectionValue: true, binderPocketSize: 9, binderStackVariants: true, binderAdditionalVariants: 'hide', deckeHidden: false, skin: null, topbar: null, seriesSortKey: 'recency', seriesSortDir: 'desc', seriesGroupOwned: false }, defaults: state.defaults.settings })
     if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0 }, collectionValue: [], collection: {}, pokedex: { captured: 0, total: 1 }, tcg: {}, completion: {}, value: {} })
+    // UXC-04: Profile's showcase picker (apps/web/src/routes/Profile.tsx) now
+    // loads its "what do I own" list from this bounded endpoint instead of
+    // fanning out over the Pokédex — none of the checks here exercise the
+    // picker itself, so an empty page is enough to keep /profile visits quiet.
+    if (rel === '/api/me/cards') return ok({ pagination: { page: 1, pageSize: 48, total: 0, pageCount: 0 }, cards: [] })
+    if (rel === '/api/me/showcase') return ok({ showcase: [] })
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/me/billing/history') {
