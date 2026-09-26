@@ -794,7 +794,7 @@ The reader can talk while the scanner runs ("that one's a reverse holo", "two
 of those", "remove it") and the list corrects itself (`apps/web/src/scan/voice/`,
 DECISIONS.md 2026-09-26). It lives entirely in the browser, on the Web Speech
 API. The server sees no audio and no transcripts, and its only part is the
-`scanner_voice` feature-catalog row that gates the control (migration 072). The
+`scanner_voice` feature-catalog row that gates the control (migration 073). The
 browser's own recognizer does send audio to its vendor (Apple for Safari,
 Google for Chrome). The structure is four pure modules and one hook:
 

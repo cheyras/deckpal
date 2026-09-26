@@ -996,9 +996,9 @@ fulfillment, reversal or settlement helpers to web roles. No direct governance
 or financial table grants are added. Preserve the explicit function grants shipped by
 064–071 instead of granting all functions/tables to resolve an error.
 
-### Scanner voice opt-in (072)
+### Scanner voice opt-in (073)
 
-`072_scanner_voice_feature.sql` adds one feature-catalog row, `scanner_voice`
+`073_scanner_voice_feature.sql` adds one feature-catalog row, `scanner_voice`
 ("Scanner voice commands"), at lifecycle `beta`. It needs 069 and nothing else,
 and the same `pnpm --filter @deckpal/db migrate` applies it. It adds no table,
 function, grant, permission or environment variable. Until it runs, the web app

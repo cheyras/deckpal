@@ -195,8 +195,8 @@ try{
   await denied(()=>features(id(3),'admin.list'));
   if(mode==='cloud')for(const table of ['app_feature','app_feature_opt_in'])await denied(()=>as(id(1),c=>c.query('SELECT * FROM '+table)));
  });
- await test('072 scanner voice is a beta every tier must opt into, Owner included, and mints no permission',async()=>{
-  for(let run=0;run<2;run++)await db.query(sql('072_scanner_voice_feature.sql'));
+ await test('073 scanner voice is a beta every tier must opt into, Owner included, and mints no permission',async()=>{
+  for(let run=0;run<2;run++)await db.query(sql('073_scanner_voice_feature.sql'));
   assert.equal((await db.query("SELECT count(*)::int n FROM app_feature WHERE key='scanner_voice'")).rows[0].n,1);
   for(const [user,tier] of [[id(1),60],[id(5),50],[id(6),10]]){
    const a=await access(user),f=a.features.find(x=>x.key==='scanner_voice');
