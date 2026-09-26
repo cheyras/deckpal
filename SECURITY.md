@@ -52,7 +52,8 @@ until migration 072 (security audit, 2026-09-26; DECISIONS.md):
   can belong to one profile at a time, so nobody can point their profile at
   another user's photo and have the API delete it. A revoked `api_token` cannot
   be un-revoked, and its identity columns never change (a trigger, for every
-  writer).
+  writer); client roles cannot delete token rows, so a revoked row cannot be
+  deleted and its hash minted again.
 - **Foreign-key checks ignore RLS.** A deck's cards, versions and battle logs,
   and a binder's placements, reference their parent by `(id, user_id)`, so a
   row can only hang off a parent its own owner owns.

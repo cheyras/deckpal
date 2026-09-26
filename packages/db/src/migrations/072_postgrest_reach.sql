@@ -138,6 +138,14 @@ END $profile_acl$;
 -- `COALESCE(revoked_at, now())` and the admin paths only set it. The identity
 -- columns are fixed at mint time for the same reason. `name` and `last_used_at`
 -- stay writable.
+--
+-- The trigger alone is not enough: 027 also lets a user DELETE their own token
+-- row, and a revoked row deleted and re-inserted with the same hash is a live
+-- token again. So client roles lose DELETE. Nothing in the app deletes a token
+-- as the user (revoke is an UPDATE, and rows are kept for audit, 026), and an
+-- account's deletion still cascades, because a foreign-key action runs as the
+-- table's owner. The revoked row stays as a tombstone, and the UNIQUE
+-- `token_hash` refuses the same hash a second time.
 CREATE FUNCTION public.api_token_guard_update() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -160,6 +168,8 @@ BEGIN
   CONTINUE WHEN principal <> 'PUBLIC' AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = principal);
   EXECUTE format('REVOKE ALL ON FUNCTION public.api_token_guard_update() FROM %s',
                  CASE WHEN principal = 'PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  CONTINUE WHEN principal = 'PUBLIC';
+  EXECUTE format('REVOKE DELETE ON public.api_token FROM %I', principal);
  END LOOP;
 END $token_acl$;
 

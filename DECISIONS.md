@@ -20552,7 +20552,11 @@ over PostgREST, around the API):
   rewriting their public stats or display name.
 - **SEC-10.** A user could PATCH `api_token.revoked_at` back to NULL, undoing
   an administrator's revoke; a trigger now makes revocation final and a token's
-  identity columns immutable for every writer. And `deck_card`, `deck_version`,
+  identity columns immutable for every writer. The independent review found
+  the same result reachable by deleting the revoked row and inserting its hash
+  again, so client roles also lose DELETE on `api_token` (nothing in the app
+  deletes a token as the user; account deletion still cascades as the owner).
+  And `deck_card`, `deck_version`,
   `battle_log` and `binder_placement` referenced their parent by id alone, and a
   foreign-key check ignores RLS, so a user who knew another user's deck or list
   item id could plant rows under it that the owner could neither see nor get

@@ -218,7 +218,7 @@ try {
       });
     });
 
-    await test('SEC-10: a revoked token stays revoked and keeps its identity; the API\'s token writes still work', async () => {
+    await test('SEC-10: a revoked token stays revoked (no un-revoke, no delete and re-mint) and keeps its identity; the API\'s token writes still work', async () => {
       const id = (await db.query('SELECT id FROM api_token WHERE user_id = $1', [A])).rows[0].id;
       await as('authenticated', A, async (c) => {
         await c.query('UPDATE api_token SET last_used_at = now() WHERE id = $1', [id]);
@@ -228,9 +228,13 @@ try {
         await c.query('ROLLBACK TO SAVEPOINT s');
         await rejects(c.query("UPDATE api_token SET token_hash = repeat('f', 64) WHERE id = $1", [id]), '42501');
       });
-      // An administrator's revoke (the SECURITY DEFINER path) cannot be undone by the user either.
+      // An administrator's revoke (the SECURITY DEFINER path) cannot be undone by the user either,
+      // neither in place nor by deleting the revoked row and minting its hash again.
       await db.query('UPDATE api_token SET revoked_at = now() WHERE id = $1', [id]);
       await as('authenticated', A, (c) => rejects(c.query('UPDATE api_token SET revoked_at = NULL WHERE id = $1', [id]), '42501'));
+      await as('authenticated', A, (c) => rejects(c.query('DELETE FROM api_token WHERE id = $1', [id]), '42501'));
+      await as('authenticated', A, (c) => rejects(c.query(
+        "INSERT INTO api_token (user_id, name, token_hash, prefix) SELECT user_id, 'again', token_hash, prefix FROM api_token WHERE id = $1", [id]), '23505'));
     });
 
     await test('SEC-10: nobody can plant rows under another user\'s deck or binder item', async () => {
