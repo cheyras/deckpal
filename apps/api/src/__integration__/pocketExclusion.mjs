@@ -110,14 +110,21 @@ function discoverBinDir() {
   return realpathSync(found);
 }
 
+let activeChild;
+
 function run(binary, args, opts = {}) {
   return new Promise((resolveRun, rejectRun) => {
     const child = spawn(binary, args, { env: opts.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    activeChild = child;
     let output = '';
     child.stdout.on('data', (d) => (output += d));
     child.stderr.on('data', (d) => (output += d));
-    child.once('error', rejectRun);
+    child.once('error', (err) => {
+      if (activeChild === child) activeChild = undefined;
+      rejectRun(err);
+    });
     child.once('close', (code) => {
+      if (activeChild === child) activeChild = undefined;
       if (!(opts.accepted ?? [0]).includes(code)) {
         rejectRun(new Error(`${binary} ${args.join(' ')} failed (exit ${code}):\n${output.slice(-4000)}`));
       } else resolveRun({ code, output });
@@ -129,6 +136,25 @@ let scratch;
 let bindir;
 let pool;
 let toolsCtx;
+let cleaningUp = false;
+
+/**
+ * Cluster teardown reachable from both the normal `finally` and a signal —
+ * every path that can leave a `bootCluster()` partway through (a failing
+ * provisioning `psql` call, Ctrl-C) must still stop the server and remove the
+ * temp directory. `stopCluster()` itself is safe to call before the server
+ * ever started (it checks for `PG_VERSION` first) and safe to call twice.
+ */
+async function cleanupAndExit(code) {
+  if (cleaningUp) return;
+  cleaningUp = true;
+  activeChild?.kill('SIGTERM');
+  await pool?.end().catch(() => {});
+  await stopCluster().catch((err) => console.error('[pocketExclusion] cleanup failed:', err.message));
+  process.exit(code);
+}
+process.on('SIGINT', () => void cleanupAndExit(130));
+process.on('SIGTERM', () => void cleanupAndExit(143));
 
 async function bootCluster() {
   bindir = discoverBinDir();
@@ -260,7 +286,6 @@ async function seedFixture(client) {
 
 async function main() {
   assertNoRepoEnvFile();
-  const conn = await bootCluster();
   const results = [];
   const check = async (name, fn) => {
     try {
@@ -274,6 +299,14 @@ async function main() {
   };
 
   try {
+    // `bootCluster()` runs INSIDE this try, not before it: `initdb` can
+    // succeed and `pg_ctl start` can bring a real postmaster up before either
+    // provisioning `psql` call (CREATE ROLE / CREATE DATABASE) fails, and a
+    // throw at that point must still reach `stopCluster()` in `finally` below
+    // — caught in review, where it previously ran ahead of the try block and
+    // could leave the server and its temp directory behind on that failure.
+    const conn = await bootCluster();
+
     // Isolate the whole process's environment from whatever the invoking
     // shell has configured -- BEFORE anything reads it. This matters twice
     // over: `migrateUp()` below reads `SUPABASE_MODE` to decide which
