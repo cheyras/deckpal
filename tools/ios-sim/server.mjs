@@ -25,7 +25,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { adminFixture } from '../../tests/browser/admin.mjs'
 import { buildWeb } from '../../tests/browser/support.mjs'
 
@@ -65,19 +65,24 @@ export function createFixture() {
   // ── 3. Fake card catalog (search + showcase) ──────────────────────────────
   const PLACEHOLDER_IMG = { low: '/__fixture/card.svg', high: '/__fixture/card.svg' }
   const PRICE = { market: 4.5, low: 3, mid: 4.5, high: 6, currency: 'USD' }
-  function fakeCatalogCard(id, name, number) {
+  // cardId is DERIVED from number (`${setId}-${number}`), never passed separately: real DeckPal
+  // reconstructs a card's id from its set and number wherever the full row isn't already in hand
+  // (CardLink navigates by number; CardDetail rebuilds `${set}-${number}`), so a fixture cardId
+  // that doesn't match that formula 404s on every search-result click-through and on any list
+  // quantity counter that reconstructs the same id -- caught by Astra's review; see DECISIONS.md.
+  function fakeCatalogCard(name, number) {
     return {
-      cardId: id, number, name, category: 'Pokémon', rarity: 'Rare', artist: 'Fixture Artist',
+      cardId: 'sim1-' + number, number, name, category: 'Pokémon', rarity: 'Rare', artist: 'Fixture Artist',
       regulationMark: null, set: { setId: 'sim1', name: 'Simulator Set' },
       series: { slug: 'sim', name: 'Simulator Series' }, variantCount: 1, images: PLACEHOLDER_IMG, price: PRICE,
     }
   }
   const CATALOG = [
-    fakeCatalogCard('sim1-1', 'Simuchu', '001'),
-    fakeCatalogCard('sim1-2', 'Fixturemon', '002'),
-    fakeCatalogCard('sim1-3', 'Testadactyl', '003'),
-    fakeCatalogCard('sim1-4', 'Mockipom', '004'),
-    fakeCatalogCard('sim1-5', 'Stubbicoon', '005'),
+    fakeCatalogCard('Simuchu', '001'),
+    fakeCatalogCard('Fixturemon', '002'),
+    fakeCatalogCard('Testadactyl', '003'),
+    fakeCatalogCard('Mockipom', '004'),
+    fakeCatalogCard('Stubbicoon', '005'),
   ]
   // One synthetic "primary variant" id per catalog card, shared by the card-detail route
   // (which advertises it) and the add-to-list route (which resolves it back to a card) --
@@ -401,8 +406,12 @@ export async function main(argv = process.argv.slice(2)) {
   return server
 }
 
-// Only run when invoked directly (`node server.mjs`), not when imported by tests.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Only run when invoked directly (`node server.mjs`), not when imported by tests. Compared as
+// URLs, not by string-concatenating a bare "file://" onto the raw path: import.meta.url is
+// percent-encoded (spaces, etc.) but process.argv[1] is not, so a checkout path containing a
+// space made this false even when server.mjs genuinely was the entry point -- `pnpm sim:serve`
+// would exit 0 having done nothing, silently.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error('[sim]', error.message)
     process.exit(1)

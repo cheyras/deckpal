@@ -114,7 +114,7 @@ describe('createFixture lists routes', () => {
     const afterAdd = get(respondApi, '/api/lists/list-1')
     assert.equal(afterAdd.body.items.length, 1)
     assert.equal(afterAdd.body.items[0].itemId, add.body.itemId)
-    assert.equal(afterAdd.body.items[0].cardId, 'sim1-1')
+    assert.equal(afterAdd.body.items[0].cardId, 'sim1-001')
     assert.equal(afterAdd.body.items[0].name, 'Simuchu')
     const remove = get(respondApi, '/api/lists/list-1/items/' + add.body.itemId, { method: 'DELETE' })
     assert.equal(remove.body.list.itemCount, 0)
@@ -184,7 +184,7 @@ describe('createFixture card search', () => {
   it('filters by name, case-insensitively', () => {
     const { respondApi } = createFixture()
     const response = get(respondApi, '/api/search?q=fixture')
-    assert.deepEqual(response.body.cards.map((c) => c.cardId), ['sim1-2'])
+    assert.deepEqual(response.body.cards.map((c) => c.cardId), ['sim1-002'])
   })
 })
 
@@ -202,6 +202,16 @@ describe('createFixture card detail (the add-card flow depends on this)', () => 
       assert.ok(primary, card.cardId + ' has no primary variant')
       const added = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: primary.variantId } })
       assert.equal(added.body.list.itemCount > 0, true)
+    }
+  })
+  it('cardId matches what the real app reconstructs from set + number, for every catalog card', () => {
+    // Astra's finding: CardLink navigates by `number` and CardDetail rebuilds the id as
+    // `${set}-${number}`; a fixture cardId that doesn't equal that formula 404s on every
+    // search-result click-through even though the search row itself displayed fine.
+    const { respondApi } = createFixture()
+    for (const card of get(respondApi, '/api/search').body.cards) {
+      assert.equal(card.cardId, card.set.setId + '-' + card.number)
+      assert.equal(get(respondApi, '/api/cards/' + card.set.setId + '-' + card.number).status ?? 200, 200)
     }
   })
   it('404s a card id that was never in the fixture catalog', () => {
