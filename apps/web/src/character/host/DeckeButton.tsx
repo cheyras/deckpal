@@ -63,6 +63,7 @@ export function DeckeButton({
   loading = false,
   failed = false,
   overChat = false,
+  chatOpen = false,
 }: {
   /**
    * Open the chat, and hand over WHERE THIS BUTTON IS.
@@ -84,6 +85,13 @@ export function DeckeButton({
   failed?: boolean
   /** The chat is open and this chip is standing in for the absent character. */
   overChat?: boolean
+  /**
+   * A11Y-05: is the chat panel this button opens currently open? This button
+   * unmounts (`hidden`) the moment he has fully arrived, so the window where
+   * `aria-expanded` is observable is short — the loading/`overChat` overlap —
+   * but it is real, and it costs nothing to say correctly.
+   */
+  chatOpen?: boolean
 }) {
   const warmed = useRef(false)
   const btnRef = useRef<HTMLButtonElement | null>(null)
@@ -157,6 +165,7 @@ export function DeckeButton({
       // "this control is working", so it is the one used.
       aria-label={failed ? 'Deck-E could not load — try again' : 'Chat with Deck-E'}
       aria-busy={loading || undefined}
+      aria-expanded={chatOpen}
       className={[
         'group fixed bottom-[20px] right-[20px]',
         // Above the phone scrim (24) and panel (25) while standing in for the

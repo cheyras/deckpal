@@ -304,7 +304,7 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
         <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
           <Icon name="plus" size={13} />
         </button>
-        <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger hover:text-action-danger-text">
+        <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger-fill hover:text-action-danger-text">
           <Icon name="close" size={14} />
         </button>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandLogo, BrandD, type IconName } from './Icon'
@@ -14,6 +14,12 @@ import { useSignedIn } from '../lib/session'
 import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
+
+// A11Y-05: `MobileDrawer`'s Tab trap and initial-focus target. Duplicated from
+// `Sheet.tsx` (which keeps its own copy private) rather than exported and
+// imported — see that file's `FOCUSABLE` for the canonical version.
+const FOCUSABLE =
+  'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
 // badge reads straight from the insights overview; links to the profile surface.
@@ -164,7 +170,12 @@ function NavRow({
       ].join(' ')}
       data-active={active ? 'true' : 'false'}
     >
-      <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
+      {/* A11Y-03: `icon-muted-strong` measures 2.15:1 on this rail's
+          surface-primary background — below WCAG 1.4.11's 3:1 floor for a
+          graphical object identifying a component, which this is (every
+          inactive row is a real link). `icon-muted` clears it at 3.49:1 and
+          reads as the same "dim but present" weight. */}
+      <span className={active ? 'text-text-primary' : 'text-icon-muted'}>
         <NavIcon name={item.icon} active={active} size={item.icon === 'discord' ? 20 : 24} />
       </span>
       {!collapsed && (
@@ -332,7 +343,7 @@ function ExpandableNavRow({
           ].join(' ')}
           data-active={active ? 'true' : 'false'}
         >
-          <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
+          <span className={active ? 'text-text-primary' : 'text-icon-muted'}>
             <NavIcon name={item.icon} active={active} size={24} />
           </span>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
@@ -452,12 +463,54 @@ function MobileDrawer({
   const signedOut = signedIn === false
   const avatar = useAvatar(signedIn === true)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const panelRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      // A11Y-05: trap Tab inside the drawer while it is open. Same shape as
+      // `Sheet.tsx`'s trap (that component's `FOCUSABLE` is private, hence the
+      // duplicate selector rather than an import — see `DeckeChat.tsx`'s
+      // `prefersReducedMotion` for the same call elsewhere in this codebase).
+      if (e.key !== 'Tab' || !panelRef.current) return
+      const nodes = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement)
+      if (nodes.length === 0) return
+      const first = nodes[0]
+      const last = nodes[nodes.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (e.shiftKey && (active === first || !panelRef.current.contains(active))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [open, onClose])
+  // A11Y-05: move focus into the drawer on open, and back to the "Menu"
+  // trigger on close — neither happened before. The trigger is found by its
+  // accessible name (matching `DeckeHost.tsx`'s `LAUNCHER_SELECTOR` pattern)
+  // rather than a ref threaded down from `Header`, since this component
+  // already has no other coupling to it.
+  useEffect(() => {
+    if (!open) return
+    const id = requestAnimationFrame(() => {
+      const panel = panelRef.current
+      const first = panel?.querySelector<HTMLElement>(FOCUSABLE)
+      ;(first ?? panel)?.focus({ preventScroll: true })
+    })
+    return () => {
+      cancelAnimationFrame(id)
+      document.querySelector<HTMLElement>('button[aria-label="Menu"]')?.focus({ preventScroll: true })
+    }
+  }, [open])
   if (!open) return null
   const top = 'calc(64px + env(safe-area-inset-top))'
   return (
@@ -470,9 +523,13 @@ function MobileDrawer({
         aria-hidden="true"
       />
       <div
+        ref={panelRef}
+        id="mobile-nav-drawer"
+        tabIndex={-1}
         className="fixed left-0 z-(--z-overlay) w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
         style={{ top, height: `calc(100dvh - ${top})`, paddingBottom: 'env(safe-area-inset-bottom)' }}
         role="dialog"
+        aria-modal="true"
         aria-label="Navigation"
       >
         <div className="px-[16px] py-[20px]" onClick={onClose}>
@@ -557,6 +614,8 @@ function Header({
           onClick={onBurger}
           className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-icon-default nav:hidden"
           aria-label="Menu"
+          aria-expanded={drawerOpen}
+          aria-controls="mobile-nav-drawer"
         >
           <Icon name={drawerOpen ? 'close' : 'menu'} size={24} />
         </button>
@@ -659,6 +718,20 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-surface-primary">
+      {/* A11Y-02: the skip link existed only on the marketing landing page
+          (`Landing.tsx`) — the entire signed-in/catalog product had no way to
+          bypass the header/nav chrome (WCAG 2.4.1, Level A). Hoisted here so it
+          renders once above every non-chromeless route, pointed at the same
+          `#main` landmark below. The classes are copied from Landing.tsx
+          exactly rather than reinvented: `sr-only` alone lost to premium.css's
+          unlayered `position: relative` rule (DECISIONS.md 2026-08-16), and
+          `focus:not-sr-only focus:absolute` is the fix that survives it. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-(--z-modal) focus:rounded-full focus:bg-action-primary focus:px-[16px] focus:py-[10px] focus:text-[14px] focus:font-bold focus:text-action-primary-text"
+      >
+        Skip to content
+      </a>
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}
@@ -667,7 +740,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       />
       <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} permissions={permissions} />
-      <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
+      <main id="main" className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>
       {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match.

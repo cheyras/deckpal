@@ -180,7 +180,7 @@ export function ListRuleEditor({
                     patch({ rarityExclude: next.length ? next : null })
                   }}
                   className={`h-[30px] rounded-full px-[10px] text-[12px] font-semibold ${
-                    active ? 'bg-action-danger text-action-danger-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'
+                    active ? 'bg-action-danger-fill text-action-danger-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'
                   }`}
                 >
                   {r}

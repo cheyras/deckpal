@@ -701,6 +701,79 @@ router.subscribe('onRendered', () => {
   }
 })
 
+// A11Y-11: SPA route changes were never announced to screen readers — paired
+// with A11Y-02's missing skip link, a keyboard/SR user who followed an in-app
+// link got no signal anything had happened beyond whatever they noticed by
+// exploring. This visually-hidden `aria-live="polite"` region announces the
+// new page's `<h1>` on every route render, via the SAME `onRendered`
+// subscription the scroll fix above already hooks (registered second, so it
+// always runs after the router's own listener and this one, in the order
+// this file establishes) — the app sets no per-route `document.title` to
+// announce instead, so the heading is the one string that is already true.
+const routeAnnouncer = document.createElement('div')
+routeAnnouncer.setAttribute('role', 'status')
+routeAnnouncer.setAttribute('aria-live', 'polite')
+routeAnnouncer.className = 'sr-only'
+document.body.appendChild(routeAnnouncer)
+
+/**
+ * The heading's announceable text — `textContent`, with one fallback.
+ *
+ * SetHeader's `<h1>` (A11Y-04) wraps an `<img alt={set.name}>` on every set
+ * that has a logo, which is the common case — `textContent` of an element
+ * whose only child is an image is empty, even though the image's `alt` gives
+ * the heading a real accessible name. Reading only `textContent` would leave
+ * this announcer silent on exactly the busiest page in the catalog.
+ */
+function headingText(h1: HTMLElement): string {
+  const text = h1.textContent?.trim()
+  if (text) return text
+  return h1.querySelector('img[alt]')?.getAttribute('alt')?.trim() ?? ''
+}
+
+let lastAnnouncedHeading = ''
+function announceHeading(): boolean {
+  const h1 = document.querySelector<HTMLElement>('h1')
+  const heading = h1 ? headingText(h1) : ''
+  if (!heading || heading === lastAnnouncedHeading) return !!heading
+  lastAnnouncedHeading = heading
+  routeAnnouncer.textContent = heading
+  return true
+}
+
+let headingWatcher: MutationObserver | null = null
+router.subscribe('onRendered', () => {
+  headingWatcher?.disconnect()
+  // The common case: the new route's `<h1>` is already in the DOM the moment
+  // the route commits (every chromeless page, and every catalog page once its
+  // data is cached). Most navigations end here, synchronously, with no delay.
+  if (announceHeading()) return
+  // The first visit to a catalog page (SetDetail, CardDetail, SeriesDetail,
+  // SpeciesDetail): the route commits with a spinner, and the `<h1>` arrives
+  // only once its query resolves — a real network round-trip, not one paint
+  // frame. `requestAnimationFrame` waited exactly one frame here originally
+  // and was gone before the query answered, which announced the PREVIOUS
+  // page's heading (or nothing) on every one of these — the majority of
+  // catalog navigation. A `MutationObserver` on the page body reacts the
+  // instant the real heading mounts, however long the fetch takes, and the
+  // deadline is only a backstop for a route that genuinely never gets one
+  // (an error state with no heading at all) — that falls back to the static
+  // `document.title` so the region says SOMETHING rather than the stale
+  // previous page's name forever.
+  const deadline = Date.now() + 4000
+  headingWatcher = new MutationObserver(() => {
+    if (announceHeading() || Date.now() > deadline) {
+      headingWatcher?.disconnect()
+      headingWatcher = null
+      if (!document.querySelector('h1') && document.title !== lastAnnouncedHeading) {
+        lastAnnouncedHeading = document.title
+        routeAnnouncer.textContent = document.title
+      }
+    }
+  })
+  headingWatcher.observe(document.body, { childList: true, subtree: true, characterData: true })
+})
+
 // Before first paint, so the skin never flashes from classic to premium.
 initSkin()
 initTopbar()

@@ -9,6 +9,7 @@ import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { checkChat } from '../tests/browser/chat.mjs'
+import { checkA11y } from '../tests/browser/a11y.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
@@ -46,6 +47,7 @@ try {
       adminActive = true
       results.push(...await checkAdmin(browser, server, mount, label, out, admin))
       results.push(...await checkFeedback(browser, server, mount, label, out, admin))
+      results.push(...await checkA11y(browser, server, mount, label, out))
       results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
       assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
     } finally { await server.close() }

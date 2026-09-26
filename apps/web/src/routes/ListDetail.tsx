@@ -86,7 +86,7 @@ function ReorderRows({ items, onMove, onRemove }: { items: ListItem[]; onMove: (
               {it.staticQuantity != null && <span className="font-bold text-text-secondary">×{it.staticQuantity}</span>}
             </div>
           </div>
-          <button onClick={() => onRemove(it)} aria-label={`Remove ${it.name}`} className="flex h-[32px] w-[32px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover">
+          <button onClick={() => onRemove(it)} aria-label={`Remove ${it.name}`} className="flex h-[32px] w-[32px] items-center justify-center rounded-full bg-action-danger-fill text-action-danger-text hover:bg-action-danger-fill-hover">
             <Icon name="close" size={16} />
           </button>
         </div>

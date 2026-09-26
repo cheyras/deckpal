@@ -1873,6 +1873,7 @@ function settledRect(el: HTMLElement): DOMRect {
         loading={phase === 'loading'}
         failed={phase === 'failed'}
         overChat={chatOpen}
+        chatOpen={chatOpen}
         onOpen={(rect) => {
           launchRectRef.current = rect
           setChatOpen(true)

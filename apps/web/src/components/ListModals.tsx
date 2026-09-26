@@ -7,6 +7,7 @@ import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { SelectableCard } from './ui/SelectableCard'
 import { Sheet } from './ui/Sheet'
+import { FormAlert } from './ui/FormAlert'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 // ── Modal shell ───────────────────────────────────────────────────────────────
@@ -85,6 +86,14 @@ export function ListFormModal({
   const [visibility, setVisibility] = useState<ListVisibility>((initial?.visibility as ListVisibility) ?? 'private')
   const smart = choice === 'smart'
   const kind: ListKind = smart ? 'dynamic' : choice
+  // A11Y-08: Submit used to just be `disabled` on an empty name, which tells a
+  // sighted mouse user nothing more than "try something else" and tells a
+  // keyboard/screen-reader user NOTHING — a disabled control is skipped by Tab
+  // entirely, so it never announces at all. Kept enabled; a submit attempt with
+  // an empty name shows why, the same way Auth.tsx's Field/FormAlert pair
+  // already does for sign-in.
+  const [nameAttempted, setNameAttempted] = useState(false)
+  const nameMissing = nameAttempted && !name.trim()
 
   const formId = 'list-form'
   return (
@@ -96,7 +105,7 @@ export function ListFormModal({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" form={formId} disabled={!name.trim() || (smart && !rule.setId)} loading={busy}>
+          <Button type="submit" form={formId} disabled={smart && !rule.setId} loading={busy}>
             {busy ? 'Saving…' : mode === 'create' ? 'Create List' : 'Save'}
           </Button>
         </div>
@@ -106,7 +115,10 @@ export function ListFormModal({
         id={formId}
         onSubmit={(e) => {
           e.preventDefault()
-          if (!name.trim()) return
+          if (!name.trim()) {
+            setNameAttempted(true)
+            return
+          }
           if (smart && !rule.setId) return
           onSubmit({
             name: name.trim(),
@@ -125,11 +137,21 @@ export function ListFormModal({
           <input
             data-autofocus
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value)
+              if (nameAttempted) setNameAttempted(false)
+            }}
             placeholder="My Charizard chase list"
             maxLength={120}
+            aria-invalid={nameMissing || undefined}
+            aria-describedby={nameMissing ? 'list-name-error' : undefined}
             className="h-[44px] rounded-lg border border-border-default bg-surface-primary px-[14px] text-[15px] text-text-primary placeholder:text-text-muted"
           />
+          {nameMissing && (
+            <FormAlert kind="error" id="list-name-error">
+              Name is required.
+            </FormAlert>
+          )}
         </label>
 
         {mode === 'create' && (

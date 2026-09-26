@@ -350,7 +350,7 @@ export function Profile() {
                         <button
                           onClick={() => setSlot(i, null)}
                           aria-label="Remove showcase card"
-                          className="absolute right-[6px] top-[6px] flex h-[24px] w-[24px] items-center justify-center rounded-full bg-action-danger text-action-danger-text opacity-0 group-hover:opacity-100"
+                          className="absolute right-[6px] top-[6px] flex h-[24px] w-[24px] items-center justify-center rounded-full bg-action-danger-fill text-action-danger-text opacity-0 group-hover:opacity-100"
                         >
                           <Icon name="close" size={14} />
                         </button>

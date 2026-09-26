@@ -14,7 +14,7 @@
  * no "already signed in, bounce to /series" redirect for the same reason: a
  * stale-but-present session would turn that bounce back into a loop.
  * ───────────────────────────────────────────────────────────────────────────── */
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
 import { isSafeNextPath } from '../lib/landingRoute'
@@ -68,6 +68,23 @@ export function Auth() {
       search: next === 'signin' ? {} : { mode: next },
       replace: true,
     })
+  }
+
+  // A11Y-10: this is the only `role="tablist"`/`role="tab"` pair in the app —
+  // everywhere else (Tabs.tsx) deliberately uses plain buttons with no ARIA
+  // tab role, because that makes no promise it doesn't keep. Here the roles
+  // DO make a promise (a screen reader announces "tab 1 of 2"), so it has to
+  // be kept: arrow keys move both selection and focus between the two tabs,
+  // matching the ARIA APG tabs pattern, rather than dropping the roles —
+  // Auth is the one place in this codebase actually shaped like tabs (one
+  // tabpanel below, exactly one of two headings selected).
+  const tabRefs = useRef<Partial<Record<'signin' | 'signup', HTMLButtonElement | null>>>({})
+  function onTabKeyDown(e: KeyboardEvent<HTMLButtonElement>, current: 'signin' | 'signup') {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const next = current === 'signin' ? 'signup' : 'signin'
+    goTo(next)
+    tabRefs.current[next]?.focus()
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -218,10 +235,17 @@ export function Auth() {
           {(['signin', 'signup'] as const).map((m) => (
             <button
               key={m}
+              ref={(el) => {
+                tabRefs.current[m] = el
+              }}
+              id={`auth-tab-${m}`}
               type="button"
               role="tab"
               aria-selected={mode === m}
+              aria-controls="auth-tabpanel"
+              tabIndex={mode === m ? 0 : -1}
               onClick={() => goTo(m)}
+              onKeyDown={(e) => onTabKeyDown(e, m)}
               className={[
                 'flex-1 rounded-full py-[9px] text-[14px] font-bold transition-colors',
                 mode === m
@@ -234,7 +258,13 @@ export function Auth() {
           ))}
         </div>
 
-        <form onSubmit={handleSubmit} noValidate>
+        <form
+          id="auth-tabpanel"
+          role="tabpanel"
+          aria-labelledby={mode === 'signup' ? 'auth-tab-signup' : 'auth-tab-signin'}
+          onSubmit={handleSubmit}
+          noValidate
+        >
           {formError && <FormAlert kind="error">{formError}</FormAlert>}
 
           <Field

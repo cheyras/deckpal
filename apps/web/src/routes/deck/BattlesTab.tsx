@@ -51,7 +51,7 @@ function LogRow({ deckId, log, onDelete }: { deckId: string; log: BattleLogSumma
               <div className="mt-[10px] flex justify-end">
                 <button
                   onClick={onDelete}
-                  className="flex h-[36px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-bold text-action-danger hover:bg-action-danger hover:text-action-danger-text"
+                  className="flex h-[36px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-bold text-action-danger hover:bg-action-danger-fill hover:text-action-danger-text"
                 >
                   <Icon name="close" size={14} /> Delete Log
                 </button>

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
+import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard, FormAlert } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { RecycleBin } from '../components/RecycleBin'
 import { Icon } from '../components/Icon'
@@ -71,12 +71,19 @@ const FORMATS: DeckFormat[] = ['standard', 'expanded', 'glc', 'unlimited']
 function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error?: string | null; onClose: () => void; onSubmit: (b: CreateDeckBody) => void }) {
   const [name, setName] = useState('')
   const [formatCode, setFormatCode] = useState<DeckFormat>('standard')
+  // A11Y-08: see ListModals.tsx's ListFormModal for the same fix and the
+  // reasoning — Submit stays enabled, and an attempted empty submit shows why.
+  const [nameAttempted, setNameAttempted] = useState(false)
+  const nameMissing = nameAttempted && !name.trim()
   return (
     <Modal title="New Deck" onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (!name.trim()) return
+          if (!name.trim()) {
+            setNameAttempted(true)
+            return
+          }
           onSubmit({ name: name.trim(), formatCode })
         }}
         className="flex flex-col gap-[18px]"
@@ -86,11 +93,21 @@ function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; erro
           <input
             autoFocus
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value)
+              if (nameAttempted) setNameAttempted(false)
+            }}
             placeholder="My Charizard deck"
             maxLength={120}
+            aria-invalid={nameMissing || undefined}
+            aria-describedby={nameMissing ? 'deck-name-error' : undefined}
             className="h-[44px] rounded-lg border border-border-default bg-surface-primary px-[14px] text-[15px] text-text-primary placeholder:text-text-muted"
           />
+          {nameMissing && (
+            <FormAlert kind="error" id="deck-name-error">
+              Name is required.
+            </FormAlert>
+          )}
         </label>
         <div className="flex flex-col gap-[8px]">
           <span className="text-[14px] font-semibold text-text-secondary">Format</span>
@@ -106,7 +123,7 @@ function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; erro
         {error && <div className="text-[14px] text-error">{error}</div>}
         <div className="mt-[4px] flex justify-end gap-[10px]">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!name.trim()} loading={busy}>
+          <Button type="submit" loading={busy}>
             {busy ? 'Creating…' : 'Create Deck'}
           </Button>
         </div>

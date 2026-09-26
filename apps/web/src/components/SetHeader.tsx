@@ -124,7 +124,15 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
       <div className="flex flex-col gap-[20px] pb-[8px] pt-[4px]">
         {/* Row 1 — set identity on the left, actions pushed to the right. */}
         <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[16px]">
-          <div className="flex h-[132px] min-w-[135px] items-center">
+          {/* A11Y-04: SetDetail had zero headings — the visible title is the
+              same visual weight as every sibling catalog page's `<h1>`
+              (SeriesDetail, CardDetail, SpeciesDetail) but was a plain `<span>`
+              or, in the (more common) logo branch below, an `<img>` with no
+              heading wrapper at all. This element wraps BOTH branches so the
+              page carries exactly one `<h1>` regardless of whether a set has a
+              logo asset — the logo's own `alt={set.name}` still gives the
+              image its accessible name; the heading role is what was missing. */}
+          <h1 className="flex h-[132px] min-w-[135px] items-center">
             {/* logoError: display set name as plain text (React-rendered, not
                 innerHTML) to prevent XSS from a crafted set name. */}
             {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
@@ -139,7 +147,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
             ) : (
               <span className="font-display text-[38px] font-black text-text-primary">{set.name}</span>
             )}
-          </div>
+          </h1>
 
           <div className="ml-auto flex items-center gap-[10px]">
             <SetSymbolTile setId={set.setId} name={set.name} size={40} />

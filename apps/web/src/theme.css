@@ -84,7 +84,14 @@
   --color-text-primary: #ffffff;
   --color-text-body: #cac6c4; /* stone-hue, same lightness as the old #c1c7d8 */
   --color-text-secondary: #a49e98;
-  --color-text-muted: #8b847e;
+  /* A11Y-09: was #8b847e (4.75:1 on surface-primary, 4.12:1 on
+     surface-secondary — the one-level-up card surface StatTile/list rows sit
+     on, which misses the 4.5:1 AA floor for normal text). Nudged toward
+     text-secondary's hue at 30% (same method as the danger-button fix below)
+     until surface-secondary clears 4.5 with headroom: 4.64:1 there, 5.35:1 on
+     surface-primary — still clearly a step down from text-secondary's 5.72:1,
+     so the muted/secondary/body hierarchy is unchanged, just shifted up. */
+  --color-text-muted: #948d87;
   --color-text-primary-on-dark: rgb(255 255 255 / 0.85);
   --color-link: var(--color-brand-secondary-400); /* pink-400 */
   --color-link-hover: var(--color-brand-secondary-300); /* pink-300, brighter on hover */
@@ -109,6 +116,21 @@
   --color-action-danger: #fb2c36; /* red-500 */
   --color-action-danger-hover: #e7000b; /* red-600 */
   --color-action-danger-text: #ffffff;
+  /* A11Y-07: the SOLID danger-button fill (icon-button "remove"/"delete"
+     controls — CardTile, ListDetail, RecycleBin, ListRuleEditor, DeckBuilder,
+     Profile, KebabMenu, BattlesTab). White text on the flat `-danger` red-500
+     above measures 3.81:1, short of 4.5:1. This is a SEPARATE token rather
+     than a value change to `-danger`/`-danger-hover`, because those two are
+     also used as a bare foreground/border colour (KebabMenu's rest-state
+     label, AgentAccess's hover state, BattlesTab's rest-state label) on
+     several different dark surfaces, where red-500 is already the better
+     (sometimes only-passing) choice — darkening it there to fix the button
+     case would have quietly failed a currently-passing pairing to fix
+     another. `-fill` reuses red-600 (previously only the hover shade) as its
+     resting state and moves to red-700 on hover, matching `.btn-fill-danger`'s
+     own existing red-600→red-700 hover step in this file. */
+  --color-action-danger-fill: #e7000b; /* red-600 — white text 4.77:1 */
+  --color-action-danger-fill-hover: #c10007; /* red-700 — white text 6.42:1 */
   /* External / commerce actions: Shop, Purchase Set, Buy on TCGplayer, and the
    * TCGplayer link icons. This was blue-400 — a fourth, unrelated hue that read
    * as a stray blue dot inside otherwise-neutral chips. It now sits in the
@@ -151,6 +173,13 @@
   --color-avatar-ring: #57534d; /* stone-600 */
   --color-icon-default: #8b847e;
   --color-icon-hover: #ffffff;
+  /* A11Y-03: `-muted` is the live "dim but present" icon (3.49:1 on
+     surface-primary — clears WCAG 1.4.11's 3:1 floor for a graphical object
+     that identifies a component, e.g. an inactive nav-rail icon a person can
+     still tap). `-muted-strong` shares its hex with `-disabled` below on
+     purpose and is for genuinely inert controls only (1.4.11 exempts those);
+     it measures 2.15:1, which is why AppShell/FilterControls' inactive-but-
+     clickable icons were moved off it rather than this value being changed. */
   --color-icon-muted: #756e68;
   --color-icon-muted-strong: #534f49;
   --color-icon-disabled: #534f49;

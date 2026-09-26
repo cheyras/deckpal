@@ -192,7 +192,7 @@ export function CardTile({
               onRemove()
             }}
             aria-label={`Remove ${card.name}`}
-            className="absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger text-action-danger-text opacity-0 transition-opacity hover:bg-action-danger-hover group-hover:opacity-100"
+            className="absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger-fill text-action-danger-text opacity-0 transition-opacity hover:bg-action-danger-fill-hover group-hover:opacity-100"
           >
             <Icon name="close" size={16} />
           </button>
