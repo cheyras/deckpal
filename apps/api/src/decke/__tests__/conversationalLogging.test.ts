@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { convertToModelMessages, streamText } from 'ai';
+import { convertToModelMessages, stepCountIs, streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { allTools, type ToolDefinition } from '@deckpal/agent-tools';
 import { callKey } from '../repeat.js';
@@ -415,5 +415,83 @@ test('a reflex-forced first step raises the signed consent card and writes nothi
     assert.ok(request, 'the forced call was not held for consent');
     assert.equal(typeof request.signature, 'string', 'the consent must be signed');
     assert.deepEqual(f.counts(), { previews: 1, writeRequests: 0, writes: 0 }, 'forcing the call wrote something');
+  } finally { f.restore(); }
+});
+
+// ── THE AUDIT'S CORRECTIVE LEG ASKS, IT NEVER WRITES ────────────────────────
+//
+// `api/chat.mjs` runs this exact sequence when the after-turn audit finds a
+// claimed collection change no tool made: the turn's reply, then one more step
+// over the same history with its choice pinned to `log_cards` and the same
+// approval secret. Driven through the real SDK: the correction raises a signed
+// consent request and nothing is written until someone approves it.
+
+test('a corrective leg after a phantom claim raises the signed card and writes nothing', async () => {
+  const f = fixture();
+  const secret = 'test-only-approval-secret';
+  try {
+    const tools = f.build();
+    const said = new MockLanguageModelV3({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          start(c) {
+            c.enqueue({ type: 'stream-start', warnings: [] });
+            c.enqueue({ type: 'text-start', id: '0' });
+            c.enqueue({ type: 'text-delta', id: '0', delta: "Done! I've added the Bulbasaur to your collection." });
+            c.enqueue({ type: 'text-end', id: '0' });
+            c.enqueue({
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+            });
+            c.close();
+          },
+        }),
+      }),
+    });
+    const history = [{ role: 'user' as const, content: 'add one Bulbasaur' }];
+    const turn = streamText({ model: said, messages: history, tools, experimental_toolApprovalSecret: secret });
+    await drain(turn);
+    assert.deepEqual(f.counts(), { previews: 0, writeRequests: 0, writes: 0 }, 'the phantom turn did nothing, as claimed');
+
+    // A stream that CLOSES, unlike `mockModel`'s, because chat.mjs reads the
+    // leg's `steps` to decide whether the card went up, and a step that never
+    // ends never resolves.
+    const choices: unknown[] = [];
+    const correcting = new MockLanguageModelV3({
+      doStream: async (options) => {
+        choices.push(options.toolChoice);
+        return {
+          stream: new ReadableStream({
+            start(c) {
+              c.enqueue({ type: 'stream-start', warnings: [] });
+              c.enqueue({ type: 'tool-call', toolCallId: 'corrective-1', toolName: 'log_cards', input: JSON.stringify(INPUT) });
+              c.enqueue({
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              });
+              c.close();
+            },
+          }),
+        };
+      },
+    });
+    const leg = streamText({
+      model: correcting,
+      messages: [...history, ...(await turn.response).messages],
+      tools,
+      toolChoice: { type: 'tool', toolName: 'log_cards' },
+      stopWhen: stepCountIs(1),
+      experimental_toolApprovalSecret: secret,
+    });
+    const parts = await drain(leg);
+    assert.deepEqual(choices, [{ type: 'tool', toolName: 'log_cards' }], 'the correction was not pinned to the card');
+    const request = parts.find((p) => p.type === 'tool-approval-request');
+    assert.ok(request, 'the correction did not raise the consent card');
+    assert.equal(typeof request.signature, 'string');
+    assert.ok((await leg.steps).some((s) => s.content.some((c) => c.type === 'tool-approval-request')),
+      'api/chat.mjs reads the card from the leg\'s steps to decide whether to say it failed');
+    assert.deepEqual(f.counts(), { previews: 1, writeRequests: 0, writes: 0 }, 'the correction wrote something');
   } finally { f.restore(); }
 });
