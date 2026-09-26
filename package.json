@@ -21,7 +21,9 @@
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter deckpal-api dev",
     "test:browser": "node --import tsx scripts/test-browser.mjs && node --import tsx tests/browser/paymentHistory.mts",
-    "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs"
+    "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs",
+    "sim:serve": "node tools/ios-sim/server.mjs",
+    "test:ios-sim": "node --test tools/ios-sim/__tests__/server.test.mjs && python3 -m unittest discover -s tools/ios-sim/__tests__ -p 'test_*.py' -v"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
