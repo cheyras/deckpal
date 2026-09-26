@@ -362,4 +362,69 @@ See `DECISIONS.md` 2026-08-31 for the compact version of this same story.
 
 **2026-09-21 sourcing lesson — CDN migration:** When a data source migrates to a new CDN domain (here: `images.pokemontcg.io` → `images.scrydex.com`), confirming that the two domains serve the same content from the same operator does NOT mean the prior permission automatically carries. Host identity and permission are separate questions: the allowlist entry requires an explicit update regardless, and the ToS of the successor domain must be read independently. Finding all 30 images at a new host is not authorization to rehost them.
 
-_Last updated by art-doc worker (Claude Sonnet 4.6) on behalf of @cheyras — 2026-09-21_
+## 9. 2026-09-26 update — `mep` (MEP Black Star Promos): documented, not sourceable today
+
+**Author:** Claude Sonnet 5 on behalf of @cheyras, investigating reopened issue #24.
+**Status:** RESEARCH ONLY, read-only probes against production and both approved
+upstreams. No allow-list change, no card art written, no source adopted.
+
+**Why this section exists.** A 2026-09-04 `DECISIONS.md` entry (the CLIP embedding
+bakeoff) cited this file as already documenting `mep` as "a documented 49-card
+gap." It was not — no `mep` mention existed anywhere in this file before today.
+That citation described work that was apparently done in a since-retired scratch
+workspace (`p2-work/art-sweep/SWEEP.md`, part of the Project Holo scanner-redesign
+line that `docs: retire separate Holo workstream and record artifact cleanup (#185)`
+removed) and never landed here. This section is that landing, done properly.
+
+**The gap, re-measured 2026-09-26:** `/series/mega-evolution/mep` (89 cards) —
+**49 cards** answer the placeholder: `#032–#036` (5) and the contiguous
+`#046–#088` plus `Museum` (44). All 49 carry `X-Image-Reason: upstream 404:
+HTTP 404`. Cross-checked against the raw Supabase object (not the proxy): e.g.
+`card-art/images/en/me/mep/087/low.webp` answers `400 NoSuchKey` — the bytes are
+genuinely absent, not merely un-refillable. This is a **larger** gap than the
+2026-08-10 fix closed (that gap was 29 cards: `046–063, 072, 073, 081–088,
+Museum`); the other 20 (`032–036` plus a further chunk of the 046–088 range) are
+new since the set grew from 60 to 89 cards without a re-warm — see
+`DECISIONS.md` 2026-09-26.
+
+**Sources checked, both currently approved (`packages/storage/src/upstream.ts`):**
+
+| Source | Result |
+|---|---|
+| `assets.tcgdex.net` (primary) | 0/49. Confirmed 404 on `.webp`/`.png`/`.jpg` for a sample including `mep-087`; TCGdex's own card API (`api.tcgdex.net/v2/en/sets/mep`) lists the card by id but its asset CDN serves nothing for it. **[measured]** |
+| `images.pokemontcg.io` (approved fallback, §7/§8) | 0/49. `GET /v2/sets/mep` → **404** — this promo pool does not exist in pokemontcg.io's catalog at all (its "Mega Evolution" series lists only `me1`, `me2`, `me2pt5`, `me3`, `me4`, `me5`, `me55`, `me55c` — main sets, no promo pool). Card-name searches for several `mep` cards (`Mega Latias ex`, a Mega-Evolution-series promo Pikachu) returned zero matches. **[measured]** |
+
+**Conclusion: 0 of 49 are fillable from either approved source today.** This is
+not a code defect in the image tier — `resolveSourceFromManifest`
+(`apps/api/src/images/handler.ts`) and `warm:cloud` are both working exactly as
+designed, correctly reporting an honest placeholder for an asset neither
+approved upstream has ever indexed. It is a sourcing gap, in the same shape as
+the `tk-*`/`mfb`/`ecard2` residue in §1, just for a promo pool instead of a
+retail set.
+
+**The only source ever known to have had this art is `assets.pkmn.gg`**, via
+the 2026-08-10 fix (`DECISIONS.md`, "issue #24: the mep art gap"). Those 58
+`image_asset` rows were subsequently deleted in the 2026-08-31 provenance
+cleanup (`DECISIONS.md` 2026-08-31, "Card-art re-sourcing executed") because
+they carried no approved-source attribution — confirmed today: the raw storage
+object for `mep-087` is gone, not merely unreachable through the proxy.
+**pkmn.gg remains ruled out on the 2026-08-26 legal decision** (`DECISIONS.md`);
+re-adding it is not proposed here, and would also mean widening the SSRF
+allow-list (`packages/storage/src/upstream.ts`) back open for a host the owner
+has twice declined. If the owner wants to revisit that specific tradeoff, it is
+a decision for `DECISIONS.md`, not something an allow-list PR should infer.
+
+**What this update DOES fix:** the process gap that let a documented,
+should-have-been-caught regression sit for three weeks. `.github/workflows/
+image-warm.yml` now drives `warm:cloud` after every catalog refresh and reports
+the residue (with what changed since the last run) in the job's summary, so the
+next time a set grows past what an approved source covers, it shows up as a
+number in Actions instead of a reopened bug report. See `DECISIONS.md`
+2026-09-26 for the full account.
+
+**Outstanding, named, not done here:** finding a legally-usable source for
+these 49 cards remains open. The candidates this file already ruled out for the
+485-card residue (§2.3 TCGplayer, §2.4 Bulbagarden) apply here too and were not
+re-litigated. No new candidate was found.
+
+_Last updated by Claude Sonnet 5 on behalf of @cheyras — 2026-09-26_

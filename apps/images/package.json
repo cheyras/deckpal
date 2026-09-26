@@ -22,7 +22,8 @@
     "test:ratelimit": "node --import tsx --test src/__tests__/rateLimit.test.ts",
     "manifest:backfill": "tsx src/manifestBackfill.ts",
     "storage:backfill": "tsx src/cloudBackfill.ts",
-    "warm:cloud": "tsx src/cloudWarm.ts"
+    "warm:cloud": "tsx src/cloudWarm.ts",
+    "warm:cloud:summary": "tsx src/cloudWarmSummary.ts"
   },
   "dependencies": {
     "@deckpal/db": "workspace:*",
