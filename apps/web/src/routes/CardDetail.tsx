@@ -833,7 +833,7 @@ function CardTab({
           </a>
         )}
         <p className="mt-[10px] text-[14px] text-text-muted">
-          Prices reflect the latest daily sync. Self-hosted feed — no affiliate relationship.
+          Prices from TCGplayer and Cardmarket, updated daily. DeckPal earns nothing from these links.
         </p>
       </div>
 

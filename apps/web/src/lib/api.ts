@@ -1767,10 +1767,62 @@ export const api = {
     return res.blob()
   },
 
-  // PDF export URLs (streamed by the API; open in a new tab).
+  // Deck PDF: still a bare URL. `DeckBuilder.tsx` has the same 401-on-link
+  // defect this fix removes from Print Checklist (UXC-01, deckpal audit
+  // ux-collection) — out of scope here, tracked for the deck-builder area.
   deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
-  listPdfUrl: (id: string) => `${BASE}/lists/${encodeURIComponent(id)}/pdf`,
-  setChecklistPdfUrl: (setId: string) => `${BASE}/sets/${encodeURIComponent(setId)}/checklist.pdf`,
+
+  // List / set checklist PDF paths (relative to BASE — fed to `downloadPdf`,
+  // never to an `<a href>`; see its comment for why).
+  listPdfPath: (id: string) => `/lists/${encodeURIComponent(id)}/pdf`,
+  setChecklistPdfPath: (setId: string) => `/sets/${encodeURIComponent(setId)}/checklist.pdf`,
+
+  /**
+   * Fetch a PDF export and hand it to the browser as a real download — a
+   * blob URL on a temporary `<a download>`, never `window.open`.
+   *
+   * ── WHY NOT `<a href={...}>` ────────────────────────────────────────────
+   *
+   * The three PDF routes used to be plain `<a href target="_blank">`s at
+   * `deckPdfUrl`/`listPdfUrl`/`setChecklistPdfUrl`. Cloud's PDF routes
+   * authenticate only by `Authorization: Bearer` (`apps/api/src/auth.ts`),
+   * and a browser-initiated link navigation sends cookies, never that header
+   * — exactly `scanFlagBlob`'s reason, and confirmed the same way: all three
+   * routes answer 401 to a real, unauthenticated `GET` on production. Every
+   * signed-in user who clicked Print Checklist got a raw 401 JSON tab.
+   *
+   * ── WHY NOT `window.open(blobUrl)` EITHER ───────────────────────────────
+   *
+   * The fetch has to complete before there is anything to open, and iOS
+   * Safari only allows `window.open` inside the SAME tick as the gesture
+   * that triggered it — call it after an `await` and it is popup-blocked,
+   * silently, with nothing in the console to explain why the tab never
+   * appeared. An `<a download>` click carries no such restriction: it is a
+   * save action, not a new-window request, so it survives the async round
+   * trip on every platform this app supports, and iOS Safari resolves a
+   * `blob:` URL on a download anchor more reliably than one opened as a tab.
+   */
+  downloadPdf: async (path: string, filename: string): Promise<void> => {
+    const headers = await authHeaders()
+    let res = await fetch(`${BASE}${path}`, { headers })
+    if (res.status === 401) {
+      const retry = await handle401(path, { headers })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // The tab that just downloaded this still holds the object URL; a
+    // session that prints ten checklists should not pin ten blobs in memory
+    // forever. 60s comfortably outlives the download itself.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  },
 
   // Lists
   lists: (signal?: AbortSignal) => get<{ lists: ListSummary[] }>('/lists', signal),

@@ -200,11 +200,17 @@ export function AddCardModal({
   onClose,
   onAdd,
   addingId,
+  error,
 }: {
   listKind: ListKind
   onClose: () => void
   onAdd: (card: { cardId: string; name: string }, quantity: number) => void
   addingId?: string | null
+  /** A failed add's server message (UXC-05, deckpal audit ux-collection) —
+   *  this used to be swallowed (`onError: () => setAddingId(null)`), so a
+   *  smart list's "cards cannot be added by hand" 400 looked like nothing
+   *  happened at all. */
+  error?: string | null
 }) {
   const [term, setTerm] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -243,6 +249,12 @@ export function AddCardModal({
             className="h-[48px] w-full rounded-lg border border-border-default bg-surface-primary pl-[44px] pr-[12px] text-[15px] text-text-primary placeholder:text-text-muted"
           />
         </label>
+
+        {error && (
+          <div role="alert" className="rounded-lg bg-halo-error px-[14px] py-[10px] text-[14px] text-error">
+            {error}
+          </div>
+        )}
 
         {listKind === 'static' && (
           <label className="flex items-center gap-[10px] text-[14px] font-semibold text-text-secondary">
