@@ -9,6 +9,7 @@ import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from '../tests/browser/chat.mjs'
+import { writesFixture, checkWrites } from '../tests/browser/writes.mjs'
 import { checkAuthReturn } from '../tests/browser/authReturn.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
@@ -28,8 +29,10 @@ try {
     const dist = path.join(scratch, label)
     let scenario = 'active'
     const admin = adminFixture(mount)
-    let adminActive = false
-    const server = await serve(dist, mount, (rel, url, req) => adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html', { allowMutation: admin.allowMutation })
+    const writes = writesFixture(mount, admin)
+    let adminActive = false, writesActive = false
+    const server = await serve(dist, mount, (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html',
+      { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
     try {
       logs.push(buildWeb(dist, label === 'cloud', server.origin))
       assets.push({ label, ...checkDeployAssets(dist) })
@@ -48,6 +51,12 @@ try {
       results.push(...await checkAdmin(browser, server, mount, label, out, admin))
       results.push(...await checkFeedback(browser, server, mount, label, out, admin))
       results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+      // Signed-in write paths are one code path in both builds; the cloud build
+      // (real auth headers, synthetic Supabase origin) is the one exercised.
+      if (label === 'cloud') {
+        writesActive = true
+        results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
+      }
       assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
     } finally { await server.close() }
   }
