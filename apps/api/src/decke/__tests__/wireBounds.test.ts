@@ -220,6 +220,27 @@ test('a failing-tool breaker survives trimming through the evidence field (Astra
   assert.equal(failingTools([...evidence, ...window]).get('battle_logs'), 2)
 })
 
+test('compacted evidence — records first, open failures last — keeps the breaker open (Astra, second pass)', () => {
+  // The shape `wireWindow.ts` sends after two battle_logs failures and a long
+  // run of successful decks lookups: the newest records, then the still-open
+  // failures. Read in that order, the records cannot count as a recovery.
+  const record = (i: number) => ({ role: 'assistant' as const, parts: [{ type: 'text', text: `[lookups on that turn, for your own reference — you actually ran these]\ndecks: deck ${i}` }] })
+  const failed = (id: string) => ({
+    role: 'assistant' as const,
+    parts: [{ type: 'tool-battle_logs', toolCallId: id, state: 'output-error', input: {}, errorText: 'Internal server error' }],
+  })
+  const evidence = boundedEvidence([...Array.from({ length: 22 }, (_, i) => record(i)), failed('f1'), failed('f2')])
+  assert.equal(evidence.length, 24)
+  assert.equal(failingTools([...evidence, ...chat(12), user('show my battles')]).get('battle_logs'), 2)
+})
+
+test('the browser keeps at least the breaker\'s budget of turns per failing tool', async () => {
+  const { CIRCUIT_BUDGET } = await import('../failing.js')
+  const web = readFileSync(new URL('../../../../web/src/character/host/chat/wireWindow.ts', import.meta.url), 'utf8')
+  const perTool = Number(web.match(/export const BREAKER_PER_TOOL = (\d+)/)?.[1])
+  assert.ok(perTool >= CIRCUIT_BUDGET, `BREAKER_PER_TOOL ${perTool} < CIRCUIT_BUDGET ${CIRCUIT_BUDGET}`)
+})
+
 test('evidence is advisory: anything but failures and lookup records empties it', () => {
   assert.deepEqual(boundedEvidence(undefined), [])
   assert.deepEqual(boundedEvidence([{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }]), [])

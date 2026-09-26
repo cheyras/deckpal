@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { TOOL_RECORD_PREFIX } from '../lookupRecord'
-import { WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, windowPrior } from '../wireWindow'
+import { BREAKER_PER_TOOL, EVIDENCE_MAX, WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, windowPrior } from '../wireWindow'
 
 const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
 const said = (text: string) => ({ role: 'assistant', parts: [{ type: 'text', text }] })
@@ -56,11 +56,51 @@ test('a message the server refused as too long is not replayed, and costs no his
   assert.deepEqual(messages, chat(3))
 })
 
+const failed = (tool: string, id: string) =>
+  ({ type: `tool-${tool}`, toolCallId: id, state: 'output-error', input: {}, errorText: 'Internal server error' })
+const recorded = (...lines: string[]) =>
+  ({ type: 'text', text: `${TOOL_RECORD_PREFIX} you actually ran these]\n${lines.join('\n')}` })
+
 test('a dropped reply keeps its failures and lookup record as evidence, and nothing else', () => {
-  const failure = { type: 'tool-battle_logs', toolCallId: 'f', state: 'output-error', input: {}, errorText: 'Internal server error' }
-  const record = { type: 'text', text: `${TOOL_RECORD_PREFIX} you actually ran these]\nbattle_logs: 3 logs` }
+  const record = recorded('decks: 2 decks')
+  const failure = failed('battle_logs', 'f')
   const early = { role: 'assistant', parts: [{ type: 'text', text: 'Sorry, that failed.' }, record, failure] }
   const { messages, evidence } = windowPrior([user('first'), early, ...chat(20)])
   assert.ok(!messages.includes(early), 'the reply itself has left the window')
-  assert.deepEqual(evidence, [{ role: 'assistant', parts: [record, failure] }])
+  // Records first, the still-open failure last — the order the server replays.
+  assert.deepEqual(evidence, [{ role: 'assistant', parts: [record] }, { role: 'assistant', parts: [failure] }])
+})
+
+test('an unrecovered failure outlives any number of later lookups (Astra, second pass)', () => {
+  // Two failed battle_logs turns, then 36 exchanges of successful decks
+  // lookups: a plain "last 24 replies" slice evicted the failures and quietly
+  // re-closed the breaker.
+  const prior = [
+    user('show my battles'), { role: 'assistant', parts: [failed('battle_logs', 'f1')] },
+    user('again?'), { role: 'assistant', parts: [failed('battle_logs', 'f2')] },
+    ...Array.from({ length: 36 }, (_, i) => [user(`deck ${i}`), { role: 'assistant', parts: [recorded(`decks: deck ${i}`)] }]).flat(),
+  ]
+  const { evidence } = windowPrior(prior)
+  assert.ok(evidence.length <= EVIDENCE_MAX)
+  const tail = evidence.slice(-2).map((m) => m.parts[0])
+  assert.deepEqual(tail, [failed('battle_logs', 'f1'), failed('battle_logs', 'f2')], 'both failures, last')
+  assert.ok(evidence.slice(0, -2).every((m) => !String(m.parts[0]!.text).includes('battle_logs')))
+})
+
+test('a success resets a tool, and only its own failures since then are carried', () => {
+  const prior = [
+    user('a'), { role: 'assistant', parts: [failed('battle_logs', 'old')] },
+    user('b'), { role: 'assistant', parts: [recorded('battle_logs: 3 logs')] },
+    user('c'), { role: 'assistant', parts: [failed('battle_logs', 'new')] },
+    ...chat(30),
+  ]
+  const failures = windowPrior(prior).evidence.flatMap((m) => m.parts).filter((p) => p.state === 'output-error')
+  assert.deepEqual(failures, [failed('battle_logs', 'new')])
+})
+
+test('a tool that failed in many turns carries at most BREAKER_PER_TOOL of them', () => {
+  const prior = Array.from({ length: 10 }, (_, i) => [user(`q${i}`), { role: 'assistant', parts: [failed('battle_logs', `f${i}`)] }]).flat()
+  const { evidence } = windowPrior([...prior, ...chat(30)])
+  assert.equal(evidence.length, BREAKER_PER_TOOL)
+  assert.deepEqual(evidence.map((m) => m.parts[0]!.toolCallId), ['f6', 'f7', 'f8', 'f9'])
 })

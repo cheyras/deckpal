@@ -41,32 +41,78 @@ export const WINDOW_PRIOR_CHARS = 64_000
  */
 export const PART_MAX_CHARS = 60_000
 
-/** Dropped replies whose ledger evidence still rides along. MIRRORS `EVIDENCE_MAX`. */
+/** Evidence messages one request may carry. MIRRORS `EVIDENCE_MAX`. */
 export const EVIDENCE_MAX = 24
+
+/**
+ * How many dropped turns of one still-failing tool ride along. At least the
+ * breaker's own budget (`CIRCUIT_BUDGET` in `decke/failing.ts`, 2 turns), so a
+ * circuit that was open stays open; more would only spend the evidence cap.
+ */
+export const BREAKER_PER_TOOL = 4
 
 type WireLike = { role: string; parts: Record<string, unknown>[] }
 
+/** The line-anchored `<tool>: …` names in a lookup record. MIRRORS `recordedLookups`. */
+function recordedNames(text: string): string[] {
+  const out: string[] = []
+  for (const line of text.split('\n').slice(1)) {
+    const m = /^([a-z][a-z0-9_]*): /.exec(line)
+    if (m) out.push(m[1]!)
+  }
+  return out
+}
+
 /**
- * What a reply that left the window still owes the server's LEDGERS — never
+ * What the replies that left the window still owe the server's LEDGERS — never
  * the model.
  *
- * Two of them are conversation-wide and read replies from any earlier turn:
- * the failing-tool breaker (`decke/failing.ts` — a tool that failed in two
- * distinct turns is not called again, and a later success resets it) and the
- * already-told record (`decke/toldAlready.ts`). Both read only a reply's
- * replayed failures and its lookup record. Trimming those away with the text
- * would quietly re-close a breaker the reader never asked to retry, so they
- * travel in a separate `evidence` field the server gives to the ledgers and
- * does not show the model. Everything else in the reply stays dropped.
+ * Two of them are conversation-wide: the failing-tool breaker
+ * (`decke/failing.ts` — a tool that failed in two distinct turns is not called
+ * again until it succeeds) and the already-told record (`decke/toldAlready.ts`).
+ * Trimming their evidence away with the text would quietly re-close a breaker
+ * the reader never asked to retry, so it travels in a separate `evidence` field
+ * the server hands to those two ledgers and does not show the model.
+ *
+ * COMPACTED, NOT SLICED. A plain "last N replies" drops the oldest first, and
+ * the oldest are exactly where an unrecovered failure lives once a long chat of
+ * successful lookups has piled up behind it (found by Astra in review). So the
+ * breaker's STATE is carried instead: each tool still failing at the end of the
+ * dropped turns, one replayed failure per turn it failed in since it last
+ * worked, capped at `BREAKER_PER_TOOL`. Lookup records fill what room is left,
+ * newest kept, and go FIRST — the server replays evidence in order, and a
+ * record naming a tool after its failures would read as a recovery that never
+ * happened.
  */
-function evidenceOf(m: WireLike): WireLike | null {
-  if (m.role !== 'assistant') return null
-  const parts = m.parts.filter((p) =>
-    p.type === 'text'
-      ? typeof p.text === 'string' && p.text.startsWith(TOOL_RECORD_PREFIX)
-      : typeof p.type === 'string' && p.type.startsWith('tool-') && p.state === 'output-error',
-  )
-  return parts.length ? { role: 'assistant', parts } : null
+function compactEvidence(dropped: readonly WireLike[]): WireLike[] {
+  const open = new Map<string, Record<string, unknown>[]>()
+  const records: WireLike[] = []
+  for (const m of dropped) {
+    if (m.role !== 'assistant') continue
+    const ok = new Set<string>()
+    const failed = new Map<string, Record<string, unknown>>()
+    const recordParts: Record<string, unknown>[] = []
+    for (const p of m.parts) {
+      if (p.type === 'text' && typeof p.text === 'string' && p.text.startsWith(TOOL_RECORD_PREFIX)) {
+        recordParts.push(p)
+        for (const name of recordedNames(p.text)) ok.add(name)
+      } else if (typeof p.type === 'string' && p.type.startsWith('tool-')) {
+        const name = p.type.slice('tool-'.length)
+        if (p.state === 'output-error') failed.set(name, p)
+        else if (p.state === 'output-available') ok.add(name)
+      }
+    }
+    // Within one turn success dominates, exactly as the breaker reads it.
+    for (const name of ok) {
+      open.delete(name)
+      failed.delete(name)
+    }
+    for (const [name, part] of failed) open.set(name, [...(open.get(name) ?? []), part].slice(-BREAKER_PER_TOOL))
+    if (recordParts.length) records.push({ role: 'assistant', parts: recordParts })
+  }
+  const breaker = [...open.values()].flatMap((parts) => parts.map((p) => ({ role: 'assistant', parts: [p] })))
+  const room = Math.max(0, EVIDENCE_MAX - breaker.length)
+  return [...(room ? records.slice(-room) : []), ...breaker].slice(-EVIDENCE_MAX)
 }
 
 function partChars(part: Record<string, unknown>): number {
@@ -84,7 +130,7 @@ function partChars(part: Record<string, unknown>): number {
  * `dropped` is how many were left behind, so the caller can tell the reader
  * once that the start of the chat is out of his view rather than letting him
  * find out by asking about it. `evidence` is what those dropped replies still
- * owe the server's ledgers; see `evidenceOf`.
+ * owe the server's ledgers; see `compactEvidence`.
  */
 export function windowPrior<T extends WireLike>(
   all: readonly T[],
@@ -99,10 +145,5 @@ export function windowPrior<T extends WireLike>(
     start--
   }
   while (start < prior.length && prior[start]!.role !== 'user') start++
-  const evidence = prior
-    .slice(0, start)
-    .map(evidenceOf)
-    .filter((e): e is WireLike => e !== null)
-    .slice(-EVIDENCE_MAX)
-  return { messages: prior.slice(start), dropped: start, evidence }
+  return { messages: prior.slice(start), dropped: start, evidence: compactEvidence(prior.slice(0, start)) }
 }
