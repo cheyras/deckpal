@@ -509,7 +509,11 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     return { command: null, coverage, refused: 'two-commands' }
   }
 
-  if (command && command.kind !== 'undo' && command.kind !== 'stop' && coverage < 1) {
+  // Every word explained, for every command — "undo" and "stop listening"
+  // included: "please keep it in the binder" is not an undo, and "they told me
+  // to stop listening to music" does not turn the microphone off.
+  if (command && coverage < 1) {
+    if (command.kind === 'undo' || command.kind === 'stop') return { command: null, coverage }
     // Say which word looked like a card we could not find — one right after
     // "the/that/this" or "remove", or right before "is" — so the reader can
     // try again, instead of the change going to some other card.

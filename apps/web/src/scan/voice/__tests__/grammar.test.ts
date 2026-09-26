@@ -167,6 +167,12 @@ describe('remove, undo, stop', () => {
   it('stops listening on request', () => {
     assert.equal(command('stop listening')?.kind, 'stop')
   })
+
+  it('holds undo and stop to the same bar: conversation never triggers them', () => {
+    assert.equal(command('please keep it in the binder'), null)
+    assert.equal(command('they told me to stop listening to music'), null)
+    assert.equal(command('undo that')?.kind, 'undo')
+  })
 })
 
 describe('targeting', () => {
