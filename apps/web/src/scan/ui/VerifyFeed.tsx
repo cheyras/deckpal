@@ -40,6 +40,7 @@ import { DURATION, EASE, flipReflow } from './motion'
 import { parseSortValue, sortValue, SORT_OPTIONS, type FeedSort } from './sort'
 import type { FeedEntry } from './types'
 import { FeedEntryCard } from './FeedEntryCard'
+import type { VoiceAction } from '../voice/actions'
 
 export function VerifyFeed({
   entries,
@@ -58,6 +59,8 @@ export function VerifyFeed({
   registerThumbNode,
   scrollToId,
   scrollSignal = 0,
+  voicePending,
+  onVoiceCancel,
 }: {
   /** Already in the reader's chosen order — see the file header for why the
    *  sorting happens above this component rather than inside it. */
@@ -91,6 +94,9 @@ export function VerifyFeed({
    */
   scrollToId?: string | null
   scrollSignal?: number
+  /** Spoken changes not yet applied, by row id — Step 1 only, where voice is. */
+  voicePending?: ReadonlyMap<string, readonly VoiceAction[]>
+  onVoiceCancel?: (actionId: string) => void
 }) {
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
   const prevRectsRef = useRef(new Map<string, DOMRect>())
@@ -203,6 +209,8 @@ export function VerifyFeed({
                 onOpenDetail={onOpenDetail}
                 onPickerOpenChange={onPickerOpenChange}
                 registerThumbNode={registerThumbNode}
+                voicePending={voicePending?.get(entry.id)}
+                onVoiceCancel={onVoiceCancel}
               />
             </div>
           ))}

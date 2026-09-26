@@ -17,7 +17,8 @@
     ]
   },
   "include": [
-    "fixture.tsx"
+    "fixture.tsx",
+    "scannerVoice.tsx"
   ],
   "exclude": []
 }

@@ -996,6 +996,18 @@ fulfillment, reversal or settlement helpers to web roles. No direct governance
 or financial table grants are added. Preserve the explicit function grants shipped by
 064–071 instead of granting all functions/tables to resolve an error.
 
+### Scanner voice opt-in (072)
+
+`072_scanner_voice_feature.sql` adds one feature-catalog row, `scanner_voice`
+("Scanner voice commands"), at lifecycle `beta`. It needs 069 and nothing else,
+and the same `pnpm --filter @deckpal/db migrate` applies it. It adds no table,
+function, grant, permission or environment variable. Until it runs, the web app
+finds no such feature and the scanner shows no Voice control, which fails
+closed. After it runs, voice stays off for every account, Owner included,
+until that account opts in from Profile → Feature preferences. `/admin/features`
+can release it (`released`) or switch it off everywhere (`disabled`) without a
+deploy. DECISIONS.md 2026-09-26 records the design.
+
 ### Review the canonical-role conversion
 
 Inspect current roles, assignments, suspension state and the trusted bootstrap

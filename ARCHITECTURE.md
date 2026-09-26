@@ -788,6 +788,31 @@ it; with the flag ON and the index still empty, it returns the same thing again,
 so the migrate → embed → flag sequence has no step that changes answers early.
 
 
+### Card scanner — voice commands (opt-in beta)
+
+The reader can talk while the scanner runs ("that one's a reverse holo", "two
+of those", "remove it") and the list corrects itself (`apps/web/src/scan/voice/`,
+DECISIONS.md 2026-09-26). It lives entirely in the browser, on the Web Speech
+API. The server sees no audio and no transcripts, and its only part is the
+`scanner_voice` feature-catalog row that gates the control (migration 072). The
+browser's own recognizer does send audio to its vendor (Apple for Safari,
+Google for Chrome). The structure is four pure modules and one hook:
+
+* `grammar.ts` is a closed grammar matched with a phonetic edit distance, plus
+  a coverage gate so conversation is ignored.
+* `printings.ts` maps a spoken printing onto the card's real variant kind
+  slugs.
+* `actions.ts` turns a command into a pending action on a row (the row id is the
+  capture id, so a command can wait for a card that is still being identified),
+  applies it after a hold and undoes it.
+* `recognizer.ts` hides the difference between Safari's continuous sessions and
+  Chrome's session per utterance. It also runs the watchdog for the iOS
+  recognizer's silent death.
+* `useScannerVoice.ts` owns time, React state and the page lifecycle.
+
+Nothing in the scanner may play audio, because any playback silently kills the
+iOS recognizer.
+
 
 ## 13. Frontend
 
