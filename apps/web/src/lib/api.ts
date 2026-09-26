@@ -164,6 +164,24 @@ async function send<T>(
 }
 
 /**
+ * Reachability probe for the offline banner's truthfulness check
+ * (`lib/useConnectivity.ts`). Deliberately bypasses `request()`: no auth
+ * header, no 401 retry, no JSON parsing — a 401 still proves the round trip
+ * completed, which is the only thing this is asking. Resolves the instant
+ * ANY response arrives and rejects only on a real network failure or the
+ * caller's own `AbortSignal`.
+ *
+ * `/me` on purpose, not `/health`: `sw.ts`'s `publicCatalog` allowlist routes
+ * `/health` NetworkFirst, so a stale cached 200 could answer "reachable"
+ * while genuinely offline — exactly the false confidence this probe exists to
+ * rule out. `/me` isn't on that list, so the service worker always sends it
+ * to the network.
+ */
+function pingReachable(signal: AbortSignal): Promise<Response> {
+  return fetch(`${BASE}/me`, { method: 'GET', cache: 'no-store', signal })
+}
+
+/**
  * A POST that survives the page going away.
  *
  * ── WHY NOT `send()` ─────────────────────────────────────────────────────────
@@ -1890,6 +1908,7 @@ export const api = {
   adminFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/admin/features', signal),
   adminSetFeature: (key: string, lifecycle: FeatureAccess['lifecycle'], expectedRevision: number, reason: string) => send<{ features: FeatureAccess[] }>('PATCH', '/admin/features/' + encodeURIComponent(key), { lifecycle, expectedRevision, reason }),
   me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
+  ping: (signal: AbortSignal) => pingReachable(signal),
   // Account settings (migration 049) — the server-side home of what used to be
   // device-only preferences. PATCH takes any subset and returns the whole row.
   settings: (signal?: AbortSignal) => get<{ settings: UserSettings; defaults?: AppDefaults }>('/me/settings', signal),
