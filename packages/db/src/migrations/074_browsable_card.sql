@@ -1,4 +1,4 @@
--- 072 · Browsable card/set: the single predicate for "is this part of the
+-- 074 · Browsable card/set: the single predicate for "is this part of the
 -- browsable physical Pokémon TCG catalog", used everywhere a query lists,
 -- searches or counts cards/sets for a human or an agent to browse.
 --
@@ -24,7 +24,18 @@
 -- routes (`/api/cards/:id`, `/api/series/:slug`) are also left alone here --
 -- deep-linking into Pocket content is a separate product decision, tracked in
 -- DECISIONS.md rather than folded into this predicate.
-CREATE VIEW browsable_set AS
+--
+-- WITH (security_invoker = true) on both: Supabase advisor 0010 (structural
+-- rule enforced from 074 on, per migration 072_postgrest_reach and its
+-- migrationLint.test.ts -- a plain view runs with its OWNER's rights, and our
+-- owner is the migration role, which is never subject to RLS). Both views
+-- only ever touch card/card_set/series, which carry a public `USING (true)`
+-- SELECT policy (021_rls_policies.sql), so this is a no-op for behavior here
+-- -- catalog data was always meant to be world-readable -- but the rule is
+-- structural, not case-by-case, and `browsable_card` selects FROM the OTHER
+-- view here, so both need the option: an invoker view queries its own
+-- sources as the invoker only as far down as the chain stays invoker.
+CREATE VIEW browsable_set WITH (security_invoker = true) AS
   SELECT cs.*
     FROM card_set cs
     JOIN series s ON s.id = cs.series_id
@@ -33,7 +44,7 @@ CREATE VIEW browsable_set AS
 COMMENT ON VIEW browsable_set IS
   'card_set rows outside Pokémon TCG Pocket (series.tcgdex_id <> ''tcgp''). Use in place of card_set when listing or resolving sets for browsing (search facets, the agent-tools set resolver, "every set in the catalog" listings).';
 
-CREATE VIEW browsable_card AS
+CREATE VIEW browsable_card WITH (security_invoker = true) AS
   SELECT c.*
     FROM card c
     JOIN browsable_set cs ON cs.id = c.set_id;

@@ -20499,10 +20499,18 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 
 **Decided by:** Chey (via Claude)
 
-**Decision:** Added migration `072_browsable_card.sql`, defining two views —
-`browsable_set` and `browsable_card` — as the single shared predicate for "is
-this part of the browsable physical Pokémon TCG catalog"
-(`series.tcgdex_id <> 'tcgp'`). Every read path that lists, searches or counts
+**Decision:** Added migration `074_browsable_card.sql` (renumbered from an
+initial `072` once the open-PR migration registry assigned 072 to
+fix/postgrest-reach and 073 to feat/scanner-voice — this PR merges after
+both), defining two views — `browsable_set` and `browsable_card` — as the
+single shared predicate for "is this part of the browsable physical Pokémon
+TCG catalog" (`series.tcgdex_id <> 'tcgp'`). Both are created
+`WITH (security_invoker = true)` (Supabase advisor 0010, made structural by
+072_postgrest_reach's migration lint) — a no-op for behavior here, since both
+only touch `card`/`card_set`/`series`, which already carry a public
+`USING (true)` SELECT policy, but verified directly against `anon` and
+`authenticated` roles under a real Supabase-mode RLS setup rather than
+assumed. Every read path that lists, searches or counts
 cards/sets for browsing now selects `FROM` these views instead of
 `card`/`card_set` directly: the search route and its facets
 (`routes/search.ts`), the Pokédex/species insights (`dexCompletion`,

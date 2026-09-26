@@ -8,7 +8,7 @@
  * test manages its own so it cannot collide with, or destabilise, that
  * shared multi-purpose runner). It applies the REAL migrations (via
  * `@deckpal/db`'s `migrateUp`, so this exercises the actual `browsable_card`
- * / `browsable_set` views from migration 072, not a hand-copied schema),
+ * / `browsable_set` views from migration 074, not a hand-copied schema),
  * seeds one physical card and one Pokémon TCG Pocket card that share a dex
  * species and a printed name ("Charizard ex" in sv01 vs. in Pocket's A1 --
  * the exact shape of the audit's repro), then calls the ACTUAL fixed

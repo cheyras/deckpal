@@ -972,7 +972,7 @@ const setProgressTool = defineTool({
           //
           // `browsable_set`, not `card_set`: Pokémon TCG Pocket's one series
           // also carries `catalogue_code = 'en'` (it is imported alongside the
-          // physical TCG, never as its own catalogue — see migration 072), so
+          // physical TCG, never as its own catalogue — see migration 074), so
           // the English-catalogue filter alone does not keep its 15 "sets" out
           // of "every set in the catalog." DECISIONS 2026-08-10: not browsable
           // anywhere, including here.
