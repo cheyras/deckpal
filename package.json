@@ -21,6 +21,7 @@
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter deckpal-api dev",
     "test:browser": "node --import tsx scripts/test-browser.mjs && node --import tsx tests/browser/paymentHistory.mts",
+    "test:browser:list-table": "node --import tsx tests/browser/listTableVirtualization.mjs",
     "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs"
   },
   "devDependencies": {

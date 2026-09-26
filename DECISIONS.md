@@ -20494,3 +20494,78 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 `__tests__/DataTable.test.ts`) were updated to import from the new path.
 
 **Evidence and status:** The observed live result was 9/10 signed approvals, with one residual prose-confirmation miss after `get_card`; the finite sample does not prove causation or universal liveness. This is a metadata-only correction with zero writes. Existing preview descriptor, schemas, normalization, preflight, approval eligibility/HMAC/replay, system prompt, tool routing, API transport and MCP behavior remain unchanged. Live follow-up remains pending.
+
+## 2026-09-26 — Virtualize ListDetail's Table view (PERF-03)
+**Decided by:** Chey (via Claude)
+
+**Decision:** `TableView.tsx` (the Table view mode for `ListDetail` and `SetDetail`) now
+renders its rows through the same `useWindowVirtualizer` window-scroll row-virtualizer
+`GridView.tsx` already uses, instead of `cards.map()` over the whole array. Only rows near the
+viewport (plus overscan) are ever mounted, regardless of list length. Added a static (see
+below) column-header legend and formal `role="list"`/`"listitem"` + `aria-setsize`/
+`aria-posinset` semantics on top, since virtualizing the render was the natural point to also
+give the row markup an accessible position signal it never had. `DataTable.tsx` (the shared
+admin-panel table primitive) was checked and is not the right place to fix this: it's a
+different component for a different data shape — its whole contract is "already filtered,
+sorted and paged by the owner" (server pagination is mandatory), so it never faces an unbounded
+row count the way a user's personal list can.
+
+**Why:** Measured (this repo's `.sim/` scale-profiling fixture, 3,200 synthetic list items,
+headless Chromium, CDP `Performance.getMetrics` TaskDuration + live DOM node count, both under
+the shared machine-load lock, before/after back to back):
+
+| Viewport | Metric | Before | After |
+|---|---|---:|---:|
+| 390×844 | DOM nodes | 29,077 | 485 |
+| 390×844 | Script/render time | 3,538 ms | 88 ms |
+| 1440×900 | DOM nodes | 29,077 | 485 |
+| 1440×900 | Script/render time | 3,041 ms | 120 ms |
+
+Grid and Binder were re-measured alongside and are unaffected (Grid: ~500-900 DOM nodes either
+way, already virtualized; Binder: ~340 DOM nodes either way, already a real client-side pager —
+confirmed neither needed a change). Post-scroll script cost also dropped (~270-320 ms → ~130-180
+ms for a 20-tick wheel burst), in the same range as Grid's own scroll cost, since compositing
+~500 nodes is cheaper than ~29,000 regardless of what's scrolling.
+
+**Implications:**
+- Column sort keeps working with no changes here: `ListDetail.tsx` sorts `items` into `view`
+  before handing it to `TableView`, so virtualizing the render is a pure windowing change over
+  whatever order it's handed — verified by rendering `?sort=name&dir=asc` vs `...desc` and
+  confirming the visible rows reorder correctly under virtualization.
+- Keyboard access: Tab reaches a mounted row's link and Enter opens that exact card, verified
+  under virtualization. Tabbing past the last *mounted* row without scrolling first will skip
+  ahead to the next focusable element outside the list rather than reveal more rows — the same,
+  already-accepted tradeoff `GridView.tsx` has shipped with; not a regression this PR
+  introduces.
+- Find-in-page (Cmd/Ctrl+F) and the browser's native print of the on-screen table can no longer
+  reach rows that aren't currently mounted — again, the same tradeoff already accepted for
+  `GridView.tsx`. The **"Print checklist"** button is unaffected either way: it opens a fully
+  server-rendered PDF (`GET /lists/:id/pdf`, `apps/api/src/export/router.ts` →
+  `renderListPdf`), generated from the database directly, never from the client DOM — checked
+  directly in the API source, not assumed.
+- Attempted to also make the new column-header legend `position: sticky` under the fixed app
+  nav. **Confirmed it does not work, for a reason that predates this PR**: `theme.css:315-324`
+  sets `overflow-x: hidden` on `html, body` without setting `overflow-y`, and per the CSS
+  Overflow spec that computes `overflow-y: auto` on both anyway — making `<body>` register as a
+  CSS scroll container even though real page scroll happens on `<html>`
+  (`document.scrollingElement`). Any `position: sticky` element whose nearest scrolling
+  ancestor resolves to `<body>` pins to body's own (never-moving) `scrollTop` and never
+  activates. Confirmed with real `page.mouse.wheel()` scroll + `getComputedStyle`, not guessed.
+  This is exactly the "classic bug pairing" the wiki's Frontend-Research §B.2 caveat 5 already
+  warned about for Grid's filter bar — now root-caused. It likely also silently defeats
+  `DeckBuilder.tsx`'s `lg:sticky lg:top-[92px]` sidebar and `CardDetail.tsx`'s `nav:sticky
+  nav:top-0` image column. Shipped the header as a plain, non-sticky legend instead of a
+  visually-broken sticky one; flagged the site-wide fix (`overflow-x: clip` in place of
+  `hidden`) as a separate follow-up rather than folding an unrelated global-CSS change into a
+  perf PR.
+- Added a standalone browser regression test, `tests/browser/listTableVirtualization.mjs`
+  (`pnpm test:browser:list-table`): builds the real SPA, serves a 3,200-item fixture list, and
+  asserts a bounded DOM node count at both viewports, correct sort-direction ordering, and
+  keyboard Tab+Enter reaching and opening the exact focused row. Deliberately not wired into the
+  shared `scripts/test-browser.mjs` orchestrator — that suite's `serve()` enforces a closed
+  allowlist of known API paths shared across several concurrently-developed PRs, and growing it
+  for one route this suite doesn't otherwise exercise seemed likelier to cause merge conflicts
+  than to earn its keep; a good follow-up once the concurrent PR traffic on that file settles.
+
+**Where enforced:** `apps/web/src/components/TableView.tsx`; regression test
+`tests/browser/listTableVirtualization.mjs`.
