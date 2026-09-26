@@ -40,6 +40,7 @@
  *    tool output that CONTRADICTS the one the server already produced.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { readSession } from '../../lib/authSession'
 import {
@@ -57,6 +58,7 @@ import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { failureParts, freshCalls, isShownInTranscript, lookupRecord } from './chat/lookupRecord'
+import { staleQueries } from './chat/writeRefresh'
 import {
   MAX_REPLAYED_REFUSALS,
   meterRefusalParts,
@@ -303,6 +305,8 @@ export function useDeckeChat(
    */
   onArrived?: () => void,
 ) {
+  /** The page's data cache, so a write he makes reaches the page behind him. */
+  const queryClient = useQueryClient()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   /**
    * The transcript, readable from a callback declared before it.
@@ -947,6 +951,14 @@ export function useDeckeChat(
             /* an unknown state must never take a turn down */
           }
         }
+        // ── AND THE PAGE BEHIND HIM FINDS OUT ──────────────────────────────
+        //
+        // A finished write makes the queries it touched stale, here, at the one
+        // writer every real tool event passes through, so the deck he just
+        // edited re-reads within a render of his "Done" instead of five minutes
+        // later. Above the transcript filter for the same reason as the beat:
+        // it is about the write, not the row. See `chat/writeRefresh.ts`.
+        for (const queryKey of staleQueries(chip)) void queryClient.invalidateQueries({ queryKey })
         // ── SOME CALLS ARE NOT SHOWN, AND THE BEAT ABOVE STILL RUNS ────────
         //
         // Placed BELOW the beat on purpose. `express` earns no transcript row
@@ -1622,7 +1634,7 @@ export function useDeckeChat(
         }
       }
     },
-    [decke],
+    [decke, queryClient],
   )
 
   const stop = useCallback(() => abortRef.current?.abort(), [])

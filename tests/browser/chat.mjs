@@ -145,6 +145,70 @@ async function checkMeterReplay(page, server, width, out) {
     proof: JSON.parse(fs.readFileSync(proofPath, 'utf8')) }
 }
 
+/**
+ * ── A WRITE REACHES THE PAGE BEHIND HIM ─────────────────────────────────────
+ *
+ * UXD-01, measured: Deck-E said "Done — Counter Catcher is out and you are on
+ * four Iono" and the deck page kept listing Counter Catcher and three Iono for
+ * five minutes, because every query is fresh that long and nothing told the
+ * cache. The real hook runs over a real fetch here, beside a deck query set up
+ * the way the app sets up its own. A read-only turn must NOT re-read the deck;
+ * a finished `save_deck` chip must, within the turn, with no reload.
+ */
+const DECK_V1 = { cards: [{ name: 'Iono', quantity: 3 }, { name: 'Counter Catcher', quantity: 1 }] }
+const DECK_V2 = { cards: [{ name: 'Iono', quantity: 4 }] }
+const REFRESH_LEGS = [
+  sse(
+    { type: 'data-decke-tool', data: { id: 'read-1', name: 'decks', title: 'Reading your deck', phase: 'start' } },
+    { type: 'data-decke-tool', data: { id: 'read-1', name: 'decks', title: 'Reading your deck', phase: 'ok', summary: '1 deck' } },
+    { type: 'text-delta', delta: 'You are on three Iono and a Counter Catcher.' },
+  ),
+  sse(
+    { type: 'data-decke-tool', data: { id: 'save-1', name: 'save_deck', title: 'Saving your deck', phase: 'start' } },
+    { type: 'data-decke-tool', data: { id: 'save-1', name: 'save_deck', title: 'Saving your deck', phase: 'ok',
+      summary: "Updated deck 'Dragapult'" } },
+    { type: 'text-delta', delta: 'Done — Counter Catcher is out and you are on four Iono.' },
+  ),
+]
+async function checkWriteRefresh(page, server, width, out) {
+  let legs = 0
+  let deckReads = 0
+  let deck = DECK_V1
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/decks/deck-browser', route => {
+    deckReads++
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(deck) })
+  })
+  await page.route('**/api/chat', route => {
+    const body = REFRESH_LEGS[legs++]
+    assert.ok(body, 'the hook made more legs than the scenario has: ' + legs)
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body })
+  })
+  await page.goto(server.origin + '/fixture.html?refresh', { waitUntil: 'networkidle' })
+  const list = page.getByRole('list', { name: 'Deck behind the chat' })
+  await list.getByText('3 Iono', { exact: true }).waitFor()
+  assert.equal(deckReads, 1)
+
+  await page.evaluate(() => window.refreshChat.send('What is in my deck?'))
+  await page.getByText('You are on three Iono and a Counter Catcher.').waitFor()
+  await page.waitForFunction(() => window.refreshChat.busy === false)
+  assert.equal(deckReads, 1, 'a read-only turn must not re-read the deck')
+
+  deck = DECK_V2
+  await page.evaluate(() => window.refreshChat.send('Swap the Counter Catcher for a fourth Iono.'))
+  await list.getByText('4 Iono', { exact: true }).waitFor()
+  assert.equal(await list.getByText('Counter Catcher').count(), 0, 'the removed card must leave the page')
+  await page.waitForFunction(() => window.refreshChat.busy === false)
+  assert.equal(deckReads, 2, 'one finished write, one re-read')
+  await page.screenshot({ path: path.join(out, 'write-refresh-' + width + '.png'), fullPage: true })
+  await page.unroute('**/api/chat')
+  await page.unroute('**/api/decks/deck-browser')
+  await page.unroute('**/decke/history')
+  return { case: 'decke-write-refreshes-page', width, readTurnReads: 1, writeTurnReads: 2 }
+}
+
 export async function checkChat(browser, server, out) {
   const results = []
   for (const width of [1280, 390]) {
@@ -255,6 +319,7 @@ export async function checkChat(browser, server, out) {
       await page.screenshot({ path: path.join(out, 'screen-' + width + '.png'), fullPage: true })
       results.push({ case: 'rendered-screen-keyboard', width, controlled, expandedAndCollapsed: true, focusVisible: true, reducedMotion: true })
       results.push(await checkMeterReplay(page, server, width, out))
+      results.push(await checkWriteRefresh(page, server, width, out))
     } finally { await context.close() }
   }
   return results

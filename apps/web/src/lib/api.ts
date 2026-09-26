@@ -830,6 +830,9 @@ export interface SearchCard {
 export interface SearchResponse {
   pagination: { page: number; pageSize: number; total: number; pageCount: number }
   cards: SearchCard[]
+  /** Present when `?legal=<format>` filtered the results to that format's card
+   *  pool; `rule` is the validator's own sentence for it (null: no pool limit). */
+  legal?: { format: DeckFormat; rule: string | null }
 }
 
 // ── Decks (Phase 5) ────────────────────────────────────────────
@@ -931,13 +934,20 @@ export interface DeckDetail {
   validation: ValidationResult
   cardRefs: Record<string, CardRef>
   glcTypes: string[]
-  import?: {
-    source: string
-    resolvedEntries: number
-    distinctCards: number
-    unresolved: string[]
-    warnings: ValidationWarning[]
-  }
+  import?: DeckImportSummary
+}
+/** What `POST /decks/import` made of a pasted list (with `dryRun`, all it returns). */
+export interface DeckImportSummary {
+  source: string
+  resolvedEntries: number
+  distinctCards: number
+  /** Cards the matched lines add up to. */
+  totalCards: number
+  unresolved: string[]
+  /** The lines that matched no card, verbatim as pasted. */
+  unresolvedLines: string[]
+  warnings: ValidationWarning[]
+  variantNote: string
 }
 export interface HandCard {
   cardId: string | null
@@ -1767,8 +1777,56 @@ export const api = {
     return res.blob()
   },
 
-  // PDF export URLs (streamed by the API; open in a new tab).
-  deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
+  // Deck PDF path (relative to BASE): fed to `downloadPdf`, never to an
+  // `<a href>`. See its comment for why.
+  deckPdfPath: (id: string) => `/decks/${encodeURIComponent(id)}/pdf`,
+
+  /**
+   * Fetch a PDF export and hand it to the browser as a real download: a blob
+   * URL on a temporary `<a download>`, never `window.open`.
+   *
+   * ── WHY NOT `<a href={...}>` ────────────────────────────────────────────
+   *
+   * Export PDF on the deck page was a plain `<a href target="_blank">` at the
+   * deck PDF route. Cloud's PDF routes authenticate only by `Authorization:
+   * Bearer` (`apps/api/src/auth.ts`), and a browser-initiated navigation sends
+   * cookies, never that header, which is `scanFlagBlob`'s reason too. So every
+   * signed-in user who pressed it got a raw 401 JSON tab.
+   *
+   * ── WHY NOT `window.open(blobUrl)` EITHER ───────────────────────────────
+   *
+   * The fetch has to finish before there is anything to open, and iOS Safari
+   * only allows `window.open` in the same tick as the gesture that triggered
+   * it. After an `await` it is popup-blocked, silently. An `<a download>`
+   * click is a save, not a new window, so it survives the round trip on every
+   * platform this app supports.
+   *
+   * The collection quick-fixes PR (#214) adds this same function body for
+   * Print checklist on sets and lists; whichever lands second keeps one copy.
+   */
+  downloadPdf: async (path: string, filename: string): Promise<void> => {
+    const headers = await authHeaders()
+    let res = await fetch(`${BASE}${path}`, { headers })
+    if (res.status === 401) {
+      const retry = await handle401(path, { headers })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // The tab that just downloaded this still holds the object URL; a
+    // session that prints ten checklists should not pin ten blobs in memory
+    // forever. 60s comfortably outlives the download itself.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  },
+
+  // List / set checklist PDF URLs (streamed by the API; open in a new tab).
   listPdfUrl: (id: string) => `${BASE}/lists/${encodeURIComponent(id)}/pdf`,
   setChecklistPdfUrl: (setId: string) => `${BASE}/sets/${encodeURIComponent(setId)}/checklist.pdf`,
 
@@ -1817,6 +1875,9 @@ export const api = {
   restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
+  /** The same import resolved WITHOUT creating anything, so unmatched lines can be shown first. */
+  checkDeckImport: (body: { text: string; formatCode?: DeckFormat; source?: 'ptcgl' | 'massentry' }) =>
+    send<{ import: DeckImportSummary }>('POST', '/decks/import', { ...body, dryRun: true }),
   // variantId (migration 051): which printing. Omitted = the card's primary
   // variant on add; on set/remove the server targets the card's single deck
   // row when there is exactly one and 400s when several printings would be

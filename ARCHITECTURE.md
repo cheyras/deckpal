@@ -1484,6 +1484,14 @@ with more than one printing and no stated variant used to be silently resolved
 to the primary *and written*. It is now asked about, and not written if the
 question is ignored.
 
+**A write reaches the page behind him.** Page data is TanStack Query, fresh for
+five minutes, so a write he made used to leave the deck page showing the old list
+(and its absolute-quantity steppers able to write it back). `useDeckeChat`
+now invalidates query roots when a write's chip finishes, whether the server ran
+the tool or the card committed a corrected batch. The roots come from
+`chat/writeRefresh.ts`, one entry per tool that can ask. A test fails when a write
+tool has no entry, or when an entry names a root no query uses.
+
 ### 15f. Fabrication is bounded, not cured
 
 Nine defects were found by deploying this branch to a preview and asking it real

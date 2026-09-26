@@ -13,6 +13,13 @@ import type pg from 'pg';
  *   • no battle logs yet → amend the current snapshot in place (upsert), so a
  *     burst of UI stepper calls with no intervening battles stays ONE version.
  *
+ * A REVERT IS THE EXCEPTION and always bumps (`forceBump`, see restoreSnapshot).
+ * Amending exists to absorb stepper noise. A revert is one deliberate act, and
+ * the snapshot it would amend is the only copy of the list being replaced, so
+ * amending there erased an unplayed working list while the History tab promised
+ * "nothing is lost" (DECISIONS 2026-09-26). Every handler keeps the current
+ * snapshot equal to the live list, which is why a bump alone preserves it.
+ *
  * Strategy-guide edits never bump — recordStrategyChange() updates
  * deck.strategy_md AND the current snapshot in place. Rename/favorite/cover
  * changes never touch versions; format changes go through recordDeckChange()
@@ -73,12 +80,13 @@ export async function loadSnapshotCards(client: pg.PoolClient, deckId: string): 
  * Apply the auto-bump rule after a card-list (or format) mutation. Returns the
  * version the change landed on and whether it was a bump. `note`, when provided,
  * lands on the new snapshot (bump) or overwrites the current snapshot's note
- * (amend); when omitted an amend keeps the existing note.
+ * (amend); when omitted an amend keeps the existing note. `forceBump` skips the
+ * battle-log test and always creates a new version (revert only; see header).
  */
 export async function recordDeckChange(
   client: pg.PoolClient,
   deckId: string,
-  opts: { source: string; note?: string | null },
+  opts: { source: string; note?: string | null; forceBump?: boolean },
 ): Promise<DeckChangeResult> {
   const note = opts.note ?? null;
   // user_id comes off the owning deck row, never from the caller. Migration 020
@@ -98,13 +106,16 @@ export async function recordDeckChange(
   if (!d) throw new Error(`recordDeckChange: no deck ${deckId}`);
   const cards = JSON.stringify(await loadSnapshotCards(client, deckId));
 
-  const logs = await client.query<{ n: string }>(
-    `SELECT count(*) AS n FROM battle_log WHERE deck_id = $1 AND deck_version = $2`,
-    [deckId, d.version],
-  );
-  const hasLogs = Number(logs.rows[0]?.n ?? 0) > 0;
+  let bump = opts.forceBump === true;
+  if (!bump) {
+    const logs = await client.query<{ n: string }>(
+      `SELECT count(*) AS n FROM battle_log WHERE deck_id = $1 AND deck_version = $2`,
+      [deckId, d.version],
+    );
+    bump = Number(logs.rows[0]?.n ?? 0) > 0;
+  }
 
-  if (hasLogs) {
+  if (bump) {
     const next = d.version + 1;
     await client.query(`UPDATE deck SET version = $2 WHERE id = $1`, [deckId, next]);
     await client.query(
@@ -129,6 +140,94 @@ export async function recordDeckChange(
     [deckId, d.version, d.format_code, cards, d.strategy_md, note, opts.source, d.user_id],
   );
   return { version: d.version, bumped: false };
+}
+
+export interface RestoreResult extends DeckChangeResult {
+  /** Snapshot entries whose card has left the catalog since; reported, never applied. */
+  skippedCards: { cardId: number; tcgdexId: string; name: string }[];
+}
+
+/**
+ * Make an old snapshot the live list again, as a NEW version (the revert).
+ *
+ * The version being replaced keeps its snapshot untouched, so "revert back" is
+ * always possible, whether or not it was ever played. The caller holds the deck
+ * lock and has checked that `target` is a different version of this deck.
+ * Cards hard-deleted from the catalog since the snapshot (near-impossible under
+ * ON DELETE RESTRICT) are reported in `skippedCards`, never silently dropped.
+ */
+export async function restoreSnapshot(
+  client: pg.PoolClient,
+  deckId: string,
+  userId: string,
+  target: { cards: SnapshotEntry[]; strategyMd: string | null },
+  opts: { includeStrategy: boolean; source: string; note: string },
+): Promise<RestoreResult> {
+  // Resolve snapshot entries against the live catalog by card id.
+  const wantIds = target.cards.map((c) => c.cardId);
+  const live = wantIds.length
+    ? await client.query<{ id: string }>(`SELECT id FROM card WHERE id = ANY($1)`, [wantIds])
+    : { rows: [] as { id: string }[] };
+  const liveIds = new Set(live.rows.map((r) => Number(r.id)));
+  const apply = target.cards.filter((c) => liveIds.has(c.cardId));
+  const skippedCards = target.cards.filter((c) => !liveIds.has(c.cardId))
+    .map((c) => ({ cardId: c.cardId, tcgdexId: c.tcgdexId, name: c.name }));
+
+  // Resolve each entry to a PRINTING (migration 051). A post-051 snapshot
+  // names its variant; use it if it is still a printing of that card.
+  // A pre-051 snapshot (or a since-retired variant id) falls back to the
+  // card's primary variant — "primary, never a change" is the documented
+  // reading of a variant-less snapshot.
+  const namedVariants = [...new Set(apply.map((c) => c.variantId).filter((v): v is number => typeof v === 'number'))];
+  const validVariant = new Map<number, number>(); // variantId -> cardId
+  if (namedVariants.length) {
+    const rows = await client.query<{ id: string; card_id: string }>(
+      `SELECT id, card_id FROM card_variant WHERE id = ANY($1::bigint[])`,
+      [namedVariants],
+    );
+    for (const r of rows.rows) validVariant.set(Number(r.id), Number(r.card_id));
+  }
+  const primaries = apply.length
+    ? await client.query<{ card_id: string; id: string }>(
+        `SELECT DISTINCT ON (card_id) card_id, id FROM card_variant
+          WHERE card_id = ANY($1::bigint[])
+          ORDER BY card_id, is_primary DESC, sort_order`,
+        [apply.map((c) => c.cardId)],
+      )
+    : { rows: [] as { card_id: string; id: string }[] };
+  const primaryOf = new Map(primaries.rows.map((r) => [Number(r.card_id), Number(r.id)]));
+
+  // One target quantity per printing (two old entries can land on one
+  // primary only in theory, but a sum beats a silent overwrite).
+  const byVariant = new Map<number, { cardId: number; quantity: number }>();
+  for (const c of apply) {
+    const vid =
+      typeof c.variantId === 'number' && validVariant.get(c.variantId) === c.cardId
+        ? c.variantId
+        : primaryOf.get(c.cardId);
+    if (vid === undefined) continue;
+    const cur = byVariant.get(vid);
+    byVariant.set(vid, { cardId: c.cardId, quantity: Math.min(60, (cur?.quantity ?? 0) + Math.max(1, c.quantity)) });
+  }
+
+  // Reconcile deck_card to the snapshot in one pass, keyed by printing.
+  await client.query(
+    `DELETE FROM deck_card WHERE deck_id = $1 AND card_variant_id <> ALL($2::bigint[])`,
+    [deckId, [...byVariant.keys()]],
+  );
+  for (const [vid, t] of byVariant) {
+    await client.query(
+      `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (deck_id, card_variant_id) DO UPDATE SET quantity = $5`,
+      [deckId, t.cardId, vid, userId, t.quantity],
+    );
+  }
+  if (opts.includeStrategy) {
+    await client.query(`UPDATE deck SET strategy_md = $2 WHERE id = $1`, [deckId, target.strategyMd]);
+  }
+  await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1`, [deckId]);
+  const change = await recordDeckChange(client, deckId, { source: opts.source, note: opts.note, forceBump: true });
+  return { ...change, skippedCards };
 }
 
 /**

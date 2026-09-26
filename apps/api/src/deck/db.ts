@@ -242,6 +242,7 @@ export async function resolveDeck(
       warnings.push({
         code: 'UNRESOLVED_CARD',
         message: `"${line.quantity} ${line.name}${line.setCode ? ` ${line.setCode} ${line.number ?? ''}` : ''}" — could not resolve to a catalogue card.`,
+        line: line.raw,
       });
     }
   }
@@ -431,4 +432,55 @@ export async function buildReprintOracle(
   }
 
   return (card: CardFacts) => legalIds.has(card.id);
+}
+
+/**
+ * The format's card POOL as a SQL predicate: the add-cards search's "legal
+ * only" filter, which has to page through the whole catalogue rather than
+ * validate a list it already holds.
+ *
+ * It is the SQL twin of the validator's pool rules (`ruleStandardPool`,
+ * `ruleSetAllowancePool` in formats.ts), built from the same formats.json knobs
+ * and the same fingerprint query as {@link buildReprintOracle}: basic Energy,
+ * OR a legal mark, OR (set-allowance formats) a set in the allowance, OR a
+ * fingerprint-identical English reprint carrying a legal mark. It answers the
+ * NOT_IN_FORMAT question and nothing else. Bans and GLC's card rules (rule box,
+ * ACE SPEC, the Classic Collection carve-out) stay with the legality panel.
+ *
+ * The filter used to be a hard-coded mark list applied in the browser to one
+ * 30-row page sorted by name. "Pikachu" has 243 prints and none of the first
+ * 30 is H, I or J, so it reported no legal Pikachu while 50 exist.
+ *
+ * ONE DELIBERATE DIFFERENCE from the oracle: a card with no stored fingerprint
+ * qualifies only by its own mark or set. The oracle hashes such a card at
+ * request time rather than read NULL as "no reprint"; a catalogue filter cannot
+ * hash thousands of rows per keystroke. The index is filled in production, and
+ * a gap only makes the filter show fewer cards, never an illegal one.
+ *
+ * Returns null when the format has no pool limit. `bind` appends a parameter and
+ * returns its placeholder; `c` and `cs` are the caller's aliases for `card` and
+ * `card_set`.
+ */
+export function formatPoolSql(formatCode: FormatCode, bind: (value: unknown) => string): string | null {
+  const cfg = formatConfig(formatCode);
+  if (cfg.pool_strategy === 'all') return null;
+  const marks = bind(cfg.legal_marks);
+  const clauses = [
+    `(c.category = 'Energy' AND c.energy_type = 'Normal')`,
+    `c.regulation_mark = ANY(${marks}::text[])`,
+  ];
+  if (cfg.pool_strategy === 'set_allowance') {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM unnest(${bind(cfg.pool_from_series_prefixes ?? [])}::text[]) AS pre(p)
+                WHERE starts_with(cs.tcgdex_id, pre.p))`,
+    );
+  }
+  clauses.push(
+    `(c.playable_fingerprint IS NOT NULL AND EXISTS (
+        SELECT 1 FROM card legal
+         WHERE legal.playable_fingerprint = c.playable_fingerprint
+           AND legal.regulation_mark = ANY(${marks}::text[])
+           AND legal.lang = 'en'))`,
+  );
+  return `(${clauses.join('\n  OR ')})`;
 }

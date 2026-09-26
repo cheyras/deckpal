@@ -226,6 +226,26 @@ try {
     assert.equal(evidence.status, 'passed');
     result.cases.push(evidence);
   }
+  // Deck versioning and the format card pool get their own database, so their
+  // fixture schema never shares tables with the catalog cases above.
+  {
+    assertNoEnvFile();
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c', 'CREATE DATABASE deckpal_ci_decks_test OWNER deckpal_ci_fixture;']);
+    const caseFile = join(scratch, 'decks.json');
+    await run(process.execPath, [
+      '--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      join(REPO, 'apps', 'api', 'src', '__integration__', 'decks.mjs'),
+    ], {
+      timeoutMs: 120_000,
+      env: {
+        PGUSER: 'deckpal_ci_fixture', PGDATABASE: 'deckpal_ci_decks_test',
+        DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile,
+      },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  }
   // Separate databases keep governance fixtures isolated from catalog tests.
   // The runner alone provisions fixture roles on its owned socket cluster.
   for (const mode of ['legacy-self-host','self-host','cloud']) {

@@ -517,8 +517,9 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     count, current marker. `version`: full snapshot + card diff vs the previous version.
     `revert_to`: `POST /decks/:id/revert` — the API has no dry-run mode, so the tool's default
     dry run fetches the target and current snapshots itself and prints the exact diff (and
-    whether the revert will bump or amend) before anything is written. Non-destructive by
-    design — history is never deleted — hence `destructiveHint: false`.
+    the version number the revert will create) before anything is written. Non-destructive by
+    design — a revert always creates a new version and history is never deleted — hence
+    `destructiveHint: false`.
 19. **`edit_battle_log`** — `{ deck_id, log_id, result?|null, opponent?|null, opponent_deck?|null,
     notes?|null, played_at?, dry_run? = true }`. Defaults to a dry run (2026-08-29) — a
     field-by-field would-change plan ("Nothing was changed." first line) without writing;
@@ -617,8 +618,9 @@ The versioning semantics the tool descriptions must keep teaching (LOCKED in the
   snapshot in place.
 - **Logs attach to the current version** — the list the game was actually played with — so
   per-version W/L records mean something.
-- **Revert is non-destructive**: it re-applies an old snapshot through the same write path
-  (same auto-bump rule); history is never deleted.
+- **Revert is non-destructive**: it re-applies an old snapshot as a NEW version, always —
+  the one exception to the auto-bump rule, so the list it replaces is kept even when it was
+  never played. History is never deleted.
 - **The synthesis loop** these tools exist for: `battle_logs` (read a version's results, raw
   logs via `include_raw`) → `save_deck` with `version_note` / `deck_strategy` (push the
   improved list + guide) → new games log against the new version. Compounding, battle-tested
