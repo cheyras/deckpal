@@ -243,15 +243,22 @@ branches without a database and fails if a route reaches for `req.user` again.
 
 ### Classification
 
-Every table is either **catalog (shared)** or **per-user**:
+Every table is **catalog (shared)**, **per-user**, or a **public profile** table:
 
 - **Catalog tables** (card, series, card_set, card_variant, price_current,
   price_observation, sync_run, image_asset, etc.): world-readable, service-role-
   writable. No `user_id` column. RLS policy: `SELECT: true`.
 - **Per-user tables** (collection_item, deck, deck_card, deck_version,
-  battle_log, card_list, list_item, binder_placement, user_settings,
-  user_profile, etc.): readable/writable only by the owning user. RLS policy:
-  `user_id = (SELECT auth.uid())`.
+  battle_log, card_list, list_item, binder_placement, user_settings, etc.):
+  readable/writable only by the owning user. RLS policy:
+  `user_id = (SELECT auth.uid())`. A child row's foreign key includes
+  `user_id` (`(deck_id, user_id) REFERENCES deck (id, user_id)`), because a
+  foreign-key check ignores RLS and would otherwise let a user attach rows to
+  someone else's parent (migration 072).
+- **Public profile tables** (`user_profile`, `user_showcase`): world-readable
+  for the `/u/{name}` profile page, writable only by the owner. `user_profile`
+  is writable only in its avatar columns, and an avatar key can belong to one
+  profile at a time (migration 072).
 
 ### The user ID migration
 
@@ -266,10 +273,27 @@ as a constant.
 
 ### Views
 
-Catalog views (`variant_tier_resolved`, `master_required_variant`,
-`set_variant_coverage`, `card_without_standard_variant`) have no user_id and
-need no RLS change. `collection_dupe_predicate` reads through the RLS'd
-`collection_item` table and works correctly.
+A Postgres view runs with its **owner's** rights unless it is created
+`WITH (security_invoker = true)`, and the owner here is the migration role,
+which owns every table and so never meets their RLS. A plain view over a
+per-user table therefore publishes all of it to anyone Supabase's default
+grants let SELECT the view, which includes the anon key.
+
+That is exactly what `collection_dupe_predicate` did. This section used to say
+it "reads through the RLS'd `collection_item` table and works correctly"; it
+did not. From migration 020 until 072 it served every account's
+(user, card, owns-two-or-more) rows at `/rest/v1/collection_dupe_predicate` to
+anyone with the anon key (DECISIONS.md 2026-09-26). Nothing read it, and 072
+dropped it.
+
+Every remaining view (`variant_tier_resolved`, `master_required_variant`,
+`set_variant_coverage`, `card_without_standard_variant`, and the service-only
+`admin_user_role`) is `security_invoker` since 072, so a view applies the
+caller's RLS like the tables beneath it. Two checks hold that line:
+`packages/db/src/__tests__/migrationLint.test.ts` fails any migration that
+creates a view without the option, and the database integration suite
+(`apps/api/src/__integration__/reach.mjs`) applies every migration and asserts
+that anon and a second user reach none of a user's rows in any table or view.
 
 ## 7. Image storage
 

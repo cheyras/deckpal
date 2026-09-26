@@ -223,6 +223,13 @@ jobs:
       - name: CLI error safety (pure, no DB)
         run: pnpm --filter @deckpal/db test:cli
 
+      # Supabase advisor rule 0010 over the migration files: a view that runs
+      # with its owner's rights skips the caller's RLS, which is how every
+      # user's collection was readable with the anon key (security audit
+      # SEC-01, migration 072). The database suite checks the real catalog too.
+      - name: Migration lint — views run as their caller (pure, no DB)
+        run: pnpm --filter @deckpal/db test:migrations
+
       - name: Build web
         run: pnpm --filter deckpal-web build
 
