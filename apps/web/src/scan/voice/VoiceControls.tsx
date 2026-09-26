@@ -89,8 +89,12 @@ const TROUBLE_COPY: Partial<Record<ScannerVoice['status'], string>> = {
  * The caption over the camera: a problem if there is one, else the words
  * arriving right now, else the last thing voice did. Pointer-transparent except
  * for its Undo, so it never steals a tap meant for the scanner.
+ *
+ * `placement="list"` is the same caption floating above the Verify bar, for
+ * when the list is expanded and the camera (with the caption in it) is hidden
+ * while the microphone is still on — a removal's Undo must stay reachable.
  */
-export function VoiceCaption({ voice }: { voice: ScannerVoice }) {
+export function VoiceCaption({ voice, placement = 'camera' }: { voice: ScannerVoice; placement?: 'camera' | 'list' }) {
   const { status, interim, caption } = voice
   const trouble = status === 'paused' || status === 'denied' || status === 'error'
   let body: ReactNode = null
@@ -139,7 +143,10 @@ export function VoiceCaption({ voice }: { voice: ScannerVoice }) {
   }
   if (!body) return null
   return (
-    <div className="pointer-events-none absolute inset-x-[12px] bottom-[50px] z-30 flex justify-center">
+    <div
+      className={`pointer-events-none absolute inset-x-[12px] flex justify-center ${placement === 'camera' ? 'bottom-[50px] z-30' : 'z-[58]'}`}
+      style={placement === 'list' ? { bottom: 'calc(76px + env(safe-area-inset-bottom))' } : undefined}
+    >
       <div
         data-voice-caption={trouble ? status : interim ? 'interim' : caption?.tone}
         className="flex max-w-full items-start gap-[7px] rounded-2xl bg-black/65 px-[12px] py-[7px] text-[13px] leading-[18px] text-white shadow-elevated backdrop-blur"

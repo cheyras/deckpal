@@ -1717,6 +1717,7 @@ export function Scan() {
             </div>
 
             <PrimaryActionBar label={`Verify (${totalQuantity})`} icon="check" count={totalQuantity} onClick={goToVerify} />
+            {showVoice && binExpanded && <VoiceCaption voice={voice} placement="list" />}
           </>
         ) : (
           <>
