@@ -532,7 +532,24 @@ function MobileDrawer({
         aria-modal="true"
         aria-label="Navigation"
       >
-        <div className="px-[16px] py-[20px]" onClick={onClose}>
+        {/* A11Y-05 (adversarial-review follow-up): with `aria-modal="true"`,
+            assistive tech that honors modality treats everything outside this
+            dialog — including the header's "Menu" button, which is now this
+            drawer's own toggle — as unreachable. Escape and a backdrop tap
+            still close it, but neither is available to every touch
+            screen-reader gesture set, so the dialog needs its own in-panel,
+            labelled dismiss control rather than depending on either. */}
+        <div className="flex justify-end px-[8px] pt-[8px]">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close navigation"
+            className="flex h-[40px] w-[40px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
+          >
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+        <div className="px-[16px] pb-[20px]" onClick={onClose}>
           {signedOut ? (
             <Link
               to="/auth"

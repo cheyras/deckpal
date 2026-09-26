@@ -731,47 +731,60 @@ function headingText(h1: HTMLElement): string {
   return h1.querySelector('img[alt]')?.getAttribute('alt')?.trim() ?? ''
 }
 
-let lastAnnouncedHeading = ''
+/**
+ * Write the current heading to the live region, if there is one.
+ *
+ * NOT deduped against the last-announced text. It was, originally, to skip a
+ * redundant re-write — but that dedup was the bug an adversarial review
+ * caught: `SetDetail` (and every other catalog query) uses TanStack Query's
+ * `keepPreviousData`, so the moment `onRendered` fires for a NEW set, the
+ * OLD set's `<h1>` is still mounted (same text as last time) while the real
+ * data loads. Treating "a heading exists and matches last time" as "this
+ * navigation is done" meant the observer below never got installed, so the
+ * new set's heading — once it actually replaced the old one — was never
+ * announced. Writing unconditionally on every call is simpler AND correct:
+ * `aria-live` only fires an actual announcement when `textContent` genuinely
+ * changes, so re-writing the same string is a harmless no-op to the user,
+ * and the MutationObserver keeps calling this until the real swap happens.
+ */
 function announceHeading(): boolean {
   const h1 = document.querySelector<HTMLElement>('h1')
   const heading = h1 ? headingText(h1) : ''
-  if (!heading || heading === lastAnnouncedHeading) return !!heading
-  lastAnnouncedHeading = heading
+  if (!heading) return false
   routeAnnouncer.textContent = heading
   return true
 }
 
 let headingWatcher: MutationObserver | null = null
+let headingFallback: number | null = null
 router.subscribe('onRendered', () => {
   headingWatcher?.disconnect()
-  // The common case: the new route's `<h1>` is already in the DOM the moment
-  // the route commits (every chromeless page, and every catalog page once its
-  // data is cached). Most navigations end here, synchronously, with no delay.
-  if (announceHeading()) return
-  // The first visit to a catalog page (SetDetail, CardDetail, SeriesDetail,
-  // SpeciesDetail): the route commits with a spinner, and the `<h1>` arrives
-  // only once its query resolves — a real network round-trip, not one paint
-  // frame. `requestAnimationFrame` waited exactly one frame here originally
-  // and was gone before the query answered, which announced the PREVIOUS
-  // page's heading (or nothing) on every one of these — the majority of
-  // catalog navigation. A `MutationObserver` on the page body reacts the
-  // instant the real heading mounts, however long the fetch takes, and the
-  // deadline is only a backstop for a route that genuinely never gets one
-  // (an error state with no heading at all) — that falls back to the static
-  // `document.title` so the region says SOMETHING rather than the stale
-  // previous page's name forever.
-  const deadline = Date.now() + 4000
+  if (headingFallback !== null) window.clearTimeout(headingFallback)
+  // Announce whatever is there right now — the common case (every chromeless
+  // page, and a catalog page once its data is warm) ends here, synchronously.
+  let settled = announceHeading()
+  // Then keep watching for up to 4s regardless: a catalog page's `<h1>` can
+  // still be mid-flight (nothing to announce yet), or — the case above —
+  // already present but STALE (kept from the previous route while the new
+  // one loads). Either way, a real mutation is what actually resolves it, and
+  // `announceHeading` re-fires the live region only when the text genuinely
+  // changes.
   headingWatcher = new MutationObserver(() => {
-    if (announceHeading() || Date.now() > deadline) {
-      headingWatcher?.disconnect()
-      headingWatcher = null
-      if (!document.querySelector('h1') && document.title !== lastAnnouncedHeading) {
-        lastAnnouncedHeading = document.title
-        routeAnnouncer.textContent = document.title
-      }
-    }
+    if (announceHeading()) settled = true
   })
   headingWatcher.observe(document.body, { childList: true, subtree: true, characterData: true })
+  // An INDEPENDENT timer, not a check piggybacked on the observer's own
+  // callback — a route that fails fast (`ErrorState`, no `<h1>` at all) can
+  // settle with no further DOM mutations ever, in which case the observer
+  // callback simply never runs again and a check living only inside it would
+  // never fire either. This runs regardless, falls back to `document.title`
+  // if nothing was ever announced for this navigation, and always cleans up.
+  headingFallback = window.setTimeout(() => {
+    headingWatcher?.disconnect()
+    headingWatcher = null
+    headingFallback = null
+    if (!settled) routeAnnouncer.textContent = document.title
+  }, 4000)
 })
 
 // Before first paint, so the skin never flashes from classic to premium.
