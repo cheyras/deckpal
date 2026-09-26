@@ -225,7 +225,7 @@ function prefetchLikelyPages(): void {
 function RoutePending() {
   return (
     <Content>
-      <p role="status">Loading…</p>
+      <p role="status" className="text-text-muted">Loading…</p>
     </Content>
   )
 }
