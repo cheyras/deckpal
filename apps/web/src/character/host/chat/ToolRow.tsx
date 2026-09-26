@@ -45,6 +45,7 @@
 import { useId, useState, type JSX } from 'react'
 import { Icon, type IconName } from '../../../components/Icon'
 import { toolRowAppearance, type ToolGlyph, type ToolRowData, type ToolTone } from './toolRowState'
+import { TOP_UP_LABEL, WALLET_LABEL } from './creditState'
 
 export type { ToolPhase, ToolRowData } from './toolRowState'
 
@@ -191,9 +192,12 @@ function StatusPill({ label, tone }: { label: string; tone: ToolTone }): JSX.Ele
 export function ToolRow({
   data,
   onRetry,
+  onTopUp,
 }: {
   data: ToolRowData
   onRetry?: (id: string) => void
+  /** Where credits are bought and a hold is explained. See `creditAction`. */
+  onTopUp?: () => void
 }): JSX.Element {
   const a = toolRowAppearance(data)
   const detailId = useId()
@@ -301,6 +305,15 @@ export function ToolRow({
             ].join(' ')}
           >
             Try again
+          </button>
+        ) : null}
+        {a.creditAction && onTopUp ? (
+          <button
+            type="button"
+            onClick={onTopUp}
+            className="ml-auto shrink-0 whitespace-nowrap rounded-[7px] border border-error/40 px-[9px] py-[2px] text-[11.5px] font-semibold leading-[16px] text-error motion-safe:transition-colors hover:bg-error/[0.12]"
+          >
+            {a.creditAction === 'wallet' ? WALLET_LABEL : TOP_UP_LABEL}
           </button>
         ) : null}
       </div>
