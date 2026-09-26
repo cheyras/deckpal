@@ -65,6 +65,8 @@ export interface ParseResult {
   /** A word in a card name's place ("the Pikachu is…") that matches no row.
    *  The command is refused rather than sent to "that one" instead. */
   unresolvedName?: string
+  /** Said with "not", "don't" or "never" — an objection, never a request. */
+  negated?: boolean
 }
 
 /** A row the reader might name, MOST RECENT FIRST, so a name that appears twice
@@ -466,7 +468,7 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // said with a negation anywhere, it is an objection and nothing happens. ("No,
   // remove it" is not negation — "no" is how people start a correction — and
   // "not a holo" never gets here: the lexicon reads it whole, as Normal.)
-  if (has('negation')) return { command: null, coverage }
+  if (has('negation')) return { command: null, coverage, negated: true }
 
   const aboutAnchor = !!command && command.kind !== 'undo' && command.kind !== 'stop' && target.kind === 'anchor'
   if (aboutAnchor && coverage < 1) {
@@ -492,13 +494,19 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
  * the first is not always the one that fits the grammar: "reverse hollow" may
  * sit behind "reverse holo" or in front of it. A guess that parses beats one
  * that does not; between two that parse, the one explaining more of itself.
+ *
+ * Refusals are not outvoted. If ANY guess heard a negation, the reader may well
+ * have said "do not remove it", and a shorter guess ("remove it") must not turn
+ * that into a removal. A card name the BEST guess could not find is refused the
+ * same way, rather than handed to a lesser guess that points at "that one".
  */
 export function parseAlternatives(alternatives: readonly string[], rows: readonly NamedRow[] = []): ParseResult & { heard: string } {
-  const first = alternatives[0] ?? ''
-  let best: ParseResult & { heard: string } = { ...parseUtterance(first, rows), heard: first }
-  for (const heard of alternatives) {
-    const parsed = parseUtterance(heard, rows)
-    if (parsed.command && (!best.command || parsed.coverage > best.coverage)) best = { ...parsed, heard }
-  }
+  const parsed = alternatives.map((heard) => ({ ...parseUtterance(heard, rows), heard }))
+  const first = parsed[0] ?? { command: null, coverage: 0, heard: '' }
+  const objection = parsed.find((p) => p.negated)
+  if (objection) return objection
+  if (first.unresolvedName) return first
+  let best = first
+  for (const p of parsed) if (p.command && (!best.command || p.coverage > best.coverage)) best = p
   return best
 }

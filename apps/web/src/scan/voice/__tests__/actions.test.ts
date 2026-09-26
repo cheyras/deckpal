@@ -151,6 +151,16 @@ describe('the queue', () => {
     assert.equal(tick(q, [], WAIT_FOR_ROW_MS - 1, () => true).dropped.length, 0)
   })
 
+  it('keeps the card a command was spoken about, even if the row is corrected before its hold starts', () => {
+    const spoken = [row('r1')]
+    const q = enqueue(EMPTY_QUEUE, propose(spec('reverse holo'), 'r1', spoken, 0, mint).actions)
+    const corrected = [row('r1', { cardId: 'another-card', name: 'Another' })]
+    const t = tick(q, corrected, 100, () => false)
+    assert.equal(t.queue.pending[0].cardId, 'card-r1')
+    const [a] = tick(t.queue, corrected, 60_000, () => false).due
+    assert.equal(applyAction(corrected, a).record, null, 'refused, not re-aimed at the corrected card')
+  })
+
   it('drops an edit whose row landed unidentified', () => {
     const q = enqueue(EMPTY_QUEUE, propose(spec('holo'), 'u', [], 0, mint).actions)
     const t = tick(q, [row('u', { cardId: null, matched: false })], 10, () => false)

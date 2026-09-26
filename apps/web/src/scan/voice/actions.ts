@@ -184,7 +184,10 @@ export function tick(
           dropped.push({ ok: false, message: 'Identify that scan first — tap it in the list' })
           continue
         }
-        pending.push({ ...a, cardId: row.cardId, settleAt: now + HOLD_MS[a.kind] })
+        // The card the command was SPOKEN about, when its row already existed
+        // then; only a capture still in the air learns its card on landing. A
+        // row corrected in between must not quietly re-aim the command.
+        pending.push({ ...a, cardId: a.cardId ?? row.cardId, settleAt: now + HOLD_MS[a.kind] })
         attached.push(a.rowId)
       } else if (now > a.expiresAt || !inFlight(a.rowId)) {
         dropped.push({ ok: false, message: 'That scan didn’t make it to the list' })

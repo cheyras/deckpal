@@ -246,6 +246,16 @@ describe('alternatives', () => {
     assert.equal(best.heard, 'reverse hollow')
     assert.equal(best.command?.kind, 'edit')
   })
+  it('never lets a lesser guess outvote an objection or an unfound name', () => {
+    const negated = parseAlternatives(['do not remove it', 'remove it'], ROWS)
+    assert.equal(negated.command, null)
+    assert.equal(negated.negated, true)
+    assert.equal(parseAlternatives(['remove it', 'do not remove it'], ROWS).command, null)
+    const missing = parseAlternatives(['remove that pikachu', 'remove that'], ROWS)
+    assert.equal(missing.command, null)
+    assert.equal(missing.unresolvedName, 'pikachu')
+  })
+
   it('reports the first guess as heard when none parses', () => {
     const best = parseAlternatives(['nice weather', 'nice whether'], ROWS)
     assert.equal(best.command, null)
