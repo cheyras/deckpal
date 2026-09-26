@@ -1,5 +1,6 @@
 /**
- * Three build gates on runtime and 3D character assets.
+ * Four build gates on runtime and 3D character assets, plus permission-gated
+ * dev/owner routes.
  *
  * ONE: fail the build if the service worker would precache the 3D character.
  *
@@ -47,6 +48,28 @@
  * These are the same check from three directions: the first says an asset must
  * not ship to everyone via the service worker, the third says it must not ship to
  * everyone via the document, and the second says it must actually ship.
+ *
+ * FOUR: fail the build if a permission-gated dev/owner route's chunk is in the
+ * precache manifest. `/design`, `/dev/chat-ui`, `/dev/decke-compare`,
+ * `/dev/scan-harness`, `/dev/quad-labeler` and `/dev/quad-harvest` are all
+ * `requireCapability()`-gated in `main.tsx` — closed to everyone but a
+ * permitted account, same as `/dev/decke` above — and were precached anyway
+ * (PERF-04, 2026-09-26): 538.6 kB raw / 171.9 kB gzip, ~19% of the manifest,
+ * fetched into every visitor's Cache Storage on first load for tooling almost
+ * nobody can open. None of the six touch three.js, so gate ONE's content check
+ * never saw them; `vite.config.ts`'s `globIgnores` excludes them by name now,
+ * same convention as the character.
+ *
+ * A name is still a fragile thing to depend on — the header comment on gate ONE
+ * explains why — and these six have no `WebGLRenderer`-style marker to fall
+ * back on for a content check. So gate FOUR resolves each route from Vite's
+ * build manifest (`dist/.vite/manifest.json`, written because `vite.config.ts`
+ * sets `build.manifest: true`) BY SOURCE PATH instead: the one identifier that
+ * does not change when Rollup renames or merges a chunk. A rename either makes
+ * the manifest lookup fail (the route moved — update this file and
+ * `globIgnores` together) or resolves to a new hashed name that this gate then
+ * checks against the precache list directly, so drift fails the build instead
+ * of shipping quietly.
  *
  *   node scripts/check-precache.mjs [distDir]
  */
@@ -228,8 +251,66 @@ if (onCriticalPath.length) {
   process.exit(1)
 }
 
+// ---- gate four: permission-gated dev/owner routes must not re-enter the precache --
+//
+// See the FOUR paragraph in the header comment for the full reasoning. Short
+// version: resolve each gated route by SOURCE PATH via Vite's build manifest,
+// not by guessing its hashed output name, so a rename fails the build instead
+// of silently walking the chunk back into the precache.
+const GATED_ROUTES = [
+  { route: '/design', permission: 'design.view', src: 'src/routes/design/DesignSystem.tsx' },
+  { route: '/dev/chat-ui', permission: 'diagnostics.view', src: 'src/routes/dev/ChatUi.tsx' },
+  { route: '/dev/decke-compare', permission: 'diagnostics.view', src: 'src/routes/dev/DeckeCompare.tsx' },
+  { route: '/dev/scan-harness', permission: 'diagnostics.view', src: 'src/routes/dev/ScanHarness.tsx' },
+  { route: '/dev/quad-labeler', permission: 'scanner.label', src: 'src/routes/dev/QuadLabeler.tsx' },
+  { route: '/dev/quad-harvest', permission: 'scanner.label', src: 'src/routes/dev/QuadHarvest.tsx' },
+]
+
+const BUILD_MANIFEST = join(DIST, '.vite', 'manifest.json')
+if (!existsSync(BUILD_MANIFEST)) {
+  console.error(
+    `check-precache: no build manifest at ${BUILD_MANIFEST} — is \`build.manifest: true\` still ` +
+      'set in vite.config.ts? Gate FOUR (permission-gated routes vs. the precache) needs it to ' +
+      'resolve each route by source path.',
+  )
+  process.exit(1)
+}
+const buildManifest = JSON.parse(readFileSync(BUILD_MANIFEST, 'utf8'))
+const precached = new Set(urls.map((u) => u.replace(/^\//, '').split('?')[0]))
+
+const gateFourProblems = []
+for (const { route, permission, src } of GATED_ROUTES) {
+  const entry = buildManifest[src]
+  if (!entry) {
+    gateFourProblems.push(
+      `${src} (${route}) is not in the build manifest — the file was moved, renamed, or is no ` +
+        `longer lazy-loaded from main.tsx. Update this list and the matching globIgnores ` +
+        `pattern in vite.config.ts together.`,
+    )
+    continue
+  }
+  if (precached.has(entry.file)) {
+    gateFourProblems.push(
+      `${entry.file} (${route}, permission "${permission}") is in the precache manifest — a ` +
+        `permission-gated route is shipping to every visitor again. Check globIgnores in ` +
+        `vite.config.ts; the chunk has probably been renamed or merged into a shared one.`,
+    )
+  }
+}
+
+if (gateFourProblems.length) {
+  console.error('\ncheck-precache FAILED: permission-gated dev/owner tooling is in the precache:\n')
+  for (const p of gateFourProblems) console.error('  - ' + p)
+  console.error(
+    '\nEvery visitor would download this on first load, for a route only a permitted account ' +
+      'can open.\n',
+  )
+  process.exit(1)
+}
+
 console.log(
   `check-precache: ${urls.length} entries, no character payload; ` +
     `${referenced.size} runtime asset(s) present; ` +
-    `${new Set(critical).size} critical-path script(s) clean. OK`,
+    `${new Set(critical).size} critical-path script(s) clean; ` +
+    `${GATED_ROUTES.length} gated route(s) confirmed excluded. OK`,
 )

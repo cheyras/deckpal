@@ -214,7 +214,51 @@ export default defineConfig(async ({ command }) => {
           //   ship so the README (and any later light surface) has them, and
           //   are excluded here so nobody downloads a mark this build never
           //   draws. Same reasoning as above, three orders of magnitude smaller.
-          globIgnores: ['models/**', 'assets/Decke-*.js', 'dev-assets/**', 'scan-assets/**', 'logo/*-dark.svg'],
+          //
+          //   assets/DesignSystem-*.js  /design            (design.view)
+          //   assets/ScanHarness-*.js   /dev/scan-harness  (diagnostics.view)
+          //   assets/QuadLabeler-*.js   /dev/quad-labeler  (scanner.label)
+          //   assets/ChatUi-*.js        /dev/chat-ui       (diagnostics.view)
+          //   assets/DeckeCompare-*.js  /dev/decke-compare (diagnostics.view)
+          //   assets/QuadHarvest-*.js   /dev/quad-harvest  (scanner.label)
+          //                  Six more routes gated exactly like /dev/decke above
+          //                  (main.tsx's TOOL_PERMISSIONS; requireCapability()
+          //                  throws notFound() for everyone but the permitted
+          //                  accounts) — dev/owner tooling, not product surfaces,
+          //                  that almost nobody who loads deckpal.app can even
+          //                  open. None of the six touch three.js, so
+          //                  check-precache.mjs's existing content check had no
+          //                  way to see them; they were simply never added to
+          //                  this list, and the manifest carried them anyway.
+          //                  Measured 2026-09-26: 538.6 kB raw / 171.9 kB gzip
+          //                  across the six — about 19% of the manifest — fetched
+          //                  into every visitor's Cache Storage on first load for
+          //                  tools only an owner or contributor account can reach.
+          //
+          //                  Like Decke-runtime, each is a named, single-importer
+          //                  chunk (lazyRoute() is its only import site), so the
+          //                  glob below is stable until the route FILE is renamed
+          //                  or a second importer appears — the same fragility
+          //                  the note above already warns about. Gate FOUR in
+          //                  `check-precache.mjs` is the actual control: it
+          //                  resolves each of these six routes from Vite's build
+          //                  manifest BY SOURCE PATH (not by guessing the output
+          //                  name), so a rename shows up as a loud build failure
+          //                  telling you to update the glob below, rather than a
+          //                  silent 172 kB regression.
+          globIgnores: [
+            'models/**',
+            'assets/Decke-*.js',
+            'dev-assets/**',
+            'scan-assets/**',
+            'logo/*-dark.svg',
+            'assets/DesignSystem-*.js',
+            'assets/ScanHarness-*.js',
+            'assets/QuadLabeler-*.js',
+            'assets/ChatUi-*.js',
+            'assets/DeckeCompare-*.js',
+            'assets/QuadHarvest-*.js',
+          ],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         // Leave this off. Turning it on would put the service worker in front of
@@ -250,6 +294,12 @@ export default defineConfig(async ({ command }) => {
       // tsc is intentionally kept out of the build path (Rolldown/Vite 8).
       target: 'es2022',
       chunkSizeWarningLimit: 300,
+      // Written for `check-precache.mjs` gate FOUR only — it maps each gated
+      // route's SOURCE path to its actual output chunk, so the gate survives a
+      // chunk rename instead of guessing a hashed name. Not consumed at runtime
+      // and not part of the deploy contract; `dist/.vite/manifest.json` matches
+      // no `globPatterns` entry so it is never precached either.
+      manifest: true,
       rollupOptions: {
         output: {
           // ONE CHUNK FOR THE CHARACTER, AND IT IS NAMED.
