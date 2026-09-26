@@ -7,7 +7,7 @@ import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
-import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
+import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney, setLevelFromCounts } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta, seriesColors } from '../lib/variantStyle'
@@ -38,11 +38,6 @@ function cardOwnedUnits(variants: OwnBits[]): { complete: number; master: number
 function pct(owned: number, total: number): number {
   if (!owned || !total) return 0
   return Math.round((owned / total) * 1000) / 10
-}
-
-function setLevelFor(owned: number, total: number): number {
-  if (owned === 0 || total === 0) return 0
-  return 1 + Math.min(4, Math.floor(((owned * 100) / total) / 25))
 }
 
 /**
@@ -102,7 +97,7 @@ function optimisticApply(
         owned: p.complete.owned + dOwned.complete,
         pct: pct(p.complete.owned + dOwned.complete, p.complete.total),
         totalQuantity: (p.complete.totalQuantity ?? 0) + qtyDelta,
-        setLevel: setLevelFor(p.complete.owned + dOwned.complete, p.complete.total),
+        setLevel: setLevelFromCounts(p.complete.owned + dOwned.complete, p.complete.total),
       },
       master: {
         ...p.master,

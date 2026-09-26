@@ -20494,3 +20494,93 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 `__tests__/DataTable.test.ts`) were updated to import from the new path.
 
 **Evidence and status:** The observed live result was 9/10 signed approvals, with one residual prose-confirmation miss after `get_card`; the finite sample does not prove causation or universal liveness. This is a metadata-only correction with zero writes. Existing preview descriptor, schemas, normalization, preflight, approval eligibility/HMAC/replay, system prompt, tool routing, API transport and MCP behavior remain unchanged. Live follow-up remains pending.
+
+## 2026-09-26 — Four data-correctness bugs: the LVL badge, Insights' date axis, Insights' label/movers/error handling, and Pokédex paging
+
+**Decided by:** Chey (via Claude)
+
+**Decision:**
+1. **QUAL-05 (LVL badge).** `ProgressCluster.tsx`, `SeriesDetail.tsx` and
+   `CardDetail.tsx`'s optimistic-update path now read the server's own
+   `setLevel`/`c.setLevel` field, falling back to a new `setLevelFromCounts()`
+   (truncating integer math, mirroring the DB's generated `set_level` column)
+   instead of deriving a level from the already-rounded display percentage.
+   `format.ts`'s `setLevelLabel()` now takes a level (0–5), matching the API's
+   own function of the same name, instead of a pct.
+2. **QUAL-07 (Insights date axis).** `insightsCaption.ts`'s `isoDate()` now
+   builds the window-boundary string from the Date's own LOCAL fields
+   (`getFullYear`/`getMonth`/`getDate`) instead of `toISOString()`, and
+   `rangeWindowStart()` uses local setters throughout. This is a deliberate,
+   documented split from the server: `collection_value_point.observed_on` is a
+   UTC calendar day (the daily snapshot cron runs once, on a fixed UTC clock —
+   Supabase and GitHub Actions both run `timezone = UTC`), which is correct
+   for a once-a-day, all-accounts write; the chart's axis boundary is instead
+   anchored to the viewer's own local day, which is correct for something a
+   human is looking at right now. The two can disagree by up to a day at the
+   edges, same as the pre-existing month/year calendar slop this function
+   already tolerated — immaterial, since the chart never invents a point.
+3. **UXC-07 (Insights label/movers/error).** The delta card's heading now
+   reads `rangeLabel(range)` from a shared `VALUE_RANGES` list (in
+   `insightsCaption.ts`) instead of a hardcoded "Last 30 Days" literal.
+   `collectionValue.ts`'s `topMovers()` now falls back to a self-derived
+   30-day average of `price_observation.market_minor` (the last ~30 days of
+   daily rows the retention tiers already guarantee) when
+   `price_current.avg30_minor` is absent — which it always is for USD/TCGCSV,
+   since only Cardmarket's feed supplies that metric — instead of silently
+   requiring a field one whole currency can never have. The vendor value is
+   still preferred when present. `Insights.tsx` now distinguishes a failed
+   `/insights/value` fetch (`ErrorState`) from a genuinely empty one ("No value
+   snapshots recorded yet"), across the chart, delta and movers cards.
+4. **Pokédex paging.** `PokedexIndex.tsx` and `Profile.tsx` now call a new
+   `api.dexAll()` (in `apps/web/src/lib/api.ts`) instead of `api.dex()`
+   directly. It follows `pagination.pageCount` past whatever `pageSize` was
+   requested, using a new local `apps/web/src/lib/pagePlan.ts` — the identical
+   shape (`PagePosition`/`remainingPages`) as PR #205's `pagePlan.ts` for
+   `api.setAllCards()` (`GET /sets/:setId`'s equivalent fix), reimplemented
+   locally because #205 (`fix/set-page-all-cards`) was still open/unmerged as
+   of this branch. Both `PokedexIndex.tsx` and `Profile.tsx` request
+   `pageSize: '1025'`, which today equals both the API's own cap
+   (`clampInt(…, 1, 1025)`, `apps/api/src/routes/insights.ts`) and the current
+   National Dex size (`NATIONAL_DEX_SIZE`, `apps/api/src/insights/pokedex.ts`)
+   — so today's single request happens to be complete, and silently would not
+   be the day a new generation pushes species past #1025. If #205 merges
+   first, `apps/web/src/lib/pagePlan.ts` here should be deleted in favor of
+   importing its copy — the two are deliberately identical so that merge is a
+   rename, not a rewrite.
+
+**Why:** All four are the "silently correct today, silently wrong the day a
+number crosses a threshold" shape: a rounded percentage crossing a level
+boundary a card early (QUAL-05, reproduced directly: 1999/2000 owned → "MAX"
+with a card still missing); a UTC "today" reading as tomorrow for any US
+evening viewer (QUAL-07); a metric only one of two price sources ever
+supplies, making the default-currency Top Movers card permanently empty
+(UXC-07); and a page-size literal that happens to equal both the server's cap
+and today's species count (Pokédex paging, flagged as a follow-up in PR #205's
+own DECISIONS.md entry for the equivalent set-page bug).
+
+**Implications:** `apps/web/src/lib/format.ts`'s `setLevelLabel` signature
+changed (pct → level) — its only callers were updated in the same commit.
+`insightsCaption.ts` gained `VALUE_RANGES`/`rangeLabel`, which `Insights.tsx`
+now imports instead of keeping its own copy of the range list.
+`collectionValue.ts`'s `topMovers()` query changed shape (a `WITH` CTE over
+`price_observation`); it is DB-adapter code with no existing pure-test
+coverage in this repo (only `aggregateValue()` is unit-tested), so it was
+verified by hand against a disposable local Postgres instance in this session
+(schema fragment + fixture rows for a USD variant with no vendor avg30 but 5
+daily observations, a USD variant with only 1 observation, and a EUR variant
+with a vendor avg30 that deliberately disagreed with its own derived value) —
+not by an automated test, and not against the real migrated schema. `pnpm -r
+--workspace-concurrency=1 exec tsc --noEmit` and `pnpm --filter deckpal-web
+build` are clean. New/updated unit tests: `format.ts`'s level math (7 cases,
+`setLevel.test.ts`), `insightsCaption.ts`'s date window and range label (14
+cases, updated `insightsCaption.test.ts`, TZ-pinned via `withTz`), and
+`pagePlan.ts` (6 cases). `pnpm --filter deckpal-web test:insights` passes (120
+tests). See the PR for browser-check status — in progress when this session's
+usage window closed; the delta-label and Top-Movers-population checks passed
+in a headless browser at 390/1440, but the axis-tick check needs the fixture's
+price-history fixture backed off by a couple of days from "now" to isolate it
+from `ValueChart.tsx`'s separate, pre-existing "never clip real data" union
+logic (`xMax = Math.max(domain.to, dataMax)`) — noted as a follow-up rather
+than a regression, since the underlying `rangeWindow`/`isoDate` fix is
+independently unit-tested against the exact scenario the audit reported.
+

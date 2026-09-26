@@ -4,7 +4,7 @@ import { api, type SetSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { UpcomingSetRow } from '../components/UpcomingSetRow'
-import { fmtCalendarDate, setLevelLabel } from '../lib/format'
+import { fmtCalendarDate, setLevelLabel, setLevelFromCounts } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { bundledSetLogo } from '../lib/releasedSetAssets'
@@ -86,7 +86,9 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
           <div className="mt-[10px] flex items-center gap-[8px]">
             <ProgressBar pct={c.pct} height={4} className="min-w-[40px] flex-1" />
             <span className="shrink-0 whitespace-nowrap text-[14px] font-bold text-action-primary">
-              LVL {setLevelLabel(c.pct)}
+              {/* QUAL-05: read the server's already-correct level rather than
+                  re-deriving one from the rounded display pct. */}
+              LVL {setLevelLabel(c.setLevel ?? setLevelFromCounts(c.owned, c.total))}
             </span>
             <span className="shrink-0 whitespace-nowrap text-[14px] text-text-muted">
               {c.owned}/{c.total}
