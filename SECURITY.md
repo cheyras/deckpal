@@ -691,6 +691,19 @@ the API with no undo, and it is the only one.
 **Account deletion is unaffected.** Every one of these tables cascades from
 `app_user`, so removing a user still removes their soft-deleted rows.
 
+## Scanner voice: where speech goes
+
+Voice commands in the scanner (an opt-in beta, `scanner_voice`) use the browser's
+own Web Speech API. The browser vendor does the recognition. Safari sends speech
+to Apple, and iOS says so in its own permission prompt. Chrome sends it to
+Google. DeckPal's code never sends, logs or stores audio or transcripts. A
+transcript exists only in page memory, long enough to be matched against a
+fixed command grammar. It is not attached to scan telemetry, bug reports or any
+request. The explainer shown before the first browser prompt tells the reader
+the same thing. The microphone is only on while the reader has the Voice
+control on during the scan step. Hiding the page, leaving the scan step or
+leaving the route stops it.
+
 ## The mutation log
 
 Migration 036 records every change made through DeckPal — collection quantities,

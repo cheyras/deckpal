@@ -41,6 +41,7 @@ export type IconName =
   | 'gear'
   | 'sparkle'
   | 'camera'
+  | 'mic'
   | 'printer'
   | 'bug'
   | 'book'
@@ -226,6 +227,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M4 8a2 2 0 012-2h1.5l1.2-1.8a1 1 0 01.83-.45h5a1 1 0 01.83.45L15.5 6H18a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
       <circle cx="12" cy="13" r="3.2" />
+    </>
+  ),
+  mic: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0013 0" />
+      <path d="M12 17.5V21M8.5 21h7" />
     </>
   ),
   printer: (

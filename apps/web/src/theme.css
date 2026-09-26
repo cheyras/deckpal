@@ -733,6 +733,19 @@ body {
   }
 }
 
+/* The scanner's voice chips (scan/voice): the hold before a heard change
+ * applies, drawn as a bar that drains under the chip. It is gated with
+ * `motion-safe:` and has no reduced-motion twin on purpose — the chip itself
+ * already says "pending", and a static full bar would say nothing more. */
+@keyframes voice-hold {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
 /* Deck-E's chat panel, desktop.
  *
  * It GROWS OUT OF THE BUTTON rather than settling in place like a dialog, so
