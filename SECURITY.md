@@ -83,6 +83,18 @@ still requires current access and holds/budgets. Exact accepted-request replays 
 than granting free repeated work. The public health response reports
 `administration` and `deckeEntitlement` readiness/status without account IDs.
 
+**The conversation the browser sends is bounded before anything pays for it**
+(SEC-04, 2026-09-26). The charge is flat per request while every step re-bills
+the whole context, so `/api/chat` reads at most 256 KB, streamed, and validates
+the history with zod before any ledger, credit accounting or model call: at
+most 200 messages, `user`/`assistant` roles only, text and `tool-<name>` parts
+only (no `file` part the provider would fetch, no `reasoning`/`source-*`, no
+`system` message written by the browser), and no part over 60,000 characters.
+Past a size limit the answer is 413; a wrong shape is 400. The model sees the
+current turn whole plus the newest history that fits 24 messages and 64,000
+characters; ledgers derived from history still read all of it. `route` and each
+landmark string are clipped to 200 characters (`apps/api/src/decke/wireBounds.ts`).
+
 
 Deck-E holds **no credential of his own**. He carries the caller's own
 Supabase JWT — the same one the browser sent — and forwards it to deckpal-api
@@ -139,13 +151,20 @@ could already have made the same write from the collection UI.
 One write reaches Deck-E outside the approval gate, deliberately: the
 `write_strategy_guide` deep tool (below) is allowed to call `deck_strategy`,
 which is dumb, idempotent storage — "replace the whole guide" — not a general
-write capability.
+write capability. It is bound in code, not in the sub-agent's prompt, to the
+deck the reader approved (`bindGuideWrite` in `deep.ts`, SEC-13): a write that
+resolves to any other deck is refused, and one write is all an approval buys.
+The sub-agent's context carries stranger-written text (`findings` from the web,
+battle-log opponent names), which is why prompt prose was not a control.
 
 **What he may point at, and the narrower set he may press.** Everything the
 model can address is allowlisted: `uiTools.resolveTarget` resolves a selector
 only if it lands inside a `[data-decke-landmark]`, navigation only within
 `ROUTE_ALLOWLIST` — from which `/profile` is deliberately absent, in the
 server's copy and the browser's mirror of it alike, because it mints API tokens.
+Both copies accept a path only if URL resolution leaves it unchanged and refuse
+encoded dots and separators, so a dot segment cannot walk an allowed prefix to
+`/profile`, `/admin` or `/devtools` (SEC-12).
 The `journey` tool takes landmark references rather than free CSS,
 validated at parse time so a bad plan is refused whole before its first step. A
 free selector would be a capability; the allowlist is what bounds it.
