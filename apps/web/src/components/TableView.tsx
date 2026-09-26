@@ -97,9 +97,11 @@ const ROW_GAP = 20
 // the far right.
 //
 // PERF-03: rendering all of `cards` at once put ~29,000 DOM nodes on the page
-// and blocked the main thread for ~7.2s to mount, at 3,200 rows, on both
-// mobile and desktop viewports — and (unlike Grid's virtualized scroll cost)
-// it never recovered afterward, because nothing here was ever released. Fixed
+// and blocked the main thread for multiple seconds to mount (3-7s depending on
+// machine load — measured 3.0-3.5s under this repo's own scale-profiling
+// fixture, DECISIONS.md this date), at 3,200 rows, on both mobile and desktop
+// viewports — and (unlike Grid's virtualized scroll cost) it never recovered
+// afterward, because nothing here was ever released. Fixed
 // with the same `useWindowVirtualizer` GridView already uses: only rows near
 // the viewport are ever mounted, no matter how long the list is. The whole
 // *page* scrolls here (there's no inner scroll container), so this reads the
