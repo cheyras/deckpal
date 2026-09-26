@@ -18,11 +18,11 @@
     "@deckpal/db": "workspace:*",
     "@deckpal/agent-tools": "workspace:*",
     "express": "^5.0.0",
-    "hono": "^4.13.5"
+    "hono": "^4.13.8"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
