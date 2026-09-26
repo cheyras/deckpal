@@ -196,8 +196,8 @@ export function ListsIndex() {
             detail: `${KIND_META[l.kind].label} · ${l.itemCount} card${l.itemCount === 1 ? '' : 's'}`,
           }))
         }
-        restore={(id) => api.restoreList(id)}
-        purge={(id) => api.purgeList(id)}
+        restore={api.restoreList}
+        purge={api.purgeList}
         invalidate={['lists']}
       />
 

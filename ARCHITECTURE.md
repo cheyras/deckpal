@@ -830,6 +830,28 @@ backstop for the failures nobody has diagnosed yet, not for this one.
 `scripts/visual-harness/probe-first-paint.mjs` asserts the property against a
 real browser with the token endpoint held open.
 
+**Writes go through a lane, and end visibly (2026-09-26).** Every collection,
+list and deck write is sent by `lib/writeLane.ts`: one request in flight per
+document (`collection:<setId>`, `list:<id>`, `deck:<id>`), so answers — which
+are whole-document snapshots — land in the order sent; a write still waiting its
+turn is replaced by a newer one for the same item, so a burst of taps sends the
+last intent rather than every step; and the control shows that intent until the
+item's last write settles, which makes rollback nothing more than the intent
+going away. That only works because every such write states an absolute target
+(`PATCH` a quantity, never `…/increment`). `lib/writes.ts` is the single place
+that reports the outcome: a final failure raises the `Toast` with what did not
+save, why when it is actionable, and Retry when repeating is harmless; a form
+that stays open reports inline through `FormAlert`; a destructive success offers
+Undo. A write that does not answer in 20 s is aborted so it cannot hold its
+document's later writes, and every lane is cancelled when the signed-in account
+changes. A write the server never answered (the deadline, a dropped connection)
+may still land, so for that item the lane fails the newer write queued behind
+it and sends nothing more for 75 s after the unanswered one left — past the API
+function's 60 s limit. Answers go into the cache through `applyAnswer`, which
+cancels any read of the same data still in flight and asks it again afterwards.
+Nothing is queued offline — the service worker keeps mutations `NetworkOnly`,
+and the collection counters stay disabled offline.
+
 ## 14. Design system and the /design editor
 
 The visual language is a token system in `apps/web/src/theme.css`: three brand
@@ -839,7 +861,7 @@ match, actions, status, energy types, variant accents, z-layers). Two type
 roles — Figtree (body/UI) and Fraunces (display, reserved for the app's
 proper nouns) — with a 14px floor and named exceptions. Shared primitives
 live in `apps/web/src/components/ui/` (Button, Tabs, Progress, StatTile,
-SelectableCard, EmptyState, CounterBox, Field/FormAlert/StatusPanel,
+SelectableCard, EmptyState, CounterBox, Field/FormAlert/StatusPanel, Toast,
 useDismiss), each with a co-located `*.gallery.tsx` that type-checks its
 catalog entry against the real prop surface. The premium visual pass
 (`premium.css`) is scoped entirely under `[data-skin='premium']` — a
@@ -1681,10 +1703,10 @@ Two shapes of collection write, deliberately:
 | | per-variant | batch |
 |---|---|---|
 | endpoint | `PATCH /collection/variants/:id`, `POST …/increment` | `POST /collection/batch` |
-| caller | the web UI's stepper | `log_cards`, imports |
+| caller | the web UI's counters and steppers (absolute `PATCH` only, via `lib/collectionWrites.ts`); `…/increment` is for agents | `log_cards`, imports |
 | transaction | one per variant | ONE for the whole batch |
 | progress recompute | one per call | one per DISTINCT SET |
-| idempotency | none (a human pressing again means it) | keyed |
+| idempotency | `PATCH` is idempotent by being absolute; `…/increment` has none (a human pressing again means it) | keyed |
 
 The batch endpoint exists because the per-variant shape does not scale to a
 pack-opening haul. Driving it in a loop from the MCP cost **0.65 s per item** in
