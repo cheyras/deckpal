@@ -1601,12 +1601,10 @@ export const api = {
   },
   card: (cardId: string, signal?: AbortSignal) =>
     get<CardDetailResponse>(`/cards/${encodeURIComponent(cardId)}`, signal),
-  // Set an absolute owned quantity for a variant.
-  setVariantQuantity: (variantId: number, quantity: number) =>
-    send<CollectionMutationResponse>('PATCH', `/collection/variants/${variantId}`, { quantity }),
-  // Adjust a variant's owned quantity by a signed delta (floors at 0).
-  incrementVariant: (variantId: number, delta: number) =>
-    send<CollectionMutationResponse>('POST', `/collection/variants/${variantId}/increment`, { delta }),
+  // Set an absolute owned quantity for a variant. Idempotent — the reason every
+  // counter uses it (lib/collectionWrites.ts).
+  setVariantQuantity: (variantId: number, quantity: number, signal?: AbortSignal) =>
+    send<CollectionMutationResponse>('PATCH', `/collection/variants/${variantId}`, { quantity }, signal),
   // Tile-level Have/Need toggle by card id (owns/zeroes the primary variant).
   /**
    * MANY variants, ONE transaction — the endpoint a pack haul belongs in.
@@ -1779,15 +1777,19 @@ export const api = {
   list: async (id: string, signal?: AbortSignal) =>
     normaliseItems(await get<{ list: ListSummary; items: RawListItem[] }>(`/lists/${encodeURIComponent(id)}`, signal)),
   createList: (body: CreateListBody) => send<{ list: ListSummary }>('POST', '/lists', body),
-  updateList: (id: string, body: UpdateListBody) => send<{ list: ListSummary }>('PATCH', `/lists/${encodeURIComponent(id)}`, body),
+  updateList: (id: string, body: UpdateListBody, signal?: AbortSignal) =>
+    send<{ list: ListSummary }>('PATCH', `/lists/${encodeURIComponent(id)}`, body, signal),
   /** Reversible by default; `purge` is the deliberate no-undo path. */
-  deleteList: (id: string) => send<{ deleted: string; restorable: boolean }>('DELETE', `/lists/${encodeURIComponent(id)}`),
-  purgeList: (id: string) => send<{ purged: string }>('DELETE', `/lists/${encodeURIComponent(id)}?purge=true`),
-  restoreList: (id: string) => send<{ restored: string; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/restore`),
-  addListItem: (id: string, body: { cardVariantId?: number; dexId?: number; staticQuantity?: number; note?: string }) =>
-    send<{ itemId: string | null; alreadyPresent: boolean; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/items`, body),
-  removeListItem: (id: string, itemId: string) =>
-    send<{ deleted: string; list: ListSummary | null }>('DELETE', `/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`),
+  deleteList: (id: string, signal?: AbortSignal) =>
+    send<{ deleted: string; restorable: boolean }>('DELETE', `/lists/${encodeURIComponent(id)}`, undefined, signal),
+  purgeList: (id: string, signal?: AbortSignal) =>
+    send<{ purged: string }>('DELETE', `/lists/${encodeURIComponent(id)}?purge=true`, undefined, signal),
+  restoreList: (id: string, signal?: AbortSignal) =>
+    send<{ restored: string; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/restore`, undefined, signal),
+  addListItem: (id: string, body: { cardVariantId?: number; dexId?: number; staticQuantity?: number; note?: string }, signal?: AbortSignal) =>
+    send<{ itemId: string | null; alreadyPresent: boolean; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/items`, body, signal),
+  removeListItem: (id: string, itemId: string, signal?: AbortSignal) =>
+    send<{ deleted: string; list: ListSummary | null }>('DELETE', `/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`, undefined, signal),
   searchCards: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SearchResponse>(`/search?${params.toString()}`, signal),
 
@@ -1810,29 +1812,29 @@ export const api = {
   deletedDecks: (signal?: AbortSignal) => get<{ decks: DeckSummary[] }>('/decks?deleted=true', signal),
   deck: (id: string, signal?: AbortSignal) => get<DeckDetail>(`/decks/${encodeURIComponent(id)}`, signal),
   createDeck: (body: CreateDeckBody) => send<DeckDetail>('POST', '/decks', body),
-  updateDeck: (id: string, body: UpdateDeckBody) => send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}`, body),
+  updateDeck: (id: string, body: UpdateDeckBody, signal?: AbortSignal) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}`, body, signal),
   /** Reversible by default; `purge` also destroys version history and battle logs. */
-  deleteDeck: (id: string) => send<{ deleted: string; restorable: boolean }>('DELETE', `/decks/${encodeURIComponent(id)}`),
-  purgeDeck: (id: string) => send<{ purged: string }>('DELETE', `/decks/${encodeURIComponent(id)}?purge=true`),
-  restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
+  deleteDeck: (id: string, signal?: AbortSignal) =>
+    send<{ deleted: string; restorable: boolean }>('DELETE', `/decks/${encodeURIComponent(id)}`, undefined, signal),
+  purgeDeck: (id: string, signal?: AbortSignal) =>
+    send<{ purged: string }>('DELETE', `/decks/${encodeURIComponent(id)}?purge=true`, undefined, signal),
+  restoreDeck: (id: string, signal?: AbortSignal) =>
+    send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`, undefined, signal),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
   // variantId (migration 051): which printing. Omitted = the card's primary
-  // variant on add; on set/remove the server targets the card's single deck
-  // row when there is exactly one and 400s when several printings would be
-  // ambiguous — so pass it whenever the row is known.
-  addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number) =>
-    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }),
-  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number) =>
+  // variant on add; on set the server targets the card's single deck row when
+  // there is exactly one and 400s when several printings would be ambiguous —
+  // so pass it whenever the row is known. Setting 0 removes the printing, which
+  // is how the builder removes one: an absolute write is safe to retry.
+  addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number, signal?: AbortSignal) =>
+    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }, signal),
+  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number, signal?: AbortSignal) =>
     send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
       quantity,
       ...(variantId != null ? { variantId } : {}),
-    }),
-  removeDeckCard: (id: string, cardId: string, variantId?: number) =>
-    send<DeckDetail>(
-      'DELETE',
-      `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}${variantId != null ? `?variant=${variantId}` : ''}`,
-    ),
+    }, signal),
   validateDeck: (id: string, format?: DeckFormat, signal?: AbortSignal) =>
     get<{ validation: ValidationResult; cardRefs: Record<string, CardRef> }>(
       `/decks/${encodeURIComponent(id)}/validate${format ? `?format=${format}` : ''}`,
