@@ -23,12 +23,13 @@
 // this one" contains a printing and is not a command. So a parse has to explain
 // the utterance before it is acted on: the command words, the filler around
 // them ("that one's a…") and a card name all count; anything else is evidence
-// the reader was talking to someone, not to us. A command about "that one" —
-// the path that silently lands on whatever was scanned last — must be explained
-// completely; one that names its card gets `MIN_COVERAGE`. Anything said with
-// "not", "don't" or "never" in it is an objection, and anything asked or
-// wondered ("is this a reverse holo", "I might remove it") is not an
-// instruction; neither ever acts. One utterance is one command about one card.
+// the reader was talking to someone, not to us — or naming a card we could not
+// find, which is worse to guess about. So the scanner acts only on an utterance
+// it explains COMPLETELY. Anything said with "not", "don't" or "never" in it is
+// an objection, anything asked or wondered ("is this a reverse holo?", "I might
+// remove it") is not an instruction, and one utterance is one command about one
+// card; none of those ever acts. The cost is that a command wrapped in stray
+// words has to be said again, which is the cheap direction to be wrong in.
 //
 // Pure and dependency-light on purpose, like `feed.ts` and `printing.ts`: the
 // tests in `__tests__/grammar.test.ts` drive the shipping parser with real
@@ -71,7 +72,7 @@ export interface ParseResult {
    *  objection ("don't remove it"), a question or a wish ("should I remove
    *  it?"), or two cards at once. A refusal is never outvoted by another of the
    *  recognizer's guesses (`parseAlternatives`). */
-  refused?: 'negation' | 'question' | 'two-cards'
+  refused?: 'negation' | 'question' | 'two-cards' | 'two-commands'
 }
 
 /** A row the reader might name, MOST RECENT FIRST, so a name that appears twice
@@ -80,13 +81,6 @@ export interface NamedRow {
   id: string
   name: string
 }
-
-/** Below this share of explained words, a command that NAMES its card is
- *  conversation. A command about "that one" needs every word explained, because
- *  an unexplained word there is as likely a card name we could not find ("remove
- *  that Pikachu") as it is noise, and guessing sends the change to the wrong
- *  card. The tests pin both sides. */
-export const MIN_COVERAGE = 0.7
 
 /** Quantities the grammar will set. A reader with more than 99 of one printing
  *  is not presenting them one scan at a time. */
@@ -239,7 +233,10 @@ const FRAME_ONLY_NUMBERS: Record<string, number> = { to: 2, too: 2, for: 4, fore
 
 /** Words that open a question rather than an instruction, and the
  *  throat-clearing that may come before them. */
-const QUESTION_OPENERS = new Set(['is', 'are', 'was', 'were', 'does', 'did', 'what', 'whats', 'which', 'where', 'who', 'why', 'how'])
+const QUESTION_OPENERS = new Set([
+  'is', 'are', 'am', 'was', 'were', 'do', 'does', 'did', 'can', 'could', 'should', 'would', 'will', 'shall', 'may',
+  'what', 'whats', 'which', 'where', 'who', 'why', 'how',
+])
 const DISCOURSE = new Set(['um', 'uh', 'er', 'oh', 'okay', 'ok', 'so', 'hey', 'well', 'yeah', 'and', 'wait', 'hmm', 'right', 'alright'])
 
 /** Suffixes a spoken card name usually drops — "the Charizard" for Charizard ex. */
@@ -501,14 +498,21 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // A question ("is this a reverse holo", "what's that one") or a wish ("I
   // might remove it", "do you have a reverse holo") is conversation about a
   // card. Openers are checked on the first word after the throat-clearing.
+  // A recognizer that punctuates may also mark the question itself.
   const opener = words.find((w) => !DISCOURSE.has(w))
-  if (has('hedge') || (opener && QUESTION_OPENERS.has(opener))) return { command: null, coverage, refused: 'question' }
+  if (has('hedge') || transcript.includes('?') || (opener && QUESTION_OPENERS.has(opener))) {
+    return { command: null, coverage, refused: 'question' }
+  }
+  // "Remove it" and "make it two" in one breath is two instructions; which one
+  // was meant is a guess, and one of them deletes a card.
+  if (command?.kind === 'remove' && (finish || modifiers.length || quantity !== null)) {
+    return { command: null, coverage, refused: 'two-commands' }
+  }
 
-  const aboutAnchor = !!command && command.kind !== 'undo' && command.kind !== 'stop' && target.kind === 'anchor'
-  if (aboutAnchor && coverage < 1) {
+  if (command && command.kind !== 'undo' && command.kind !== 'stop' && coverage < 1) {
     // Say which word looked like a card we could not find — one right after
     // "the/that/this" or "remove", or right before "is" — so the reader can
-    // try again, instead of the change going to "that one".
+    // try again, instead of the change going to some other card.
     const said = (s: Segment | undefined) => (s ? words.slice(s.from, s.to).join(' ') : '')
     const missing = segs.find(
       (s, k) =>
@@ -517,7 +521,6 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     )
     return coverage >= 0.5 && missing ? { command: null, coverage, unresolvedName: said(missing) } : { command: null, coverage }
   }
-  if (coverage < MIN_COVERAGE) command = null
   return { command, coverage }
 }
 

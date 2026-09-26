@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { MIN_COVERAGE, parseAlternatives, parseUtterance, phonetic, tokenize, type VoiceCommand } from '../grammar'
+import { parseAlternatives, parseUtterance, phonetic, tokenize, type VoiceCommand } from '../grammar'
 
 const ROWS = [
   { id: 'r3', name: 'Venonat' },
@@ -224,18 +224,19 @@ describe('chatter', () => {
     }
   })
 
-  it('needs every word explained before acting on "that one"', () => {
-    // One stray word is as likely a name we could not find as it is noise.
+  it('needs every word explained before acting at all', () => {
+    // One stray word is as likely a name we could not find as it is noise, and
+    // guessing sends the change to a card nobody meant.
     assert.equal(command('it is a reverse holo for sure'), null)
-    // A command that names its card can carry a little noise.
-    const c = parseUtterance('the charizard is a reverse holo for sure', ROWS).command
-    assert.ok(c?.kind === 'edit' && c.target.kind === 'row')
+    assert.equal(command('the charizard is a reverse holo for sure'), null)
+    assert.equal(parseUtterance('the charizard ex is a reverse holo', ROWS).coverage, 1)
   })
 
   it('refuses questions, wishes and speculation about a card', () => {
     for (const heard of [
       'is this a reverse holo', 'Is that one a holo?', 'what is that one', 'I might remove the charizard',
       'do you have a reverse holo venonat', 'maybe two of those', 'that should be reverse holo', 'I need a reverse holo',
+      'can I remove the charizard', 'do I remove the charizard', 'could you make it two', 'remove it?',
     ]) {
       assert.equal(command(heard), null, heard)
     }
@@ -245,15 +246,17 @@ describe('chatter', () => {
     assert.equal(edit('right, two of those').quantity, 2)
   })
 
-  it('refuses one utterance about two cards', () => {
+  it('refuses one utterance about two cards, or two instructions', () => {
     assert.equal(command('remove charizard ex, venonat is reverse holo'), null)
+    assert.equal(parseUtterance('the charizard ex is a holo and remove the pikachu', ROWS).command, null)
+    assert.equal(parseUtterance('remove it and make it two', ROWS).refused, 'two-commands')
   })
 
   it('accepts a command wrapped in the words people put around one', () => {
     for (const heard of ['I think that is a reverse hollow', 'okay so that one was actually a holo', 'yeah just remove it please']) {
       const parsed = parseUtterance(heard, ROWS)
       assert.ok(parsed.command, heard)
-      assert.ok(parsed.coverage >= MIN_COVERAGE, heard)
+      assert.equal(parsed.coverage, 1, heard)
     }
   })
 })
