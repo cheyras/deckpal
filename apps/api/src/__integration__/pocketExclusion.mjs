@@ -111,6 +111,27 @@ function discoverBinDir() {
 }
 
 let activeChild;
+// True across BOTH `initdb` and `pg_ctl ... start` — the two steps that can
+// leave a real postgres-family process running. `initdb` internally invokes
+// its own brief single-user backend to bootstrap the template databases, and
+// `pg_ctl start` waits (up to 30s) for the postmaster to finish coming up. A
+// signal that arrives during either must not kill it: doing so can leave
+// that inner process in a state `pg_ctl status`/`stop` don't recognize
+// ("single-user server is running"), and racing `stopCluster()`'s status
+// read against a server that is still starting can read "not running" and
+// try to remove the data directory out from under it. Same race
+// scripts/test-db-integration.mjs avoids the same way (see its own
+// `activeStartup`/`onSignal`). Every OTHER spawned step here is safe to kill
+// immediately: `psql`/`pg_ctl stop`/`pg_ctl status` are quick, idempotent
+// client calls with no server of their own to leave behind.
+let activeStartup = false;
+// Resolves once the CURRENT `activeStartup` span (both its steps, not just
+// whichever one a signal happened to catch) has fully settled, success or
+// failure — set up fresh by `bootCluster()` before either step, awaited by
+// `cleanupAndExit` below instead of reaching into a specific `run()` call's
+// promise, which would only cover the first of the two steps and let a
+// signal-triggered cleanup race ahead into the second.
+let startupSettled = Promise.resolve();
 
 function run(binary, args, opts = {}) {
   return new Promise((resolveRun, rejectRun) => {
@@ -148,7 +169,14 @@ let cleaningUp = false;
 async function cleanupAndExit(code) {
   if (cleaningUp) return;
   cleaningUp = true;
-  activeChild?.kill('SIGTERM');
+  if (activeStartup) {
+    // Wait for the WHOLE startup span (initdb, then pg_ctl start) to
+    // actually finish -- up to 30s -- instead of racing `stopCluster()`
+    // against a server still coming up. See the comment on `activeStartup`.
+    await startupSettled;
+  } else {
+    activeChild?.kill('SIGTERM');
+  }
   await pool?.end().catch(() => {});
   await stopCluster().catch((err) => console.error('[pocketExclusion] cleanup failed:', err.message));
   process.exit(code);
@@ -181,11 +209,28 @@ async function bootCluster() {
     PATH: `${bindir}:/usr/bin:/bin`,
     LANG: 'C', LC_ALL: 'C', HOME: scratch, TMPDIR: scratch, TZ: 'UTC',
   };
-  await run(join(bindir, 'initdb'), ['-D', data, '-U', 'deckpal_pocket_admin', '--auth=trust', '--no-locale', '--encoding=UTF8'], { env });
-  await run(join(bindir, 'pg_ctl'), [
-    '-D', data, '-l', join(scratch, 'postgres.log'), '-w', '-t', '30', 'start',
-    '-o', `-c listen_addresses='' -c unix_socket_directories='${socket}' -c port=55491 -c fsync=off -c timezone=UTC`,
-  ], { env });
+  // `activeStartup` covers `initdb` too, not just `pg_ctl start`: initdb
+  // internally invokes its own brief single-user postgres backend to
+  // bootstrap the template databases, so killing initdb mid-run can leave
+  // that inner process in a state `pg_ctl status`/`stop` don't recognize
+  // ("single-user server is running") — observed while testing the signal
+  // handling below, where a SIGINT timed to land during initdb (before this
+  // fix covered it) left exactly that behind.
+  activeStartup = true;
+  let markSettled;
+  startupSettled = new Promise((resolve) => {
+    markSettled = resolve;
+  });
+  try {
+    await run(join(bindir, 'initdb'), ['-D', data, '-U', 'deckpal_pocket_admin', '--auth=trust', '--no-locale', '--encoding=UTF8'], { env });
+    await run(join(bindir, 'pg_ctl'), [
+      '-D', data, '-l', join(scratch, 'postgres.log'), '-w', '-t', '30', 'start',
+      '-o', `-c listen_addresses='' -c unix_socket_directories='${socket}' -c port=55491 -c fsync=off -c timezone=UTC`,
+    ], { env });
+  } finally {
+    activeStartup = false;
+    markSettled();
+  }
   // Every libpq connection-target var explicitly named and pinned, not just
   // `-h`/`-p`/`-U`/`-d`: PGHOSTADDR/PGSERVICE/PGSSLMODE/etc. are all absent
   // from `env` above already, but naming the ones a stray shell is most
