@@ -20499,7 +20499,7 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 
 **Decided by:** Chey (via Claude)
 
-**Decision:** Four fixes from the ux-decks audit (UXD-05, 06, 01, 13).
+**Decision:** Four fixes from the ux-decks audit (UXD-05, 06, 01, 13), plus the deck page's Export PDF button.
 
 - **A revert always creates a new version.** `restoreSnapshot` (`apps/api/src/deck/versions.ts`) calls `recordDeckChange(..., { forceBump: true })`. This is the one exception to the auto-bump rule of 2026-07-30. Card edits to an unplayed version still amend it in place.
 - **Import checks before it creates.** `POST /decks/import` accepts `dryRun: true`, which resolves the list and writes nothing, and it now returns `unresolvedLines` (verbatim) and `totalCards`. The web dialog runs the check first. A clean list imports at once. Otherwise every unmatched line is listed with an Edit button that selects it in the pasted text, and the reader fixes the list or imports "without it/them".
