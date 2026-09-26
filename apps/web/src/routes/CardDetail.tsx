@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type ValueRange, type Variant } from '../lib/api'
+import { api, type ValueRange, type Variant } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -9,6 +9,7 @@ import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
 import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
+import { useOwnedCounts } from '../lib/collectionWrites'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta, seriesColors } from '../lib/variantStyle'
 
@@ -18,129 +19,12 @@ import { bucketDayLabel, bucketRangeLabel, chartPoints, grainCaption } from '../
 import { Sheet, useSheetClose } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
 
-// ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
-// so the three bars move instantly, then reconcile against the authoritative
-// server numbers on settle. Given a card's variant list, how many goal-units it
-// contributes: complete (0/1 card), master ((card,standard-variant) pairs owned),
-// grandmaster ((card,any-variant) pairs owned).
-type OwnBits = { tier: 'standard' | 'special'; isPrimary: boolean; quantity: number }
-function cardOwnedUnits(variants: OwnBits[]): { complete: number; master: number; grand: number } {
-  const anyOwned = variants.some((v) => v.quantity >= 1)
-  const hasStd = variants.some((v) => v.tier === 'standard')
-  const masterReq = hasStd ? variants.filter((v) => v.tier === 'standard') : variants.filter((v) => v.isPrimary)
-  return {
-    complete: anyOwned ? 1 : 0,
-    master: masterReq.filter((v) => v.quantity >= 1).length,
-    grand: variants.filter((v) => v.quantity >= 1).length,
-  }
-}
-
-function pct(owned: number, total: number): number {
-  if (!owned || !total) return 0
-  return Math.round((owned / total) * 1000) / 10
-}
-
-function setLevelFor(owned: number, total: number): number {
-  if (owned === 0 || total === 0) return 0
-  return 1 + Math.min(4, Math.floor(((owned * 100) / total) / 25))
-}
-
-/**
- * Optimistically fold a single variant's quantity change into every cached
- * ['card', cardId] and ['set', setId, …] query, and return an undo closure.
- * total_required is never touched (catalog-fixed); only owned + totalQuantity + pct move.
- */
-function optimisticApply(
-  qc: QueryClient,
-  cardId: string,
-  setId: string,
-  variantId: number,
-  newQty: number,
-): () => void {
-  const cardKey = ['card', cardId] as const
-  const prevCard = qc.getQueryData<CardDetailResponse>(cardKey)
-  const prevSets = qc.getQueriesData<SetDetailResponse>({ queryKey: ['set', setId] })
-
-  if (!prevCard) return () => undefined
-  // Quantities are absent on an anonymous read, but this whole optimistic path
-  // only runs behind a stepper, and steppers only render when signed in.
-  const before = prevCard.variants.map<OwnBits>((v) => ({ tier: v.tier, isPrimary: v.isPrimary, quantity: v.quantity ?? 0 }))
-  const changed = prevCard.variants.find((v) => v.variantId === variantId)
-  const oldQty = changed?.quantity ?? 0
-  const clampedNew = Math.max(0, newQty)
-  const after = prevCard.variants.map<OwnBits>((v) => ({
-    tier: v.tier,
-    isPrimary: v.isPrimary,
-    quantity: v.variantId === variantId ? clampedNew : v.quantity ?? 0,
-  }))
-  const b = cardOwnedUnits(before)
-  const a = cardOwnedUnits(after)
-  const dOwned = { complete: a.complete - b.complete, master: a.master - b.master, grand: a.grand - b.grand }
-  const qtyDelta = clampedNew - oldQty
-  const wasMasterReq = (() => {
-    const hasStd = before.some((v) => v.tier === 'standard')
-    return changed ? (hasStd ? changed.tier === 'standard' : changed.isPrimary) : false
-  })()
-
-  // Card query: just the one variant's quantity.
-  qc.setQueryData<CardDetailResponse>(cardKey, (old) =>
-    old
-      ? { ...old, variants: old.variants.map((v) => (v.variantId === variantId ? { ...v, quantity: clampedNew } : v)) }
-      : old,
-  )
-
-  // Every cached set view: shift progress owned/pct/totalQuantity + the card row.
-  qc.setQueriesData<SetDetailResponse>({ queryKey: ['set', setId] }, (old) => {
-    if (!old) return old
-    // Both are absent on an anonymous read of the set page; there is then no
-    // cached progress to shift and no ownership to re-derive.
-    const p = old.progress
-    if (!p) return old
-    const nextProgress: Progress = {
-      complete: {
-        ...p.complete,
-        owned: p.complete.owned + dOwned.complete,
-        pct: pct(p.complete.owned + dOwned.complete, p.complete.total),
-        totalQuantity: (p.complete.totalQuantity ?? 0) + qtyDelta,
-        setLevel: setLevelFor(p.complete.owned + dOwned.complete, p.complete.total),
-      },
-      master: {
-        ...p.master,
-        owned: p.master.owned + dOwned.master,
-        pct: pct(p.master.owned + dOwned.master, p.master.total),
-        totalQuantity: (p.master.totalQuantity ?? 0) + (wasMasterReq ? qtyDelta : 0),
-      },
-      grandmaster: {
-        ...p.grandmaster,
-        owned: p.grandmaster.owned + dOwned.grand,
-        pct: pct(p.grandmaster.owned + dOwned.grand, p.grandmaster.total),
-        totalQuantity: (p.grandmaster.totalQuantity ?? 0) + qtyDelta,
-      },
-    }
-    const cards = old.cards.map((c) => {
-      if (c.cardId !== cardId || !c.ownership) return c
-      const newTotal = c.ownership.totalQuantity + qtyDelta
-      return {
-        ...c,
-        ownership: { ...c.ownership, totalQuantity: newTotal, have: newTotal >= 1, need: newTotal === 0, dupe: newTotal >= 2 },
-      }
-    })
-    return { ...old, progress: nextProgress, cards }
-  })
-
-  return () => {
-    qc.setQueryData(cardKey, prevCard)
-    for (const [key, data] of prevSets) qc.setQueryData(key, data)
-  }
-}
-
 function QtyStepper({
   v,
   color,
   fill,
   quantity,
   onAdjust,
-  pending,
 }: {
   v: Variant
   /** Solid accent — the idle "+" glyph colour. */
@@ -149,18 +33,19 @@ function QtyStepper({
   fill: string
   quantity: number
   onAdjust: (variantId: number, newQty: number) => void
-  pending: boolean
 }) {
   const owned = quantity > 0
   // Collection writes are network-only (hard rule — no offline write queue). When
   // offline, disable the steppers with a clear reason rather than letting a tap fail.
+  // Online they stay live while a write is saving: a second tap is queued behind
+  // it (lib/collectionWrites), not refused.
   const online = useOnline()
   const offlineTitle = online ? undefined : 'Offline — reconnect to change your collection'
   return (
     <div className="flex items-center gap-[8px]" title={offlineTitle}>
       <button
         onClick={() => onAdjust(v.variantId, quantity - 1)}
-        disabled={pending || !online || quantity <= 0}
+        disabled={!online || quantity <= 0}
         aria-label={`Remove one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary text-icon-default enabled:hover:bg-action-default-hover disabled:text-icon-disabled"
       >
@@ -173,7 +58,7 @@ function QtyStepper({
       </span>
       <button
         onClick={() => onAdjust(v.variantId, quantity + 1)}
-        disabled={pending || !online}
+        disabled={!online}
         aria-label={`Add one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg enabled:hover:opacity-90 disabled:opacity-50"
         style={{
@@ -209,11 +94,9 @@ const VARIANT_GRID =
 function VariantRow({
   v,
   onAdjust,
-  pending,
 }: {
   v: Variant
   onAdjust: (variantId: number, newQty: number) => void
-  pending: boolean
 }) {
   const meta = variantMeta(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
@@ -287,7 +170,7 @@ function VariantRow({
               Sign in to track
             </Link>
           ) : (
-            <QtyStepper v={v} color={meta.color} fill={meta.fill} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+            <QtyStepper v={v} color={meta.color} fill={meta.fill} quantity={v.quantity} onAdjust={onAdjust} />
           )}
         </div>
       </div>
@@ -553,7 +436,6 @@ function CardDetailBody({
   const tabs = deckSlot ? [DECK_TAB, ...TABS] : TABS
   const [tab, setTab] = useState(deckSlot ? DECK_TAB.key : 'Card')
   const [showAdditional, setShowAdditional] = useState(false)
-  const qc = useQueryClient()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['card', cardId],
@@ -563,32 +445,25 @@ function CardDetailBody({
   const enter = useLateEntrance(isLoading)
 
   // Series slug + set id are resolved from the fetched card (authoritative),
-  // falling back to any caller-supplied hint before the fetch settles. Both feed
-  // the internal links + the ['set', setId] progress invalidation on mutation.
+  // falling back to any caller-supplied hint before the fetch settles. The set id
+  // also names the write lane the steppers queue on (lib/collectionWrites).
   const seriesSlug = data?.card.series.slug ?? backTo?.series ?? ''
   const setId = data?.card.set.setId ?? backTo?.set ?? ''
 
-  // Own/un-own a variant. Optimistic: the stepper + the three progress bars move
-  // instantly (optimisticApply), roll back on error, and reconcile against the
-  // server's authoritative recompute on settle by invalidating both queries.
-  const mutation = useMutation({
-    mutationFn: ({ variantId, newQty }: { variantId: number; newQty: number }) =>
-      api.setVariantQuantity(variantId, Math.max(0, newQty)),
-    onMutate: async ({ variantId, newQty }) => {
-      await qc.cancelQueries({ queryKey: ['card', cardId] })
-      await qc.cancelQueries({ queryKey: ['set', setId] })
-      const undo = optimisticApply(qc, cardId, setId, variantId, Math.max(0, newQty))
-      return { undo }
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.undo()
-    },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ['card', cardId] })
-      void qc.invalidateQueries({ queryKey: ['set', setId] })
-    },
-  })
-  const onAdjust = (variantId: number, newQty: number) => mutation.mutate({ variantId, newQty })
+  // Own/un-own a variant. The stepper shows the quantity asked for at once; the
+  // server's answer — including the set's recomputed progress — is written back
+  // into this card and every cached view of its set when it lands.
+  const owned = useOwnedCounts(setId)
+  const shown = data && {
+    ...data,
+    variants: data.variants.map((v) =>
+      v.quantity === undefined ? v : { ...v, quantity: owned.shown(v.variantId, v.quantity) },
+    ),
+  }
+  const onAdjust = (variantId: number, newQty: number) => {
+    const variant = data?.variants.find((v) => v.variantId === variantId)
+    if (data && variant) owned.set({ setId, card: { cardId, name: data.card.name }, variant }, newQty)
+  }
 
   return (
     <>
@@ -656,11 +531,10 @@ function CardDetailBody({
               {tab === DECK_TAB.key && deckSlot}
               {tab === 'Card' && (
                 <CardTab
-                  data={data}
+                  data={shown!}
                   showAdditional={showAdditional}
                   setShowAdditional={setShowAdditional}
                   onAdjust={onAdjust}
-                  pending={mutation.isPending}
                 />
               )}
               {tab === 'Price' && <PriceTab cardId={cardId} />}
@@ -747,13 +621,11 @@ function CardTab({
   showAdditional,
   setShowAdditional,
   onAdjust,
-  pending,
 }: {
   data: import('../lib/api').CardDetailResponse
   showAdditional: boolean
   setShowAdditional: (v: boolean) => void
   onAdjust: (variantId: number, newQty: number) => void
-  pending: boolean
 }) {
   const c = data.card
   const standard = data.variants.filter((v) => v.tier === 'standard')
@@ -778,7 +650,7 @@ function CardTab({
         </div>
         <div className="flex flex-col gap-[10px]">
           {standard.map((v) => (
-            <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} pending={pending} />
+            <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} />
           ))}
         </div>
 
@@ -803,7 +675,7 @@ function CardTab({
             {showAdditional && (
               <div className="flex flex-col gap-[10px]">
                 {special.map((v) => (
-                  <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} pending={pending} />
+                  <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} />
                 ))}
               </div>
             )}

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { api, type CardRow, type TileVariant } from '../lib/api'
+import { useOwnedCounts } from '../lib/collectionWrites'
 import { fmtPrice, fmtNumber } from '../lib/format'
 import { RarityMark } from './RarityMark'
 import { useOnline } from '../lib/useOnline'
@@ -23,60 +23,24 @@ import { VariantBadge } from './VariantChip'
 // a set response (lists, search) have no seed and still fetch.
 //
 // Reads come straight from `seed` rather than from a react-query cache so the
-// grid can never disagree with the set response that painted it. Optimistic
-// writes live in a local overlay that clears the moment fresh server data
-// arrives; the ['set', setId] invalidation on settle is what delivers it.
-function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: string; seed?: TileVariant[] }) {
-  const qc = useQueryClient()
+// grid can never disagree with the set response that painted it. Writes go
+// through lib/collectionWrites: a tap shows at once, a tap made while the last
+// one is still saving is kept rather than refused, and the server's answer is
+// written back into that same set response.
+function VariantCounters({ card, setId, seed }: { card: { cardId: string; name: string }; setId: string; seed?: TileVariant[] }) {
   const online = useOnline()
+  const owned = useOwnedCounts(setId)
   const { data: fetched } = useQuery({
-    queryKey: ['card', cardId],
-    queryFn: ({ signal }) => api.card(cardId, signal),
+    queryKey: ['card', card.cardId],
+    queryFn: ({ signal }) => api.card(card.cardId, signal),
     enabled: seed === undefined,
   })
   const variants: TileVariant[] | undefined = seed ?? fetched?.variants
 
-  const [pending, setPending] = useState<Record<number, number>>({})
-  // Fresh server data supersedes any optimistic value. `variants` keeps a stable
-  // identity between refetches, so this fires exactly when new data lands.
-  useEffect(() => {
-    setPending((p) => (Object.keys(p).length ? {} : p))
-  }, [variants])
-
-  const shown = variants?.map((v) =>
-    pending[v.variantId] !== undefined ? { ...v, quantity: pending[v.variantId]! } : v,
-  )
-
-  const mutation = useMutation({
-    mutationFn: ({ variantId, delta }: { variantId: number; delta: number }) =>
-      api.incrementVariant(variantId, delta),
-    onMutate: ({ variantId, delta }) => {
-      const current = shown?.find((v) => v.variantId === variantId)?.quantity ?? 0
-      const prev = pending[variantId]
-      setPending((p) => ({ ...p, [variantId]: Math.max(0, current + delta) }))
-      return { variantId, prev }
-    },
-    onError: (_err, _vars, ctx) => {
-      if (!ctx) return
-      setPending((p) => {
-        const next = { ...p }
-        if (ctx.prev === undefined) delete next[ctx.variantId]
-        else next[ctx.variantId] = ctx.prev
-        return next
-      })
-    },
-    onSettled: () => {
-      // CardDetail shares the ['card', cardId] cache; the set query carries both
-      // the progress bars and (now) the quantities these boxes render.
-      void qc.invalidateQueries({ queryKey: ['card', cardId] })
-      void qc.invalidateQueries({ queryKey: ['set', setId] })
-    },
-  })
-
-  if (!shown) return null
-  const standard = shown
+  if (!variants) return null
+  const standard = variants
     .filter((v) => v.tier === 'standard')
-    .map((v) => ({ v, meta: variantMeta(v) }))
+    .map((v) => ({ v, meta: variantMeta(v), qty: owned.shown(v.variantId, v.quantity) }))
     .sort((a, b) => a.meta.order - b.meta.order)
   if (standard.length === 0) return null
 
@@ -85,17 +49,17 @@ function VariantCounters({ cardId, setId, seed }: { cardId: string; setId: strin
       className="px-card-counters absolute bottom-[8px] right-[8px] flex items-center gap-[4px]"
       title={online ? undefined : 'Offline — reconnect to change your collection'}
     >
-      {standard.map(({ v, meta }) => (
+      {standard.map(({ v, meta, qty }) => (
         <CounterBox
           key={v.variantId}
           label={v.displayName}
           color={meta.color}
           fill={meta.fill}
           dark={meta.dark}
-          qty={v.quantity ?? 0}
-          disabled={!online || mutation.isPending}
-          onInc={() => mutation.mutate({ variantId: v.variantId, delta: 1 })}
-          onDec={() => mutation.mutate({ variantId: v.variantId, delta: -1 })}
+          qty={qty}
+          disabled={!online}
+          onInc={() => owned.set({ setId, card, variant: v }, qty + 1)}
+          onDec={() => owned.set({ setId, card, variant: v }, qty - 1)}
         />
       ))}
     </div>
@@ -198,7 +162,7 @@ export function CardTile({
           </button>
         )}
         {showCounters && (
-          <VariantCounters cardId={`${set}-${card.number}`} setId={set} seed={card.standardVariants} />
+          <VariantCounters card={{ cardId: `${set}-${card.number}`, name: card.name }} setId={set} seed={card.standardVariants} />
         )}
       </div>
       {/* Footer block — 74px, uniform for virtualization */}
