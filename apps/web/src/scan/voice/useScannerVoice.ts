@@ -244,6 +244,11 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         show('refused', 'Scan a card first, then tell me about it')
         return
       }
+      // "That one" can be a scan the reader already removed.
+      if (!feedRef.current.some((e) => e.id === rowId) && !cbRef.current.inFlight(rowId)) {
+        show('refused', 'That scan isn’t in the list any more')
+        return
+      }
       const { actions, outcome } = propose(command, rowId, feedRef.current, Date.now(), () => `va-${++actionSeq.current}`)
       if (!actions.length) {
         show('refused', outcome.message)
@@ -253,7 +258,11 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       // Start the hold now if the row is already there, rather than on the
       // next tick: nothing heard should sit un-started, even for 200 ms.
       runTick()
-      show('heard', outcome.message, actions.map((a) => a.id))
+      // Only what survived that tick is pending; if it dropped everything, it
+      // has already said why, and a receipt here would contradict it.
+      const kept = actions.filter((a) => queueRef.current.pending.some((p) => p.id === a.id))
+      if (!kept.length) return
+      show('heard', outcome.message, kept.map((a) => a.id))
       // A tap you can feel where the platform allows one (not iOS Safari). Never
       // a sound: audio playback silently kills the iOS recognizer.
       if ('vibrate' in navigator) navigator.vibrate(12)

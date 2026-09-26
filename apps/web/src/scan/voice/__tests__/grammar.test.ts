@@ -132,6 +132,10 @@ describe('quantity', () => {
     assert.equal(edit('just one').quantity, 1)
   })
 
+  it('never takes an inherited object key for a number', () => {
+    for (const heard of ['constructor', 'toString', 'constructor of those', 'hasOwnProperty']) assert.equal(command(heard), null, heard)
+  })
+
   it('refuses counts it cannot mean, and the whole command with them', () => {
     assert.equal(command('zero'), null)
     assert.equal(command('500 of those'), null)

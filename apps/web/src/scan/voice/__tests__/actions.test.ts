@@ -245,6 +245,20 @@ describe('applying and undoing', () => {
     assert.equal(revertible(r.feed, r.record!), true)
   })
 
+  it('keeps the reader’s own edit made during the hold', () => {
+    const feed = [row('r1', { name: 'Exeggcute' })]
+    const [printing] = due('reverse holo', 'r1', feed)
+    const picked = [row('r1', { name: 'Exeggcute', variantId: 1, printingPicked: true })]
+    const r = applyAction(picked, printing)
+    assert.equal(r.record, null)
+    assert.equal(r.outcome.message, 'Kept the change you made to Exeggcute')
+    const [count] = due('three copies', 'r1', feed)
+    assert.equal(applyAction([row('r1', { quantity: 5 })], count).record, null)
+    // The catalog filling in the primary printing is not a pick.
+    const [p2] = due('reverse holo', 'r1', [row('r1', { variantId: null, variants: [] })])
+    assert.equal(applyAction([row('r1', { variantId: 1 })], p2).feed[0].variantId, 2)
+  })
+
   it('says so, and changes nothing, when the printings never loaded', () => {
     const feed = [row('r1', { name: 'Venonat', variants: [] })]
     const r = applyAction(feed, due('reverse holo', 'r1', feed)[0])

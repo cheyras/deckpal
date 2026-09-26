@@ -56,6 +56,24 @@ export type VoiceAction = ActionBody & {
   settleAt: number | null
   /** Give up waiting for the row after this. */
   expiresAt: number
+  /** The field this action changes, as the row had it when the action could
+   *  first see the row. A reader who changes it by hand during the hold has
+   *  answered for themselves, and the voice change must not overwrite that. */
+  baseline: Baseline | null
+}
+
+type Baseline = { printingPicked: boolean; variantId: number | null; quantity: number }
+const baselineOf = (row: FeedEntry): Baseline => ({ printingPicked: row.printingPicked, variantId: row.variantId, quantity: row.quantity })
+
+/** Did the reader change this action's field by hand since `baseline`? The
+ *  printing counts as changed only by a PICK: the catalog filling in the
+ *  primary printing after a row lands is a default, not an answer. */
+function editedByHand(action: VoiceAction, row: FeedEntry): boolean {
+  const b = action.baseline
+  if (!b) return false
+  if (action.kind === 'quantity') return row.quantity !== b.quantity
+  if (action.kind === 'printing') return b.printingPicked ? row.variantId !== b.variantId : row.printingPicked
+  return false
 }
 
 /** How to put back what one applied action changed. `actionId` ties it to its
@@ -123,7 +141,7 @@ export function propose(
   mintId: () => string,
 ): { actions: VoiceAction[]; outcome: Outcome } {
   const row = feed.find((e) => e.id === rowId)
-  const base = { rowId, cardId: row?.cardId ?? null, settleAt: null, expiresAt: now + WAIT_FOR_ROW_MS }
+  const base = { rowId, cardId: row?.cardId ?? null, settleAt: null, expiresAt: now + WAIT_FOR_ROW_MS, baseline: row ? baselineOf(row) : null }
   if (command.kind === 'remove') {
     return { actions: [{ ...base, id: mintId(), kind: 'remove' }], outcome: { ok: true, message: `Removing ${rowName(row)}` } }
   }
@@ -190,7 +208,7 @@ export function tick(
         // The card the command was SPOKEN about, when its row already existed
         // then; only a capture still in the air learns its card on landing. A
         // row corrected in between must not quietly re-aim the command.
-        pending.push({ ...a, cardId: a.cardId ?? row.cardId, settleAt: now + HOLD_MS[a.kind] })
+        pending.push({ ...a, cardId: a.cardId ?? row.cardId, baseline: a.baseline ?? baselineOf(row), settleAt: now + HOLD_MS[a.kind] })
         attached.push(a.rowId)
       } else if (now > a.expiresAt || !inFlight(a.rowId)) {
         dropped.push({ ok: false, message: 'That scan didn’t make it to the list' })
@@ -217,7 +235,7 @@ export function settleAll(queue: VoiceQueue, feed: readonly FeedEntry[]): { queu
   const due = queue.pending.flatMap((a) => {
     if (a.settleAt !== null) return [a]
     const row = feed.find((e) => e.id === a.rowId)
-    return row ? [{ ...a, cardId: a.cardId ?? row.cardId, settleAt: 0 }] : []
+    return row ? [{ ...a, cardId: a.cardId ?? row.cardId, baseline: a.baseline ?? baselineOf(row), settleAt: 0 }] : []
   })
   return { queue: { ...queue, pending: [] }, due }
 }
@@ -242,6 +260,10 @@ export function applyAction(feed: FeedEntry[], action: VoiceAction): { feed: Fee
   if (!row.cardId) return { feed, record: null, outcome: { ok: false, message: 'Identify that scan first — tap it in the list' } }
   if (action.cardId && row.cardId !== action.cardId) {
     return { feed, record: null, outcome: { ok: false, message: `${row.name} changed since you spoke — say it again` } }
+  }
+
+  if (editedByHand(action, row)) {
+    return { feed, record: null, outcome: { ok: false, message: `Kept the change you made to ${row.name}` } }
   }
 
   if (action.kind === 'quantity') {

@@ -221,15 +221,17 @@ const LEXICON: readonly { slot: Slot; phrases: readonly string[] }[] = [
   },
 ]
 
-const NUMBER_WORDS: Record<string, number> = {
+// Maps, not object literals: an object would answer "constructor" with
+// Object's own function and hand it on as a quantity.
+const NUMBER_WORDS = new Map<string, number>(Object.entries({
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
   eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
   eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70,
   eighty: 80, ninety: 90,
-}
+}))
 /** Homophones of numbers, believed ONLY inside a quantity frame: "change it to
  *  reverse" must not set a quantity of two. */
-const FRAME_ONLY_NUMBERS: Record<string, number> = { to: 2, too: 2, for: 4, fore: 4, won: 1, tree: 3, ate: 8 }
+const FRAME_ONLY_NUMBERS = new Map<string, number>(Object.entries({ to: 2, too: 2, for: 4, fore: 4, won: 1, tree: 3, ate: 8 }))
 
 /** Words that open a question rather than an instruction, and the
  *  throat-clearing that may come before them. */
@@ -341,16 +343,17 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     const word = words[i]
     // Numbers first and literally — "two" and "to" are not a fuzzy question.
     // "Twenty two" is one number, not a twenty and a two.
-    const literal = /^\d{1,3}$/.test(word) ? Number(word) : NUMBER_WORDS[word]
+    const literal = /^\d{1,3}$/.test(word) ? Number(word) : NUMBER_WORDS.get(word)
     if (literal !== undefined) {
-      const unit = literal >= 20 && literal % 10 === 0 ? NUMBER_WORDS[words[i + 1] ?? ''] : undefined
+      const unit = literal >= 20 && literal % 10 === 0 ? NUMBER_WORDS.get(words[i + 1] ?? '') : undefined
       const compound = unit !== undefined && unit < 10
       out.push({ kind: 'number', value: compound ? literal + unit : literal, frameOnly: false, from: i, to: i + (compound ? 2 : 1) })
       i += compound ? 2 : 1
       continue
     }
-    if (FRAME_ONLY_NUMBERS[word] !== undefined) {
-      out.push({ kind: 'number', value: FRAME_ONLY_NUMBERS[word], frameOnly: true, from: i, to: i + 1 })
+    const homophone = FRAME_ONLY_NUMBERS.get(word)
+    if (homophone !== undefined) {
+      out.push({ kind: 'number', value: homophone, frameOnly: true, from: i, to: i + 1 })
       i += 1
       continue
     }
@@ -449,7 +452,7 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   }
   // A count it cannot set ("0 reverse holos", "100 of those"). Refused below,
   // after the objections, so a lesser guess cannot outvote either.
-  const invalidCount = quantity !== null && (quantity < 1 || quantity > MAX_QUANTITY)
+  const invalidCount = quantity !== null && !(Number.isInteger(quantity) && quantity >= 1 && quantity <= MAX_QUANTITY)
 
   // Coverage: every word some segment explains. An unused "one" is filler ("the
   // reverse one"), and an unused "to" is a preposition when a printing follows
