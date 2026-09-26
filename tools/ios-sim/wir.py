@@ -249,8 +249,10 @@ class WebInspectorClient:
         """
         for attempt in range(1, _MAX_REFRESH_ATTEMPTS + 1):
             frames_seen = self._refresh_targets_once(settle, overall_timeout)
-            if frames_seen or attempt == _MAX_REFRESH_ATTEMPTS:
+            if frames_seen:
                 return
+            if attempt == _MAX_REFRESH_ATTEMPTS:
+                raise WirError("Web Inspector gave no response after reconnecting; could not discover applications.")
             wait = _REFRESH_RETRY_BACKOFF[attempt - 1]
             print(
                 f"wir.py: Web Inspector gave no response at all (likely its simulator-side "

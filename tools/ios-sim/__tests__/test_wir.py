@@ -23,6 +23,23 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 import wir  # noqa: E402
 
 
+class DiscoveryRetryTests(unittest.TestCase):
+    def test_exhausted_silent_retries_raise_instead_of_reporting_no_apps(self):
+        client = wir.WebInspectorClient.__new__(wir.WebInspectorClient)
+        with mock.patch.object(client, '_refresh_targets_once', return_value=0) as refresh:
+            with mock.patch.object(client, '_reconnect') as reconnect:
+                with mock.patch.object(wir.time, 'sleep'):
+                    with self.assertRaisesRegex(wir.WirError, 'no response after reconnecting'):
+                        client.refresh_targets()
+        self.assertEqual(refresh.call_count, wir._MAX_REFRESH_ATTEMPTS)
+        self.assertEqual(reconnect.call_count, wir._MAX_REFRESH_ATTEMPTS - 1)
+
+    def test_a_reply_with_no_apps_is_a_valid_empty_listing(self):
+        client = wir.WebInspectorClient.__new__(wir.WebInspectorClient)
+        with mock.patch.object(client, '_refresh_targets_once', return_value=1):
+            client.refresh_targets()
+
+
 class FramingTests(unittest.TestCase):
     """encode_message / decode_length / decode_message: the wire format is a
     4-byte big-endian length prefix followed by a binary plist body (see
