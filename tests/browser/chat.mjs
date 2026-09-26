@@ -299,10 +299,31 @@ async function assertClear(page, width, targets, label) {
   const park = page.locator('[data-decke-park]')
   if (width < 1068) {
     assert.equal(await park.count(), 1, label + ': the phone park box is missing')
+    // MEASURED ONCE THE LAYOUT HAS HELD STILL for five frames. The park box is
+    // re-solved through a measurement and a React render; he is only flown to
+    // it once it has held still for `MARK_SETTLE_MS` anyway, so the settled box
+    // is the one a reader sees him land on.
+    const key = () => page.evaluate(() => [document.querySelector('[data-decke-park]'), document.querySelector('[data-decke-approval]')]
+      .map(el => el ? Math.round(el.getBoundingClientRect().top) + ':' + Math.round(el.getBoundingClientRect().bottom) : '-').join('|'))
+    let last = await key(), still = 0
+    for (let i = 0; i < 60 && still < 5; i++) {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())))
+      const next = await key()
+      still = next === last ? still + 1 : 0
+      last = next
+    }
     const him = await rect(park)
+    // What decided the box, for when it is wrong: the panel it is measured in
+    // (its height sets the ceiling in `parkFloor.ts`) and the offset it was given.
+    const why = await page.evaluate(() => {
+      const box = document.querySelector('[data-decke-park]')
+      const r = box?.offsetParent?.getBoundingClientRect()
+      return { panel: r ? { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height) } : null,
+        style: box?.getAttribute('style') ?? null, viewport: [innerWidth, innerHeight, visualViewport?.height ?? null] }
+    })
     for (const [name, loc] of Object.entries(targets)) {
       const r = await rect(loc)
-      assert.equal(overlap(him, r), 0, `${label}: he stands on ${name} (park ${JSON.stringify(him)}, ${name} ${JSON.stringify(r)})`)
+      assert.equal(overlap(him, r), 0, `${label}: he stands on ${name} (park ${JSON.stringify(him)}, ${name} ${JSON.stringify(r)}, ${JSON.stringify(why)})`)
     }
     return him
   }
@@ -364,10 +385,16 @@ export async function checkDeckeStates(browser, server, out, engine) {
       await page.screenshot({ path: path.join(out, 'decke-approval-' + tag + '.png') })
 
       // The longest preview the server sends: twelve lines. The list scrolls;
-      // the question and both answers stay on screen and clear of him.
+      // the question and both answers stay on screen and clear of him. A NEW
+      // held call, as it is in the product — each call mounts its own card with
+      // its preview already in hand, rather than one card growing in place.
       const long = ["CREATE a new deck called 'Everything Deck' (standard)",
         ...Array.from({ length: 10 }, (_, i) => `add x4 fixture-${i}`), '…and 9 more'].join('\n')
-      await set(page, { preview: { toolCallId: 'save-1', tool: 'save_deck', title: 'Create or edit a deck', summary: long, ok: true, editable: false, rows: [], skipped: [] } })
+      await set(page, { asking: null })
+      await card.waitFor({ state: 'detached' })
+      await set(page, { asking: [{ approvalId: 'ap-3', toolCallId: 'save-2', title: 'Save this deck', name: 'save_deck', input: { name: 'Everything Deck' } }],
+        preview: { toolCallId: 'save-2', tool: 'save_deck', title: 'Create or edit a deck', summary: long, ok: true, editable: false, rows: [], skipped: [] } })
+      await card.waitFor()
       const list = card.locator('[data-decke-dry-run]')
       assert.ok(await list.evaluate(el => el.scrollHeight > el.clientHeight + 1), 'twelve lines did not become a scrolling region')
       const viewportH = await page.evaluate(() => innerHeight)
@@ -438,12 +465,22 @@ export async function checkDeckeStates(browser, server, out, engine) {
       results.push({ case: 'decke-states', engine, width, approvalClear: true, dryRunRows: 3, priceShown: true, noticeActions: true, spentClear: true })
 
       // ── On a deck, the chips are about that deck (UXD-15) ───────────────
-      await page.goto(server.origin + '/decks/deck-browser', { waitUntil: 'networkidle' })
-      await panel.waitFor({ state: 'visible' })
-      const chips = await panel.locator('ul button').allTextContents()
+      // Navigated WHILE CLOSED, the way a reader moves around the app: the pick
+      // has to follow the page he is opened on, not the one he was closed on.
       const deckQuestions = ['Is this deck legal? If not, why not?', 'What am I missing for this deck, and what will it cost?', 'Suggest one improvement to this deck']
-      assert.equal(chips.length, 3)
-      assert.ok(chips.slice(0, 2).every(c => deckQuestions.includes(c)), 'a deck page does not lead with that deck: ' + chips.join(' | '))
+      const chipsAfterOpeningOn = async (pathname) => {
+        await set(page, { open: false, messages: [], credits: { remaining: 40, allowance: 100 } })
+        await panel.waitFor({ state: 'detached' })
+        await page.evaluate(p => history.pushState(null, '', p), pathname)
+        await set(page, { open: true })
+        await panel.waitFor({ state: 'visible' })
+        return panel.locator('ul button').allTextContents()
+      }
+      const onDeck = await chipsAfterOpeningOn('/decks/deck-browser')
+      assert.equal(onDeck.length, 3)
+      assert.ok(onDeck.slice(0, 2).every(c => deckQuestions.includes(c)), 'a deck page does not lead with that deck: ' + onDeck.join(' | '))
+      const offDeck = await chipsAfterOpeningOn('/lists')
+      assert.ok(offDeck.every(c => !deckQuestions.includes(c)), '"this deck" followed the reader off the deck: ' + offDeck.join(' | '))
 
       // ── The real hook, over a real fetch: a held wallet, then a fault ───
       let reply = { status: 429, body: { error: 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.',
