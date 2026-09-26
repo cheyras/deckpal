@@ -38,6 +38,26 @@ test('a completed smart list gets a completion state, never "Add Cards"', () => 
   assert.ok(smartIdx >= 0 && addCardsIdx > smartIdx, '"Add Cards" must sit in the non-smart arm of the ternary, after the smart check')
 })
 
+test('the completion claim only fires when nothing narrowed the rule below its goal', () => {
+  // Astra review finding (2026-09-26): `missingForGoal` filters by price,
+  // rarity and finish, and a smart list's own `exclude` hides cards from the
+  // rule by hand — any of those can empty the list with cards still
+  // genuinely missing. "You've collected everything" must not fire then.
+  const src = fs.readFileSync(LIST_DETAIL, 'utf8')
+  assert.match(src, /smartRuleNarrowed/, 'the narrowed-rule case must be distinguished from genuine completion')
+  const narrowedCheckIdx = src.indexOf('const smartRuleNarrowed')
+  assert.ok(narrowedCheckIdx >= 0, 'smartRuleNarrowed must be computed from the list rule')
+  const narrowedBody = src.slice(narrowedCheckIdx, narrowedCheckIdx + 600)
+  for (const field of ['exclude.length > 0', 'maxPriceUsd != null', 'pricedOnly', 'rarity?.length', 'rarityExclude?.length', 'finishes?.length']) {
+    assert.ok(narrowedBody.includes(field), `smartRuleNarrowed must account for rule.${field}`)
+  }
+  assert.match(
+    src,
+    /title=\{smartRuleNarrowed \? '[^']+' : "You've collected everything in this list"\}/,
+    'the completion title must be conditional on smartRuleNarrowed, not unconditional',
+  )
+})
+
 test('a failed add surfaces the server\'s message instead of vanishing', () => {
   const src = fs.readFileSync(LIST_DETAIL, 'utf8')
   assert.doesNotMatch(

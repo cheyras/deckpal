@@ -144,6 +144,23 @@ export function ListDetail() {
   // on every read. Add/reorder don't exist for it; "remove" excludes.
   const smart = !!list?.rule
 
+  // A rule with zero items is not necessarily "collected everything": the
+  // server's `missingForGoal` also filters by price/rarity/finish, and a
+  // smart list's own `exclude` list hides cards from the rule by hand,
+  // regardless of ownership. Excluding the last remaining card, or a filter
+  // matching nothing owned yet, both land here — the celebration copy is
+  // only honest when nothing narrowed the rule below "everything the goal
+  // asks for".
+  const smartRuleNarrowed = !!(
+    list?.rule &&
+    (list.rule.exclude.length > 0 ||
+      list.rule.maxPriceUsd != null ||
+      list.rule.pricedOnly ||
+      (list.rule.rarity?.length ?? 0) > 0 ||
+      (list.rule.rarityExclude?.length ?? 0) > 0 ||
+      (list.rule.finishes?.length ?? 0) > 0)
+  )
+
   // Ownership counts (dynamic only)
   const counts = useMemo(() => {
     let have = 0, need = 0, dupes = 0
@@ -483,11 +500,14 @@ export function ListDetail() {
                 // used to fall into the generic empty state and offer "Add
                 // Cards" — a control that 400s for every smart list, because
                 // membership is the rule's job, not a hand pick. Zero items
-                // here means the rule has nothing left to ask for, which is
-                // the goal succeeding, not a dead end.
+                // here means the rule has nothing left to ask for right now —
+                // which is only the SAME THING as "collected everything" when
+                // nothing narrowed the rule (see `smartRuleNarrowed` above);
+                // a price/rarity/finish filter or a hand-excluded card can
+                // also empty it out with cards still genuinely missing.
                 <EmptyState
                   icon="sparkle"
-                  title="You've collected everything in this list"
+                  title={smartRuleNarrowed ? 'No missing cards match this rule right now' : "You've collected everything in this list"}
                   body="This list refills on its own if the rule changes."
                   variant="plain"
                 />

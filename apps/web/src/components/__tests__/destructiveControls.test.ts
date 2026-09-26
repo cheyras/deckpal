@@ -40,3 +40,22 @@ test('the showcase remove control is not hover-only, and confirms before removin
   )
   assert.match(src, /ConfirmModal/, 'removing a showcase card must go through a confirm step, not act on the first tap')
 })
+
+test('the tile\'s remove confirmation cannot also open the card sheet', () => {
+  // Astra review finding (2026-09-26): `Sheet` portals to `document.body`,
+  // but a portal's events still bubble up the REACT tree, not the DOM tree.
+  // The scrim's own click handler (Sheet.tsx `onScrimClick`) calls
+  // `requestClose()` but never `stopPropagation()`, so dismissing this
+  // confirmation by tapping outside it would otherwise keep bubbling to the
+  // tile's enclosing `CardLink` and open the card detail sheet at the same
+  // time — the opposite of what "dismiss" means.
+  const src = fs.readFileSync(CARD_TILE, 'utf8')
+  const idx = src.indexOf('confirmingRemove && (')
+  assert.ok(idx >= 0, 'could not find the confirm-modal render branch')
+  const branch = src.slice(idx, idx + 700)
+  assert.match(
+    branch,
+    /onClick=\{\(e\) => e\.stopPropagation\(\)\}/,
+    'the ConfirmModal must be wrapped in a click-stopPropagation boundary so a scrim dismissal cannot bubble into CardLink',
+  )
+})

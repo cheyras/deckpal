@@ -215,16 +215,25 @@ export function CardTile({
               <Icon name="close" size={16} />
             </button>
             {confirmingRemove && (
-              <ConfirmModal
-                title="Remove card"
-                message={`Remove ${card.name} from this list?`}
-                confirmLabel="Remove"
-                onClose={() => setConfirmingRemove(false)}
-                onConfirm={() => {
-                  setConfirmingRemove(false)
-                  onRemove()
-                }}
-              />
+              // `onClick` stopPropagation, not a DOM-position fix: `Sheet`
+              // portals to `document.body`, but React re-fires a portal's
+              // events up through the REACT tree, not the DOM tree — so a
+              // click on the scrim (which does not itself stop propagation;
+              // it only calls `requestClose`) would otherwise keep bubbling
+              // to this tile's enclosing `CardLink` and open the card sheet
+              // at the same time as dismissing this dialog.
+              <div onClick={(e) => e.stopPropagation()}>
+                <ConfirmModal
+                  title="Remove card"
+                  message={`Remove ${card.name} from this list?`}
+                  confirmLabel="Remove"
+                  onClose={() => setConfirmingRemove(false)}
+                  onConfirm={() => {
+                    setConfirmingRemove(false)
+                    onRemove()
+                  }}
+                />
+              </div>
             )}
           </>
         )}
