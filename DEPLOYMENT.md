@@ -275,20 +275,44 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 The API's abuse budgets need **no new env variable to deploy**. The pre-auth
 ingress guard (600 requests/min per source IP per process) and the per-user
 session limits (`/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min,
-all `/admin` 120/min, all `/me/credits` 180/min) are wired unconditionally
-in `createApp` on the ordinary base-path API router (`/api` on Vercel,
-`/deckpal/api` self-host). A single parent admin limiter includes credit
-administration once; the wallet budget is separate. These use the existing
-bounded per-instance store. Ingress, admin and wallet middleware use the pinned
-`express-rate-limit` 8.7.0 dependency installed by the normal frozen workspace
-install. Ingress runs before authentication; admin/wallet session gates and
-limits run after verified/local identity but before RLS request-connection
-acquisition. Active-account/action permissions still precede handlers. The
-database checkout limits of 60 requests and 10 new order attempts per user/hour
-are unchanged. The Stripe raw-body webhook and the
-bare-origin OAuth discovery / `/register` / `/token` handlers are mounted
-separately on `app` ahead of that router and are outside this guard; the MCP
-transport at `/mcp` is a separate function. Client-identity resolution keys on
+`/bugs` 10/hour, all `/admin` 120/min, all `/me/credits` 180/min) are wired
+unconditionally in `createApp` on the ordinary base-path API router (`/api`
+on Vercel, `/deckpal/api` self-host). A single parent admin limiter includes
+credit administration once; the wallet budget is separate. These use the
+existing bounded per-instance store. Ingress, admin and wallet middleware use
+the pinned `express-rate-limit` 8.7.0 dependency installed by the normal
+frozen workspace install. Ingress runs before authentication; admin/wallet
+session gates and limits run after verified/local identity but before RLS
+request-connection acquisition. `/bugs` runs after identity too, but with no
+`requireSession` — a personal access token, or self-host's resolved local
+identity, may still file a report. Active-account/action permissions still
+precede handlers. The database checkout limits of 60 requests and 10 new
+order attempts per user/hour are unchanged.
+
+**The Stripe raw-body webhook** is still mounted separately on `app` ahead of
+that router and is outside this guard (unchanged). **The bare-origin OAuth
+discovery / `/register` / `/token` handlers** are also still mounted
+separately on `app` ahead of that router, but each of the four now carries its
+own limiter — `oauthPublicRateLimit`, 30 requests/min per source IP, checked
+first, before the host allowlist or any body parsing. **The MCP transport at
+`/mcp`** is still a separate function, but it too now carries two limiters:
+a global 300 requests/min-per-instance admission counter, checked before
+`resolveToken`'s database lookup, and a 60 requests/min-per-token budget,
+checked only after `resolveToken` succeeds and keyed on the resolved,
+database-verified `tokenId` rather than the caller's IP — because claude.ai
+and other hosted MCP connectors share egress IPs across all of their users,
+an IP-keyed limit there would let one heavy connector user exhaust the budget
+for every other user behind the same IP. (The admission counter is
+deliberately NOT keyed on the credential either: an unauthenticated caller
+can mint unlimited distinct credential strings for free, and an earlier
+version of this fix that keyed the pre-resolution check on the credential
+let exactly that flood exhaust the bounded map and lock out brand-new,
+legitimate credentials too — caught in review before it shipped.) All new
+limiters are honest about the same limitation as everything else in this
+section — per-process, not global (see the warning below) — and none needs a
+new env variable either.
+
+Client-identity resolution keys on
 the existing **`VERCEL`** runtime variable — platform-provided on Vercel
 (`'1'`), absent elsewhere — to decide whether to trust
 `x-vercel-forwarded-for` / `x-forwarded-for` (Vercel overwrites both at
@@ -303,6 +327,29 @@ per process / per serverless function instance and reset on restart or cold
 start. They stop retry storms and casual abuse; they are not a durable
 distributed quota and do not protect from distributed or network flooding —
 reverse-proxy / platform controls remain the deployment boundary.
+
+#### Body-size limits — also no new environment variable
+
+Every REST route's JSON body limit is now sized per route rather than one
+12 MB parser for the whole API (see `SECURITY.md`'s "Body-size limits" section
+for the full table and the reasoning). Nothing here is configurable and
+nothing needs to be: `/bugs` (12 MB, the screenshot), `/dev/scan-queue` and
+`/dev/scan-flags` (4 MB, labeler/harness photos, owner-only in production),
+`/decke` (1 MB, one transcript-history turn), `/lists` (1 MB, a bulk item
+add), `/decks` (256 KB, the strategy-guide and battle-log text), and 100 KB
+for everything else. `/register` and `/token` keep their existing 16 KB
+parsers in `oauthServer.ts`, now actually effective. Deck-E's live chat
+(`api/chat.mjs`) is a separate Vercel function with its own body handling
+and is untouched by any of this.
+
+Every one of the numbers above is sized in **bytes on the wire**, not
+characters: a character-count cap elsewhere in this codebase (e.g.
+`STRATEGY_MAX`, `RAW_LOG_MAX`) counts JS string length (UTF-16 code units),
+and a non-Latin character (CJK, Hangul, Cyrillic) costs up to 3 UTF-8 bytes
+per code unit. `/decke` and `/decks` are both sized at that ×3 worst case —
+an earlier pass that assumed 1 byte per character sized `/decke` with almost
+no headroom and missed `/decks` entirely, which would have 413'd a
+legitimate non-English strategy guide or battle log.
 
 #### `pgvector` is a prerequisite of migration 051
 

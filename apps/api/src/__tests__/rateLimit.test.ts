@@ -1,9 +1,9 @@
-import { describe, it, before, beforeEach, afterEach } from 'node:test';
+import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { createHmac, randomUUID } from 'node:crypto';
-import { RateLimitStore, preAuthRateLimit, perUserRateLimit, adminRateLimit, creditWalletRateLimit, preAuthFloodGuard, BoundedExpressStore } from '../rateLimit.js';
+import { RateLimitStore, preAuthRateLimit, perUserRateLimit, adminRateLimit, creditWalletRateLimit, preAuthFloodGuard, BoundedExpressStore, bugsRateLimit, oauthPublicRateLimit } from '../rateLimit.js';
 import type { Request, Response, RequestHandler } from 'express';
 
 // ── Store unit tests ──────────────────────────────────────────────────────
@@ -797,5 +797,188 @@ describe('production ingress and session limits over real HTTP', () => {
       "'/me/features',meFeatureRouter",
       "'/me/decke-sharing',selfSharingRouter",
     ]) assert.ok(database < once(args), 'personal routes mount after the RLS boundary');
+  });
+
+  it('SEC-08/SEC-11: body-size and bugs limiters mount most-specific-first, before RLS, and the old blanket parser is gone', () => {
+    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    const mounts = Array.from(source.matchAll(/\bapi\s*\.\s*use\s*\(([^;]*?)\)\s*;/g),
+      match => ({ args: match[1]!.replace(/\s+/g, '').replace(/"/g, "'"), position: match.index }));
+    const once = (args: string) => {
+      const matches = mounts.filter(mount => mount.args === args);
+      assert.equal(matches.length, 1, 'expected exactly one api.use registration: ' + args);
+      return matches[0]!.position;
+    };
+    const ingress = once('preAuthFloodGuard');
+    const database = source.indexOf('pool.connect()');
+    assert.ok(database >= 0, 'RLS connection acquisition exists');
+
+    // SEC-11: keyed on the account, mounted before RLS.
+    const bugsLimiter = once("'/bugs',bugsRateLimit");
+    assert.ok(ingress < bugsLimiter && bugsLimiter < database, 'bugsRateLimit sits after ingress and before RLS');
+
+    // SEC-08: each named exception, in most-specific-first order, then the
+    // blanket default last — reversing this order would let the default cap
+    // one of the named routes to less than it needs (see the block's own
+    // comment for why order is load-bearing here).
+    const bodyLimitOrder = [
+      "'/bugs',express.json({limit:'12mb'})",
+      "'/dev/scan-queue',express.json({limit:'4mb'})",
+      "'/dev/scan-flags',express.json({limit:'4mb'})",
+      "'/decke',express.json({limit:'1mb'})",
+      "'/lists',express.json({limit:'1mb'})",
+      "'/decks',express.json({limit:'256kb'})",
+      "express.json({limit:'100kb'})",
+    ];
+    const positions = bodyLimitOrder.map(once);
+    for (let i = 1; i < positions.length; i++) {
+      assert.ok(positions[i - 1]! < positions[i]!, `body-size mounts out of order at "${bodyLimitOrder[i]}"`);
+    }
+    assert.ok(bugsLimiter < positions[0]!, 'bugsRateLimit rejects before the body is even parsed');
+    assert.ok(ingress < positions[0]!, 'body-size limits sit after the pre-auth flood guard');
+    assert.ok(positions[positions.length - 1]! < database, 'the blanket default still precedes RLS');
+
+    // Regression guard: the blanket 12mb parser this PR removed must not
+    // silently come back and shadow every per-route limit mounted after it.
+    assert.ok(
+      !/app\s*\.\s*use\s*\(\s*express\.json\s*\(\s*\{\s*limit\s*:\s*['"]12mb['"]/.test(source),
+      'no blanket express.json() parser should be mounted directly on `app`',
+    );
+  });
+
+  it('SEC-09: the public OAuth routes each carry oauthPublicRateLimit as their first middleware', () => {
+    const source = readFileSync(new URL('../oauthServer.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+    for (const pattern of [
+      /app\.get\(\s*'\/\.well-known\/oauth-authorization-server'\s*,\s*oauthPublicRateLimit\s*,/,
+      /app\.get\(\s*'\/\.well-known\/oauth-protected-resource'\s*,\s*oauthPublicRateLimit\s*,/,
+      /app\.post\(\s*'\/register'\s*,\s*oauthPublicRateLimit\s*,/,
+      /app\.post\(\s*\n?\s*'\/token'\s*,\s*\n?\s*oauthPublicRateLimit\s*,/,
+    ]) {
+      assert.ok(pattern.test(source), `expected oauthPublicRateLimit as the first middleware: ${pattern}`);
+    }
+  });
+});
+
+// ── SEC-11: bug reports rate-limited per account, not per source IP ─────────
+
+describe('bugsRateLimit (SEC-11)', () => {
+  it('allows 10 requests per hour per account, then blocks with Retry-After', async () => {
+    const express = (await import('express')).default;
+    const app = express();
+    const userId = randomUUID();
+    app.use((req, _res, next) => { req.user = { id: userId }; next(); });
+    let handled = 0;
+    app.post('/bugs', bugsRateLimit, (_req, res) => { handled++; res.status(201).json({ ok: true }); });
+    const server = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const origin = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+    try {
+      for (let i = 0; i < 10; i++) {
+        assert.equal((await fetch(origin + '/bugs', { method: 'POST' })).status, 201, `request ${i + 1} should pass`);
+      }
+      const blocked = await fetch(origin + '/bugs', { method: 'POST' });
+      assert.equal(blocked.status, 429);
+      assert.equal((await blocked.json()).error.code, 'rate_limited');
+      assert.ok(Number(blocked.headers.get('retry-after')) > 0);
+      assert.equal(handled, 10, 'the 11th request never reached the route handler');
+    } finally {
+      server.closeAllConnections?.();
+      server.close();
+    }
+  });
+
+  it('gives each account its own budget, even behind the same source IP', async () => {
+    // This is the exact bug: routes/bugs.ts used to key on req.ip, so behind a
+    // reverse proxy (one shared peer address) or a validated-but-shared
+    // platform IP, one account exhausting its 10 reports shut reporting off
+    // for every other account too. Two different accounts through the SAME
+    // connection must not interact at all.
+    const express = (await import('express')).default;
+    const app = express();
+    app.use((req, _res, next) => {
+      const asUser = req.headers['x-fixture-user'];
+      req.user = { id: typeof asUser === 'string' ? asUser : randomUUID() };
+      next();
+    });
+    app.post('/bugs', bugsRateLimit, (_req, res) => { res.status(201).json({ ok: true }); });
+    const server = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const origin = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+    const userA = randomUUID(), userB = randomUUID();
+    const reportAs = (user: string) => fetch(origin + '/bugs', { method: 'POST', headers: { 'x-fixture-user': user } });
+    try {
+      for (let i = 0; i < 10; i++) assert.equal((await reportAs(userA)).status, 201);
+      assert.equal((await reportAs(userA)).status, 429, 'account A is exhausted');
+      assert.equal((await reportAs(userB)).status, 201, 'account B, same connection, has its own budget');
+    } finally {
+      server.closeAllConnections?.();
+      server.close();
+    }
+  });
+});
+
+// ── SEC-09: the public OAuth "Connect" routes get their own limiter ─────────
+
+describe('oauthPublicRateLimit (SEC-09)', () => {
+  let seq = 0;
+  const freshIp = () => '203.0.113.' + (++seq % 250 || 1);
+  const savedVercel = process.env.VERCEL;
+
+  before(() => { process.env.VERCEL = '1'; });
+  after(() => {
+    if (savedVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = savedVercel;
+  });
+
+  it('allows 30 requests per minute per IP, then blocks with Retry-After', async () => {
+    const express = (await import('express')).default;
+    const app = express();
+    let handled = 0;
+    app.post('/register', oauthPublicRateLimit, (_req, res) => { handled++; res.status(201).json({ ok: true }); });
+    const server = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const origin = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+    const ip = freshIp();
+    const register = () => fetch(origin + '/register', { method: 'POST', headers: { 'x-vercel-forwarded-for': ip } });
+    try {
+      for (let i = 0; i < 30; i++) assert.equal((await register()).status, 201, `request ${i + 1} should pass`);
+      const blocked = await register();
+      assert.equal(blocked.status, 429);
+      assert.ok(Number(blocked.headers.get('retry-after')) > 0);
+      assert.equal(handled, 30);
+    } finally {
+      server.closeAllConnections?.();
+      server.close();
+    }
+  });
+
+  it('does not share a bucket with preAuthFloodGuard, despite both keying on the same resolved IP', async () => {
+    // The two limiters previously risked sharing the 'preauth' key prefix if
+    // wired carelessly, which would mean a 600/min budget and a 30/min budget
+    // fighting over one counter. They must be fully independent.
+    const express = (await import('express')).default;
+    const app = express();
+    app.get('/public', preAuthFloodGuard, (_req, res) => res.json({ ok: true }));
+    app.post('/register', oauthPublicRateLimit, (_req, res) => res.status(201).json({ ok: true }));
+    const server = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const origin = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+    const ip = freshIp();
+    const headers = { 'x-vercel-forwarded-for': ip };
+    try {
+      // Exhaust the 30/min oauth-public budget for this IP.
+      for (let i = 0; i < 30; i++) assert.equal((await fetch(origin + '/register', { method: 'POST', headers })).status, 201);
+      assert.equal((await fetch(origin + '/register', { method: 'POST', headers })).status, 429, 'oauth-public budget is spent');
+      // The much larger preauth budget, same IP, must be completely unaffected.
+      assert.equal((await fetch(origin + '/public', { headers })).status, 200, 'preAuthFloodGuard has its own untouched budget');
+    } finally {
+      server.closeAllConnections?.();
+      server.close();
+    }
   });
 });

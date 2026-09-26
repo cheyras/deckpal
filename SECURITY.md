@@ -343,19 +343,85 @@ these at ingress, so a client cannot spoof them. Outside Vercel, forwarding
 headers are **ignored** and the raw socket peer is used. Express `trust proxy`
 stays at its default **false** (not loopback), and no new production env
 variable is required — the existing `VERCEL` is platform-provided, not user
-input. The Stripe raw-body webhook and the bare-origin OAuth discovery /
-`/register` / `/token` handlers are mounted separately on `app` ahead of that
-router and are outside this guard; the MCP transport at `/mcp` is a separate
-function (`api/mcp.mjs`).
+input. The Stripe raw-body webhook is mounted separately on `app` ahead of
+that router and is outside this guard, as is the bare-origin OAuth discovery /
+`/register` / `/token` handlers — **which now carry their own limiter, below**
+— and the MCP transport at `/mcp`, a separate function (`api/mcp.mjs`, **also
+now its own limiter, below**).
 
 **Per-user session routes.** `/tokens` (20/min), `/avatar` (10/min),
-`/oauth` (30/min), all `/admin` (120/min) and all `/me/credits` (180/min)
-are guarded after authentication/resolved self-host identity and
+`/oauth` (30/min), `/bugs` (10/hour), all `/admin` (120/min) and all
+`/me/credits` (180/min) are guarded after authentication/resolved self-host
+identity and (for `/tokens`, `/avatar`, `/oauth`, `/admin`, `/me/credits`)
 `requireSession`, before RLS acquires its request connection. Cloud
 anonymous/PAT callers are rejected before their per-user budget. Self-host uses
 its resolved local account. Authentication lookup and trusted bootstrap can
 access their own pool earlier, so this is specifically an RLS-connection
 boundary. Active-account and action/SQL permission checks still follow RLS.
+`/bugs` does not require a browser session (a personal access token may file
+a report; self-host's resolved local identity must too), only identity — see
+"Bug/feature reports are keyed per account" below for why it moved off `req.ip`.
+
+**The public OAuth "Connect" endpoints (SEC-09).** `/register`, `/token` and
+the two `/.well-known/oauth-*` discovery documents are mounted at the bare
+origin, ahead of the base-path router above, so none of its limiters ever ran
+for them — `POST /register` in particular was an unauthenticated
+`oauth_client` INSERT with **no rate limit anywhere upstream of it**. Each of
+the four now carries its own `oauthPublicRateLimit`
+(`apps/api/src/rateLimit.ts`), **30 requests/minute per source IP**, checked
+before the host allowlist and before any body is read. It is keyed the same
+way the ingress guard is (validated platform IP on Vercel, raw socket peer on
+self-host) because none of these four requests carries a credential yet —
+there is nothing else to key on — and it uses a distinct store prefix
+(`oauth-public`) from the ingress guard's `preauth`, so the two budgets never
+fight over one shared counter for the same IP.
+
+**MCP (SEC-09).** `/mcp` (`apps/mcp/src/cloud.ts`) now carries two limiters,
+for two different threats:
+
+1. A **global pre-resolution counter**, 300 requests/minute per instance,
+   checked before `resolveToken`'s database lookup, so a flood of
+   unresolvable tokens never reaches the pool. It is deliberately ONE shared
+   counter, not one per credential: an unauthenticated caller can mint
+   unlimited distinct credential strings for free, and a per-credential check
+   at this stage — the first version of this fix — let a flood of 10,000
+   fabricated Bearer values fill the bounded map's admission capacity,
+   rejecting even a brand-new, never-before-seen credential for a full
+   sweep window afterward (reproduced and fixed before this shipped). A
+   global counter has no per-key capacity to exhaust.
+2. A **per-token budget**, 60 requests/minute, checked only after
+   `resolveToken` succeeds, keyed on the resolved `tokenId` rather than the
+   raw credential string. This is the fairness guarantee: no single
+   legitimate token can crowd out another token's share. Keying on `tokenId`
+   (a database-verified uuid) rather than the raw string is what makes a
+   bounded map safe here — an attacker cannot mint many `tokenId`s for free
+   the way it can vary a Bearer header, since each one costs a real account
+   plus `/register`'s and `/token`'s own rate limits and `MAX_ACTIVE_TOKENS`.
+
+A request with no credential at all is already the cheapest path in that
+handler (an immediate 401, no DB) and is metered by neither layer.
+
+**Why the credential, not the IP, for the per-token layer.** Every other
+limiter in this file keys on the caller's IP because that is the identity
+available before authentication. `/mcp`'s fairness layer is the one place
+that reasoning breaks: claude.ai (and every other hosted MCP connector) makes
+its calls from that provider's own shared egress IPs, common to every one of
+that provider's users. An IP-keyed limit there would let one heavy user on a
+shared connector exhaust the bucket for every other user behind the same
+egress IP — silencing a stranger's MCP access because of a heavy neighbor,
+the exact class of bug SEC-11 fixes for `/bugs` below, one hop upstream.
+
+**Bug/feature reports are keyed per account, not per source IP (SEC-11).**
+`routes/bugs.ts` used to run its own hand-rolled 10/hour bucket keyed on
+`req.ip`, bypassing the shared `resolveClientKey` helper every other limiter
+in this file uses. Behind a reverse proxy (self-host, `trust proxy` false)
+that is always the same loopback peer — one shared bucket for the whole
+deployment — and on Vercel it read the raw, unvalidated `req.ip` rather than
+the platform-checked forwarding header. Either way, one signed-in user filing
+(or scripting) 10 reports silenced the reporter for every other user sharing
+that bucket. The route already requires identity by the time it runs, so it
+is keyed on `req.user.id` now (`bugsRateLimit`, same shape as `/tokens` and
+`/avatar`), giving each account its own 10/hour budget regardless of IP.
 
 Ingress, admin and wallet use genuine `express-rate-limit` 8.7.0 middleware
 with `BoundedExpressStore` over the existing store. All adapters share its
@@ -379,10 +445,70 @@ instance keeps its own budget, so a caller spread across instances gets a
 multiple of the limit. The budgets are speed bumps, not boundaries.
 
 **MCP scope.** The MCP transport at `/mcp` (separate `api/mcp.mjs` function)
-is **not** automatically covered by the 600/min guard. The MCP token/OAuth
-**management** endpoints (`/tokens`, `/oauth`, `/avatar`) are REST routes on
-the base-path router and use these REST controls. Existing MCP-specific
-security details are unchanged.
+is **not** covered by the 600/min guard — it is a different function entirely
+— but it is no longer uncovered: it carries its own two-layer limiter (see
+above). The MCP token/OAuth **management** endpoints (`/tokens`,
+`/oauth`, `/avatar`) are REST routes on the base-path router and use these
+REST controls. Existing MCP-specific security details are unchanged.
+
+### Body-size limits (REST API), per route (SEC-08)
+
+Until this fix, ONE `express.json({limit:'12mb'})` sat on `app`, ahead of
+*every* route — including `preAuthFloodGuard`, `authMiddleware` and the
+bare-origin OAuth routes — sized only for the bug reporter's screenshot. Every
+other route paid the same 12 MB ceiling before anything unauthenticated was
+even throttled, and a handful of concurrent oversized bodies could push the
+serverless function toward its memory limit: an internal audit measured
+roughly **22×** JSON-to-heap amplification (4.5 MB of JSON body retained
+~100 MB of heap; 12 MB retained ~268 MB). It also
+made `/register`'s and `/token`'s own 16 KB parsers dead code:
+`express.json()` no-ops on a request whose body a *prior* matching parser
+already consumed (checked via body-parser's own `req._body` flag), so
+whichever parser for a given path ran **first** decided its limit — and the
+blanket 12 MB parser on `app` always ran first for every path.
+
+**The fix is per-route parsers, most-specific first**, mounted on the ordinary
+base-path router (`createApp` in `apps/api/src/index.ts`) after
+`preAuthFloodGuard` and the per-user rate limits, before the RLS connection is
+acquired — so a flood is throttled, and an oversized body rejected, before
+either a byte is read or a pooled connection is claimed. Every character-count
+cap this repo already had (`MAX_TEXT`, `STRATEGY_MAX`, `RAW_LOG_MAX`, …) is a
+JS string length — UTF-16 **code units**, not the UTF-8 **bytes** a limit
+here actually measures. The ratio is 1 for ASCII, but a single BMP character
+outside Latin-1 (CJK, Hangul, Cyrillic — most of the world's scripts) is 1
+code unit and 3 bytes: a legitimate strategy guide or battle log written in
+Japanese can be **3×** the size an ASCII-only estimate predicts. An earlier
+version of the table below sized `/decke` and omitted `/decks` entirely on
+exactly that mistaken assumption; both numbers below already account for it.
+
+| Route | Limit | Why |
+|---|---|---|
+| `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields (×3 for multibyte text is still negligible against the image). |
+| `/dev/scan-queue` | 4 MB | The labeler queue photo. `MAX_PHOTO_BYTES` is 3 MB decoded → ~4 MB on the wire. Base64 is pure ASCII, so the multibyte ratio above doesn't apply. Owner-only in production. |
+| `/dev/scan-flags` | 4 MB | The scan-harness flag capture: decoded frame + sidecar JSON, ~3 MB combined → ~4 MB on the wire. Same as above. Owner-only in production. |
+| `/decke` | 1 MB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars. At the ×3 worst case that's ~502 KB before JSON structure; 1 MB leaves real headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
+| `/lists` | 1 MB | `POST /:id/items/bulk` allows 500 items, each with its own 500-char note — at ×3 that's ~750 KB before structure. 1 MB leaves headroom without reopening the ceiling for every other `/lists` route. |
+| `/decks` | 256 KB | `PUT /:id/strategy` (`STRATEGY_MAX` 40,000 chars) and `POST /:id/logs` / `/log-preview` (`RAW_LOG_MAX` 50,000 chars) are the two biggest single-field caps outside the routes above — at ×3 the larger is ~150 KB, already over the 100 KB default. |
+| everything else | **100 KB** | Every other route posts small JSON (ids, filters, short text) with nothing near the caps above, even at ×3. |
+
+`/register` and `/token` keep their own existing 16 KB parsers
+(`apps/api/src/oauthServer.ts`) — unchanged code, now actually effective, for
+the reason above: nothing on `app` reads their body first any more.
+
+Oversized bodies are surfaced as a proper `413 payload_too_large` JSON error
+(`apps/api/src/http.ts`'s `errorMiddleware`), not the generic `500` a bare
+body-parser error used to produce — the same translation `scan/router.ts`
+already did by hand for its own raw-body parser, now done once for every
+`express.json()`-guarded route.
+
+**Verified:** `apps/api/src/__tests__/bodyLimits.test.ts` sends real HTTP
+requests at each boundary (just under / just over each limit) and asserts the
+413/200 split, including a real multibyte case (a full-length Japanese
+strategy guide and battle log against `/decks`, and a full-length Japanese
+transcript turn against `/decke`) and a regression control that reproduces
+the shadowing bug on purpose by reversing the mount order — proving the
+ordering above is load-bearing, not cosmetic. `apps/api/src/__tests__/rateLimit.test.ts`
+separately asserts the exact mount order in `index.ts`'s own source.
 
 ### Self-host images rate limiting
 

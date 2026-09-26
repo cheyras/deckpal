@@ -132,6 +132,13 @@ jobs:
       - name: MCP wire result (mcp adapter)
         run: pnpm --filter deckpal-mcp test:adapter
 
+      # SEC-09: `/mcp` used to sit outside every rate limiter in the codebase.
+      # `mcpRateOk`'s pure unit tests (no DB, no pool) pin the one property
+      # that matters — per-credential, not per-IP, so one heavy user on a
+      # shared connector's egress IP can never exhaust another user's budget.
+      - name: MCP per-credential rate limit (SEC-09)
+        run: pnpm --filter deckpal-mcp test:cloud
+
       # Every serverless function must LOAD. The unit tests exercise the pieces
       # a function imports and never the function itself, so a package that is
       # imported but not declared resolves locally by hoisting and 500s in

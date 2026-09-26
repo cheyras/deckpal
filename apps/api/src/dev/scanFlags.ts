@@ -34,14 +34,14 @@ const COMMENT_RE = /^(\d+)\.comment\.json$/;
 const ID_RE = /^\d+$/;
 const PREFIX = 'dev-flags/';
 
-// ~3MB for the decoded frame + its sidecar JSON combined. The app-wide
-// express.json({limit:'12mb'}) in index.ts runs BEFORE this router (it is
-// mounted on `app`, ahead of every route) and fully drains the request
-// stream, so a second express.json() here with a smaller limit would find
-// body-parser's `read()` sees the request already finished (on-finished's
-// `isFinished(req)`, i.e. `req.complete`) and call next() without re-reading
-// or re-checking any limit — not a smaller cap, just a no-op. The cap is
-// therefore enforced by hand, after decoding, below.
+// ~3MB for the decoded frame + its sidecar JSON combined. index.ts mounts a
+// 4mb express.json() scoped to this router's own path (SEC-08), ahead of the
+// blanket 100kb default the rest of the API gets, so the parser itself now
+// rejects an oversize body before this handler ever sees it. The check below
+// is kept anyway, same as avatar.ts's "belt to the parser's braces": the
+// number is the contract, decoded size is what actually matters (base64
+// overhead means the wire size the parser sees is not the same number), and
+// stating it twice is cheap.
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
 // A comment is a short owner annotation, not a report; 4KB is generous for that.

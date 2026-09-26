@@ -20494,3 +20494,133 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 `__tests__/DataTable.test.ts`) were updated to import from the new path.
 
 **Evidence and status:** The observed live result was 9/10 signed approvals, with one residual prose-confirmation miss after `get_card`; the finite sample does not prove causation or universal liveness. This is a metadata-only correction with zero writes. Existing preview descriptor, schemas, normalization, preflight, approval eligibility/HMAC/replay, system prompt, tool routing, API transport and MCP behavior remain unchanged. Live follow-up remains pending.
+
+## 2026-09-26 — Per-route body limits and closing the three unguarded edges (SEC-08, SEC-09, SEC-11)
+
+**Decided by:** Claude (Sonnet 5), on behalf of @cheyras, from an internal
+security audit's edge-hardening findings.
+
+**Decision:**
+
+1. **Body-size limits are per route, not one blanket parser.** Removed the
+   single `express.json({limit:'12mb'})` that sat on `app` ahead of every
+   route (including `preAuthFloodGuard`, `authMiddleware`, and the bare-origin
+   OAuth routes). In its place, `apps/api/src/index.ts` mounts named,
+   most-specific-first parsers inside the base-path router: `/bugs` 12mb,
+   `/dev/scan-queue` 4mb, `/dev/scan-flags` 4mb, `/decke` 1mb, `/lists` 1mb,
+   `/decks` 256kb, and a 100kb default for everything else. `/register` and
+   `/token` keep their existing 16kb parsers in `oauthServer.ts`, which are
+   now actually reachable. `apps/api/src/http.ts`'s `errorMiddleware` now
+   translates a body-parser `entity.too.large` error into a proper
+   `413 payload_too_large` JSON response instead of a generic `500`.
+2. **`/register`, `/token`, the two `.well-known` OAuth discovery routes, and
+   `/mcp` each get a rate limiter.** The first four share a new
+   `oauthPublicRateLimit` (`apps/api/src/rateLimit.ts`), 30/min per source IP,
+   checked before the host allowlist or any body parsing — they previously had
+   no limiter anywhere upstream of them, and `POST /register` is an
+   unauthenticated `oauth_client` INSERT. `/mcp` (`apps/mcp/src/cloud.ts`)
+   gets two limiters: a global, single-key 300/min-per-instance admission
+   counter checked before `resolveToken`, and a 60/min-per-token budget keyed
+   on the resolved `tokenId`, checked only after `resolveToken` succeeds (see
+   the "Astra review" note below for why it is two layers and not one).
+3. **`/bugs`' rate limit moved from `req.ip` to `req.user.id`.** A new
+   `bugsRateLimit` (10/hour, `perUserRateLimit`) replaces the route's own
+   hand-rolled per-IP bucket map in `routes/bugs.ts`.
+
+**Why:**
+
+- The blanket body parser meant every route — including unauthenticated ones
+  — paid the bug reporter's 12mb ceiling before anything throttled it, and it
+  silently shadowed `/register`'s and `/token`'s own smaller parsers:
+  `express.json()` no-ops on a request whose body a *prior* matching parser
+  already consumed, so whichever parser for a path ran first decided the
+  limit, and the blanket one on `app` always ran first. The fix depends on
+  that same mechanism running in the opposite, deliberate direction — see
+  `apps/api/src/__tests__/bodyLimits.test.ts`'s regression control, which
+  reproduces the original bug on purpose by reversing the mount order.
+- `/register`, `/token` and the well-known discovery routes are mounted at the
+  bare origin, ahead of the ordinary `/api` router that carries
+  `preAuthFloodGuard` — so none of that router's guards ever ran for them.
+  `/mcp` is a wholly separate Vercel function and was never in scope of any
+  REST limiter either.
+- `/mcp`'s per-token layer is keyed on the credential rather than the IP
+  because claude.ai (and other hosted MCP connectors) call from that
+  provider's own shared egress IPs — an IP-keyed limit there would let one
+  heavy user on a connector exhaust the budget for every other user sharing
+  the same egress IP, locking out strangers rather than the abuser.
+- `routes/bugs.ts`'s own limiter keyed on `req.ip`, which behind a reverse
+  proxy (self-host, `trust proxy` false) is always the same loopback peer —
+  effectively one shared bucket for the whole deployment — and on Vercel read
+  the raw, unvalidated `req.ip` rather than the platform-checked
+  `x-vercel-forwarded-for` every other limiter in this codebase uses. Either
+  way, one signed-in user filing 10 reports could silence the reporter for
+  every other user. The route already requires identity by the time it runs,
+  so keying on the account is both more correct and no harder.
+
+**Sizing note (deviating from the audit's illustrative numbers where the
+audit's own suggestion would have broken a real caller):** the audit's SEC-08
+write-up suggested "4mb" for `/bugs`, but `routes/bugs.ts`'s own
+`MAX_IMG_BYTES` is 8mb *decoded* — base64 costs +33%, so a real screenshot is
+~10.7mb on the wire before the JSON wrapper. 12mb (the number this repo
+already used) is correct; 4mb would have 413'd a legitimate full-size
+screenshot. Two more routes needed exceptions the audit's SEC-08 write-up
+didn't name at all: `/decke` (`routes/deckeHistory.ts`'s transcript-history
+POST) and `/lists` (`POST /:id/items/bulk`). A third, `/decks`, was missed
+entirely in the first pass and caught by the independent review below.
+
+**Independent review (Astra/codex) caught two real regressions before this
+shipped; both are fixed in the code this entry describes, not just noted
+here:**
+
+1. **[P1] The `/mcp` limiter's first version was itself a DoS.** It keyed its
+   only check on `sha256(raw credential)`, before `resolveToken` — but an
+   unauthenticated caller can mint unlimited distinct credential strings for
+   free, and the check ran against the same bounded 10,000-key map every
+   limiter in this codebase uses for safety. Review reproduced it directly:
+   10,000 fabricated Bearer values filled the map's admission capacity, and a
+   brand-new, never-before-seen, perfectly valid credential was then rejected
+   too — for a full five-minute sweep window, since expired-but-present
+   entries still counted against capacity until the next sweep. Fixed by
+   splitting into two layers (see decision 2 above): a global, single-key
+   counter before `resolveToken` (nothing for a flood to fill, since there is
+   no key), and the per-token budget moved to run only after resolution,
+   keyed on the database-verified `tokenId` rather than the raw string.
+2. **[P2] The first pass sized character caps as if 1 character = 1 byte.**
+   Every character-count cap in this codebase (`MAX_TEXT`, `STRATEGY_MAX`,
+   `RAW_LOG_MAX`, …) is a JS string length — UTF-16 code units — not the
+   UTF-8 bytes an `express.json()` limit measures. A BMP character outside
+   Latin-1 (CJK, Hangul, Cyrillic — most non-English scripts) is 1 code unit
+   but 3 bytes. Reproduced directly: 40,000 Japanese characters in a
+   `strategyMd` field, well within `decks.ts`'s own `STRATEGY_MAX`, produced
+   a 120,017-byte body — over the 100kb default that had no exception for
+   `/decks` at all in the first pass, and `/decke`'s original 512kb was only
+   ~2% headroom over its own worst case once measured correctly. Fixed by
+   adding `/decks` (256kb) and bumping `/decke` (512kb → 1mb), both computed
+   at the ×3 worst-case ratio, and by adding real multibyte HTTP tests
+   (`apps/api/src/__tests__/bodyLimits.test.ts`) rather than trusting
+   ASCII-only fixtures again.
+
+Both findings are the kind that pure character-count reasoning and ASCII-only
+test fixtures cannot catch — the first needed an adversarial "what can an
+attacker who never authenticates do" pass, the second needed an actual
+multibyte string. Recorded here because the pattern (character length vs.
+byte length; per-credential vs. global admission for unauthenticated traffic)
+will recur the next time someone sizes a limit in this codebase.
+
+**Implications:**
+
+- `SECURITY.md`'s "Rate limiting (REST API)" and new "Body-size limits (REST
+  API), per route" sections, and `DEPLOYMENT.md`'s "Rate limiting" and new
+  "Body-size limits" subsections, document the exact numbers and the ordering
+  mechanism above. Read those before changing any of these limits again — the
+  ordering (most-specific-first, default last) is load-bearing, not cosmetic.
+- No new environment variable: every number above is a hardcoded constant,
+  matching the existing style of every other limiter in `rateLimit.ts`.
+- If a future route needs a body bigger than 100kb, it needs its own scoped
+  `express.json()` mounted *before* the 100kb default in `index.ts`'s ordered
+  block — appending it after the default is the exact bug this decision
+  fixes.
+- Deck-E's live chat (`api/chat.mjs`, SEC-04 in the same audit) is a separate
+  Vercel function with its own body handling and is untouched by any of this;
+  an open PR (`fix/decke-hardening`) bounds its request body with zod
+  independently.

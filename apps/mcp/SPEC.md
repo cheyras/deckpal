@@ -151,23 +151,57 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 - The REST base is derived from the (already validated) request host — `https://<host>/api` — so
   there is no environment variable to get wrong. `DECKPAL_API_BASE` still overrides.
 
-- **REST rate-limit scope (added 2026-09-12).** The REST API's pre-auth ingress
-  guard (600 req/min per source IP per process) and per-user session limits
-  live in `apps/api/src/index.ts` (which exports `createApp`) — i.e. the
-  `deckpal-api` Express base-path API router. The MCP **transport** at
-  `https://deckpal.app/mcp` is served by the separate `api/mcp.mjs` function
-  and is **not** automatically covered by that guard; no new MCP-transport rate
-  limit is claimed here. The token/OAuth **management** endpoints
-  (`POST /tokens`, the OAuth consent decision `POST /oauth/authorize/decision`,
-  and `/avatar`) are ordinary REST routes on that base-path router, so they
-  **do** use these controls: `/tokens` 20/min, `/oauth` 30/min, `/avatar`
-  10/min per authenticated user, refused with `429` + `Retry-After` (seconds)
-  before any RLS connection is acquired. Two flows are mounted separately on
-  `app` ahead of that router and are **not** covered by the new guard: the
-  Stripe raw-body webhook (signature-verified) and the bare-origin OAuth
-  discovery / `/register` / `/token` handlers (cloud-only). The self-host
-  `/mcp` edge keeps its existing `x-brain-key` / `MCP_ALLOWED_HOSTS` controls
-  unchanged.
+- **REST rate-limit scope (added 2026-09-12; MCP and OAuth-public transports
+  covered 2026-09-26, SEC-09).** The REST API's pre-auth ingress guard (600
+  req/min per source IP per process) and per-user session limits live in
+  `apps/api/src/index.ts` (which exports `createApp`) — i.e. the
+  `deckpal-api` Express base-path API router. The token/OAuth **management**
+  endpoints (`POST /tokens`, the OAuth consent decision
+  `POST /oauth/authorize/decision`, `/avatar`, and `/bugs`) are ordinary REST
+  routes on that base-path router, so they **do** use these controls:
+  `/tokens` 20/min, `/oauth` 30/min, `/avatar` 10/min, `/bugs` 10/hour per
+  authenticated identity, refused with `429` + `Retry-After` (seconds) before
+  any RLS connection is acquired.
+
+  Three flows are mounted separately from that router and previously carried
+  **no** rate limit of their own:
+
+  - The **MCP transport** at `https://deckpal.app/mcp`, served by the
+    separate `api/mcp.mjs` → `apps/mcp/src/cloud.ts` function. It now carries
+    two limiters, `mcpPreResolveOk` and `mcpRateOk`:
+    - `mcpPreResolveOk` is a single GLOBAL counter, 300 req/min per instance,
+      checked *before* `resolveToken`'s database lookup — so a flood of
+      unresolvable tokens never reaches the pool. Deliberately keyed on
+      **nothing** (not the credential, not the IP): an unauthenticated caller
+      can mint unlimited distinct credential strings for free, and an earlier
+      version of this fix keyed the pre-resolution check on
+      `sha256(raw token)` instead — reproduced in review as an admission-map
+      flood (10,000 fabricated Bearer values filled the bounded map's
+      capacity and rejected a brand-new, never-before-seen, valid credential
+      for a full sweep window afterward). A global counter has no per-key
+      capacity for a flood to fill.
+    - `mcpRateOk` is the per-token fairness budget, 60 req/min, checked only
+      *after* `resolveToken` succeeds, keyed on the resolved, database-verified
+      `tokenId` — never the source IP: claude.ai and other hosted MCP
+      connectors call from that provider's own shared egress IPs, so an
+      IP-keyed limit would let one heavy connector user exhaust the budget
+      for every *other* user sharing the same egress IP.
+    A request with no credential at all is the cheapest path already (an
+    immediate 401, no DB) and is metered by neither layer.
+  - The bare-origin **OAuth discovery / `/register` / `/token` handlers**
+    (cloud-only, `apps/api/src/oauthServer.ts`), still mounted on `app` ahead
+    of the base-path router. Each of the four now carries `oauthPublicRateLimit`
+    (30 req/min per source IP, `apps/api/src/rateLimit.ts`), checked before the
+    host allowlist or any body parsing. `POST /register` in particular is an
+    unauthenticated `oauth_client` INSERT and had no limiter anywhere upstream
+    of it before this.
+  - The **Stripe raw-body webhook** (signature-verified) remains outside every
+    application rate limiter, unchanged — Stripe's own retry/backoff and
+    signature verification are the controls there.
+
+  The self-host `/mcp` edge keeps its existing `x-brain-key` /
+  `MCP_ALLOWED_HOSTS` controls unchanged; the new per-credential limiter above
+  applies to the cloud, multi-user `createCloudApp()` path only.
 
 ## 4. Tool conventions
 
