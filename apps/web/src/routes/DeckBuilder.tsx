@@ -952,7 +952,7 @@ export function DeckBuilder() {
       {showExport && <ExportModal deckId={id} onClose={() => setShowExport(false)} />}
       {showBuy && <BuyMissingModal deckId={id} onClose={() => setShowBuy(false)} />}
       {showDelete && deck && (
-        <ConfirmModal title="Delete deck" message={`Delete “${deck.name}”? This can't be undone.`} confirmLabel="Delete Deck"
+        <ConfirmModal title="Delete deck" message={`Delete “${deck.name}”? You can restore it from Recently deleted on Deck Builder.`} confirmLabel="Delete Deck"
           busy={deleteDeck.isPending} onClose={() => setShowDelete(false)} onConfirm={() => deleteDeck.mutate()} />
       )}
 

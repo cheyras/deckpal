@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { SetDetailResponse } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { fmtCalendarDate, fmtUsd } from '../lib/format'
 import { SetSymbolTile, StatTile } from './ui'
 import { SetLogo } from './SetLogo'
@@ -40,6 +40,27 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
   // Controlled Purchase Set modal — triggered from both desktop button and
   // mobile dropdown without duplicating modal logic (PurchaseSetMenu seam).
   const [purchaseOpen, setPurchaseOpen] = useState(false)
+
+  // Print Checklist (UXC-01, deckpal audit ux-collection): the route only
+  // accepts a Bearer header, so this has to be a fetch-then-download, not a
+  // plain link — see `api.downloadPdf`'s comment for the full reasoning,
+  // including why it isn't `window.open` either. `checklistError` is scoped
+  // to this one control rather than a page-level toast, because the failure
+  // (a stale session, a flaky connection) is local to the button that was
+  // pressed.
+  const [checklistBusy, setChecklistBusy] = useState(false)
+  const [checklistError, setChecklistError] = useState<string | null>(null)
+  const printChecklist = async () => {
+    setChecklistBusy(true)
+    setChecklistError(null)
+    try {
+      await api.downloadPdf(api.setChecklistPdfPath(set.setId), `${set.setId}-checklist.pdf`)
+    } catch (err) {
+      setChecklistError(err instanceof ApiError ? err.message : 'Could not prepare the checklist.')
+    } finally {
+      setChecklistBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!actionsOpen) return
@@ -102,18 +123,19 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
   )
 
   const checklistLink = (menuItem?: boolean) => (
-    <a
-      href={api.setChecklistPdfUrl(set.setId)}
-      target="_blank"
-      rel="noreferrer"
+    <button
+      type="button"
+      onClick={printChecklist}
+      disabled={checklistBusy}
       className={
         menuItem
-          ? 'flex h-[40px] w-full items-center gap-[8px] rounded-lg px-[12px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover'
-          : 'flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover'
+          ? 'flex h-[40px] w-full items-center gap-[8px] rounded-lg px-[12px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover disabled:opacity-60'
+          : 'flex h-[40px] items-center gap-[8px] rounded-lg bg-surface-tertiary px-[14px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover disabled:opacity-60'
       }
     >
-      <Icon name="printer" size={16} className="text-action-brand" /> Print Checklist
-    </a>
+      <Icon name="printer" size={16} className="text-action-brand" />
+      {checklistBusy ? 'Preparing PDF…' : 'Print Checklist'}
+    </button>
   )
 
   // No art/gradient wash behind this block. It used to carry one (UI-SPEC §3.7);
@@ -213,6 +235,12 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
             )}
           </div>
         </div>
+
+        {checklistError && (
+          <div role="alert" className="rounded-lg bg-halo-error px-[14px] py-[10px] text-[14px] text-error">
+            {checklistError}
+          </div>
+        )}
 
         {/* Row 2 — the collection/level progress gets the full width to itself. */}
         <div className="w-full">
