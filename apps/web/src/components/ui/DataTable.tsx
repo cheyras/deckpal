@@ -2,9 +2,9 @@ import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { Button } from './Button'
 import { Icon } from '../Icon'
 import { Field } from './Field'
-import { DATA_TABLE_PAGE_SIZES, getDataTablePage, nextDataTableSort, type DataTableSort } from './dataTable'
+import { DATA_TABLE_PAGE_SIZES, getDataTablePage, nextDataTableSort, type DataTableSort } from './dataTableHelpers'
 
-export type { DataTableSort } from './dataTable'
+export type { DataTableSort } from './dataTableHelpers'
 
 export interface DataTableColumn<T> {
   id: string
