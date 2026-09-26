@@ -282,7 +282,7 @@ class WebInspectorClient:
         # bail out having seen nothing at all instead of waiting for it.
         last_change: Optional[float] = None
         while time.monotonic() < deadline:
-            changed = self._pump_once(lambda: True)
+            changed = self._pump_once()
             if changed:
                 frames_seen += 1
             for app_id in self.apps:
@@ -446,9 +446,9 @@ class WebInspectorClient:
                 return True
             if time.monotonic() >= deadline:
                 return predicate()
-            self._pump_once(lambda: True)
+            self._pump_once()
 
-    def _pump_once(self, _keep: Callable[[], bool]) -> bool:
+    def _pump_once(self) -> bool:
         """Read and dispatch exactly one available frame, if any arrived
         within one poll interval. Returns whether anything was processed."""
         message = self._transport.recv_one()
