@@ -92,31 +92,37 @@ jobs:
       - name: Install (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      # Only meaningful for a full sweep (no `set` input): restores the most
-      # recent full-catalog residue as this run's comparison baseline, and
-      # always saves this run's residue for the next one. A scoped `--set` run
-      # would make a partial residue look like "everything else resolved," so
-      # it neither restores nor saves this cache (guarded below).
       # `pnpm --filter <pkg> run <script>` executes with that package's directory
       # as CWD, not the repo root — every path below is therefore absolute
       # ($GITHUB_WORKSPACE-rooted) so the cache, summary and upload steps agree
-      # with warm:cloud on where the residue actually landed.
+      # with warm:cloud on where the residue actually landed. `base_slug` is
+      # folded into the cache key below so a manual sweep of a DIFFERENT
+      # deployment (e.g. a preview URL) can never restore or overwrite
+      # production's baseline — comparing one deployment's residue against
+      # another's would report false regressions, or hide real ones.
       - name: Residue paths
         id: paths
         run: |
           mkdir -p "$GITHUB_WORKSPACE/.residue"
           echo "current=$GITHUB_WORKSPACE/.residue/current.json" >> "$GITHUB_OUTPUT"
           echo "baseline=$GITHUB_WORKSPACE/.residue/baseline.json" >> "$GITHUB_OUTPUT"
+          BASE="${{ inputs.base || 'https://deckpal.app' }}"
+          echo "base_slug=$(echo "$BASE" | sed -E 's~^https?://~~; s~[^A-Za-z0-9.-]~-~g')" >> "$GITHUB_OUTPUT"
 
+      # Only meaningful for a full sweep (no `set` input): restores the most
+      # recent full-catalog residue as this run's comparison baseline, and
+      # always saves this run's residue for the next one. A scoped `--set` run
+      # would make a partial residue look like "everything else resolved," so
+      # it neither restores nor saves this cache (guarded below).
       - name: Restore previous residue (regression baseline)
         if: ${{ !inputs.set }}
         id: residue-cache
         uses: actions/cache@v4
         with:
           path: ${{ steps.paths.outputs.baseline }}
-          key: image-warm-residue-${{ github.run_id }}
+          key: image-warm-residue-${{ steps.paths.outputs.base_slug }}-${{ github.run_id }}
           restore-keys: |
-            image-warm-residue-
+            image-warm-residue-${{ steps.paths.outputs.base_slug }}-
 
       - name: Warm the cloud image tier
         run: |
