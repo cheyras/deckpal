@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { contextFor } from './support.mjs'
 
+// Mirrors `RETRY_WHILE_OFFLINE_MS` in apps/web/src/lib/useConnectivity.ts.
+// Not imported directly: that module transitively pulls in `lib/supabase.ts`,
+// which reads `import.meta.env.VITE_SUPABASE_URL` — a Vite-injected global
+// that doesn't exist when this file runs under plain `node --import tsx`,
+// outside a Vite build.
+const RETRY_WHILE_OFFLINE_MS = 5000
+
 /**
  * Regression coverage for the offline banner fix (`fix/offline-banner`):
  *
@@ -13,6 +20,13 @@ import { contextFor } from './support.mjs'
  * 3. **Layering.** An open Sheet's footer (Bug Report / Add Cards' shape) is
  *    never covered by the banner while genuinely offline — the `--z-toast`
  *    fix in `theme.css`.
+ * 4. **Recovery without an event.** A transient probe failure with
+ *    `navigator.onLine` staying `true` the whole time fires none of
+ *    `online`/`offline`/`focus` on a tab that never loses link-layer
+ *    connectivity — `useConnectivity`'s bounded self-retry
+ *    (`RETRY_WHILE_OFFLINE_MS`) is the only thing that can clear it (Astra
+ *    review finding, 2026-09-26: without this the banner stuck "Offline."
+ *    forever after one bad request on an otherwise-fine connection).
  *
  * Runs against the SAME built fixture + server `chat.mjs` uses (`?offline`
  * mounts `OfflineHarness` — the real `PwaUi` + a real `Sheet` — instead of
@@ -20,14 +34,14 @@ import { contextFor } from './support.mjs'
  * fixture's own `/deckpal/api/me`, not a description of the behavior.
  */
 const banner = (page) => page.getByRole('status').filter({ hasText: 'Offline.' })
-const waitSettled = (page, wantVisible) =>
+const waitSettled = (page, wantVisible, timeout = 5000) =>
   page.waitForFunction(
     (want) => {
       const el = [...document.querySelectorAll('[role="status"]')].find((n) => n.textContent?.includes('Offline.'))
       return want ? !!el : !el
     },
     wantVisible,
-    { timeout: 5000 },
+    { timeout },
   )
 
 export async function checkOffline(browser, server, out) {
@@ -104,6 +118,25 @@ export async function checkOffline(browser, server, out) {
       await submit.click()
       assert.equal(await page.evaluate(() => window.offlineFixture.submitted), 1, 'the click actually reached Submit')
       results.push({ case: 'sheet-footer-not-covered', width: 390 })
+    } finally { await context.close() }
+  }
+
+  // ── 4. A transient probe failure recovers on its own, no window event ────
+  {
+    const { context, page } = await contextFor(browser, server, 390)
+    try {
+      let calls = 0
+      // Page-level route takes precedence over the harness's own catch-all
+      // (same trick chat.mjs's meter case uses), so this needs no fixture
+      // server mutation policy and server.unexpected stays empty. Only the
+      // FIRST reachability probe fails; navigator.onLine never changes and
+      // nothing dispatches 'online'/'offline'/'focus' anywhere in this case.
+      await page.route('**/deckpal/api/me', (route) => (++calls === 1 ? route.abort('failed') : route.continue()))
+      await go(page)
+      await waitSettled(page, true) // the one failed probe shows the banner
+      await waitSettled(page, false, RETRY_WHILE_OFFLINE_MS + 4000) // the bounded self-retry clears it
+      assert.ok(calls >= 2, 'expected at least one retry probe after the initial failure')
+      results.push({ case: 'recovers-without-window-event', calls })
     } finally { await context.close() }
   }
 
