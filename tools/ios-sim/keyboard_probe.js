@@ -34,7 +34,11 @@
 
   var vv = window.visualViewport;
   var doc = document.documentElement;
-  var active = document.activeElement;
+  // No focused field falls back to document.body, not null -- excluded here (not just in the
+  // output below) so activeRect is never the body's own rect. Left in, a tall page with nothing
+  // focused reported focusedElementCoveredByKeyboard: true (the body "covered" by the keyboard)
+  // even though activeElement correctly reported null right next to it.
+  var active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
 
   var visualViewport = vv ? {
     width: vv.width, height: vv.height,
@@ -57,7 +61,7 @@
   var documentPannable = doc.scrollHeight > window.innerHeight + 1;
 
   return {
-    activeElement: active && active !== document.body ? {
+    activeElement: active ? {
       tag: active.tagName,
       id: active.id || null,
       name: active.getAttribute('name') || null,
