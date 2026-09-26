@@ -1345,9 +1345,10 @@ pnpm --filter deckpal-images manifest:check --object-store
 ### 7. AI issue triage (optional)
 
 **`.github/workflows/issue-triage.yml` — runs on every issue opened via the
-in-app reporter.**  A cheap AI model (Claude Haiku) reviews the report and posts
-a draft analysis as a comment — noting missing details for bugs, and ranking
-against current priorities from the wiki.  The comment is clearly labeled as
+in-app reporter.**  A cheap Haiku-class model (`anthropic/claude-haiku-4.5`,
+called through the Vercel AI Gateway) reviews the report and posts a draft
+analysis as a comment — noting missing details for bugs, and ranking against
+current priorities from the wiki.  The comment is clearly labeled as
 AI-generated and non-authoritative; the workflow never modifies labels or issue
 state.
 
@@ -1355,10 +1356,10 @@ Add one repository secret:
 
 | Secret | Value | Required |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | An Anthropic API key (any tier — Haiku is very cheap) | yes |
+| `AI_GATEWAY_API_KEY` | A Vercel AI Gateway API key — Vercel dashboard, the deck-pal team → AI Gateway → API Keys. Mint a **dedicated** key for this workflow rather than reusing an existing one: this is a GitHub Actions repository secret (a separate credential store from any Vercel project environment variable of the same name), and a dedicated key keeps triage's tiny, infrequent spend legible and independently revocable — the same reasoning `DECKE_VERCEL_AI_GATEWAY_KEY` above is deliberately split from the marketing generator's key. | yes |
 
 ```bash
-gh secret set ANTHROPIC_API_KEY --repo cheyras/deckpal
+gh secret set AI_GATEWAY_API_KEY --repo cheyras/deckpal
 # paste the key when prompted
 ```
 
