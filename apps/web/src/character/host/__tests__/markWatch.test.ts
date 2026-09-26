@@ -193,3 +193,26 @@ test('the quiet window outlasts the settle it follows', () => {
   // like a rested one and the gate would never close.
   assert.ok(MARK_QUIET_MS > MARK_SETTLE_MS, 'the quiet window is inside the debounce')
 })
+
+// ── UXD-02: THE WATCH READS THE MARK HE IS FLOWN TO ─────────────────────────
+//
+// On a phone he parks on the PARK BOX, whose floor rises over an approval card
+// while the composer below it does not move a pixel. The watch read only the
+// composer, so the card never re-parked him and he stood across "Leave it" for
+// as long as it was up (measured: box 465-605, card from 613, him 600-738).
+// `DeckeHost.tsx` cannot be imported here (`import.meta.env`), so this pins the
+// wiring at the source: the watch must query the same element `park()` aims at.
+import { readFileSync } from 'node:fs'
+test('the mark watch reads the park box on a phone and the composer on desktop', () => {
+  const host = readFileSync(new URL('../DeckeHost.tsx', import.meta.url), 'utf8')
+  const watch = host.slice(host.indexOf('const read = (): MarkBox | null =>'))
+  assert.ok(watch.length > 0, 'the mark watch is gone from DeckeHost.tsx')
+  assert.match(
+    watch.slice(0, 300),
+    /document\.querySelector\(`\[\$\{wide \? COMPOSER_LANDMARK : PARK_LANDMARK\}\]`\)/,
+    'the watch no longer reads the park box on a phone — an approval card will not re-park him',
+  )
+  // And `park()` on a phone still aims at that same box, or the pin above is
+  // watching something he is not flown to.
+  assert.match(host, /d\.flyTo\(\s*\/\/[^]*?\{ selector: `\[\$\{PARK_LANDMARK\}\]` \}/)
+})

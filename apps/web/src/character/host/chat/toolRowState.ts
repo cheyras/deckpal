@@ -73,6 +73,11 @@ export type ToolRowData = {
    *     and this makes it a property.
    */
   recorded?: boolean
+  /**
+   * The credit meter refused this call, and which limit said no. Only ever set
+   * from the server's own marker (`useDeckeChat`'s `onMeterRefused`).
+   */
+  meter?: 'cap' | 'hold' | 'credits'
 }
 
 /**
@@ -175,6 +180,13 @@ export type ToolRowAppearance = {
   busy: boolean
   /** Whether to offer a retry control. Failures only. */
   canRetry: boolean
+  /**
+   * The way out of a METER refusal, which is never a retry: "Try again" resent
+   * the whole question, cost another turn, and met the same refusal (UXD-08).
+   * Out of credits is a top-up; a held wallet is the wallet; a spent daily cap
+   * has nothing to press and gets nothing.
+   */
+  creditAction?: 'top-up' | 'wallet'
   /** The real text the row reveals: a progress note, or a result summary. */
   detail?: string
   /**
@@ -317,7 +329,10 @@ export function toolRowAppearance(data: ToolRowData): ToolRowAppearance {
     defaultExpanded: failed && hasDetail,
     busy: running,
     // A RECORD HAS NOTHING TO RETRY. The turn is over and the call site is gone.
-    canRetry: failed && !data.recorded,
+    canRetry: failed && !data.recorded && !data.meter,
+    ...(failed && !data.recorded && (data.meter === 'credits' || data.meter === 'hold')
+      ? { creditAction: data.meter === 'hold' ? ('wallet' as const) : ('top-up' as const) }
+      : {}),
     detail,
     hint: failed ? undefined : hintFrom(detail),
     announce: announceFor(data, label, detail),

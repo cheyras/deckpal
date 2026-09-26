@@ -350,3 +350,30 @@ test('a record reads its stored summary even for a phase that was mid-flight', (
   assert.equal(a.detail, 'Read 3 of 11 pages')
   assert.equal(a.expandable, true)
 })
+
+// ── UXD-08: A METER REFUSAL IS NOT RETRIED ───────────────────────────────────
+//
+// "Try again" resent the whole question, cost another turn, and raised the same
+// unaffordable card. A refused row offers the way out that exists instead.
+
+test('a meter-refused row offers no retry, and the right credit action', () => {
+  const failed = row({ phase: 'error', summary: 'not enough credits — 75 needed, 40 left' })
+  assert.equal(toolRowAppearance(failed).canRetry, true, 'an ordinary failure still offers a retry')
+  assert.equal(toolRowAppearance(failed).creditAction, undefined)
+
+  const credits = toolRowAppearance({ ...failed, meter: 'credits' })
+  assert.equal(credits.canRetry, false)
+  assert.equal(credits.creditAction, 'top-up')
+
+  const hold = toolRowAppearance({ ...failed, meter: 'hold' })
+  assert.equal(hold.canRetry, false)
+  assert.equal(hold.creditAction, 'wallet', 'a held wallet was sent to buy credits it cannot buy')
+
+  // A spent daily cap comes back on its own: nothing to press.
+  const cap = toolRowAppearance({ ...failed, meter: 'cap' })
+  assert.equal(cap.canRetry, false)
+  assert.equal(cap.creditAction, undefined)
+
+  // A record has nothing to press at all.
+  assert.equal(toolRowAppearance({ ...failed, meter: 'credits', recorded: true }).creditAction, undefined)
+})

@@ -508,7 +508,7 @@ async function serve(request) {
     // can offer the top-up instead.
     return meter.credits
       ? json(
-          { error: meter.held ? 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.' : outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed } },
+          { error: meter.held ? 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.' : outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed, held: meter.held === true } },
           429,
         )
       : json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
