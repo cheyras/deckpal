@@ -102,6 +102,29 @@ describe('createFixture card search', () => {
   })
 })
 
+describe('createFixture card detail (the add-card flow depends on this)', () => {
+  it('serves a primary variant for every searchable card, end to end into a list', () => {
+    // Astra found this gap: ListDetail's "Add" reads api.card(cardId).variants before it can
+    // mutate at all, so a search result with no matching detail stub fails silently and the
+    // add-card flow can never be exercised in the simulator.
+    const { respondApi } = createFixture()
+    const search = get(respondApi, '/api/search')
+    for (const card of search.body.cards) {
+      const detail = get(respondApi, '/api/cards/' + card.cardId)
+      assert.equal(detail.body.card.cardId, card.cardId)
+      const primary = detail.body.variants.find((v) => v.isPrimary)
+      assert.ok(primary, card.cardId + ' has no primary variant')
+      const added = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: primary.variantId } })
+      assert.equal(added.body.list.itemCount > 0, true)
+    }
+  })
+  it('404s a card id that was never in the fixture catalog', () => {
+    const { respondApi } = createFixture()
+    const response = get(respondApi, '/api/cards/sim1-99')
+    assert.equal(response.status, 404)
+  })
+})
+
 describe('createFixture falls through to the shared admin fixture, then a safe default', () => {
   it('answers /api/me from the admin fixture as the signed-in non-owner user', () => {
     const { respondApi } = createFixture()

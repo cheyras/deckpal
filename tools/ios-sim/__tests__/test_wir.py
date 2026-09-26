@@ -143,6 +143,44 @@ class AppPageDictTests(unittest.TestCase):
         self.assertIn("safariviewservice", haystack)
 
 
+class RuntimeEvaluateTests(unittest.TestCase):
+    """_runtime_evaluate()'s response handling, with the transport stubbed out
+    (send_target_message/wait_for_response), so these drive real dict shapes
+    a real page could send back without needing a socket."""
+
+    def _client(self) -> "wir.WebInspectorClient":
+        client = wir.WebInspectorClient.__new__(wir.WebInspectorClient)
+        client._msg_counter = 0
+        return client
+
+    def test_a_protocol_error_raises_instead_of_returning_none(self):
+        # Astra's finding: a top-level "error" (sibling of "result", e.g. WebKit's real
+        # "Object could not be returned by value" for a returnByValue request on something
+        # unclonable) must not be swallowed into a silent `None` -- that is indistinguishable
+        # from a legitimate null result for a tool whose entire job is reporting page state.
+        client = self._client()
+        client._send_target_message = lambda *a, **k: 1
+        client._wait_for_response = lambda *a, **k: {"id": 1, "error": {"code": -32000, "message": "Object could not be returned by value"}}
+        with self.assertRaisesRegex(wir.WirError, "Object could not be returned by value"):
+            client._runtime_evaluate("s", "t", "a", 1, "window", 1.0)
+
+    def test_a_normal_value_result_still_returns_the_value(self):
+        client = self._client()
+        client._send_target_message = lambda *a, **k: 1
+        client._wait_for_response = lambda *a, **k: {"id": 1, "result": {"result": {"type": "number", "value": 42}}}
+        self.assertEqual(client._runtime_evaluate("s", "t", "a", 1, "40 + 2", 1.0), 42)
+
+    def test_a_thrown_js_error_still_raises(self):
+        client = self._client()
+        client._send_target_message = lambda *a, **k: 1
+        client._wait_for_response = lambda *a, **k: {
+            "id": 1,
+            "result": {"result": {"type": "object", "subtype": "error", "description": "Error: boom"}, "wasThrown": True},
+        }
+        with self.assertRaisesRegex(wir.WirError, "boom"):
+            client._runtime_evaluate("s", "t", "a", 1, "throw new Error('boom')", 1.0)
+
+
 class DispatchTests(unittest.TestCase):
     """WebInspectorClient.dispatch() routing, exercised with hand-built plist
     dicts and no real transport (Transport.__init__ opens a real socket, so

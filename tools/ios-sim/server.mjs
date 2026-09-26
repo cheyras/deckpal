@@ -189,6 +189,29 @@ Signing you in…
       return ok({ pagination: { page: 1, pageSize, total: cards.length, pageCount: 1 }, cards: cards.slice(0, pageSize) })
     }
 
+    // ── Card detail (ListDetail's "Add" reads this for the primary variant
+    // before it can mutate -- api.card(cardId).variants.find(v => v.isPrimary))──
+    if (/^\/api\/cards\/sim1-\d+$/.test(rel) && method === 'GET') {
+      const card = CATALOG.find((c) => c.cardId === rel.split('/').at(-1))
+      if (!card) return { status: 404, body: { error: { message: 'No such fixture card' } } }
+      const variantId = 9000 + Number(card.number)
+      return ok({
+        card: {
+          cardId: card.cardId, number: card.number, printedTotal: CATALOG.length, name: card.name,
+          category: card.category, rarity: card.rarity, artist: card.artist, hp: null, stage: null,
+          evolvesFrom: null, retreat: null, regulationMark: null, releasedOn: null,
+          set: { setId: card.set.setId, name: card.set.name, slug: card.set.setId, logoUrl: null, symbolUrl: null },
+          series: { slug: card.series.slug, name: card.series.name, tcgdexId: card.series.slug },
+          images: card.images, types: [], subtypes: [], tags: [], attacks: [], abilities: [],
+          weaknesses: [], resistances: [], species: [],
+        },
+        variants: [{
+          variantId, kind: 'normal', displayName: 'Normal', provenance: null, tier: 'standard',
+          isPrimary: true, source: 'fixture', quantity: 0, buyUrl: null, prices: [],
+        }],
+      })
+    }
+
     // ── Owned Pokédex species (feeds Profile's "Pick a Showcase Card") ──
     if (rel === '/api/insights/pokedex' && method === 'GET') {
       const species = SPECIES.map((s) => ({

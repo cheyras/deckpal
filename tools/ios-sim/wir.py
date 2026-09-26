@@ -389,6 +389,14 @@ class WebInspectorClient:
             "replMode": True,
         })
         response = self._wait_for_response(message_id, timeout)
+        # A protocol-level error (malformed params, or -- observed for real -- a `returnByValue`
+        # request on something the structured-clone algorithm can't serialize, e.g. a DOM node)
+        # arrives as a top-level "error" sibling of "result", not inside it. Left unchecked, the
+        # lookups below default straight to {} and this silently returns None -- indistinguishable
+        # from a legitimate null result, and exactly backwards for a tool whose job is to report
+        # what a page's state actually is.
+        if "error" in response:
+            raise WirError(f"Web Inspector protocol error: {response['error'].get('message', response['error'])}")
         result = response.get("result", {}).get("result", {})
         if result.get("subtype") == "error" or response.get("result", {}).get("wasThrown"):
             raise WirError(f"JavaScript threw: {result.get('description', result)}")
