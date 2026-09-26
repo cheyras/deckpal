@@ -20507,20 +20507,22 @@ security audit's edge-hardening findings.
    route (including `preAuthFloodGuard`, `authMiddleware`, and the bare-origin
    OAuth routes). In its place, `apps/api/src/index.ts` mounts named,
    most-specific-first parsers inside the base-path router: `/bugs` 12mb,
-   `/dev/scan-queue` 4mb, `/dev/scan-flags` 4mb, `/decke` 512kb, `/lists` 1mb,
-   and a 100kb default for everything else. `/register` and `/token` keep
-   their existing 16kb parsers in `oauthServer.ts`, which are now actually
-   reachable. `apps/api/src/http.ts`'s `errorMiddleware` now translates a
-   body-parser `entity.too.large` error into a proper `413 payload_too_large`
-   JSON response instead of a generic `500`.
+   `/dev/scan-queue` 4mb, `/dev/scan-flags` 4mb, `/decke` 1mb, `/lists` 1mb,
+   `/decks` 256kb, and a 100kb default for everything else. `/register` and
+   `/token` keep their existing 16kb parsers in `oauthServer.ts`, which are
+   now actually reachable. `apps/api/src/http.ts`'s `errorMiddleware` now
+   translates a body-parser `entity.too.large` error into a proper
+   `413 payload_too_large` JSON response instead of a generic `500`.
 2. **`/register`, `/token`, the two `.well-known` OAuth discovery routes, and
    `/mcp` each get a rate limiter.** The first four share a new
    `oauthPublicRateLimit` (`apps/api/src/rateLimit.ts`), 30/min per source IP,
    checked before the host allowlist or any body parsing — they previously had
    no limiter anywhere upstream of them, and `POST /register` is an
    unauthenticated `oauth_client` INSERT. `/mcp` (`apps/mcp/src/cloud.ts`)
-   gets its own 60/min limiter, keyed on `sha256(raw token)` rather than the
-   caller's IP, checked before `resolveToken`'s database lookup.
+   gets two limiters: a global, single-key 300/min-per-instance admission
+   counter checked before `resolveToken`, and a 60/min-per-token budget keyed
+   on the resolved `tokenId`, checked only after `resolveToken` succeeds (see
+   the "Astra review" note below for why it is two layers and not one).
 3. **`/bugs`' rate limit moved from `req.ip` to `req.user.id`.** A new
    `bugsRateLimit` (10/hour, `perUserRateLimit`) replaces the route's own
    hand-rolled per-IP bucket map in `routes/bugs.ts`.
@@ -20541,11 +20543,11 @@ security audit's edge-hardening findings.
   `preAuthFloodGuard` — so none of that router's guards ever ran for them.
   `/mcp` is a wholly separate Vercel function and was never in scope of any
   REST limiter either.
-- `/mcp`'s limiter is keyed on the credential rather than the IP because
-  claude.ai (and other hosted MCP connectors) call from that provider's own
-  shared egress IPs — an IP-keyed limit there would let one heavy user on a
-  connector exhaust the budget for every other user sharing the same egress
-  IP, locking out strangers rather than the abuser.
+- `/mcp`'s per-token layer is keyed on the credential rather than the IP
+  because claude.ai (and other hosted MCP connectors) call from that
+  provider's own shared egress IPs — an IP-keyed limit there would let one
+  heavy user on a connector exhaust the budget for every other user sharing
+  the same egress IP, locking out strangers rather than the abuser.
 - `routes/bugs.ts`'s own limiter keyed on `req.ip`, which behind a reverse
   proxy (self-host, `trust proxy` false) is always the same loopback peer —
   effectively one shared bucket for the whole deployment — and on Vercel read
@@ -20563,11 +20565,47 @@ write-up suggested "4mb" for `/bugs`, but `routes/bugs.ts`'s own
 already used) is correct; 4mb would have 413'd a legitimate full-size
 screenshot. Two more routes needed exceptions the audit's SEC-08 write-up
 didn't name at all: `/decke` (`routes/deckeHistory.ts`'s transcript-history
-POST — two 24,000-char text fields plus up to 60 tool records worst-cases
-around 215kb) and `/lists` (`POST /:id/items/bulk`'s 500 items × 500-char
-notes worst-cases around a few hundred kb once JSON-escaped). Both got their
-own generous-but-bounded parsers (512kb and 1mb) rather than being left on the
-100kb default, which would have broken them.
+POST) and `/lists` (`POST /:id/items/bulk`). A third, `/decks`, was missed
+entirely in the first pass and caught by the independent review below.
+
+**Independent review (Astra/codex) caught two real regressions before this
+shipped; both are fixed in the code this entry describes, not just noted
+here:**
+
+1. **[P1] The `/mcp` limiter's first version was itself a DoS.** It keyed its
+   only check on `sha256(raw credential)`, before `resolveToken` — but an
+   unauthenticated caller can mint unlimited distinct credential strings for
+   free, and the check ran against the same bounded 10,000-key map every
+   limiter in this codebase uses for safety. Review reproduced it directly:
+   10,000 fabricated Bearer values filled the map's admission capacity, and a
+   brand-new, never-before-seen, perfectly valid credential was then rejected
+   too — for a full five-minute sweep window, since expired-but-present
+   entries still counted against capacity until the next sweep. Fixed by
+   splitting into two layers (see decision 2 above): a global, single-key
+   counter before `resolveToken` (nothing for a flood to fill, since there is
+   no key), and the per-token budget moved to run only after resolution,
+   keyed on the database-verified `tokenId` rather than the raw string.
+2. **[P2] The first pass sized character caps as if 1 character = 1 byte.**
+   Every character-count cap in this codebase (`MAX_TEXT`, `STRATEGY_MAX`,
+   `RAW_LOG_MAX`, …) is a JS string length — UTF-16 code units — not the
+   UTF-8 bytes an `express.json()` limit measures. A BMP character outside
+   Latin-1 (CJK, Hangul, Cyrillic — most non-English scripts) is 1 code unit
+   but 3 bytes. Reproduced directly: 40,000 Japanese characters in a
+   `strategyMd` field, well within `decks.ts`'s own `STRATEGY_MAX`, produced
+   a 120,017-byte body — over the 100kb default that had no exception for
+   `/decks` at all in the first pass, and `/decke`'s original 512kb was only
+   ~2% headroom over its own worst case once measured correctly. Fixed by
+   adding `/decks` (256kb) and bumping `/decke` (512kb → 1mb), both computed
+   at the ×3 worst-case ratio, and by adding real multibyte HTTP tests
+   (`apps/api/src/__tests__/bodyLimits.test.ts`) rather than trusting
+   ASCII-only fixtures again.
+
+Both findings are the kind that pure character-count reasoning and ASCII-only
+test fixtures cannot catch — the first needed an adversarial "what can an
+attacker who never authenticates do" pass, the second needed an actual
+multibyte string. Recorded here because the pattern (character length vs.
+byte length; per-credential vs. global admission for unauthenticated traffic)
+will recur the next time someone sizes a limit in this codebase.
 
 **Implications:**
 

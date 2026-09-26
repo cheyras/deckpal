@@ -376,26 +376,40 @@ there is nothing else to key on — and it uses a distinct store prefix
 (`oauth-public`) from the ingress guard's `preauth`, so the two budgets never
 fight over one shared counter for the same IP.
 
-**MCP (SEC-09).** `/mcp` (`apps/mcp/src/cloud.ts`) now carries its own
-per-instance limiter too, **60 requests/minute per credential** (not per IP —
-see below), checked after `tokenFrom()` extracts a candidate credential and
-**before** `resolveToken`'s database lookup, so a flood of unresolvable tokens
-never reaches the pool either. A request with no credential at all is already
-the cheapest path in that handler (an immediate 401, no DB) and is not
-metered.
+**MCP (SEC-09).** `/mcp` (`apps/mcp/src/cloud.ts`) now carries two limiters,
+for two different threats:
 
-**Why the credential, not the IP, for `/mcp`.** Every other limiter in this
-file keys on the caller's IP because that is the identity available before
-authentication. `/mcp` is the one place that reasoning breaks: claude.ai (and
-every other hosted MCP connector) makes its calls from that provider's own
-shared egress IPs, common to every one of that provider's users. An IP-keyed
-limit there would let one heavy user on a shared connector exhaust the bucket
-for every other user behind the same egress IP — silencing a stranger's MCP
-access because of a heavy neighbor, the exact class of bug SEC-11 fixes for
-`/bugs` below, one hop upstream. Keying on `sha256(raw token)` instead means
-two different users' credentials always land in two different buckets,
-however many of them share an IP; it never stores the raw secret, only its
-hash, as the in-memory key.
+1. A **global pre-resolution counter**, 300 requests/minute per instance,
+   checked before `resolveToken`'s database lookup, so a flood of
+   unresolvable tokens never reaches the pool. It is deliberately ONE shared
+   counter, not one per credential: an unauthenticated caller can mint
+   unlimited distinct credential strings for free, and a per-credential check
+   at this stage — the first version of this fix — let a flood of 10,000
+   fabricated Bearer values fill the bounded map's admission capacity,
+   rejecting even a brand-new, never-before-seen credential for a full
+   sweep window afterward (reproduced and fixed before this shipped). A
+   global counter has no per-key capacity to exhaust.
+2. A **per-token budget**, 60 requests/minute, checked only after
+   `resolveToken` succeeds, keyed on the resolved `tokenId` rather than the
+   raw credential string. This is the fairness guarantee: no single
+   legitimate token can crowd out another token's share. Keying on `tokenId`
+   (a database-verified uuid) rather than the raw string is what makes a
+   bounded map safe here — an attacker cannot mint many `tokenId`s for free
+   the way it can vary a Bearer header, since each one costs a real account
+   plus `/register`'s and `/token`'s own rate limits and `MAX_ACTIVE_TOKENS`.
+
+A request with no credential at all is already the cheapest path in that
+handler (an immediate 401, no DB) and is metered by neither layer.
+
+**Why the credential, not the IP, for the per-token layer.** Every other
+limiter in this file keys on the caller's IP because that is the identity
+available before authentication. `/mcp`'s fairness layer is the one place
+that reasoning breaks: claude.ai (and every other hosted MCP connector) makes
+its calls from that provider's own shared egress IPs, common to every one of
+that provider's users. An IP-keyed limit there would let one heavy user on a
+shared connector exhaust the bucket for every other user behind the same
+egress IP — silencing a stranger's MCP access because of a heavy neighbor,
+the exact class of bug SEC-11 fixes for `/bugs` below, one hop upstream.
 
 **Bug/feature reports are keyed per account, not per source IP (SEC-11).**
 `routes/bugs.ts` used to run its own hand-rolled 10/hour bucket keyed on
@@ -432,8 +446,8 @@ multiple of the limit. The budgets are speed bumps, not boundaries.
 
 **MCP scope.** The MCP transport at `/mcp` (separate `api/mcp.mjs` function)
 is **not** covered by the 600/min guard — it is a different function entirely
-— but it is no longer uncovered: it carries its own per-credential limiter
-(60/min, see above). The MCP token/OAuth **management** endpoints (`/tokens`,
+— but it is no longer uncovered: it carries its own two-layer limiter (see
+above). The MCP token/OAuth **management** endpoints (`/tokens`,
 `/oauth`, `/avatar`) are REST routes on the base-path router and use these
 REST controls. Existing MCP-specific security details are unchanged.
 
@@ -457,16 +471,25 @@ blanket 12 MB parser on `app` always ran first for every path.
 base-path router (`createApp` in `apps/api/src/index.ts`) after
 `preAuthFloodGuard` and the per-user rate limits, before the RLS connection is
 acquired — so a flood is throttled, and an oversized body rejected, before
-either a byte is read or a pooled connection is claimed:
+either a byte is read or a pooled connection is claimed. Every character-count
+cap this repo already had (`MAX_TEXT`, `STRATEGY_MAX`, `RAW_LOG_MAX`, …) is a
+JS string length — UTF-16 **code units**, not the UTF-8 **bytes** a limit
+here actually measures. The ratio is 1 for ASCII, but a single BMP character
+outside Latin-1 (CJK, Hangul, Cyrillic — most of the world's scripts) is 1
+code unit and 3 bytes: a legitimate strategy guide or battle log written in
+Japanese can be **3×** the size an ASCII-only estimate predicts. An earlier
+version of the table below sized `/decke` and omitted `/decks` entirely on
+exactly that mistaken assumption; both numbers below already account for it.
 
 | Route | Limit | Why |
 |---|---|---|
-| `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields. |
-| `/dev/scan-queue` | 4 MB | The labeler queue photo. `MAX_PHOTO_BYTES` is 3 MB decoded → ~4 MB on the wire. Owner-only in production. |
-| `/dev/scan-flags` | 4 MB | The scan-harness flag capture: decoded frame + sidecar JSON, ~3 MB combined → ~4 MB on the wire. Owner-only in production. |
-| `/decke` | 512 KB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars on the wire. Worst case is ~215 KB; 512 KB leaves headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
-| `/lists` | 1 MB | `POST /:id/items/bulk` allows 500 items, each with its own 500-char note — a few hundred KB once JSON-escaped. 1 MB leaves headroom without reopening the ceiling for every other `/lists` route. |
-| everything else | **100 KB** | Every other route posts small JSON (ids, filters, short text). The largest fields still on the default are `decks.ts`'s strategy-guide and battle-log text, at 40,000–50,000 characters — comfortably inside 100 KB even fully escaped. |
+| `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields (×3 for multibyte text is still negligible against the image). |
+| `/dev/scan-queue` | 4 MB | The labeler queue photo. `MAX_PHOTO_BYTES` is 3 MB decoded → ~4 MB on the wire. Base64 is pure ASCII, so the multibyte ratio above doesn't apply. Owner-only in production. |
+| `/dev/scan-flags` | 4 MB | The scan-harness flag capture: decoded frame + sidecar JSON, ~3 MB combined → ~4 MB on the wire. Same as above. Owner-only in production. |
+| `/decke` | 1 MB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars. At the ×3 worst case that's ~502 KB before JSON structure; 1 MB leaves real headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
+| `/lists` | 1 MB | `POST /:id/items/bulk` allows 500 items, each with its own 500-char note — at ×3 that's ~750 KB before structure. 1 MB leaves headroom without reopening the ceiling for every other `/lists` route. |
+| `/decks` | 256 KB | `PUT /:id/strategy` (`STRATEGY_MAX` 40,000 chars) and `POST /:id/logs` / `/log-preview` (`RAW_LOG_MAX` 50,000 chars) are the two biggest single-field caps outside the routes above — at ×3 the larger is ~150 KB, already over the 100 KB default. |
+| everything else | **100 KB** | Every other route posts small JSON (ids, filters, short text) with nothing near the caps above, even at ×3. |
 
 `/register` and `/token` keep their own existing 16 KB parsers
 (`apps/api/src/oauthServer.ts`) — unchanged code, now actually effective, for
@@ -480,9 +503,11 @@ already did by hand for its own raw-body parser, now done once for every
 
 **Verified:** `apps/api/src/__tests__/bodyLimits.test.ts` sends real HTTP
 requests at each boundary (just under / just over each limit) and asserts the
-413/200 split, including a regression control that reproduces the
-shadowing bug on purpose by reversing the mount order — proving the ordering
-above is load-bearing, not cosmetic. `apps/api/src/__tests__/rateLimit.test.ts`
+413/200 split, including a real multibyte case (a full-length Japanese
+strategy guide and battle log against `/decks`, and a full-length Japanese
+transcript turn against `/decke`) and a regression control that reproduces
+the shadowing bug on purpose by reversing the mount order — proving the
+ordering above is load-bearing, not cosmetic. `apps/api/src/__tests__/rateLimit.test.ts`
 separately asserts the exact mount order in `index.ts`'s own source.
 
 ### Self-host images rate limiting

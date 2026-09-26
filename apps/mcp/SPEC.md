@@ -168,15 +168,26 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
   - The **MCP transport** at `https://deckpal.app/mcp`, served by the
     separate `api/mcp.mjs` → `apps/mcp/src/cloud.ts` function. It now carries
-    its own 60 req/min limiter, checked after `tokenFrom()` extracts a
-    candidate credential and *before* `resolveToken`'s database lookup — so a
-    flood of unresolvable tokens never reaches the pool. **Keyed on
-    `sha256(raw token)`, not the source IP**: claude.ai and other hosted MCP
-    connectors call from that provider's own shared egress IPs, so an
-    IP-keyed limit would let one heavy connector user exhaust the budget for
-    every *other* user sharing the same egress IP. A request with no
-    credential at all is the cheapest path already (an immediate 401, no DB)
-    and is not metered.
+    two limiters, `mcpPreResolveOk` and `mcpRateOk`:
+    - `mcpPreResolveOk` is a single GLOBAL counter, 300 req/min per instance,
+      checked *before* `resolveToken`'s database lookup — so a flood of
+      unresolvable tokens never reaches the pool. Deliberately keyed on
+      **nothing** (not the credential, not the IP): an unauthenticated caller
+      can mint unlimited distinct credential strings for free, and an earlier
+      version of this fix keyed the pre-resolution check on
+      `sha256(raw token)` instead — reproduced in review as an admission-map
+      flood (10,000 fabricated Bearer values filled the bounded map's
+      capacity and rejected a brand-new, never-before-seen, valid credential
+      for a full sweep window afterward). A global counter has no per-key
+      capacity for a flood to fill.
+    - `mcpRateOk` is the per-token fairness budget, 60 req/min, checked only
+      *after* `resolveToken` succeeds, keyed on the resolved, database-verified
+      `tokenId` — never the source IP: claude.ai and other hosted MCP
+      connectors call from that provider's own shared egress IPs, so an
+      IP-keyed limit would let one heavy connector user exhaust the budget
+      for every *other* user sharing the same egress IP.
+    A request with no credential at all is the cheapest path already (an
+    immediate 401, no DB) and is metered by neither layer.
   - The bare-origin **OAuth discovery / `/register` / `/token` handlers**
     (cloud-only, `apps/api/src/oauthServer.ts`), still mounted on `app` ahead
     of the base-path router. Each of the four now carries `oauthPublicRateLimit`

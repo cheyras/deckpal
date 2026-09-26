@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import type pg from 'pg';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import { loadEnv, makePool, resolveToken, touchToken, hashToken } from '@deckpal/db';
+import { loadEnv, makePool, resolveToken, touchToken } from '@deckpal/db';
 import { makeApi, redactEndpoints, type Ctx } from '@deckpal/agent-tools';
 import { withUserContext } from './rls.js';
 import { buildServer } from './server.js';
@@ -118,32 +118,89 @@ function tokenFrom(req: Request): string {
 }
 
 /**
- * Per-credential rate limit (SEC-09): `/mcp` used to sit outside every
- * limiter in this codebase. Every request carrying a token-shaped credential
- * runs a `resolveToken` lookup and a `touchToken` UPDATE against
+ * Rate limiting (SEC-09): `/mcp` used to sit outside every limiter in this
+ * codebase. Every request carrying a token-shaped credential runs a
+ * `resolveToken` lookup and a `touchToken` UPDATE against
  * `PGPOOL_MAX_MCP=2` connections — a tiny, deliberately serverless-sized
  * budget — so a burst on one warm instance can starve every other caller
- * sharing it.
+ * sharing it. Two layers, for two different threats:
  *
- * Keyed on the CREDENTIAL, never the IP. claude.ai's (and every other hosted
- * connector's) traffic arrives from that provider's own egress IPs, shared
- * across every one of that provider's users — an IP-keyed limit would let one
- * heavy user on a shared connector exhaust the bucket for everyone else
- * behind the same egress IP, which is exactly the bug SEC-11 fixes for
- * `/bugs` one hop downstream. `sha256(raw token)` gives each user's own
- * credential its own budget regardless of how many others share their
- * egress IP, and never stores the secret itself in memory. It runs on
- * whatever string `tokenFrom` extracted — valid, unknown or revoked alike —
- * BEFORE `resolveToken`, so a flood of unresolvable tokens never reaches the
- * pool either; a request with no credential at all is already the cheapest
- * path in this handler (an immediate 401, no DB), so it is not metered here.
+ * 1. {@link mcpPreResolveOk} — a single GLOBAL counter, checked before
+ *    `resolveToken` runs at all, so a flood of credentials that never resolve
+ *    (garbage, guesses, expired) is throttled before it can touch the pool.
+ *    Deliberately ONE shared key, not one per credential: the first version
+ *    of this limiter keyed the pre-resolution check on the credential itself
+ *    (`sha256(raw token)`), and a caller who never authenticates can mint an
+ *    unlimited number of distinct credential strings for free. Against a
+ *    bounded per-credential map that means filling it with garbage entries —
+ *    verified by reproduction: 10,000 fabricated Bearer values exhausted the
+ *    map's admission capacity, and a brand-new, never-before-seen credential
+ *    was then rejected even a full window later, because expired-but-present
+ *    entries still counted against capacity until the next sweep. A global
+ *    counter has no per-key capacity to exhaust; the worst a flood can do is
+ *    spend the one shared budget for its own window, which self-heals every
+ *    minute and never targets a specific future credential.
+ * 2. {@link mcpRateOk} — a per-credential budget, checked AFTER
+ *    `resolveToken` succeeds, keyed on the resolved `tokenId` rather than the
+ *    raw credential string. This is the fairness guarantee SEC-09 actually
+ *    asked for: no single (legitimate) token can crowd out another token's
+ *    share of the connection budget. Keying it on `tokenId` rather than the
+ *    raw string is what makes the bounded map safe again — a `tokenId` only
+ *    exists for a real, database-verified token, and minting many of those
+ *    already costs an account plus `/register`+`/token`'s own rate limits
+ *    and `MAX_ACTIVE_TOKENS` (20/account), unlike a raw string an attacker
+ *    can vary for free.
+ *
+ * Neither layer is keyed on the source IP. claude.ai's (and every other
+ * hosted connector's) traffic arrives from that provider's own egress IPs,
+ * shared across every one of that provider's users — an IP-keyed limit would
+ * let one heavy user on a shared connector exhaust the budget for everyone
+ * else behind the same egress IP, which is exactly the bug SEC-11 fixes for
+ * `/bugs` one hop downstream. A request with no credential at all is already
+ * the cheapest path in this handler (an immediate 401, no DB) and is not
+ * metered by either layer — but see (1): the pre-resolution counter still
+ * covers it once a credential-shaped string is present, valid or not.
  *
  * Per-instance only, like every limiter in this codebase (see
  * apps/api/src/rateLimit.ts): a cold start gets its own budget, so a caller
  * spread across instances gets N × this. That is an accepted trade-off
  * already documented for the REST API's limiters, and MCP traffic — a
- * handful of tool calls per conversational turn — is low-volume enough that
- * it holds here too.
+ * handful of tool calls per conversational turn, per real user — is
+ * low-volume enough that it holds here too.
+ */
+
+/**
+ * Layer 1: global pre-resolution admission. 300/min per instance —
+ * generous headroom over ordinary multi-tenant traffic on one warm instance
+ * (every MCP tool call resolves its token fresh; there is no session reuse),
+ * while still bounding how many `resolveToken` round trips a flood of
+ * unresolvable credentials can force against the tiny 2-connection pool.
+ */
+export const MCP_PRERESOLVE_MAX = 300;
+export const MCP_PRERESOLVE_WINDOW_MS = 60_000;
+let mcpPreResolveCount = 0;
+let mcpPreResolveResetAt = 0;
+
+/** Exported for this gate's own tests; the HTTP handler below is the only other caller. */
+export function mcpPreResolveOk(now = Date.now()): boolean {
+  if (now >= mcpPreResolveResetAt) {
+    mcpPreResolveCount = 0;
+    mcpPreResolveResetAt = now + MCP_PRERESOLVE_WINDOW_MS;
+  }
+  mcpPreResolveCount++;
+  return mcpPreResolveCount <= MCP_PRERESOLVE_MAX;
+}
+
+/** Test seam. */
+export function __resetMcpPreResolveForTests(): void {
+  mcpPreResolveCount = 0;
+  mcpPreResolveResetAt = 0;
+}
+
+/**
+ * Layer 2: per-resolved-token budget, 60/min. Called with `resolved.tokenId`
+ * (a database-verified uuid), never the raw credential — see the block
+ * comment above for why that distinction is what makes the bounded map safe.
  */
 export const MCP_RATE_MAX = 60;
 export const MCP_RATE_WINDOW_MS = 60_000;
@@ -157,17 +214,20 @@ setInterval(() => {
   }
 }, MCP_RATE_SWEEP_MS).unref();
 
-/** Exported for `mcpRateOk`'s own tests; the HTTP handler above is the only other caller. */
-export function mcpRateOk(credentialHash: string): boolean {
+/** Exported for `mcpRateOk`'s own tests; the HTTP handler below is the only other caller. */
+export function mcpRateOk(tokenId: string): boolean {
   const now = Date.now();
-  let bucket = mcpRateBuckets.get(credentialHash);
+  let bucket = mcpRateBuckets.get(tokenId);
   if (!bucket || bucket.resetAt <= now) {
     // Bounded cardinality, same policy as RateLimitStore: never evict an
-    // active bucket to admit a fresh key, so a flood of distinct credentials
-    // cannot be used to push a real user's budget out of the map.
+    // active bucket to admit a fresh key, so a flood of distinct tokenIds
+    // cannot be used to push a real user's budget out of the map. Safe here
+    // specifically because a tokenId cannot be fabricated for free (see the
+    // block comment above) — the same check on a raw credential string was
+    // the SEC-09 regression this layering fixes.
     if (!bucket && mcpRateBuckets.size >= MCP_RATE_MAX_KEYS) return false;
     bucket = { count: 0, resetAt: now + MCP_RATE_WINDOW_MS };
-    mcpRateBuckets.set(credentialHash, bucket);
+    mcpRateBuckets.set(tokenId, bucket);
   }
   bucket.count++;
   return bucket.count <= MCP_RATE_MAX;
@@ -257,12 +317,14 @@ export function createCloudApp(): Express {
         return;
       }
 
-      // SEC-09: keyed on the credential itself (see mcpRateOk's doc comment),
-      // BEFORE resolveToken so a flood of unresolvable tokens never reaches
-      // the pool either.
-      if (!mcpRateOk(hashToken(raw))) {
+      // SEC-09, layer 1: a global admission gate, BEFORE resolveToken, so a
+      // flood of unresolvable tokens never reaches the pool. See mcpPreResolveOk's
+      // doc comment for why this is one shared counter and not keyed on the
+      // credential — the earlier, credential-keyed version of this check is
+      // exactly the regression that comment documents.
+      if (!mcpPreResolveOk()) {
         res.setHeader('Retry-After', '60');
-        res.status(429).json({ error: { code: 'rate_limited', message: 'Too many requests for this token — slow down.' } });
+        res.status(429).json({ error: { code: 'rate_limited', message: 'Too many requests — slow down.' } });
         return;
       }
 
@@ -276,6 +338,14 @@ export function createCloudApp(): Express {
       }
       if (!resolved) {
         unauthorized(req, res, 'Invalid or revoked token.');
+        return;
+      }
+
+      // SEC-09, layer 2: the per-token fairness budget, now that the
+      // credential has resolved to a real, database-verified tokenId.
+      if (!mcpRateOk(resolved.tokenId)) {
+        res.setHeader('Retry-After', '60');
+        res.status(429).json({ error: { code: 'rate_limited', message: 'Too many requests for this token — slow down.' } });
         return;
       }
 

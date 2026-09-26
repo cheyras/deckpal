@@ -105,16 +105,21 @@ omit the host.
   Three flows sit outside this router entirely, each with its own limiter now:
   the bare-origin OAuth discovery / `/register` / `/token` handlers (mounted on
   `app` ahead of it; 30/min per source IP), the MCP transport at `/mcp` (a
-  separate function; 60/min per credential — keyed on the token, not the IP,
-  because hosted MCP connectors share egress IPs across users), and the Stripe
-  raw-body webhook (no application limiter; Stripe's own signature and retry
-  behavior is the control). See `SECURITY.md` → Rate limiting.
+  separate function; a global 300/min-per-instance admission counter before
+  token resolution, plus a 60/min-per-token budget after — keyed on the
+  resolved token, not the IP, because hosted MCP connectors share egress IPs
+  across users), and the Stripe raw-body webhook (no application limiter;
+  Stripe's own signature and retry behavior is the control). See
+  `SECURITY.md` → Rate limiting.
 - **Body-size limits.** Per route, not one limit for the whole API: `/bugs`
   12mb (the bug-report screenshot), `/dev/scan-queue` and `/dev/scan-flags`
-  4mb (labeler/harness photos), `/decke` 512kb (one transcript-history turn),
-  `/lists` 1mb (a bulk item add), `/register`/`/token` 16kb each, and 100kb
-  for every other route. An oversize body is a proper `413 payload_too_large`.
-  See `SECURITY.md` → Body-size limits.
+  4mb (labeler/harness photos), `/decke` 1mb (one transcript-history turn),
+  `/lists` 1mb (a bulk item add), `/decks` 256kb (the strategy-guide and
+  battle-log text), `/register`/`/token` 16kb each, and 100kb for every other
+  route. Every limit is sized in bytes on the wire, not characters — a
+  non-Latin character can cost 3 UTF-8 bytes per JS-string code unit. An
+  oversize body is a proper `413 payload_too_large`. See `SECURITY.md` →
+  Body-size limits.
 - **Caching.** Pure-catalog responses (`/series` list, `/search`, the `/` index)
   send `Cache-Control: public, max-age=…`. Anything mixing in the user's
   collection or prices sends `private, no-cache, must-revalidate`.

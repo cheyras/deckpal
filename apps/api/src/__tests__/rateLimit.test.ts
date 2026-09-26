@@ -825,8 +825,9 @@ describe('production ingress and session limits over real HTTP', () => {
       "'/bugs',express.json({limit:'12mb'})",
       "'/dev/scan-queue',express.json({limit:'4mb'})",
       "'/dev/scan-flags',express.json({limit:'4mb'})",
-      "'/decke',express.json({limit:'512kb'})",
+      "'/decke',express.json({limit:'1mb'})",
       "'/lists',express.json({limit:'1mb'})",
+      "'/decks',express.json({limit:'256kb'})",
       "express.json({limit:'100kb'})",
     ];
     const positions = bodyLimitOrder.map(once);

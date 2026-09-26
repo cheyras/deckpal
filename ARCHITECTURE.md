@@ -174,14 +174,19 @@ router (`/api` on Vercel, `/deckpal/api` self-host) as follows:
    the RLS request connection is acquired.
 4. **Body-size limits, per route (SEC-08)** — named exceptions mounted
    most-specific-first, then a 100kb default: `/bugs` 12mb, `/dev/scan-queue`
-   and `/dev/scan-flags` 4mb, `/decke` 512kb, `/lists` 1mb. Order is
-   load-bearing here, not cosmetic: `express.json()` no-ops on a request whose
-   body a *prior* matching parser already consumed, so whichever parser for a
-   path runs first decides its limit — the exceptions must precede the
-   default, which is why there is no longer a single blanket parser on `app`
-   ahead of everything (that parser used to shadow `/register`'s and
-   `/token`'s own smaller ones the same way). Also before the RLS connection
-   is acquired, so an oversized body never claims one either.
+   and `/dev/scan-flags` 4mb, `/decke` 1mb, `/lists` 1mb, `/decks` 256kb.
+   Order is load-bearing here, not cosmetic: `express.json()` no-ops on a
+   request whose body a *prior* matching parser already consumed, so
+   whichever parser for a path runs first decides its limit — the exceptions
+   must precede the default, which is why there is no longer a single
+   blanket parser on `app` ahead of everything (that parser used to shadow
+   `/register`'s and `/token`'s own smaller ones the same way). Also before
+   the RLS connection is acquired, so an oversized body never claims one
+   either. Every number here is sized in bytes on the wire, not characters —
+   a character-count cap elsewhere in the codebase (`STRATEGY_MAX`,
+   `RAW_LOG_MAX`, …) counts UTF-16 code units, and a non-Latin character can
+   cost 3 UTF-8 bytes per unit; `/decke` and `/decks` are both sized at that
+   ×3 worst case.
 5. **RLS context** — acquire the per-request connection and establish claims/
    SQL role. Cloud requests, including accepted anonymous catalog reads, use
    the existing transaction path. Self-host request transactions are scoped
@@ -212,12 +217,18 @@ Three flows are mounted **separately on `app`, ahead of that router**:
   body parsing — where previously none of the pipeline above ever ran for
   them at all.
 - The **MCP transport** at `/mcp` (separate `api/mcp.mjs` function) is not
-  part of this pipeline either, but it now carries its own limiter (SEC-09) —
-  60/min, keyed on the credential (`sha256` of the raw token) rather than the
-  source IP, because hosted MCP connectors (claude.ai and others) call from
-  shared egress IPs common to all of their users; an IP-keyed limit there
-  would let one heavy connector user exhaust the budget for every other user
-  behind the same IP.
+  part of this pipeline either, but it now carries two limiters (SEC-09): a
+  global 300/min-per-instance admission counter before `resolveToken`
+  (deliberately keyed on nothing, not the credential — an unauthenticated
+  caller can mint unlimited distinct credential strings for free, and an
+  earlier version of this fix that checked a per-credential map at this stage
+  let exactly that flood fill the map and lock out brand-new, legitimate
+  credentials too), and a 60/min-per-token budget checked only after
+  `resolveToken` succeeds, keyed on the resolved, database-verified `tokenId`
+  rather than the source IP — because hosted MCP connectors (claude.ai and
+  others) call from shared egress IPs common to all of their users, and an
+  IP-keyed limit there would let one heavy connector user exhaust the budget
+  for every other user behind the same IP.
 
 The MCP token/OAuth **management** endpoints (`/tokens`, `/oauth`, `/avatar`)
 are ordinary REST routes on the base-path router and use its controls, same as

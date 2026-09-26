@@ -295,14 +295,22 @@ discovery / `/register` / `/token` handlers** are also still mounted
 separately on `app` ahead of that router, but each of the four now carries its
 own limiter — `oauthPublicRateLimit`, 30 requests/min per source IP, checked
 first, before the host allowlist or any body parsing. **The MCP transport at
-`/mcp`** is still a separate function, but it too now carries its own limiter
-— 60 requests/min, keyed on the caller's credential (`sha256` of the raw
-token) rather than its IP, because claude.ai and other hosted MCP connectors
-share egress IPs across all of their users: an IP-keyed limit there would let
-one heavy connector user exhaust the budget for every other user behind the
-same IP. Both new limiters are honest about the same limitation as everything
-else in this section — per-process, not global (see the warning below) — and
-neither needs a new env variable either.
+`/mcp`** is still a separate function, but it too now carries two limiters:
+a global 300 requests/min-per-instance admission counter, checked before
+`resolveToken`'s database lookup, and a 60 requests/min-per-token budget,
+checked only after `resolveToken` succeeds and keyed on the resolved,
+database-verified `tokenId` rather than the caller's IP — because claude.ai
+and other hosted MCP connectors share egress IPs across all of their users,
+an IP-keyed limit there would let one heavy connector user exhaust the budget
+for every other user behind the same IP. (The admission counter is
+deliberately NOT keyed on the credential either: an unauthenticated caller
+can mint unlimited distinct credential strings for free, and an earlier
+version of this fix that keyed the pre-resolution check on the credential
+let exactly that flood exhaust the bounded map and lock out brand-new,
+legitimate credentials too — caught in review before it shipped.) All new
+limiters are honest about the same limitation as everything else in this
+section — per-process, not global (see the warning below) — and none needs a
+new env variable either.
 
 Client-identity resolution keys on
 the existing **`VERCEL`** runtime variable — platform-provided on Vercel
@@ -327,11 +335,21 @@ Every REST route's JSON body limit is now sized per route rather than one
 for the full table and the reasoning). Nothing here is configurable and
 nothing needs to be: `/bugs` (12 MB, the screenshot), `/dev/scan-queue` and
 `/dev/scan-flags` (4 MB, labeler/harness photos, owner-only in production),
-`/decke` (512 KB, one transcript-history turn), `/lists` (1 MB, a bulk item
-add), and 100 KB for everything else. `/register` and `/token` keep their
-existing 16 KB parsers in `oauthServer.ts`, now actually effective. Deck-E's
-live chat (`api/chat.mjs`) is a separate Vercel function with its own body
-handling and is untouched by any of this.
+`/decke` (1 MB, one transcript-history turn), `/lists` (1 MB, a bulk item
+add), `/decks` (256 KB, the strategy-guide and battle-log text), and 100 KB
+for everything else. `/register` and `/token` keep their existing 16 KB
+parsers in `oauthServer.ts`, now actually effective. Deck-E's live chat
+(`api/chat.mjs`) is a separate Vercel function with its own body handling
+and is untouched by any of this.
+
+Every one of the numbers above is sized in **bytes on the wire**, not
+characters: a character-count cap elsewhere in this codebase (e.g.
+`STRATEGY_MAX`, `RAW_LOG_MAX`) counts JS string length (UTF-16 code units),
+and a non-Latin character (CJK, Hangul, Cyrillic) costs up to 3 UTF-8 bytes
+per code unit. `/decke` and `/decks` are both sized at that ×3 worst case —
+an earlier pass that assumed 1 byte per character sized `/decke` with almost
+no headroom and missed `/decks` entirely, which would have 413'd a
+legitimate non-English strategy guide or battle log.
 
 #### `pgvector` is a prerequisite of migration 051
 
