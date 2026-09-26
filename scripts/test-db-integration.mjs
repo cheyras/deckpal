@@ -25,7 +25,7 @@ const LOG = join(ARTIFACTS, 'integration.log');
 writeFileSync(LOG, '');
 const result = {
   status: 'running',
-  scope: 'Real PostgreSQL routes plus actual administration/credit migrations with authenticated, anon and service roles. No production infrastructure.',
+  scope: 'Real PostgreSQL routes plus actual administration/credit migrations with authenticated, anon and service roles, and every migration applied to measure PostgREST reach. No production infrastructure.',
   isolation: {
     externalTargetAccepted: false,
     inheritedConnectionEnvironmentIgnored: Object.keys(process.env)
@@ -206,6 +206,25 @@ try {
   ]);
   await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c', 'CREATE ROLE deckpal_ci_fixture LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; GRANT pg_read_all_settings TO deckpal_ci_fixture;']);
   await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c', 'CREATE DATABASE deckpal_ci_test OWNER deckpal_ci_fixture;']);
+  // Migration 007 revokes from the self-host application role, so the full
+  // migration chain (reach.mjs) needs it to exist. It never logs in.
+  await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c', 'CREATE ROLE pokedex NOLOGIN;']);
+  // Every migration, then what anon and a second user can reach directly
+  // (security audit SEC-01/02/10). pgvector (migration 051) is not a trusted
+  // extension, so the superuser installs it first, as Supabase does.
+  const reach = async (mode) => {
+    const database = 'deckpal_ci_reach_' + mode.replace('-', '_');
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c', 'CREATE DATABASE ' + database + ' OWNER deckpal_ci_fixture']);
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-d', database, '-c', 'CREATE EXTENSION vector']);
+    const caseFile = join(scratch, 'reach-' + mode + '.json');
+    await run(process.execPath, ['--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'), join(REPO, 'apps', 'api', 'src', '__integration__', 'reach.mjs')], {
+      timeoutMs: 180_000,
+      env: { PGUSER: 'deckpal_ci_fixture', PGDATABASE: database, DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile, DECKPAL_TEST_REACH_MODE: mode },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  };
 
   for (const timezone of ['UTC', 'America/Denver']) {
     assertNoEnvFile();
@@ -228,6 +247,9 @@ try {
   }
   // Separate databases keep governance fixtures isolated from catalog tests.
   // The runner alone provisions fixture roles on its owned socket cluster.
+  // Self-host reach runs while no Supabase role exists yet; roles are
+  // cluster-wide, and the cloud admin case below creates them.
+  await reach('self-host');
   for (const mode of ['legacy-self-host','self-host','cloud']) {
     // Rehearse both self-host forms before any Supabase-like roles exist.
     if(mode==='cloud') await run(join(bindir,'psql'),['-X','-v','ON_ERROR_STOP=1','-c',
@@ -254,6 +276,7 @@ try {
       assert.equal(accessEvidence.status,'passed');result.cases.push(accessEvidence);
     }
   }
+  await reach('cloud');
   result.status = 'passed';
 } catch (error) {
   result.status = 'failed';

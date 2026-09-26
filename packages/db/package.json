@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/cli.ts up",
     "migrate:status": "tsx src/cli.ts status",
-    "test:cli": "node --import tsx --test src/__tests__/cliErrors.test.ts"
+    "test:cli": "node --import tsx --test src/__tests__/cliErrors.test.ts",
+    "test:migrations": "node --import tsx --test src/__tests__/migrationLint.test.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"

@@ -1763,3 +1763,64 @@ Rolling back is `DROP TABLE mutation_event, mutation_batch;`,
 `ALTER TABLE card_list DROP COLUMN deleted_at; ALTER TABLE deck DROP COLUMN deleted_at;`
 plus deleting the three `schema_migrations` rows — but note that the deployed
 code requires all three, so roll the code back first.
+
+---
+
+## Migration 072 (2026-09-26): what PostgREST can reach
+
+A security fix, not a feature. Until it runs, every account's collection
+(`user_id`, `card_id`, owns-two-or-more) is readable at
+`/rest/v1/collection_dupe_predicate` by anyone holding the anon key the SPA
+ships. It also stops a signed-in user from deleting another user's profile
+photo, un-revoking a token an administrator revoked, or planting rows under
+another user's deck or binder item. The full story is DECISIONS.md 2026-09-26.
+
+**It is not `@supabase-only`, on purpose.** Everything in it is plain Postgres
+or guarded on the Supabase roles existing, so it applies on every deployment
+and the runner never reports it as `SKIPPED`. On self-host the grant sections
+are no-ops and the rest applies unchanged. It needs no code deploy: nothing in
+the app reads what it removes or writes what it locks.
+
+**1. Preflight (read-only, SQL editor).** Every count must be `0`. 072 checks
+the same thing and refuses to run otherwise, changing nothing; a non-zero count
+is someone having used one of these holes, so keep the rows and look before
+touching them.
+
+```sql
+SELECT
+  (SELECT count(*) FROM (SELECT avatar_path FROM public.user_profile WHERE avatar_path IS NOT NULL
+                         GROUP BY avatar_path HAVING count(*) > 1) s)                                   AS shared_avatar_keys,
+  (SELECT count(*) FROM public.deck_card c    JOIN public.deck d ON d.id = c.deck_id WHERE c.user_id <> d.user_id) AS foreign_deck_cards,
+  (SELECT count(*) FROM public.deck_version c JOIN public.deck d ON d.id = c.deck_id WHERE c.user_id <> d.user_id) AS foreign_deck_versions,
+  (SELECT count(*) FROM public.battle_log c   JOIN public.deck d ON d.id = c.deck_id WHERE c.user_id <> d.user_id) AS foreign_battle_logs,
+  (SELECT count(*) FROM public.binder_placement b JOIN public.list_item i ON i.id = b.list_item_id
+    WHERE b.user_id <> i.user_id)                                                                        AS foreign_binder_placements;
+```
+
+**2. Apply** (a shell with the production `PG*` credentials, not an agent session):
+
+```bash
+set -a && . ./.env.prod && set +a
+pnpm --filter @deckpal/db build
+pnpm migrate            # expect: APPLIED  072_postgrest_reach
+pnpm migrate:status     # expect: [x] 072_postgrest_reach, 0 pending
+```
+
+**3. Verify from outside**, with only the public anon key (count-only, no rows):
+
+```bash
+CFG=$(curl -s https://deckpal.app/api/public-config)
+URL=$(jq -r .supabaseUrl <<<"$CFG"); ANON=$(jq -r .supabaseAnonKey <<<"$CFG")
+curl -sI "$URL/rest/v1/collection_dupe_predicate?select=user_id" \
+  -H "apikey: $ANON" -H "Authorization: Bearer $ANON" -H "Prefer: count=exact" \
+  | grep -iE '^HTTP|content-range'
+# before: HTTP/2 206 and content-range: 0-999/1549
+# after:  HTTP/2 404 (or 401). Anything with a content-range is still open.
+```
+
+**Rolling back** is deliberately not offered for the dropped view: it had no
+reader, and restoring it restores the leak. Everything else is additive
+(an index, a trigger, two unique constraints, four foreign keys re-pointed from
+`(id)` to `(id, user_id)`, narrower grants) and no app path depends on the old
+shape, so a constraint that refuses a write has found a write that was crossing
+accounts. Report it rather than dropping the constraint.

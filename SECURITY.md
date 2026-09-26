@@ -38,6 +38,30 @@ single.
 data is world-readable. Per-user data (collection, decks, lists, battle logs)
 is restricted to the owning user via `user_id = (SELECT auth.uid())`.
 
+Supabase serves the `public` schema over PostgREST to anyone holding the anon
+key, so RLS is only the answer if nothing routes around it. Three shapes did,
+until migration 072 (security audit, 2026-09-26; DECISIONS.md):
+
+- **Views run as their caller.** A view without `security_invoker = true` runs
+  as its owner and skips RLS; one such view exposed every user's collection to
+  the anon key from migration 020 until 072. Every view is now an invoker view,
+  and `packages/db/src/__tests__/migrationLint.test.ts` refuses a new view
+  created any other way.
+- **Own-row policies do not restrict columns.** `user_profile` is writable by
+  its owner only in the avatar columns the API writes, and an avatar object key
+  can belong to one profile at a time, so nobody can point their profile at
+  another user's photo and have the API delete it. A revoked `api_token` cannot
+  be un-revoked, and its identity columns never change (a trigger, for every
+  writer).
+- **Foreign-key checks ignore RLS.** A deck's cards, versions and battle logs,
+  and a binder's placements, reference their parent by `(id, user_id)`, so a
+  row can only hang off a parent its own owner owns.
+
+The database integration suite (`apps/api/src/__integration__/reach.mjs`)
+applies every migration with Supabase's default grants and asserts that the
+anon role and a second signed-in user reach none of a user's rows in any table
+or view in `public`.
+
 **Service role key:** The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is used
 only server-side (sync jobs, catalog writes, storage uploads). It is set as a
 Vercel environment variable and is never exposed to the client.

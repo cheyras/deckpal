@@ -2787,6 +2787,15 @@ FROM collection_item ci JOIN card_variant cv ON cv.id = ci.card_variant_id
 GROUP BY user_id, card_id;
 ```
 
+> **Superseded, and a warning (2026-09-26).** This view shipped (migrations 009,
+> then 020) and was never read by the app: the Dupes tab was not built. Written
+> as above it runs with its owner's rights, so on Supabase it bypassed
+> `collection_item`'s RLS and served every account's rows to the anon key at
+> `/rest/v1/collection_dupe_predicate` from 020 until migration 072 dropped it
+> (DECISIONS.md 2026-09-26, security audit SEC-01). If Dupes is built, compute
+> the predicate inside the caller's own query, or recreate the view
+> `WITH (security_invoker = true)`; the migration lint refuses any other form.
+
 The three predicates fall straight out of `owned`:
 
 ```sql
@@ -3173,8 +3182,9 @@ The authenticated reference captures (not tracked) §21 item 3 — `677 / 276 = 
 the switch is one line, but the Trainer Level shown to the user depends on it.
 
 **6. The `Dupes` predicate (§17.2).** Still unobserved after 37 authenticated screenshots — the tab
-was never tapped. Now isolated in a single view so the definition is one expression. The
-orthogonality question *is* settled (Have + Need partition the denominator; Dupes overlaps Have).
+was never tapped. It was isolated in a single view so the definition was one expression; that view
+leaked every user's rows and was dropped by migration 072 (see the note under "Have / Need / Dupes").
+The orthogonality question *is* settled (Have + Need partition the denominator; Dupes overlaps Have).
 
 **7. Keeping quantity-0 `collection_item` rows (§9.1).** I have moved *toward* this rather than
 away: the binder checkbox (D10) makes an append-only event log genuinely load-bearing rather than

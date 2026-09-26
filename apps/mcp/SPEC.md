@@ -683,6 +683,8 @@ remain no-store and outside anonymous service-worker caching.
 Suspension/token revoke-all still cover API, token resolver, standalone MCP
 context and restrictive data policies; OAuth codes are consumed as well.
 Mint/exchange and revoke-all coordinate through commit. Reactivation does not
-revive credentials. Already-running work and previously downloaded content
+revive credentials, and no writer, the token's own user included, can clear a
+revocation (a trigger since migration 072; before it, a user could PATCH
+`revoked_at` back to NULL over PostgREST). Already-running work and previously downloaded content
 cannot be recalled. Administrative UI routes/actions remain outside Deck-E's
 navigation/click allowlists.
