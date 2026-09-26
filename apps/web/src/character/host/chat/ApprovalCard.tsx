@@ -1079,9 +1079,10 @@ export function ApprovalCard({
           Leave it
         </Button>
         {topUpInstead ? (
-          // Declines the held call first, so nothing is left waiting on a card
-          // the reader has walked away from; then goes where credits are bought.
-          <Button variant="primary" size="sm" onClick={() => { onDeny(); onTopUp?.() }} disabled={busy}>
+          // Not a decline: answering the card would send another metered
+          // request. `onTopUp` ends the turn on its way to the wallet, which
+          // settles this call as declined without sending anything.
+          <Button variant="primary" size="sm" onClick={onTopUp} disabled={busy}>
             {TOP_UP_LABEL}
           </Button>
         ) : (

@@ -511,6 +511,31 @@ export function DeckeHost() {
     wasCharging.current = charging
   }, [chat.busy, chat.approvalBusy, wallet.refetch])
 
+  /**
+   * ── THE BALANCE A PRICE IS CHECKED AGAINST IS READ WHEN THE CARD GOES UP ──
+   *
+   * Neither balance the panel already holds is current at that moment. The
+   * wallet is refetched when a turn ENDS, so mid-turn it predates the turn; the
+   * chat's `x-decke-credits` header is written as a leg's response starts, so a
+   * deep call that ran inside that same leg is not in it (both found in
+   * review). So each card asks the wallet once, and the price line waits for an
+   * answer newer than the card rather than quoting a number that may be wrong
+   * in the one direction that costs the reader — offering a yes the meter then
+   * refuses. Later wallet reads (a top-up in another tab, refetched on focus)
+   * are newer still, so they are honoured too.
+   *
+   * State adjusted during render rather than in an effect, so the render that
+   * first draws a card already knows its read has not landed.
+   */
+  const heldId = chat.asking?.[0]?.approvalId ?? null
+  const [held, setHeld] = useState<{ id: string | null; since: number }>({ id: null, since: 0 })
+  if (held.id !== heldId) setHeld({ id: heldId, since: Date.now() })
+  const heldSince = held.id === heldId ? held.since : Number.POSITIVE_INFINITY
+  const refetchWallet = wallet.refetch
+  useEffect(() => {
+    if (heldId) void refetchWallet()
+  }, [heldId, refetchWallet])
+
   useEffect(() => {
     const mq = window.matchMedia(`(min-width: ${NAV_BREAKPOINT}px)`)
     const on = () => setWide(mq.matches)
@@ -1935,14 +1960,18 @@ function settledRect(el: HTMLElement): DOMRect {
         credits={wallet.data ? wallet.data.enabled ? { remaining: wallet.data.balance, allowance: wallet.data.balance, lowAt: wallet.data.lowAt } : null : chat.credits}
         // Prices only where they are charged: an unlimited account, or a
         // deployment with credits off, is quoted nothing rather than a number
-        // for something that is free. The balance is the chat's own when it has
-        // one — reported by the leg that is asking, so already net of its
-        // charge — because the wallet is only refetched once a turn ends. See
-        // `DeepQuote`.
+        // for something that is free. The balance is only one read AFTER the
+        // card went up — see `heldSince` — and is null until that read lands.
         quote={wallet.data?.enabled && !wallet.data.unlimited
-          ? { ...wallet.data.prices, balance: chat.credits?.remaining ?? wallet.data.balance }
+          ? { ...wallet.data.prices, balance: heldId && wallet.dataUpdatedAt >= heldSince ? wallet.data.balance : null }
           : null}
-        onTopUp={() => { setChatOpen(false); void navigate({ to: '/credits' }) }}
+        // LEAVING TO BUY CREDITS ENDS THE TURN, exactly as closing does. The
+        // panel going away is not enough on its own: a turn held on a card the
+        // reader has walked away from would otherwise be answered and carry on
+        // under the closed panel — another metered request, and a turn that can
+        // navigate. `close` aborts it, which settles the held call as declined
+        // without sending anything. A no-op when nothing is running.
+        onTopUp={() => { chat.close(); setChatOpen(false); void navigate({ to: '/credits' }) }}
         // So the history list can mark the row the reader is actually in. It
         // cannot be inferred from the list itself — see `liveId`.
         conversationId={chat.conversationId}

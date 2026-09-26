@@ -130,10 +130,10 @@ export type DeepCost = { credits: number; balance: number }
  * The wallet's per-operation prices, exactly as `/me/credits` reports them, and
  * the balance to check them against.
  *
- * `balance` is the FRESHEST one the panel has, which during a held call is the
- * balance the asking leg's own response reported (`x-decke-credits`), already
- * net of that leg's charge. The wallet query is only refetched when a turn ends,
- * so mid-turn it is the balance from before this turn began.
+ * `balance` is a wallet read taken AFTER this card went up, or null until one
+ * lands (`DeckeHost`'s `heldSince`). Neither older number is safe: the wallet
+ * is refetched when a turn ends, and a leg's `x-decke-credits` header predates
+ * any deep call that ran inside that leg.
  */
 export type DeepQuote = { analysis: number; planDeck: number; chatTurn: number; balance: number | null }
 

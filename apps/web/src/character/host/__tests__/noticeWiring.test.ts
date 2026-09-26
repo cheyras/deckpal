@@ -112,8 +112,16 @@ test('the confirmation card is HANDED the price, and the host hands the panel th
   assert.match(PANEL, /cost=\{deepCost\(asking\[0\]\.name, quote\)\}/,
     'ApprovalCard is no longer given the price')
   assert.match(PANEL, /onTopUp=\{onTopUp\}\s*\/>/, 'a short balance has nowhere to go')
-  assert.match(HOST, /quote=\{wallet\.data\?\.enabled && !wallet\.data\.unlimited\s*\? \{ \.\.\.wallet\.data\.prices, balance: chat\.credits\?\.remaining \?\? wallet\.data\.balance \}\s*: null\}/,
-    'the host no longer passes the wallet prices with the freshest balance, or quotes an uncharged account')
+  // The balance is a wallet read taken AFTER the card went up — neither the
+  // pre-turn wallet nor a leg header that predates a deep call inside it.
+  assert.match(HOST, /balance: heldId && wallet\.dataUpdatedAt >= heldSince \? wallet\.data\.balance : null/,
+    'the price is checked against a balance read before the card appeared')
+  assert.match(HOST, /if \(heldId\) void refetchWallet\(\)/, 'a new card no longer asks the wallet for the balance')
+  assert.match(HOST, /quote=\{wallet\.data\?\.enabled && !wallet\.data\.unlimited/, 'an uncharged account is quoted a price')
+  // Leaving for the wallet ENDS the turn: answering the card would send another
+  // metered request and let the turn carry on under a closed panel.
+  assert.match(HOST, /onTopUp=\{\(\) => \{ chat\.close\(\); setChatOpen\(false\); void navigate\(\{ to: '\/credits' \}\) \}\}/,
+    'Top up leaves a running turn behind')
 })
 
 test('a standalone arrival closes the chat; a hop inside a walk does NOT', () => {

@@ -396,7 +396,9 @@ export async function checkDeckeStates(browser, server, out, engine) {
       const before = await page.evaluate(() => ({ ...window.fixture.events }))
       await card.getByRole('button', { name: 'Top up credits' }).click()
       const after = await page.evaluate(() => window.fixture.events)
-      assert.equal(after.denies, before.denies + 1, 'Top up left the held call waiting')
+      // Not a decline: answering would send another metered request. The host's
+      // top-up ends the turn instead (pinned in noticeWiring.test.ts).
+      assert.equal(after.denies, before.denies, 'Top up answered the card, which sends a metered continuation')
       assert.equal(after.topUps, before.topUps + 1)
       // Exactly the guide's price is still short: the continuation turn comes first.
       await set(page, { quote: { ...QUOTE, balance: 75 } })
