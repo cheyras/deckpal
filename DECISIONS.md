@@ -20516,3 +20516,44 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 - `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
 - `CardArt.name` is now rendered, by the dry-run rows only.
 - Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
+## 2026-09-26 — Browser CI job: cache Playwright browsers, run its build+check branches concurrently
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** `browser.yml`'s single job was close to timing out (11-13 min against a 15 min
+cap, several open PRs already raising the cap). Two changes, aimed at the two real costs:
+1. Cache `~/.cache/ms-playwright`, keyed on `runner.os` + the pinned Playwright version read
+   from `package.json` at run time. On a cache hit, run `playwright install-deps` (system
+   libraries only) instead of the full `install --with-deps` (which re-downloads the browser
+   binaries every run).
+2. `scripts/test-browser.mjs` ran its three independent build+check branches (self-host,
+   cloud, the rendered-chat fixture) and a standalone typecheck sequentially in a single
+   `for` loop, sharing one process. They do not share mutable state with one another (each
+   builds its own dist into its own scratch dir and drives its own fixture server; only the
+   self-host/cloud admin-fixture state is shared *within* a label, not across labels), so
+   they were only sequential because `support.mjs`'s `run()` used `child_process.spawnSync`
+   for the `vite build`/`tsc` subprocess calls, which blocks Node's single thread for the
+   whole build. Switched `run()` to async `spawn`, and the orchestrator now runs all four
+   branches through a small bounded-concurrency pool (limit 4, matching a GitHub-hosted
+   runner's 4 cores) instead of the sequential loop.
+
+**Why:** Confirmed the three `vite build` invocations are genuinely different builds (distinct
+`VITE_SUPABASE_URL`/base path per self-host vs cloud, a wholly separate Vite config for the
+chat fixture), so there was no redundant "same build twice" to collapse — QUAL-08 already
+flagged this correctly. The actual lever is wall-clock concurrency of otherwise-independent
+work. Verified two concurrent `vite build` invocations against the same `apps/web` root (same
+Rollup/PWA plugin config, different `--outDir` and env) do not collide or corrupt each other's
+output before relying on this for the real fix.
+
+**Implications:**
+- A suite's own try/finally (browser context close, fixture-server close, failure screenshot)
+  is unchanged; only the orchestration around the four branches changed from fail-fast (a
+  failing label stops before the next one starts) to fail-together (every branch runs to
+  completion and every failure is reported in one combined error). No assertion in any test
+  file changed.
+- Adding a fifth branch (another open PR's new browser test file) is one more entry in the
+  `suites` array in `scripts/test-browser.mjs` — the same shape as the existing four.
+- **Not done / follow-up noted for the next session:** auto-discovering `tests/browser/*.mjs`
+  files instead of a maintained array would remove even that one line as a merge-conflict
+  point across concurrent PRs; flagged, not implemented this session.
+- CI timing before/after and Astra's review are recorded in the PR.
