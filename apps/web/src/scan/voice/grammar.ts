@@ -72,7 +72,7 @@ export interface ParseResult {
    *  objection ("don't remove it"), a question or a wish ("should I remove
    *  it?"), or two cards at once. A refusal is never outvoted by another of the
    *  recognizer's guesses (`parseAlternatives`). */
-  refused?: 'negation' | 'question' | 'two-cards' | 'two-commands'
+  refused?: 'negation' | 'question' | 'two-cards' | 'two-commands' | 'invalid-count'
 }
 
 /** A row the reader might name, MOST RECENT FIRST, so a name that appears twice
@@ -445,10 +445,9 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
       used.add(k)
     }
   }
-  // A count it cannot set ("0 reverse holos", "100 of those") refuses the whole
-  // utterance; applying only the printing half would be a partial answer to a
-  // request that was never valid.
-  if (quantity !== null && (quantity < 1 || quantity > MAX_QUANTITY)) return { command: null, coverage: 0 }
+  // A count it cannot set ("0 reverse holos", "100 of those"). Refused below,
+  // after the objections, so a lesser guess cannot outvote either.
+  const invalidCount = quantity !== null && (quantity < 1 || quantity > MAX_QUANTITY)
 
   // Coverage: every word some segment explains. An unused "one" is filler ("the
   // reverse one"), and an unused "to" is a preposition when a printing follows
@@ -511,6 +510,9 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   if (command?.kind === 'remove' && (finish || modifiers.length || quantity !== null)) {
     return { command: null, coverage, refused: 'two-commands' }
   }
+  // Applying only the printing half of "0 reverse holos" would be a partial
+  // answer to a request that was never valid.
+  if (invalidCount) return { command: null, coverage, refused: 'invalid-count' }
 
   // Every word explained, for every command — "undo" and "stop listening"
   // included: "please keep it in the binder" is not an undo, and "they told me

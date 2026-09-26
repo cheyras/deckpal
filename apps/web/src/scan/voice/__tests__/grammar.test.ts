@@ -281,6 +281,8 @@ describe('alternatives', () => {
     assert.equal(negated.refused, 'negation')
     assert.equal(parseAlternatives(['remove it', 'do not remove it'], ROWS).command, null)
     assert.equal(parseAlternatives(['should I remove it', 'remove it'], ROWS).refused, 'question')
+    assert.equal(parseAlternatives(['do not make it 100', 'make it 1'], ROWS).command, null)
+    assert.equal(parseAlternatives(['make it 100', 'make it 1'], ROWS).refused, 'invalid-count')
     assert.equal(parseAlternatives(['is it a holo', 'it a holo'], ROWS).command, null)
     // A command that names its card is refused by a negation as well.
     assert.equal(parseUtterance("I can't remove charizard ex", ROWS).command, null)

@@ -173,9 +173,17 @@ describe('the queue', () => {
     let q = enqueue(EMPTY_QUEUE, propose(spec('holo'), 'r1', [], 0, mint).actions)
     q = enqueue(q, propose(spec('holo'), 'r2', [], 0, mint).actions)
     q = tick(q, [row('r1')], 0, () => true).queue
-    const s = settleAll(q)
+    const s = settleAll(q, [row('r1')])
     assert.deepEqual(s.due.map((a) => a.rowId), ['r1'])
     assert.equal(s.queue.pending.length, 0)
+  })
+
+  it('settles a command whose row exists even if its hold never started', () => {
+    const q = enqueue(EMPTY_QUEUE, propose(spec('two of those'), 'r1', [row('r1')], 0, mint).actions)
+    assert.equal(q.pending[0].settleAt, null)
+    const s = settleAll(q, [row('r1')])
+    assert.deepEqual(s.due.map((a) => a.kind), ['quantity'])
+    assert.equal(applyAction([row('r1')], s.due[0]).feed[0].quantity, 2)
   })
 
   it('cancels one pending change', () => {

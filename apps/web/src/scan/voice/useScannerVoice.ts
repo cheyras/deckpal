@@ -250,13 +250,16 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         return
       }
       commitQueue(enqueue(queueRef.current, actions))
+      // Start the hold now if the row is already there, rather than on the
+      // next tick: nothing heard should sit un-started, even for 200 ms.
+      runTick()
       show('heard', outcome.message, actions.map((a) => a.id))
       // A tap you can feel where the platform allows one (not iOS Safari). Never
       // a sound: audio playback silently kills the iOS recognizer.
       if ('vibrate' in navigator) navigator.vibrate(12)
       if (feedRef.current.some((e) => e.id === rowId)) cbRef.current.onTarget?.(rowId)
     },
-    [commitQueue, show, stop, undo],
+    [commitQueue, runTick, show, stop, undo],
   )
 
   const onStatus = useCallback((next: VoiceStatus, why: string | null) => {
@@ -298,7 +301,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       rec.stop()
     }
     if (queueRef.current.pending.length) {
-      const s = settleAll(queueRef.current)
+      const s = settleAll(queueRef.current, feedRef.current)
       commitQueue(s.queue)
       if (s.due.length) applyDue(s.due)
     }

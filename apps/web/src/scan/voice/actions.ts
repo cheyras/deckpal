@@ -211,9 +211,15 @@ export function tick(
 
 /** Everything with a row applies now; everything still waiting for one is let
  *  go. For leaving the scan step, where the reader has seen every chip and
- *  objected to none of them. */
-export function settleAll(queue: VoiceQueue): { queue: VoiceQueue; due: VoiceAction[] } {
-  return { queue: { ...queue, pending: [] }, due: queue.pending.filter((a) => a.settleAt !== null) }
+ *  objected to none of them. A command heard a moment ago whose row exists
+ *  but whose hold has not been started yet counts as having a row. */
+export function settleAll(queue: VoiceQueue, feed: readonly FeedEntry[]): { queue: VoiceQueue; due: VoiceAction[] } {
+  const due = queue.pending.flatMap((a) => {
+    if (a.settleAt !== null) return [a]
+    const row = feed.find((e) => e.id === a.rowId)
+    return row ? [{ ...a, cardId: a.cardId ?? row.cardId, settleAt: 0 }] : []
+  })
+  return { queue: { ...queue, pending: [] }, due }
 }
 
 export function cancel(queue: VoiceQueue, actionId: string): VoiceQueue {
