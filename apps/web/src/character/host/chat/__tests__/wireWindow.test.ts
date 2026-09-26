@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { TOOL_RECORD_PREFIX } from '../lookupRecord'
 import { WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, windowPrior } from '../wireWindow'
 
 const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
@@ -9,7 +10,7 @@ const chat = (n: number, size = 400) =>
 
 test('a short chat is sent whole, and nobody is told anything', () => {
   const prior = chat(5)
-  assert.deepEqual(windowPrior(prior), { messages: prior, dropped: 0 })
+  assert.deepEqual(windowPrior(prior), { messages: prior, dropped: 0, evidence: [] })
 })
 
 test('a long chat sends only the newest window, starting on a reader message', () => {
@@ -53,4 +54,13 @@ test('a message the server refused as too long is not replayed, and costs no his
   const { messages, dropped } = windowPrior(prior)
   assert.equal(dropped, 0)
   assert.deepEqual(messages, chat(3))
+})
+
+test('a dropped reply keeps its failures and lookup record as evidence, and nothing else', () => {
+  const failure = { type: 'tool-battle_logs', toolCallId: 'f', state: 'output-error', input: {}, errorText: 'Internal server error' }
+  const record = { type: 'text', text: `${TOOL_RECORD_PREFIX} you actually ran these]\nbattle_logs: 3 logs` }
+  const early = { role: 'assistant', parts: [{ type: 'text', text: 'Sorry, that failed.' }, record, failure] }
+  const { messages, evidence } = windowPrior([user('first'), early, ...chat(20)])
+  assert.ok(!messages.includes(early), 'the reply itself has left the window')
+  assert.deepEqual(evidence, [{ role: 'assistant', parts: [record, failure] }])
 })

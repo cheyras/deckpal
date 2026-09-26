@@ -11,8 +11,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { convertToModelMessages } from 'ai'
+import { failingTools } from '../failing.js'
 import {
   BODY_MAX_BYTES,
+  EVIDENCE_MAX,
+  boundedEvidence,
   MESSAGES_MAX,
   PART_MAX_CHARS,
   WINDOW_MESSAGES,
@@ -196,6 +199,33 @@ test('the browser mirrors the window, so a long honest chat never meets the body
   assert.equal(num('WINDOW_MESSAGES'), WINDOW_MESSAGES)
   assert.equal(num('WINDOW_PRIOR_CHARS'), WINDOW_PRIOR_CHARS)
   assert.equal(num('PART_MAX_CHARS'), PART_MAX_CHARS)
+  assert.equal(num('EVIDENCE_MAX'), EVIDENCE_MAX)
   const hook = readFileSync(new URL('../../../../web/src/character/host/useDeckeChat.ts', import.meta.url), 'utf8')
   assert.match(hook, /windowPrior\(messagesToWire\(currentRef\.current\)\)/, 'the hook no longer trims what it sends')
+})
+
+// ── THE LEDGERS OUTLIVE THE WINDOW ──────────────────────────────────────────
+
+test('a failing-tool breaker survives trimming through the evidence field (Astra, PR review)', () => {
+  // Two turns where `battle_logs` failed, then twelve ordinary exchanges: the
+  // failures have left the window the browser sends, and without evidence the
+  // breaker quietly re-closes.
+  const failed = (id: string) => ({
+    role: 'assistant' as const,
+    parts: [{ type: 'tool-battle_logs', toolCallId: id, state: 'output-error', input: {}, errorText: 'Internal server error' }],
+  })
+  const evidence = boundedEvidence([failed('f1'), failed('f2')])
+  const window = [...chat(12), user('show my battles')]
+  assert.equal(failingTools(window).get('battle_logs'), undefined)
+  assert.equal(failingTools([...evidence, ...window]).get('battle_logs'), 2)
+})
+
+test('evidence is advisory: anything but failures and lookup records empties it', () => {
+  assert.deepEqual(boundedEvidence(undefined), [])
+  assert.deepEqual(boundedEvidence([{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }]), [])
+  assert.deepEqual(boundedEvidence([{ role: 'assistant', parts: [{ type: 'tool-x', state: 'output-available' }] }]), [])
+  assert.deepEqual(boundedEvidence([{ role: 'assistant', parts: [{ type: 'file', url: 'https://example.test' }] }]), [])
+  const many = Array.from({ length: EVIDENCE_MAX + 1 }, () => ({ role: 'assistant', parts: [{ type: 'text', text: 'r' }] }))
+  assert.deepEqual(boundedEvidence(many), [])
+  assert.equal(boundedEvidence(many.slice(1)).length, EVIDENCE_MAX)
 })

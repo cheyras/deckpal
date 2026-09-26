@@ -131,6 +131,7 @@ import {
   windowForModel,
   boundedRoute,
   boundedLandmarks,
+  boundedEvidence,
   readBodyCapped,
 } from '../apps/api/dist/decke/wireBounds.js'
 import { makePool } from '@deckpal/db'
@@ -431,6 +432,10 @@ async function serve(request) {
   const messages = wire.messages
   const route = boundedRoute(body?.route)
   const landmarks = boundedLandmarks(body?.landmarks)
+  // What replies the browser's window dropped still owe the two
+  // conversation-wide ledgers below — failures and lookup records only, and
+  // never shown to the model. See `boundedEvidence`.
+  const evidence = boundedEvidence(body?.evidence)
 
   // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
   //
@@ -475,11 +480,11 @@ async function serve(request) {
   // The reader's own latest message is the ONLY thing that re-opens a tripped
   // breaker — the same "one fact the model cannot fake" argument `declined.ts`
   // makes for its own bypass. See `decke/failing.ts`.
-  const failing = failingTools(messages)
+  const failing = failingTools([...evidence, ...messages])
   const retryRequested = readerAsksRetry(latestUserText(messages))
   // What the reader has already been shown, tool by tool — same reconstruct-
   // from-the-wire shape as `failing` above. See `decke/toldAlready.ts`.
-  const told = priorSummaries(messages)
+  const told = priorSummaries([...evidence, ...messages])
 
   // ── THE METER ─────────────────────────────────────────────────────────────
   //

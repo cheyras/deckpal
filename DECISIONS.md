@@ -20514,7 +20514,12 @@ boundary and started on a reader message. Every ledger derived from history
 provenance, the charge hash) still reads the whole validated array. The
 browser trims to the same window before sending (`chat/wireWindow.ts`), drops
 a message the server already refused, and tells the reader once per
-conversation when the start of the chat falls out of the window. `route` is
+conversation when the start of the chat falls out of the window. Replies that
+leave the window still send their replayed failures and lookup records in a
+separate `evidence` field (at most 24), which the server hands to the two
+conversation-wide ledgers (the failing-tool breaker and the already-told
+record) and never to the model — so a tool that failed in two turns stays
+switched off after those turns scroll away (found by Astra in review). `route` is
 clipped to 200 characters and each landmark string to 200. **SEC-12:** both
 route allowlists (`isAllowedRoute`, `routeAllowed`) accept a path only if URL
 resolution leaves it unchanged, and refuse `%2e`/`%2f`/`%5c`/`%00` and control
@@ -20535,7 +20540,7 @@ a prompt-text promise into a check in code.
 **Implications:** A very long conversation now loses its oldest turns from
 the model's view; the reader is told, and a new chat is the remedy. Declines
 and the other ledgers are unaffected by trimming. `WINDOW_MESSAGES`,
-`WINDOW_PRIOR_CHARS` and `PART_MAX_CHARS` are mirrored between
+`WINDOW_PRIOR_CHARS`, `PART_MAX_CHARS` and `EVIDENCE_MAX` are mirrored between
 `apps/api/src/decke/wireBounds.ts` and `apps/web/src/character/host/chat/wireWindow.ts`
 and pinned by `wireBounds.test.ts`; `isNormalPath` is mirrored between
 `tools.ts` and `uiTools.ts` and pinned by `tools.test.ts`. A guide sub-agent

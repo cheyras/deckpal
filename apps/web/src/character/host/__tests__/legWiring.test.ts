@@ -231,8 +231,11 @@ test('the refusal goes in the PREFIX, ahead of the approval answers', () => {
 test('the server rebuilds the failure ledger from those parts', () => {
   // The client half is worthless without the server half, and the server half
   // is worthless without the client half — so both are pinned in one place.
-  assert.match(CHAT, /const failing = failingTools\(messages\)/)
+  // Plus the evidence of replies the window dropped, which this hook sends
+  // alongside the trimmed wire (SEC-04) so the breaker stays conversation-wide.
+  assert.match(CHAT, /const failing = failingTools\(\[\.\.\.evidence, \.\.\.messages\]\)/)
   assert.match(CHAT, /\n\s*failing,\r?\n\s*retryRequested,/)
+  assert.match(HOOK, /\.\.\.\(evidence\.length \? \{ evidence \} : \{\}\)/, 'the hook no longer sends the evidence')
 })
 
 // Captured conversation/exchange correlation is verified through actual HTTP

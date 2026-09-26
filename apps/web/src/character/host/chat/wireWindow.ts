@@ -23,6 +23,8 @@
  * `wireBounds.test.ts` there pins the numbers against this file.
  */
 
+import { TOOL_RECORD_PREFIX } from './lookupRecord'
+
 /** Prior messages the model is shown. */
 export const WINDOW_MESSAGES = 24
 
@@ -39,7 +41,33 @@ export const WINDOW_PRIOR_CHARS = 64_000
  */
 export const PART_MAX_CHARS = 60_000
 
+/** Dropped replies whose ledger evidence still rides along. MIRRORS `EVIDENCE_MAX`. */
+export const EVIDENCE_MAX = 24
+
 type WireLike = { role: string; parts: Record<string, unknown>[] }
+
+/**
+ * What a reply that left the window still owes the server's LEDGERS — never
+ * the model.
+ *
+ * Two of them are conversation-wide and read replies from any earlier turn:
+ * the failing-tool breaker (`decke/failing.ts` — a tool that failed in two
+ * distinct turns is not called again, and a later success resets it) and the
+ * already-told record (`decke/toldAlready.ts`). Both read only a reply's
+ * replayed failures and its lookup record. Trimming those away with the text
+ * would quietly re-close a breaker the reader never asked to retry, so they
+ * travel in a separate `evidence` field the server gives to the ledgers and
+ * does not show the model. Everything else in the reply stays dropped.
+ */
+function evidenceOf(m: WireLike): WireLike | null {
+  if (m.role !== 'assistant') return null
+  const parts = m.parts.filter((p) =>
+    p.type === 'text'
+      ? typeof p.text === 'string' && p.text.startsWith(TOOL_RECORD_PREFIX)
+      : typeof p.type === 'string' && p.type.startsWith('tool-') && p.state === 'output-error',
+  )
+  return parts.length ? { role: 'assistant', parts } : null
+}
 
 function partChars(part: Record<string, unknown>): number {
   if (part.type === 'text') return typeof part.text === 'string' ? part.text.length : 0
@@ -55,9 +83,12 @@ function partChars(part: Record<string, unknown>): number {
  *
  * `dropped` is how many were left behind, so the caller can tell the reader
  * once that the start of the chat is out of his view rather than letting him
- * find out by asking about it.
+ * find out by asking about it. `evidence` is what those dropped replies still
+ * owe the server's ledgers; see `evidenceOf`.
  */
-export function windowPrior<T extends WireLike>(all: readonly T[]): { messages: T[]; dropped: number } {
+export function windowPrior<T extends WireLike>(
+  all: readonly T[],
+): { messages: T[]; dropped: number; evidence: WireLike[] } {
   const prior = all.filter((m) => m.parts.every((p) => partChars(p) <= PART_MAX_CHARS))
   let start = prior.length
   let chars = 0
@@ -68,5 +99,10 @@ export function windowPrior<T extends WireLike>(all: readonly T[]): { messages: 
     start--
   }
   while (start < prior.length && prior[start]!.role !== 'user') start++
-  return { messages: prior.slice(start), dropped: start }
+  const evidence = prior
+    .slice(0, start)
+    .map(evidenceOf)
+    .filter((e): e is WireLike => e !== null)
+    .slice(-EVIDENCE_MAX)
+  return { messages: prior.slice(start), dropped: start, evidence }
 }

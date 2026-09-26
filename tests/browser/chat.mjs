@@ -168,9 +168,15 @@ async function checkBounds(page, server, width, out) {
       return route.fulfill({ status: 413, contentType: 'application/json',
         body: JSON.stringify({ error: 'That message is too long for Deck-E to read in one go.', code: 'message_too_long' }) })
     }
+    // The first turn's tool FAILS, so its evidence has to outlive the window:
+    // the server's failing-tool breaker counts failures across the whole
+    // conversation, and the browser now sends only the recent part of it.
+    const failed = bodies.length === 1
+      ? [{ type: 'data-decke-tool', data: { id: 'bl-1', name: 'battle_logs', title: 'Reading battle logs', phase: 'error', summary: 'Internal server error' } }]
+      : []
     return route.fulfill({ status: 200, contentType: 'text/event-stream',
       headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' },
-      body: sse({ type: 'text-delta', delta: 'Answer ' + bodies.length + '.' }) })
+      body: sse(...failed, { type: 'text-delta', delta: 'Answer ' + bodies.length + '.' }) })
   })
   await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
   const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
@@ -187,6 +193,10 @@ async function checkBounds(page, server, width, out) {
   assert.deepEqual(last[last.length - 1].parts, [{ type: 'text', text: 'Question ' + exchanges }])
   assert.equal(last[last.length - 2].parts[0].text, 'Answer ' + (exchanges - 1) + '.', 'the newest exchange must survive')
   assert.ok(bodies.every(b => b.messages.length <= WINDOW_MESSAGES + 1), 'no request may carry more than the window')
+  assert.ok(!last.flatMap(m => m.parts).some(p => p.type === 'tool-battle_logs'), 'the first turn must have left the window')
+  assert.deepEqual(bodies[bodies.length - 1].evidence?.flatMap(m => m.parts).filter(p => p.type === 'tool-battle_logs')
+    .map(p => [p.state, p.errorText]), [['output-error', 'Internal server error']], 'the dropped failure must ride along as evidence')
+  assert.equal(bodies[1].evidence, undefined, 'no evidence is sent while nothing has been dropped')
   const told = panel.getByText('I can only see the recent part of this chat now — start a new one for a clean slate.', { exact: true })
   assert.equal(await told.count(), 1, 'the reader is told once, not on every turn')
   await told.scrollIntoViewIfNeeded()
@@ -202,7 +212,7 @@ async function checkBounds(page, server, width, out) {
   await page.screenshot({ path: path.join(out, 'bounds-413-' + width + '.png') })
   await page.unroute('**/api/chat')
   await page.unroute('**/decke/history')
-  return { case: 'wire-bounds', width, requests: bodies.length, lastBodyMessages: last.length, trimNotice: 1, tooLongNotice: true }
+  return { case: 'wire-bounds', width, requests: bodies.length, lastBodyMessages: last.length, droppedFailureEvidence: true, trimNotice: 1, tooLongNotice: true }
 }
 
 export async function checkChat(browser, server, out) {

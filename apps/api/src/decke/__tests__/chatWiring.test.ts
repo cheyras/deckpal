@@ -102,7 +102,9 @@ test('the promise detector is wired into the one-guard chain', () => {
 test('the failing-tool ledger is rebuilt per request and handed to the data tools', () => {
   // The server keeps nothing between requests, so this can only come from the
   // replayed history — the same source, lifetime and argument as `declined`.
-  assert.match(CODE, /const failing = failingTools\(messages\)/);
+  // Plus the evidence of replies the browser's window dropped (SEC-04), so the
+  // breaker stays conversation-wide after trimming.
+  assert.match(CODE, /const failing = failingTools\(\[\.\.\.evidence, \.\.\.messages\]\)/);
   assert.match(CODE, /const retryRequested = readerAsksRetry\(latestUserText\(messages\)\)/);
   // Threaded in. A ledger that is built and not passed is this repository's
   // most repeated defect, and is exactly what happened to the two guards above.
@@ -115,7 +117,7 @@ test('the already-told ledger is rebuilt per request and handed to the data tool
   // Same source, lifetime and argument as `failing` above — and the same
   // defect class if unthreaded: `toldAlready.ts` with no caller is a green
   // suite annotating nothing.
-  assert.match(CODE, /const told = priorSummaries\(messages\)/);
+  assert.match(CODE, /const told = priorSummaries\(\[\.\.\.evidence, \.\.\.messages\]\)/);
   assert.match(CODE, /priorSummaries: told,/);
 });
 
@@ -183,4 +185,13 @@ test('the model is shown the window, and the prompt the bounded page context', (
   assert.match(CODE, /const route = boundedRoute\(body\?\.route\)/);
   assert.match(CODE, /const landmarks = boundedLandmarks\(body\?\.landmarks\)/);
   assert.doesNotMatch(CODE, /landmarks\.slice\(0, 40\)/, 'the old count-only slice is back');
+});
+
+test('dropped replies\' evidence reaches the two ledgers and never the model', () => {
+  assert.match(CODE, /const evidence = boundedEvidence\(body\?\.evidence\)/);
+  // Read by the two ledgers and nothing else — in particular never spread into
+  // what the model is shown.
+  const reads = CODE.match(/\.\.\.evidence\b/g) ?? [];
+  assert.equal(reads.length, 2, `evidence is read ${reads.length} times; it belongs to the two ledgers only`);
+  assert.doesNotMatch(CODE, /windowForModel\([^)]*evidence/);
 });

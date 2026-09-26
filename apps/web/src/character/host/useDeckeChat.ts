@@ -784,7 +784,7 @@ export function useDeckeChat(
       // window first leaves something behind, the reader is told once, above
       // the reply, rather than finding out by asking about it. See
       // `chat/wireWindow.ts`.
-      const { messages: priorWire, dropped } = windowPrior(messagesToWire(currentRef.current))
+      const { messages: priorWire, dropped, evidence } = windowPrior(messagesToWire(currentRef.current))
       const tellTrim = dropped > 0 && trimToldRef.current !== exchangeConversation
       if (tellTrim) trimToldRef.current = exchangeConversation
       setMessages((m) => [
@@ -1040,7 +1040,7 @@ export function useDeckeChat(
         /** Tool call ids already carried into a later leg. See `lookupRecord`. */
         const replayedChips = new Set<string>()
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
-          const outcome = await streamLeg(wire, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
+          const outcome = await streamLeg(wire, evidence, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
             onText: (chunk) => {
               if (!saidSoFar) {
                 // The talk overlay latches on the FIRST token and is released in
@@ -1994,6 +1994,8 @@ export { APPROVAL_PHRASE }
  */
 async function streamLeg(
   wire: WireMessage[],
+  /** Ledger evidence from replies the window dropped. See `chat/wireWindow.ts`. */
+  evidence: { role: string; parts: Record<string, unknown>[] }[],
   /** Owned conversation correlation, validated by the server with exchangeId and seq. */
   conversationId: string,
   exchangeId: string,
@@ -2047,6 +2049,7 @@ async function streamLeg(
     },
     body: JSON.stringify({
       messages: wire,
+      ...(evidence.length ? { evidence } : {}),
       route: window.location.pathname,
       landmarks: collectLandmarks(),
       conversationId, exchangeId, seq,

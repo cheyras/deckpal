@@ -204,6 +204,45 @@ export function windowForModel<T extends { role: string; parts: unknown[] }>(
   return { messages: messages.slice(start), dropped: start };
 }
 
+/** Dropped replies whose ledger evidence may ride along. MIRRORED in `wireWindow.ts`. */
+export const EVIDENCE_MAX = 24;
+
+/**
+ * Evidence for the conversation-wide LEDGERS from replies the browser's window
+ * dropped: their replayed failures and their lookup record, nothing else.
+ *
+ * The failing-tool breaker (`failing.ts`) and the already-told record
+ * (`toldAlready.ts`) span the whole conversation, and they read exactly those
+ * two things. Without this, a tool that failed in two turns and then scrolled
+ * out of the window would have its breaker quietly re-closed.
+ *
+ * ADVISORY, so it fails soft: anything that is not that shape makes the whole
+ * field empty rather than failing the request. It never reaches the model —
+ * `api/chat.mjs` hands it to the two ledgers and nowhere else — and a browser
+ * that omits it only weakens its own breaker, which it could always do.
+ */
+const evidenceMessages = z
+  .array(
+    z.object({
+      role: z.literal('assistant'),
+      parts: z
+        .array(
+          z.union([
+            z.object({ type: z.literal('text'), text: z.string().max(PART_MAX_CHARS) }),
+            z.looseObject({ type: z.string().regex(TOOL_PART), state: z.literal('output-error') }),
+          ]),
+        )
+        .min(1)
+        .max(PARTS_MAX),
+    }),
+  )
+  .max(EVIDENCE_MAX);
+
+export function boundedEvidence(evidence: unknown): { role: 'assistant'; parts: Record<string, unknown>[] }[] {
+  const parsed = evidenceMessages.safeParse(evidence ?? []);
+  return parsed.success ? parsed.data : [];
+}
+
 /** The page path, clipped rather than refused: it is context, not content. */
 export function boundedRoute(route: unknown): string {
   return typeof route === 'string' ? route.slice(0, ROUTE_MAX) : '/';
