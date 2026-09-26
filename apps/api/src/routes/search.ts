@@ -131,7 +131,7 @@ searchRouter.get(
               cs.tcgdex_id AS setcode, cs.name AS set_name,
               vc.variant_count, price.market_minor AS price_minor, price.currency_code AS price_currency,
               count(*) OVER() AS total_rows
-         FROM card c
+         FROM browsable_card c
          JOIN card_set cs ON cs.id = c.set_id
          JOIN series ser ON ser.id = cs.series_id
     LEFT JOIN LATERAL (SELECT count(*) AS variant_count FROM card_variant cv2 WHERE cv2.card_id = c.id) vc ON true
@@ -212,44 +212,48 @@ async function loadFacets(): Promise<Record<string, unknown>> {
     `SELECT
        COALESCE((SELECT json_agg(r) FROM (
          SELECT category AS v, count(*)::text AS n
-           FROM card GROUP BY category ORDER BY count(*) DESC
+           FROM browsable_card GROUP BY category ORDER BY count(*) DESC
        ) r), '[]'::json) AS card_type,
        COALESCE((SELECT json_agg(r) FROM (
-         SELECT type AS v, count(*)::text AS n
-           FROM card_type GROUP BY type ORDER BY count(*) DESC
+         SELECT ct.type AS v, count(*)::text AS n
+           FROM card_type ct JOIN browsable_card bc ON bc.id = ct.card_id
+          GROUP BY ct.type ORDER BY count(*) DESC
        ) r), '[]'::json) AS energy_type,
        COALESCE((SELECT json_agg(r) FROM (
-         SELECT subtype AS v, count(*)::text AS n
-           FROM card_subtype GROUP BY subtype ORDER BY count(*) DESC
+         SELECT st.subtype AS v, count(*)::text AS n
+           FROM card_subtype st JOIN browsable_card bc ON bc.id = st.card_id
+          GROUP BY st.subtype ORDER BY count(*) DESC
        ) r), '[]'::json) AS sub_type,
        COALESCE((SELECT json_agg(r) FROM (
          SELECT cs.tcgdex_id AS v, cs.name AS label
-           FROM card_set cs
+           FROM browsable_set cs
            JOIN series s ON s.id = cs.series_id
            JOIN catalogue cat ON cat.code = s.catalogue_code AND cat.is_enabled
           ORDER BY cs.released_on DESC NULLS LAST
        ) r), '[]'::json) AS sets,
        COALESCE((SELECT json_agg(r) FROM (
          SELECT rarity AS v, count(*)::text AS n
-           FROM card WHERE rarity IS NOT NULL GROUP BY rarity ORDER BY count(*) DESC
+           FROM browsable_card WHERE rarity IS NOT NULL GROUP BY rarity ORDER BY count(*) DESC
        ) r), '[]'::json) AS rarity,
        COALESCE((SELECT json_agg(r) FROM (
-         SELECT type AS v, count(*)::text AS n
-           FROM card_matchup WHERE kind = 'weakness' GROUP BY type ORDER BY count(*) DESC
+         SELECT cm.type AS v, count(*)::text AS n
+           FROM card_matchup cm JOIN browsable_card bc ON bc.id = cm.card_id
+          WHERE cm.kind = 'weakness' GROUP BY cm.type ORDER BY count(*) DESC
        ) r), '[]'::json) AS weakness,
        COALESCE((SELECT json_agg(r) FROM (
-         SELECT type AS v, count(*)::text AS n
-           FROM card_matchup WHERE kind = 'resistance' GROUP BY type ORDER BY count(*) DESC
+         SELECT cm.type AS v, count(*)::text AS n
+           FROM card_matchup cm JOIN browsable_card bc ON bc.id = cm.card_id
+          WHERE cm.kind = 'resistance' GROUP BY cm.type ORDER BY count(*) DESC
        ) r), '[]'::json) AS resistance,
        COALESCE((SELECT json_agg(r) FROM (
-         SELECT DISTINCT retreat AS v FROM card WHERE retreat IS NOT NULL ORDER BY 1
+         SELECT DISTINCT retreat AS v FROM browsable_card WHERE retreat IS NOT NULL ORDER BY 1
        ) r), '[]'::json) AS retreat,
        COALESCE((SELECT json_agg(r) FROM (
-         SELECT min(hp) AS min, max(hp) AS max FROM card WHERE hp IS NOT NULL
+         SELECT min(hp) AS min, max(hp) AS max FROM browsable_card WHERE hp IS NOT NULL
        ) r), '[]'::json) AS hp_range,
        COALESCE((SELECT json_agg(r) FROM (
          SELECT illustrator AS v, count(*)::text AS n
-           FROM card WHERE illustrator IS NOT NULL
+           FROM browsable_card WHERE illustrator IS NOT NULL
           GROUP BY illustrator ORDER BY count(*) DESC
        ) r), '[]'::json) AS artist`,
   );

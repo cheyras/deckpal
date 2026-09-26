@@ -65,7 +65,7 @@ dexRouter.get(
       // dex_species.total_card_count is unpopulated (0 everywhere) in the current
       // import, so count featured cards live from card_species instead.
       `SELECT d.id, d.identifier, d.name, d.genus, d.generation,
-              (SELECT count(*) FROM card_species csx WHERE csx.dex_id = d.id) AS total_card_count,
+              (SELECT count(*) FROM card_species csx JOIN browsable_card bc ON bc.id = csx.card_id WHERE csx.dex_id = d.id) AS total_card_count,
               (uds.dex_id IS NOT NULL) AS captured,
               (SELECT array_agg(t.type ORDER BY t.slot) FROM dex_species_type t WHERE t.dex_id = d.id) AS types,
               count(*) OVER() AS total_rows
@@ -121,7 +121,7 @@ dexRouter.get(
     const numeric = Number.parseInt(raw, 10);
     const species = await q1<{ id: number; identifier: string; name: string; genus: string | null; generation: number; total_card_count: string; captured: boolean; types: string[] | null }>(
       `SELECT d.id, d.identifier, d.name, d.genus, d.generation,
-              (SELECT count(*) FROM card_species csx WHERE csx.dex_id = d.id) AS total_card_count,
+              (SELECT count(*) FROM card_species csx JOIN browsable_card bc ON bc.id = csx.card_id WHERE csx.dex_id = d.id) AS total_card_count,
               EXISTS (SELECT 1 FROM user_dex_state uds WHERE uds.dex_id = d.id AND uds.user_id = $2) AS captured,
               (SELECT array_agg(t.type ORDER BY t.slot) FROM dex_species_type t WHERE t.dex_id = d.id) AS types
          FROM dex_species d
@@ -147,7 +147,7 @@ dexRouter.get(
                          WHERE cv3.card_id = c.id AND ci.user_id = $2), 0) AS owned_qty,
               price.market_minor AS price_minor, price.currency_code AS price_currency
          FROM card_species csp
-         JOIN card c ON c.id = csp.card_id
+         JOIN browsable_card c ON c.id = csp.card_id
          JOIN card_set cs ON cs.id = c.set_id
          JOIN series ser ON ser.id = cs.series_id
     LEFT JOIN LATERAL (

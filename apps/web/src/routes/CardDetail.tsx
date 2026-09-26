@@ -623,7 +623,18 @@ function CardDetailBody({
               data-decke-landmark="[data-decke-card-image]"
               data-decke-label="the card image"
             >
-              <CardImage low={data.card.images.low} high={data.card.images.high} alt={data.card.name} eager />
+              {/* UXC-03: the hero renders at up to 396px (`max-w-[396px]`
+                  above), not the grid's 208px tile — without its own `sizes`
+                  hint the browser picks the 245px `low.webp` candidate and
+                  stretches it, which reads as blurry on any 1x desktop
+                  screen. `92vw` mirrors the container's mobile width. */}
+              <CardImage
+                low={data.card.images.low}
+                high={data.card.images.high}
+                alt={data.card.name}
+                eager
+                sizes="(min-width: 1068px) 396px, 92vw"
+              />
             </div>
 
             {/* detail column */}

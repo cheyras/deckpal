@@ -101,7 +101,7 @@ export async function dexCompletion(userId: string): Promise<DexCompletion> {
        SELECT DISTINCT cs.dex_id
          FROM collection_item ci
          JOIN card_variant cv ON cv.id = ci.card_variant_id
-         JOIN card c ON c.id = cv.card_id
+         JOIN browsable_card c ON c.id = cv.card_id
          JOIN card_species cs ON cs.card_id = c.id
         WHERE ci.user_id = $1 AND ci.quantity > 0 AND c.category = 'Pokemon'
      )
@@ -188,14 +188,14 @@ export async function speciesGrid(
   }>(
     `SELECT d.id, d.identifier, d.name, d.genus, d.generation,
             (SELECT array_agg(t.type ORDER BY t.slot) FROM dex_species_type t WHERE t.dex_id = d.id) AS types,
-            (SELECT count(*) FROM card_species csx WHERE csx.dex_id = d.id) AS card_pool,
+            (SELECT count(*) FROM card_species csx JOIN browsable_card bc ON bc.id = csx.card_id WHERE csx.dex_id = d.id) AS card_pool,
             owned.unique_owned,
             count(*) OVER() AS total_rows
        FROM dex_species d
   LEFT JOIN LATERAL (
          SELECT count(DISTINCT c.id) AS unique_owned
            FROM card_species cs
-           JOIN card c ON c.id = cs.card_id AND c.category = 'Pokemon'
+           JOIN browsable_card c ON c.id = cs.card_id AND c.category = 'Pokemon'
            JOIN card_variant cv ON cv.card_id = c.id
            JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $1 AND ci.quantity > 0
           WHERE cs.dex_id = d.id
@@ -254,7 +254,7 @@ export async function dexCapturedCount(userId: string): Promise<number> {
     `SELECT count(DISTINCT cs.dex_id) AS n
        FROM collection_item ci
        JOIN card_variant cv ON cv.id = ci.card_variant_id
-       JOIN card c ON c.id = cv.card_id
+       JOIN browsable_card c ON c.id = cv.card_id
        JOIN card_species cs ON cs.card_id = c.id
       WHERE ci.user_id = $1 AND ci.quantity > 0 AND c.category = 'Pokemon'`,
     [userId],
@@ -298,10 +298,10 @@ export async function speciesDetail(userId: string | null, raw: string): Promise
   }>(
     `SELECT d.id, d.identifier, d.name, d.genus, d.generation,
             (SELECT array_agg(t.type ORDER BY t.slot) FROM dex_species_type t WHERE t.dex_id = d.id) AS types,
-            (SELECT count(*) FROM card_species csx WHERE csx.dex_id = d.id) AS card_pool,
+            (SELECT count(*) FROM card_species csx JOIN browsable_card bc ON bc.id = csx.card_id WHERE csx.dex_id = d.id) AS card_pool,
             (SELECT count(DISTINCT c.id)
                FROM card_species cs
-               JOIN card c ON c.id = cs.card_id AND c.category = 'Pokemon'
+               JOIN browsable_card c ON c.id = cs.card_id AND c.category = 'Pokemon'
                JOIN card_variant cv ON cv.card_id = c.id
                JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = $2 AND ci.quantity > 0
               WHERE cs.dex_id = d.id) AS unique_owned
@@ -324,7 +324,7 @@ export async function speciesDetail(userId: string | null, raw: string): Promise
                        WHERE cv3.card_id = c.id AND ci.user_id = $2), 0) AS owned_qty,
             price.market_minor AS price_minor, price.currency_code AS price_currency
        FROM card_species csp
-       JOIN card c ON c.id = csp.card_id
+       JOIN browsable_card c ON c.id = csp.card_id
        JOIN card_set cs ON cs.id = c.set_id
        JOIN series ser ON ser.id = cs.series_id
   LEFT JOIN LATERAL (
