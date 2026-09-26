@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
-  api, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type RevertResult,
+  api, ApiError, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type RevertResult,
 } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, Button, Tabs } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
@@ -29,6 +29,12 @@ function basicEnergyType(card: DeckCard): string | null {
   if (card.category !== 'Energy') return null
   const first = card.name.split(/\s+/)[0]?.toLowerCase()
   return first && ENERGY_TYPES.includes(first) ? first : null
+}
+
+/** The name the API gives the same file (`export/router.ts`), for the saved download. */
+function deckPdfFilename(name: string): string {
+  const slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48)
+  return `deck-${slug || 'deck'}.pdf`
 }
 
 // ── Format selector + GLC type picker ─────────────────────────────────────────
@@ -617,6 +623,21 @@ export function DeckBuilder() {
   const [addingId, setAddingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
+  // Export PDF fetches with the session's Bearer header and saves the result;
+  // a plain link to the route 401s for every signed-in user (`api.downloadPdf`).
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const exportPdf = async (name: string) => {
+    setPdfBusy(true)
+    setPdfError(null)
+    try {
+      await api.downloadPdf(api.deckPdfPath(id), deckPdfFilename(name))
+    } catch (err) {
+      setPdfError(err instanceof ApiError ? err.message : 'Could not prepare the PDF.')
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
   const setDetail = (d: DeckDetail) => qc.setQueryData(key, d)
   const invalidateSideQueries = () => {
@@ -957,9 +978,10 @@ export function DeckBuilder() {
                 <button onClick={() => setShowExport(true)} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
                   <Icon name="download" size={16} /> Export to PTCG Live
                 </button>
-                <a href={api.deckPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[13px] font-bold text-text-primary hover:bg-action-default-hover">
-                  <Icon name="printer" size={16} /> Export PDF
-                </a>
+                <button type="button" onClick={() => void exportPdf(deck.name)} disabled={pdfBusy} className="flex h-[42px] items-center justify-center gap-[8px] rounded-full bg-surface-tertiary text-[14px] font-bold text-text-primary hover:bg-action-default-hover disabled:opacity-60">
+                  <Icon name="printer" size={16} /> {pdfBusy ? 'Preparing PDF…' : 'Export PDF'}
+                </button>
+                {pdfError && <div role="alert" className="text-[14px] text-error">{pdfError}</div>}
               </div>
             </div>
           </div>

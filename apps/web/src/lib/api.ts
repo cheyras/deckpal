@@ -1777,8 +1777,56 @@ export const api = {
     return res.blob()
   },
 
-  // PDF export URLs (streamed by the API; open in a new tab).
-  deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
+  // Deck PDF path (relative to BASE): fed to `downloadPdf`, never to an
+  // `<a href>`. See its comment for why.
+  deckPdfPath: (id: string) => `/decks/${encodeURIComponent(id)}/pdf`,
+
+  /**
+   * Fetch a PDF export and hand it to the browser as a real download: a blob
+   * URL on a temporary `<a download>`, never `window.open`.
+   *
+   * ── WHY NOT `<a href={...}>` ────────────────────────────────────────────
+   *
+   * Export PDF on the deck page was a plain `<a href target="_blank">` at the
+   * deck PDF route. Cloud's PDF routes authenticate only by `Authorization:
+   * Bearer` (`apps/api/src/auth.ts`), and a browser-initiated navigation sends
+   * cookies, never that header, which is `scanFlagBlob`'s reason too. So every
+   * signed-in user who pressed it got a raw 401 JSON tab.
+   *
+   * ── WHY NOT `window.open(blobUrl)` EITHER ───────────────────────────────
+   *
+   * The fetch has to finish before there is anything to open, and iOS Safari
+   * only allows `window.open` in the same tick as the gesture that triggered
+   * it. After an `await` it is popup-blocked, silently. An `<a download>`
+   * click is a save, not a new window, so it survives the round trip on every
+   * platform this app supports.
+   *
+   * The collection quick-fixes PR (#214) adds this same function body for
+   * Print checklist on sets and lists; whichever lands second keeps one copy.
+   */
+  downloadPdf: async (path: string, filename: string): Promise<void> => {
+    const headers = await authHeaders()
+    let res = await fetch(`${BASE}${path}`, { headers })
+    if (res.status === 401) {
+      const retry = await handle401(path, { headers })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // The tab that just downloaded this still holds the object URL; a
+    // session that prints ten checklists should not pin ten blobs in memory
+    // forever. 60s comfortably outlives the download itself.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  },
+
+  // List / set checklist PDF URLs (streamed by the API; open in a new tab).
   listPdfUrl: (id: string) => `${BASE}/lists/${encodeURIComponent(id)}/pdf`,
   setChecklistPdfUrl: (setId: string) => `${BASE}/sets/${encodeURIComponent(setId)}/checklist.pdf`,
 
