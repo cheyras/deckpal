@@ -156,6 +156,7 @@ describe('remove, undo, stop', () => {
     for (const heard of [
       'never remove that', "don't remove it", 'do not remove it', "don't undo",
       'do not make it two', 'do not change it to holo', 'not two, three of those',
+      "I can't remove it", 'I cannot remove it', "won't be two", "didn't say remove",
     ]) {
       assert.equal(command(heard), null, heard)
     }
@@ -266,8 +267,12 @@ describe('alternatives', () => {
   it('never lets a lesser guess outvote an objection or an unfound name', () => {
     const negated = parseAlternatives(['do not remove it', 'remove it'], ROWS)
     assert.equal(negated.command, null)
-    assert.equal(negated.negated, true)
+    assert.equal(negated.refused, 'negation')
     assert.equal(parseAlternatives(['remove it', 'do not remove it'], ROWS).command, null)
+    assert.equal(parseAlternatives(['should I remove it', 'remove it'], ROWS).refused, 'question')
+    assert.equal(parseAlternatives(['is it a holo', 'it a holo'], ROWS).command, null)
+    // A command that names its card is refused by a negation as well.
+    assert.equal(parseUtterance("I can't remove charizard ex", ROWS).command, null)
     const missing = parseAlternatives(['remove that pikachu', 'remove that'], ROWS)
     assert.equal(missing.command, null)
     assert.equal(missing.unresolvedName, 'pikachu')

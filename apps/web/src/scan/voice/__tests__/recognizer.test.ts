@@ -215,6 +215,24 @@ describe('the recognizer adapter', () => {
     assert.equal(rec.wanted, false)
   })
 
+  it('counts only CONSECUTIVE instant failures', () => {
+    const { rec, clock, last } = setup()
+    rec.start()
+    for (let round = 0; round < 3; round++) {
+      // Three instant failures, then one ordinary quiet session…
+      for (let i = 0; i < 3; i++) {
+        live().fail('network')
+        clock.advance(300)
+      }
+      clock.advance(5_000)
+      live().end()
+      clock.advance(300)
+    }
+    // …never adds up to four in a row, so it is still trying.
+    assert.equal(rec.wanted, true)
+    assert.notEqual(last(), 'error')
+  })
+
   it('treats no-speech timeouts as ordinary and keeps listening', () => {
     const { rec, clock, last } = setup()
     rec.start()

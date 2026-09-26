@@ -67,8 +67,11 @@ export interface ParseResult {
   /** A word in a card name's place ("the Pikachu is…") that matches no row.
    *  The command is refused rather than sent to "that one" instead. */
   unresolvedName?: string
-  /** Said with "not", "don't" or "never" — an objection, never a request. */
-  negated?: boolean
+  /** Why an utterance that may LOOK like a command was refused outright: an
+   *  objection ("don't remove it"), a question or a wish ("should I remove
+   *  it?"), or two cards at once. A refusal is never outvoted by another of the
+   *  recognizer's guesses (`parseAlternatives`). */
+  refused?: 'negation' | 'question' | 'two-cards'
 }
 
 /** A row the reader might name, MOST RECENT FIRST, so a name that appears twice
@@ -194,7 +197,13 @@ const LEXICON: readonly { slot: Slot; phrases: readonly string[] }[] = [
   { slot: { kind: 'remove' }, phrases: ['remove', 'delete', 'discard', 'get rid of', 'take it out', 'take that out', 'toss it', 'toss that', 'throw it out'] },
   { slot: { kind: 'undo' }, phrases: ['undo', 'un do', 'undue', 'cancel', 'never mind', 'nevermind', 'keep it', 'put it back'] },
   { slot: { kind: 'stop' }, phrases: ['stop listening', 'stop voice', 'mic off', 'microphone off'] },
-  { slot: { kind: 'negation' }, phrases: ['not', 'isnt', 'aint', 'never', 'dont', 'do not', 'doesnt', 'wasnt'] },
+  {
+    slot: { kind: 'negation' },
+    phrases: [
+      'not', 'never', 'isnt', 'aint', 'dont', 'do not', 'doesnt', 'didnt', 'wasnt', 'arent', 'werent', 'cant', 'cannot',
+      'can not', 'wont', 'will not', 'shouldnt', 'couldnt', 'wouldnt', 'havent', 'hasnt',
+    ],
+  },
   // Wondering, wanting and asking about a card — not telling the scanner
   // anything. Their presence refuses the utterance, like a negation.
   { slot: { kind: 'hedge' }, phrases: ['might', 'maybe', 'perhaps', 'probably', 'wonder', 'whether', 'if', 'should', 'would', 'could', 'need', 'want', 'wish', 'looking for', 'do you', 'did you', 'have you', 'does it'] },
@@ -462,7 +471,7 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // One utterance, one card. Two different names ("remove Charizard, Venonat is
   // a reverse holo") would otherwise pair one card with the other's command.
   const named = new Set(segs.flatMap((s) => (s.kind === 'name' ? [s.rowId] : [])))
-  if (named.size > 1) return { command: null, coverage }
+  if (named.size > 1) return { command: null, coverage, refused: 'two-cards' }
   const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
@@ -488,12 +497,12 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // said with a negation anywhere, it is an objection and nothing happens. ("No,
   // remove it" is not negation — "no" is how people start a correction — and
   // "not a holo" never gets here: the lexicon reads it whole, as Normal.)
-  if (has('negation')) return { command: null, coverage, negated: true }
+  if (has('negation')) return { command: null, coverage, refused: 'negation' }
   // A question ("is this a reverse holo", "what's that one") or a wish ("I
   // might remove it", "do you have a reverse holo") is conversation about a
   // card. Openers are checked on the first word after the throat-clearing.
   const opener = words.find((w) => !DISCOURSE.has(w))
-  if (has('hedge') || (opener && QUESTION_OPENERS.has(opener))) return { command: null, coverage }
+  if (has('hedge') || (opener && QUESTION_OPENERS.has(opener))) return { command: null, coverage, refused: 'question' }
 
   const aboutAnchor = !!command && command.kind !== 'undo' && command.kind !== 'stop' && target.kind === 'anchor'
   if (aboutAnchor && coverage < 1) {
@@ -520,16 +529,18 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
  * sit behind "reverse holo" or in front of it. A guess that parses beats one
  * that does not; between two that parse, the one explaining more of itself.
  *
- * Refusals are not outvoted. If ANY guess heard a negation, the reader may well
- * have said "do not remove it", and a shorter guess ("remove it") must not turn
- * that into a removal. A card name the BEST guess could not find is refused the
- * same way, rather than handed to a lesser guess that points at "that one".
+ * Refusals are not outvoted. If ANY guess heard a negation, a question or a
+ * wish, the reader may well have said "do not remove it" or "should I remove
+ * it?", and a shorter guess ("remove it") must not turn that into a removal. A
+ * card name the BEST guess could not find is refused the same way, rather than
+ * handed to a lesser guess that points at "that one".
  */
 export function parseAlternatives(alternatives: readonly string[], rows: readonly NamedRow[] = []): ParseResult & { heard: string } {
   const parsed = alternatives.map((heard) => ({ ...parseUtterance(heard, rows), heard }))
   const first = parsed[0] ?? { command: null, coverage: 0, heard: '' }
-  const objection = parsed.find((p) => p.negated)
-  if (objection) return objection
+  // Shown as what was heard: the best guess, whichever guess raised the refusal.
+  const objection = parsed.find((p) => p.refused)
+  if (objection) return { ...objection, heard: first.heard }
   if (first.unresolvedName) return first
   let best = first
   for (const p of parsed) if (p.command && (!best.command || p.coverage > best.coverage)) best = p

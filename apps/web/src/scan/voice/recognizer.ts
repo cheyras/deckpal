@@ -241,8 +241,10 @@ export function createVoiceRecognizer(callbacks: RecognizerCallbacks, options: R
       detach(r)
       clearWatchdog()
       if (!wanted) return
-      if (heardThisSession) fastFails = 0
-      else if (timers.now() - startedAt < FAST_FAIL_MS) fastFails += 1
+      // Only a CONSECUTIVE run of instant failures counts: any session that
+      // heard something, or simply lasted, resets it.
+      if (!heardThisSession && timers.now() - startedAt < FAST_FAIL_MS) fastFails += 1
+      else fastFails = 0
       if (fastFails >= MAX_FAST_FAILS) {
         fail('error', lastError === 'network' ? 'Speech recognition needs a network connection.' : 'Voice keeps stopping.')
         return
