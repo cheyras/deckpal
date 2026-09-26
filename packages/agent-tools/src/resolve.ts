@@ -72,11 +72,8 @@ const CARD_SELECT = `SELECT ${CARD_COLUMNS} FROM browsable_card c ${CARD_JOINS}`
 
 /**
  * The ONE exception to "not browsable anywhere": a Pocket card the caller
- * already owns, looked up by its EXACT id only — never by name, never
- * fuzzy, never a candidate in an ambiguity list. Not an acquisition path:
- * `EXISTS (... quantity > 0)` means the moment a write reduces the owned
- * quantity to zero, the next call stops resolving it, so this cannot be used
- * to re-acquire or top up a Pocket printing, only to finish removing one.
+ * has a collection record for at all — looked up by its EXACT id only,
+ * never by name, never fuzzy, never a candidate in an ambiguity list.
  *
  * Exists because `log_cards`/`edit_list` route through `resolveCard` too —
  * a user who already has a Pocket card in their collection (added through
@@ -84,6 +81,30 @@ const CARD_SELECT = `SELECT ${CARD_COLUMNS} FROM browsable_card c ${CARD_JOINS}`
  * this exclusion shipped) would otherwise have no way to zero it out or
  * remove it: resolution would fail before the write logic ever ran, and the
  * row would sit there forever. Caught in review (Astra).
+ *
+ * GATED ON THE ROW EXISTING, DELIBERATELY NOT ON `quantity > 0`. The first
+ * version used `quantity > 0`, on the theory that a write reducing it to
+ * zero should close the exception again. That broke retry safety: `log_cards`
+ * derives its idempotency key from the RESOLVED item set, so a batch that
+ * zeroes this same Pocket variant resolved one way on the first call and a
+ * DIFFERENT way — this card silently dropped — on an identical retry, which
+ * changed the key and let an unrelated item in the same batch be re-applied
+ * a second time. Reproduced and confirmed by review (Astra), calling the
+ * real tool handler twice and diffing the two outgoing idempotency keys.
+ *
+ * A row, once created, is never deleted by an ordinary write — "qty-0 rows
+ * are KEPT" (SCHEMA §9.1) — so gating on EXISTENCE rather than quantity
+ * makes this resolution stable across any number of retries, first call or
+ * hundredth. The cost: a user who has ever recorded owning a specific Pocket
+ * variant can use its exact id to set the quantity back up again later, not
+ * only down to zero. That is a narrower, closed-set gap (it only ever
+ * applies to a variant this exact user already has a row for — never a new
+ * Pocket card, never anything reachable by name or browsing) than the
+ * correctness bug the quantity-gated version had, and is the trade-off this
+ * function makes on purpose. A tighter fix would refuse an INCREASE at
+ * write time in `logging.ts`/`lists.ts` instead of at resolution time, which
+ * remains open as a follow-up rather than a same-PR change to that file's
+ * own idempotency-sensitive logic.
  */
 async function ownedPocketCardById(ctx: Ctx, tcgdexId: string): Promise<Record<string, unknown> | undefined> {
   const rows = await q(
@@ -93,7 +114,7 @@ async function ownedPocketCardById(ctx: Ctx, tcgdexId: string): Promise<Record<s
         AND EXISTS (
           SELECT 1 FROM card_variant cv2
             JOIN collection_item ci2 ON ci2.card_variant_id = cv2.id
-           WHERE cv2.card_id = c.id AND ci2.user_id = $2 AND ci2.quantity > 0
+           WHERE cv2.card_id = c.id AND ci2.user_id = $2
         )`,
     [tcgdexId.trim(), ctx.userId],
   );
@@ -339,7 +360,9 @@ export async function resolveCardsBatch(ctx: Ctx, refs: readonly CardRef[]): Pro
     const found = new Map(rows.map((r) => [String(r.tcgdex_id), shape(r)]));
     // The batch form of the same exception resolveCard applies per item —
     // an id that missed the browsable catalog may still be a Pocket card
-    // this caller already owns (see ownedPocketCardById). Queried only for
+    // this caller has a collection record for (see ownedPocketCardById,
+    // including why this is gated on the row EXISTING, not on quantity > 0
+    // — the latter broke log_cards' retry idempotency). Queried only for
     // the misses, and only once for the whole batch.
     const missingIds = ids.filter((id) => !found.has(id));
     if (missingIds.length > 0) {
@@ -350,7 +373,7 @@ export async function resolveCardsBatch(ctx: Ctx, refs: readonly CardRef[]): Pro
             AND EXISTS (
               SELECT 1 FROM card_variant cv2
                 JOIN collection_item ci2 ON ci2.card_variant_id = cv2.id
-               WHERE cv2.card_id = c.id AND ci2.user_id = $2 AND ci2.quantity > 0
+               WHERE cv2.card_id = c.id AND ci2.user_id = $2
             )`,
         [missingIds, ctx.userId],
       );

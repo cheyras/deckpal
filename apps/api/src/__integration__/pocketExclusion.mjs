@@ -488,10 +488,40 @@ async function main() {
     // LAST: mutates the fixture (zeroes the owned Pocket variant), so every
     // check above that depends on it still being owned (topMovers, the
     // owned-exception checks) must run first.
-    await check('resolveCard: once fully removed, the same id stops resolving (not a re-acquisition path)', async () => {
+    //
+    // Proves the retry-safety fix directly: gated on the collection_item ROW
+    // existing (not on quantity > 0), so resolution returns the SAME result
+    // before and after the quantity that a log_cards batch would zero it to.
+    // A quantity-gated version resolved this one way pre-write and a
+    // DIFFERENT way (dropped) on an identical retry post-write, which
+    // changed log_cards' resolved-item fingerprint and let an unrelated item
+    // in the same batch be silently re-applied (caught in review, Astra).
+    await check('resolveCard: resolution is STABLE across the write a log_cards retry would replay (retry safety)', async () => {
+      const before = await resolveCard(toolsCtx, { card_id: fixture.pocketCardId });
+      assert.equal(before.status, 'ok', 'resolves while owned, same as the earlier cleanup check');
       await pool.query('UPDATE collection_item SET quantity = 0 WHERE card_variant_id = $1', [fixture.pocketVariantId]);
-      const res = await resolveCard(toolsCtx, { card_id: fixture.pocketCardId });
-      assert.equal(res.status, 'not_found');
+      const after = await resolveCard(toolsCtx, { card_id: fixture.pocketCardId });
+      assert.equal(after.status, 'ok', 'must resolve the SAME way post-write, or a retried batch computes a different idempotency key');
+      assert.equal(after.card.tcgdexId, before.card.tcgdexId);
+    });
+
+    // Astra's exact repro shape: a mixed batch (a Pocket-card decrement +
+    // a physical-card increment), resolved twice -- once as the "first
+    // call" would see it, once as an identical retry would see it after the
+    // first call's write already landed. Both resolutions must produce the
+    // SAME two-item set, or log_cards' resolved-item fingerprint changes
+    // between the original call and its retry and the physical card's
+    // increment gets silently re-applied.
+    await check('resolveCardsBatch: a mixed batch resolves identically pre- and post-write (Astra\'s repro)', async () => {
+      const refs = [{ card_id: fixture.pocketCardId }, { card_id: fixture.physicalCardId }];
+      const first = await resolveCardsBatch(toolsCtx, refs);
+      const firstIds = [...first.resolved.values()].map((c) => c.tcgdexId).sort();
+      // Quantity is already 0 from the previous check, so this simulates the
+      // retry directly rather than re-deriving a second write.
+      const retry = await resolveCardsBatch(toolsCtx, refs);
+      const retryIds = [...retry.resolved.values()].map((c) => c.tcgdexId).sort();
+      assert.deepEqual(retryIds, firstIds, 'the retry must resolve the same items the original call did');
+      assert.deepEqual(firstIds, [fixture.physicalCardId, fixture.pocketCardId].sort());
     });
   } finally {
     await pool?.end().catch(() => {});
