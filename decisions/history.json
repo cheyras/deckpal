@@ -1,0 +1,2770 @@
+{
+  "source_commit": "d3ac517428ee9cf054973056ad7e9a7fe7f76eaf",
+  "source_sha256": "95bee92484ddd6bc03512e6208242c97d400f230bf39ff6eac4bb83c7fe5d2e5",
+  "blocks": [
+    {
+      "kind": "preamble",
+      "path": "decisions/legacy/preamble.md",
+      "bytes": 179,
+      "sha256": "081b9fbb98b2002b85a9e51057e535fbedf4be9f8975c4897e17c6f395db15b5"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-26-the-reprint-oracle-stops-hashing-the-catalogue-on-every-validate.md",
+      "bytes": 3445,
+      "sha256": "9c8d761941b8fd33d3edccc743661756ae5b6f67306abc2b7ed8bf358c93c6e0",
+      "date": "2026-08-26",
+      "title": "The reprint oracle stops hashing the catalogue on every validate"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-26-cheapest-printing-was-advice-the-data-could-not-support.md",
+      "bytes": 4671,
+      "sha256": "f2e8a47012e4421754f65cb12de5e79b25cc1c19ddb92d23957834f6a89f6626",
+      "date": "2026-08-26",
+      "title": "\"Cheapest printing\" was advice the data could not support"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-26-ptcg-live-started-printing-card-codes-and-the-battle-log-parser-has-been-wrong-e.md",
+      "bytes": 6159,
+      "sha256": "867be4d9a6689c0c9f3003f69ad4116a4d2fd3d524e74aea8743db6ebd7bfa32",
+      "date": "2026-08-26",
+      "title": "PTCG Live started printing card codes, and the battle-log parser has been wrong ever since"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-26-the-same-evidence-at-both-boundaries-a-leg-is-not-a-fresh-start.md",
+      "bytes": 5491,
+      "sha256": "391faef83f07ef871d9c9271e923a5a28bcfe1d4f7e0950e2ea03e74ffc52a1a",
+      "date": "2026-08-26",
+      "title": "The same evidence, at both boundaries: a leg is not a fresh start"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-create-or-edit-is-a-decision-not-an-inference-and-three-ways-a-list-came-out-emp.md",
+      "bytes": 5465,
+      "sha256": "0a5b84386b93b8504d6c452f2e06c72bb16e27f18bcd489b765e68a31ba54584",
+      "date": "2026-08-25",
+      "title": "Create or edit is a DECISION, not an inference; and three ways a list came out empty"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-battle-strategy-goes-stale-artwork-does-not-research-now-knows-the-difference.md",
+      "bytes": 4611,
+      "sha256": "79a883682aeb67bb3d7ddf87ebcb48c78a87b38e0f345261a460962dc66fdf13",
+      "date": "2026-08-25",
+      "title": "Battle strategy goes stale; artwork does not. Research now knows the difference"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-deck-e-s-research-had-never-worked-once-and-the-failure-was-wearing-a-success-s.md",
+      "bytes": 6699,
+      "sha256": "5ab85af1d083814be8dee48c891fd73a98eef872081290c576e2496d15cf2d20",
+      "date": "2026-08-25",
+      "title": "Deck-E's research had never worked once, and the failure was wearing a success's clothes"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-deck-e-as-an-agent-91-of-his-tool-errors-were-an-id-he-had-to-guess.md",
+      "bytes": 10096,
+      "sha256": "95b774a36e140798992892d50dfa1dfaacd8e2873610e69468381c8895d0967e",
+      "date": "2026-08-25",
+      "title": "Deck-E as an agent: 91% of his tool errors were an id he had to guess"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-the-entrance-grows-while-it-hops-the-arrival-stops-flinching-and-he-stops-swelli.md",
+      "bytes": 6180,
+      "sha256": "18b4618d455d6366eeb03385f7f97470fde872bce4d3510b92251a616ec03494",
+      "date": "2026-08-25",
+      "title": "The entrance grows while it hops, the arrival stops flinching, and he stops swelling on the way home"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-animation-round-two-his-size-stopped-tracking-the-composer-and-every-hop-became.md",
+      "bytes": 11479,
+      "sha256": "fee5ce6b768b97088ec67a3532aa251741a811790778b7a5773b561065335033",
+      "date": "2026-08-25",
+      "title": "Animation round two: his size stopped tracking the composer, and every hop became one arc"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-deck-e-warms-after-the-page-loads-again-because-the-payload-that-stopped-it-is-g.md",
+      "bytes": 4509,
+      "sha256": "957c51802538c61a358134c75d6bb2f24541300d244348620506318726234ed0",
+      "date": "2026-08-25",
+      "title": "Deck-E warms after the page loads again, because the payload that stopped it is gone"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-25-the-character-was-never-slow-because-of-its-bytes-7-4-s-0-95-s-by-pre-compiling.md",
+      "bytes": 3477,
+      "sha256": "5be4beaf357d6bea518e1b5eeb428f9cf3e8de263f2d1f92afb207e31f9f5d63",
+      "date": "2026-08-25",
+      "title": "The character was never slow because of its bytes: 7.4 s -> 0.95 s by pre-compiling shaders"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-rest-of-the-chat-open-payload-4-3-mb-0-8-mb-and-free-on-every-visit-after-th.md",
+      "bytes": 4372,
+      "sha256": "dbfda2c897fe6af7ca5797dc4b9a72c5a1afd713e3dcd81a7388987a2563f34a",
+      "date": "2026-08-24",
+      "title": "The rest of the chat-open payload: 4.3 MB -> 0.8 MB, and free on every visit after the first"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-deck-e-glb-is-quantised-after-all-2850-kb-592-kb-1963-kb-337-kb-on-the-wire.md",
+      "bytes": 5623,
+      "sha256": "e9991def88561b60226f6ff26d9c1440ef5f26e81532bdaca25943006c87f28b",
+      "date": "2026-08-24",
+      "title": "The Deck-E glb is quantised after all: 2850 KB -> 592 KB (1963 KB -> 337 KB on the wire)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-round-two-the-card-spotlight-the-snap-legs-and-the-strand-that-survived-round-on.md",
+      "bytes": 3825,
+      "sha256": "78d0b1d46c0536785b6a2ef035c846dd6e3f61c212a98d974d49aece7e9d1b82",
+      "date": "2026-08-24",
+      "title": "Round two: the card spotlight, the snap legs, and the strand that survived round one"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-animation-pass-presence-gets-one-authority-and-every-exit-exists.md",
+      "bytes": 8603,
+      "sha256": "7f8a046f83244d98ef9798b41e650d0981e22c09e24ba322df15c45870b2ee62",
+      "date": "2026-08-24",
+      "title": "The animation pass: presence gets one authority, and every exit exists"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-a-navigation-no-longer-forces-the-far-plane-round-trip-c35.md",
+      "bytes": 1702,
+      "sha256": "9f5a5ea21b36ec41725885f196e009a3c3e3527e3b167006f1109b59636be265",
+      "date": "2026-08-23",
+      "title": "A navigation no longer forces the far-plane round trip (C35)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-the-ad-hoc-screen-shows-a-sample-and-the-transcript-announces-shape-not-content.md",
+      "bytes": 1876,
+      "sha256": "fa81bf4105b94489394de496ce2b22289b08b8cd1d27658a5d8298d1d8081523",
+      "date": "2026-08-23",
+      "title": "The ad-hoc screen shows a sample, and the transcript announces shape not content"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-deck-e-can-be-turned-off-and-the-setting-is-remembered.md",
+      "bytes": 1826,
+      "sha256": "fb37ab4fea0e5d28b8126ae1d9b255205dfe2cfe8f60909b99a7f43341ef8823",
+      "date": "2026-08-23",
+      "title": "Deck-E can be turned off, and the setting is remembered"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-c21-the-thinking-beat-fires-on-real-events-and-never-on-failure.md",
+      "bytes": 1970,
+      "sha256": "bf9636f30785142f6c070109f7902126d7029f249c227dd35d5c019b7d52e357",
+      "date": "2026-08-23",
+      "title": "C21: the thinking beat fires on real events, and never on failure"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-deck-e-escort-a-macro-tool-because-the-barrier-was-construction-cost.md",
+      "bytes": 2824,
+      "sha256": "d693085b6bf90c8013c1c1423d91887d561ec2f5b381d211a71c888872f6f0aa",
+      "date": "2026-08-23",
+      "title": "Deck-E: `escort`, a macro tool, because the barrier was construction cost"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-remote-access-existing-reverse-proxy-sso.md",
+      "bytes": 850,
+      "sha256": "fda34ce75984fd4c63c2666b9b1935962802315eb50bf32fe535bd854ab11db2",
+      "date": "2026-07-24",
+      "title": "Remote access: existing reverse proxy + SSO"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-users-single-user-now-multi-user-ready-schema.md",
+      "bytes": 777,
+      "sha256": "1b914277de6133e1e85817468239deb85b2b78a16800aa291e28b0afbf7278ca",
+      "date": "2026-07-24",
+      "title": "Users: single-user now, multi-user-ready schema"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-never-run-the-self-hosted-tcgdex-api.md",
+      "bytes": 1287,
+      "sha256": "94706d54a8c49d0421e9e2722f0dc54a9576ee26cb88d3d05a24f2b78307bded",
+      "date": "2026-07-24",
+      "title": "Never run the self-hosted TCGdex API"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-port-block-3700-3709-localhost-bound.md",
+      "bytes": 415,
+      "sha256": "d60d5355420ca4370d68139e9478b14de3a7d0f7346ce0fb9ae1c8e592125230",
+      "date": "2026-07-24",
+      "title": "Port block 3700–3709, localhost-bound"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-microsd-is-not-the-constraint-the-brief-assumed.md",
+      "bytes": 1009,
+      "sha256": "bd25082306ab7dfcc7af9468e6a1c1f9291eee1935211de4e597facd7f6cd91c",
+      "date": "2026-07-24",
+      "title": "microSD is not the constraint the brief assumed"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-stack-match-the-box-not-the-brief.md",
+      "bytes": 693,
+      "sha256": "5a0b8e27345c83ccb9cba9c623ff73d0131816162826fd0b548403667c332d75",
+      "date": "2026-07-24",
+      "title": "Stack: match the box, not the brief"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-database-host-postgres-dedicated-db-role.md",
+      "bytes": 914,
+      "sha256": "28ff48bd3f8d32694368a445fcd72fd2412f5d70226243847cd08ffa4e3fdcca",
+      "date": "2026-07-24",
+      "title": "Database: host Postgres, dedicated DB + role"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-lan-https-via-split-horizon-dns.md",
+      "bytes": 1567,
+      "sha256": "a465c5b74155b2b9ad691a7847b472618c6de79263d3036c65ad220d3d38be26",
+      "date": "2026-07-24",
+      "title": "LAN HTTPS via split-horizon DNS"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-brain-dbs-fully-isolated-from-the-deckpal-role.md",
+      "bytes": 576,
+      "sha256": "9218cca96d2eae2ff559d7e3931ed542cf439fadf129297ccab8e51999e29b3c",
+      "date": "2026-07-24",
+      "title": "Brain DBs fully isolated from the deckpal role"
+    },
+    {
+      "kind": "note",
+      "path": "decisions/legacy/01-phase-2-progress-data-backbone.md",
+      "bytes": 2958,
+      "sha256": "75afe78fb58f2c25945fbf293696cef11d155df4ca4018dfbdfb67d68318c648"
+    },
+    {
+      "kind": "note",
+      "path": "decisions/legacy/02-phase-3-progress-the-app.md",
+      "bytes": 2252,
+      "sha256": "33a5ee8a5c01a7e867e349deaf42319155a2cf222694a2720a07d805d375f910"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-27-deployment-phase-7-partial-lan-live-https-remote-blocked-by-a-pre-existing-sso-f.md",
+      "bytes": 2494,
+      "sha256": "23bb6952bfadf01ee25490d59088d886f7dbc1b040828026f03e00a6db095a68",
+      "date": "2026-07-27",
+      "title": "Deployment (Phase 7, partial): LAN live; HTTPS/remote blocked by a pre-existing SSO failure"
+    },
+    {
+      "kind": "note",
+      "path": "decisions/legacy/03-phase-2-follow-ups-found-during-verification-non-blocking.md",
+      "bytes": 2180,
+      "sha256": "d035311f128312e0165b4a246bb20b2bb6e9e2753303b9f916bbf7bb3a2083a0"
+    },
+    {
+      "kind": "note",
+      "path": "decisions/legacy/04-open-pending-phase-1-research.md",
+      "bytes": 1917,
+      "sha256": "67be9f39cbf05fb2ea6bcfaf638eebcee9cfce08a6a1f79490f99e5f4a1bf767"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-24-sprites-are-fetched-never-committed.md",
+      "bytes": 1164,
+      "sha256": "c29681953da2b9d4ff1c85e3303159b0bfa69cbf4299d00a6e5031d84bdd24c9",
+      "date": "2026-07-24",
+      "title": "Sprites are fetched, never committed"
+    },
+    {
+      "kind": "note",
+      "path": "decisions/legacy/05-corrections-to-the-brief-forced-by-phase-1-research.md",
+      "bytes": 3492,
+      "sha256": "fff7cb699a0d2a3bb6a35f7e17cbc815afdb84a975c48c8dbe53b78eed77473b"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-27-feature-complete-against-the-brief-phases-1-6-backup-restore.md",
+      "bytes": 1405,
+      "sha256": "121ed3c4f2644f7c27117aa960a806cd6f38181992ebf5bb2e43090cb11df083",
+      "date": "2026-07-27",
+      "title": "Feature-complete against the brief (Phases 1–6 + backup/restore)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-27-split-horizon-dns-backup-cron-applied-user-all-of-the-above.md",
+      "bytes": 1229,
+      "sha256": "027592140f2f19fed8c0154fa7660694ee62a5c50979ef8358988ae719df8093",
+      "date": "2026-07-27",
+      "title": "Split-horizon DNS + backup cron applied (user: \"all of the above\")"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-27-all-of-the-above-complete-pristine-baseline.md",
+      "bytes": 1467,
+      "sha256": "7c295dc42f5e2ac92a518bf5aa1b49bbdf4bac454fdafc491b9831148b6b53dc",
+      "date": "2026-07-27",
+      "title": "\"All of the above\" complete + pristine baseline"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-27-correction-git-history-is-clean-no-entanglement.md",
+      "bytes": 493,
+      "sha256": "de41220ec03702a7d40fb43f5e3b21634c58905ff0f1eacadd01a38ce626f9d8",
+      "date": "2026-07-27",
+      "title": "Correction: git history is clean (no entanglement)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-28-collection-migrated-from-pkmn-gg-100-faithful-catalog-gaps-modelled.md",
+      "bytes": 2878,
+      "sha256": "80acd02fe277cd8623cf8a1218774da973aa54653cf13c3808951867811ca4a3",
+      "date": "2026-07-28",
+      "title": "Collection migrated from pkmn.gg (100% faithful) + catalog gaps modelled"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-28-tier-boundary-synced-to-pkmn-prices-runbook-23-23-sets-exact.md",
+      "bytes": 1763,
+      "sha256": "73d7584c8f19beff2f5819a64f2bfcd06ff7a3f7e03f6c8b581bc55f6b0a1430",
+      "date": "2026-07-28",
+      "title": "Tier boundary synced to pkmn + prices + runbook (23/23 sets exact)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-29-in-app-bug-reporter-fix-issues-skill.md",
+      "bytes": 1612,
+      "sha256": "021eb359dec2715de09d922097d2c478487c923bd55097b8be60a836eb8527be",
+      "date": "2026-07-29",
+      "title": "In-app bug reporter + `fix-issues` skill"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-29-deckpal-mcp-mcp-server-over-the-deckpal-db-apps-mcp.md",
+      "bytes": 2420,
+      "sha256": "4096686cf77686d4c7019e5167fc73c47de81ce8e2a947fccf5335e834be5cf5",
+      "date": "2026-07-29",
+      "title": "deckpal-mcp: MCP server over the deckpal DB (`apps/mcp`)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-30-snapshot-collection-reconcile-cron-jobs-wired-http-to-deckpal-api.md",
+      "bytes": 2335,
+      "sha256": "c85e0678816e69ac1c5f1485772c27a81c34be31a5c885f0b25d3730f1c6af2e",
+      "date": "2026-07-30",
+      "title": "snapshot-collection + reconcile cron jobs wired (HTTP to deckpal-api)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-30-rarity-sort-canonical-rank-ladder-replaces-alphabetical-order-by.md",
+      "bytes": 1782,
+      "sha256": "b5da1fdc65e0bcb15ee8929ed07f4d2a1117cfe683c2f8605d68adc85a8523ac",
+      "date": "2026-07-30",
+      "title": "Rarity sort: canonical rank ladder replaces alphabetical ORDER BY"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-30-series-index-mobile-toolbar-popover-completion-rings-issues-h09o57-hln3d0.md",
+      "bytes": 1123,
+      "sha256": "dab489ad684af4a77c9c69c3fcfbac5c0569924ccdf7c932d55a153e4788c816",
+      "date": "2026-07-30",
+      "title": "Series index: mobile toolbar popover + completion rings (issues h09o57, hln3d0)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-30-purchase-set-tcgplayer-mass-entry-deep-links-issue-qhfs2f.md",
+      "bytes": 1866,
+      "sha256": "92688d965b79eab2a03bbeb31cafafc50945ca9efd8ab661931fc433bd515413",
+      "date": "2026-07-30",
+      "title": "Purchase Set → TCGplayer Mass Entry deep links (issue qhfs2f)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-30-ptcg-live-export-emitted-codes-live-rejects-fixed-with-verified-vocabulary.md",
+      "bytes": 2874,
+      "sha256": "463fd75254a079e03d41f4348423bcdc08ef0e1e580561e23932e59a73c2ddea",
+      "date": "2026-07-30",
+      "title": "PTCG Live export emitted codes Live rejects; fixed with verified vocabulary"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-30-deck-intelligence-strategy-guides-battle-logs-version-history.md",
+      "bytes": 2928,
+      "sha256": "58b4df1f000142ad75499950432d65947e2821f83065ef79c105edea4f2c2338",
+      "date": "2026-07-30",
+      "title": "Deck intelligence: strategy guides, battle logs, version history"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-30-auth-bounce-fix-v1-was-pwa-incompatible-recovery-must-navigate-to-the-portal.md",
+      "bytes": 1470,
+      "sha256": "936366c1b17c8536457fb98e6abaa6c10193afcfa6c488d8b63f787b88aa1e78",
+      "date": "2026-07-30",
+      "title": "Auth-bounce fix v1 was PWA-incompatible; recovery must navigate to the portal"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-31-battle-log-parser-a-wins-line-can-carry-any-sentence-prefix-agents-can-now-corre.md",
+      "bytes": 1197,
+      "sha256": "8a2fa4305a36940d647f88a85b6b07075da06b1b649820676149bcba4a7b5d40",
+      "date": "2026-07-31",
+      "title": "Battle-log parser: a wins line can carry any sentence prefix + agents can now correct logs"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-07-31-issues-pass-deck-buy-missing-overhaul-deep-links-missing-filter.md",
+      "bytes": 1849,
+      "sha256": "70bb9a61fcb588d84b5f0e567dce126498bfb4e98154b34f061120157855f4c8",
+      "date": "2026-07-31",
+      "title": "Issues pass + deck buy-missing overhaul (deep links, Missing filter)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-01-local-git-server-is-the-upstream-ci-on-every-push.md",
+      "bytes": 1848,
+      "sha256": "346845f8c7b9c379f22e652d85a7fae65d209e65f51b7b0a9a1ec87516bcff54",
+      "date": "2026-08-01",
+      "title": "Local git server is the upstream + CI on every push"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-01-helmet-s-upgrade-insecure-requests-broke-lan-by-ip-access.md",
+      "bytes": 1030,
+      "sha256": "6fdfe54f4f8e3a5a2984aba3ef37e07c095695bf89cc659b3f84ecc81b3209cb",
+      "date": "2026-08-01",
+      "title": "helmet's `upgrade-insecure-requests` broke LAN-by-IP access"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-01-first-ringer-swarm-12-small-fixes-via-review-then-fix-worker-swarm.md",
+      "bytes": 1496,
+      "sha256": "e4a54757fa178abaea373c6ed76e058e057ea1dd74b0b0c6ecea7a2c278a3966",
+      "date": "2026-08-01",
+      "title": "first Ringer swarm: 12 small fixes via review-then-fix worker swarm"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-07-the-image-cache-now-documents-where-every-byte-came-from.md",
+      "bytes": 6273,
+      "sha256": "5af359f385ce84ec1daee4b076fcaf7c97b16f64928a71c59ea141588b196c32",
+      "date": "2026-08-07",
+      "title": "the image cache now documents where every byte came from"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-08-the-header-search-was-never-wired-a-deck-card-sheet-that-knows-it-s-in-a-deck.md",
+      "bytes": 3181,
+      "sha256": "c8c90f9ae254b7e6f83ae59c4dfd2fd32172ce8ef526e016d76ab48c176da47f",
+      "date": "2026-08-08",
+      "title": "the header search was never wired; a deck card sheet that knows it's in a deck"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-09-privacy-scrub-for-public-repo-github-com-cheyras-deckpal.md",
+      "bytes": 2294,
+      "sha256": "79f583b0b9f77ff4639f698f622e2a0420d8f5f86dbbe5dfce7175d83aec68c0",
+      "date": "2026-08-09",
+      "title": "Privacy scrub for public repo (github.com/cheyras/deckpal)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-09-open-source-readiness-pass-post-scrub.md",
+      "bytes": 2600,
+      "sha256": "5947a9706c36100938804c5aebfa248f40ea41f2caa1a6e408f73957f2017885",
+      "date": "2026-08-09",
+      "title": "Open-source readiness pass (post-scrub)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-09-deckpal-nginx-cutover-user-approved.md",
+      "bytes": 550,
+      "sha256": "67f3330bd62588a919cbf93d7bf7642f33e103376e7d486a8e2c4efe2d503ac8",
+      "date": "2026-08-09",
+      "title": "/deckpal nginx cutover (user approved)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-09-original-app-icons-user-approved.md",
+      "bytes": 637,
+      "sha256": "0412e46affbc0b450aface1545a3954676825b4e3a54d2856dd2f3dc75861334",
+      "date": "2026-08-09",
+      "title": "Original app icons (user approved)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-09-original-single-host-deployment-decommissioned-host-specific-machinery-removed.md",
+      "bytes": 1008,
+      "sha256": "7f52bb5f967ec147b4e145ede4f3c42d270796cd1cd2ffa2b5fc9fc3e0d23118",
+      "date": "2026-08-09",
+      "title": "Original single-host deployment decommissioned, host-specific machinery removed"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-09-cloud-pivot-vercel-supabase-multi-user-rls-open-core-user-directive.md",
+      "bytes": 2414,
+      "sha256": "20587141fecee1bbe13aa99e98c549d683be3fcecd67d95f68d35b9c0b794a16",
+      "date": "2026-08-09",
+      "title": "Cloud pivot: Vercel + Supabase, multi-user RLS, open core (user directive)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-09-cloud-connection-day-supabase-wired-data-migrated-deckpal-app-live.md",
+      "bytes": 2254,
+      "sha256": "800ed83e686de28ec0c8d91c6c902bc4d1668b7455a0e7886d05a6cec548a16d",
+      "date": "2026-08-09",
+      "title": "Cloud connection day: Supabase wired, data migrated, deckpal.app live"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-public-marketing-landing-at-for-logged-out-visitors.md",
+      "bytes": 3182,
+      "sha256": "74c6531b2658a846ff34d36229ed550d3053d0eba994f4d271954de1f76ed450",
+      "date": "2026-08-10",
+      "title": "public marketing landing at `/` for logged-out visitors"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-landing-copy-quotes-english-only-catalog-counts-not-raw-table-counts.md",
+      "bytes": 1307,
+      "sha256": "4e0791f065fc8db85bc8fb449b19a16bcc539a3454fbda7a81358c097766c26d",
+      "date": "2026-08-10",
+      "title": "landing copy quotes English-only catalog counts, not raw table counts"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-auth-surface-is-a-product-surface-auth-polish-reset-change-password-signed-o.md",
+      "bytes": 3840,
+      "sha256": "1923c76d4b11b293aa7de5a01086946c5dfd250cafd8afc7f888092e61e8553e",
+      "date": "2026-08-10",
+      "title": "the auth surface is a product surface: /auth polish, reset, change-password, /signed-out"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-cloud-image-tier-lazy-cache-on-demand-out-of-supabase-storage.md",
+      "bytes": 7123,
+      "sha256": "7b5a726e65d14361aefb90a99ade59656a26200f1ef855a34f05c5ee6ac9fb81",
+      "date": "2026-08-10",
+      "title": "Cloud image tier: lazy cache-on-demand out of Supabase Storage"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-image-tier-round-two-sprites-extension-fallback-targeted-backfill.md",
+      "bytes": 3834,
+      "sha256": "27224f882fe885c7b7d437c3217d7575a044461bb1fa3068f1fa35c0ea908d28",
+      "date": "2026-08-10",
+      "title": "Image tier, round two: sprites, extension fallback, targeted backfill"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-page-load-perf-kill-the-per-tile-n-1-and-the-round-trips-nobody-counted.md",
+      "bytes": 7721,
+      "sha256": "9c72ed9b768f1a3a4c02c3ef403a1e06c62668c53682af59a3be01b2853fb4f1",
+      "date": "2026-08-10",
+      "title": "Page-load perf: kill the per-tile N+1 and the round trips nobody counted"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-one-manifest-row-described-two-physical-copies-image-object-splits-them.md",
+      "bytes": 6222,
+      "sha256": "7361f9c0eff49beb50a06bcf5356aa0d013de23b59fa894ab79c9a9449dc3a0a",
+      "date": "2026-08-10",
+      "title": "one manifest row described two physical copies; `image_object` splits them"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-1-854-unrecoverable-card-images-and-an-audit-of-how-they-arrived.md",
+      "bytes": 4520,
+      "sha256": "f83702933366b9801eefafa56608ab70b52b6a2e05816dddd61496dd658b817f",
+      "date": "2026-08-10",
+      "title": "the 1,854 unrecoverable card images, and an audit of how they arrived"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-028-user-set-progress-had-rls-on-and-no-write-policy-every-collection-write-500.md",
+      "bytes": 4733,
+      "sha256": "9b3c142572b608892bf22dfee4fe1ea65836655e1407c3b8e9f46508ea77d4e6",
+      "date": "2026-08-10",
+      "title": "028: `user_set_progress` had RLS on and no write policy; every collection write 500'd on cloud"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-mcp-goes-multi-user-per-user-personal-access-tokens-at-mcp.md",
+      "bytes": 8421,
+      "sha256": "034da1dd26f584de1f8fc28ff9970ff4dc49bb1cc657542978ba5de81d03680a",
+      "date": "2026-08-10",
+      "title": "MCP goes multi-user: per-user personal access tokens at /mcp"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-landing-imagery-shipped-libpq-sslmode-semantics-storage-backfill-mjs-removed.md",
+      "bytes": 6738,
+      "sha256": "ff308d21c72a2ee47650e7b99200a3c9a403bcf548087cf59386284d75bed1c1",
+      "date": "2026-08-10",
+      "title": "Landing imagery shipped, libpq `sslmode` semantics, `storage-backfill.mjs` removed"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-one-accessor-for-who-is-the-current-user-self-host-regression.md",
+      "bytes": 5429,
+      "sha256": "bc607568dcdd23b54a29ad5eddca165a0dd4299af6308f02b00d1897f93f1dff",
+      "date": "2026-08-10",
+      "title": "One accessor for \"who is the current user\" (self-host regression)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-deck-battle-log-cloud-fix-verified-through-a-real-session-and-17-the-bug-rep.md",
+      "bytes": 6921,
+      "sha256": "cfc299d1422ad3270596e49763428ede8854f2636d2f1ebb04183be5662e9808",
+      "date": "2026-08-10",
+      "title": "The deck/battle-log cloud fix, verified through a real session; and #17: the bug reporter's screenshot had three independent breaks"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-catalog-was-never-refreshed-and-could-not-have-been.md",
+      "bytes": 5698,
+      "sha256": "99f25d81939fcc0fcbe6795554451f26e36f237c1ee7a0a73ebeb6ad3ecf4e0d",
+      "date": "2026-08-10",
+      "title": "The catalog was never refreshed, and could not have been"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-profile-photos-a-public-avatar-bucket-a-random-key-and-a-b1-exception-that-is-wr.md",
+      "bytes": 9909,
+      "sha256": "a87a6ba6313a6fdfc341b77f3afde55df8d67eedad8ee63f196f1a9762f2f708",
+      "date": "2026-08-10",
+      "title": "Profile photos: a public avatar bucket, a random key, and a B1 exception that is written down"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-hosted-card-scanner-matched-nothing-it-died-at-spawn-magick-20.md",
+      "bytes": 7767,
+      "sha256": "29c1cad54f8fe0bfeadf45412ea8bd437f3ff4cb54676449ac215dbedbe69060",
+      "date": "2026-08-10",
+      "title": "The hosted card scanner matched nothing: it died at `spawn magick` (#20)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-re-keying-stranded-card-art-and-scheduling-the-refresh-that-prevents-it.md",
+      "bytes": 9675,
+      "sha256": "818f6f2aad99402fe9387c3698c9d6308e3171472a712477e441a8870b9607e9",
+      "date": "2026-08-10",
+      "title": "Re-keying stranded card art, and scheduling the refresh that prevents it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-dark-inked-set-logos-measuring-which-ones-vanish-and-plating-only-those-16.md",
+      "bytes": 5396,
+      "sha256": "03814f26103565b41e8a34a69418042aa0be9799c1e43f03efd41a5ef5b64e56",
+      "date": "2026-08-10",
+      "title": "Dark-inked set logos: measuring which ones vanish, and plating only those (#16)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-mcdonald-s-mark-was-a-trademark-we-drew-ourselves-15.md",
+      "bytes": 6296,
+      "sha256": "a96d79b41dbc6fdf8b713117b69b234661247b822be3510425fde69d9b0a080b",
+      "date": "2026-08-10",
+      "title": "The McDonald's mark was a trademark we drew ourselves (#15)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-deck-lane-also-had-the-swsh-5tg-rename-stranded-21-sibling.md",
+      "bytes": 2880,
+      "sha256": "9a152d314bc296f30dedeba1db2fceefaefffc165313f1df66de46dff313afe2",
+      "date": "2026-08-10",
+      "title": "The deck lane also had the swsh*.5tg rename stranded (#21 sibling)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-the-catalog-goes-public-and-the-leakage-audit-that-made-it-safe.md",
+      "bytes": 6760,
+      "sha256": "f3c8d12721b8d0e9c5b9fdba683a3b810507dc013a50bd1c91a7ae0ba8d25bfa",
+      "date": "2026-08-10",
+      "title": "The catalog goes public, and the leakage audit that made it safe"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-issue-24-the-mep-art-gap-was-two-failures-and-the-pkmn-fallback-had-rotted.md",
+      "bytes": 5128,
+      "sha256": "e137364fdba41fc7fcf812aee313b3df08505ac88d62992406e8a31842cc0c48",
+      "date": "2026-08-10",
+      "title": "issue #24: the mep art gap was two failures, and the pkmn fallback had rotted"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-four-hono-advisories-closed-and-why-a-pnpm-override-looked-like-it-did-nothing.md",
+      "bytes": 3925,
+      "sha256": "22ff87d9b46975c8c4dc71ee055e4e12fc167c02f910d1679bc61f05fdf888c5",
+      "date": "2026-08-10",
+      "title": "four hono advisories closed, and why a pnpm override looked like it did nothing"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-custom-smtp-live-resend-on-deckpal-app-and-four-traps-on-the-way.md",
+      "bytes": 4192,
+      "sha256": "5ff34ed106a14cc487d5fb5c0c58a7288c916e3497be3b9bd7f2c50100ad2f37",
+      "date": "2026-08-10",
+      "title": "custom SMTP live: Resend on deckpal.app, and four traps on the way"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-10-a-real-oauth-2-1-authorization-server-for-mcp-issue-29.md",
+      "bytes": 8223,
+      "sha256": "03f42b4444abd17ef13d3d6540e4713bebd01a7f126b849c7181773bd17b318d",
+      "date": "2026-08-10",
+      "title": "a real OAuth 2.1 authorization server for /mcp (issue #29)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-a-stale-vercel-build-cache-500-d-every-signed-in-user.md",
+      "bytes": 1704,
+      "sha256": "e79323924256d918a6043328453db0220e066b07e0849d29bc9dc6e4c1948d06",
+      "date": "2026-08-11",
+      "title": "a stale Vercel build cache 500'd every signed-in user"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-real-username-on-profile-header-a-new-get-me-not-user-metadata.md",
+      "bytes": 4863,
+      "sha256": "f39d5e54f7d03909ce7715ea2f6d74cff0391441cdcdc13d43b56b06be784c7f",
+      "date": "2026-08-11",
+      "title": "real username on Profile/header: a new `GET /me`, not `user_metadata`"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-insights-range-chips-an-honest-caption-instead-of-an-invented-fix-26.md",
+      "bytes": 6967,
+      "sha256": "1f446d21087e8ecea061486f21f65daabf7e5bbbf8b8abb42894e9ab7ce8629e",
+      "date": "2026-08-11",
+      "title": "Insights range chips: an honest caption instead of an invented fix (#26)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-remove-stream-tools-27-a-product-scope-pivot-not-a-bug-fix.md",
+      "bytes": 6069,
+      "sha256": "ec9cac189a480f4c504dccc2f979fec851dccf15b6f9ea2114354180182f04ae",
+      "date": "2026-08-11",
+      "title": "Remove Stream Tools (#27): a product-scope pivot, not a bug fix"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-avatar-upload-no-image-was-uploaded-on-vercel-issue-28.md",
+      "bytes": 4614,
+      "sha256": "75fd671d3cd9cdaa21f22b955508e0d4ccc6f13a3ebe9f035192ee1eed7eea02",
+      "date": "2026-08-11",
+      "title": "Avatar upload \"No image was uploaded\" on Vercel (issue #28)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-one-progress-bar-not-two-reversing-the-phase-1-two-bar-call-30.md",
+      "bytes": 6592,
+      "sha256": "5839e38da03b950ab95da2e62bbf9f5fe95eac3b9b3ff062cbbe7d2929054156",
+      "date": "2026-08-11",
+      "title": "One progress bar, not two: reversing the Phase 1 two-bar call (#30)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-bug-reporter-splits-into-bug-vs-feature-request-issue-32.md",
+      "bytes": 2974,
+      "sha256": "77166488f583c7be1530993ca22fea748e006806eeddc9d1603d342fceecdab4",
+      "date": "2026-08-11",
+      "title": "Bug reporter splits into bug vs. feature request (issue #32)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-agentic-deck-building-defaults-to-cheapest-printing-issue-31.md",
+      "bytes": 2932,
+      "sha256": "30d69bb4d1702658045cf318cdbd8abe37a048389ecee5426f7bccf42ed01dfa",
+      "date": "2026-08-11",
+      "title": "Agentic deck-building defaults to cheapest printing (issue #31)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-ai-issue-triage-scoped-down-comment-only-draft-labeled-issue-33.md",
+      "bytes": 4316,
+      "sha256": "ca6e936b1bd5cb77bddbcaa1ec85ff460f4d9f36559ace891306f510daf07112",
+      "date": "2026-08-11",
+      "title": "AI issue triage: scoped-down, comment-only, draft-labeled (issue #33)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-delete-buttons-buried-in-a-kebab-menu-issue-34.md",
+      "bytes": 3058,
+      "sha256": "803a8059037a6083c1f14aa741447893d1499497b07f13b5e1ee35b24377870b",
+      "date": "2026-08-11",
+      "title": "Delete buttons buried in a kebab menu (issue #34)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-fix-promise-all-connection-pool-exhaustion-the-actual-root-cause-of-35-and-25-26.md",
+      "bytes": 5417,
+      "sha256": "66eab8e32a3b97683207a53c9df66aa20dacde31e59d8f86a99e1e0003271add",
+      "date": "2026-08-11",
+      "title": "Fix Promise.all connection-pool exhaustion: the actual root cause of #35 (and #25/#26/#27/#30 verification wedges)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-design-system-editor-change-application-model-approved-phase-0-gate.md",
+      "bytes": 2583,
+      "sha256": "2a80363cea46c17cfdd8bebe5f75265c7d4a524d21f3f5127c5e5fb419844772",
+      "date": "2026-08-11",
+      "title": "Design-system editor: change-application model approved (Phase 0 gate)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-phase-3a-agent-lane-with-supervised-consumer.md",
+      "bytes": 2282,
+      "sha256": "40877e90c6ea9a1976fd23d1b2f9241d4c9563fc0b01c98b1b92002a302da6b8",
+      "date": "2026-08-11",
+      "title": "Phase 3a: Agent lane with supervised consumer"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-premium-visual-pass-ships-as-a-reversible-skin-not-a-rewrite.md",
+      "bytes": 2964,
+      "sha256": "e53f7d301d3e35e62c9e12dd679904886693fda5b6edf94eee79c491a2aedd99",
+      "date": "2026-08-11",
+      "title": "Premium visual pass ships as a reversible skin, not a rewrite"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-connection-pooling-is-chosen-per-role-and-per-backend.md",
+      "bytes": 3712,
+      "sha256": "94923c0dab7a8f3c87e54f0d182974172a46e80603e9268f6fa76bc4e09f8006",
+      "date": "2026-08-11",
+      "title": "Connection pooling is chosen per ROLE and per BACKEND"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-11-ui-spec-4-1-s-85-content-column-gains-a-floor.md",
+      "bytes": 1976,
+      "sha256": "212297c37e658a1bc2a90ddc2a47902a0e3d111ffd49c620fb171e524953275c",
+      "date": "2026-08-11",
+      "title": "UI-SPEC §4.1's 85% content column gains a floor"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-12-every-colour-now-resolves-to-a-named-scale.md",
+      "bytes": 2603,
+      "sha256": "2f1bef8f005f1428f4a63db1d3abeb444e9c56d7d1db9203f25d2f378eb9a06c",
+      "date": "2026-08-12",
+      "title": "Every colour now resolves to a named scale"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-12-type-fraunces-display-figtree-body.md",
+      "bytes": 2685,
+      "sha256": "b705f5abc709af3ae3d42270e7a7372d84478e9204444269406bce2b1c2d0e3b",
+      "date": "2026-08-12",
+      "title": "Type: Fraunces (display) + Figtree (body)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-12-minimum-type-size-is-14px-with-named-exceptions.md",
+      "bytes": 2166,
+      "sha256": "c1fb6ef50922495e3e78dc6a214cb2066f10c48e1927abc7f551f3eee0846d21",
+      "date": "2026-08-12",
+      "title": "Minimum type size is 14px, with named exceptions"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-12-the-rls-pool-leak-and-why-raising-max-only-hid-it.md",
+      "bytes": 2280,
+      "sha256": "58568de86fd5453a768886b6460d57ca1b2a45202a87c359a0020e6b93d7b46f",
+      "date": "2026-08-12",
+      "title": "The RLS pool leak, and why raising `max` only hid it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-12-interface-tuning-pass-from-the-2026-08-12-screen-recording.md",
+      "bytes": 6851,
+      "sha256": "9e27a9b443ea637d3679ffbd8c0e46169785bef434a928d054d52e095d856612",
+      "date": "2026-08-12",
+      "title": "Interface tuning pass from the 2026-08-12 screen recording"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-13-top-bar-the-cover-header-is-pinned-to-its-own-composited-layer.md",
+      "bytes": 3242,
+      "sha256": "36d599f8605c2b228a3e5f8d78cdd760f9e4d17192538568a8c3b67a9c4479a6",
+      "date": "2026-08-13",
+      "title": "Top bar: the cover header is pinned to its own composited layer"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-14-design-ships-to-production-as-an-owner-only-read-only-reference.md",
+      "bytes": 1816,
+      "sha256": "3dcb964341030505b78f7e0167d0a012d3673a3e93424e594787cf729adbaf12",
+      "date": "2026-08-14",
+      "title": "/design ships to production as an owner-only read-only reference"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-14-pre-merge-production-readiness-review-six-fixes.md",
+      "bytes": 3193,
+      "sha256": "ffd0ee3ffddda5ef366b61782a0ce6b5dcfcdd9abec11431a769f4f6595bc221",
+      "date": "2026-08-14",
+      "title": "Pre-merge production-readiness review: six fixes"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-15-one-sheet-primitive-animation-fill-mode-both-is-banned-on-transforms.md",
+      "bytes": 2767,
+      "sha256": "669bc753f5d4c1065cc5b7bd79c3470fd9a09d844e7dc657d7a29216a3b15aaf",
+      "date": "2026-08-15",
+      "title": "One Sheet primitive; `animation-fill-mode: both` is banned on transforms"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-asset-shaped-urls-must-404-not-serve-the-spa-shell.md",
+      "bytes": 2330,
+      "sha256": "b95ac3b65cf099761fb27dece52a51b89bc67e4bff0f7b6caf311abe98775737",
+      "date": "2026-08-16",
+      "title": "Asset-shaped URLs must 404, not serve the SPA shell"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-the-link-preview-is-a-rendered-promo-card-not-a-stock-gradient.md",
+      "bytes": 2003,
+      "sha256": "539a45f70de208db7bbc169bbc672af3e2e6ec620bac6fe5048ace85f94f343c",
+      "date": "2026-08-16",
+      "title": "The link preview is a rendered promo card, not a stock gradient"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-premium-css-is-unlayered-so-it-outranks-every-tailwind-utility.md",
+      "bytes": 1840,
+      "sha256": "8086761c87f8c5b86baeb446cc70ea8058d5308b5810adfbbe51ffe0fdb57ee7",
+      "date": "2026-08-16",
+      "title": "premium.css is unlayered, so it outranks every Tailwind utility"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-layer-only-the-sheen-scaffolding-not-all-of-premium-css.md",
+      "bytes": 3637,
+      "sha256": "cc09aca2f36000bbc5a2d7955060ba9cf4f482681e5ac3be568ce9f9da96c0ff",
+      "date": "2026-08-16",
+      "title": "Layer only the sheen scaffolding, not all of premium.css"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-layer-the-sheen-scaffolding-in-premium-css-executed.md",
+      "bytes": 1352,
+      "sha256": "6cd2527290bbd64bc62bc87e2d88f386f1aabdc5dfa9de953b50c0134a77f9ae",
+      "date": "2026-08-16",
+      "title": "Layer the sheen scaffolding in premium.css (executed)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-bulk-fill-missing-pokedex-sprites-ids-624-1025.md",
+      "bytes": 874,
+      "sha256": "71f43707e0522f93cadf4965fbe764c82ef1f88fce68c3b2c02f0efaa6bddce3",
+      "date": "2026-08-16",
+      "title": "Bulk-fill missing Pokédex sprites (IDs 624–1025)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-tabs-underline-padding-source-omission-not-a-cascade-bug.md",
+      "bytes": 694,
+      "sha256": "902e25758070b3f4f5e2f37a82932e0e000649fb16878487bd1534b0c1b9969a",
+      "date": "2026-08-16",
+      "title": "Tabs underline padding: source omission, not a cascade bug"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-own-the-last-word-on-scroll-to-top.md",
+      "bytes": 1285,
+      "sha256": "ecad30b70487fc4abb776047bbd4bcf43f7f4548c2ca31b515fbd528fb23d113",
+      "date": "2026-08-16",
+      "title": "Own the last word on scroll-to-top"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-16-tcgplayer-mass-entry-pokemon-uses-product-name-matching-not-mtg-grammar.md",
+      "bytes": 1167,
+      "sha256": "d19812e0b14f57da447e818277c8fa20b172618ab51de762cbe8bbc2931b9743",
+      "date": "2026-08-16",
+      "title": "TCGPlayer mass entry: Pokemon uses product-name matching, not MTG grammar"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-18-deck-e-in-three-js-drive-normalised-channels-not-animationclips.md",
+      "bytes": 4759,
+      "sha256": "36ff31ac081d4e6f8d3169f6212bdcb420b8d67cae0dcc5c0b5bcb564a19f1ac",
+      "date": "2026-08-18",
+      "title": "Deck-E in three.js: drive normalised channels, not AnimationClips"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-18-deck-e-parentage-beats-analysis-three-times-over.md",
+      "bytes": 7668,
+      "sha256": "0ed93be808ae5de7352a0a3356c4430c92b9d23d9c9b6bad7f44c8bd4f3aeffd",
+      "date": "2026-08-18",
+      "title": "Deck-E: parentage beats analysis, three times over"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-18-deck-e-ships-to-production-owner-only.md",
+      "bytes": 2040,
+      "sha256": "b2941a2ecaec2e11683068398a8aa088d8ef2b87a06983d2421b4dcf082ecc60",
+      "date": "2026-08-18",
+      "title": "Deck-E ships to production, owner-only"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-18-runtime-configuration-must-fail-loudly-b11.md",
+      "bytes": 1936,
+      "sha256": "6d6dfda8c3ce1e2a0a75f837bba0eb0a0008c4dabb13e4997556cfaa263a4ba8",
+      "date": "2026-08-18",
+      "title": "Runtime configuration must fail loudly (B11)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-the-silent-success-incident-log-cards-was-65-seconds-of-work-inside-a-60-second.md",
+      "bytes": 4170,
+      "sha256": "cd810fb58cdff006f79cbc64719becda1541b7b89bbb5f6e997a2c1aa1364f2c",
+      "date": "2026-08-19",
+      "title": "The silent-success incident: `log_cards` was 65 seconds of work inside a 60-second budget"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-idempotency-keys-bucketed-by-time.md",
+      "bytes": 1722,
+      "sha256": "4d2eded24f9c53848a997498fa6028c94ab7be6aba6054520c5055709a8f654f",
+      "date": "2026-08-19",
+      "title": "Idempotency keys, bucketed by time"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-the-mutation-log-before-and-after-append-only.md",
+      "bytes": 2318,
+      "sha256": "15a8e85f772dfca5afc184ac1a8efec7cc3d1587d28e25ede56bca31cb60eaad",
+      "date": "2026-08-19",
+      "title": "The mutation log: before AND after, append-only"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-revert-defaults-to-inverse-and-says-when-it-cannot-be-exact.md",
+      "bytes": 1549,
+      "sha256": "31411ceaafe2ddbe0fe87533291d0c3a915cb33132952fc0664b357305f13cb3",
+      "date": "2026-08-19",
+      "title": "Revert defaults to `inverse`, and says when it cannot be exact"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-soft-delete-for-lists-and-decks-with-no-retention-timer.md",
+      "bytes": 1431,
+      "sha256": "072153f8ff24e8fa992b2e77e7d25209305aa2f35a2bbda6ab4d56be4a600ee6",
+      "date": "2026-08-19",
+      "title": "Soft delete for lists and decks, with no retention timer"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-tcgplayer-mass-entry-product-ids-because-names-are-not-unique-and-one-miss-voids.md",
+      "bytes": 3144,
+      "sha256": "06beaf165b0ed3db432d573beeea8f219ecdd6c2855da892beb65e3762d52ee5",
+      "date": "2026-08-19",
+      "title": "TCGplayer Mass Entry: product ids, because names are not unique and one miss voids the cart"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-a-cart-can-be-built-from-a-list-so-the-list-and-the-cart-can-never-disagree.md",
+      "bytes": 1044,
+      "sha256": "2734fdfbf3543cadae9cdc0ba6be970072259632dfff3e9d61dcad5c838b9653",
+      "date": "2026-08-19",
+      "title": "A cart can be built from a list, so the list and the cart can never disagree"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-rarity-is-a-filter-because-variant-tier-is-not-rarity.md",
+      "bytes": 983,
+      "sha256": "6140e1d3c0f19ea9421dbfb1a8703f05391bf9b20ca0776e8ab5559e6f8c53a9",
+      "date": "2026-08-19",
+      "title": "Rarity is a filter, because variant tier is not rarity"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-edit-list-takes-the-same-card-reference-as-log-cards-and-can-derive-the-list-its.md",
+      "bytes": 960,
+      "sha256": "f2daf8b87ed43411c05eff4c251523b4c516506c62b750b7d73e1159afdce7f3",
+      "date": "2026-08-19",
+      "title": "`edit_list` takes the same card reference as `log_cards`, and can derive the list itself"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-the-response-is-sent-after-commit-for-the-one-endpoint-that-is-about-truthfulnes.md",
+      "bytes": 1290,
+      "sha256": "5a053844f7435df07189650a0c8a9d3f8004e0ffbc20b5100e23bf99b219db8f",
+      "date": "2026-08-19",
+      "title": "The response is sent after COMMIT, for the one endpoint that is about truthfulness"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-rename-what-was-finished-and-what-is-the-maintainer-s-to-do.md",
+      "bytes": 1464,
+      "sha256": "b14e8d1b6af9ee25d9df91cd167f822bc9c0cfbaa94ef2581e5ddded1004801c",
+      "date": "2026-08-19",
+      "title": "Rename: what was finished, and what is the maintainer's to do"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-19-recovering-the-2026-08-12-interface-tuning-pass.md",
+      "bytes": 2277,
+      "sha256": "5f7802d7ff058fd17a55d5d69efa2abaebac5b3df354e461840f243ffe359740",
+      "date": "2026-08-19",
+      "title": "Recovering the 2026-08-12 interface tuning pass"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-pnpm-dev-talks-to-production-and-self-host-stops-being-the-default.md",
+      "bytes": 3621,
+      "sha256": "0ddc812aa50c147a09438c4655cab6402b271a135b23dd043f9f2eb746ed4afc",
+      "date": "2026-08-20",
+      "title": "`pnpm dev` talks to production, and self-host stops being the default"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-the-owner-s-prs-are-approved-by-ci-not-by-an-admin-override.md",
+      "bytes": 1294,
+      "sha256": "715fa58a51ac70b604679a616e485c6a080ac41453ff2e810a76c2ec7483e2cb",
+      "date": "2026-08-20",
+      "title": "The owner's PRs are approved by CI, not by an admin override"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-the-issue-sweep-for-46-57-and-what-already-fixed-turned-out-to-mean.md",
+      "bytes": 2563,
+      "sha256": "4976e3c1bd73d4ae189302a283b1ad4ed331f766b04735f9c9a7b8e32ada356b",
+      "date": "2026-08-20",
+      "title": "The issue sweep for #46–#57, and what \"already fixed\" turned out to mean"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-one-definition-of-which-nav-row-is-the-page-you-are-on.md",
+      "bytes": 922,
+      "sha256": "7138dd4af6f587e86ba982cd6e0ac2077bc6e5877560bf55cd781c65df4b2660",
+      "date": "2026-08-20",
+      "title": "One definition of \"which nav row is the page you are on\""
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-show-the-code-that-is-printed-on-the-card.md",
+      "bytes": 1333,
+      "sha256": "76d52fe749a8cf7d544ff3a746fdecc02d8dc275db6f193d489a09266e367706",
+      "date": "2026-08-20",
+      "title": "Show the code that is printed on the card"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-a-lapsed-session-is-not-a-stranger.md",
+      "bytes": 1647,
+      "sha256": "2c7cb26b8d4ceae9b4abc3fba0bb7b6bbf0fa555108ab6ca54e496afc760fad1",
+      "date": "2026-08-20",
+      "title": "A lapsed session is not a stranger"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-draw-the-venus-and-mars-signs-do-not-typeset-them.md",
+      "bytes": 1199,
+      "sha256": "4ae3c3e834b513b122c982dccdc68ed7625f5408fea027b16251fd6eef540e80",
+      "date": "2026-08-20",
+      "title": "Draw the Venus and Mars signs; do not typeset them"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-revealing-the-uncollected-series-is-one-way.md",
+      "bytes": 828,
+      "sha256": "4053fb551aacc9868a2573551ee5e12dc205df418d8ad748d41d169e84a3916e",
+      "date": "2026-08-20",
+      "title": "Revealing the uncollected series is one-way"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-the-deck-kebab-belongs-to-the-badge-row.md",
+      "bytes": 956,
+      "sha256": "5bd1a8f193e7753e8ec0f83c9649f7675c924146797aca051842e549340aa202",
+      "date": "2026-08-20",
+      "title": "The deck kebab belongs to the badge row"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-deck-e-a-state-is-something-he-stays-in.md",
+      "bytes": 8127,
+      "sha256": "2cba9e826a4f77a5df18f2179311c3b4badbaa57aa35ff76b584a60e0f69a0c3",
+      "date": "2026-08-20",
+      "title": "Deck-E: a state is something he STAYS in"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-deck-e-he-is-oriented-to-the-reader-and-a-loop-is-a-loop.md",
+      "bytes": 16475,
+      "sha256": "f46d724cd8a6ab1954dc8c024c7a14f942c8d1015a9ea8b886c067812d1fbd06",
+      "date": "2026-08-20",
+      "title": "Deck-E: he is oriented to the reader, and a loop is a loop"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-a-lazy-route-that-is-not-precached-breaks-on-every-deploy.md",
+      "bytes": 2495,
+      "sha256": "de32eeb6f0027c44167662a126dcb6a895437e55ac71fed47b338a1c86b416e0",
+      "date": "2026-08-20",
+      "title": "A lazy route that is not precached breaks on every deploy"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-deck-e-shows-real-card-art-and-puts-cards-away-in-batches.md",
+      "bytes": 10010,
+      "sha256": "868b9d4e7f8f713ed45f0f61f43488a3518edf78e639719416a2c150eb307fe3",
+      "date": "2026-08-20",
+      "title": "Deck-E shows real card art, and puts cards away in batches"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-movement-engine-pass-the-pace-the-pop-the-phone.md",
+      "bytes": 10852,
+      "sha256": "38388bec67f198853a3baad04bb5fc9ac0ccea4411ef990ac90dfbe099796cd1",
+      "date": "2026-08-20",
+      "title": "Movement-engine pass: the pace, the pop, the phone"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-the-iphone-measurement-it-is-not-our-frame-it-is-the-browser-s.md",
+      "bytes": 4021,
+      "sha256": "efb401bc8005de4cc937d1a741ed2284973e683fc1e5ffefc8646bf02789d61f",
+      "date": "2026-08-20",
+      "title": "The iPhone measurement: it is not our frame, it is the browser's"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-he-stopped-tracking-the-page-and-became-part-of-it.md",
+      "bytes": 5928,
+      "sha256": "ce653322b7a65917e76a8187f0df3801e4c9413e3e8c92ab8e3832770d3071e8",
+      "date": "2026-08-20",
+      "title": "He stopped tracking the page and became part of it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-two-faults-the-pinned-path-had-and-neither-was-the-pinning.md",
+      "bytes": 3006,
+      "sha256": "2bf490beea44e0ba675f06b62592dde9ec985af5c44be0c614b522c4536e85d1",
+      "date": "2026-08-20",
+      "title": "Two faults the pinned path had, and neither was the pinning"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-the-strip-at-the-bottom-and-one-pace-for-every-leg.md",
+      "bytes": 3685,
+      "sha256": "191e4e51ae831cdfda5be1a49c63b572de54dd936b03176721c858311c7faca5",
+      "date": "2026-08-20",
+      "title": "The strip at the bottom, and one pace for every leg"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-the-clip-was-the-pin-s-clamp-and-the-margin-was-measured-against-the-wrong-thing.md",
+      "bytes": 3463,
+      "sha256": "54a5315d302bb0c8a079ac3719ad9dceb57f9c2f551c0f7bbd2dc27164c8443d",
+      "date": "2026-08-20",
+      "title": "The clip was the pin's clamp, and the margin was measured against the wrong thing"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-20-fable-s-review-of-the-compositor-branch-and-the-two-real-defects-it-found.md",
+      "bytes": 4114,
+      "sha256": "f1a7a6e6a9748ff56d912b13ba800e2f5cd7fd03c059403780ab9126658d0fa1",
+      "date": "2026-08-20",
+      "title": "Fable's review of the compositor branch, and the two real defects it found"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-s-body-is-mounted-once-above-the-route-tree.md",
+      "bytes": 4204,
+      "sha256": "126c4f0dae0f729d11c11dbd075aefb3a786b8f5da6e8077cd0e0ff6590805c0",
+      "date": "2026-08-21",
+      "title": "Deck-E's body is mounted once, above the route tree"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-s-brain-its-own-function-and-the-schema-keyword-that-cost-an-afternoon.md",
+      "bytes": 6197,
+      "sha256": "dc95a0876dd0d1f103fd75955124b6e1b8aeee9f09ddb4c44976bf4c1a81d428",
+      "date": "2026-08-21",
+      "title": "Deck-E's brain: its own function, and the schema keyword that cost an afternoon"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-s-chat-he-stands-on-the-page-not-inside-the-panel.md",
+      "bytes": 3927,
+      "sha256": "cabbdfd683806d9f433236044896c0493b651c979644ac8f3d7d0bc7c9f41625",
+      "date": "2026-08-21",
+      "title": "Deck-E's chat: he stands on the page, not inside the panel"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-s-ui-actions-an-allowlist-not-a-selector.md",
+      "bytes": 2659,
+      "sha256": "5af7dce5932f8948ece944a8a114c62d6dfe5792b73a02fc15f4c7cd894d1253",
+      "date": "2026-08-21",
+      "title": "Deck-E's UI actions: an allowlist, not a selector"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-background-first-travel-is-a-leg-queue-and-the-caller-chooses.md",
+      "bytes": 1990,
+      "sha256": "e12b91a15fc2d15af4313be364acad0266ff11c7913b582f23c2c1cba741e83b",
+      "date": "2026-08-21",
+      "title": "Background-first travel is a leg queue, and the caller chooses"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-flying-scroll-one-clock-and-the-reader-always-wins.md",
+      "bytes": 2181,
+      "sha256": "ee30ca4dcbc04c04b7be78121f345fb6ae4c3e1616869649ec5d37beaff8cdc0",
+      "date": "2026-08-21",
+      "title": "Flying scroll: one clock, and the reader always wins"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-the-transcript-gets-out-of-the-way-when-he-does.md",
+      "bytes": 2194,
+      "sha256": "6f92d975f0f32018dba6dc7413badd2e7f2233c63a8b0bbe43700c2927eaae9d",
+      "date": "2026-08-21",
+      "title": "The transcript gets out of the way when he does"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-booster-rip-dedup-is-departure-then-return-not-a-time-window.md",
+      "bytes": 2513,
+      "sha256": "b9314eb09d19ee4df521e60d2057dd73e126ba5ddf0a2f9a9ed9f51cf1d93352",
+      "date": "2026-08-21",
+      "title": "Booster-rip dedup is departure-then-return, not a time window"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-ad-hoc-screens-the-model-picks-components-and-cannot-write-markup.md",
+      "bytes": 1723,
+      "sha256": "1e1f02cf183260e94e5bc3d76b91143e89f63b52e29df60dace6f045ba199786",
+      "date": "2026-08-21",
+      "title": "Ad-hoc screens: the model picks components, and cannot write markup"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-committing-a-rip-resolve-then-one-write.md",
+      "bytes": 1862,
+      "sha256": "312bc10b330d70bf8566e98710c5dc3624c94384ac6043efeab79dad699864eb",
+      "date": "2026-08-21",
+      "title": "Committing a rip: resolve, then ONE write"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-foil-detection-luminance-saturation-correlation-per-card-baseline.md",
+      "bytes": 2131,
+      "sha256": "05864df57713057800c8d6e4aed791f8fe201ff9b85b46ab33d487384551045f",
+      "date": "2026-08-21",
+      "title": "Foil detection: luminance/saturation correlation, per-card baseline"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-rip-mode-the-printing-is-a-reader-s-choice-never-inferred.md",
+      "bytes": 1786,
+      "sha256": "bb2af7e82456f484854d846e5a23a2414326763773805dd26c34fec9f743eb16",
+      "date": "2026-08-21",
+      "title": "Rip mode: the printing is a reader's choice, never inferred"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-rip-mode-one-row-per-card-a-return-is-a-quantity.md",
+      "bytes": 1348,
+      "sha256": "56e2b8ae2f182275ab46cd766c214d749edf8f51875e9a693e365e367e01695a",
+      "date": "2026-08-21",
+      "title": "Rip mode: one row per card, a return is a quantity"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-attends-a-pack-rip.md",
+      "bytes": 1141,
+      "sha256": "bcf10df5054683990a9ad74d5314d81c94c92cbacd9f47169beebd318cf2f1fa",
+      "date": "2026-08-21",
+      "title": "Deck-E attends a pack rip"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-showscreen-the-palette-gets-a-producer.md",
+      "bytes": 1150,
+      "sha256": "bd1076bf9d10659cac3aabb904c87305f611bdff8809508d4f2bbbee1739fccf",
+      "date": "2026-08-21",
+      "title": "`showScreen`: the palette gets a producer"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-a-short-quantities-array-is-normalised-not-rejected.md",
+      "bytes": 874,
+      "sha256": "c58aeefd2b436b8a0cef413ce592100572b20ed33429cc8016758f933c03b880",
+      "date": "2026-08-21",
+      "title": "A short `quantities` array is normalised, not rejected"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-foil-auto-detection-is-not-shipped-the-one-tap-choice-is-the-answer.md",
+      "bytes": 1710,
+      "sha256": "e94055f4e13337ddc55e72aea3d1ac322b40d95171ce519cf114e1c1bcdb22df",
+      "date": "2026-08-21",
+      "title": "Foil auto-detection is NOT shipped; the one-tap choice is the answer"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-adversarial-review-five-real-defects-and-a-clean-security-verdict.md",
+      "bytes": 3202,
+      "sha256": "69928f21edf3256cd7c66762c5c54a792de8d3daf714fa26c167492c7f336302",
+      "date": "2026-08-21",
+      "title": "Adversarial review: five real defects, and a clean security verdict"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-every-serverless-function-must-be-proven-to-load.md",
+      "bytes": 1604,
+      "sha256": "6c3f6718eb07ebfe3ae46cc382b17803382d45a1f396e71e4254f38378355e9d",
+      "date": "2026-08-21",
+      "title": "Every serverless function must be proven to LOAD"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-the-phone-chat-is-glass-and-the-layout-gets-out-of-his-way.md",
+      "bytes": 3891,
+      "sha256": "ced4cb83c2dc291616508a6fab366ac0b05125eb4981f70a885d299f692c2359",
+      "date": "2026-08-21",
+      "title": "The phone chat is glass, and the layout gets out of his way"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-s-browser-tools-had-never-executed-and-nothing-said-so.md",
+      "bytes": 3164,
+      "sha256": "16f7b2f31d1551c6ba1caab2a7f0abd23b686fd8c86e8b53b740e19ea2afa2a4",
+      "date": "2026-08-21",
+      "title": "Deck-E's browser tools had never executed, and nothing said so"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-api-chat-had-no-server-side-entitlement-rate-limit-or-spend-cap.md",
+      "bytes": 3203,
+      "sha256": "c0697fcff1c66fa65b0887c71d974e916d2b17f6e75412745c8592339f5fad78",
+      "date": "2026-08-21",
+      "title": "`/api/chat` had no server-side entitlement, rate limit or spend cap"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-one-definition-of-what-an-agent-can-do-in-deckpal.md",
+      "bytes": 2302,
+      "sha256": "170410ebd29d63a6b7822c90efd9126cd9e335e8f858919f2a96be93a95da9f8",
+      "date": "2026-08-21",
+      "title": "One definition of what an agent can do in DeckPal"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-raising-api-chat-mjs-to-maxduration-300-which-reverses-2026-08-19.md",
+      "bytes": 1787,
+      "sha256": "f6a59013f6784e39039c6da9f9be301d0c1afac61245f312cd541f5ee2507e8e",
+      "date": "2026-08-21",
+      "title": "Raising `api/chat.mjs` to `maxDuration: 300`, which reverses 2026-08-19"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-s-model-routing-escalation-is-a-tool-sonnet-is-the-default.md",
+      "bytes": 3040,
+      "sha256": "062133131e1e62c647ee643b3086c0964bb56c3e18b372c3a73ee313f9ef4e61",
+      "date": "2026-08-21",
+      "title": "Deck-E's model routing: escalation is a tool, Sonnet is the default"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-s-conversational-model-was-re-baked-and-kept-its-job.md",
+      "bytes": 2197,
+      "sha256": "c2e652c4c07daea8c3534519784283125d6d4ad48bb764af49fb4ccf2e3ddec9",
+      "date": "2026-08-21",
+      "title": "Deck-E's conversational model was re-baked and kept its job"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-the-landmark-cap-40-prioritised-and-why-order-matters-more-than-the-number.md",
+      "bytes": 1281,
+      "sha256": "8879945224d733c276db6470ddc582c0484aa99834afa9d1a32a1a0f437db239",
+      "date": "2026-08-21",
+      "title": "The landmark cap: 40, prioritised, and why order matters more than the number"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-showscreen-gains-group-and-table-and-a-card-budget-nobody-asked-for.md",
+      "bytes": 2327,
+      "sha256": "ef58702363f2fc85eb339777e2ac20dc17f396672d4ba76bb2d5eed35090f8e8",
+      "date": "2026-08-21",
+      "title": "`showScreen` gains `group` and `table`, and a card budget nobody asked for"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-deck-e-can-press-things-and-the-control-is-a-second-attribute.md",
+      "bytes": 2227,
+      "sha256": "d003d761cfe1e553b90443124e970583f615fa07a825f315c2b8997f499990bb",
+      "date": "2026-08-21",
+      "title": "Deck-E can press things, and the control is a second attribute"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-writes-ask-permission-and-the-asking-is-enforced-by-the-sdk.md",
+      "bytes": 2125,
+      "sha256": "9c1c35deff06835fec51f5a1bb878acaa86ed90668274584fa4c87ca3f8cd429",
+      "date": "2026-08-21",
+      "title": "Writes ask permission, and the asking is enforced by the SDK"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-two-connection-leaks-in-the-code-written-to-prevent-leaks.md",
+      "bytes": 2096,
+      "sha256": "d0cbc7e44e514b36ee76c64a39b43e08b296df1e18c664ed7a58594ee8b8b51d",
+      "date": "2026-08-21",
+      "title": "Two connection leaks, in the code written to prevent leaks"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-21-turn-history-replays-lookups-compacted.md",
+      "bytes": 1355,
+      "sha256": "85fcdbc75f8dfd2e889afc3e2bde2d42fdf54faa6c399bb371e3c031a72fe1a9",
+      "date": "2026-08-21",
+      "title": "Turn history replays lookups, compacted"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-nine-defects-that-only-a-deployment-could-find.md",
+      "bytes": 3590,
+      "sha256": "1d444c9d43cb7baba20e6948c8b4b8bd3e69aee19cde8feebb114cc3d8db9b00",
+      "date": "2026-08-22",
+      "title": "Nine defects that only a deployment could find"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-he-still-fabricates-and-the-approval-gate-is-what-makes-that-survivable.md",
+      "bytes": 3040,
+      "sha256": "ef316acc76adc26a823352b9da2f8889f854220cac935e27ad225863563bf52e",
+      "date": "2026-08-22",
+      "title": "He still fabricates, and the approval gate is what makes that survivable"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-per-step-tool-narrowing-and-the-measurement-that-did-not-replicate.md",
+      "bytes": 3085,
+      "sha256": "9fc9fff22a61eee2e70891b1804e3d3c42e5272f2e011f93d5c35c5dcc3b2ff6",
+      "date": "2026-08-22",
+      "title": "Per-step tool narrowing, and the measurement that did not replicate"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-deck-e-s-chat-model-4-1-4-20-and-the-trade-that-came-with-it.md",
+      "bytes": 2998,
+      "sha256": "b69c8485b9f39af545eda004636a1fe4b635caba67445f17fef6ad8c8d50223f",
+      "date": "2026-08-22",
+      "title": "Deck-E's chat model: 4.1 → 4.20, and the trade that came with it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-four-bugs-one-shape-a-tool-that-does-not-describe-its-own-boundaries.md",
+      "bytes": 2452,
+      "sha256": "21d64d12ecaab018ac93236d31f2814fa92cf7071f786169cde6ea31ee63ad74",
+      "date": "2026-08-22",
+      "title": "Four bugs, one shape: a tool that does not describe its own boundaries"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-the-approval-signature-a-security-control-that-broke-every-write-the-moment-it-w.md",
+      "bytes": 4000,
+      "sha256": "e350fd1ca6966228b7b55f6d0043b7280d9696090fe1a37cb02e2868260e2892",
+      "date": "2026-08-22",
+      "title": "The approval signature: a security control that broke every write the moment it was switched on"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-he-would-not-call-the-write-tool-because-the-prompt-told-him-to-ask-first.md",
+      "bytes": 7918,
+      "sha256": "7d0bd83403056989f19a121fb864d0bfe7f3c2c1a0ce1392edfcd2678fcdba9f",
+      "date": "2026-08-22",
+      "title": "He would not call the write tool, because the prompt told him to ask first"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-visual-work-gets-checked-by-a-second-pair-of-eyes-and-they-can-be-a-model-s.md",
+      "bytes": 3595,
+      "sha256": "6e4398a425c06b326be4f5a38c88fdff596d7711acd40390185a8afdbf3e997c",
+      "date": "2026-08-22",
+      "title": "Visual work gets checked by a second pair of eyes, and they can be a model's"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-deck-e-does-not-load-until-he-is-invited.md",
+      "bytes": 1862,
+      "sha256": "25b459603b0929c81394cbd381c0effd430e0af05c54e86593c86110398b1e3c",
+      "date": "2026-08-22",
+      "title": "Deck-E does not load until he is invited"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-rip-watching-presence-is-removed-not-disabled.md",
+      "bytes": 954,
+      "sha256": "ce1a224a388a5edc9b1eab315444d6d36239e707ae8dfaa235cdf8370078aa57",
+      "date": "2026-08-22",
+      "title": "Rip-watching presence is removed, not disabled"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-the-entrance-is-a-rig-root-scale-not-a-camera-dolly.md",
+      "bytes": 912,
+      "sha256": "6ee13414a90782ca82235af5cd58db89eb90c3e584ac2bc0a068410513adcfd5",
+      "date": "2026-08-22",
+      "title": "The entrance is a rig-root scale, not a camera dolly"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-the-host-owns-the-media-query-the-engine-owns-the-behaviour.md",
+      "bytes": 745,
+      "sha256": "a647a73ca2387688d56e2de07517a5039c5fd6ef0626761d8d1509a68f66f721",
+      "date": "2026-08-22",
+      "title": "The host owns the media query; the engine owns the behaviour"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-the-chat-is-the-content-pane-and-the-scrim-fix-is-geometric.md",
+      "bytes": 1200,
+      "sha256": "d14aa20c6460df8f9f04024b8e4932bc9787b167986e775ee02ea955a9b6a1b9",
+      "date": "2026-08-22",
+      "title": "The chat is the content pane, and the scrim fix is geometric"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-a-turn-is-an-ordered-list-of-parts.md",
+      "bytes": 738,
+      "sha256": "176cbbdf760ac4350f8ed496cd687025d410baf812166bfe338beead8c862347",
+      "date": "2026-08-22",
+      "title": "A turn is an ordered list of parts"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-failure-is-the-deliberate-exception-to-a-quiet-transcript.md",
+      "bytes": 1401,
+      "sha256": "1e87ac8267de9b69932503f25ab198a85d27284352b9099849be67ba66703c92",
+      "date": "2026-08-22",
+      "title": "Failure is the deliberate exception to a quiet transcript"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-closing-the-chat-ends-the-turn.md",
+      "bytes": 678,
+      "sha256": "abf12e680860a631c6922d9a99134fd3f7b71a40f8a7323b4397be8e0aa51656",
+      "date": "2026-08-22",
+      "title": "Closing the chat ends the turn"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-a-journey-is-one-plan-executed-in-the-browser.md",
+      "bytes": 1519,
+      "sha256": "d7b990356a826a684073071d32a2ffa12bb5999dc171b6f5a3140f4de78fc7d1",
+      "date": "2026-08-22",
+      "title": "A journey is one plan, executed in the browser"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-a-keep-out-region-and-the-beacon-survives-it.md",
+      "bytes": 1059,
+      "sha256": "dbd29e8c45cc62e1af0a7f8de44002dc2c31c3297df4e110b89b5bf12e489ccf",
+      "date": "2026-08-22",
+      "title": "A keep-out region, and the beacon survives it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-the-approval-card-segments-by-provenance-and-asks-only-where-asking-is-warranted.md",
+      "bytes": 1979,
+      "sha256": "2883766e847bd6e711cf458abd6113055f11a597367669715d347436b9c5f87b",
+      "date": "2026-08-22",
+      "title": "The approval card segments by provenance, and asks only where asking is warranted"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-22-model-written-markdown-renders-under-a-url-and-image-allowlist.md",
+      "bytes": 1019,
+      "sha256": "9e9c8ce76282b53562c76270668b1e69b2da79c6dca174ec20769f0d6043ee1f",
+      "date": "2026-08-22",
+      "title": "Model-written markdown renders under a URL and image allowlist"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-the-mcp-wire-result-carries-the-text-and-no-structuredcontent.md",
+      "bytes": 2065,
+      "sha256": "a58b91e5222e1e76f9e1aa2c08b5686b65e33f2e3d0e7368a951271a99463fa9",
+      "date": "2026-08-23",
+      "title": "The MCP wire result carries the text and no `structuredContent`"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-deck-e-s-placement-beside-the-composer-and-the-frame-screenrect-was-projecting-i.md",
+      "bytes": 2965,
+      "sha256": "84eee91329b24814f2f789d4a218d967a48b9c1660abb7175aa93d7b3d88ed3b",
+      "date": "2026-08-23",
+      "title": "Deck-E's placement beside the composer, and the frame `screenRect` was projecting in"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-credits-replace-the-daily-meter-and-a-deep-call-asks-first.md",
+      "bytes": 2908,
+      "sha256": "61de950d1a807fa213a6f3b9143a8fc9cf90e5777953053683ccb93903edc514",
+      "date": "2026-08-23",
+      "title": "Credits replace the daily meter, and a deep call asks first"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-23-the-chat-history-dropdown-and-the-build-stamp-as-its-point.md",
+      "bytes": 4186,
+      "sha256": "0d46e93380c4f873a64e1f070dfa4abc7f25cf7b2826c1da86ca0a0ca37c452e",
+      "date": "2026-08-23",
+      "title": "The chat history dropdown, and the build stamp as its point"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-deck-e-s-mark-is-measured-against-the-panel-not-the-viewport.md",
+      "bytes": 4593,
+      "sha256": "71011370293e6b73df79a8d0c0e3041592d393af156506248993ff8cb900fb76",
+      "date": "2026-08-24",
+      "title": "Deck-E's mark is measured against the panel, not the viewport"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-keyboard-the-canvas-is-not-always-at-the-origin.md",
+      "bytes": 6911,
+      "sha256": "fb2ec7f50291c63a48662fa9fec2c99dd057e430ad8856db61807c3534508f25",
+      "date": "2026-08-24",
+      "title": "The keyboard: the canvas is not always at the origin"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-keyboard-part-two-the-panel-fits-and-the-scroll-is-pinned.md",
+      "bytes": 5451,
+      "sha256": "841a485420c02f964e84b0984244b1622c7aaaa40862e280a3857f71a17d05f3",
+      "date": "2026-08-24",
+      "title": "The keyboard, part two: the panel fits, and the scroll is pinned"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-keyboard-part-three-absorb-ios-s-scroll-do-not-undo-it.md",
+      "bytes": 3174,
+      "sha256": "5dc4bd1f63f3efcb562f54cad1905f6a3e28620ff08ddcf18e20b34a72d3ef77",
+      "date": "2026-08-24",
+      "title": "The keyboard, part three: absorb iOS's scroll, do not undo it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-keyboard-part-four-stop-and-accept-the-scroll.md",
+      "bytes": 2999,
+      "sha256": "ba3535c67be6b1ff6cbf709ba5ff4e51a9d4fb89fda6ad5695304ccfc75341f2",
+      "date": "2026-08-24",
+      "title": "The keyboard, part four: stop, and accept the scroll"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-first-load-was-carrying-three-js-and-the-door-it-came-through-had-no-gate.md",
+      "bytes": 5274,
+      "sha256": "a180b30a6f91ac4a61ade8ab9334a11cc2b2a63d4f2c924d453d24b0547b4ca8",
+      "date": "2026-08-24",
+      "title": "The first load was carrying three.js, and the door it came through had no gate"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-reduced-motion-degrades-to-a-quiet-premium-not-a-flat-one.md",
+      "bytes": 7469,
+      "sha256": "5e30ddfbd31af83edf483907631c8cac6fded83ac50a8a8f0fa1dcd65d1e2ff6",
+      "date": "2026-08-24",
+      "title": "Reduced motion degrades to a quiet premium, not a flat one"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-the-repo-hygiene-pass-behavior-preserving-by-rule-and-the-bugs-it-refused-to-fix.md",
+      "bytes": 5754,
+      "sha256": "0d919942c7178fbbf3036a281a1259cc1f2e7efe75ea66bf5d1b65727168c0a6",
+      "date": "2026-08-24",
+      "title": "The repo-hygiene pass: behavior-preserving by rule, and the bugs it refused to fix as hygiene"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-24-deck-e-s-entrances-under-reduced-motion-motion-safe-was-only-half-a-decision.md",
+      "bytes": 4921,
+      "sha256": "fe2500c7eba0ecbae0e07f3925a536c37b6f22090a789708f1b1763c12ead3c2",
+      "date": "2026-08-24",
+      "title": "Deck-E's entrances under reduced motion: `motion-safe:` was only half a decision"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-26-card-art-is-addressed-directly-on-the-object-store-and-the-whole-catalog-is-warm.md",
+      "bytes": 7777,
+      "sha256": "fb1a42bbe1a9d1af46ea022dc4f8f658dd19023dadbe115dd28f1c0437d08967",
+      "date": "2026-08-26",
+      "title": "Card art is addressed directly on the object store, and the whole catalog is warmed"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-image-fetcher-gets-a-destination-control-and-the-storage-choke-points-get-th.md",
+      "bytes": 10467,
+      "sha256": "8e42aff888a908b3c1092fa86c01761d19229be5a61d92ac7b361cf1a8f5727e",
+      "date": "2026-08-27",
+      "title": "The image fetcher gets a destination control, and the Storage choke points get their own key check"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-self-host-no-longer-offers-a-deck-e-button-it-cannot-answer.md",
+      "bytes": 1935,
+      "sha256": "0a38b84596e343c26445c10203d6f4a39620e74613332300083383c5c53e2edb",
+      "date": "2026-08-27",
+      "title": "Self-host no longer offers a Deck-E button it cannot answer"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-entrance-animation-was-being-spent-on-a-spinner-issue-49.md",
+      "bytes": 3993,
+      "sha256": "8106b0ae37524abee3f4d9d21e034c7d9151bd9cef431dcbbe55444eb63c7ae4",
+      "date": "2026-08-27",
+      "title": "The entrance animation was being spent on a spinner (issue #49)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-issue-75-the-grey-screen-was-an-unbounded-auth-read-not-a-bundle.md",
+      "bytes": 6194,
+      "sha256": "fd0874900017498bf7fb183c32bd4b273bd1b08ac68c931d15a38096663c43a5",
+      "date": "2026-08-27",
+      "title": "Issue #75: the grey screen was an unbounded auth read, not a bundle"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-auth-writes-are-bounded-too-not-just-the-read-issue-75-follow-up.md",
+      "bytes": 1863,
+      "sha256": "e9b0ccc03406ef1efe706694f510c71d8c8b5f98824a3e09b41a21075539d75a",
+      "date": "2026-08-27",
+      "title": "The auth WRITES are bounded too, not just the read (issue #75 follow-up)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-string-did-not-match-the-expected-pattern-purchase-set-was-calling-a-path-cl.md",
+      "bytes": 5494,
+      "sha256": "1b2bf45ac3696e926cca32f18b2972b14367f5fd75aa10e4843b8637a1ff964b",
+      "date": "2026-08-27",
+      "title": "\"The string did not match the expected pattern\": Purchase Set was calling a path cloud does not serve"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-a-best-effort-cart-link-no-longer-looks-like-a-proven-one-issue-113.md",
+      "bytes": 1498,
+      "sha256": "0b951c62818743f180ba67eb27beb6b122f5edf487acd7d034726691dd38bc0f",
+      "date": "2026-08-27",
+      "title": "A best-effort cart link no longer looks like a proven one (issue #113)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-a-tool-result-may-not-carry-the-database-s-address-issue-94.md",
+      "bytes": 4293,
+      "sha256": "2bb74e225ec285fd8b2349c3bd9d426b71d2f901bf9a9c2b051f93ed53b67bde",
+      "date": "2026-08-27",
+      "title": "A tool result may not carry the database's address (issue #94)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-mcp-server-s-own-logs-stop-printing-the-dsn-issue-94-follow-up.md",
+      "bytes": 1368,
+      "sha256": "793d6743236347d36c70d4d5f158c9752ef7c3afcaca1afcc617ea29e7cb76c7",
+      "date": "2026-08-27",
+      "title": "The MCP server's own logs stop printing the DSN (issue #94 follow-up)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-every-exported-pdf-carried-a-brand-from-two-renames-ago-issue-92.md",
+      "bytes": 3742,
+      "sha256": "ff6755785df3e97ebf5abc48a92da6f1e3db8a7c8017db90a56b3f1eb1ac26a1",
+      "date": "2026-08-27",
+      "title": "Every exported PDF carried a brand from two renames ago (issue #92)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-list-export-rows-stop-printing-on-top-of-each-other-issue-92-follow-up.md",
+      "bytes": 1896,
+      "sha256": "0927c8deb5e63536f974ac42f9808243f0117e0f74144dc79ee1db799f62bde1",
+      "date": "2026-08-27",
+      "title": "List-export rows stop printing on top of each other (issue #92 follow-up)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-narration-leak-filter-derives-its-tag-list-instead-of-holding-a-copy-of-it.md",
+      "bytes": 3734,
+      "sha256": "bfbcecc8913f12a9a41444742a77e8e37389704fd8762f5315c7ea3ecaa84b18",
+      "date": "2026-08-27",
+      "title": "The narration leak filter derives its tag list instead of holding a copy of it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-narration-filter-covers-all-36-tools-in-the-shape-each-can-safely-be-matched.md",
+      "bytes": 2281,
+      "sha256": "ed38b94570d5a55d275647ee673821832cd1d95e8a07de5a71a005beabc266ef",
+      "date": "2026-08-27",
+      "title": "The narration filter covers all 36 tools, in the shape each can safely be matched (issue #90 follow-up)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-glc-s-classic-collection-carve-out-is-enforced-and-it-outranks-the-reprint-oracl.md",
+      "bytes": 4302,
+      "sha256": "3dfa8028895183509710a9f7b10a9007ce986804a4e901d6790fd18386ab924f",
+      "date": "2026-08-27",
+      "title": "GLC's Classic Collection carve-out is enforced, and it outranks the reprint oracle"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-glc-2-3-4-item-6-was-never-missing-and-the-cel25-prefix-is-not-a-gap-issue-93-fo.md",
+      "bytes": 1985,
+      "sha256": "8aaaa4fe75dbe739420e4e15219deb85b180683b6cfa3bbb7bad398d8935faff",
+      "date": "2026-08-27",
+      "title": "GLC §2.3.4 item 6 was never missing, and the `cel25` prefix is not a gap (issue #93 follow-up)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-deck-e-prompt-revision-the-rules-list-is-numbered-1-6-and-the-numbering-is-now-p.md",
+      "bytes": 5523,
+      "sha256": "6ba04854f6d26c82994d418176812584e56d1b13460554838b817e0ccba32b5c",
+      "date": "2026-08-27",
+      "title": "Deck-E prompt revision: the rules list is numbered 1..6, and the numbering is now pinned"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-gate-21-was-a-harness-bug-in-three-parts-not-a-model-defect-issue-91-follow-up.md",
+      "bytes": 3333,
+      "sha256": "a782c6c889b43046f8fe410cc6aa6847826fd1e2f99456ac4845c784ebed2159",
+      "date": "2026-08-27",
+      "title": "Gate 21 was a harness bug in three parts, not a model defect (issue #91 follow-up)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-13-2-describes-the-suite-that-exists-23-gates-not-17.md",
+      "bytes": 1707,
+      "sha256": "576f6eb9884eefaa1c5d88948b9aaf326b7c91111da06be7e6e18f50bf345905",
+      "date": "2026-08-27",
+      "title": "§13.2 describes the suite that exists: 23 gates, not 17"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-27-the-storage-origin-is-parsed-and-checked-not-concatenated-issue-96-follow-up.md",
+      "bytes": 2445,
+      "sha256": "f1955628dae16b15822b2359c0cd00bf52874e9a5c374c230bfdab2516736ea5",
+      "date": "2026-08-27",
+      "title": "The Storage ORIGIN is parsed and checked, not concatenated (issue #96 follow-up)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-28-the-mobile-tape-he-stands-above-the-permission-prompt-settles-in-one-hop-and-sto.md",
+      "bytes": 6362,
+      "sha256": "3fffd03938a3b3533bd3904fa19fc78b01fe505d8d6d8e69344b8806d6a7f5ea",
+      "date": "2026-08-28",
+      "title": "The mobile tape: he stands above the permission prompt, settles in one hop, and stops telegraphing his own animation"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-28-reverted-the-keyboard-inset-panel-129-it-was-worse-on-the-device.md",
+      "bytes": 2480,
+      "sha256": "3e97aebb72028dcae888528915a18c618cd84fd359ba8fe1c56d0c8e73a15bd6",
+      "date": "2026-08-28",
+      "title": "REVERTED: the keyboard-inset panel (#129). It was worse on the device."
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-28-a-hop-is-punctuation-below-a-quarter-of-his-own-height-he-slides.md",
+      "bytes": 3029,
+      "sha256": "87b2fb0d9d044b32f5ea7ecaaccae5d357be42f845a710c3c331f44db90ae4b9",
+      "date": "2026-08-28",
+      "title": "A hop is punctuation: below a quarter of his own height he slides"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-28-the-chat-panel-is-placed-against-the-visible-area-and-the-document-is-not-dragga.md",
+      "bytes": 5931,
+      "sha256": "b1718f457378dd2b35e6356d0bff44e45bd005e3f7d665be936d1e4bf859cf7a",
+      "date": "2026-08-28",
+      "title": "The chat panel is placed against the visible area, and the document is not draggable while you type"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-the-scheduled-jobs-had-been-dead-for-three-weeks-and-four-bugs-were-one-bug.md",
+      "bytes": 6442,
+      "sha256": "98442661e15eeb798ae44e81d0a4252679798f4380d73ef71e12f9b20263dfa6",
+      "date": "2026-08-29",
+      "title": "The scheduled jobs had been dead for three weeks, and four bugs were one bug"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-lists-say-which-printing-and-the-price-tab-stops-promising.md",
+      "bytes": 2885,
+      "sha256": "627f1b6d9cac354d24321d9f91ed5f81d3192d208ee3bca864dfe9dedd2b365f",
+      "date": "2026-08-29",
+      "title": "Lists say which printing, and the Price tab stops promising"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-price-observation-was-empty-on-cloud-and-it-was-never-a-bug.md",
+      "bytes": 3380,
+      "sha256": "ca3db2b9fd12a56b1d3d984dfeec90d8ad0559094a6f8a0987c5df0d556b6874",
+      "date": "2026-08-29",
+      "title": "price_observation was empty on cloud, and it was never a bug"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-looking-at-the-pages-found-two-bugs-the-tests-could-not.md",
+      "bytes": 3083,
+      "sha256": "4a65a90f27e449ad8a01e315611d0a1ffaa405d7a49d348126c7421a36d9d54a",
+      "date": "2026-08-29",
+      "title": "Looking at the pages found two bugs the tests could not"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-review-of-133-the-nightly-job-that-could-not-succeed-and-the-chain-that-could-no.md",
+      "bytes": 4607,
+      "sha256": "aae7433673267e12504ca5b8b69a07d00b495085baeede5c5fa0b0668fd91fcc",
+      "date": "2026-08-29",
+      "title": "Review of #133: the nightly job that could not succeed, and the chain that could not stop"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-the-axis-is-the-window-you-asked-for-not-the-data-you-happen-to-have.md",
+      "bytes": 2754,
+      "sha256": "23a132bef2a5fd483d4d0790aa61baa7f27cac6d9debda708b40bafea4d67239",
+      "date": "2026-08-29",
+      "title": "The axis is the window you asked for, not the data you happen to have"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-the-runbook-pointed-at-a-file-nobody-has-and-that-is-why-nothing-was-scheduled.md",
+      "bytes": 3360,
+      "sha256": "8613e5b772668ac62019e115c46da740f6292b45494494fb521a0ce531b71210",
+      "date": "2026-08-29",
+      "title": "The runbook pointed at a file nobody has, and that is why nothing was scheduled"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-card-boxes-use-the-real-card-s-geometry-63-x-88-mm-radius-4-7619-of-width.md",
+      "bytes": 2692,
+      "sha256": "b504a54074cdee836cd63191cd6e5068c820d37ad6812fec3541824b447d283e",
+      "date": "2026-08-29",
+      "title": "Card boxes use the real card's geometry: 63 x 88 mm, radius 4.7619% of width"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-the-hover-lift-moves-the-card-s-frame-not-the-image-inside-it.md",
+      "bytes": 2074,
+      "sha256": "8792392207a24f9fd7a35602f34084040214580c5bfda80d4ca63893bbaa683b",
+      "date": "2026-08-29",
+      "title": "The hover lift moves the card's FRAME, not the image inside it"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-rarity-is-drawn-as-the-mark-the-card-actually-prints-read-off-the-scans.md",
+      "bytes": 2927,
+      "sha256": "a2dd013e31e160feb33395a909d13c014b54b7aa352c5991d33af8a132bfb11d",
+      "date": "2026-08-29",
+      "title": "Rarity is drawn as the mark the card actually prints, read off the scans"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-rarity-glyphs-are-sized-by-ink-area-not-by-bounding-box.md",
+      "bytes": 2560,
+      "sha256": "f0b8ac2bfa7a6cb3acbbdb6214701ff9afd3151c2f957427aba2133529ea28bc",
+      "date": "2026-08-29",
+      "title": "Rarity glyphs are sized by ink area, not by bounding box"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-set-symbols-and-logos-a-static-crosswalk-fills-43-of-the-90-gaps-47-stay-blank-o.md",
+      "bytes": 2854,
+      "sha256": "2bc82294b5354fc3cf99bd2e254677c1d6173f8ae43acb6674ffc05f8fd21d5d",
+      "date": "2026-08-29",
+      "title": "Set symbols and logos: a static crosswalk fills 43 of the 90 gaps, 47 stay blank on purpose"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-the-cloud-tier-can-actually-fill-set-imagery-the-crosswalk-had-no-effect-without.md",
+      "bytes": 2626,
+      "sha256": "d4eb835aa0093180c8a8bf0531e239e41611647b677ead1806ad01e67c7880bf",
+      "date": "2026-08-29",
+      "title": "The cloud tier can actually fill set imagery (the crosswalk had no effect without this)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-the-agentic-pass-ground-what-he-says-infer-what-they-meant-ask-once.md",
+      "bytes": 4460,
+      "sha256": "5a8db6c7473cd3398b68fb9888988952a372232b424d6998e1c1d118ec2b6dc2",
+      "date": "2026-08-29",
+      "title": "The agentic pass: ground what he says, infer what they meant, ask once"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-the-agentic-pass-reviewed-seven-adversarial-lanes-five-blockers-two-more-rounds.md",
+      "bytes": 4263,
+      "sha256": "64a0fe5ec75ffb98f6e10d89271cb7da7a21d00e1c7135f82594f49467f4178c",
+      "date": "2026-08-29",
+      "title": "The agentic pass, reviewed: seven adversarial lanes, five blockers, two more rounds"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-price-history-tiered-retention-and-a-rollup-that-proves-itself-before-it-deletes.md",
+      "bytes": 7857,
+      "sha256": "374462a1338993e1eeed800c3c41cf538e517e6a0b2f6e47d6a45045d9048875",
+      "date": "2026-08-29",
+      "title": "Price history: tiered retention, and a rollup that proves itself before it deletes"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-what-an-adversarial-review-found-in-the-retention-tiers-before-they-shipped.md",
+      "bytes": 4118,
+      "sha256": "e41cef77788ff409270ce08c187b70c6cfc6a933d4e349a7c08610a3dfc34eea",
+      "date": "2026-08-29",
+      "title": "What an adversarial review found in the retention tiers, before they shipped"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-30-the-retention-catch-up-on-production-and-the-two-things-only-production-could-sh.md",
+      "bytes": 3792,
+      "sha256": "5c45c5d63dff2414677235ac4eeb587fc360723b8472ba4e844f913fe8ea759f",
+      "date": "2026-08-30",
+      "title": "The retention catch-up on production, and the two things only production could show"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-prices-cardmarket-could-write-half-of-what-it-reported-and-nothing-would-say-so.md",
+      "bytes": 9350,
+      "sha256": "a541af0f2ed21a0c708bc800fc87464f4883cda0f032079b5cb33425ce881bc9",
+      "date": "2026-08-29",
+      "title": "`prices-cardmarket` could write half of what it reported, and nothing would say so"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-a-request-never-takes-a-second-connection-dbhandle.md",
+      "bytes": 2020,
+      "sha256": "487f06539f7460d3276da3bc2a9182577822c8c967a4a252c93cb6d33f9f520e",
+      "date": "2026-08-29",
+      "title": "A request never takes a second connection: `dbHandle()`"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-deck-history-reads-loosely-and-decks-can-hand-back-the-guide.md",
+      "bytes": 1303,
+      "sha256": "97d561f8a86cab72affd0b24529989a3516e3093bd1e86712c590b731d153001",
+      "date": "2026-08-29",
+      "title": "deck_history reads loosely, and `decks` can hand back the guide"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-deck-e-harness-failures-survive-the-turn-boundary.md",
+      "bytes": 1828,
+      "sha256": "c92b7c98f7e8cef4fd01b698d5999911bf709bfc8d861d0d1704610e57445026",
+      "date": "2026-08-29",
+      "title": "Deck-E harness: failures survive the turn boundary"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-two-turn-guards-that-shipped-unplugged-and-a-third-for-the-promise.md",
+      "bytes": 1424,
+      "sha256": "c33aca05c6274ff09999b4d0cbb18730991cdaae5727a61917d4ccbdf232ef5d",
+      "date": "2026-08-29",
+      "title": "Two turn guards that shipped unplugged, and a third for the promise"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-a-read-is-not-a-write-and-the-first-no-gets-the-full-briefing.md",
+      "bytes": 1423,
+      "sha256": "38e5cb6eccaa8216833425dba16e2fc57d4b2dd002cc478556ec67b4cc263e82",
+      "date": "2026-08-29",
+      "title": "A read is not a write, and the first \"no\" gets the full briefing"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-an-answer-they-have-already-been-given-is-not-delivered-a-second-time.md",
+      "bytes": 1656,
+      "sha256": "c66542890c2ef0b301c804d62369d52b1094090bc6834b286f674b1e889aa3e2",
+      "date": "2026-08-29",
+      "title": "An answer they have already been given is not delivered a second time"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-list-covers-are-a-mosaic-of-the-list-s-own-cards.md",
+      "bytes": 1396,
+      "sha256": "c6776b27a4443c2e72df6c23ba3aad03714ba02760da47570ce51c3cea3efc03",
+      "date": "2026-08-29",
+      "title": "List covers are a mosaic of the list's own cards"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-smart-lists-a-dynamic-list-can-be-a-saved-query-re-evaluated-on-read.md",
+      "bytes": 2410,
+      "sha256": "878f52d4b656f07c3def5c3da1ba6adc8b7af61da5f43bccd9a9abd83a6aa3ff",
+      "date": "2026-08-29",
+      "title": "Smart lists: a dynamic list can be a saved query, re-evaluated on read"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-ui-preferences-move-to-the-account-localstorage-becomes-the-cache.md",
+      "bytes": 1885,
+      "sha256": "f9b5cfb9371e220cd4a8abd72f4120c3db5322a0fd846edd685053e6e42e4af2",
+      "date": "2026-08-29",
+      "title": "UI preferences move to the account; localStorage becomes the cache"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-29-variant-scoped-decks-one-row-per-printing-migration-051.md",
+      "bytes": 2171,
+      "sha256": "68d54990c632e2158c7539d3ff9230fe05c45a435f4a95aefb8e73454106ff5a",
+      "date": "2026-08-29",
+      "title": "Variant-scoped decks: one row per printing (migration 051)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-31-retire-the-third-party-reference-surface-from-the-working-tree.md",
+      "bytes": 10005,
+      "sha256": "5cfb4ad44e16e5548c3f9ea542f0f89275d2996f9049e8b9fca1ff3b917bef5b",
+      "date": "2026-08-31",
+      "title": "Retire the third-party reference surface from the working tree"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-31-purge-2a-frontend-shots-removed-from-all-history.md",
+      "bytes": 1912,
+      "sha256": "87b3d5f0cca0c15ba5ac1d6f960f45a9977ae27cf9763011646d404821739953",
+      "date": "2026-08-31",
+      "title": "Purge 2a: frontend-shots removed from all history"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-31-card-art-re-sourcing-executed-project-holo-2c-part-2.md",
+      "bytes": 3657,
+      "sha256": "b7a3c834a9e3cc2b821c1dfb6a83e33cb5f9d0d6216c231f831eba3c6c7125be",
+      "date": "2026-08-31",
+      "title": "Card-art re-sourcing executed (Project Holo 2c, part 2)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-08-31-images-pokemontcg-io-joins-the-image-source-allow-list.md",
+      "bytes": 888,
+      "sha256": "e0680bd9891ee6907b59f28c17c2e2a5bf83610bf3377c16ac689f5ed3eb4230",
+      "date": "2026-08-31",
+      "title": "images.pokemontcg.io joins the image-source allow-list"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-05-pay-what-you-want-billing-and-what-it-deliberately-does-not-do.md",
+      "bytes": 6804,
+      "sha256": "37dcabc44300f41833012574f316f51187480ef69e0673c56aa7257bb243f528",
+      "date": "2026-09-05",
+      "title": "Pay-what-you-want billing, and what it deliberately does not do"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-06-the-1-experiment-one-time-gifts-and-a-correctness-pass-over-the-money-paths.md",
+      "bytes": 143084,
+      "sha256": "81cac1b433510eb3ae1740aae45a80d050b1a46facfda097247be8ea739349ec",
+      "date": "2026-09-06",
+      "title": "The $1 experiment, one-time gifts, and a correctness pass over the money paths"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-02-scanner-detection-a-pretrained-corner-model-replaces-classical-cv-unmodified-and.md",
+      "bytes": 2663,
+      "sha256": "405f37674786aee16e7b82fde17b6316752a36f40921f5c3a2c794c3d605390b",
+      "date": "2026-09-02",
+      "title": "Scanner detection: a pretrained corner model replaces classical CV, unmodified, and the harness era ends"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-03-scanner-detection-the-reticle-crop-is-reversed-the-reticle-stays-as-a-post-filte.md",
+      "bytes": 4152,
+      "sha256": "4141b96197a45b05ffefc7b70530df4f42bc14a36360e67a823cfe13bcdf3b76",
+      "date": "2026-09-03",
+      "title": "Scanner detection: the reticle CROP is reversed; the reticle stays as a post-filter"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-03-the-capture-margin-returns-the-refiner-is-exonerated-and-phash-is-measured-out-o.md",
+      "bytes": 1592,
+      "sha256": "14eaa26e968bfae1fed48b819a2825bd9f73cb415da796e0e4568b885971241d",
+      "date": "2026-09-03",
+      "title": "The capture margin returns, the refiner is exonerated, and phash is measured out of the identification job"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-04-the-tie-margin-is-three-and-the-region-window-is-twelve-seconds.md",
+      "bytes": 1197,
+      "sha256": "987cf47bffb4e119945744342d60e6ea2767348b7ec7f5dd3200edadef60e721",
+      "date": "2026-09-04",
+      "title": "The tie margin is three, and the region window is twelve seconds"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-04-the-follow-bridges-rebirths-the-clutter-gate-keeps-its-trade.md",
+      "bytes": 1248,
+      "sha256": "d4c49fc987729e426c2e1ff41290655f0dadfe020829a4b02bd914bb14ad8d34",
+      "date": "2026-09-04",
+      "title": "The follow bridges rebirths; the clutter gate keeps its trade"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-05-the-region-window-is-five-seconds-twelve-was-sized-on-a-fake-camera.md",
+      "bytes": 4042,
+      "sha256": "45f810e8d66d34ec1e569a5ba557374bfadb853652d60ce9f72e824d015658c1",
+      "date": "2026-09-05",
+      "title": "The region window is five seconds: twelve was sized on a fake camera"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-05-ocr-joins-the-recipe-pocket-leaves-the-index.md",
+      "bytes": 1606,
+      "sha256": "a9364660b84975a0aab90a6b152cd64ffc88efcfc9a3a33b72a3f8e2a2079ed7",
+      "date": "2026-09-05",
+      "title": "OCR joins the recipe; Pocket leaves the index"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-06-whole-card-text-is-an-escalation-not-a-default-the-vector-stays.md",
+      "bytes": 1843,
+      "sha256": "0a86fd266157f30571e66b5a602c6a1f8b4455ec82a6beea125aad6b90cc5154",
+      "date": "2026-09-06",
+      "title": "Whole-card text is an escalation, not a default; the vector stays"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-04-identity-becomes-an-on-device-embedding-and-the-model-was-chosen-on-headroom.md",
+      "bytes": 6541,
+      "sha256": "40801e50aba23600ae33b85af5bdc2e77d059f05937312d330e7f14258d254e8",
+      "date": "2026-09-04",
+      "title": "Identity becomes an on-device embedding, and the model was chosen on headroom"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-04-the-matching-schema-one-stamped-index-and-a-flywheel-that-stores-vectors-rather.md",
+      "bytes": 6254,
+      "sha256": "dfac15bdc083b8c906d13d419c13233b32b0da070738dd81b8cae2b9ae03076d",
+      "date": "2026-09-04",
+      "title": "The matching schema: one stamped index, and a flywheel that stores vectors rather than photographs"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-06-the-vector-runs-on-the-server-and-joins-the-ladder-as-evidence-rather-than-as-a.md",
+      "bytes": 8163,
+      "sha256": "84fa81e02129e5a2c8daab573ade2a3a35f6ed8b98dd89874c178917002b5e78",
+      "date": "2026-09-06",
+      "title": "The vector runs on the server, and joins the ladder as evidence rather than as a second opinion"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-07-a-name-we-read-is-a-lookup-key-not-a-sieve.md",
+      "bytes": 4420,
+      "sha256": "898e8d0b23ee309bc52971d2e882af8f6bc4886ef883efcfed5ae83e3a9652fd",
+      "date": "2026-09-07",
+      "title": "A name we read is a lookup key, not a sieve"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-07-the-labeler-s-seed-stops-pretending-a-still-frame-is-a-video.md",
+      "bytes": 3850,
+      "sha256": "af9d6c7fdd42cc267b5312cef2c5122deeab12594d6af650bbb34ea2720ed410",
+      "date": "2026-09-07",
+      "title": "The labeler's seed stops pretending a still frame is a video"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-07-the-labeler-is-sized-for-a-200-frame-session-on-a-phone.md",
+      "bytes": 2744,
+      "sha256": "85d65287bd8324b112e550e027de60745bbac1e6482e8921f88fc3396418d93f",
+      "date": "2026-09-07",
+      "title": "The labeler is sized for a 200-frame session on a phone"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-07-every-scan-is-a-row-the-list-sorts-and-a-read-name-is-a-lookup.md",
+      "bytes": 1424,
+      "sha256": "4cad0355aa3fba524ffb2717f5e20ce2ca6ed5f57b983e877689536b5c6b1c3d",
+      "date": "2026-09-07",
+      "title": "Every scan is a row, the list sorts, and a read name is a lookup"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-07-the-scanner-ships-to-production-owner-only-and-the-model-rides-the-build.md",
+      "bytes": 6379,
+      "sha256": "39b2e16ebbe0fc7522bd2a10888507d21d739c1b0cb806cecd6368f663d9f746",
+      "date": "2026-09-07",
+      "title": "The scanner ships to production owner-only, and the model rides the build"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-07-the-logomark-replaces-the-icon-plus-typeset-name-lockup.md",
+      "bytes": 4443,
+      "sha256": "79812436b45e6606ef9b815f4e9495d9f05f4cf2f7439e67fc14e30d300baf20",
+      "date": "2026-09-07",
+      "title": "The logomark replaces the icon-plus-typeset-name lockup"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-the-training-surface-opens-to-qa-and-learns-to-sweep-a-room.md",
+      "bytes": 6085,
+      "sha256": "3ac832a34d1704c604ca287c4b52308c5abb5ad9fa1861e0258a9606928a0c20",
+      "date": "2026-09-08",
+      "title": "The training surface opens to QA, and learns to sweep a room"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-ci-had-never-run-the-scanner-s-own-regressions.md",
+      "bytes": 1819,
+      "sha256": "27b5a53a6553808dd6a8a50241f58c2160c089633c71f791d06f92da41a4f744",
+      "date": "2026-09-08",
+      "title": "CI had never run the scanner's own regressions"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-the-loupe-shows-the-line-and-an-upload-chooses-its-own-square.md",
+      "bytes": 3618,
+      "sha256": "bea7cd5f653d62304fa5d08765acde69cb42fa556eff2a7c862388b860d1fce1",
+      "date": "2026-09-08",
+      "title": "The loupe shows the line, and an upload chooses its own square"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-the-corpus-becomes-visible-sortable-and-prunable.md",
+      "bytes": 4164,
+      "sha256": "7f8dcab1742321f43695d9b75f2e222d6d7e0a300ddbd8234bded153fadf1290",
+      "date": "2026-09-08",
+      "title": "The corpus becomes visible, sortable and prunable"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-two-more-rejection-classes-and-the-line-every-gate-is-drawn-on.md",
+      "bytes": 4242,
+      "sha256": "c8fdc9a398c9d03b0a741711448bddaa954441b83def53d2fcc2662e0c098b66",
+      "date": "2026-09-08",
+      "title": "Two more rejection classes, and the line every gate is drawn on"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-the-photo-queue-leaves-memory-and-the-shutter-stops-interrupting.md",
+      "bytes": 4259,
+      "sha256": "9afe978eea7af0ddb07f55c67ad7e79d7334fc16af44e6b7417a13778dc71018",
+      "date": "2026-09-08",
+      "title": "The photo queue leaves memory, and the shutter stops interrupting"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-the-crop-leaves-the-photo-and-the-gap-is-mirrored-rather-than-invented.md",
+      "bytes": 4477,
+      "sha256": "cb7a1c4852a62edfe25fda469d9310025ef758a449eaa8a1e30852ae486598af",
+      "date": "2026-09-08",
+      "title": "The crop leaves the photo, and the gap is mirrored rather than invented"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-08-two-defects-from-the-same-morning-reported-from-the-device.md",
+      "bytes": 3414,
+      "sha256": "8eeab73981f5f3d257f4e39ac721bda64dcc73ffea1cb5dfd5e64ad68adea276",
+      "date": "2026-09-08",
+      "title": "Two defects from the same morning, reported from the device"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-09-the-loupe-was-measuring-in-pixels-the-thing-it-magnifies-is-a-card.md",
+      "bytes": 3225,
+      "sha256": "b5d63e267230d831a74cabd3f119323162d5c2190e1212b37a54739f7a408d9f",
+      "date": "2026-09-09",
+      "title": "The loupe was measuring in pixels; the thing it magnifies is a card"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-09-the-loupe-inverts-and-a-selected-corner-gets-arrows.md",
+      "bytes": 4335,
+      "sha256": "88f4ff01f7eb2b830ccc98913bf025cb7a0f80164189de48d3c369359d225c9a",
+      "date": "2026-09-09",
+      "title": "The loupe inverts, and a selected corner gets arrows"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-10-the-queue-crosses-devices-and-the-unknown-rows-get-their-name-back.md",
+      "bytes": 4464,
+      "sha256": "7e6ef42ec7766ccd4b5d93184c32e48849a9889fb4841e499007627b49b98a4c",
+      "date": "2026-09-10",
+      "title": "The queue crosses devices, and the \"unknown\" rows get their name back"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-11-three-defects-in-one-queue-and-a-schema-that-changed-meaning-silently.md",
+      "bytes": 4107,
+      "sha256": "cfe6463d7e189f7db4eb3c143f6423e9af3099563efebb240f0c3ba1fc838ebb",
+      "date": "2026-09-11",
+      "title": "Three defects in one queue, and a schema that changed meaning silently"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-11-why-nothing-uploaded-heic-a-hostage-queue-and-a-cap-above-the-real-ceiling.md",
+      "bytes": 3459,
+      "sha256": "e1f40445492c23407804ec28e9095adf3d4255f5027da770da3e9401aae3fb3d",
+      "date": "2026-09-11",
+      "title": "Why nothing uploaded: HEIC, a hostage queue, and a cap above the real ceiling"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-security-ingress-guards-the-ui-chrome-and-repo-hygiene-cleanup.md",
+      "bytes": 7574,
+      "sha256": "a0cbe67928ef24fdb763f76018b35cb1df741acf70dff91cb1a1850080953db0",
+      "date": "2026-09-12",
+      "title": "Security ingress guards, the UI chrome, and repo-hygiene cleanup"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-repo-level-pnpm-pin-pnpm-10-34-5-without-touching-global-state.md",
+      "bytes": 1239,
+      "sha256": "d7b1fb39a019cd08ae200f6867cb90f9880aa0c6cd68edb48d19f19cc0109fb9",
+      "date": "2026-09-12",
+      "title": "Repo-level pnpm pin (pnpm@10.34.5) without touching global state"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-three-js-0-185-1-0-186-0-visual-review-approved-types-node-26-5-1-retained.md",
+      "bytes": 2794,
+      "sha256": "252cf101a8aae34d830e1295a09de36be0270eea78c11fa48e3b19bf36fbfebb",
+      "date": "2026-09-12",
+      "title": "Three.js 0.185.1→0.186.0 visual review: approved, @types/node 26.5.1 retained"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-card-price-history-tool-upcoming-sets-and-b10-bug-report-doc-correction.md",
+      "bytes": 4624,
+      "sha256": "ee0e86dd6de2303b4f8c08f0020714dfe19986dab39a74a4573a73cfe508c265",
+      "date": "2026-09-12",
+      "title": "card_price_history tool, Upcoming Sets, and B10 bug-report doc correction"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-preserve-series-release-dates-and-verify-price-history-query-arguments.md",
+      "bytes": 2249,
+      "sha256": "b2a79f5b9d714b025830a803a598d655d1f8edb23d2946272dcb6da496f8848a",
+      "date": "2026-09-12",
+      "title": "Preserve series release dates and verify price-history query arguments"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-page-price-history-text-before-the-conversational-adapter-limit.md",
+      "bytes": 2396,
+      "sha256": "cc9df465f9ca7b25a5ee29f12848001321e2020aea3a29fcea24282ef7c8f85d",
+      "date": "2026-09-12",
+      "title": "Page price-history text before the conversational adapter limit"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-include-upcoming-set-logos-in-deployment-and-honor-the-app-base-path.md",
+      "bytes": 2195,
+      "sha256": "42584d6b83b9e619a5229906a3911eb15cb6cbba2c63e1eb39d91a1c0c87a0a0",
+      "date": "2026-09-12",
+      "title": "Include upcoming-set logos in deployment and honor the app base path"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-12-keep-database-browser-and-deployment-boundary-checks-in-ci.md",
+      "bytes": 2968,
+      "sha256": "f40d9fd95c987fb5be4fdf81f073bbea4f63037cb95a7dfa3fd4acbb643cfb89",
+      "date": "2026-09-12",
+      "title": "Keep database, browser and deployment boundary checks in CI"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-13-retire-superseded-scanner-html-and-separate-research-ownership.md",
+      "bytes": 2288,
+      "sha256": "49ca2e7732e9ceb9c8a8f6b1a617eb1dfec6289a1d6582e640a19636e296017d",
+      "date": "2026-09-13",
+      "title": "Retire superseded scanner HTML and separate research ownership"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-13-add-owner-administration-and-an-explicit-ai-credit-economy.md",
+      "bytes": 4482,
+      "sha256": "d38d537afd0e78181e8f498c153bb8fd824e7aa5256b9c04bd680b388305b902",
+      "date": "2026-09-13",
+      "title": "Add owner administration and an explicit AI credit economy"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-13-close-new-object-client-permissions-within-creation-migrations.md",
+      "bytes": 1802,
+      "sha256": "cc632ed56e5bc5d1b0041ffa32a6ce4a2d12503ba17b801e16a3177863147368",
+      "date": "2026-09-13",
+      "title": "Close new-object client permissions within creation migrations"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-13-use-maintained-express-limiters-before-request-rls-acquisition.md",
+      "bytes": 2096,
+      "sha256": "5f9e948ec3470bd186cdbf3f94ad30c1bd9e6f376a2b58a16d5cc5d83916811d",
+      "date": "2026-09-13",
+      "title": "Use maintained Express limiters before request RLS acquisition"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-14-reuse-one-semantic-table-for-administration-records.md",
+      "bytes": 1897,
+      "sha256": "08f00a301186e3e0ceda6f2e6f0e6c60571b9ba9615087626d48f7f9ffa1b911",
+      "date": "2026-09-14",
+      "title": "Reuse one semantic table for administration records"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-15-single-role-governance-feature-lifecycle-and-consented-ai-usage.md",
+      "bytes": 5119,
+      "sha256": "e8e581fed87e7ce78a855c57b7db4bf3128126fdc8c4e18f040280002ac58a7b",
+      "date": "2026-09-15",
+      "title": "Single-role governance, feature lifecycle and consented AI usage"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-19-fix-duplicate-pnpm-version-authority-in-scheduled-price-workflows.md",
+      "bytes": 1897,
+      "sha256": "31b9a6df779609758cedc574563233bc4edaf062278b49a5d0e3a95124adc298",
+      "date": "2026-09-19",
+      "title": "Fix duplicate pnpm version authority in scheduled price workflows"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-19-reuse-bundled-30th-celebration-logo-for-the-released-set.md",
+      "bytes": 1685,
+      "sha256": "8beb0ba5bad1aae017670214ee3bc110b5957f624753efa73e92c709797061dc",
+      "date": "2026-09-19",
+      "title": "Reuse bundled 30th Celebration logo for the released set"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-19-fix-setheader-release-date-showing-sep-15-instead-of-sep-16-in-america-denver.md",
+      "bytes": 3144,
+      "sha256": "2d0b75ead132857a58335802ce84333d0808cbf3062ccec60f07d7c3224917cd",
+      "date": "2026-09-19",
+      "title": "Fix SetHeader release date showing Sep 15 instead of Sep 16 in America/Denver"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-19-remove-pr190-ad-hoc-psql-sync-run-step-cloud-snapshot-tracking-routes-through-th.md",
+      "bytes": 3023,
+      "sha256": "c1146d12dd551456a22373b74c9a8d0382671877bc2bcd645383a2760a325671",
+      "date": "2026-09-19",
+      "title": "Remove PR190 ad-hoc psql sync_run step; cloud snapshot tracking routes through the application wrapper"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-19-release-scoped-price-link-overlay-for-30th-celebration-sets-correction.md",
+      "bytes": 8629,
+      "sha256": "e897b0f1dc04e60a40b36e87c7c398d42d79ba8a16dea21f199d9d188c24ebd3",
+      "date": "2026-09-19",
+      "title": "Release-scoped price-link overlay for 30th Celebration sets (correction)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-21-extend-bundled-logo-fallback-to-cover-30th-classic-collection-30th-c.md",
+      "bytes": 3145,
+      "sha256": "8ca1a991e06a505fc459b9cca1e40cdb428f073a53c2beac40cbf27901feb207",
+      "date": "2026-09-21",
+      "title": "Extend bundled logo fallback to cover 30th Classic Collection (30th-c)"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-21-30th-celebration-classic-collection-card-art-source-found-adoption-pending-scryd.md",
+      "bytes": 4654,
+      "sha256": "b83e5cf85a5eb07f9b9c3a81ee854947e80959733ad3dac68c68fc8e4bffd48d",
+      "date": "2026-09-21",
+      "title": "30th Celebration Classic Collection card art: source found, adoption pending Scrydex permission"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-22-mixed-browser-and-approval-legs-replay-browser-results-before-consent.md",
+      "bytes": 1586,
+      "sha256": "19c57f2deafd0d82078e63bcf909c92f493fc522804fd3e81f0f4cff337142ea",
+      "date": "2026-09-22",
+      "title": "Mixed browser-and-approval legs replay browser results before consent"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-22-a-metered-deep-refusal-is-terminal-for-the-turn-not-a-retry-invitation.md",
+      "bytes": 6421,
+      "sha256": "7446958625f6821542c7defed3136fb5a422bb5a00be0066f8bac0462379885e",
+      "date": "2026-09-22",
+      "title": "A metered deep refusal is terminal for the turn, not a retry invitation"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-22-preserve-lossless-rectified-pixels-beside-scanner-jpeg-capture.md",
+      "bytes": 1221,
+      "sha256": "43ffffaaa2041a6f7ebcb4a755a729050b5b0cf1e2dafbd4452cbf044233fd07",
+      "date": "2026-09-22",
+      "title": "Preserve lossless rectified pixels beside scanner JPEG capture"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-22-payment-history-is-a-read-only-current-customer-stripe-view-not-a-new-ledger.md",
+      "bytes": 1641,
+      "sha256": "f4848b74c7f01b8032d94cc7c9ab2e8110c85d560246707bb06aa0ab6c9cb05a",
+      "date": "2026-09-22",
+      "title": "Payment history is a read-only current-customer Stripe view, not a new ledger"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-23-split-conversational-card-logging-into-apply-and-preview-intents.md",
+      "bytes": 2320,
+      "sha256": "c121284f9d4ee6c8a4c0a0112dc53730e62b92d988944f87b173886cb95e2dd4",
+      "date": "2026-09-23",
+      "title": "Split conversational card logging into APPLY and PREVIEW intents"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-23-preserve-relative-quantities-in-conversational-card-changes.md",
+      "bytes": 941,
+      "sha256": "2c9f0b122055eb7a6890f232073314a05e90306c3f22eef8a704a3c0e190840b",
+      "date": "2026-09-23",
+      "title": "Preserve relative quantities in conversational card changes"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-23-call-first-to-request-collection-approval.md",
+      "bytes": 560,
+      "sha256": "17f1303c765557c5cbda275dd2d6c0141220905bf55212efe3784833cba939b2",
+      "date": "2026-09-23",
+      "title": "Call first to request collection approval"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-23-guard-against-case-insensitive-filename-collisions-in-ci.md",
+      "bytes": 2479,
+      "sha256": "b30459f89ecea9ac80f17d2c0783cac19ec6ea608f1b5be5ee87f6ade5944eb8",
+      "date": "2026-09-23",
+      "title": "Guard against case-insensitive filename collisions in CI"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-26-collection-list-and-deck-writes-go-through-per-document-lanes-and-always-end-vis.md",
+      "bytes": 5946,
+      "sha256": "126422dd86bca17752f2bc424a5f0e025c54324e1586e6f33bc8377fd1ecedb0",
+      "date": "2026-09-26",
+      "title": "Collection, list and deck writes go through per-document lanes and always end visibly"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-26-deck-e-stands-clear-of-what-the-reader-has-to-press-and-every-card-and-notice-sa.md",
+      "bytes": 6147,
+      "sha256": "6a308da14240d5aff6b0104731176265521623db5da7b0c639cfbb62b3a09cda",
+      "date": "2026-09-26",
+      "title": "Deck-E stands clear of what the reader has to press, and every card and notice says what it will do"
+    }
+  ]
+}

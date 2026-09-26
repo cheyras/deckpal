@@ -32,6 +32,12 @@ jobs:
       - name: Case-insensitive filename collisions
         run: node scripts/check-case-collisions.mjs
 
+      - name: Decision archive and append guard
+        run: node scripts/check-decisions.mjs
+
+      - name: Decision converter tests
+        run: node --test scripts/__tests__/decisions.test.mjs
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 

@@ -164,7 +164,7 @@ Before marking a PR ready for review:
 - [ ] UI changes: verified in a real browser at desktop **and** 390px viewport;
       screenshots attached
 - [ ] Migrations: new file only, never edited a shipped `.sql` file
-- [ ] `DECISIONS.md` entry added if the change involves a non-trivial decision
+- [ ] A `decisions/YYYY/` file added if the change involves a non-trivial decision (`pnpm decisions new "Title"`)
 - [ ] `ARCHITECTURE.md` updated if the schema changed (the schema of record is
       `packages/db/src/migrations/`)
 

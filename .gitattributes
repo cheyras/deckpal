@@ -27,6 +27,13 @@
 # hashed, signed, or compared byte-for-byte rather than parsed.
 *.sh text eol=lf
 
+# Local merges of the guide should never turn old branch appendices into a
+# conflict that prevents an agent from adopting those entries into files.
+DECISIONS.md merge=union
+
+# Historical entries retain their original trailing blank lines byte for byte.
+decisions/**/*.md whitespace=-blank-at-eof
+
 # Everything else keeps the default. Source files are parsed, not hashed, so
 # their line endings are a matter of taste and the tooling already copes; a
 # blanket `* text=auto eol=lf` would rewrite the entire working tree on Windows
