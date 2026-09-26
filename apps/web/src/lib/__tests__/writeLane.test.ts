@@ -81,7 +81,7 @@ test('answers are applied in the order sent, before the intent is dropped', asyn
   const lane = new WriteLane()
   const api = endpoint<number>()
   const applied: { value: number; intentDuringApply: unknown }[] = []
-  const onSaved = (value: number) => applied.push({ value, intentDuringApply: lane.intent('qty') })
+  const onSaved = (value: number) => { applied.push({ value, intentDuringApply: lane.intent('qty') }) }
   const writes = [1, 2].map((n) => lane.write({ item: 'qty', intent: n, send: api.send(n), onSaved }))
   api.calls[0]!.answer.resolve(1)
   await writes[0]
@@ -112,7 +112,7 @@ test('QUAL-06: five rapid taps against a jittery server settle on five', async (
   const taps = [] as Promise<WriteOutcome<number>>[]
   for (let i = 0; i < 5; i++) {
     const target = shown() + 1
-    taps.push(lane.write({ item: 'row', intent: target, send: set(target), onSaved: (v) => (cache = v) }))
+    taps.push(lane.write({ item: 'row', intent: target, send: set(target), onSaved: (v) => { cache = v } }))
     assert.equal(shown(), target, 'every tap shows immediately')
   }
   await Promise.all(taps)
@@ -191,6 +191,46 @@ test('a bug applying an answer, or a send that throws, cannot wedge the lane', a
   } finally {
     console.error = original
   }
+})
+
+test('an asynchronous apply finishes before the next write is sent or the intent drops', async () => {
+  const lane = new WriteLane()
+  const api = endpoint<number>()
+  const events: string[] = []
+  const applied = deferred<void>()
+  const first = lane.write({ item: 'a', intent: 1, send: api.send(1), onSaved: () => { events.push('apply-start'); return applied.promise } })
+  lane.write({ item: 'b', send: api.send(2) })
+  api.calls[0]!.answer.resolve(1)
+  await tick()
+  assert.deepEqual(events, ['apply-start'])
+  assert.equal(api.calls.length, 1, 'b waits until a’s answer is in the cache')
+  assert.equal(lane.intent('a'), 1, 'still masked while the cache is being written')
+  applied.resolve()
+  assert.equal((await first).status, 'saved')
+  assert.equal(api.calls.length, 2)
+})
+
+test('cancel() drops the queue, aborts the request in flight and ignores its answer', async () => {
+  // An account switch: nothing asked for by the previous session may be sent,
+  // applied or reported.
+  const lane = new WriteLane()
+  const api = endpoint<number>()
+  let applied = 0
+  const inFlight = lane.write({ item: 'a', intent: 1, send: api.send(1), onSaved: () => { applied++ } })
+  const queued = lane.write({ item: 'b', intent: 2, send: api.send(2) })
+  lane.cancel()
+  assert.equal(lane.busy(), false, 'every intent is gone at once')
+  assert.equal(api.calls[0]!.signal.aborted, true)
+  assert.deepEqual(await queued, { status: 'cancelled' })
+  assert.deepEqual(await inFlight, { status: 'cancelled' })
+  assert.equal(applied, 0, 'an answer for the old session is never applied')
+  assert.equal(api.calls.length, 1, 'the queued write was never sent')
+
+  // Usable straight away, not after the aborted request unwinds.
+  const next = lane.write({ item: 'a', send: api.send(3) })
+  assert.equal(api.calls.length, 2)
+  api.calls[1]!.answer.resolve(3)
+  assert.equal((await next).status, 'saved')
 })
 
 test('busy() and subscribers track outstanding items', async () => {

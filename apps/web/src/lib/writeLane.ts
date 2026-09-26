@@ -30,6 +30,9 @@
  * failure is worth telling anyone about: a failed write that a newer one has
  * already superseded was never what the user wanted in the end.
  *
+ * `cancel()` drops everything outstanding at once — for when the account that
+ * asked for these writes is no longer the one signed in (lib/writes.ts).
+ *
  * Deliberately framework-free, so the rules above are unit-tested as plain code
  * (lib/__tests__/writeLane.test.ts). `lib/writes.ts` is the React side.
  */
@@ -43,6 +46,8 @@ export type WriteOutcome<R> =
   | { status: 'failed'; error: unknown; final: boolean }
   /** Replaced by a newer write for the same item before it was ever sent. */
   | { status: 'superseded' }
+  /** Dropped by `cancel()`; nothing was applied, nothing should be reported. */
+  | { status: 'cancelled' }
 
 export interface WriteRequest<R> {
   /** What this write is ABOUT — "variant:123", "order", "delete". Writes with
@@ -53,21 +58,26 @@ export interface WriteRequest<R> {
   send: (signal: AbortSignal) => Promise<R>
   /** Called with EVERY successful answer, in the order the lane sent them, and
    *  before the item's intent is cleared — so the cache already holds the new
-   *  value by the time the control stops overriding it. */
-  onSaved?: (value: R) => void
+   *  value by the time the control stops overriding it. The lane waits for a
+   *  returned promise before sending anything else. */
+  onSaved?: (value: R) => void | Promise<void>
 }
 
 interface Entry {
   item: string
   intent: unknown
   send: (signal: AbortSignal) => Promise<unknown>
-  onSaved?: (value: unknown) => void
+  onSaved?: (value: unknown) => void | Promise<void>
   resolve: (outcome: WriteOutcome<unknown>) => void
+  generation: number
 }
 
 export class WriteLane {
   private queue: Entry[] = []
   private running: Entry | null = null
+  private controller: AbortController | null = null
+  /** Bumped by `cancel()`; an answer for an older generation is ignored. */
+  private generation = 0
   /** item → the newest write asked for it, while any write for it is outstanding. */
   private latest = new Map<string, Entry>()
   private listeners = new Set<() => void>()
@@ -81,8 +91,9 @@ export class WriteLane {
         item: request.item,
         intent: request.intent,
         send: request.send,
-        onSaved: request.onSaved as ((value: unknown) => void) | undefined,
+        onSaved: request.onSaved as Entry['onSaved'],
         resolve: resolve as (outcome: WriteOutcome<unknown>) => void,
+        generation: this.generation,
       }
       // A write for the same item that has not been sent yet can never matter
       // now. One that IS in flight cannot be recalled, so it finishes, and this
@@ -106,6 +117,18 @@ export class WriteLane {
     return item === undefined ? this.latest.size > 0 : this.latest.has(item)
   }
 
+  /** Drop every outstanding write: abort the one in flight, discard the queue,
+   *  clear every intent. Their outcomes resolve as `cancelled`. */
+  cancel(): void {
+    this.generation++
+    this.controller?.abort(new CancelledWriteError())
+    this.controller = null
+    this.running = null
+    for (const entry of this.queue.splice(0)) entry.resolve({ status: 'cancelled' })
+    this.latest.clear()
+    this.emit()
+  }
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -125,6 +148,7 @@ export class WriteLane {
     if (!entry) return
     this.running = entry
     const controller = new AbortController()
+    this.controller = controller
     const deadline = setTimeout(() => controller.abort(new DeadlineError()), this.deadlineMs)
     let sent: Promise<unknown>
     try {
@@ -143,25 +167,38 @@ export class WriteLane {
     ).finally(() => clearTimeout(deadline))
   }
 
-  private settle(
+  private async settle(
     entry: Entry,
     result: { status: 'saved'; value: unknown } | { status: 'failed'; error: unknown },
-  ): void {
-    this.running = null
-    const final = this.latest.get(entry.item) === entry
-    if (result.status === 'saved' && entry.onSaved) {
+  ): Promise<void> {
+    const cancelled = () => entry.generation !== this.generation
+    if (!cancelled() && result.status === 'saved' && entry.onSaved) {
       // The server has the change either way; a bug in applying its answer
       // locally must not wedge every write queued behind this one.
       try {
-        entry.onSaved(result.value)
+        await entry.onSaved(result.value)
       } catch (error) {
         console.error('[writeLane] applying a saved write failed', error)
       }
     }
+    // Cancelled — before or while its answer was being applied — this entry no
+    // longer owns `running`, the queue or any intent: touch none of them.
+    if (cancelled()) return entry.resolve({ status: 'cancelled' })
+    this.running = null
+    this.controller = null
+    const final = this.latest.get(entry.item) === entry
     if (final) this.latest.delete(entry.item)
     this.emit()
     entry.resolve({ ...result, final })
     this.pump()
+  }
+}
+
+/** What an in-flight write is aborted with by `cancel()`. */
+export class CancelledWriteError extends Error {
+  constructor() {
+    super('The write was cancelled')
+    this.name = 'CancelledWriteError'
   }
 }
 

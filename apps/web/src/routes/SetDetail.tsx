@@ -104,7 +104,7 @@ export function SetDetail() {
   })
   if (search.q.trim()) params.set('q', search.q.trim())
 
-  const { data, isLoading, error, isFetching } = useQuery({
+  const { data, isLoading, error, isPlaceholderData } = useQuery({
     queryKey: ['set', set, search.goal, search.sort, search.dir, search.q.trim()],
     queryFn: ({ signal }) => api.set(set, params, signal),
     placeholderData: keepPreviousData,
@@ -213,7 +213,11 @@ export function SetDetail() {
           {/* active view */}
           <div
             className={`mt-[24px] ${enter}`}
-            style={{ opacity: isFetching ? 0.6 : 1 }}
+            // Dimmed only while it shows the PREVIOUS view's cards (a filter,
+            // sort or goal change in flight). A background re-read after
+            // logging (lib/collectionWrites) is not something to wait for, and
+            // dimming for it greyed the grid after every tap (UXC-02).
+            style={{ opacity: isPlaceholderData ? 0.6 : 1 }}
             data-decke-card-grid
             data-decke-landmark="[data-decke-card-grid]"
             data-decke-label="the card grid"

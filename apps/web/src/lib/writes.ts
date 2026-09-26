@@ -1,7 +1,11 @@
 import { useSyncExternalStore } from 'react'
+import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import { WriteLane, type WriteOutcome, type WriteRequest } from './writeLane'
 import { failureMessage } from './writeFailure'
-import { showToast } from './toast'
+import { dismissToast, showToast } from './toast'
+import { IDENTITY_CHANGED } from './access'
+import { readSession } from './authSession'
+import { isCloudMode } from './supabase'
 
 /**
  * How a user's change to their collection, a list or a deck is saved and
@@ -37,6 +41,58 @@ export function useLane(key: string): WriteLane {
   return lane
 }
 
+// ── One account's writes never reach another's ─────────────────────────────
+// A queued write reads its credentials when it is SENT, not when it was asked
+// for, and lanes are module state that outlives a sign-out or an account
+// switch (main.tsx clears the query cache on IDENTITY_CHANGED; nothing else
+// did). Without both guards below, a change asked for by one account could be
+// applied to the next one's collection — and a Retry or Undo left on screen
+// would do the same thing on a tap.
+if (typeof window !== 'undefined') {
+  window.addEventListener(IDENTITY_CHANGED, () => {
+    for (const lane of lanes.values()) lane.cancel()
+    dismissToast()
+  })
+}
+
+/** Who a request sent now would be authenticated as; null when that cannot be read in time. */
+async function sessionIdentity(): Promise<string | null> {
+  if (!isCloudMode) return 'selfhost'
+  const { session, timedOut } = await readSession()
+  return timedOut ? null : session?.user.id ?? ''
+}
+
+class AccountChangedError extends Error {
+  constructor() {
+    super('A different account is signed in now')
+    this.name = 'AccountChangedError'
+  }
+}
+
+/**
+ * Queue a write on a document's lane, bound to the account that asked for it.
+ *
+ * The event above can arrive a moment after the session it announces — another
+ * tab signing in writes storage first — so each write also checks, just before
+ * it is sent, that the session is still the one it was asked under.
+ */
+export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<WriteOutcome<R>> {
+  const askedBy = sessionIdentity()
+  return laneFor(laneKey)
+    .write({
+      ...request,
+      send: async (signal) => {
+        const [asked, now] = await Promise.all([askedBy, sessionIdentity()])
+        if (asked !== null && now !== null && asked !== now) throw new AccountChangedError()
+        return request.send(signal)
+      },
+    })
+    .then((outcome): WriteOutcome<R> =>
+      // Saying anything about it would describe one account's collection to another.
+      outcome.status === 'failed' && outcome.error instanceof AccountChangedError ? { status: 'cancelled' } : outcome,
+    )
+}
+
 const online = () => typeof navigator === 'undefined' || navigator.onLine !== false
 
 export function writeFailureText(headline: string, error: unknown): string {
@@ -58,14 +114,30 @@ export interface Save<R> extends WriteRequest<R> {
 
 /** Send a write through its document's lane and report its outcome. */
 export function save<R>(laneKey: string, request: Save<R>): Promise<WriteOutcome<R>> {
-  return laneFor(laneKey)
-    .write(request)
-    .then((outcome) => {
-      if (outcome.status === 'failed' && outcome.final) {
-        reportWriteFailure(request.failure, outcome.error, request.retry)
-      } else if (outcome.status === 'saved' && outcome.final && request.success) {
-        showToast({ tone: 'info', message: request.success.message, action: { label: 'Undo', run: request.success.undo } })
-      }
-      return outcome
-    })
+  return write(laneKey, request).then((outcome) => {
+    if (outcome.status === 'failed' && outcome.final) {
+      reportWriteFailure(request.failure, outcome.error, request.retry)
+    } else if (outcome.status === 'saved' && outcome.final && request.success) {
+      showToast({ tone: 'info', message: request.success.message, action: { label: 'Undo', run: request.success.undo } })
+    }
+    return outcome
+  })
+}
+
+/**
+ * Put a saved answer into the cache so that no older read can land on top of it.
+ *
+ * A read already in flight was asked before this write was answered. Left
+ * alone it finishes LAST and puts the old value back — and the next tap, which
+ * builds its absolute target on what is shown, then saves the wrong number. So
+ * reads of cached data are cancelled (back to the cached copy) before the
+ * answer is applied, and a first load with nothing cached yet is restarted
+ * rather than trusted.
+ */
+export async function applyAnswer(qc: QueryClient, keys: QueryKey[], apply: () => void): Promise<void> {
+  await Promise.all(keys.map((queryKey) => qc.cancelQueries({ queryKey, predicate: (q) => q.state.data !== undefined })))
+  apply()
+  for (const queryKey of keys) {
+    void qc.invalidateQueries({ queryKey, predicate: (q) => q.state.data === undefined && q.state.fetchStatus === 'fetching' })
+  }
 }

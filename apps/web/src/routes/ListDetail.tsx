@@ -16,7 +16,7 @@ import { KebabMenu } from '../components/KebabMenu'
 import { fmtUsd, fmtDate } from '../lib/format'
 import { type ListSearch, type ListSortKey, LIST_SEARCH_DEFAULTS } from './listSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
-import { save, useLane, writeFailureText } from '../lib/writes'
+import { applyAnswer, save, useLane, write, writeFailureText } from '../lib/writes'
 import { showToast } from '../lib/toast'
 
 const KIND_LABEL = { dynamic: 'Dynamic List', static: 'Static List', pokedex_binder: 'Pokédex Binder' } as const
@@ -209,8 +209,10 @@ export function ListDetail() {
       item: `remove:${item.itemId}`,
       intent: true,
       send: (signal) => api.removeListItem(id, item.itemId, signal),
-      onSaved: () => {
-        qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: old.items.filter((i) => i.itemId !== item.itemId) })
+      onSaved: async () => {
+        await applyAnswer(qc, [key], () =>
+          qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: old.items.filter((i) => i.itemId !== item.itemId) }),
+        )
         refresh()
       },
       failure: `Couldn't remove ${item.name} from ${named}.`,
@@ -222,7 +224,8 @@ export function ListDetail() {
       item: 'order',
       intent: order,
       send: (signal) => api.updateList(id, { itemOrder: order }, signal),
-      onSaved: () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: inOrder(old.items, order) }),
+      onSaved: () =>
+        applyAnswer(qc, [key], () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: inOrder(old.items, order) })),
       failure: `Couldn't save the new order of ${named}.`,
       retry: () => reorder(order),
     })
@@ -230,25 +233,23 @@ export function ListDetail() {
   // A form that stays open reports in place: the person is looking at it.
   const editList = (body: Parameters<typeof api.updateList>[1]) => {
     setEditError(null)
-    void lane
-      .write({
-        item: 'edit',
-        send: (signal) => api.updateList(id, body, signal),
-        onSaved: (res) => {
-          qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, list: res.list })
-          refresh()
-        },
-      })
-      .then((o) => {
-        if (o.status === 'saved') setShowEdit(false)
-        else if (o.status === 'failed') setEditError(writeFailureText(`Couldn't save your changes to ${named}.`, o.error))
-      })
+    void write(laneKey, {
+      item: 'edit',
+      send: (signal) => api.updateList(id, body, signal),
+      onSaved: async (res) => {
+        await applyAnswer(qc, [key], () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, list: res.list }))
+        refresh()
+      },
+    }).then((o) => {
+      if (o.status === 'saved') setShowEdit(false)
+      else if (o.status === 'failed') setEditError(writeFailureText(`Couldn't save your changes to ${named}.`, o.error))
+    })
   }
 
   const deleteList = () => {
     setDeleteError(null)
     const name = named
-    void lane.write({ item: 'delete', send: (signal) => api.deleteList(id, signal) }).then((o) => {
+    void write(laneKey, { item: 'delete', send: (signal) => api.deleteList(id, signal) }).then((o) => {
       if (o.status === 'failed') return setDeleteError(writeFailureText(`Couldn't delete ${name}.`, o.error))
       if (o.status !== 'saved') return
       void qc.invalidateQueries({ queryKey: ['lists'] })

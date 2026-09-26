@@ -19,7 +19,7 @@ import { BattlesTab } from './deck/BattlesTab'
 import { HistoryTab } from './deck/HistoryTab'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
-import { save, useLane, writeFailureText } from '../lib/writes'
+import { applyAnswer, save, useLane, write, writeFailureText } from '../lib/writes'
 import { showToast } from '../lib/toast'
 
 const FORMATS: DeckFormat[] = ['standard', 'expanded', 'glc', 'unlimited']
@@ -634,8 +634,10 @@ export function DeckBuilder() {
     qc.invalidateQueries({ queryKey: ['deck-versions', id] })
     qc.invalidateQueries({ queryKey: ['battle-logs', id] })
   }
-  const adopt = (d: DeckDetail) => {
-    setDetail(d)
+  // Each answer is the whole deck; applyAnswer keeps an older in-flight read of
+  // it from landing afterwards and undoing the edit on screen.
+  const adopt = async (d: DeckDetail) => {
+    await applyAnswer(qc, [key], () => setDetail(d))
     invalidateSideQueries()
   }
 
@@ -673,8 +675,8 @@ export function DeckBuilder() {
     void save(laneKey, {
       item: `add:${card.cardId}`,
       send: (signal) => api.addDeckCard(id, card.cardId, quantity, undefined, signal),
-      onSaved: (d) => {
-        adopt(d)
+      onSaved: async (d) => {
+        await adopt(d)
         setAdded((prev) => new Set(prev).add(card.cardId))
       },
       failure: `Couldn't add ${quantity} × ${card.name} to ${deckName}.`,
@@ -709,7 +711,7 @@ export function DeckBuilder() {
   const deleteDeck = () => {
     setDeleteError(null)
     const deckName = named
-    void lane.write({ item: 'delete', send: (signal) => api.deleteDeck(id, signal) }).then((o) => {
+    void write(laneKey, { item: 'delete', send: (signal) => api.deleteDeck(id, signal) }).then((o) => {
       if (o.status === 'failed') return setDeleteError(writeFailureText(`Couldn't delete ${deckName}.`, o.error))
       if (o.status !== 'saved') return
       void qc.invalidateQueries({ queryKey: ['decks'] })

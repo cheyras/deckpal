@@ -17,6 +17,9 @@ const SET = 'fx1', LIST = 'writes-list', DECK = 'writes-deck'
 const IMG = '/__fixture/writes-card.svg'
 const NOW = '2026-09-12T18:00:00Z'
 const NAMES = ['Fixturemon', 'Stubbicoon', 'Mockipom']
+// apps/web/src/lib/collectionWrites.ts RECONCILE_AFTER_MS: the set is re-read
+// once, this long after the last collection write, for goal-specific flags.
+const RECONCILE_MS = 2000
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const ok = body => ({ body, headers: { 'Cache-Control': 'no-store, private' } })
@@ -84,8 +87,8 @@ export function writesFixture(mount, admin) {
 
   // A write: counted, overlapped-or-not, delayed on the fixture's schedule, then
   // either failed or applied. `maxInflight` is how the tests prove serialisation.
-  const write = async (rel, method, apply) => {
-    state.writes.push(method + ' ' + rel)
+  const write = async (rel, method, apply, body) => {
+    state.writes.push(method + ' ' + rel + (body ? ' ' + JSON.stringify(body) : ''))
     state.inflight++
     state.maxInflight = Math.max(state.maxInflight, state.inflight)
     await sleep(state.latency(state.writes.length))
@@ -108,7 +111,7 @@ export function writesFixture(mount, admin) {
         state.owned[id] = body.quantity
         return { variantId: id, quantity: body.quantity, delta: body.quantity - before, isFirstAcquisition: false, setId: SET, progress: progress(),
           card: { cardId: row(i).cardId, variants: variantsOf(i).map(v => ({ variantId: v.variantId, quantity: qty(v.variantId) })), ownership: ownership(i) } }
-      })
+      }, body)
     }
     if (rel === '/api/lists/' + LIST) {
       if (method === 'GET') return ok(listDetail())
@@ -151,7 +154,15 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       // Failures are announced assertively; the visible toast carries the buttons.
       const said = text => page.getByRole('alert').filter({ hasText: text }).first()
       const toastShowing = () => page.getByRole('button', { name: 'Dismiss', exact: true }).count()
-      const settle = async () => { while (state.inflight) await sleep(25); await sleep(150) }
+      // Quiet = nothing in flight AND nothing new started for 400ms: the next
+      // queued write leaves the browser a moment after the previous answer lands.
+      const settle = async () => {
+        for (let seen = -1; seen !== state.writes.length || state.inflight;) {
+          seen = state.writes.length
+          while (state.inflight) await sleep(25)
+          await sleep(400)
+        }
+      }
       const fresh = () => Object.assign(state, { writes: [], maxInflight: 0 })
 
       // ── Collection counters (set grid) ────────────────────────────────────
@@ -173,6 +184,11 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await settle()
       assert.equal(await owned(), 2)
       assert.equal(state.owned[100], 2)
+      assert.equal(state.setReads, readsBefore)
+      // Once the taps stop, ONE re-read brings the goal-specific have/need flags.
+      await sleep(RECONCILE_MS + 700)
+      assert.equal(state.setReads, readsBefore + 1, 'one set read for the whole session of taps')
+      assert.equal(await owned(), 2, 'and it agrees with what was shown')
 
       // QUAL-02: a failed write rolls back and says so, with a Retry that works.
       state.latency = () => 150; state.fail = true

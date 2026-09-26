@@ -20515,9 +20515,13 @@ request is harmless. A form that stays open (Edit list, the delete
 confirmations) reports inline through `FormAlert` instead. Deleting a list or a
 deck, and removing a card from a deck, offer Undo through the existing restore
 and absolute-set endpoints. The server's answer to a collection write is folded
-into the cached card and set responses instead of refetching the set. `Toast`
-is a new `components/ui` primitive: one at a time, in PwaUi's bottom-right
-stack with the offline banner, errors announced assertively.
+into the cached card and set responses (after cancelling any older read still in
+flight, which would otherwise land last and undo it on screen); the set itself is
+re-read once, two seconds after the taps stop, for the goal-specific have/need
+flags the answer cannot supply, and the grid is no longer dimmed for a
+background read. `Toast` is a new `components/ui` primitive: one at a time, in
+PwaUi's bottom-right stack with the offline banner, errors announced
+assertively.
 
 **Why:** Quality audit QUAL-02: fifteen collection/list/deck mutations failed
 with no message (restore, edit, delete, pin, add card, update deck among them);
@@ -20541,11 +20545,16 @@ reordered latency and offline (`tests/browser/writes.mjs`).
   held by TanStack's paused-mutation queue and replayed later.
 - A write that has not answered in 20 s is aborted and reported, so one stalled
   request cannot freeze the writes queued behind it on the same document.
+- Writes belong to the account that asked for them. On IDENTITY_CHANGED every
+  lane is cancelled (queue dropped, in-flight request aborted, its answer
+  ignored) and any Retry/Undo toast is dismissed; each write also re-checks the
+  session just before it is sent, because another tab signing in changes
+  storage before this tab hears about it.
 - The set progress bars move when the server confirms (one round trip) rather
   than instantly from CardDetail's client-side copy of the progress maths,
-  which is removed. Views filtered by ownership ("Need") are marked stale, not
-  refetched, after a tap: a card no longer vanishes from under the finger
-  logging it, and the view catches up the next time it is opened.
+  which is removed. Have/Need/Dupes counts and the "Need" filter catch up with
+  the one re-read after the taps stop, so a card no longer vanishes from under
+  the finger logging it.
 - Additive writes — adding N copies from the deck search picker, adding to a
   static list — get no Retry, and their tile stays disabled while saving.
 - Not done here: an exact Undo for removing a card from a list needs the list

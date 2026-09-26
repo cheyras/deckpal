@@ -1,6 +1,6 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { api, type CardDetailResponse, type CollectionMutationResponse, type SetDetailResponse } from './api'
-import { save, useLane } from './writes'
+import { applyAnswer, laneFor, save, useLane } from './writes'
 
 /**
  * Owned-quantity writes, shared by every counter that edits them: the set
@@ -17,15 +17,23 @@ import { save, useLane } from './writes'
  *
  * Writes queue on one lane PER SET, because every answer carries the set's
  * recomputed progress: two answers applied out of order would leave the bars
- * describing an older collection. Each answer is written straight into the
- * cached card and set responses — the server returns exactly what they need
- * (apps/api/src/routes/collection.ts: "so the client can reconcile both the
- * stepper and the tile without a refetch"). That replaced invalidating the whole
- * set after every tap, which re-downloaded ~250 cards (0.8–6.5 s in production)
- * and dimmed the grid while it did (UXC-02).
+ * describing an older collection. Each answer's quantities and progress go
+ * straight into the cached card and set responses — the server returns exactly
+ * those (apps/api/src/routes/collection.ts: "so the client can reconcile both
+ * the stepper and the tile without a refetch"). That replaced invalidating the
+ * whole set after every tap, which re-downloaded ~250 cards (0.8–6.5 s in
+ * production) and dimmed the grid while it did (UXC-02).
+ *
+ * What the answer can NOT supply is a set view's have/need/dupe flags: those
+ * are goal-specific (Master counts required printings, Grandmaster every
+ * printing, and a variant filter narrows both), and the answer only knows the
+ * Complete goal. So the set is re-read ONCE, a moment after the taps stop.
  */
 const laneKey = (setId: string) => `collection:${setId}`
 const itemKey = (variantId: number) => `variant:${variantId}`
+
+/** Quiet time after the last write before a set's ownership flags are re-read. */
+export const RECONCILE_AFTER_MS = 2_000
 
 export interface OwnedVariant {
   setId: string
@@ -54,35 +62,46 @@ function setOwned(qc: QueryClient, t: OwnedVariant, quantity: number): void {
     onSaved: (res) => applyOwned(qc, res, t.card.cardId),
     failure: `Couldn't change ${t.card.name} (${t.variant.displayName}) to ${target} in your collection.`,
     retry: () => setOwned(qc, t, target),
+  }).then((outcome) => {
+    if (outcome.status !== 'superseded' && outcome.status !== 'cancelled') reconcileSoon(qc, t.setId)
   })
 }
 
 /** Fold one collection write's answer into every cached view of that card. */
-function applyOwned(qc: QueryClient, res: CollectionMutationResponse, callerCardId: string): void {
+function applyOwned(qc: QueryClient, res: CollectionMutationResponse, callerCardId: string): Promise<void> {
   const qty = new Map(res.card.variants.map((v) => [v.variantId, v.quantity]))
   const withQty = <V extends { variantId: number; quantity?: number }>(v: V): V =>
     qty.has(v.variantId) ? { ...v, quantity: qty.get(v.variantId) } : v
+  const cardKeys = [...new Set([res.card.cardId, callerCardId])].map((cardId) => ['card', cardId])
 
-  for (const cardId of new Set([res.card.cardId, callerCardId])) {
-    qc.setQueryData<CardDetailResponse>(['card', cardId], (old) => old && { ...old, variants: old.variants.map(withQty) })
-  }
-  qc.setQueriesData<SetDetailResponse>({ queryKey: ['set', res.setId] }, (old) =>
-    old && {
-      ...old,
-      progress: res.progress,
-      cards: old.cards.map((c) =>
-        c.cardId !== res.card.cardId
-          ? c
-          : {
-              ...c,
-              ownership: c.ownership && { ...c.ownership, ...res.card.ownership },
-              standardVariants: c.standardVariants?.map(withQty),
-            },
-      ),
-    },
+  return applyAnswer(qc, [...cardKeys, ['set', res.setId]], () => {
+    for (const key of cardKeys) {
+      qc.setQueryData<CardDetailResponse>(key, (old) => old && { ...old, variants: old.variants.map(withQty) })
+    }
+    qc.setQueriesData<SetDetailResponse>({ queryKey: ['set', res.setId] }, (old) =>
+      old && {
+        ...old,
+        progress: res.progress,
+        cards: old.cards.map((c) =>
+          c.cardId === res.card.cardId ? { ...c, standardVariants: c.standardVariants?.map(withQty) } : c,
+        ),
+      },
+    )
+  })
+}
+
+// One pending re-read per set, pushed back by every write, so logging a pack
+// costs one set download at the end rather than one per tap. It also waits for
+// the lane to be idle, rather than spend a download on numbers about to change.
+const reconciles = new Map<string, number>()
+function reconcileSoon(qc: QueryClient, setId: string): void {
+  window.clearTimeout(reconciles.get(setId))
+  reconciles.set(
+    setId,
+    window.setTimeout(() => {
+      reconciles.delete(setId)
+      if (laneFor(laneKey(setId)).busy()) return reconcileSoon(qc, setId)
+      void qc.invalidateQueries({ queryKey: ['set', setId] })
+    }, RECONCILE_AFTER_MS),
   )
-  // Views filtered by ownership ("Need") are now stale in membership, not just
-  // in numbers. Marked, not refetched: they catch up the next time they are
-  // opened, instead of a card vanishing from under the finger logging it.
-  void qc.invalidateQueries({ queryKey: ['set', res.setId], refetchType: 'none' })
 }

@@ -843,8 +843,11 @@ that reports the outcome: a final failure raises the `Toast` with what did not
 save, why when it is actionable, and Retry when repeating is harmless; a form
 that stays open reports inline through `FormAlert`; a destructive success offers
 Undo. A write that does not answer in 20 s is aborted so it cannot hold its
-document's later writes. Nothing is queued offline — the service worker keeps
-mutations `NetworkOnly`, and the collection counters stay disabled offline.
+document's later writes, and every lane is cancelled when the signed-in account
+changes. Answers go into the cache through `applyAnswer`, which first cancels
+any older read of the same data still in flight. Nothing is queued offline —
+the service worker keeps mutations `NetworkOnly`, and the collection counters
+stay disabled offline.
 
 ## 14. Design system and the /design editor
 
