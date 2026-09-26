@@ -34,6 +34,10 @@ export function parseArgs(argv) {
   let port = DEFAULT_PORT
   let rebuild = false
   for (let i = 0; i < argv.length; i++) {
+    // `pnpm sim:serve -- --port 5410` -- pnpm does not always strip the `--` separator before
+    // forwarding to the underlying script (observed: it didn't here), so a leading one is a
+    // normal, harmless no-op rather than an error the quickstart's own documented command hits.
+    if (argv[i] === '--' && i === 0) continue
     if (argv[i] === '--port') port = Number(argv[++i])
     else if (argv[i] === '--rebuild') rebuild = true
     else throw new Error(`Unknown argument: ${argv[i]} (known: --port <n>, --rebuild)`)

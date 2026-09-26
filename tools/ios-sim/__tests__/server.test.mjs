@@ -21,6 +21,12 @@ describe('parseArgs', () => {
   it('rejects an unknown flag rather than silently ignoring it', () => {
     assert.throws(() => parseArgs(['--typo']), /Unknown argument: --typo/)
   })
+  it('tolerates a leading -- (pnpm does not always strip the separator it documents)', () => {
+    assert.deepEqual(parseArgs(['--', '--port', '5410']), { port: 5410, rebuild: false })
+  })
+  it('still rejects -- anywhere but the front, since that is not the separator case', () => {
+    assert.throws(() => parseArgs(['--port', '5410', '--']), /Unknown argument: --/)
+  })
   it('rejects a non-numeric or non-positive port', () => {
     assert.throws(() => parseArgs(['--port', 'nope']), /positive integer/)
     assert.throws(() => parseArgs(['--port', '0']), /positive integer/)

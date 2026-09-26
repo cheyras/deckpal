@@ -84,15 +84,24 @@ class FindSocketTests(unittest.TestCase):
             now = time.time()
             os.utime(stale, (now - 3600, now - 3600))
             os.utime(fresh, (now, now))
-            with mock.patch.object(wir, '_SOCKET_GLOB', os.path.join(tmp, 'com.apple.launchd.*', 'com.apple.webinspectord_sim.socket')):
-                self.assertEqual(wir.find_socket(), fresh)
+            # find_socket() gates on sys.platform == 'darwin' before it ever looks at the glob --
+            # mocked here too, so this test (and the whole suite's "no macOS dependency" claim)
+            # actually holds on Linux/Windows CI instead of failing on the platform check first.
+            with mock.patch.object(wir.sys, 'platform', 'darwin'):
+                with mock.patch.object(wir, '_SOCKET_GLOB', os.path.join(tmp, 'com.apple.launchd.*', 'com.apple.webinspectord_sim.socket')):
+                    self.assertEqual(wir.find_socket(), fresh)
 
     def test_raises_with_a_clear_message_when_nothing_matches(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(wir.sys, 'platform', 'darwin'):
             with mock.patch.object(wir, '_SOCKET_GLOB', os.path.join(tmp, 'nothing-here', '*.socket')):
                 with mock.patch.object(wir, '_booted_simulator_names', return_value=[]):
                     with self.assertRaisesRegex(wir.WirError, 'No booted iOS Simulator'):
                         wir.find_socket()
+
+    def test_rejects_non_macos_before_touching_the_filesystem(self):
+        with mock.patch.object(wir.sys, 'platform', 'linux'):
+            with self.assertRaisesRegex(wir.WirError, 'only exists on macOS'):
+                wir.find_socket()
 
 
 class AppPageDictTests(unittest.TestCase):
