@@ -20567,3 +20567,25 @@ a mocked RLS query client (no database, no network — the same pattern
 vs. authenticated callers on all four endpoints, and a source guard confirming
 all three route files actually call the shared helper rather than a bare
 `userCache()`.
+
+**Follow-up (same PR, after Astra's adversarial review):** Astra flagged that
+`index.ts`'s optional CORS middleware (`API_CORS_ORIGINS`, off by default —
+"CORS is off by default: the SPA is served same-origin by this very server")
+reflects the request's `Origin` into `Access-Control-Allow-Origin` with no
+corresponding `Vary: Origin` — pre-existing, and already latent for
+`search.ts`'s cache, but this PR was about to make it materially worse by
+adding two more shared-cacheable routes. A cache that ignored `Origin` could
+serve one allowed origin's `Access-Control-Allow-Origin` value to a different
+allowed origin (or none, if a same-origin request warmed the entry first),
+and the browser on the receiving end rejects an otherwise-valid response.
+Fixed at the source: the CORS middleware now calls `res.append('Vary',
+'Origin')` on every request it's mounted for (not only a matched one — a
+cache needs to know Origin is a factor at all, regardless of this request's
+outcome), and `catalogOrUserCache` now uses `res.append('Vary',
+'Authorization')` instead of `res.setHeader(...)`, so the two compose
+(`Vary: Origin, Authorization`) instead of the second silently discarding the
+first regardless of which one runs first. Added a test asserting exactly that
+composition. `test:pure` now 401/401 (up from 400 — one new test), plus a
+pre-existing minimal `Response` double in `upcoming-route.test.ts` needed an
+`append()` no-op added alongside its `setHeader()` no-op to keep working
+against the changed helper.

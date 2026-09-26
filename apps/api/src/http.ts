@@ -82,10 +82,18 @@ export function userCache(res: Response): void {
  * anonymous hit rate nothing. `search.ts`'s `catalogCache()` call is exempt: it
  * has no `userId` branch at all (no personalization is ever possible there), so
  * varying its cache by `Authorization` would only fragment it for no reason.
+ *
+ * `res.append`, not `res.setHeader`: index.ts's optional CORS middleware may
+ * already have added `Vary: Origin` ahead of this (a fork with
+ * `API_CORS_ORIGINS` set reflects the request's Origin into
+ * `Access-Control-Allow-Origin`, so a shared cache needs to know Origin is a
+ * second reason this response could differ). `setHeader` would silently
+ * discard that and reintroduce exactly the bug this function exists to avoid,
+ * for a different header. `append` composes: `Vary: Origin, Authorization`.
  */
 export function catalogOrUserCache(res: Response, userId: string | null, seconds = 300): void {
   if (userId === null) {
-    res.setHeader('Vary', 'Authorization');
+    res.append('Vary', 'Authorization');
     catalogCache(res, seconds);
   } else {
     userCache(res);

@@ -43,13 +43,24 @@ after(() => closePool());
 
 // ── Layer 1: the helper in isolation ────────────────────────────────────────
 
-/** Minimal Response double that records every header it was given. */
+/**
+ * Minimal Response double that records every header it was given, including
+ * Express's `append()` semantics (join with ", " onto any existing value) —
+ * the same shape Node's real ServerResponse produces for a non-Set-Cookie
+ * header, which is what `catalogOrUserCache` now relies on to compose with a
+ * `Vary: Origin` a CORS middleware may have already set (see http.ts).
+ */
 function fakeRes(): Response & { headers: Record<string, string> } {
   const headers: Record<string, string> = {};
   return {
     headers,
     setHeader(name: string, value: string) {
       headers[name.toLowerCase()] = value;
+      return this;
+    },
+    append(name: string, value: string) {
+      const key = name.toLowerCase();
+      headers[key] = key in headers ? `${headers[key]}, ${value}` : value;
       return this;
     },
   } as unknown as Response & { headers: Record<string, string> };
@@ -98,6 +109,18 @@ describe('catalogOrUserCache', () => {
     catalogCache(direct, 120);
     assert.equal(viaHelper.headers['cache-control'], direct.headers['cache-control']);
   });
+
+  // Astra (adversarial review) flagged: index.ts's optional CORS middleware
+  // reflects the request's Origin into Access-Control-Allow-Origin when a fork
+  // sets API_CORS_ORIGINS, and — ahead of this fix — sets `Vary: Origin` to say
+  // so. A shared cache that lost that signal could hand one allowed origin's
+  // CORS header to a different allowed origin, which the browser then rejects.
+  test('anonymous: composes with a Vary the CORS middleware already set, rather than replacing it', () => {
+    const res = fakeRes();
+    res.append('Vary', 'Origin'); // what index.ts's CORS middleware does when active
+    catalogOrUserCache(res, null, 300);
+    assert.equal(res.headers['vary'], 'Origin, Authorization');
+  });
 });
 
 // ── Layer 2: the real route handlers ────────────────────────────────────────
@@ -145,6 +168,11 @@ async function invokeRoute(
       const res = {
         setHeader(name: string, value: string) {
           headers[name.toLowerCase()] = value;
+          return this;
+        },
+        append(name: string, value: string) {
+          const key = name.toLowerCase();
+          headers[key] = key in headers ? `${headers[key]}, ${value}` : value;
           return this;
         },
         set() {

@@ -144,6 +144,15 @@ export function createApp(): express.Express {
   if (corsOrigins) {
     const allowed = new Set(corsOrigins.split(',').map((o) => o.trim()).filter(Boolean));
     app.use((req, res, next) => {
+      // The response depends on the request's Origin whenever this fork has
+      // CORS configured at all — not only on a match — because a shared cache
+      // that ignores that has no way to know a *different* Origin would get a
+      // different Access-Control-Allow-Origin (or none). Append rather than
+      // set: a route further downstream (catalogOrUserCache's `Vary:
+      // Authorization`, PERF-02) must be able to add its own reason to vary
+      // without wiping this one out. Vary is a set of header names, not a
+      // single value, so the two compose correctly in either order.
+      res.append('Vary', 'Origin');
       const origin = req.headers.origin;
       if (origin && allowed.has(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
