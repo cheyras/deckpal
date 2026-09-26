@@ -3,14 +3,26 @@ import { Modal } from './ListModals'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { api } from '../lib/api'
+import { isCloudMode } from '../lib/supabase'
 
 // In-app bug / feature-request reporter. Clicking the top-nav button opens the
 // comment form *immediately* and captures a screenshot of the current view in
 // the background, attaching it to the preview when ready. Submit POSTs the
-// comment + kind ('bug' | 'feature') + page URL + screenshot to
+// comment + kind ('bug' | 'feature') + page path + screenshot to
 // /deckpal/api/bugs, which — in self-host mode — persists them under the
 // repo's issues/ dir for the `fix-issues` skill to work through (cloud mode
 // files a labeled GitHub issue instead; see apps/api/src/routes/bugs.ts).
+//
+// PRIVACY: the report — description, page, and screenshot if any — is posted
+// to DeckPal's PUBLIC GitHub issue tracker in cloud mode. The modal says so
+// before Submit, and a screenshot can be excluded with the checkbox below its
+// preview. On a page that could show account details — the reporter's own
+// (Profile, billing) or another signed-in user's (any /admin page) — no
+// screenshot is even attempted; see `isSensitiveBugPage` below, mirrored
+// server-side in apps/api/src/routes/bugs.ts as the enforcement backstop.
+// The reported page path never carries a query string: an admin's
+// `?search=someone@example.com` filter, or any other search param, must
+// never reach a public issue (stripped here and again on the server).
 //
 // Why open-first-capture-after: html2canvas walks and re-renders the whole
 // document, which on heavy/virtualized layouts (table view, big grids) can reflow
@@ -153,22 +165,50 @@ type ReportKind = 'bug' | 'feature'
 const KIND_COPY: Record<ReportKind, { title: string; helper: string; placeholder: string }> = {
   bug: {
     title: 'Report a bug',
-    helper:
-      "Describe what looks wrong or isn't working. A screenshot of this page and the URL are attached automatically.",
+    helper: "Describe what looks wrong or isn't working.",
     placeholder: 'What happened, and what did you expect instead?',
   },
   feature: {
     title: 'Request a feature',
-    helper:
-      "Describe what you'd like to see and why. A screenshot of this page and the URL are attached automatically for context.",
+    helper: "Describe what you'd like to see and why.",
     placeholder: 'What would you like to see, and why?',
   },
+}
+
+// ── Sensitive pages — no screenshot is even attempted here ──────────────────
+//
+// A screenshot of these pages can show account details that aren't the
+// reporter's to publish: their own (Profile, billing) or, worse, another
+// signed-in user's (any /admin page — the Users list and detail view render
+// other users' emails in plain text; see routes/admin/Users.tsx). MIRRORS
+// the prefix list in apps/api/src/routes/bugs.ts (`SENSITIVE_PAGE_PREFIXES`
+// / `isSensitiveBugPage`), which is the server-side backstop for this same
+// check — same shape as the isAllowedRoute/routeAllowed pair in
+// decke/tools.ts and character/host/uiTools.ts. Keep both lists in step.
+const SENSITIVE_PAGE_PREFIXES = ['/admin', '/profile', '/credits']
+
+// The self-host build's router uses this basepath (see main.tsx:
+// `basepath: import.meta.env.VITE_SUPABASE_URL ? '' : '/deckpal'`), so
+// `window.location.pathname` there is `/deckpal/admin/...`, never bare
+// `/admin/...`. Strip it before matching — it is a fixed, reserved value
+// (there is no real route named `/deckpal`), so this is safe regardless of
+// which build produced the page.
+const SELF_HOST_MOUNT = '/deckpal'
+
+function isSensitiveBugPage(pathname: string): boolean {
+  const clean =
+    pathname === SELF_HOST_MOUNT || pathname.startsWith(`${SELF_HOST_MOUNT}/`)
+      ? pathname.slice(SELF_HOST_MOUNT.length) || '/'
+      : pathname
+  return SENSITIVE_PAGE_PREFIXES.some((p) => clean === p || clean.startsWith(`${p}/`))
 }
 
 export function BugButton() {
   const [open, setOpen] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [shot, setShot] = useState<string | undefined>(undefined)
+  const [includeShot, setIncludeShot] = useState(true)
+  const [sensitivePage, setSensitivePage] = useState(false)
   const [kind, setKind] = useState<ReportKind>('bug')
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -176,17 +216,26 @@ export function BugButton() {
   const [issueUrl, setIssueUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Open the modal right away, then kick off the screenshot in the background.
+  // Open the modal right away, then kick off the screenshot in the
+  // background — unless this page is sensitive, in which case no capture is
+  // attempted at all (see SENSITIVE_PAGE_PREFIXES above).
   function begin() {
     setShot(undefined)
+    setIncludeShot(true)
     setKind('bug')
     setText('')
     setSavedId(null)
     setIssueUrl(null)
     setError(null)
-    setCapturing(true)
+    const sensitive = isSensitiveBugPage(window.location.pathname)
+    setSensitivePage(sensitive)
     setOpen(true)
-    void capture()
+    if (sensitive) {
+      setCapturing(false)
+    } else {
+      setCapturing(true)
+      void capture()
+    }
   }
 
   async function capture() {
@@ -265,8 +314,11 @@ export function BugButton() {
     try {
       const r = await api.submitBug({
         text: body,
-        page: window.location.pathname + window.location.search,
-        screenshot: shot,
+        // Path only — no query string. See the PRIVACY note at the top of
+        // this file; the server strips it again regardless (defense in
+        // depth), but it should never leave the browser in the first place.
+        page: window.location.pathname,
+        screenshot: !sensitivePage && includeShot ? shot : undefined,
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         userAgent: navigator.userAgent,
         kind,
@@ -359,6 +411,18 @@ export function BugButton() {
                 ))}
               </div>
               <p className="text-[14px] leading-[19px] text-text-muted">{KIND_COPY[kind].helper}</p>
+              {/* PRIVACY DISCLOSURE — plain and before Submit, per the reason this
+                  exists: a public issue used to carry a signed screenshot URL with
+                  nobody having been told. See DECISIONS.md 2026-09-26.
+                  `isCloudMode` (this build has a Supabase URL) is the client's best
+                  signal for "this deployment files a public GitHub issue" — every
+                  deployment the docs endorse pairs the two, though AGENTS.md B10
+                  notes they are technically independent env-var gates. */}
+              <p className="text-[13px] leading-[18px] text-text-muted">
+                {isCloudMode
+                  ? "This report — including a screenshot of this page, unless you exclude it below — is posted publicly on DeckPal's GitHub issue tracker. Never include anything you wouldn't want public."
+                  : 'This report — including a screenshot of this page, unless you exclude it below — is saved to this server’s private issue folder, not posted anywhere public.'}
+              </p>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -367,7 +431,12 @@ export function BugButton() {
                 placeholder={KIND_COPY[kind].placeholder}
                 className="w-full resize-y rounded-lg border border-border-default bg-surface-primary p-[12px] text-[15px] leading-[22px] text-text-primary placeholder:text-text-muted"
               />
-              {capturing ? (
+              {sensitivePage ? (
+                <p className="text-[14px] text-text-muted">
+                  Screenshots are turned off on this page — it can show account details (yours or another
+                  member's). Your description and the page path will still be included.
+                </p>
+              ) : capturing ? (
                 <div className="flex items-center gap-[8px] rounded-lg border border-dashed border-border-default bg-surface-primary px-[12px] py-[16px] text-[14px] text-text-muted">
                   <Icon name="bug" size={16} className="animate-pulse" />
                   Capturing a screenshot of this page…
@@ -379,8 +448,16 @@ export function BugButton() {
                     alt="Screenshot of the current page that will be attached"
                     className="block max-h-[220px] w-full object-cover object-top"
                   />
-                  <figcaption className="bg-surface-tertiary px-[10px] py-[6px] text-[14px] text-text-muted">
-                    Attached screenshot · {window.location.pathname}
+                  <figcaption className="flex items-center justify-between gap-[8px] bg-surface-tertiary px-[10px] py-[6px] text-[14px] text-text-muted">
+                    <span>Attached screenshot · {window.location.pathname}</span>
+                    <label className="flex items-center gap-[6px] whitespace-nowrap font-medium text-text-body">
+                      <input
+                        type="checkbox"
+                        checked={includeShot}
+                        onChange={(e) => setIncludeShot(e.target.checked)}
+                      />
+                      Include screenshot
+                    </label>
                   </figcaption>
                 </figure>
               ) : (

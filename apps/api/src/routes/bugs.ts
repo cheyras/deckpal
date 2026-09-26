@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sniffContentType } from '@deckpal/storage';
 import { pool, q1, rlsStore } from '../db.js';
 import { asyncHandler, badRequest, str } from '../http.js';
 
@@ -15,11 +16,16 @@ import { asyncHandler, badRequest, str } from '../http.js';
  *   2. Create a GitHub issue via REST, labeled with the umbrella
  *      "in-app-report" label AND a kind-specific label ("bug" or
  *      "feature-request") — see `labelsForKind()`.
- *   3. Optionally upload the screenshot to Supabase Storage and append a
- *      signed URL to the issue body.
+ *   3. Optionally upload the screenshot to Supabase Storage. The public issue
+ *      never links to it — see `formatIssueBody`. (Until 2026-09-26 this
+ *      minted a signed URL valid for one year and posted it in the public
+ *      issue body; see DECISIONS.md 2026-09-26.)
  *   4. Store the returned issue number on the row.
  *   The reporter's identity (email, user id) is NEVER included in the public
- *   issue — it stays in the private `bug_report` table.
+ *   issue — it stays in the private `bug_report` table. The screenshot is
+ *   skipped entirely, client- and server-side, on any page that can show
+ *   account details (`isSensitiveBugPage`) — the reporter's own (Profile,
+ *   billing) or, worse, another signed-in user's (any `/admin` page).
  *
  * **Self-host mode** (no GITHUB_TOKEN):
  *   Persists each report as a folder under the repo's `issues/` dir (the
@@ -90,11 +96,90 @@ const MAX_TEXT = 20_000;
 const MAX_IMG_BYTES = 8 * 1024 * 1024; // 8 MB decoded
 const DATA_URL_RE = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/;
 
+// Content types the SNIFFED bytes must actually be — the same three the data
+// URL prefix already claims to be, but never taken on the prefix's word (see
+// `decodeScreenshot`). Matches the avatar upload allow-list
+// (`ACCEPTED_AVATAR_UPLOAD_TYPES` in packages/storage/src/avatar-store.ts):
+// same reasoning, a different upload path.
+const ACCEPTED_SCREENSHOT_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/webp'];
+
 // Filesystem-safe, sortable id from an ISO timestamp + short random suffix.
 function newId(): string {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '');
   const rand = Math.random().toString(36).slice(2, 8);
   return `${ts}_${rand}`;
+}
+
+// ── Sensitive pages (screenshots never captured or stored here) ──────────────
+//
+// A screenshot of these pages can show account details that are not the
+// reporter's business to publish: their own (Profile, billing) or, worse,
+// another signed-in user's (any /admin page — the Users list and detail view
+// render other users' emails in plain text). The client already skips the
+// html2canvas capture on these routes (see BugReport.tsx); this is the
+// server-side backstop for a stale cached bundle, a hand-built request, or a
+// future regression that reintroduces capture there — MIRRORS the prefix
+// list in apps/web/src/components/BugReport.tsx, same shape as the
+// isAllowedRoute/routeAllowed pair in decke/tools.ts and
+// character/host/uiTools.ts. Keep both lists in step.
+const SENSITIVE_PAGE_PREFIXES = ['/admin', '/profile', '/credits'];
+
+// The self-host SPA is served under this base path (`main.tsx`'s router
+// `basepath: import.meta.env.VITE_SUPABASE_URL ? '' : '/deckpal'`), so
+// `window.location.pathname` there is `/deckpal/admin/...`, not `/admin/...`.
+// That base path is a fixed, reserved value (there is no real route named
+// `/deckpal`), so it is always safe to strip before matching — regardless of
+// which deployment sent the request, and independent of THIS route's own
+// cloud/self-host gate (GITHUB_TOKEN/GITHUB_REPO), which is a different
+// switch (see AGENTS.md B10 "Precise mode condition"): a self-host instance
+// can configure GitHub issue filing too, and would still carry this prefix.
+const SELF_HOST_MOUNT = '/deckpal';
+
+/** Strip the query string and fragment from a reported page path. A search
+ * param can carry something identifying (an admin's `?search=someone@x.com`
+ * filter, a token, a `next=` redirect target) that must never reach a public
+ * GitHub issue — only the path shape is useful for triage anyway. */
+export function sanitizePagePath(page: string): string {
+  return page.split('?')[0]!.split('#')[0]!;
+}
+
+/** Does this (already-sanitized) page path belong to a surface where a
+ * screenshot must never be taken? Mount-prefix-aware — see SELF_HOST_MOUNT. */
+export function isSensitiveBugPage(page: string): boolean {
+  let clean = sanitizePagePath(page);
+  if (clean === SELF_HOST_MOUNT || clean.startsWith(`${SELF_HOST_MOUNT}/`)) {
+    clean = clean.slice(SELF_HOST_MOUNT.length) || '/';
+  }
+  return SENSITIVE_PAGE_PREFIXES.some((p) => clean === p || clean.startsWith(`${p}/`));
+}
+
+export interface DecodedScreenshot {
+  buf: Buffer;
+  /** Sniffed from the bytes, never the data URL's declared prefix. */
+  contentType: string;
+}
+
+/**
+ * Decode and validate a `data:image/(png|jpeg|webp);base64,...` screenshot.
+ * The content type comes from the BYTES (`sniffContentType`, the same
+ * sniffer the avatar upload path uses — see routes/avatar.ts), never from
+ * the data URL's declared prefix: a client controls that string, not what is
+ * actually inside it, and the prefix used to be trusted outright.
+ */
+export function decodeScreenshot(dataUrl: string): DecodedScreenshot {
+  const m = DATA_URL_RE.exec(dataUrl);
+  if (!m) throw badRequest('screenshot must be a data:image/(png|jpeg|webp);base64 URL.');
+  const buf = Buffer.from(m[2]!, 'base64');
+  if (buf.length > MAX_IMG_BYTES) throw badRequest('Screenshot too large.');
+  const contentType = sniffContentType(buf);
+  if (!ACCEPTED_SCREENSHOT_TYPES.includes(contentType)) {
+    throw badRequest('Screenshot does not look like a real PNG, JPEG, or WebP image.');
+  }
+  return { buf, contentType };
+}
+
+function extForContentType(contentType: string): string {
+  return contentType === 'image/jpeg' ? 'jpg' : contentType === 'image/png' ? 'png' : 'webp';
 }
 
 // ── Kind (bug vs feature request) — pure, tested ───────────────────────────────
@@ -153,12 +238,17 @@ export interface IssueBodyParams {
   viewport: string;
   userAgent: string;
   reportId: string;
-  screenshotUrl?: string;
+  /** Whether a screenshot for this report was saved to private Storage.
+   * Deliberately NOT a URL: see the module comment above and DECISIONS.md
+   * 2026-09-26. Nothing in a public issue body ever points at the bytes. */
+  screenshotSaved?: boolean;
 }
 
 /**
  * Format a GitHub issue body from report data.
- * PRIVACY: never includes email, user id, or any identifying info.
+ * PRIVACY: never includes email, user id, or any identifying info — and,
+ * since 2026-09-26, never a link to the screenshot either. The bytes (when
+ * saved) live only in private Storage; the owner reaches them by Report-ID.
  */
 export function formatIssueBody(p: IssueBodyParams): string {
   const lines: string[] = [];
@@ -170,12 +260,15 @@ export function formatIssueBody(p: IssueBodyParams): string {
   if (p.viewport) lines.push(`**Viewport:** ${p.viewport}`);
   if (p.userAgent) lines.push(`**User Agent:** ${p.userAgent}`);
   lines.push('');
-  if (p.screenshotUrl) {
-    lines.push('**Screenshot:**');
-    lines.push(`![screenshot](${p.screenshotUrl})`);
+  if (p.screenshotSaved) {
+    lines.push(
+      '**Screenshot:** saved privately — not shown in this public issue. The ' +
+        'project owner can find it in Supabase Storage under the `bug-reports` ' +
+        'bucket, or by looking up the `bug_report` row for this Report-ID.',
+    );
     lines.push('');
   } else {
-    lines.push('*Screenshot omitted — not available or storage not configured.*');
+    lines.push('*Screenshot omitted — not attached, excluded by the reporter, or storage not configured.*');
     lines.push('');
   }
   lines.push(`\`Report-ID: ${p.reportId}\``);
@@ -257,12 +350,16 @@ async function createGhIssue(title: string, body: string, kind: BugKind): Promis
 
 // ── Supabase Storage helpers ─────────────────────────────────────────────────
 
-async function uploadScreenshot(
-  reportId: string,
-  imgBuf: Buffer,
-  contentType: string,
-): Promise<string | null> {
-  if (!hasStorage) return null;
+/**
+ * Upload the screenshot to private Supabase Storage. Returns whether it
+ * succeeded — never a URL. A signed URL used to be minted here (1-year
+ * expiry) and embedded in the public GitHub issue; anyone holding that URL
+ * could view the reporter's screen for a year. See DECISIONS.md 2026-09-26.
+ * The owner reaches the bytes directly (Storage dashboard, or the private
+ * `bug_report` row), never through the public issue.
+ */
+async function uploadScreenshot(reportId: string, imgBuf: Buffer, contentType: string): Promise<boolean> {
+  if (!hasStorage) return false;
   try {
     // Upload to bug-reports/<id>/screenshot.jpg
     const objectPath = `${reportId}/screenshot.jpg`;
@@ -280,31 +377,12 @@ async function uploadScreenshot(
     );
     if (!uploadRes.ok) {
       console.error(`[bugs] Storage upload failed: ${uploadRes.status}`);
-      return null;
+      return false;
     }
-
-    // Create a long-lived signed URL (1 year)
-    const signRes = await fetch(
-      `${SUPABASE_URL}/storage/v1/object/sign/bug-reports/${objectPath}`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ expiresIn: 365 * 24 * 60 * 60 }),
-      },
-    );
-    if (!signRes.ok) {
-      console.error(`[bugs] Storage sign failed: ${signRes.status}`);
-      return null;
-    }
-    const signData = (await signRes.json()) as { signedURL: string };
-    // signedURL is a relative path; prefix with the Supabase URL.
-    return `${SUPABASE_URL}/storage/v1${signData.signedURL}`;
+    return true;
   } catch (err) {
     console.error('[bugs] Storage error:', err);
-    return null;
+    return false;
   }
 }
 
@@ -323,19 +401,22 @@ bugsRouter.post(
     if (text.length > MAX_TEXT) throw badRequest('Description too long.');
 
     const kind = parseKind(body.kind);
-    const page = str(body.page)?.slice(0, 2000) ?? '(unknown)';
+    const page = sanitizePagePath(str(body.page)?.slice(0, 2000) ?? '(unknown)');
     const userAgent = str(body.userAgent)?.slice(0, 500) ?? str(req.headers['user-agent'])?.slice(0, 500) ?? '';
     const viewport = str(body.viewport)?.slice(0, 40) ?? '';
-    const screenshot = str(body.screenshot);
+    const sensitivePage = isSensitiveBugPage(page);
+    // The client already skips capture on a sensitive page. Drop any
+    // screenshot anyway rather than trusting it — a stale bundle, a
+    // hand-built request, or tampering must not be able to publish another
+    // user's screen through this route.
+    const screenshot = sensitivePage ? undefined : str(body.screenshot);
 
     let imgBuf: Buffer | null = null;
-    let imgContentType = 'image/jpeg';
+    let imgContentType: string | null = null;
     if (screenshot) {
-      const m = DATA_URL_RE.exec(screenshot);
-      if (!m) throw badRequest('screenshot must be a data:image/(png|jpeg|webp);base64 URL.');
-      imgBuf = Buffer.from(m[2]!, 'base64');
-      if (imgBuf.length > MAX_IMG_BYTES) throw badRequest('Screenshot too large.');
-      imgContentType = `image/${m[1]}`;
+      const decoded = decodeScreenshot(screenshot);
+      imgBuf = decoded.buf;
+      imgContentType = decoded.contentType;
     }
 
     // ── Cloud mode: DB row + GitHub issue ────────────────────────────────────
@@ -353,10 +434,9 @@ bugsRouter.post(
       const reportId = row!.id;
 
       // 2. Optionally upload screenshot to Supabase Storage.
-      let screenshotUrl: string | undefined;
+      let screenshotSaved = false;
       if (imgBuf) {
-        const url = await uploadScreenshot(reportId, imgBuf, imgContentType);
-        if (url) screenshotUrl = url;
+        screenshotSaved = await uploadScreenshot(reportId, imgBuf, imgContentType!);
       }
 
       // 3. Create the GitHub issue.
@@ -370,7 +450,7 @@ bugsRouter.post(
           viewport,
           userAgent,
           reportId,
-          screenshotUrl,
+          screenshotSaved,
         });
         const gh = await createGhIssue(issueTitle(text), issueBody, kind);
         issueNumber = gh.number;
@@ -417,13 +497,9 @@ bugsRouter.post(
     const dir = join(getIssuesDir(), id);
     mkdirSync(dir, { recursive: true });
 
-    let imgExt: string | null = null;
-    if (screenshot) {
-      const m = DATA_URL_RE.exec(screenshot);
-      if (m) imgExt = m[1] === 'jpeg' ? 'jpg' : m[1]!;
-    }
-
-    const shotName = imgExt ? `screenshot.${imgExt}` : null;
+    // Extension from the SNIFFED type (imgContentType), not re-parsed from
+    // the data URL prefix — same reasoning as the cloud path above.
+    const shotName = imgBuf ? `screenshot.${extForContentType(imgContentType!)}` : null;
     const report = [
       '---',
       `id: ${id}`,

@@ -8,6 +8,7 @@ import { appResponses, announcement, checkUpcoming } from '../tests/browser/upco
 import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
+import { checkBugReport } from '../tests/browser/bugReport.mjs'
 import { checkChat } from '../tests/browser/chat.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
@@ -46,6 +47,7 @@ try {
       adminActive = true
       results.push(...await checkAdmin(browser, server, mount, label, out, admin))
       results.push(...await checkFeedback(browser, server, mount, label, out, admin))
+      results.push(...await checkBugReport(browser, server, mount, label, out, admin))
       results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
       assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
     } finally { await server.close() }

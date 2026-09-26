@@ -277,9 +277,28 @@ attempts the GitHub issue. The `bug_report` row survives a downstream GitHub
 failure (the response is `202` with a `note`). The self-host / no-GitHub-configuration
 path writes the filesystem instead.
 
+**Privacy (2026-09-26).** The cloud-mode GitHub issue is public, and the
+reporter is told so before Submit — a screenshot can be excluded with a
+checkbox. Nothing about a saved screenshot is ever put in the public issue
+body: no URL of any kind, signed or otherwise. (Before this date,
+`formatIssueBody` embedded a Supabase Storage signed URL valid for **one
+year**, so anyone who found the issue could view the reporter's screen for
+that whole year — see SECURITY.md "Bug-report privacy" and DECISIONS.md
+2026-09-26.) The owner reaches a saved screenshot via Supabase Storage or the
+private `bug_report` row, by Report-ID. `isSensitiveBugPage` (mirrored in
+`BugReport.tsx` and `bugs.ts`, both client- and server-enforced) skips the
+screenshot entirely on any `/admin`, `/profile` or `/credits` page — those can
+show account details that are not the reporter's to publish, most acutely
+other users' email addresses on `/admin/users`. The reported page path is
+always stripped of its query string and fragment before storage or
+publication, and the screenshot's actual content type is sniffed from its
+bytes (`decodeScreenshot`), never taken from its declared data-URL prefix.
+
 **Where enforced:** `apps/api/src/routes/bugs.ts` handles both modes: cloud
 (DB+Storage+GitHub) and self-host (filesystem). GitHub Issues is used for
-project-level issue tracking in cloud mode.
+project-level issue tracking in cloud mode. The privacy behavior above is
+shared by both modes and is exercised by `apps/api/src/__tests__/bugs.test.ts`
+and the `bugReport` browser-test scenario in `tests/browser/`.
 
 ### B11 — Runtime configuration must fail loudly
 
