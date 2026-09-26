@@ -65,9 +65,22 @@ cleanupOutdatedCaches()
 const shellHandler = createHandlerBoundToURL(`${BASE}index.html`)
 const apiPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}api/`)
 const imgPattern = new RegExp(`^${IMAGES_PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+// vercel.json's per-path headers (the CSP/frame-ancestors rules) are an
+// EDGE-level concern the shell's single precached Response cannot express: a
+// NavigationRoute always answers with the ONE cached index.html, whatever
+// headers THAT copy happened to carry, regardless of which path was
+// navigated to. /dev/decke-compare is the one route that needs a different
+// `frame-ancestors` (its own same-origin recursive iframe, vercel.json) than
+// every other page, so it is denylisted here too -- the request falls
+// through to an ordinary uncontrolled network fetch, which hits Vercel's
+// edge fresh and gets ITS OWN headers rather than the shell's. Astra
+// review (2026-09-26) caught this: the crawl in
+// tests/browser/securityHeaders.mjs deliberately blocks service workers
+// (`serviceWorkers: 'block'`) and so never exercised this path.
+const deckeComparePattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}dev/decke-compare$`)
 registerRoute(
   new NavigationRoute(shellHandler, {
-    denylist: [apiPattern, imgPattern],
+    denylist: [apiPattern, imgPattern, deckeComparePattern],
   }),
 )
 

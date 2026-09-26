@@ -199,19 +199,29 @@ async function checkDecke(browser, server, mount, admin) {
   await context.addInitScript(VIOLATION_RECORDER)
   const page = await context.newPage()
   try {
-    await page.goto(server.origin + mount + '/lists', { waitUntil: 'load' })
     // The launcher button is app chrome (character/host/DeckeHost.tsx's
     // LAUNCHER_SELECTOR), present once decke:true comes back from /api/me --
     // open it and let its runtime chunk + assets (glb, env map, SDF atlas) load.
-    // `getAccess()` (lib/access.ts) reads the session with its own 4s deadline
-    // before the entitlement check even fires, so this needs a real budget,
-    // not the crawl's fixed 500ms settle.
+    // `getAccess()` (lib/access.ts) reads the session through its own 4s
+    // deadline (authSession.ts) before the entitlement check even fires, and
+    // once that read stalls it "remembers" being stalled for 30s and will not
+    // retry within the same page -- so under real CPU contention (this repo's
+    // shared dev machine; PR-PROTOCOL.md's heavy.sh exists because of exactly
+    // this) a single page load can genuinely miss the deadline once, on
+    // schedule, with no bug involved. A FRESH navigation resets every one of
+    // `access.ts`'s module-level variables (a new page = a new JS realm), so
+    // retrying the whole `goto` is the correct unit of retry here -- waiting
+    // longer on the same page load would not help once the stall memo is set.
     const bubble = page.locator('button[aria-label="Chat with Deck-E"]')
-    const appeared = await bubble.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false)
+    let appeared = false
+    for (let attempt = 1; attempt <= 3 && !appeared; attempt++) {
+      await page.goto(server.origin + mount + '/lists', { waitUntil: 'load' })
+      appeared = await bubble.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false)
+    }
     const opened = appeared && await bubble.click({ timeout: 5000 }).then(() => true).catch(() => false)
     await page.waitForTimeout(1500)
     const violations = await violationsOn(page)
-    assert.ok(opened, 'the Deck-E launcher button never appeared/was not clickable at /lists with decke.use granted')
+    assert.ok(opened, 'the Deck-E launcher button never appeared/was not clickable at /lists with decke.use granted, after 3 fresh attempts')
     assert.deepEqual(violations, [], 'CSP violations while Deck-E\'s runtime chunk and character assets were loading')
     return { case: 'decke-open', opened, cspViolations: violations }
   } finally {
@@ -220,9 +230,15 @@ async function checkDecke(browser, server, mount, admin) {
   }
 }
 
-async function checkServiceWorkerRegistration(browser, server, mount) {
+async function checkServiceWorkerRegistration(browser, server, mount, admin) {
   const context = await browser.newContext({ serviceWorkers: 'allow' })
   try {
+    // /dev/decke-compare needs diagnostics.view to render its comparison
+    // panes at all -- see the check below, which reuses this same context.
+    admin.state.actor = 'owner'
+    admin.state.signedOut = false
+    admin.state.permissions = ['diagnostics.view']
+    await signIn(context)
     await context.addInitScript(VIOLATION_RECORDER)
     const page = await context.newPage()
     await page.goto(server.origin + mount + '/', { waitUntil: 'load' })
@@ -234,8 +250,30 @@ async function checkServiceWorkerRegistration(browser, server, mount) {
     const violations = await violationsOn(page)
     assert.equal(registered, true, `service worker registration did not reach an active/installing/waiting state: ${registered}`)
     assert.deepEqual(violations, [], 'CSP violations while registering the service worker')
-    return { case: 'service-worker-registration', registered, cspViolations: violations }
-  } finally { await context.close() }
+
+    // Astra review (2026-09-26): a NavigationRoute always serves the ONE
+    // precached shell regardless of which path was navigated to, so an
+    // active, CONTROLLING worker could silently override /dev/decke-compare's
+    // own frame-ancestors 'self' with the shell's frame-ancestors 'none' --
+    // sw.ts denylists that one path from the shell route specifically so it
+    // falls through to a real network fetch instead. Reload first so the now-
+    // active worker actually takes control of this page's navigations (a
+    // worker doesn't control the page that registered it until the next load).
+    await page.reload({ waitUntil: 'load' })
+    const controlled = await page.evaluate(() => !!navigator.serviceWorker.controller)
+    assert.ok(controlled, 'the service worker never took control of the page -- the decke-compare exception below would prove nothing without this')
+    await page.goto(server.origin + mount + '/dev/decke-compare', { waitUntil: 'load' })
+    await page.waitForTimeout(1500)
+    const deckeCompareViolations = await violationsOn(page)
+    const panes = await page.locator('iframe').count()
+    assert.deepEqual(deckeCompareViolations, [], "/dev/decke-compare's frame-ancestors 'self' exception was overridden by the service worker's cached shell (frame-ancestors 'none')")
+    assert.ok(panes > 0, '/dev/decke-compare rendered no comparison iframes at all -- diagnostics.view may not be wired the way this check assumes')
+
+    return { case: 'service-worker-registration', registered, controlled, deckeCompareUnderActiveWorker: { violations: deckeCompareViolations, panes } }
+  } finally {
+    await context.close()
+    admin.state.permissions = []
+  }
 }
 
 export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, admin, out) {
@@ -276,7 +314,7 @@ export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, 
     results.push(await checkAllowDenyProbe(webkitBrowser, 'webkit', server))
     results.push(await checkCamera(server, mount))
     results.push(await checkDecke(chromiumBrowser, server, mount, admin))
-    results.push(await checkServiceWorkerRegistration(chromiumBrowser, server, mount))
+    results.push(await checkServiceWorkerRegistration(chromiumBrowser, server, mount, admin))
   } finally {
     await server.close()
     await webkitBrowser.close()
