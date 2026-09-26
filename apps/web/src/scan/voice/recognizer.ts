@@ -212,7 +212,9 @@ export function createVoiceRecognizer(callbacks: RecognizerCallbacks, options: R
       heardThisSession = true
       fastFails = 0
       alive()
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      // Rechecked per result: one event can carry several finished phrases,
+      // and if an earlier one was "stop listening" the rest must not act.
+      for (let i = ev.resultIndex; i < ev.results.length && rec === r && wanted; i++) {
         const result = ev.results[i]
         const alternatives: string[] = []
         for (let j = 0; j < result.length; j++) {

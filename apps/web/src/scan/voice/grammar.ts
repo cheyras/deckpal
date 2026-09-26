@@ -355,21 +355,23 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
       continue
     }
 
-    // Ties go to whichever was considered first, so card names — tried first —
-    // win an exact tie against a grammar word.
+    // Ties go to whichever was considered first, and the GRAMMAR is tried
+    // first: a trainer card called "Poké Ball" must not turn "that one is a
+    // poke ball reverse holo" into a change to that trainer card. A card whose
+    // name IS a command phrase is still reachable as "that one".
     let best: Candidate | null = null
+    for (const entry of COMPILED) {
+      const hit = bestWindow(keys, i, entry.phrases, 1, entry.exact)
+      if (hit && (!best || hit.weight > best.weight)) {
+        best = { ...hit, make: (from, to) => ({ kind: 'slot', slot: entry.slot, from, to }) }
+      }
+    }
     // Card names get two extra words of slack: a recognizer that does not know
     // "Charizard" spreads it over "char is hard".
     for (const n of names) {
       const hit = bestWindow(keys, i, n.phrases, 2)
       if (hit && (!best || hit.weight > best.weight)) {
         best = { ...hit, make: (from, to) => ({ kind: 'name', rowId: n.row.id, name: n.row.name, from, to }) }
-      }
-    }
-    for (const entry of COMPILED) {
-      const hit = bestWindow(keys, i, entry.phrases, 1, entry.exact)
-      if (hit && (!best || hit.weight > best.weight)) {
-        best = { ...hit, make: (from, to) => ({ kind: 'slot', slot: entry.slot, from, to }) }
       }
     }
     if (best) {

@@ -210,6 +210,15 @@ describe('targeting', () => {
     assert.equal(edit('the reverse holo').target.kind, 'anchor')
   })
 
+  it('reads a printing phrase as the printing even when a card is named after it', () => {
+    const rows = [{ id: 'e', name: 'Exeggcute' }, { id: 'p', name: 'Poké Ball' }, { id: 'm', name: 'Master Ball' }]
+    const c = parseUtterance('that one is a poke ball reverse holo', rows).command
+    assert.ok(c?.kind === 'edit')
+    assert.deepEqual(c.target, { kind: 'anchor' })
+    assert.deepEqual(c.printing?.modifiers, ['pokeball'])
+    assert.deepEqual(parseUtterance('master ball', rows).command?.kind, 'edit')
+  })
+
   it('means the most recent scan when a name appears twice', () => {
     const rows = [{ id: 'new', name: 'Venonat' }, { id: 'old', name: 'Venonat' }]
     const c = parseUtterance('venonat is reverse', rows).command

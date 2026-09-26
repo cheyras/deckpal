@@ -140,6 +140,22 @@ describe('the recognizer adapter', () => {
     assert.deepEqual(heard[2].alternatives, ["that one's a reverse hollow", "that one's a reverse holo"])
   })
 
+  it('dispatches nothing after a result in the same event stops listening', () => {
+    FakeRecognition.all = []
+    const heard: string[] = []
+    const rec = createVoiceRecognizer(
+      { onStatus: () => {}, onResult: (r) => { heard.push(r.alternatives[0]); if (r.alternatives[0] === 'stop listening') rec.stop() } },
+      { ctor: FakeRecognition, timers: new FakeClock() },
+    )
+    rec.start()
+    live().open()
+    const r = live()
+    r.results = [{ isFinal: true, alts: ['stop listening'] }, { isFinal: true, alts: ['remove it'] }]
+    const results = r.results.map((x) => Object.assign(x.alts.map((transcript) => ({ transcript })), { isFinal: x.isFinal }))
+    r.onresult?.({ resultIndex: 0, results } as SpeechResultEventLike)
+    assert.deepEqual(heard, ['stop listening'])
+  })
+
   it('re-arms when a session ends on its own (Chrome, one utterance per session)', () => {
     const { rec, clock, last } = setup()
     rec.start()
