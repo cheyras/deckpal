@@ -1456,6 +1456,14 @@ the primary, so a status-keyed field would file exactly the row worth asking
 about under "known". `pickVariant`'s silent-default semantics are unchanged and
 pinned by a test; the classification is a new field beside it.
 
+Every other held write gets the same keyed preview, read-only: its `summary` is
+the dry run's operation lines with the model-facing preamble and re-run
+instruction removed (`previewSummary` in `adapters/aisdk.ts`), and the card
+draws them as rows with the catalogue's own card name and art (`DryRunList`).
+A `save_deck` reconcile is therefore approved against the cards it will
+remove and re-count, not against the bare "DRY RUN — nothing executed" header
+it used to show.
+
 That card **cannot** be expressed through the approval protocol above, and this
 is the load-bearing consequence: the SDK signs over the held input, so any
 client-side edit invalidates the signature by construction. So there are two
