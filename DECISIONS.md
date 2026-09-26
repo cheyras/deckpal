@@ -20548,10 +20548,18 @@ reordered latency and offline (`tests/browser/writes.mjs`).
   deadline is deliberately longer than the API function's 60 s `maxDuration`:
   aborting a fetch does not stop the server, and a write given up on sooner
   could still commit after the one that replaced it. A unit test holds the
-  margin against `vercel.json`.
-- The write-feedback toast sits outside every sheet, so `Sheet`'s Tab loop now
-  runs through it: a keyboard can reach Retry for a save that failed inside a
-  sheet.
+  margin against `vercel.json`. For the same reason, when the server never
+  answered (a dropped connection, the deadline), the newer write queued for the
+  same item is not sent automatically: it fails with the first, as the item's
+  final word, and the next attempt is the person's Retry. A failure the server
+  did answer (a 500) lets the queue carry on.
+- `applyAnswer` cancels every read of the data a write touched that is in
+  flight when its answer arrives, applies the answer, then asks those reads
+  again, so a slow GET can neither undo the edit on screen nor be lost (an
+  add's list refresh, a first load).
+- The write-feedback toast sits outside every sheet, so the topmost `Sheet`'s
+  Tab loop now runs through it: a keyboard can reach Retry for a save that
+  failed inside a sheet. Only the topmost dialog handles Tab.
 - Writes belong to the account that asked for them. On IDENTITY_CHANGED every
   lane is cancelled (queue dropped, in-flight request aborted, its answer
   ignored) and any Retry/Undo toast is dismissed; each write also re-checks the

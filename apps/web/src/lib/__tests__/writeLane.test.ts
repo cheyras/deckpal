@@ -141,16 +141,46 @@ test('a failure is only final when nothing newer is waiting — and final failur
   const api = endpoint<number>()
   const first = lane.write({ item: 'qty', intent: 1, send: api.send(1) })
   const second = lane.write({ item: 'qty', intent: 2, send: api.send(2) })
-  api.calls[0]!.answer.reject(new Error('blip'))
+  api.calls[0]!.answer.reject(new ApiLikeError('blip', 503))
   const one = await first
   assert.equal(one.status, 'failed')
   assert.equal(one.status === 'failed' && one.final, false, 'superseded by the user already; nothing to report')
   assert.equal(lane.intent('qty'), 2)
 
-  api.calls[1]!.answer.reject(new Error('down'))
+  api.calls[1]!.answer.reject(new ApiLikeError('down', 503))
   const two = await second
   assert.equal(two.status === 'failed' && two.final, true, 'the user’s last intent failed: report it')
   assert.equal(lane.intent('qty'), undefined, 'the control falls back to the server value')
+})
+
+test('a failure the server never answered holds back the newer write for that item, which reports instead', async () => {
+  // The dropped request may still be applied on the server; sending its
+  // replacement straight away could let the older quantity land last.
+  const lane = new WriteLane()
+  const api = endpoint<number>()
+  const first = lane.write({ item: 'qty', intent: 1, send: api.send(1) })
+  const newer = lane.write({ item: 'qty', intent: 2, send: api.send(2) })
+  const other = lane.write({ item: 'other', send: api.send(9) })
+  api.calls[0]!.answer.reject(new TypeError('Failed to fetch'))
+  assert.deepEqual(await first, { status: 'failed', error: new TypeError('Failed to fetch'), final: false })
+  const held = await newer
+  assert.equal(held.status === 'failed' && held.final, true, 'the latest intent is the one reported, so its Retry sends 2')
+  assert.equal(lane.intent('qty'), undefined, 'rolled back')
+  assert.deepEqual(api.calls.map((c) => c.arg), [1, 9], 'the newer write was never sent; other items carry on')
+  api.calls[1]!.answer.resolve(9)
+  assert.equal((await other).status, 'saved')
+})
+
+test('a failure the server DID answer lets the newer write go', async () => {
+  const lane = new WriteLane()
+  const api = endpoint<number>()
+  lane.write({ item: 'qty', intent: 1, send: api.send(1) })
+  const newer = lane.write({ item: 'qty', intent: 2, send: api.send(2) })
+  api.calls[0]!.answer.reject(new ApiLikeError('boom', 500))
+  await tick()
+  assert.equal(api.calls.length, 2, 'a 500 means the first write is over')
+  api.calls[1]!.answer.resolve(2)
+  assert.equal((await newer).status, 'saved')
 })
 
 test('independent items keep going after a neighbour fails', async () => {
@@ -217,6 +247,8 @@ test('an asynchronous apply finishes before the next write is sent or the intent
   applied.resolve()
   assert.equal((await first).status, 'saved')
   assert.equal(api.calls.length, 2)
+  api.calls[1]!.answer.resolve(2)
+  await tick()
 })
 
 test('cancel() drops the queue, aborts the request in flight and ignores its answer', async () => {

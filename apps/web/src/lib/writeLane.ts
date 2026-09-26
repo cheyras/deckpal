@@ -28,7 +28,9 @@
  *
  * A write's outcome says whether it was the item's FINAL word. Only a final
  * failure is worth telling anyone about: a failed write that a newer one has
- * already superseded was never what the user wanted in the end.
+ * already superseded was never what the user wanted in the end. (The exception
+ * runs the other way: when the server never answered, the newer write is held
+ * back and fails with it — see `settle`.)
  *
  * `cancel()` drops everything outstanding at once — for when the account that
  * asked for these writes is no longer the one signed in (lib/writes.ts).
@@ -196,12 +198,28 @@ export class WriteLane {
     if (cancelled()) return entry.resolve({ status: 'cancelled' })
     this.running = null
     this.controller = null
+    // A failure the server never answered (the connection dropped, the deadline
+    // passed) leaves it UNKNOWN whether this write is still being applied. The
+    // newer write for the same item, sent straight after, could be overtaken by
+    // it and the older quantity would land last. So the newer one is not sent:
+    // it fails too, as the item's final word, and the next attempt waits for a
+    // person to press Retry — after they have been told.
+    const orphan = result.status === 'failed' && !answered(result.error)
+      ? this.queue.find((e) => e.item === entry.item)
+      : undefined
+    if (orphan) this.queue.splice(this.queue.indexOf(orphan), 1)
     const final = this.latest.get(entry.item) === entry
-    if (final) this.latest.delete(entry.item)
+    if (final || orphan) this.latest.delete(entry.item)
     this.emit()
     entry.resolve({ ...result, final })
+    orphan?.resolve({ ...result, final: true })
     this.pump()
   }
+}
+
+/** Did the server answer? An error carrying an HTTP status means it did (lib/api.ts ApiError). */
+function answered(error: unknown): boolean {
+  return error instanceof Error && typeof (error as Error & { status?: unknown }).status === 'number'
 }
 
 /** What an in-flight write is aborted with by `cancel()`. */

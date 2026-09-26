@@ -251,6 +251,11 @@ export function Sheet({
       }
       if (e.key !== 'Tab' || !panelRef.current) return
       const panel = panelRef.current
+      // Only the topmost dialog owns Tab. A sheet under another (the support
+      // prompt opening over a card sheet) would otherwise pull focus back to
+      // itself on every press.
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      if (dialogs[dialogs.length - 1] !== panel) return
       const focusable = (root: HTMLElement | null) =>
         root
           ? Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(

@@ -846,8 +846,11 @@ Undo. A write that does not answer in 75 s — longer than the API function's ow
 60 s limit, so an abandoned request cannot commit after its replacement — is
 aborted so it cannot hold its document's later writes, and every lane is
 cancelled when the signed-in account
-changes. Answers go into the cache through `applyAnswer`, which first cancels
-any older read of the same data still in flight. Nothing is queued offline —
+changes. When the server never answered a write (a dropped connection), the
+newer write queued for the same item is held back rather than sent, since the
+first may still land. Answers go into the cache through `applyAnswer`, which
+cancels any read of the same data still in flight and asks it again afterwards.
+Nothing is queued offline —
 the service worker keeps mutations `NetworkOnly`, and the collection counters
 stay disabled offline.
 
