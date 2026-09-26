@@ -326,4 +326,13 @@ export const oauthRateLimit: RequestHandler = perUserRateLimit('oauth', 30, 60_0
  */
 export const preAuthFloodGuard: RequestHandler = rateLimit(boundedOptions('preauth', 600, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)));
 
+/**
+ * Client-side crash reports (`POST /client-errors`, unauthenticated —
+ * see `routes/clientErrors.ts`): 20 per 60s per source IP. The handler only
+ * `console.error`s a truncated, PII-free payload, so this bounds log volume
+ * from a repeating crash loop rather than guarding against real cost; the
+ * shared `preAuthFloodGuard` above already applies to this route too.
+ */
+export const clientErrorRateLimit: RequestHandler = rateLimit(boundedOptions('client-errors', 20, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)));
+
 export { RateLimitStore as _RateLimitStore };

@@ -61,7 +61,12 @@ export async function serve(dist, mount, respondApi, html = 'index.html', option
       return
     }
     let file = path.resolve(dist, '.' + rel)
-    if (!file.startsWith(dist + path.sep)) return reject('Path outside fixture output', 403)
+    // `file !== dist`: the bare root request (`rel === '/'`) resolves to `dist`
+    // itself, which does not START WITH `dist + sep` (a string is never a
+    // prefix of itself). Rejecting that as "outside" the fixture output was
+    // never the intent — every path actually escaping `dist` (`..` traversal)
+    // still fails the `startsWith` check below and stays rejected.
+    if (file !== dist && !file.startsWith(dist + path.sep)) return reject('Path outside fixture output', 403)
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       if (path.extname(rel)) return reject('Missing asset: ' + rel)
       file = path.join(dist, html)

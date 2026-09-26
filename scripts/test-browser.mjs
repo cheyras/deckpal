@@ -9,6 +9,7 @@ import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { checkChat } from '../tests/browser/chat.mjs'
+import { checkErrorBoundary } from '../tests/browser/errorBoundary.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
@@ -60,6 +61,8 @@ try {
   try {
     results.push(...await checkChat(browser, server, out))
     assert.deepEqual(server.unexpected, [], 'Rendered chat fixture: unexpected network/error events')
+    results.push(...await checkErrorBoundary(browser, server, out))
+    assert.deepEqual(server.unexpected, [], 'Rendered error-boundary fixture: unexpected network/error events')
   } finally { await server.close() }
 } catch (error) {
   failure = error

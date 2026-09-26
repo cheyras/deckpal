@@ -10,6 +10,9 @@
       ],
       "react-dom/*": [
         "../../apps/web/node_modules/@types/react-dom/*"
+      ],
+      "@tanstack/*": [
+        "../../apps/web/node_modules/@tanstack/*"
       ]
     },
     "types": [

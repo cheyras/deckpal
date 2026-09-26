@@ -12,7 +12,20 @@ export async function checkServiceWorkerPrivacy(browser, dist, mount, label) {
   const server=await serve(dist,mount,(rel,url)=>{
     if(rel.startsWith('/api/')) return {body:{actor,path:rel},headers:{'Cache-Control':url.searchParams.has('private')?'private, no-store':'public, max-age=60'}}
     return null
-  },'privacy.html',{csp:"default-src 'self'; connect-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"})
+  },'privacy.html',{
+    csp:"default-src 'self'; connect-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'",
+    // `privacy.html` is not in the precache manifest, so once the worker
+    // controls this page, Workbox's SPA navigate-fallback answers its
+    // `page.reload()` with the REAL app shell instead — same as any other
+    // unknown path would get in production. The real app then boots against
+    // this test's deliberately generic `{actor, path}` stub responses, which
+    // do not match the real shapes app code expects, and (since QUAL-01) a
+    // boundary catches the resulting render error and reports it here. That
+    // is the feature working as intended on data this fixture was never
+    // meant to survive — allow the one POST it makes rather than either
+    // silencing the boundary or expanding this fixture into a full app stub.
+    allowMutation:(pathname)=>pathname.endsWith('/client-errors'),
+  })
   const context=await browser.newContext({serviceWorkers:'allow'})
   try{
     const page=await context.newPage()

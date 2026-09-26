@@ -41,6 +41,7 @@ import { scanEmbedGate, scanEmbedWarning } from './scan/embedGate.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
 import { scanQueueRouter } from './dev/scanQueue.js';
 import { bugsRouter } from './routes/bugs.js';
+import { clientErrorsRouter } from './routes/clientErrors.js';
 import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
 import { oauthRouter } from './routes/oauth.js';
@@ -48,7 +49,7 @@ import { mountOAuthServer } from './oauthServer.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
-import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit } from './rateLimit.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit, clientErrorRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -602,6 +603,10 @@ export function createApp(): express.Express {
   api.use('/insights', insightsRouter);
   api.use('/scan', scanRouter);
   api.use('/bugs', bugsRouter);
+  // Unauthenticated (see clientErrors.ts) — an error boundary can fire on a
+  // signed-out visitor. clientErrorRateLimit (20/min/IP) bounds log volume
+  // from a repeating crash loop; preAuthFloodGuard above already applies too.
+  api.use('/client-errors', clientErrorRateLimit, clientErrorsRouter);
   // Token management is session-only: a personal access token can use the API,
   // but it can never mint another one or revoke the ones that gate it.
   // requireSession and tokensRateLimit (20/min) already ran above —

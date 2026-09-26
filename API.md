@@ -1506,6 +1506,18 @@ skill walks that dir). No DB.
 201 { "id": "2026-07-30T12-34-56_abc123", "saved": "issues/2026-07-30T12-34-56_abc123/" }
 ```
 
+### POST /deckpal/api/client-errors
+The web app's React error boundaries (`apps/web/src/components/ErrorBoundary.tsx`)
+post here automatically when they catch an uncaught render exception — no user
+action, and never a substitute for `/bugs` (which is only ever human-initiated).
+Unauthenticated: a crash on a signed-out page is just as worth knowing about.
+Body (JSON, all fields optional strings):
+`{ "route"?, "message"?, "stack"?, "buildId"? }`, truncated server-side to 300 /
+500 / 4000 / 100 chars respectively. Rate-limited at 20/min per source IP. The
+handler only `console.error`s a single structured line — no DB row, no
+screenshot, no GitHub issue, no user identity — and always answers `204` with
+an empty body, regardless of what it was sent.
+
 ---
 
 ## Data gaps found while building (real, not fabricated)
