@@ -330,9 +330,10 @@ export function readOpenerLog(store: OpenerStore | null): OpenerLog {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
     const source = parsed as Record<string, unknown>
     const out: OpenerLog = {}
-    // Only ids still in the pool, so retiring an opener does not leave a growing
-    // tail of dead keys in someone's browser forever.
-    for (const o of OPENER_POOL) {
+    // Only ids still in a pool, so retiring an opener does not leave a growing
+    // tail of dead keys in someone's browser forever. The page pools count: a
+    // deck page ranks its questions by the same sightings as everything else.
+    for (const o of [...OPENER_POOL, ...DECK_PAGE_OPENERS]) {
       const v = source[o.id]
       if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
         out[o.id] = Math.min(Math.floor(v), 99)
