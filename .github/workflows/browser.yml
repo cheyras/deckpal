@@ -38,7 +38,7 @@ jobs:
           TEST_ARTIFACT_DIR: .cache/browser-tests
       - name: Upload browser evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: browser-boundaries
           path: .cache/browser-tests/
