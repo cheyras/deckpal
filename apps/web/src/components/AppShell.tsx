@@ -9,7 +9,7 @@ import { PwaUi } from './PwaUi'
 import { BugButton } from './BugReport'
 import { api } from '../lib/api'
 import { isCloudMode } from '../lib/supabase'
-import { isChromelessPathname, currentPathAsNext } from '../lib/landingRoute'
+import { isChromelessPathname, useCurrentPathAsNext } from '../lib/landingRoute'
 import { useSignedIn } from '../lib/session'
 import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
@@ -59,8 +59,9 @@ function ProfileChip() {
 function SignInChip() {
   // Whatever catalog page this chip is floating on (a set, a card, the
   // Pokédex) — sign in and land back on it, rather than the generic /series
-  // default (UXC-06).
-  const next = currentPathAsNext()
+  // default (UXC-06). A hook, not a one-off read, so paging/sorting/filtering
+  // the current page updates `next` too (Astra review, PR #212).
+  const next = useCurrentPathAsNext()
   return (
     <div className="flex items-center gap-[8px]">
       <Link
@@ -462,6 +463,10 @@ function MobileDrawer({
   const signedOut = signedIn === false
   const avatar = useAvatar(signedIn === true)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  // Reactive, not a one-off `window.location` read, so paging/sorting the
+  // current page keeps the "Sign up free" CTA's return path current
+  // (UXC-06; Astra review, PR #212).
+  const next = useCurrentPathAsNext()
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -489,7 +494,7 @@ function MobileDrawer({
           {signedOut ? (
             <Link
               to="/auth"
-              search={{ mode: 'signup', next: currentPathAsNext() } as never}
+              search={{ mode: 'signup', next } as never}
               className="flex h-[48px] items-center justify-center rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
             >
               Sign up free

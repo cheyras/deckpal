@@ -1,3 +1,5 @@
+import { useRouterState } from '@tanstack/react-router'
+
 /** Strips the deploy's base path and any trailing slash. `/deckpal/auth` → `/auth`. */
 function stripBase(pathname: string): string {
   const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
@@ -114,14 +116,22 @@ export function isSafeNextPath(value: unknown, origin?: string): value is string
 }
 
 /**
- * The current page as a `next=` value — read from the address bar, not from
- * user input, so it needs no validation before being handed to `/auth`.
- * Shared so every "sign in to unlock this" spot (the rail's locked rows, the
- * card sheet's per-variant prompt, the header's sign-in chip) agrees on the
- * shape: `pathname + search`, no hash. A hash on the CURRENT page is scroll
- * position or a client-only UI flag, never something worth restoring through
- * a full sign-in round trip.
+ * The current page as a `next=` value — read from the router's own location
+ * state, not from user input, so it needs no validation before being handed
+ * to `/auth`. Shared so every "sign in to unlock this" spot (the rail's
+ * locked rows, the card sheet's per-variant prompt, the header's sign-in
+ * chip) agrees on the shape: `pathname + search`, no hash. A hash on the
+ * CURRENT page is scroll position or a client-only UI flag, never something
+ * worth restoring through a full sign-in round trip.
+ *
+ * A HOOK, not a plain `window.location` read, because a `<Link search={{
+ * next }}>` captures whatever this returned at its LAST render — a
+ * search-only navigation (paging, sorting, filtering) that doesn't remount
+ * the component carrying the link would otherwise leave it holding the
+ * search string from before that change, so signing in would return to a
+ * page whose query has since moved on. Subscribing through `useRouterState`
+ * re-renders on exactly the change that matters (Astra review, PR #212).
  */
-export function currentPathAsNext(): string {
-  return `${window.location.pathname}${window.location.search}`
+export function useCurrentPathAsNext(): string {
+  return useRouterState({ select: (s) => `${s.location.pathname}${s.location.searchStr}` })
 }

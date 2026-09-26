@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { currentPathAsNext } from '../lib/landingRoute'
+import { useCurrentPathAsNext } from '../lib/landingRoute'
 
 /**
  * What stands where a collection control would be, for a logged-out visitor.
@@ -32,7 +32,9 @@ export function SignInPrompt({
   const banner = variant === 'banner'
   // UXC-06: sign in (or up) from here and land back on this exact page — the
   // whole point of the prompt is what THIS page would show once signed in.
-  const next = currentPathAsNext()
+  // A hook, not a one-off read, so paging/sorting/filtering the page this
+  // prompt sits on keeps `next` current (Astra review, PR #212).
+  const next = useCurrentPathAsNext()
   return (
     <div
       className={[

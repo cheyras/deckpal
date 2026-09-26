@@ -9,7 +9,7 @@ import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
 import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
-import { currentPathAsNext } from '../lib/landingRoute'
+import { useCurrentPathAsNext } from '../lib/landingRoute'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta, seriesColors } from '../lib/variantStyle'
 
@@ -218,6 +218,11 @@ function VariantRow({
 }) {
   const meta = variantMeta(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
+  // UXC-06: reactive, not a one-off `window.location` read, so switching
+  // tabs/ranges on this same card keeps the "Sign in to track" return path
+  // current rather than snapping back to wherever the row first rendered
+  // (Astra review, PR #212).
+  const next = useCurrentPathAsNext()
   return (
     <div
       className="rounded-lg bg-surface-tertiary p-[16px]"
@@ -285,7 +290,7 @@ function VariantRow({
             // exact card once signed in, rather than the generic default.
             <Link
               to="/auth"
-              search={{ next: currentPathAsNext() } as never}
+              search={{ next } as never}
               className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[14px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
             >
               Sign in to track
