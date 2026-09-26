@@ -241,7 +241,7 @@ export function Sheet({
     [],
   )
 
-  // Escape closes. Tab is trapped inside the panel.
+  // Escape closes. Tab is trapped inside the panel (plus any write toast).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -250,24 +250,43 @@ export function Sheet({
         return
       }
       if (e.key !== 'Tab' || !panelRef.current) return
-      const nodes = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
-      ).filter((el) => el.offsetParent !== null || el === document.activeElement)
+      const panel = panelRef.current
+      const focusable = (root: HTMLElement | null) =>
+        root
+          ? Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+              (el) => el.offsetParent !== null || el === document.activeElement,
+            )
+          : []
+      const nodes = focusable(panel)
+      // The write-feedback toast (components/ui/Toast.tsx) lives outside every
+      // sheet, and a save that fails INSIDE one — a card-sheet stepper, the Add
+      // Cards picker — puts its Retry there. The loop therefore runs panel →
+      // toast → panel; trapped without it, a keyboard could never reach Retry.
+      const toastRoot = document.querySelector<HTMLElement>('[data-toaster]')
+      const toast = focusable(toastRoot)
       if (nodes.length === 0) {
         e.preventDefault()
-        panelRef.current.focus()
+        panel.focus()
         return
       }
       const first = nodes[0]
       const last = nodes[nodes.length - 1]
       const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !panelRef.current.contains(active))) {
+      const inToast = !!active && !!toastRoot?.contains(active)
+      const inPanel = !!active && panel.contains(active)
+      const move = (to: HTMLElement) => {
         e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault()
-        first.focus()
+        to.focus()
       }
+      if (e.shiftKey) {
+        if (inToast && active === toast[0]) move(last)
+        else if (!inToast && (active === first || !inPanel)) move(toast.at(-1) ?? last)
+      } else if (active === last) move(toast[0] ?? first)
+      else if (inToast && active === toast.at(-1)) move(first)
+      // Focus can fall out to <body> — a focused button that becomes disabled
+      // while its save runs drops it — and Tab must come back in, not wander
+      // through the page under the scrim.
+      else if (!inToast && !inPanel) move(first)
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)

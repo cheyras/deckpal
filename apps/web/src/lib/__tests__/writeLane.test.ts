@@ -10,7 +10,8 @@
 //             third tap were silently dropped.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DeadlineError, WriteLane, type WriteOutcome } from '../writeLane.js'
+import { readFileSync } from 'node:fs'
+import { DeadlineError, WRITE_DEADLINE_MS, WriteLane, type WriteOutcome } from '../writeLane.js'
 import { failureMessage, failureReason } from '../writeFailure.js'
 
 function deferred<T>() {
@@ -175,6 +176,14 @@ test('a request that never answers is abandoned at the deadline, aborted, and th
   assert.equal(api.calls.length, 2)
   api.calls[1]!.answer.resolve('b')
   assert.equal((await next).status, 'saved')
+})
+
+test('the deadline outlasts the API function, so an abandoned write cannot commit after its replacement', () => {
+  // Aborting a fetch does not stop the server. Only once the function has
+  // finished or been killed is it safe to send the write queued behind it.
+  const vercel = JSON.parse(readFileSync(new URL('../../../../../vercel.json', import.meta.url), 'utf8'))
+  const apiLimitMs = vercel.functions['api/index.mjs'].maxDuration * 1000
+  assert.ok(WRITE_DEADLINE_MS >= apiLimitMs + 10_000, `deadline ${WRITE_DEADLINE_MS} ms vs API limit ${apiLimitMs} ms`)
 })
 
 test('a bug applying an answer, or a send that throws, cannot wedge the lane', async () => {

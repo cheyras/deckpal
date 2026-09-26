@@ -28,7 +28,7 @@ export function writesFixture(mount, admin) {
   const state = {}
   const reset = () => Object.assign(state, {
     owned: {},                                   // variantId → quantity
-    list: [0, 1, 2].map(i => ({ itemId: 'item-' + i, i })),
+    list: [0, 1].map(i => ({ itemId: 'item-' + i, i })),
     listName: 'Trade binder',
     deck: [{ i: 0, quantity: 1 }, { i: 1, quantity: 2 }],
     fail: false,
@@ -117,6 +117,24 @@ export function writesFixture(mount, admin) {
       if (method === 'GET') return ok(listDetail())
       if (method === 'PATCH') return write(rel, method, () => { state.listName = body.name ?? state.listName; return { list: listDetail().list } })
     }
+    if (rel === '/api/search') {
+      return ok({ pagination: { page: 1, pageSize: 24, total: 3, pageCount: 1 }, cards: NAMES.map((name, i) => ({ cardId: row(i).cardId, number: row(i).number, name,
+        category: 'Pokemon', rarity: 'Common', artist: null, set: { setId: SET, name: 'Fixture Set' }, series: { slug: 'fx', name: 'Fixture Series' }, variantCount: 2,
+        images: { low: IMG, high: IMG }, price: { market: 0.5, currency: 'USD' } })).filter(c => c.name.toLowerCase().includes((url.searchParams.get('q') ?? '').toLowerCase())) })
+    }
+    const card = rel.match(/^\/api\/cards\/fx1-00(\d)$/)
+    if (card) {
+      const i = Number(card[1]) - 1
+      return ok({ card: { cardId: row(i).cardId, name: NAMES[i] }, variants: variantsOf(i).map((v, n) => ({ ...v, provenance: null, isPrimary: n === 0, source: 'fixture',
+        quantity: qty(v.variantId), buyUrl: null, prices: [] })) })
+    }
+    if (rel === `/api/lists/${LIST}/items` && method === 'POST') {
+      return write(rel, method, () => {
+        const i = Math.floor((body.cardVariantId - 100) / 2)
+        state.list.push({ itemId: 'added-' + i, i })
+        return { itemId: 'added-' + i, alreadyPresent: false, list: listDetail().list }
+      }, body)
+    }
     const item = rel.match(/^\/api\/lists\/writes-list\/items\/(item-\d)$/)
     if (item && method === 'DELETE') {
       return write(rel, method, () => { state.list = state.list.filter(x => x.itemId !== item[1]); return { deleted: item[1], list: listDetail().list } })
@@ -137,6 +155,7 @@ export function writesFixture(mount, admin) {
     const rel = pathname.slice(mount.length)
     return (method === 'PATCH' && (/^\/api\/collection\/variants\/\d+$/.test(rel) || rel === '/api/lists/' + LIST || /^\/api\/decks\/writes-deck\/cards\/fx1-00\d$/.test(rel)))
       || (method === 'DELETE' && /^\/api\/lists\/writes-list\/items\/item-\d$/.test(rel))
+      || (method === 'POST' && rel === `/api/lists/${LIST}/items`)
   }
   return { state, reset, response, allowMutation }
 }
@@ -219,9 +238,9 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       state.fail = true; state.latency = () => 300
       // The remove control is hover-revealed on the tile; its handler is what is under test.
       await page.getByRole('button', { name: 'Remove Fixturemon', exact: true }).dispatchEvent('click')
-      assert.equal(await removeButtons.count(), 2, 'removed at once')
+      assert.equal(await removeButtons.count(), 1, 'removed at once')
       await said("Couldn't remove Fixturemon from “Trade binder”.").waitFor()
-      assert.equal(await removeButtons.count(), 3, 'back after the failure')
+      assert.equal(await removeButtons.count(), 2, 'back after the failure')
       await shot('list-remove-failed')
       await page.getByRole('button', { name: 'Dismiss', exact: true }).click()
 
@@ -238,7 +257,29 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await dialog.waitFor({ state: 'hidden' })
       await page.getByRole('heading', { name: 'Show binder', exact: true }).waitFor()
       assert.equal(state.listName, 'Show binder')
-      results.push({ case: 'writes-list', label, width, removeRollback: true, editInline: true })
+
+      // A save that fails INSIDE a sheet puts its Retry in the toast, outside the
+      // sheet: the sheet's Tab loop has to reach it, and Enter has to work.
+      await page.getByRole('button', { name: 'Add Cards', exact: true }).first().click()
+      const picker = page.getByRole('dialog', { name: 'Add Cards', exact: true })
+      const search = picker.getByPlaceholder('Search cards by name or number…')
+      await search.fill('Mock')
+      state.fail = true
+      await picker.getByRole('button', { name: /Mockipom/ }).click()
+      await said("Couldn't add Mockipom to “Show binder”.").waitFor()
+      await shot('list-add-failed')
+      await search.focus()
+      let reached = false
+      for (let i = 0; i < 8 && !reached; i++) {
+        await page.keyboard.press('Tab')
+        reached = await page.evaluate(() => document.activeElement?.textContent === 'Retry')
+      }
+      assert.ok(reached, 'Tab from inside the sheet reaches the toast’s Retry')
+      state.fail = false
+      await page.keyboard.press('Enter')
+      await picker.getByText('Added', { exact: true }).waitFor()
+      assert.ok(state.list.some(x => x.itemId === 'added-2'), 'the retried add reached the server')
+      results.push({ case: 'writes-list', label, width, removeRollback: true, editInline: true, retryReachableFromSheet: true })
 
       // ── Deck quantity ──────────────────────────────────────────────────────
       await go('/decks/' + DECK)

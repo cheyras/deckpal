@@ -82,6 +82,8 @@ export function Toaster() {
       </div>
       {toast && (
         <div
+          // Sheet.tsx looks for this to keep Retry inside its Tab loop.
+          data-toaster
           className="flex w-full justify-end"
           onPointerEnter={() => setHeld(true)}
           onPointerLeave={() => setHeld(false)}

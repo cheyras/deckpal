@@ -130,14 +130,16 @@ export function save<R>(laneKey: string, request: Save<R>): Promise<WriteOutcome
  * A read already in flight was asked before this write was answered. Left
  * alone it finishes LAST and puts the old value back — and the next tap, which
  * builds its absolute target on what is shown, then saves the wrong number. So
- * reads of cached data are cancelled (back to the cached copy) before the
- * answer is applied, and a first load with nothing cached yet is restarted
- * rather than trusted.
+ * every such read is cancelled before the answer is applied: one with cached
+ * data falls back to that copy, which the answer then updates; a first load has
+ * nothing to update, so it is started again rather than trusted. (Merely
+ * invalidating it is not enough: TanStack reuses an in-flight first load.)
  */
 export async function applyAnswer(qc: QueryClient, keys: QueryKey[], apply: () => void): Promise<void> {
-  await Promise.all(keys.map((queryKey) => qc.cancelQueries({ queryKey, predicate: (q) => q.state.data !== undefined })))
+  const firstLoads = keys.flatMap((queryKey) =>
+    qc.getQueryCache().findAll({ queryKey, predicate: (q) => q.state.data === undefined && q.state.fetchStatus === 'fetching' }),
+  )
+  await Promise.all(keys.map((queryKey) => qc.cancelQueries({ queryKey })))
   apply()
-  for (const queryKey of keys) {
-    void qc.invalidateQueries({ queryKey, predicate: (q) => q.state.data === undefined && q.state.fetchStatus === 'fetching' })
-  }
+  for (const query of firstLoads) void qc.refetchQueries({ queryKey: query.queryKey, exact: true, type: 'active' })
 }

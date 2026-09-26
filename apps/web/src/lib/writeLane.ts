@@ -37,9 +37,19 @@
  * (lib/__tests__/writeLane.test.ts). `lib/writes.ts` is the React side.
  */
 
-/** How long one request may hold the lane before it is abandoned as failed. A
- *  stalled connection must not freeze every later write to the same document. */
-export const WRITE_DEADLINE_MS = 20_000
+/**
+ * How long one request may hold the lane before it is abandoned as failed, so a
+ * stalled connection cannot freeze every later write to the same document.
+ *
+ * LONGER than the API function's own limit (vercel.json: `api/index.mjs`
+ * `maxDuration` 60 s), and on purpose. Aborting a fetch does not stop the
+ * server: a request given up on while the server is still working could commit
+ * AFTER the write that replaced it, and an older absolute quantity would
+ * overwrite the newer one. Past this deadline the server has finished or been
+ * stopped, so the next write cannot be overtaken. writeLane.test.ts checks
+ * the margin against vercel.json.
+ */
+export const WRITE_DEADLINE_MS = 75_000
 
 export type WriteOutcome<R> =
   | { status: 'saved'; value: R; final: boolean }

@@ -20543,8 +20543,15 @@ reordered latency and offline (`tests/browser/writes.mjs`).
   queues a write, and the collection counters stay disabled offline. Other
   writes are attempted and fail with "You're offline." — they are no longer
   held by TanStack's paused-mutation queue and replayed later.
-- A write that has not answered in 20 s is aborted and reported, so one stalled
-  request cannot freeze the writes queued behind it on the same document.
+- A write that has not answered in 75 s is aborted and reported, so one stalled
+  request cannot freeze the writes queued behind it on the same document. The
+  deadline is deliberately longer than the API function's 60 s `maxDuration`:
+  aborting a fetch does not stop the server, and a write given up on sooner
+  could still commit after the one that replaced it. A unit test holds the
+  margin against `vercel.json`.
+- The write-feedback toast sits outside every sheet, so `Sheet`'s Tab loop now
+  runs through it: a keyboard can reach Retry for a save that failed inside a
+  sheet.
 - Writes belong to the account that asked for them. On IDENTITY_CHANGED every
   lane is cancelled (queue dropped, in-flight request aborted, its answer
   ignored) and any Retry/Undo toast is dismissed; each write also re-checks the
