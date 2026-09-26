@@ -80,12 +80,34 @@ describe('createFixture lists routes', () => {
     const response = get(respondApi, '/api/lists/does-not-exist')
     assert.equal(response.status, 404)
   })
-  it('adding then removing an item keeps itemCount in sync', () => {
+  it('adding then removing an item keeps itemCount in sync AND the item actually renders', () => {
+    // Astra's finding: itemCount alone is not enough -- ListDetail.tsx refetches GET
+    // /api/lists/:id after every mutation and renders from `items`, so a fixture that
+    // only bumps the counter makes a successful add look identical to a silently
+    // broken one (the grid stays empty either way).
     const { respondApi } = createFixture()
-    const add = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardId: 'sim1-1' } })
+    const add = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 9001 } })
     assert.equal(add.body.list.itemCount, 1)
+    const afterAdd = get(respondApi, '/api/lists/list-1')
+    assert.equal(afterAdd.body.items.length, 1)
+    assert.equal(afterAdd.body.items[0].itemId, add.body.itemId)
+    assert.equal(afterAdd.body.items[0].cardId, 'sim1-1')
+    assert.equal(afterAdd.body.items[0].name, 'Simuchu')
     const remove = get(respondApi, '/api/lists/list-1/items/' + add.body.itemId, { method: 'DELETE' })
     assert.equal(remove.body.list.itemCount, 0)
+    const afterRemove = get(respondApi, '/api/lists/list-1')
+    assert.equal(afterRemove.body.items.length, 0)
+  })
+  it('rejects a cardVariantId that does not resolve to a fixture card', () => {
+    const { respondApi } = createFixture()
+    const response = get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 424242 } })
+    assert.equal(response.status, 400)
+  })
+  it('a new list starts with an empty item store, not undefined', () => {
+    const { respondApi } = createFixture()
+    const created = get(respondApi, '/api/lists', { method: 'POST', body: { name: 'New List' } })
+    const detail = get(respondApi, '/api/lists/' + created.body.list.id)
+    assert.deepEqual(detail.body.items, [])
   })
 })
 

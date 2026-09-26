@@ -10,10 +10,14 @@
 // stays up instead of tearing down after one test.
 //
 // Usage:
-//   node tools/ios-sim/server.mjs                 # build (if needed) + serve, foreground
-//   node tools/ios-sim/server.mjs --port 5410      # serve on a different port
-//   pnpm sim:serve                                 # same, from the repo root
-//   nohup node tools/ios-sim/server.mjs > /tmp/deckpal-sim.log 2>&1 &   # background
+//   pnpm sim:serve                                              # build (if needed) + serve, foreground
+//   pnpm sim:serve -- --port 5410                                # serve on a different port
+//   node --import tsx tools/ios-sim/server.mjs                   # same, without pnpm
+//   nohup node --import tsx tools/ios-sim/server.mjs > /tmp/deckpal-sim.log 2>&1 &   # background
+//
+// `--import tsx` is required on plain `node` (this repo's minimum is Node 20):
+// admin.mjs -> upcoming.mjs imports a .ts file directly, which only Node's own
+// native type stripping (unflagged since Node ~23) or a loader can resolve.
 //
 // Then, from the simulator's Safari: visit http://localhost:<port>/__seed once
 // to sign in, and use the app from there. See tools/ios-sim/README.md for the
@@ -75,6 +79,11 @@ export function createFixture() {
     fakeCatalogCard('sim1-4', 'Mockipom', '004'),
     fakeCatalogCard('sim1-5', 'Stubbicoon', '005'),
   ]
+  // One synthetic "primary variant" id per catalog card, shared by the card-detail route
+  // (which advertises it) and the add-to-list route (which resolves it back to a card) --
+  // one formula, so the two routes cannot silently disagree about what a variant id means.
+  const variantIdForCard = (card) => 9000 + Number(card.number)
+  const cardForVariantId = (variantId) => CATALOG.find((c) => variantIdForCard(c) === variantId)
 
   // ── 4. Fake "My Lists" data ────────────────────────────────────────────────
   let lists = [{
@@ -85,6 +94,12 @@ export function createFixture() {
   }]
   let nextListId = 2
   let nextItemId = 1
+  // listId -> ListItem[] (see apps/web/src/lib/api.ts's ListItem/ListDetailResponse). Kept
+  // separate from `lists` because the real API does too: itemCount lives on the summary,
+  // the rows live in the detail response. ListDetail.tsx refetches this after every mutation,
+  // so a count-only fixture (itemCount alone) makes an add LOOK like it worked while the grid
+  // stays empty -- caught by Astra's review; see DECISIONS.md.
+  const listItems = { 'list-1': [] }
 
   // ── 5. Fake owned Pokédex species (feeds the Profile "Pick a Showcase Card" sheet) ──
   const SPECIES = [
@@ -145,13 +160,14 @@ Signing you in…
         rule: body.rule ?? null, ruleEvaluatedAt: body.rule ? NOW : null, createdAt: NOW, updatedAt: NOW,
       }
       lists.push(list)
+      listItems[list.id] = []
       return ok({ list })
     }
     if (/^\/api\/lists\/[^/]+$/.test(rel) && method === 'GET') {
       const id = rel.split('/').at(-1)
       const list = lists.find((l) => l.id === id)
       if (!list) return { status: 404, body: { error: { message: 'No such list' } } }
-      return ok({ list, items: [] })
+      return ok({ list, items: listItems[id] ?? [] })
     }
     if (/^\/api\/lists\/[^/]+$/.test(rel) && method === 'PATCH') {
       const id = rel.split('/').at(-1)
@@ -171,14 +187,36 @@ Signing you in…
     if (/^\/api\/lists\/[^/]+\/items$/.test(rel) && method === 'POST') {
       const id = rel.split('/')[3]
       const list = lists.find((l) => l.id === id)
-      if (list) { list.itemCount++; list.updatedAt = NOW }
-      return ok({ itemId: 'item-' + nextItemId++, alreadyPresent: false, list: list ?? lists[0] })
+      if (!list) return { status: 404, body: { error: { message: 'No such list' } } }
+      const card = cardForVariantId(body.cardVariantId)
+      if (!card) return { status: 400, body: { error: { message: 'Unknown fixture cardVariantId: ' + body.cardVariantId } } }
+      const items = listItems[id] ?? (listItems[id] = [])
+      const itemId = 'item-' + nextItemId++
+      // A real ListItem (extends CardRow -- see apps/web/src/lib/api.ts), so GridView/
+      // TableView/BinderView render it exactly as they would a real list's rows.
+      items.push({
+        itemId, position: items.length, itemKind: 'card', variantId: body.cardVariantId,
+        variant: { kind: 'normal', displayName: 'Normal', tier: 'standard', isPrimary: true },
+        cardId: card.cardId, number: card.number, numberSort: card.number, name: card.name,
+        category: card.category, rarity: card.rarity, artist: card.artist, variantCount: card.variantCount,
+        images: card.images, price: card.price, setName: card.set.name, seriesSlug: card.series.slug, setId: card.set.setId,
+        staticQuantity: list.kind === 'static' ? (body.staticQuantity ?? 1) : null, ownedQuantity: 0,
+      })
+      list.itemCount++
+      list.updatedAt = NOW
+      return ok({ itemId, alreadyPresent: false, list })
     }
     if (/^\/api\/lists\/[^/]+\/items\/[^/]+$/.test(rel) && method === 'DELETE') {
       const id = rel.split('/')[3]
+      const itemId = rel.split('/').at(-1)
       const list = lists.find((l) => l.id === id)
-      if (list && list.itemCount > 0) { list.itemCount--; list.updatedAt = NOW }
-      return ok({ deleted: rel.split('/').at(-1), list: list ?? null })
+      const items = listItems[id]
+      const index = items ? items.findIndex((item) => item.itemId === itemId) : -1
+      if (index !== -1) {
+        items.splice(index, 1)
+        if (list) { list.itemCount = Math.max(0, list.itemCount - 1); list.updatedAt = NOW }
+      }
+      return ok({ deleted: itemId, list: list ?? null })
     }
 
     // ── Card search (Add Cards modal) ──
@@ -194,7 +232,7 @@ Signing you in…
     if (/^\/api\/cards\/sim1-\d+$/.test(rel) && method === 'GET') {
       const card = CATALOG.find((c) => c.cardId === rel.split('/').at(-1))
       if (!card) return { status: 404, body: { error: { message: 'No such fixture card' } } }
-      const variantId = 9000 + Number(card.number)
+      const variantId = variantIdForCard(card)
       return ok({
         card: {
           cardId: card.cardId, number: card.number, printedTotal: CATALOG.length, name: card.name,
