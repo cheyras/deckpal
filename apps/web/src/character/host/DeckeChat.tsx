@@ -43,7 +43,7 @@ import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
-import { ThinkingRow } from './chat/ThinkingRow'
+import { ThinkingRow, WaitingRow } from './chat/ThinkingRow'
 import { ToolRow } from './chat/ToolRow'
 import { panelBox, readPanelViewport } from './panelViewport'
 import { composerFocused, consumesScroll } from './panelScrollLock'
@@ -51,7 +51,8 @@ import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
-import { deepRequestLine } from './chat/deepRequest'
+import type { NoticeAction } from './chat/httpNotice'
+import { deepCost, deepRequestLine, type DeepPrices } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import {
@@ -60,13 +61,14 @@ import {
   outOfCreditsDetail,
   outOfCreditsLine,
   TOP_UP_LABEL,
+  WALLET_LABEL,
   type CreditBalance,
 } from './chat/creditState'
 import { ApprovalCard } from './chat/ApprovalCard'
 import type { ApprovalPreview, Choices, RowChoice } from './chat/approvalCardState'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
 import {
-  chooseOpeners,
+  openersFor,
   noteShown,
   openerStore,
   readLastSaid,
@@ -117,6 +119,14 @@ export const STAND_DESKTOP = { x: 0.36, y: 0.58 }
  * He stands beside it, so it is what decides how big he is. Expressed as a DOM
  * box for the same reason the park box is: one geometry serving both jobs beats
  * two numbers that have to agree by hand and eventually will not.
+ *
+ * Carried by whatever card holds the composer's slot as a floor: the composer,
+ * or the out-of-credits card that replaces it (see `spentRef`). Out of credits
+ * that makes the card his ruler too, and that is the right answer rather than a
+ * side effect: `composerRuler.ts` keeps the SHORTEST card it has seen, so a
+ * reader who ran out mid-conversation keeps the size the composer gave him, and
+ * a reader who opened the panel already spent gets the viewport ceiling, which
+ * on a phone is exactly the conversation size.
  */
 export const COMPOSER_LANDMARK = 'data-decke-composer'
 
@@ -314,6 +324,7 @@ export function DeckeComposer({
   onDraftChange,
   onSubmit,
   busy,
+  waiting = false,
   onStop,
   dropPx = 0,
   onDropEnd,
@@ -326,6 +337,12 @@ export function DeckeComposer({
   onDraftChange: (next: string) => void
   onSubmit: (e: React.FormEvent) => void
   busy: boolean
+  /**
+   * The turn is held on an approval card. Still busy — nothing new can be sent —
+   * but there is nothing of HIS to stop: the card's "Leave it" is the way out,
+   * and a Stop beside it would be a second, vaguer answer to the same question.
+   */
+  waiting?: boolean
   onStop: () => void
   /** The FLIP distance when the composer drops out of the middle. 0 = no flourish. */
   dropPx?: number
@@ -644,7 +661,7 @@ export function DeckeComposer({
 
     */}
 
-    {busy ? (
+    {busy && !waiting ? (
 
       <button
 
@@ -668,7 +685,7 @@ export function DeckeComposer({
 
         type="submit"
 
-        disabled={!draft.trim()}
+        disabled={busy || !draft.trim()}
 
         aria-label="Send"
 
@@ -709,8 +726,11 @@ export type SaidThisOpening = {
   openers: readonly Opener[]
 }
 
-export function chooseWhatToSay(opts: { seed?: number; now?: Date } = {}): SaidThisOpening {
+export function chooseWhatToSay(opts: { seed?: number; now?: Date; path?: string } = {}): SaidThisOpening {
   const { seed, now } = opts
+  // The page he was opened on, so a deck page leads with that deck — see
+  // `openersFor`. Read once per opening, with everything else he says.
+  const path = opts.path ?? (typeof window === 'undefined' ? '/' : window.location.pathname)
   const store = openerStore()
   const last = readLastSaid(store)
   const g = composeGreeting({
@@ -722,7 +742,7 @@ export function chooseWhatToSay(opts: { seed?: number; now?: Date } = {}): SaidT
     greetingId: g.greetingId,
     subheadId: g.subheadId,
     subhead: g.subhead,
-    openers: chooseOpeners(undefined, readOpenerLog(store), {
+    openers: openersFor(path, readOpenerLog(store), {
       seed,
       avoid: last.openerIds ?? [],
     }),
@@ -782,9 +802,9 @@ const PARK_LEFT = 10
 /**
  * The floor the park box falls back to when the composer has not been measured.
  *
- * Only reachable for the frame or two before layout settles, and while he is out
- * of credits (the composer is replaced by a notice and there is nothing to stand
- * above). It is the OLD resting height, deliberately: if the measurement is
+ * Only reachable for the frame or two before layout settles, and while a record
+ * is open (its exit bar is not a floor). It is the OLD resting height,
+ * deliberately: if the measurement is
  * missing the honest thing is to put him where he used to be rather than to
  * guess a new number and have him jump when the real one arrives.
  */
@@ -927,12 +947,32 @@ export type ChatPart =
    * not include it — a notice is not something he SAID, and the announcement,
    * the bubble and the transcript's live region all read that.
    */
-  | { kind: 'notice'; id: string; tone: NoticeTone; title: string; detail?: string }
+  | { kind: 'notice'; id: string; tone: NoticeTone; title: string; detail?: string; action?: NoticeAction }
 
 export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   parts: ChatPart[]
+}
+
+/**
+ * A notice's intent, as the label and handler its one button gets — or null when
+ * this panel was not given a handler for it, in which case there is no button.
+ *
+ * Retry is the hook's `retry`, reached through `onRetryTool`: it re-asks the
+ * reader's last question through the one path that has approval and metering
+ * attached, which is the only honest meaning "try again" can have here. The
+ * wallet and a top-up are the same page; the label is what differs, because a
+ * held wallet cannot buy anything and being told to is the defect.
+ */
+function noticeAction(
+  action: NoticeAction | undefined,
+  h: { onRetry?: () => void; onTopUp?: () => void },
+): { label: string; run: () => void } | null {
+  if (action === 'retry' && h.onRetry) return { label: 'Try again', run: h.onRetry }
+  if (action === 'top-up' && h.onTopUp) return { label: TOP_UP_LABEL, run: h.onTopUp }
+  if (action === 'wallet' && h.onTopUp) return { label: WALLET_LABEL, run: h.onTopUp }
+  return null
 }
 
 /** Everything he said this turn, in order, with the rows taken out. */
@@ -996,6 +1036,7 @@ export function DeckeChat({
   desktop,
   characterPx,
   credits,
+  prices,
   conversationId,
   onNewChat,
   onTopUp,
@@ -1075,6 +1116,12 @@ export function DeckeChat({
    * `creditState.ts` owns what counts as low and what he says when it is gone.
    */
   credits?: CreditBalance | null
+  /**
+   * What a deep call costs, from the wallet — or null when nothing is charged
+   * (credits off, an unlimited account) or the wallet has not answered. The
+   * approval card prints a price only from this; see `deepCost`.
+   */
+  prices?: DeepPrices | null
   /** The conversation being recorded right now, so the list can mark it. */
   conversationId?: string | null
   /** Start a fresh conversation: clears the transcript and rotates the id. */
@@ -1105,6 +1152,20 @@ export function DeckeChat({
    * ever asking about the wrong element. See `standOn`.
    */
   const askRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * The out-of-credits card, which takes the composer's slot — and therefore its
+   * job as the floor he stands on.
+   *
+   * *He covers the Top up button.* Measured on the real app at 390 and 1440, in
+   * Chromium and WebKit: the one control that gets a reader out of this state
+   * sat under him every time. The card replaced the composer and took neither
+   * of its two registrations with it — not `composerRef`, so the park box had no
+   * floor and fell back to the old corner at the hero size, and not
+   * `COMPOSER_LANDMARK`, so on desktop `DeckeHost` found nothing to stand beside
+   * and parked him on a viewport fraction that lands on the card. The card now
+   * carries both, which is what "same slot, same ruling" was always claiming.
+   */
+  const spentRef = useRef<HTMLDivElement | null>(null)
   /**
    * The panel itself, and it exists for ONE reason: it is the park box's
    * containing block, so it is the only honest reference for a `bottom` offset
@@ -1360,7 +1421,11 @@ export function DeckeChat({
    */
   const [panelH, setPanelH] = useState(0)
   useLayoutEffect(() => {
-    const el = composerRef.current
+    // THE CARD IN THE COMPOSER'S SLOT, whichever card that is. `composerTop`
+    // keeps its name because the composer is the ordinary case; out of credits
+    // it measures the notice that replaced it. See `spentRef`.
+    const floorOf = () => composerRef.current ?? spentRef.current
+    const el = floorOf()
     const ask = askRef.current
     if (!el && !ask) {
       setComposerTop(0)
@@ -1387,7 +1452,7 @@ export function DeckeChat({
       const panel = panelRef.current
       if (!panel) return
       setPanelH((prev) => settle(prev, Math.round(panel.getBoundingClientRect().height)))
-      setComposerTop((prev) => settle(prev, above(composerRef.current, panel)))
+      setComposerTop((prev) => settle(prev, above(floorOf(), panel)))
       setAskTop((prev) => settle(prev, above(askRef.current, panel)))
     }
     measure()
@@ -1446,6 +1511,16 @@ export function DeckeChat({
     if (busy && !wasBusyRef.current) setTurnStartedAt(Date.now())
     wasBusyRef.current = busy
   }, [busy])
+  // THE READER'S OWN PAUSE IS NOT HIS WORK. While a card is up the row says so
+  // and shows no clock (`WaitingRow`); when it is answered and he picks the turn
+  // back up, the counter starts from that answer rather than charging him for
+  // however long the reader spent deciding.
+  const wasAskingRef = useRef(false)
+  useEffect(() => {
+    const now = Boolean(asking?.length)
+    if (wasAskingRef.current && !now && busy) setTurnStartedAt(Date.now())
+    wasAskingRef.current = now
+  }, [asking, busy])
 
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant') ?? null
   const lastAssistantId = lastAssistant?.id ?? null
@@ -2731,7 +2806,7 @@ export function DeckeChat({
                             that goes back to drawing a tick on a refusal is the
                             one regression here nobody would notice in review.
                           */}
-                          <ToolRow data={toolRowFromChip(part.chip)} onRetry={onRetryTool} />
+                          <ToolRow data={toolRowFromChip(part.chip)} onRetry={onRetryTool} onTopUp={onTopUp} />
                         </ul>
                       )
                     }
@@ -2742,11 +2817,17 @@ export function DeckeChat({
                       // as much as I can for you today", indistinguishable from
                       // him telling you something. It is not something he said;
                       // it is something that happened TO the turn.
+                      //
+                      // AND IT CARRIES ITS WAY FORWARD. A notice that says
+                      // "try again" or "top up" and offers neither is a dead end
+                      // written in a helpful tone (UXD-08). The part names the
+                      // intent; the handlers are this panel's, and a notice whose
+                      // handler is not wired offers nothing rather than a button
+                      // that does nothing.
+                      const act = noticeAction(part.action, { onRetry: onRetryTool && (() => onRetryTool(part.id)), onTopUp })
                       return (
                         <div key={part.id} className="decke-figure decke-shift">
-                          <DeckeNotice tone={part.tone} title={part.title}>
-                            {part.detail}
-                          </DeckeNotice>
+                          <DeckeNotice tone={part.tone} title={part.title} detail={part.detail} action={act?.label} onAction={act?.run} />
                         </div>
                       )
                     }
@@ -2802,7 +2883,14 @@ export function DeckeChat({
                       // it is mounted exactly while he is working.
                       data-decke-thinking
                     >
-                      <ThinkingRow startedAt={turnStartedAt} labels={liveLabels(m)} />
+                      {/* The turn is still in flight while a card is up, so the
+                          hook above stays mounted; only what it CLAIMS changes.
+                          See `WaitingRow`. */}
+                      {asking?.length ? (
+                        <WaitingRow />
+                      ) : (
+                        <ThinkingRow startedAt={turnStartedAt} labels={liveLabels(m)} />
+                      )}
                     </div>
                   ) : null}
                 </li>
@@ -2901,6 +2989,8 @@ export function DeckeChat({
             onAccept={onApprove}
             onDeny={onDeny}
             busy={approvalBusy}
+            cost={deepCost(asking[0].name, prices, credits?.remaining)}
+            onTopUp={onTopUp}
           />
           </div>
         ) : null}
@@ -2961,13 +3051,18 @@ export function DeckeChat({
             character standing four inches to the left of it.
           */
           <div className="px-[16px]" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
-            <DeckeNotice
-              tone="limit"
-              title={outOfCreditsLine()}
-              detail={outOfCreditsDetail()}
-              action={onTopUp ? TOP_UP_LABEL : undefined}
-              onAction={onTopUp}
-            />
+            {/* The floor he stands on and the card he stands beside, exactly
+                as the composer is — see `spentRef`. The wrapper has no padding
+                of its own, so its box IS the card's box. */}
+            <div ref={spentRef} {...{ [COMPOSER_LANDMARK]: '' }}>
+              <DeckeNotice
+                tone="limit"
+                title={outOfCreditsLine()}
+                detail={outOfCreditsDetail()}
+                action={onTopUp ? TOP_UP_LABEL : undefined}
+                onAction={onTopUp}
+              />
+            </div>
           </div>
         ) : (
           <DeckeComposer
@@ -2975,6 +3070,7 @@ export function DeckeChat({
             onDraftChange={setDraft}
             onSubmit={submit}
             busy={busy}
+            waiting={Boolean(asking?.length)}
             onStop={onStop}
             dropPx={dropPx}
             onDropEnd={() => setDropPx(0)}
@@ -3088,10 +3184,9 @@ export function DeckeChat({
               left: `${PARK_LEFT}px`,
               bottom: standOn
                 ? `${standOn + PARK_ABOVE}px`
-                : // Not yet measured — one or two frames on open, and the whole
-                  // time he is out of credits and the composer has been replaced
-                  // by a notice. The old resting height, for the reason
-                  // `PARK_BOTTOM` gives.
+                : // Not yet measured — one or two frames on open, and while a
+                  // record is being read. The old resting height, for the
+                  // reason `PARK_BOTTOM` gives.
                   `calc(${PARK_BOTTOM}px + env(safe-area-inset-bottom))`,
               width: `${parkW}px`,
               height: `${parkH}px`,

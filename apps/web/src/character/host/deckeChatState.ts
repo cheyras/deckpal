@@ -217,6 +217,75 @@ export function chooseOpeners(
   return out
 }
 
+/**
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ON A DECK, THE FIRST TWO CHIPS ARE ABOUT THAT DECK.
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * UXD-15: three openings on the Dragapult deck offered "Walk me to my newest
+ * set", "What's in my cart", "Take me somewhere I can scan a card". The rotation
+ * above is right for teaching range, and it was never told where the reader
+ * was. Someone who opens him ON a deck has almost certainly come to ask about
+ * it, and "which one?" is already answered: the server tells him the route.
+ *
+ * So the page leads with two of these — least-seen first, never the same pair
+ * twice running, by the same log and the same rule — and the rotation fills the
+ * last slot from every OTHER kind, so the curriculum keeps moving and "Take me to
+ * my decks" is never offered to somebody standing on one.
+ *
+ * Each is something he can do from the route alone: `decks` with `validate`
+ * says why a list is illegal, with `pricing` what is missing and what it costs,
+ * and a suggested change goes through `save_deck`, which asks first.
+ */
+export const DECK_PAGE_OPENERS: readonly Opener[] = [
+  { id: 'deck-legal', kind: 'decks', text: 'Is this deck legal? If not, why not?' },
+  { id: 'deck-missing', kind: 'decks', text: 'What am I missing for this deck, and what will it cost?' },
+  { id: 'deck-improve', kind: 'decks', text: 'Suggest one improvement to this deck' },
+]
+
+/** How many chips a page's own openers take, leaving the rest to the rotation. */
+export const PAGE_OPENER_COUNT = 2
+
+/** `/decks/<id>`, under any base path; not the decks index. */
+const DECK_PAGE = /\/decks\/[^/]+\/?$/
+
+/** The openers that belong to the page at `pathname`, or none. */
+export function pageOpeners(pathname: string): readonly Opener[] {
+  return DECK_PAGE.test(pathname) ? DECK_PAGE_OPENERS : []
+}
+
+/**
+ * The empty state's chips for the page the reader is on.
+ *
+ * With no page openers this IS `chooseOpeners`, unchanged. With them, the page
+ * leads and the rotation fills the rest from the other kinds.
+ */
+export function openersFor(
+  pathname: string,
+  log: OpenerLog = {},
+  opts: { seed?: number; avoid?: readonly string[]; count?: number } = {},
+): Opener[] {
+  const page = pageOpeners(pathname)
+  if (page.length === 0) return chooseOpeners(OPENER_POOL, log, opts)
+  const want = opts.count ?? OPENER_COUNT
+  const avoid = opts.avoid ?? []
+  const random = rng(opts.seed ?? seedFrom(String(Date.now())))
+  const ranked = page
+    .map((o) => ({ o, score: (log[o.id] ?? 0) + random() * 0.999 }))
+    .sort((a, b) => a.score - b.score)
+    .map((r) => r.o)
+  // Fresh ones first; an avoided one only if the page has nothing else to say.
+  const lead = [...ranked.filter((o) => !avoid.includes(o.id)), ...ranked.filter((o) => avoid.includes(o.id))]
+    .slice(0, Math.min(PAGE_OPENER_COUNT, want))
+  const kinds = new Set(page.map((o) => o.kind))
+  const rest = chooseOpeners(
+    OPENER_POOL.filter((o) => !kinds.has(o.kind)),
+    log,
+    { ...opts, count: want - lead.length },
+  )
+  return [...lead, ...rest]
+}
+
 /** The log after showing these — one more sighting each. */
 export function noteShown(log: OpenerLog, shown: readonly Opener[]): OpenerLog {
   const next: OpenerLog = { ...log }

@@ -920,7 +920,7 @@ function buildApprovalPreview(
     toolCallId,
     tool: def.name,
     title: def.title,
-    summary: summarise(result),
+    summary: result.isError ? summarise(result) : previewSummary(result.text),
     ok: !result.isError,
   };
   if (def.name !== 'log_cards' || result.isError) {
@@ -964,6 +964,50 @@ const SUMMARY_CAP = 120;
 export function summariseText(text: string): string {
   const first = text.split('\n', 1)[0] ?? '';
   return first.length > SUMMARY_CAP ? `${first.slice(0, SUMMARY_CAP - 3)}…` : first;
+}
+
+/** How many lines of a dry run the approval card carries before it counts the rest. */
+const PREVIEW_LINES = 12;
+
+/**
+ * What a dry run says it WOULD do, for the approval card — every line of it.
+ *
+ * The card used to get `summarise`, the chip's summary: the first line, capped.
+ * For a chip that is right. For a dry run it is the one line with no facts on
+ * it. `save_deck`, `edit_list` and the create paths all open with
+ * `DRY RUN — nothing executed. Would:` and put the operations underneath, so the
+ * reader was asked to approve a full 60-card reconcile on a card reading
+ * *"DRY RUN — nothing executed. Would:"* and nothing else (UXD-04, measured on
+ * the deck page at 390 and 1440).
+ *
+ * So for text that opens with a dry-run header this keeps the operations and
+ * drops the three things that are addressed to the MODEL rather than the reader:
+ * the "DRY RUN — nothing …" preamble (the card already says nothing has run by
+ * asking), a header left with no facts on it, and the "Re-run with dry_run:
+ * false" instruction. Anything else, including a first line that carries facts
+ * of its own ("Would restore deck to v2 (60 cards):"), is kept verbatim.
+ *
+ * Bounded by line count rather than by characters, so a long create is cut at a
+ * row boundary and says how much it left out — a silent cut on a consent card is
+ * the same defect as the one being fixed. Any other result keeps the chip's
+ * one-line summary, unchanged.
+ */
+export function previewSummary(text: string): string {
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  if (!/^DRY RUN\b/.test(lines[0] ?? '')) return summariseText(text);
+  const kept: string[] = [];
+  for (const [i, raw] of lines.entries()) {
+    let line = raw.replace(/\s*Re-run with dry_run: false[^.]*\.?/i, '').trim();
+    if (i === 0) {
+      line = line.replace(/^DRY RUN\s*—\s*(?:nothing \w+\.\s*)?/, '');
+      if (/^would:?$/i.test(line)) line = '';
+      line = line.charAt(0).toUpperCase() + line.slice(1);
+    }
+    if (line) kept.push(line.length > SUMMARY_CAP ? `${line.slice(0, SUMMARY_CAP - 3)}…` : line);
+  }
+  if (kept.length <= PREVIEW_LINES) return kept.join('\n');
+  const shown = kept.slice(0, PREVIEW_LINES - 1);
+  return [...shown, `…and ${kept.length - shown.length} more`].join('\n');
 }
 
 /** One-line summary of what a tool actually returned, for its chip. */

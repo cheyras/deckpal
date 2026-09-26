@@ -107,7 +107,10 @@ import { CardImage } from '../../../components/CardImage'
 import { Button } from '../../../components/ui/Button'
 import { CARD_ASPECT_RATIO_CSS } from '../../../lib/cardGeometry'
 import { useCardArt, type CardArtMap } from './useCardArt'
-import { DEEP_COST_NOTE } from './deepRequest'
+import { deepCostLine, isShort, type DeepCost } from './deepRequest'
+import { dryRunCardIds, dryRunItems } from './dryRun'
+import { DryRunList } from './DryRunList'
+import { TOP_UP_LABEL } from './creditState'
 import {
   acceptButtonLabel,
   acceptCount,
@@ -182,6 +185,19 @@ export type ApprovalCardProps = {
   onDeny: () => void
   /** True from the moment Accept is pressed until the turn moves on. */
   busy?: boolean
+  /**
+   * What a deep call will charge, against what the reader has, or null when
+   * there is no honest number — credits switched off, an unlimited account, a
+   * balance not loaded yet, or a call that is not a paid deep call. See
+   * `deepCost`.
+   */
+  cost?: DeepCost | null
+  /**
+   * Where "Top up credits" goes. Only used when `cost` says the balance is
+   * short, where it replaces Go ahead: a yes that the meter is certain to refuse
+   * is not a choice worth offering (UXD-07).
+   */
+  onTopUp?: () => void
 }
 
 /**
@@ -869,18 +885,26 @@ export function ApprovalCard({
   onAccept,
   onDeny,
   busy = false,
+  cost = null,
+  onTopUp,
 }: ApprovalCardProps): JSX.Element {
   const editable = preview?.editable === true
   const { known, asking } = editable && preview ? sections(preview) : { known: [], asking: [] }
   const willWrite = editable && preview ? acceptCount(preview, choices) : 1
+  // A read-only write — a deck save, a list edit — shows the operations its dry
+  // run printed. See `dryRun.ts`.
+  const dryRun = editable ? [] : dryRunItems(preview?.summary)
+  // Short of credits, with somewhere to top up: Go ahead would be a guaranteed
+  // refusal, so the primary becomes the way to fix that. Leave it is unchanged.
+  const topUpInstead = isShort(cost) && Boolean(onTopUp)
 
   /*
     THE ART REQUEST IS ONE CALL FOR THE WHOLE CARD, made unconditionally so the
     hook order never changes between the plain dialog and the segmented one. An
-    empty id list is a no-op inside `useCardArt`, so the non-editable fallback
-    costs nothing.
+    empty id list is a no-op inside `useCardArt`, so a card with no rows costs
+    nothing. The read-only rows ask for the ids their dry run named.
   */
-  const art = useCardArt(editable && preview ? preview.rows.map((r) => r.cardId) : [])
+  const art = useCardArt(editable && preview ? preview.rows.map((r) => r.cardId) : dryRunCardIds(dryRun))
 
   /**
    * Other calls the model held in the same step, which this card does not show.
@@ -918,11 +942,22 @@ export function ApprovalCard({
         because the point is to show the reader the sentence he is about to spend
         on, not our summary of it.
       */}
-      {request ? (
+      {request || cost ? (
         <div className="mt-[8px] rounded-[8px] border border-border-subtle bg-surface-secondary px-[10px] py-[8px]">
-          <p className="text-[12.5px] leading-[18px] text-text-secondary">{request}</p>
-          {/* The cost, as its own sentence — see `DEEP_COST_NOTE`. */}
-          <p className="mt-[4px] text-[11.5px] leading-[16px] text-text-muted">{DEEP_COST_NOTE}</p>
+          {request ? <p className="text-[12.5px] leading-[18px] text-text-secondary">{request}</p> : null}
+          {/* THE PRICE, as its own sentence, with the number in it when there
+              is an honest number to give — see `deepCostLine`. Short of it, the
+              line says so in the one colour on this card that means "not yet". */}
+          <p
+            data-decke-approval-cost
+            className={[
+              request ? 'mt-[4px]' : '',
+              'text-[11.5px] leading-[16px]',
+              isShort(cost) ? 'font-medium text-error' : 'text-text-muted',
+            ].join(' ')}
+          >
+            {deepCostLine(cost)}
+          </p>
         </div>
       ) : null}
       {unshown ? (
@@ -941,11 +976,7 @@ export function ApprovalCard({
         embellished.
       */}
       {!editable ? (
-        preview?.summary ? (
-          <p className="mt-[6px] text-[12.5px] leading-[18px] text-text-secondary">
-            {preview.summary}
-          </p>
-        ) : null
+        <DryRunList items={dryRun} art={art} />
       ) : (
         <div className="mt-[12px] flex flex-col gap-[14px]">
           {known.length > 0 ? (
@@ -1047,19 +1078,27 @@ export function ApprovalCard({
         <Button variant="ghost" size="sm" onClick={onDeny} disabled={busy}>
           Leave it
         </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onAccept}
-          // DISABLED ON THE SAME TICK Accept is pressed. A second press would
-          // be a second batch; the idempotency key makes that a no-op rather
-          // than a double write, but a control that can be pressed twice while
-          // the first press is in flight is a control that will be.
-          disabled={busy || willWrite === 0}
-          loading={busy}
-        >
-          {editable && preview ? acceptButtonLabel(preview, choices) : 'Go ahead'}
-        </Button>
+        {topUpInstead ? (
+          // Declines the held call first, so nothing is left waiting on a card
+          // the reader has walked away from; then goes where credits are bought.
+          <Button variant="primary" size="sm" onClick={() => { onDeny(); onTopUp?.() }} disabled={busy}>
+            {TOP_UP_LABEL}
+          </Button>
+        ) : (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onAccept}
+            // DISABLED ON THE SAME TICK Accept is pressed. A second press would
+            // be a second batch; the idempotency key makes that a no-op rather
+            // than a double write, but a control that can be pressed twice while
+            // the first press is in flight is a control that will be.
+            disabled={busy || willWrite === 0}
+            loading={busy}
+          >
+            {editable && preview ? acceptButtonLabel(preview, choices) : 'Go ahead'}
+          </Button>
+        )}
         {/*
           A DISABLED BUTTON SAYING "Nothing to add" is a dead end unless it also
           says what to do about it. Both routes out are already on the card —

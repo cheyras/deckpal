@@ -75,7 +75,11 @@ export type CardArt = {
   front: string
   /** The large front image, for the slots drawn big. Falls back to `front`. */
   frontLarge?: string
-  /** For diagnostics only. Nothing renders it. */
+  /**
+   * The catalogue's own name for the card. The approval card's dry-run rows
+   * (`DryRunList`) show it in place of the bare id a tool printed; nothing
+   * else renders it.
+   */
   name?: string
 }
 

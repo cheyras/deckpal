@@ -125,3 +125,9 @@ export function outOfCreditsDetail(): string {
 
 /** The one action. Named as an action, not as a plea. */
 export const TOP_UP_LABEL = 'Top up credits'
+
+/**
+ * The action for a wallet on payment hold, where buying is exactly what cannot
+ * happen — so it names the place the explanation is, not the purchase.
+ */
+export const WALLET_LABEL = 'Open credit wallet'

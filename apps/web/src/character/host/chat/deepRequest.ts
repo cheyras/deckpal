@@ -88,7 +88,7 @@ export function deepRequestLine(name: string, input: unknown): string | null {
   // research. This is X2-compliant: it renders a server-computed flag, not
   // model prose. Fixed text, so it bypasses `tidy`.
   if (obj.no_research === true) {
-    parts.push('no research this conversation — the guide will say so');
+    parts.push('no research behind it this time — the guide will say so');
   }
   if (parts.length === 0) return null;
   return parts.join(' · ');
@@ -110,9 +110,68 @@ export function isDeepRequest(name: string): boolean {
  * deep question building this deck?" — makes the question about our accounting,
  * uses our internal name for the tier, and was the thing he objected to by name.
  *
- * No number. What it costs in credits is real but it is not what a reader needs
- * at the moment of saying yes, and a figure here would have to be right on a
- * deployment where credits are switched off entirely — where it would be a
- * price for something that is not being charged.
+ * This is now the FALLBACK, for when there is no honest number: credits
+ * switched off, an unlimited account, a balance not loaded yet. It used to be
+ * the only line, on the argument that a price is not what a reader needs at the
+ * moment of saying yes. The 2026-09-13 credit economy ended that argument —
+ * credits are bought with money now — and the card proved it: with 40 credits a
+ * reader approved a 75-credit guide and was refused a second later (UXD-07).
+ * See `deepCostLine`.
+ *
+ * It does not say "research". On the guide card it sat directly under "no
+ * research behind it this time", and the two sentences contradicted each other.
  */
-export const DEEP_COST_NOTE = 'This kind of research takes longer and uses more than a normal answer.'
+export const DEEP_COST_NOTE = 'This takes longer and uses more than a normal answer.'
+
+/** What a paid deep call will charge, against what the reader has. */
+export type DeepCost = { credits: number; balance: number }
+
+/** Per-operation prices, exactly as the wallet (`/me/credits`) reports them. */
+export type DeepPrices = { analysis: number; planDeck: number }
+
+/**
+ * What this call will cost, or null when there is no number worth showing.
+ *
+ * THE PRICE TABLE IS THE SERVER'S. `operationFor` in
+ * `apps/api/src/credits/policy.ts` charges `analyze_collection` and
+ * `research_meta` at the analysis price and every other deep tool at the deck
+ * plan price; `deepRequest.test.ts` reads that function's source so the two
+ * cannot drift apart silently. Only the four deep tools are priced at all —
+ * `deck_strategy` has a restatement line but is an ordinary write, and showing
+ * it a deep-call price would be a number for something that is not charged.
+ *
+ * `prices` is null when credits are switched off or the account is unlimited,
+ * and `balance` is null until the wallet has answered. Either way the card
+ * falls back to `DEEP_COST_NOTE` rather than printing a guess.
+ */
+export function deepCost(name: string, prices: DeepPrices | null | undefined, balance: number | null | undefined): DeepCost | null {
+  if (!prices || balance == null || !Number.isFinite(balance)) return null;
+  const credits =
+    name === 'analyze_collection' || name === 'research_meta'
+      ? prices.analysis
+      : name === 'plan_deck' || name === 'write_strategy_guide'
+        ? prices.planDeck
+        : null;
+  if (credits == null || !Number.isFinite(credits) || credits <= 0) return null;
+  return { credits, balance: Math.max(0, Math.floor(balance)) };
+}
+
+/** Would the meter refuse this call as things stand? */
+export function isShort(cost: DeepCost | null | undefined): boolean {
+  return !!cost && cost.balance < cost.credits;
+}
+
+const credits = (n: number) => `${n} credit${n === 1 ? '' : 's'}`;
+
+/**
+ * The price line under the request.
+ *
+ * Specific when it can be, in the same plain register as the rest of the card:
+ * what it takes, and what they have. Short of the price, it says so rather than
+ * letting the reader find out from a refusal after they have said yes.
+ */
+export function deepCostLine(cost: DeepCost | null | undefined): string {
+  if (!cost) return DEEP_COST_NOTE;
+  if (isShort(cost)) return `This needs ${credits(cost.credits)} and you have ${cost.balance}.`;
+  return `This takes longer than a normal answer and uses ${credits(cost.credits)} of your ${cost.balance}.`;
+}

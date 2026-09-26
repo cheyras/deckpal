@@ -1332,12 +1332,28 @@ function settledRect(el: HTMLElement): DOMRect {
   //
   // It also catches the cases nobody has complained about yet, which is the
   // point of fixing the class rather than the instance: the composer growing as
-  // someone types a long message, an approval card appearing above it, the
-  // openers disappearing, a phone's software keyboard.
+  // someone types a long message, the openers disappearing, a phone's software
+  // keyboard.
+  //
+  // ── IT WATCHES THE MARK HE IS FLOWN TO, NOT THE COMPOSER ──────────────────
+  //
+  // This paragraph used to list "an approval card appearing above it" among the
+  // cases caught, and on a phone it was never caught. There he stands on the
+  // PARK BOX, whose floor is whichever card is highest in the bottom stack
+  // (`parkFloor.ts`); the approval card mounts ABOVE the composer, so the park
+  // box rose 140 px and the composer did not move a pixel. Measured at 390x844
+  // with the card arriving four seconds into a turn: box 465-605, card from 613,
+  // and him drawn at 600-738, across "Leave it", for as long as the card was up.
+  // He only ever cleared it by accident, when the composer's own first-message
+  // drop happened to re-park him after the card had mounted.
+  //
+  // So the watch reads the element `park()` actually aims at — the park box on a
+  // phone, the composer's card on desktop — and anything that moves his mark,
+  // whichever element moved it, is now a move.
   useEffect(() => {
     if (!live || !chatOpen || travelling) return
     const read = (): MarkBox | null => {
-      const el = document.querySelector(`[${COMPOSER_LANDMARK}]`)
+      const el = document.querySelector(`[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
       if (!el) return null
       const r = el.getBoundingClientRect()
       return { top: Math.round(r.top), left: Math.round(r.left), h: Math.round(r.height) }
@@ -1917,6 +1933,10 @@ function settledRect(el: HTMLElement): DOMRect {
         // is the shape of defect this pass has now produced seven times: the
         // panel rendered `unknown` forever and looked completely correct.
         credits={wallet.data ? wallet.data.enabled ? { remaining: wallet.data.balance, allowance: wallet.data.balance, lowAt: wallet.data.lowAt } : null : chat.credits}
+        // Prices only where they are charged: an unlimited account, or a
+        // deployment with credits off, is quoted nothing rather than a number
+        // for something that is free. See `deepCost`.
+        prices={wallet.data?.enabled && !wallet.data.unlimited ? wallet.data.prices : null}
         onTopUp={() => { setChatOpen(false); void navigate({ to: '/credits' }) }}
         // So the history list can mark the row the reader is actually in. It
         // cannot be inferred from the list itself — see `liveId`.

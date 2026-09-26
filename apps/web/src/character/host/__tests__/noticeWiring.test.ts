@@ -27,7 +27,7 @@ const PANEL = readFileSync(fileURLToPath(new URL('../DeckeChat.tsx', import.meta
 const HOST = readFileSync(fileURLToPath(new URL('../DeckeHost.tsx', import.meta.url)), 'utf8');
 
 test('a refused turn emits a NOTICE, not prose', () => {
-  assert.match(HOOK, /noticeInstead\(n\)/, 'the http refusal no longer emits a notice');
+  assert.match(HOOK, /noticeInstead\(httpNotice\(status, body\)\)/, 'the http refusal no longer emits a notice');
   assert.match(HOOK, /kind: 'notice' as const/, 'noticeInstead no longer builds a notice part');
 });
 
@@ -44,8 +44,26 @@ test('`sayInstead` is gone, so no failure path can quietly go back to prose', ()
 test('every failure route carries a tone, and a limit is not an error', () => {
   // A limit sends someone to a top-up; a fault sends them to support. Telling
   // them the wrong one wastes their time in a way that feels like being lied to.
-  assert.match(HOOK, /tone: 'limit' as const/, '429 no longer reads as a limit');
-  assert.match(HOOK, /tone: 'error' as const/, 'a real fault no longer reads as an error');
+  // The tones themselves are decided in `httpNotice.ts` and tested there
+  // (`chat/__tests__/httpNotice.test.ts`); this pins that the hook hands it the
+  // refusal BODY, since a status alone cannot tell a held wallet from an empty
+  // one.
+  assert.match(HOOK, /onHttpError: \(status, body\) =>/, 'the refusal body no longer reaches the notice');
+  assert.match(HOOK, /handlers\.onHttpError\(res\.status, body\)/, 'the transport stopped passing the body');
+});
+
+test('a notice part carries its action, and the panel wires every one of them', () => {
+  // UXD-08: "Try that again in a moment" with no way to, and "Top up" with no
+  // Top up. The part names the intent; the panel owns the handlers.
+  assert.match(PANEL, /\{ kind: 'notice'; id: string; tone: NoticeTone; title: string; detail\?: string; action\?: NoticeAction \}/);
+  assert.match(PANEL, /noticeAction\(part\.action, \{ onRetry: onRetryTool && \(\(\) => onRetryTool\(part\.id\)\), onTopUp \}\)/,
+    'the notice is drawn without its action');
+  for (const intent of ['retry', 'top-up', 'wallet']) {
+    assert.match(PANEL, new RegExp(`action === '${intent}' && h\\.`), `no handler for the '${intent}' action`);
+  }
+  // And a meter-refused tool row offers the top-up rather than a retry.
+  assert.match(PANEL, /<ToolRow data=\{toolRowFromChip\(part\.chip\)\} onRetry=\{onRetryTool\} onTopUp=\{onTopUp\} \/>/);
+  assert.match(HOOK, /if \(scope\) handlers\.onMeterRefused\?\.\(part\.toolCallId, scope\)/);
 });
 
 test('the panel actually RENDERS a notice part', () => {
@@ -85,7 +103,17 @@ test('the confirmation card is HANDED the restatement, not just able to show one
   // prevent, and the argued reason deep calls did not ask at all until now.
   assert.match(PANEL, /request=\{deepRequestLine\(asking\[0\]\.name, asking\[0\]\.input\)\}/,
     'ApprovalCard is no longer given his restatement of the request')
-  assert.match(PANEL, /import \{ deepRequestLine \}/)
+  assert.match(PANEL, /import \{[^}]*\bdeepRequestLine\b[^}]*\} from '\.\/chat\/deepRequest'/)
+})
+
+test('the confirmation card is HANDED the price, and the host hands the panel the prices', () => {
+  // UXD-07: a 75-credit guide approved with 40 in the wallet, refused a second
+  // later. `deepCost` is tested on its own; this is the wiring that goes missing.
+  assert.match(PANEL, /cost=\{deepCost\(asking\[0\]\.name, prices, credits\?\.remaining\)\}/,
+    'ApprovalCard is no longer given the price')
+  assert.match(PANEL, /onTopUp=\{onTopUp\}\s*\/>/, 'a short balance has nowhere to go')
+  assert.match(HOST, /prices=\{wallet\.data\?\.enabled && !wallet\.data\.unlimited \? wallet\.data\.prices : null\}/,
+    'the host no longer passes the wallet prices, or quotes an uncharged account')
 })
 
 test('a standalone arrival closes the chat; a hop inside a walk does NOT', () => {

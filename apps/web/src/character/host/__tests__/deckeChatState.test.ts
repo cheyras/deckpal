@@ -325,3 +325,39 @@ test('panels are counted, and counted honestly', () => {
 test('a kind this build does not know is ignored rather than described', () => {
   assert.equal(replyAnnouncement([{ kind: 'something-new' }]), '')
 })
+
+// ── UXD-15: ON A DECK, THE CHIPS ARE ABOUT THAT DECK ────────────────────────
+
+import { DECK_PAGE_OPENERS, PAGE_OPENER_COUNT, openersFor, pageOpeners } from '../deckeChatState'
+
+test('a deck page leads with two openers about that deck, then one from another kind', () => {
+  for (const seed of [1, 2, 3, 42, 99]) {
+    const out = openersFor('/decks/deck-drag', {}, { seed })
+    assert.equal(out.length, OPENER_COUNT)
+    const lead = out.slice(0, PAGE_OPENER_COUNT)
+    assert.ok(lead.every((o) => DECK_PAGE_OPENERS.includes(o)), `seed ${seed}: the page does not lead`)
+    assert.notEqual(lead[0]!.id, lead[1]!.id)
+    // "Take me to my decks" to somebody standing on one is the complaint.
+    assert.ok(out.slice(PAGE_OPENER_COUNT).every((o) => o.kind !== 'decks'), `seed ${seed}: a generic decks chip filled the last slot`)
+  }
+})
+
+test('the page openers rotate like everything else: least seen, never the same pair twice running', () => {
+  const first = openersFor('/decks/deck-drag', {}, { seed: 7 })
+  const log = noteShown({}, first)
+  const second = openersFor('/decks/deck-drag', log, { seed: 7, avoid: first.map((o) => o.id) })
+  const leadIds = (xs: Opener[]) => xs.slice(0, PAGE_OPENER_COUNT).map((o) => o.id).sort().join()
+  assert.notEqual(leadIds(second), leadIds(first), 'the same two deck questions came back')
+  // Three questions, two slots: the one not shown last time is always offered.
+  const unseen = DECK_PAGE_OPENERS.find((o) => !first.includes(o))!
+  assert.ok(second.includes(unseen))
+})
+
+test('anywhere else, the rotation is exactly what it was', () => {
+  for (const path of ['/', '/decks', '/decks/', '/lists', '/series/sv', '/deckpal/lists']) {
+    assert.deepEqual(pageOpeners(path), [], path)
+    assert.deepEqual(openersFor(path, {}, { seed: 5 }), chooseOpeners(OPENER_POOL, {}, { seed: 5 }), path)
+  }
+  // Under a self-host base path the deck page is still the deck page.
+  assert.equal(pageOpeners('/deckpal/decks/deck-drag').length, DECK_PAGE_OPENERS.length)
+})

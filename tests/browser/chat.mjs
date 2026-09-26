@@ -259,3 +259,198 @@ export async function checkChat(browser, server, out) {
   }
   return results
 }
+
+/**
+ * ── THE FIXTURE'S API: /me, and the catalogue cards the dry-run rows name ────
+ *
+ * The fixture builds self-host (no Supabase URL), so the client's base is
+ * `/deckpal/api`. A card this does not know gets no answer, and the rows the
+ * test waits for by NAME never appear — so a missing fixture fails the run
+ * rather than passing on a row that shows the bare id.
+ */
+const CARD_SVG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="63" height="88"><rect width="63" height="88" rx="3" fill="#3b6f8f"/></svg>')
+const CARDS = { 'sv04-160': 'Counter Catcher', 'sv02-185': 'Iono' }
+const HISTORY = /^(?:\/deckpal)?\/api\/decke\/history$/
+/** The one write the chat fixture accepts: see `chatApi`. */
+export const chatAllowMutation = (pathname, method) => method === 'POST' && HISTORY.test(pathname)
+export function chatApi(rel) {
+  if (rel === '/api/me' || rel === '/deckpal/api/me') return { body: { username: 'Browser Reader', owner: false, decke: false } }
+  // The transcript record the real hook writes after a turn. Answered here, not
+  // only by a page route: WebKit sends it as a keepalive request, which page
+  // routes cannot intercept, so it reaches the server either way.
+  if (HISTORY.test(rel)) return { body: { ok: true, recorded: false } }
+  const id = rel.match(/^(?:\/deckpal)?\/api\/cards\/([^/]+)$/)?.[1]
+  if (id && CARDS[id]) return { body: { card: { cardId: id, name: CARDS[id], images: { low: CARD_SVG, high: CARD_SVG } } } }
+  return null
+}
+
+const rect = (loc) => loc.evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom } })
+/** Intersection area of two rects, in CSS px². Zero means the two do not touch. */
+const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+  Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
+
+/**
+ * Where he stands, as a box: the park box on a phone. On desktop the host parks
+ * him OUTBOARD-LEFT of the card carrying `data-decke-composer`, so the whole
+ * column right of that card's left edge is clear — the assertion there is that
+ * the landmark exists and everything that must be read sits inside that column.
+ */
+async function assertClear(page, width, targets, label) {
+  const park = page.locator('[data-decke-park]')
+  if (width < 1068) {
+    assert.equal(await park.count(), 1, label + ': the phone park box is missing')
+    const him = await rect(park)
+    for (const [name, loc] of Object.entries(targets)) {
+      const r = await rect(loc)
+      assert.equal(overlap(him, r), 0, `${label}: he stands on ${name} (park ${JSON.stringify(him)}, ${name} ${JSON.stringify(r)})`)
+    }
+    return him
+  }
+  assert.equal(await park.count(), 0, label + ': a park box on desktop')
+  const floor = page.locator('[data-decke-composer]')
+  assert.equal(await floor.count(), 1, label + ': nothing for him to stand beside on desktop')
+  const edge = (await rect(floor)).left
+  for (const [name, loc] of Object.entries(targets)) {
+    assert.ok((await rect(loc)).left >= edge - 0.5, `${label}: ${name} starts left of the card he stands beside`)
+  }
+  return null
+}
+
+const EDIT_SUMMARY = [
+  "EDIT your existing deck 'Dragapult ex / Dusknoir' (deck-browser), 22 distinct card(s) in it:",
+  'remove x1 sv04-160',
+  'set sv02-185 x3 → x4',
+].join('\n')
+const asked = [{ id: 'u1', role: 'user', parts: [{ kind: 'text', id: 'u1t', text: 'Suggest one improvement to this deck and apply it' }] },
+  { id: 'a1', role: 'assistant', parts: [{ kind: 'text', id: 'a1t', text: "One change I'd make: cut Counter Catcher for a fourth Iono." }] }]
+
+/**
+ * ── UXD-02/03/04/07/08/15: THE STATES A READER HAS TO ACT ON ───────────────
+ *
+ * Each state the audit photographed, rendered by the real panel and measured
+ * rather than looked at: whether he stands on the card, whether its rows and
+ * price are there, and whether every notice offers the one thing it tells the
+ * reader to do. Run in Chromium and WebKit at 390 and 1440.
+ */
+export async function checkDeckeStates(browser, server, out, engine) {
+  const results = []
+  for (const width of [390, 1440]) {
+    const { context, page } = await contextFor(browser, server, width)
+    const tag = engine + '-' + width
+    try {
+      await page.goto(server.origin + '/fixture.html', { waitUntil: 'networkidle' })
+      const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+      await panel.waitFor({ state: 'visible' })
+
+      // ── A deck edit held for approval (UXD-02, UXD-04) ──────────────────
+      await set(page, { busy: true, messages: asked, credits: { remaining: 40, allowance: 100 },
+        asking: [{ approvalId: 'ap-1', toolCallId: 'save-1', title: 'Save this deck', name: 'save_deck', input: { deck_id: 'deck-browser' } }],
+        preview: { toolCallId: 'save-1', tool: 'save_deck', title: 'Create or edit a deck', summary: EDIT_SUMMARY, ok: true, editable: false, rows: [], skipped: [] } })
+      const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
+      await card.waitFor()
+      const rows = card.locator('[data-decke-dry-run] li')
+      assert.equal(await rows.count(), 3, 'the dry run did not become rows')
+      await card.getByText('Changes to Dragapult ex / Dusknoir', { exact: true }).waitFor()
+      await card.getByText('Counter Catcher', { exact: true }).waitFor()
+      await card.getByText('Iono', { exact: true }).waitFor()
+      assert.deepEqual(await card.locator('[data-decke-dry-run] li span.tabular-nums').allTextContents(), ['−1', '3 → 4'])
+      assert.equal(await card.getByText(/DRY RUN/).count(), 0, 'the internal header reached the reader')
+      // He is waiting on the reader, and says so — no clock, no Stop.
+      await panel.getByText('Waiting for your OK', { exact: true }).waitFor()
+      assert.equal(await panel.getByText('Working', { exact: true }).count(), 0, 'says Working while waiting on the reader')
+      assert.equal(await panel.getByRole('button', { name: 'Stop' }).count(), 0, 'Stop is offered beside a held card')
+      await assertClear(page, width, { 'Leave it': card.getByRole('button', { name: 'Leave it' }),
+        'Go ahead': card.getByRole('button', { name: 'Go ahead' }), headline: card.locator('p').first(), rows: card.locator('[data-decke-dry-run]') }, tag + ' approval')
+      await page.screenshot({ path: path.join(out, 'decke-approval-' + tag + '.png') })
+
+      // ── A 75-credit deep call with 40 in the wallet (UXD-07) ────────────
+      await set(page, { prices: { analysis: 4, planDeck: 75 }, preview: null,
+        asking: [{ approvalId: 'ap-2', toolCallId: 'guide-1', title: 'Write a full strategy guide for this deck', name: 'write_strategy_guide',
+          input: { deck: 'Dragapult ex / Dusknoir', no_research: true } }] })
+      const cost = card.locator('[data-decke-approval-cost]')
+      assert.equal(await cost.innerText(), 'This needs 75 credits and you have 40.')
+      assert.equal(await card.getByRole('button', { name: 'Go ahead' }).count(), 0, 'a guaranteed refusal is still offered')
+      await card.getByText('no research behind it this time — the guide will say so', { exact: false }).waitFor()
+      assert.doesNotMatch(await cost.innerText(), /research/, 'the price line contradicts the no-research line')
+      await assertClear(page, width, { 'Leave it': card.getByRole('button', { name: 'Leave it' }),
+        'Top up': card.getByRole('button', { name: 'Top up credits' }), price: cost }, tag + ' deep approval')
+      await page.screenshot({ path: path.join(out, 'decke-price-short-' + tag + '.png') })
+      const before = await page.evaluate(() => ({ ...window.fixture.events }))
+      await card.getByRole('button', { name: 'Top up credits' }).click()
+      const after = await page.evaluate(() => window.fixture.events)
+      assert.equal(after.denies, before.denies + 1, 'Top up left the held call waiting')
+      assert.equal(after.topUps, before.topUps + 1)
+      await set(page, { credits: { remaining: 400, allowance: 1000 } })
+      assert.equal(await cost.innerText(), 'This takes longer than a normal answer and uses 75 credits of your 400.')
+      await card.getByRole('button', { name: 'Go ahead' }).waitFor()
+      // Credits off, or an unlimited account: no number at all.
+      await set(page, { prices: null })
+      assert.doesNotMatch(await cost.innerText(), /\d/)
+
+      // ── Notices that carry their way forward (UXD-08) ───────────────────
+      await set(page, { busy: false, asking: null, messages: [asked[0], { id: 'a2', role: 'assistant', parts: [
+        { kind: 'notice', id: 'fault', tone: 'error', title: 'Something went wrong reaching my brain.', detail: 'Nothing was written.', action: 'retry' },
+        { kind: 'tool', id: 'refused', chip: { id: 'guide-2', name: 'write_strategy_guide', title: 'Writing a strategy guide', phase: 'error',
+          summary: 'not enough credits — 75 needed, 40 left', meter: 'credits' } },
+      ] }] })
+      const fault = panel.getByRole('status').filter({ hasText: 'Something went wrong reaching my brain.' })
+      await fault.getByRole('button', { name: 'Try again' }).click()
+      assert.deepEqual((await page.evaluate(() => window.fixture.events.retries)).slice(-1), ['fault'])
+      assert.equal(await panel.getByRole('button', { name: 'Try Writing a strategy guide again' }).count(), 0,
+        'a meter refusal still offers the retry that walks back into it')
+      const topUps = await page.evaluate(() => window.fixture.events.topUps)
+      await panel.locator('li').filter({ hasText: 'Writing a strategy guide' }).getByRole('button', { name: 'Top up credits' }).click()
+      assert.equal(await page.evaluate(() => window.fixture.events.topUps), topUps + 1)
+      await page.screenshot({ path: path.join(out, 'decke-notices-' + tag + '.png') })
+
+      // ── Out of credits (UXD-03) ─────────────────────────────────────────
+      await set(page, { messages: [], credits: { remaining: 0, allowance: 100 } })
+      const notice = panel.getByRole('status').filter({ hasText: "I'm out of credits" })
+      const topUp = notice.getByRole('button', { name: 'Top up credits' })
+      await topUp.waitFor()
+      assert.equal(await notice.locator('xpath=ancestor::*[@data-decke-composer]').count(), 1,
+        'the out-of-credits card is not registered as the floor he stands on')
+      await assertClear(page, width, { 'Top up': topUp, 'out-of-credits card': notice }, tag + ' spent')
+      await page.screenshot({ path: path.join(out, 'decke-spent-' + tag + '.png') })
+      results.push({ case: 'decke-states', engine, width, approvalClear: true, dryRunRows: 3, priceShown: true, noticeActions: true, spentClear: true })
+
+      // ── On a deck, the chips are about that deck (UXD-15) ───────────────
+      await page.goto(server.origin + '/decks/deck-browser', { waitUntil: 'networkidle' })
+      await panel.waitFor({ state: 'visible' })
+      const chips = await panel.locator('ul button').allTextContents()
+      const deckQuestions = ['Is this deck legal? If not, why not?', 'What am I missing for this deck, and what will it cost?', 'Suggest one improvement to this deck']
+      assert.equal(chips.length, 3)
+      assert.ok(chips.slice(0, 2).every(c => deckQuestions.includes(c)), 'a deck page does not lead with that deck: ' + chips.join(' | '))
+
+      // ── The real hook, over a real fetch: a held wallet, then a fault ───
+      let reply = { status: 429, body: { error: 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.',
+        retryAfterDay: false, credits: { balance: 40, needed: 1, held: true } } }
+      const sent = []
+      await page.route('**/api/chat', route => {
+        sent.push(JSON.parse(route.request().postData() ?? '{}'))
+        return route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
+      })
+      await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+      await panel.waitFor({ state: 'visible' })
+      await page.evaluate(() => window.meterChat.send('Is this deck legal?'))
+      const held = panel.getByRole('status').filter({ hasText: 'Your credits are on hold while a payment issue is sorted out.' })
+      await held.waitFor()
+      assert.equal(await held.getByRole('button', { name: 'Open credit wallet' }).count(), 1)
+      assert.doesNotMatch(await held.innerText(), /top up/i, 'a held wallet is told to top up')
+      await page.screenshot({ path: path.join(out, 'decke-held-' + tag + '.png') })
+      reply = { status: 500, body: { error: { message: 'boom' } } }
+      await page.evaluate(() => window.meterChat.send('Is this deck legal, then?'))
+      const broke = panel.getByRole('status').filter({ hasText: 'Something went wrong reaching my brain.' })
+      await broke.waitFor()
+      reply = { status: 500, body: {} }
+      await broke.getByRole('button', { name: 'Try again' }).click()
+      for (let i = 0; i < 100 && sent.length < 3; i++) await page.waitForTimeout(50)
+      assert.equal(sent.length, 3, 'Try again did not resend')
+      const lastUser = body => body.messages.filter(m => m.role === 'user').at(-1).parts.find(p => p.type === 'text').text
+      assert.equal(lastUser(sent[2]), 'Is this deck legal, then?', 'Try again resent something other than the last question')
+      // No unroute: the context and its route close together.
+      results.push({ case: 'decke-refusals', engine, width, heldCopy: true, retryResends: true })
+    } finally { await context.close() }
+  }
+  return results
+}

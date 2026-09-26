@@ -1,13 +1,14 @@
 # Browser boundary checks
 
-Run `pnpm exec playwright install --with-deps chromium` once, then `pnpm test:browser`.
+Run `pnpm exec playwright install --with-deps chromium webkit` once, then `pnpm test:browser`.
 Build `@deckpal/storage` and `@deckpal/matching` first on a clean checkout.
 `pnpm test:deploy-assets` runs the asset controls without starting a browser.
 The workflow uses Node 24 and a frozen pnpm lockfile.
 
 Reports and screenshots go to `TEST_ARTIFACT_DIR` (default `.cache/browser-tests`).
-A local installation can set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; CI installs
-the Chromium revision selected by pinned Playwright 1.63.0.
+A local installation can set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` and
+`PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH`; CI installs the Chromium and WebKit
+revisions selected by pinned Playwright 1.63.0.
 
 The SPA is built twice into owned temporary directories using the real Vite
 configuration: cloud at `/`, self-host at `/deckpal/`. The strict server rejects
@@ -48,6 +49,22 @@ unrelated caches excluded. Removing each exact exception in a scratch matcher
 must exclude the logo. Omitting each logo from a scratch copy of the real build
 must fail the actual build gate. Git supplies gitignore-compatible matching;
 the Vercel CLI and deployment service are not invoked.
+
+## Deck-E states a reader has to act on
+
+`checkDeckeStates` in `tests/browser/chat.mjs` runs in Chromium and WebKit at 390
+and 1440. For a held deck edit and a paid deep call it asserts that the phone park
+box does not intersect the card's headline, rows, price or buttons. At desktop it
+asserts that everything to be read sits in the column he stands beside. It also
+checks that the dry run renders as named card rows, that the price line and the
+Top-up swap appear when the balance is short, and that the status reads "Waiting
+for your OK" with no Stop. The out-of-credits card must be the registered floor
+and must stay clear of him. Each notice must offer its one action, and a meter-refused
+row must offer Top up instead of Try again. A deck page must lead with deck
+questions. Over the real hook and fetch, a held wallet must get the wallet and
+never a top-up, and Try again must resend the last question. The character itself
+is not drawn here (no WebGL), so the park box is the geometry under test, and it
+is the box `DeckeHost` flies him to.
 
 ## Administration DataTable coverage
 

@@ -54,8 +54,10 @@ export type ComposerRuler = {
  * Fold one composer measurement into the ruler.
  *
  * A NON-POSITIVE SAMPLE IS NOT A MEASUREMENT. The composer is absent from the
- * DOM whenever the panel is showing a past transcript or the out-of-credits
- * notice, and it reads zero for a frame while the panel is still laying out.
+ * DOM whenever the panel is showing a past transcript, and it reads zero for a
+ * frame while the panel is still laying out. (Out of credits, the card that
+ * replaces it carries the landmark and is measured in its place; being taller,
+ * it only rules him when no composer has been seen this visit.)
  * Treating that as "the composer is very short indeed" would latch him to
  * nothing; the previous ruler is kept instead, and the caller decides what to do
  * with a run that has no ruler at all.
