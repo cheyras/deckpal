@@ -20506,8 +20506,10 @@ upstream 404: HTTP 404`. This is NOT the 2026-08-10 fix regressing by itself:
 that fix closed a 29-card gap (`046–063, 072, 073, 081–088, Museum`) by warming
 from `assets.pkmn.gg`. Two things happened after it:
 
-1. **pkmn.gg was ruled out on legal grounds, 2026-08-26**, and its warmer
-   (`apps/images/src/warmFromPkmn.ts`) retired. The SSRF-hardening allow-list
+1. **pkmn.gg was ruled out on 2026-08-26** because it is an app much like
+   DeckPal, and Chey wants no friction with a competitor (Chey's stated reason,
+   2026-09-26; earlier entries called it a legal call). Its warmer
+   (`apps/images/src/warmFromPkmn.ts`) was retired. The SSRF-hardening allow-list
    added the same day (`packages/storage/src/upstream.ts`) correctly does not
    list it — that is the ruling enforced in code, not a regression. The 58
    `image_asset` rows it had written were then **deleted** in the 2026-08-31

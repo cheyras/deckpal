@@ -408,7 +408,8 @@ the 2026-08-10 fix (`DECISIONS.md`, "issue #24: the mep art gap"). Those 58
 cleanup (`DECISIONS.md` 2026-08-31, "Card-art re-sourcing executed") because
 they carried no approved-source attribution — confirmed today: the raw storage
 object for `mep-087` is gone, not merely unreachable through the proxy.
-**pkmn.gg remains ruled out on the 2026-08-26 legal decision** (`DECISIONS.md`);
+**pkmn.gg remains ruled out by the 2026-08-26 decision** (`DECISIONS.md`): it is
+an app much like DeckPal, and Chey wants no friction with a competitor;
 re-adding it is not proposed here, and would also mean widening the SSRF
 allow-list (`packages/storage/src/upstream.ts`) back open for a host the owner
 has twice declined. If the owner wants to revisit that specific tradeoff, it is
