@@ -110,9 +110,16 @@ function compactEvidence(dropped: readonly WireLike[]): WireLike[] {
     for (const [name, part] of failed) open.set(name, [...(open.get(name) ?? []), part].slice(-BREAKER_PER_TOOL))
     if (recordParts.length) records.push({ role: 'assistant', parts: recordParts })
   }
-  const breaker = [...open.values()].flatMap((parts) => parts.map((p) => ({ role: 'assistant', parts: [p] })))
-  const room = Math.max(0, EVIDENCE_MAX - breaker.length)
-  return [...(room ? records.slice(-room) : []), ...breaker].slice(-EVIDENCE_MAX)
+  // One message per TURN DEPTH, shared by every open tool, because the
+  // breaker counts messages per tool: a tool that failed in three turns is
+  // in the first three. So all open state fits in `BREAKER_PER_TOOL`
+  // messages however many tools are failing, and nothing has to be cut.
+  const depth = Math.max(0, ...[...open.values()].map((f) => f.length))
+  const breaker: WireLike[] = Array.from({ length: depth }, (_, k) => ({
+    role: 'assistant',
+    parts: [...open.values()].filter((f) => f.length > k).map((f) => f[f.length - 1 - k]!),
+  }))
+  return [...records.slice(Math.max(0, records.length - (EVIDENCE_MAX - breaker.length))), ...breaker]
 }
 
 function partChars(part: Record<string, unknown>): number {

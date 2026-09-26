@@ -61,15 +61,37 @@ test('a spoken no is heard above the threshold and not below it', () => {
   assert.deepEqual(reflexFrom(answers({ declines_guide: bool(0.55) })).declines, { research: false, guide: false })
 })
 
-test('only the leg that carries the reader\'s message is read', () => {
+test('the reader\'s latest words are read on every leg; only their own leg is not a continuation', () => {
   const said = (text: string) => ({ role: 'assistant', parts: [{ type: 'text', text }] })
   const asked = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
-  assert.deepEqual(readerLeg([said('Want me to add it?'), asked('yes')]), { message: 'yes', previousReply: 'Want me to add it?' })
-  assert.deepEqual(readerLeg([asked('add a Pikachu')]), { message: 'add a Pikachu', previousReply: '' })
-  // An approval or browser-result leg ends on the assistant: the turn's
-  // intent has already been acted on, and a second read would force a second card.
-  assert.equal(readerLeg([asked('add a Pikachu'), { role: 'assistant', parts: [{ type: 'tool-log_cards', state: 'approval-responded' }] }]), null)
+  assert.deepEqual(readerLeg([said('Want me to add it?'), asked('yes')]), { message: 'yes', previousReply: 'Want me to add it?', continuation: false })
+  assert.deepEqual(readerLeg([asked('add a Pikachu')]), { message: 'add a Pikachu', previousReply: '', continuation: false })
+  // An approval or browser-result leg ends on the assistant, and is still
+  // governed by what the reader said at the start of the turn.
+  const approvalLeg = [said('Earlier.'), asked('add a Pikachu'), { role: 'assistant', parts: [{ type: 'tool-log_cards', state: 'approval-responded' }] }]
+  assert.deepEqual(readerLeg(approvalLeg), { message: 'add a Pikachu', previousReply: 'Earlier.', continuation: true })
   assert.equal(readerLeg([{ role: 'user', parts: [{ type: 'tool-x' }] }]), null)
+  assert.equal(readerLeg([said('hello')]), null)
+})
+
+test('a continuation keeps the refusals and the hidden walk, and never forces (Astra, PR review)', async () => {
+  const before = process.env[JEV_VAR]
+  process.env[JEV_VAR] = 'on'
+  try {
+    const judged = answers({
+      intent: choice('change_collection', 0.99),
+      destination: choice('deck', 0.95, 0.9),
+      declines_research: bool(0.97),
+    })
+    const ok = (async () => new Response(JSON.stringify({ answers: judged }), { status: 200 })) as never
+    const first = [{ role: 'user', parts: [{ type: 'text', text: 'stop researching the meta; just open my deck' }] }]
+    const afterGoTo = [...first, { role: 'assistant', parts: [{ type: 'tool-goTo', state: 'output-available', input: {}, output: { ok: true } }] }]
+    assert.deepEqual(await readReflex(first, '/', { key: 'k', fetchImpl: ok }), { force: 'log_cards', hide: ['escort'], declines: { research: true, guide: false } })
+    assert.deepEqual(await readReflex(afterGoTo, '/decks', { key: 'k', fetchImpl: ok }), { force: null, hide: ['escort'], declines: { research: true, guide: false } })
+  } finally {
+    if (before === undefined) delete process.env[JEV_VAR]
+    else process.env[JEV_VAR] = before
+  }
 })
 
 test('readReflex asks the shipped questions and fails open', async () => {

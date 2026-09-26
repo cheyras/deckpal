@@ -60,6 +60,7 @@ import { failureParts, freshCalls, isShownInTranscript, lookupRecord } from './c
 import {
   MAX_REPLAYED_REFUSALS,
   meterRefusalParts,
+  meterRefusalScope,
   readMeterRefusal,
   wireCallIdentities,
   type MeterRefusal,
@@ -75,6 +76,7 @@ import {
 } from './uiTools'
 import { buildEscortSteps, type EscortInput } from './escortPlan'
 import { LOW_FRACTION, type CreditBalance } from './chat/creditState'
+import { httpNotice, type Notice, type RefusalBody } from './chat/httpNotice'
 import { beatForChip } from './thinkingBeat'
 import { runJourney, type JourneyResult, type JourneyStep } from './journey'
 import { api } from '../../lib/api'
@@ -249,6 +251,13 @@ export type ToolChip = {
    * actually lived (`set_id: 'sv3pt5'` nine times, `set_id: 'none'` seven).
    */
   args?: Record<string, unknown>
+  /**
+   * The METER refused this call, and which limit said no. Set from the
+   * server's own `[meter:…]` marker on the call's output, never from prose, so
+   * the row can offer the way out that exists instead of a retry that would
+   * walk straight back into the same refusal. See `toolRowAppearance`.
+   */
+  meter?: 'cap' | 'hold' | 'credits'
 }
 
 /** Everything one request's stream produced. */
@@ -784,7 +793,15 @@ export function useDeckeChat(
       // window first leaves something behind, the reader is told once, above
       // the reply, rather than finding out by asking about it. See
       // `chat/wireWindow.ts`.
-      const { messages: priorWire, dropped, evidence } = windowPrior(messagesToWire(currentRef.current))
+      //
+      // A QUEUED question is already the transcript's last message, but it is
+      // this turn, not history: it is set aside before the window is applied,
+      // so the window neither spends its budget on it nor drops it — an
+      // oversized one must reach the server and come back as the 413 it is.
+      const transcriptWire = messagesToWire(currentRef.current)
+      const last = transcriptWire[transcriptWire.length - 1]
+      const queuedWire = alreadyShown && last?.role === 'user' ? transcriptWire.pop() : undefined
+      const { messages: priorWire, dropped, evidence } = windowPrior(transcriptWire)
       const tellTrim = dropped > 0 && trimToldRef.current !== exchangeConversation
       if (tellTrim) trimToldRef.current = exchangeConversation
       setMessages((m) => [
@@ -904,7 +921,7 @@ export function useDeckeChat(
        * reach `messageText`, the speech bubble, or the announcement, all of
        * which read the transcript for HIS words.
        */
-      const noticeInstead = (n: { tone: 'neutral' | 'limit' | 'error'; title: string; detail?: string }) => {
+      const noticeInstead = (n: Notice) => {
         setMessages((m) =>
           m.map((x) =>
             x.id === replyId
@@ -1010,14 +1027,12 @@ export function useDeckeChat(
 
       emitChipRef.current = emitToolChip
 
-      // NOT APPENDED IF IT IS ALREADY THERE. A queued question was put on the
-      // transcript when it was queued, so `priorWire` — built from the
-      // transcript — already carries it. Appending unconditionally sent the
-      // same question as two consecutive user messages, which is exactly what
-      // the comment beside `alreadyShown` claims is prevented.
-      const wire: WireMessage[] = alreadyShown
-        ? [...priorWire]
-        : [...priorWire, { role: 'user', parts: [{ type: 'text', text }] }]
+      // NOT APPENDED TWICE. A queued question was put on the transcript when it
+      // was queued, so it was lifted off the transcript's wire above and goes
+      // back on here, once. Appending unconditionally sent the same question as
+      // two consecutive user messages, which is exactly what the comment beside
+      // `alreadyShown` claims is prevented.
+      const wire: WireMessage[] = [...priorWire, queuedWire ?? { role: 'user', parts: [{ type: 'text', text }] }]
 
       /**
        * Why the LAST leg stopped, which is why the reader's answer ended.
@@ -1153,6 +1168,21 @@ export function useDeckeChat(
               // → `ok` is one row changing, in the position it first appeared.
               emitToolChip(chip)
             },
+            onMeterRefused: (toolCallId, scope) =>
+              // The row already exists — the refusal chip arrives before the
+              // output that names its scope — so this annotates it in place.
+              setMessages((m) =>
+                m.map((x) =>
+                  x.id === replyId
+                    ? {
+                        ...x,
+                        parts: x.parts.map((p) =>
+                          p.kind === 'tool' && p.chip.id === toolCallId ? { ...p, chip: { ...p.chip, meter: scope } } : p,
+                        ),
+                      }
+                    : x,
+                ),
+              ),
             onApprovalPreview: (preview) => {
               // A REF, not state, and keyed by `toolCallId` rather than by
               // arrival order. The card opens after the leg has closed, so a
@@ -1172,35 +1202,14 @@ export function useDeckeChat(
                 allowance: lowAt != null && lowAt > 0 ? Math.ceil(lowAt / LOW_FRACTION) : balance,
                 ...(lowAt != null ? { lowAt } : {}),
               }),
-            onHttpError: (status) => {
+            onHttpError: (status, body) => {
               // TONE CARRIES THE DIFFERENCE THE WORDS ALONE DID NOT. A limit is
               // not a fault: it sends someone to a top-up, where a fault sends
               // them to support, and telling them the wrong one wastes their
-              // time in a way that feels like being lied to.
-              const n =
-                status === 503
-                  ? { tone: 'neutral' as const, title: "I'm not switched on for this deployment yet." }
-                  : status === 401
-                    ? { tone: 'neutral' as const, title: 'You need to be signed in for me to help.' }
-                    : status === 403
-                      ? { tone: 'neutral' as const, title: "I'm not available on this account yet." }
-                      : status === 413
-                        // SEC-04's bound, and the one a person can reach by
-                        // pasting something enormous. Refused before the meter,
-                        // so nothing was spent and nothing was written.
-                        ? { tone: 'neutral' as const, title: "That's more than I can read in one go.", detail: 'Nothing was sent. Try something shorter.' }
-                        : status === 429
-                          ? {
-                              tone: 'limit' as const,
-                              title: "I'm out for now.",
-                              detail: 'Top up and I can pick this straight back up.',
-                            }
-                          : {
-                              tone: 'error' as const,
-                              title: 'Something went wrong reaching my brain.',
-                              detail: 'Nothing was written. Try that again in a moment.',
-                            }
-              noticeInstead(n)
+              // time in a way that feels like being lied to. The ACTION carries
+              // the rest — which top-up, or a retry, or nothing. `httpNotice`
+              // reads the refusal body for which one; see its header.
+              noticeInstead(httpNotice(status, body))
               decke.setState('alert_error', { mode: 'once' })
               movedRef.current = true
             },
@@ -1216,7 +1225,8 @@ export function useDeckeChat(
               noticeInstead({
                 tone: 'error',
                 title: 'That one did not go through.',
-                detail: 'Nothing was written. Ask me again and I will pick it up.',
+                detail: 'Nothing was written.',
+                action: 'retry',
               })
             }
             decke.setState('alert_error', { mode: 'once' })
@@ -1537,6 +1547,7 @@ export function useDeckeChat(
                 tone: 'limit',
                 title: 'I ran out of steps there.',
                 detail: 'Ask me again and I can pick it up.',
+                action: 'retry',
               })
             }
             decke.setState('alert_error', { mode: 'once' })
@@ -1562,7 +1573,8 @@ export function useDeckeChat(
           noticeInstead({
             tone: 'error',
             title: 'I could not reach my brain just then.',
-            detail: 'Check your connection and ask me again.',
+            detail: 'Check your connection, then try again.',
+            action: 'retry',
           })
           decke.setState('alert_error', { mode: 'once' })
         }
@@ -1793,7 +1805,11 @@ type LegHandlers = {
   onCommands: (commands: WireCommand[]) => Promise<void>
   onScreen: (screen: ScreenSpec) => void
   onToolChip: (chip: ToolChip) => void
-  onHttpError: (status: number) => void
+  /** A refused request, with its JSON body when it had one — see `httpNotice`. */
+  onHttpError: (status: number, body: RefusalBody) => void
+  /** The meter refused this call. Marks its row so it offers the way out that
+   *  exists (a top-up, the wallet) instead of "Try again". */
+  onMeterRefused?: (toolCallId: string, scope: 'cap' | 'hold' | 'credits') => void
   /** The balance, whenever the server reported one. `-1` never reaches here. */
   onCredits: (balance: number, lowAt: number | null) => void
 }
@@ -1954,11 +1970,13 @@ const APPROVAL_PHRASE: Record<string, string> = {
   // doing research to plan out a good deck."*
   //
   // So these say what the WORK is. That it costs more is a separate sentence on
-  // the card (`DEEP_COST_NOTE`), because it is a different fact and cramming it
+  // the card (`deepCostLine`), because it is a different fact and cramming it
   // into the question makes the question about our accounting rather than about
   // their deck.
   plan_deck: 'do the research and build this deck properly',
-  write_strategy_guide: 'save the strategy guide I just wrote',
+  // WRITE, not "save … I just wrote": nothing is written until Go ahead, and
+  // the spend happens then too (UXD-07). The headline said the opposite.
+  write_strategy_guide: 'write a full strategy guide for this deck',
   analyze_collection: 'dig properly through your whole collection',
   research_meta: 'go and research what the meta looks like right now',
 }
@@ -2069,12 +2087,10 @@ async function streamLeg(
   if (!res.ok || !res.body) {
     // The body carries the balance on a credit refusal, because the header is
     // written by the streaming path and this response never reached it.
-    const body = (await res.json().catch(() => null)) as
-      | { credits?: { balance?: number } }
-      | null
+    const body = (await res.json().catch(() => null)) as RefusalBody
     const bal = body?.credits?.balance
     if (typeof bal === 'number' && Number.isFinite(bal)) handlers.onCredits(bal, null)
-    handlers.onHttpError(res.status)
+    handlers.onHttpError(res.status, body)
     out.refused = true
     return out
   }
@@ -2232,6 +2248,11 @@ async function streamLeg(
           part.output,
         )
         if (refusal && out.refusals.length < MAX_REPLAYED_REFUSALS) out.refusals.push(refusal)
+        // And its ROW, whose "Try again" would resend the whole question into
+        // the same refusal. Read off the same server-minted marker, so no
+        // amount of prose can set it.
+        const scope = meterRefusalScope(part.output)
+        if (scope) handlers.onMeterRefused?.(part.toolCallId, scope)
       } else if (
         part.type === 'tool-input-available' &&
         typeof part.toolCallId === 'string' &&

@@ -82,9 +82,23 @@ test('an unrecovered failure outlives any number of later lookups (Astra, second
   ]
   const { evidence } = windowPrior(prior)
   assert.ok(evidence.length <= EVIDENCE_MAX)
-  const tail = evidence.slice(-2).map((m) => m.parts[0])
-  assert.deepEqual(tail, [failed('battle_logs', 'f1'), failed('battle_logs', 'f2')], 'both failures, last')
+  const tail = evidence.slice(-2).map((m) => m.parts[0]!.toolCallId).sort()
+  assert.deepEqual(tail, ['f1', 'f2'], 'both failures, last')
   assert.ok(evidence.slice(0, -2).every((m) => !String(m.parts[0]!.text).includes('battle_logs')))
+})
+
+test('every open breaker survives, however many tools are failing (Astra, third pass)', () => {
+  // Thirteen tools, each failed in two turns, then a long quiet stretch. One
+  // message per failure would be 26 and a cap would cut a whole tool; one
+  // message per turn DEPTH carries all thirteen in two.
+  const tools = Array.from({ length: 13 }, (_, i) => `tool_${String.fromCharCode(97 + i)}`)
+  const prior = [0, 1].flatMap((turn) => [user(`q${turn}`), { role: 'assistant', parts: tools.map((t) => failed(t, `${t}-${turn}`)) }])
+  const { evidence } = windowPrior([...prior, ...chat(30)])
+  const breaker = evidence.filter((m) => m.parts.every((p) => p.state === 'output-error'))
+  assert.equal(breaker.length, 2)
+  for (const t of tools) {
+    assert.equal(breaker.filter((m) => m.parts.some((p) => p.type === `tool-${t}`)).length, 2, `${t} lost a turn`)
+  }
 })
 
 test('a success resets a tool, and only its own failures since then are carried', () => {
@@ -102,5 +116,5 @@ test('a tool that failed in many turns carries at most BREAKER_PER_TOOL of them'
   const prior = Array.from({ length: 10 }, (_, i) => [user(`q${i}`), { role: 'assistant', parts: [failed('battle_logs', `f${i}`)] }]).flat()
   const { evidence } = windowPrior([...prior, ...chat(30)])
   assert.equal(evidence.length, BREAKER_PER_TOOL)
-  assert.deepEqual(evidence.map((m) => m.parts[0]!.toolCallId), ['f6', 'f7', 'f8', 'f9'])
+  assert.deepEqual(evidence.map((m) => String(m.parts[0]!.toolCallId)).sort(), ['f6', 'f7', 'f8', 'f9'])
 })

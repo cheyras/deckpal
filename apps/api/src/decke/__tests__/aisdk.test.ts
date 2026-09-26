@@ -18,7 +18,9 @@ import {
   dataToolSummary,
   requiresApproval,
   safeToolError,
+  previewSummary,
   summariseError,
+  summariseText,
   wouldMutate,
 } from '../adapters/aisdk.js'
 
@@ -305,4 +307,90 @@ test('summariseError keeps the chip cap, and a one-line error is unchanged', () 
     'battle_logs failed: Internal server error',
   )
   assert.equal(summariseError({ isError: true, text: '' } as never), '')
+})
+
+// ── UXD-04: the approval card carries the dry run's operations ─────────────────
+
+/** A ctx whose only read is the create path's name-collision check. */
+const createCtx = {
+  userId: 'u1',
+  db: { query: () => Promise.reject(new Error('db should not be called')) },
+  api: {
+    base: 'https://example.test/api',
+    get: async (path: string) => {
+      assert.equal(path, '/decks', 'a dry run read something other than the collision check')
+      return { decks: [] }
+    },
+    send: () => Promise.reject(new Error('a DRY RUN wrote')),
+  },
+} as never
+
+test('a save_deck dry run reaches the card as its operations, not its header', async () => {
+  // Measured before this: the card read "DRY RUN — nothing executed. Would:" and
+  // nothing else, because the preview took the chip's first-line summary.
+  const saveDeck = allTools().find((t) => t.name === 'save_deck')
+  assert.ok(saveDeck, 'save_deck is gone from the tool set')
+  const result = await saveDeck.handler(
+    {
+      mode: 'create',
+      name: 'Dragapult ex / Dusknoir',
+      format: 'standard',
+      cards: [
+        { card_id: 'sv04-160', quantity: 1 },
+        { card_id: 'sv02-185', quantity: 4 },
+      ],
+      dry_run: true,
+    } as never,
+    createCtx,
+  )
+  const summary = previewSummary(result.text)
+  assert.doesNotMatch(summary, /DRY RUN/, 'the internal header still reaches the reader')
+  assert.doesNotMatch(summary, /dry_run/, 'an instruction to the model reached the reader')
+  assert.deepEqual(summary.split('\n'), [
+    "CREATE a new deck called 'Dragapult ex / Dusknoir' (standard)",
+    'add x1 sv04-160',
+    'add x4 sv02-185',
+  ])
+})
+
+test('an edit keeps every operation line, in order', () => {
+  // The edit branch's exact shape (`decks.ts`), which needs a resolved deck to
+  // produce for real — so the literal lines, and every one must survive.
+  const text = [
+    'DRY RUN — nothing executed. Would:',
+    "  EDIT your existing deck 'Dragapult ex / Dusknoir' (deck-drag), 22 distinct card(s) in it:",
+    '  remove x1 sv04-160',
+    '  set sv02-185 x3 → x4',
+    'Re-run with dry_run: false to execute.',
+  ].join('\n')
+  assert.deepEqual(previewSummary(text).split('\n'), [
+    "EDIT your existing deck 'Dragapult ex / Dusknoir' (deck-drag), 22 distinct card(s) in it:",
+    'remove x1 sv04-160',
+    'set sv02-185 x3 → x4',
+  ])
+})
+
+test('a dry run whose first line carries facts keeps them, without the preamble', () => {
+  assert.equal(
+    previewSummary('DRY RUN — nothing deleted. Would delete deck X (restorable afterwards).\nRe-run with dry_run: false to delete.'),
+    'Would delete deck X (restorable afterwards).',
+  )
+  assert.equal(
+    previewSummary('DRY RUN — nothing reverted. Would restore deck to v1 (60 cards):\n  + 1 Iono\nHistory is never deleted. Re-run with dry_run: false to execute.'),
+    'Would restore deck to v1 (60 cards):\n+ 1 Iono\nHistory is never deleted.',
+  )
+})
+
+test('a long dry run is cut at a row and SAYS how much it left out', () => {
+  const text = ['DRY RUN — nothing executed. Would:', ...Array.from({ length: 20 }, (_, i) => `  add x1 card-${i}`)].join('\n')
+  const lines = previewSummary(text).split('\n')
+  assert.equal(lines.length, 12)
+  assert.equal(lines[10], 'add x1 card-10')
+  assert.equal(lines[11], '…and 9 more')
+})
+
+test('anything that is not a dry run keeps the chip summary, unchanged', () => {
+  for (const text of ['Updated deck X:\n  remove x1 a', 'log_cards DRY RUN — 3 item(s)\n  + Pikachu', '']) {
+    assert.equal(previewSummary(text), summariseText(text))
+  }
 })

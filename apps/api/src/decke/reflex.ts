@@ -31,11 +31,13 @@
  * WHAT JEV SEES, AND WHEN
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Once per reader message — on the leg that carries it, never on approval or
- * browser-result legs, where the turn's intent has already been acted on. The
- * state is the reader's latest message, the reply before it (so "yes" and "go
- * ahead" have something to refer to), and the page path. Clipped: context rot
- * is a documented Jev weakness, and nothing older changes the answer.
+ * Once per request, from the reader's latest message: on the leg that carries
+ * it, and again on each browser-result or approval leg of the same turn — the
+ * server keeps nothing between requests, and a refusal said at the start of a
+ * turn must still hold on its third leg. Only the first leg may force. The
+ * state is that message, the reply before it (so "yes" and "go ahead" have
+ * something to refer to), and the page path. Clipped: context rot is a
+ * documented Jev weakness, and nothing older changes the answer.
  *
  * Every threshold below was chosen on the labelled set in `decke/eval/` so that
  * an action fires only where Jev was right every time on that set. Below
@@ -171,31 +173,40 @@ function textOf(m: WireLike | undefined): string {
 }
 
 /**
- * The reader's message and the reply before it — but only on the leg that
- * CARRIES the reader's message. Every later leg of a turn (a browser result,
- * an approval answer) ends on an assistant message, and the turn's intent was
- * read and acted on when it began: asking again would force a second consent
- * card for a turn that is already answering the first.
+ * The reader's latest message and the reply before it, and whether this
+ * request is the leg that CARRIES that message.
+ *
+ * Every later leg of a turn — a browser result, an approval answer — ends on
+ * an assistant message. The reader's words still govern it: a "no research"
+ * said at the start of the turn must still hold after a `goTo` comes back, and
+ * the server keeps nothing between requests, so the read is repeated from the
+ * same words (found by Astra in review). What a continuation must NOT do is
+ * force: the turn's consent card was raised on the first leg, and forcing
+ * again would raise a second one.
  */
-export function readerLeg(messages: readonly WireLike[]): { message: string; previousReply: string } | null {
-  const last = messages[messages.length - 1]
-  if (last?.role !== 'user') return null
-  const message = textOf(last)
+export function readerLeg(
+  messages: readonly WireLike[],
+): { message: string; previousReply: string; continuation: boolean } | null {
+  let at = messages.length - 1
+  while (at >= 0 && messages[at]?.role !== 'user') at--
+  if (at < 0) return null
+  const message = textOf(messages[at])
   if (!message.trim()) return null
   let previousReply = ''
-  for (let i = messages.length - 2; i >= 0; i--) {
+  for (let i = at - 1; i >= 0; i--) {
     if (messages[i]?.role === 'assistant') {
       previousReply = textOf(messages[i])
       break
     }
     if (messages[i]?.role === 'user') break
   }
-  return { message, previousReply }
+  return { message, previousReply, continuation: at !== messages.length - 1 }
 }
 
 /**
  * Read the reader, or return today's harness. Never throws, never waits past
- * the deadline `jev.ts` holds it to.
+ * the deadline `jev.ts` holds it to. On a continuation leg the refusals and
+ * the hidden walk carry over; the forced first step does not.
  */
 export async function readReflex(
   messages: readonly WireLike[],
@@ -204,11 +215,12 @@ export async function readReflex(
 ): Promise<Reflex> {
   const leg = readerLeg(messages)
   if (!leg) return NO_REFLEX
-  const judged = await evaluate(reflexState({ ...leg, route }), REFLEX_QUESTIONS, {
+  const judged = await evaluate(reflexState({ message: leg.message, previousReply: leg.previousReply, route }), REFLEX_QUESTIONS, {
     key: opts.key,
-    label: 'reflex',
+    label: leg.continuation ? 'reflex-continuation' : 'reflex',
     ...(opts.signal ? { signal: opts.signal } : {}),
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
   })
-  return reflexFrom(judged?.answers)
+  const reflex = reflexFrom(judged?.answers)
+  return leg.continuation ? { ...reflex, force: null } : reflex
 }

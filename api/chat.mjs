@@ -520,7 +520,7 @@ async function serve(request) {
     // can offer the top-up instead.
     return meter.credits
       ? json(
-          { error: meter.held ? 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.' : outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed } },
+          { error: meter.held ? 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.' : outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed, held: meter.held === true } },
           429,
         )
       : json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
@@ -532,9 +532,11 @@ async function serve(request) {
   // What the reader is asking for, judged by Jev before the model runs: a
   // collection change forces the first step to raise the real consent card, a
   // walk to a list or deck takes `escort` out of view, and a "no" said in words
-  // counts as a decline. Once per reader message, AFTER the meter — this is a
-  // Gateway call, and nothing reaches the Gateway unpaid — and under a hard
-  // deadline. On a timeout, an error, a low-confidence answer or `DECKE_JEV`
+  // counts as a decline. On every leg, from the reader's latest words — the
+  // server keeps nothing between requests, and a refusal must still hold after
+  // a browser result comes back — but only the leg carrying those words may
+  // force. AFTER the meter — this is a Gateway call, and nothing reaches the
+  // Gateway unpaid — and under a hard deadline. On a timeout, an error, a low-confidence answer or `DECKE_JEV`
   // off, it is `NO_REFLEX`, which is this function exactly as it was.
   //
   // Not the classifier turn the deep tier's comment below rejects: that was an

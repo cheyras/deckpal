@@ -1248,7 +1248,8 @@ api/chat.mjs          the standalone serverless brain
 ```
 
 **Judgments ride under the words.** `DECKE_JEV=on` adds one typed evaluation
-per reader message (`reflex.ts`, ~0.3 s, ~$0.00004): it can pin step one to
+of the reader's latest message per request (`reflex.ts`, ~0.3 s, ~$0.00004): on
+the leg carrying that message it can pin step one to
 `log_cards` — which only ever raises the signed consent card — hide `escort`,
 and add a spoken refusal to the declined ledger. Every answer acts only above a
 threshold chosen on `eval/judgments.json`; a timeout, an error or a low answer
@@ -1466,6 +1467,14 @@ because an omitted variant on a multi-printing card resolves *successfully* to
 the primary, so a status-keyed field would file exactly the row worth asking
 about under "known". `pickVariant`'s silent-default semantics are unchanged and
 pinned by a test; the classification is a new field beside it.
+
+Every other held write gets the same keyed preview, read-only: its `summary` is
+the dry run's operation lines with the model-facing preamble and re-run
+instruction removed (`previewSummary` in `adapters/aisdk.ts`), and the card
+draws them as rows with the catalogue's own card name and art (`DryRunList`).
+A `save_deck` reconcile is therefore approved against the cards it will
+remove and re-count, not against the bare "DRY RUN — nothing executed" header
+it used to show.
 
 That card **cannot** be expressed through the approval protocol above, and this
 is the load-bearing consequence: the SDK signs over the held input, so any
