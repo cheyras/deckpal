@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { cardImages, q, q1, toMajor } from '../db.js';
-import { asyncHandler, clampInt, notFound, oneOf, str, strList, userCache } from '../http.js';
+import { asyncHandler, catalogOrUserCache, clampInt, notFound, oneOf, str, strList } from '../http.js';
 import { optionalUserId } from '../identity.js';
 import { pct } from '../insights/trainerLevel.js';
 import { GOALS, type Goal } from '../missing.js';
@@ -268,7 +268,10 @@ setsRouter.get(
     const official = set.card_count_official ?? total;
     const totalRows = rows.length ? Number(rows[0]!.total_rows) : 0;
 
-    userCache(res);
+    // Public catalog shape when nobody is signed in — safe for a shared cache
+    // (PERF-02). See catalogOrUserCache in http.ts for the Vary: Authorization
+    // reasoning that keeps a signed-in caller from ever seeing this cached copy.
+    catalogOrUserCache(res, userId);
     res.json({
       set: {
         setId: set.tcgdex_id,

@@ -104,9 +104,15 @@ omit the host.
   charge). Budgets are in-memory fixed windows, per process / per serverless
   instance, reset on cold start — speed bumps against retry storms and casual
   abuse, not a distributed quota. See `SECURITY.md` → Rate limiting.
-- **Caching.** Pure-catalog responses (`/series` list, `/search`, the `/` index)
-  send `Cache-Control: public, max-age=…`. Anything mixing in the user's
-  collection or prices sends `private, no-cache, must-revalidate`.
+- **Caching.** `/series`, `/series/:seriesSlug`, `/sets/:setId`, `/cards/:cardId`,
+  and `/search` all embed the caller's ownership when there is a caller, so the
+  same URL answers differently signed in vs. signed out. A genuinely anonymous
+  request (no `Authorization` header, or one that failed verification) gets
+  `Cache-Control: public, max-age=…, stale-while-revalidate=600` plus
+  `Vary: Authorization`, so a shared cache never hands that body to a request
+  that *does* carry a credential; `/search` has no personalization branch at
+  all, so it's unconditionally public with no `Vary` needed. Anyone signed in
+  gets `private, no-cache, must-revalidate` on all four, exactly as before.
 
 ## Authentication
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { cardImages, dbHandle, q, q1, shapePrice, tcgplayerUrl, toMajor, type PriceRow } from '../db.js';
-import { asyncHandler, notFound, oneOf, userCache } from '../http.js';
+import { asyncHandler, catalogOrUserCache, notFound, oneOf, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
 import { cardLegality, formatConfig, loadByTcgdexId, buildReprintOracle } from '../deck/index.js';
 
@@ -205,7 +205,12 @@ cardsRouter.get(
     }
 
     const total = card.card_count_official ?? undefined;
-    userCache(res);
+    // Public catalog shape when nobody is signed in — safe for a shared cache
+    // (PERF-02). `/legality` and `/prices` below never call optionalUserId at
+    // all — there is no per-caller branch to select on — so they are left on
+    // plain userCache() here; making those always-public too is a separate,
+    // smaller change than this route's fix.
+    catalogOrUserCache(res, userId);
     res.json({
       card: {
         cardId: card.tcgdex_id,
