@@ -5,6 +5,7 @@ import path from 'node:path'
 import { chromium } from 'playwright'
 import { ROOT, WEB, run, buildWeb, isolatedEnv, serve, contextFor } from '../tests/browser/support.mjs'
 import { appResponses, announcement, checkUpcoming } from '../tests/browser/upcoming.mjs'
+import { checkRouteSplit } from '../tests/browser/routeSplit.mjs'
 import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
@@ -33,6 +34,7 @@ try {
       logs.push(buildWeb(dist, label === 'cloud', server.origin))
       assets.push({ label, ...checkDeployAssets(dist) })
       results.push(...await checkUpcoming(browser, server, mount, label, out))
+      results.push(...await checkRouteSplit(browser, server, mount, label, out))
       for (scenario of ['expired', 'catalogued']) {
         const { context, page } = await contextFor(browser, server, 390)
         try {

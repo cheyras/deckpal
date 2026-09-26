@@ -500,6 +500,12 @@ That is what keeps this deployment within PCI SAQ-A. It is a property of the
 code rather than a promise: self-hosting Stripe.js would break the iframe origin
 and is therefore forbidden, not merely discouraged.
 
+Stripe.js is fetched only when a payment surface calls `loadStripe`:
+`lib/billing.ts` imports `@stripe/stripe-js/pure`. Until 2026-09-26 it imported
+the package's main entry, which injects the script as a side effect of being
+imported, so every page load, signed out or not, fetched Stripe.js and opened
+Stripe's `m.stripe.network` fraud-signals frame (PERF-01).
+
 ### The webhook's signature is its only authentication, and there is no fallback
 
 `POST /api/stripe/webhook` is unauthenticated by necessity — Stripe holds no
