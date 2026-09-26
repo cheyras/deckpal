@@ -140,6 +140,27 @@ export function ThinkingRow({
 }
 
 /**
+ * What the row says while the turn is waiting on the READER, not on him.
+ *
+ * *"Working ⟳ 12.1s"* was on screen for as long as an approval card was up —
+ * photographed at 390 six seconds in, with the Stop button beside it. Every
+ * word of that was false: nothing was running, the counter was timing the
+ * reader's own hesitation, and a ring that travels is the one signal this file
+ * built to mean "I am still doing something". The truthful status is the
+ * opposite one, and it is static on purpose — no ring, no clock — because a
+ * wait that belongs to you should not look like progress somebody else is
+ * making. The arrow points at the card, which is where the answer goes.
+ */
+export function WaitingRow(): JSX.Element {
+  return (
+    <div className="flex items-center gap-[8px] text-[12px] leading-[18px] text-text-muted">
+      <Icon name="arrow-down" size={13} className="shrink-0 text-action-primary" />
+      <ThinkingLabel label="Waiting for your OK" />
+    </div>
+  )
+}
+
+/**
  * The status line, and the only live region in this component.
  *
  * `aria-atomic` so a label change is read as a whole phrase rather than as a
