@@ -176,9 +176,21 @@ async function send<T>(
  * while genuinely offline — exactly the false confidence this probe exists to
  * rule out. `/me` isn't on that list, so the service worker always sends it
  * to the network.
+ *
+ * `redirect: 'manual'`, so this never actually follows one: self-host's
+ * supported reverse-proxy-auth deployment (AGENTS.md, "Environment setup")
+ * turns an expired session into a 3xx to a cross-origin login page — the
+ * same shape `sw.ts`'s SSO guard exists for. Default `fetch` behavior
+ * FOLLOWS that redirect, and a login page with no CORS headers for this
+ * origin makes the followed request reject — reporting a perfectly reachable
+ * proxy as offline, forever (this hook retries on a timer). `redirect:
+ * 'manual'` stops at the 3xx itself: fetch resolves with an opaque
+ * `type: 'opaqueredirect'` response instead of throwing, which is exactly
+ * the reachability evidence this probe is asking for — the response is never
+ * read, so an opaque body is no loss.
  */
 function pingReachable(signal: AbortSignal): Promise<Response> {
-  return fetch(`${BASE}/me`, { method: 'GET', cache: 'no-store', signal })
+  return fetch(`${BASE}/me`, { method: 'GET', cache: 'no-store', redirect: 'manual', signal })
 }
 
 /**
