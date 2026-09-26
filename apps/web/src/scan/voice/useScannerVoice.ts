@@ -59,9 +59,13 @@ export interface ScannerVoiceOptions {
   inFlight: (captureId: string) => boolean
   /** A command just landed on this row — bring it into view. */
   onTarget?: (rowId: string) => void
+  /** Undo put a removed row back. Its printings may have been looked up while
+   *  it was out of the list, and the lookup fills only rows that are present,
+   *  so the caller asks again (from its cache). */
+  onRowRestored?: (row: FeedEntry) => void
 }
 
-export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFlight, onTarget }: ScannerVoiceOptions) {
+export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFlight, onTarget, onRowRestored }: ScannerVoiceOptions) {
   const supported = useMemo(() => typeof window !== 'undefined' && speechRecognitionCtor(window) !== null, [])
   const [status, setStatus] = useState<VoiceStatus>('idle')
   const [detail, setDetail] = useState<string | null>(null)
@@ -82,11 +86,11 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
   const greetedRef = useRef(false)
   // The latest callbacks, read from inside recognizer events that were bound
   // once — the same reason Scan.tsx mirrors its feed into a ref.
-  const cbRef = useRef({ lastCaptureId, inFlight, onTarget, setFeed })
+  const cbRef = useRef({ lastCaptureId, inFlight, onTarget, onRowRestored, setFeed })
   useLayoutEffect(() => {
     feedRef.current = feed
     enabledRef.current = enabled
-    cbRef.current = { lastCaptureId, inFlight, onTarget, setFeed }
+    cbRef.current = { lastCaptureId, inFlight, onTarget, onRowRestored, setFeed }
   })
 
   const commitQueue = useCallback((next: VoiceQueue) => {
@@ -168,6 +172,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       const record = r.reverted
       feedRef.current = revert(feedRef.current, record)
       cbRef.current.setFeed((prev) => revert(prev, record))
+      if (record.kind === 'remove') cbRef.current.onRowRestored?.(record.row)
       show('info', `Undid: ${record.label}`)
     } else show('refused', 'Nothing to undo')
   }, [commitQueue, show])
@@ -252,7 +257,10 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
   useEffect(() => {
     const rec = recRef.current
     if (enabled) {
-      if (resumeRef.current && rec) {
+      // Not while the page is hidden (a commit can return the reader to the
+      // scan step after they have switched away): the flag stays set, and the
+      // visibility handler below resumes when they come back.
+      if (resumeRef.current && rec && document.visibilityState === 'visible') {
         resumeRef.current = false
         rec.start()
       }

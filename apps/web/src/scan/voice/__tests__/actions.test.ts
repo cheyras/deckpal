@@ -252,4 +252,10 @@ describe('naming', () => {
     const feed = [row('r1', { name: 'Old' }), row('u', { cardId: null, name: 'Unidentified card' }), row('r2', { name: 'New' })]
     assert.deepEqual(namedRows(feed), [{ id: 'r2', name: 'New' }, { id: 'r1', name: 'Old' }])
   })
+
+  it('orders by when the card was SCANNED, not when its row landed', () => {
+    // Two Charizards identified out of order: the later scan landed first.
+    const feed = [row('late', { name: 'Charizard', capturedAt: 2_000 }), row('early', { name: 'Charizard', capturedAt: 1_000 })]
+    assert.deepEqual(namedRows(feed).map((r) => r.id), ['late', 'early'])
+  })
 })

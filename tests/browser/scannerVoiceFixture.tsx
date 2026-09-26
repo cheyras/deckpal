@@ -19,6 +19,7 @@ declare global {
       setEnabled: (on: boolean) => void
       unmount: () => void
       feed: () => FeedEntry[]
+      restored: string[]
     }
   }
 }
@@ -57,6 +58,7 @@ function Scanner() {
     setFeed,
     lastCaptureId: () => last.current,
     inFlight: (id) => inFlight.current === id,
+    onRowRestored: (row) => window.harness.restored.push(row.id),
   })
   Object.assign(window.harness, {
     setLast: (id: string | null) => (last.current = id),
@@ -112,5 +114,5 @@ function Root() {
   return mounted ? <Scanner /> : <p>unmounted</p>
 }
 
-window.harness = {} as Window['harness']
+window.harness = { restored: [] as string[] } as Window['harness']
 createRoot(document.getElementById('root')!).render(<Root />)

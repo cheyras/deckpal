@@ -81,12 +81,16 @@ export interface Outcome {
   message: string
 }
 
-/** The rows a reader can name, most recent first. An unidentified row has no
- *  name to say, so it is reachable only as "that one". */
+/** The rows a reader can name, most recently SCANNED first. That is the
+ *  shutter's order (`capturedAt`), not the list's: rows are appended as their
+ *  identity settles, and two captures of one card can settle out of order. An
+ *  unidentified row has no name to say, so it is reachable only as "that one". */
 export function namedRows(feed: readonly FeedEntry[]): NamedRow[] {
-  const out: NamedRow[] = []
-  for (let i = feed.length - 1; i >= 0; i--) if (feed[i].cardId) out.push({ id: feed[i].id, name: feed[i].name })
-  return out
+  return feed
+    .filter((e) => e.cardId)
+    .map((e, order) => ({ e, order }))
+    .sort((a, b) => b.e.capturedAt - a.e.capturedAt || b.order - a.order)
+    .map(({ e }) => ({ id: e.id, name: e.name }))
 }
 
 const rowName = (row: FeedEntry | undefined) => (row?.cardId ? row.name : 'That scan')

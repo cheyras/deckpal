@@ -155,6 +155,7 @@ try {
     assert.deepEqual(await page.locator('[data-entry-state] .fe-name').allTextContents(), ['Exeggcute', 'Charizard'])
     await page.locator('[data-voice-caption="done"]').getByRole('button', { name: 'Undo' }).click()
     assert.deepEqual(await page.locator('[data-entry-state] .fe-name').allTextContents(), ['Exeggcute', 'Charizard', 'Venonat'])
+    assert.deepEqual(await page.evaluate('window.harness.restored'), ['cap-3'], 'a restored row asks for its printings again')
     // "Undo" by voice walks back the next applied change: Charizard's count.
     await say(page, 'undo')
     await page.clock.runFor(100)
@@ -201,8 +202,15 @@ try {
     await row(3).locator('[data-voice-pending]').waitFor({ state: 'detached' })
     assert.equal((await row(3).locator('.tabular-nums').textContent())?.trim(), '3')
     assert.equal((await speech(page)).live, false)
+    // Back on the scan step while the page is hidden (a commit finishing after
+    // the reader switched away): no microphone until the page is shown.
+    await page.evaluate(visibility('hidden'))
+    const startsBack = (await speech(page)).starts
     await harness(page, 'setEnabled', true)
-    await until(async () => (await speech(page)).live, 'back on the scan step, listening resumes')
+    await page.waitForTimeout(300)
+    assert.equal((await speech(page)).starts, startsBack, 'no session while hidden')
+    await page.evaluate(visibility('visible'))
+    await until(async () => (await speech(page)).live, 'shown again on the scan step, listening resumes')
     await drive(page, 'open')
 
     // An engine that ends every session at once is given up on, and says why.

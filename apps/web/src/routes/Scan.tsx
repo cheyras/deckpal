@@ -341,6 +341,11 @@ export function Scan() {
     lastCaptureId: () => lastCaptureIdRef.current,
     inFlight: (id) => identitiesRef.current.has(id),
     onTarget: (rowId) => setScrollTo((s) => ({ id: rowId, signal: s.signal + 1 })),
+    // `loadVariants` answers from its cache, and fills only rows still waiting
+    // for their printings — a row restored by Undo, here.
+    onRowRestored: (row) => {
+      if (row.cardId) void loadVariants(row.cardId)
+    },
   })
   const [voicePrimerOpen, setVoicePrimerOpen] = useState(false)
   const requestVoice = () => {
