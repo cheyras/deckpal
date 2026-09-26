@@ -109,11 +109,11 @@ test('the confirmation card is HANDED the restatement, not just able to show one
 test('the confirmation card is HANDED the price, and the host hands the panel the prices', () => {
   // UXD-07: a 75-credit guide approved with 40 in the wallet, refused a second
   // later. `deepCost` is tested on its own; this is the wiring that goes missing.
-  assert.match(PANEL, /cost=\{deepCost\(asking\[0\]\.name, prices, credits\?\.remaining\)\}/,
+  assert.match(PANEL, /cost=\{deepCost\(asking\[0\]\.name, quote\)\}/,
     'ApprovalCard is no longer given the price')
   assert.match(PANEL, /onTopUp=\{onTopUp\}\s*\/>/, 'a short balance has nowhere to go')
-  assert.match(HOST, /prices=\{wallet\.data\?\.enabled && !wallet\.data\.unlimited \? wallet\.data\.prices : null\}/,
-    'the host no longer passes the wallet prices, or quotes an uncharged account')
+  assert.match(HOST, /quote=\{wallet\.data\?\.enabled && !wallet\.data\.unlimited\s*\? \{ \.\.\.wallet\.data\.prices, balance: chat\.credits\?\.remaining \?\? wallet\.data\.balance \}\s*: null\}/,
+    'the host no longer passes the wallet prices with the freshest balance, or quotes an uncharged account')
 })
 
 test('a standalone arrival closes the chat; a hop inside a walk does NOT', () => {

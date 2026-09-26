@@ -363,12 +363,30 @@ export async function checkDeckeStates(browser, server, out, engine) {
         'Go ahead': card.getByRole('button', { name: 'Go ahead' }), headline: card.locator('p').first(), rows: card.locator('[data-decke-dry-run]') }, tag + ' approval')
       await page.screenshot({ path: path.join(out, 'decke-approval-' + tag + '.png') })
 
+      // The longest preview the server sends: twelve lines. The list scrolls;
+      // the question and both answers stay on screen and clear of him.
+      const long = ["CREATE a new deck called 'Everything Deck' (standard)",
+        ...Array.from({ length: 10 }, (_, i) => `add x4 fixture-${i}`), '…and 9 more'].join('\n')
+      await set(page, { preview: { toolCallId: 'save-1', tool: 'save_deck', title: 'Create or edit a deck', summary: long, ok: true, editable: false, rows: [], skipped: [] } })
+      const list = card.locator('[data-decke-dry-run]')
+      assert.ok(await list.evaluate(el => el.scrollHeight > el.clientHeight + 1), 'twelve lines did not become a scrolling region')
+      const viewportH = await page.evaluate(() => innerHeight)
+      for (const name of ['Leave it', 'Go ahead']) {
+        const b = await rect(card.getByRole('button', { name }))
+        assert.ok(b.top >= 0 && b.bottom <= viewportH, `${name} is off screen under a long preview`)
+      }
+      await assertClear(page, width, { 'Leave it': card.getByRole('button', { name: 'Leave it' }),
+        'Go ahead': card.getByRole('button', { name: 'Go ahead' }), headline: card.locator('p').first() }, tag + ' long approval')
+      await page.screenshot({ path: path.join(out, 'decke-approval-long-' + tag + '.png') })
+
       // ── A 75-credit deep call with 40 in the wallet (UXD-07) ────────────
-      await set(page, { prices: { analysis: 4, planDeck: 75 }, preview: null,
+      const QUOTE = { analysis: 4, planDeck: 75, chatTurn: 1 }
+      await set(page, { quote: { ...QUOTE, balance: 40 }, preview: null,
         asking: [{ approvalId: 'ap-2', toolCallId: 'guide-1', title: 'Write a full strategy guide for this deck', name: 'write_strategy_guide',
           input: { deck: 'Dragapult ex / Dusknoir', no_research: true } }] })
       const cost = card.locator('[data-decke-approval-cost]')
-      assert.equal(await cost.innerText(), 'This needs 75 credits and you have 40.')
+      // 75 for the guide plus the 1-credit turn that answering the card sends.
+      assert.equal(await cost.innerText(), 'This needs 76 credits and you have 40.')
       assert.equal(await card.getByRole('button', { name: 'Go ahead' }).count(), 0, 'a guaranteed refusal is still offered')
       await card.getByText('no research behind it this time — the guide will say so', { exact: false }).waitFor()
       assert.doesNotMatch(await cost.innerText(), /research/, 'the price line contradicts the no-research line')
@@ -380,11 +398,14 @@ export async function checkDeckeStates(browser, server, out, engine) {
       const after = await page.evaluate(() => window.fixture.events)
       assert.equal(after.denies, before.denies + 1, 'Top up left the held call waiting')
       assert.equal(after.topUps, before.topUps + 1)
-      await set(page, { credits: { remaining: 400, allowance: 1000 } })
-      assert.equal(await cost.innerText(), 'This takes longer than a normal answer and uses 75 credits of your 400.')
+      // Exactly the guide's price is still short: the continuation turn comes first.
+      await set(page, { quote: { ...QUOTE, balance: 75 } })
+      assert.equal(await card.getByRole('button', { name: 'Go ahead' }).count(), 0, 'offered a yes the meter refuses at 75')
+      await set(page, { quote: { ...QUOTE, balance: 400 } })
+      assert.equal(await cost.innerText(), 'This takes longer than a normal answer and uses 76 credits of your 400.')
       await card.getByRole('button', { name: 'Go ahead' }).waitFor()
       // Credits off, or an unlimited account: no number at all.
-      await set(page, { prices: null })
+      await set(page, { quote: null })
       assert.doesNotMatch(await cost.innerText(), /\d/)
 
       // ── Notices that carry their way forward (UXD-08) ───────────────────

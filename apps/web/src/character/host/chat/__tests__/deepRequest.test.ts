@@ -188,17 +188,26 @@ test('without no_research the warning does not appear', () => {
 // the call costs and what they have — and when there is no honest number, it
 // falls back to the sentence above rather than printing a guess.
 
-const PRICES = { analysis: 4, planDeck: 75 }
+const Q = { analysis: 4, planDeck: 75, chatTurn: 1 }
 
-test('each deep tool is priced from the wallet exactly as the server charges it', () => {
-  assert.deepEqual(deepCost('write_strategy_guide', PRICES, 40), { credits: 75, balance: 40 })
-  assert.deepEqual(deepCost('plan_deck', PRICES, 400), { credits: 75, balance: 400 })
-  assert.deepEqual(deepCost('analyze_collection', PRICES, 40), { credits: 4, balance: 40 })
-  assert.deepEqual(deepCost('research_meta', PRICES, 40), { credits: 4, balance: 40 })
+test('each deep tool is priced from the wallet exactly as the server charges it, plus the turn that answers it', () => {
+  // Answering the card sends a continuation request, metered as a chat turn
+  // BEFORE the deep call is charged — so "Go ahead" costs price + one turn.
+  assert.deepEqual(deepCost('write_strategy_guide', { ...Q, balance: 40 }), { credits: 76, balance: 40 })
+  assert.deepEqual(deepCost('plan_deck', { ...Q, balance: 400 }), { credits: 76, balance: 400 })
+  assert.deepEqual(deepCost('analyze_collection', { ...Q, balance: 40 }), { credits: 5, balance: 40 })
+  assert.deepEqual(deepCost('research_meta', { ...Q, balance: 40 }), { credits: 5, balance: 40 })
   // An ordinary write with a restatement line is not a deep call and is not
   // charged as one.
-  assert.equal(deepCost('deck_strategy', PRICES, 40), null)
-  assert.equal(deepCost('log_cards', PRICES, 40), null)
+  assert.equal(deepCost('deck_strategy', { ...Q, balance: 40 }), null)
+  assert.equal(deepCost('log_cards', { ...Q, balance: 40 }), null)
+})
+
+test('a balance of exactly the guide price is short — the review finding', () => {
+  // 76 before the first leg, 1 spent on it, 75 left: the continuation turn
+  // takes one more and the guide is refused at 74.
+  assert.equal(isShort(deepCost('write_strategy_guide', { ...Q, balance: 75 })), true)
+  assert.equal(isShort(deepCost('write_strategy_guide', { ...Q, balance: 76 })), false)
 })
 
 test('the client price table is the server one — read from its source', () => {
@@ -214,9 +223,9 @@ test('the client price table is the server one — read from its source', () => 
 
 test('no honest number means no number', () => {
   // Credits switched off or unlimited (no prices), or a wallet not loaded yet.
-  assert.equal(deepCost('plan_deck', null, 40), null)
-  assert.equal(deepCost('plan_deck', PRICES, null), null)
-  assert.equal(deepCost('plan_deck', { analysis: 4, planDeck: 0 }, 40), null)
+  assert.equal(deepCost('plan_deck', null), null)
+  assert.equal(deepCost('plan_deck', { ...Q, balance: null }), null)
+  assert.equal(deepCost('plan_deck', { ...Q, planDeck: 0, balance: 40 }), null)
   assert.equal(deepCostLine(null), DEEP_COST_NOTE)
 })
 

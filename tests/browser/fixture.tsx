@@ -9,13 +9,13 @@ import { openerStore, readLastSaid } from '../../apps/web/src/character/host/dec
 import { SUBHEADS } from '../../apps/web/src/character/host/deckeVoice'
 import type { PendingApproval } from '../../apps/web/src/character/host/approval'
 import type { ApprovalPreview } from '../../apps/web/src/character/host/chat/approvalCardState'
-import type { DeepPrices } from '../../apps/web/src/character/host/chat/deepRequest'
+import type { DeepQuote } from '../../apps/web/src/character/host/chat/deepRequest'
 
 // Test-only entry: actual components, no host/WebGL/model or production route.
 const events = { closes: 0, sends: [] as string[], topUps: 0, retries: [] as string[], approves: 0, denies: 0 }
 type FixtureState = { open: boolean; busy: boolean; messages: ChatMessage[]; credits: { remaining: number; allowance: number }
   /** A held call and its dry run, for the approval card's geometry and rows. */
-  asking: PendingApproval[] | null; preview: ApprovalPreview | null; prices: DeepPrices | null }
+  asking: PendingApproval[] | null; preview: ApprovalPreview | null; quote: DeepQuote | null }
 declare global {
   interface Window {
     fixture: { events: typeof events; set: (patch: Partial<FixtureState>) => void; expectedSubhead: () => string | undefined }
@@ -25,7 +25,7 @@ declare global {
 }
 function Fixture() {
   const [state, setState] = useState<FixtureState>({ open: true, busy: false, messages: [],
-    credits: { remaining: 2, allowance: 100 }, asking: null, preview: null, prices: null })
+    credits: { remaining: 2, allowance: 100 }, asking: null, preview: null, quote: null })
   window.fixture = { events, set: patch => setState(s => ({ ...s, ...patch })),
     expectedSubhead: () => SUBHEADS.find(s => s.id === readLastSaid(openerStore()).subheadId)?.text }
   if (location.search.includes('screen')) return <main style={{ maxWidth: 700, padding: 24 }}>

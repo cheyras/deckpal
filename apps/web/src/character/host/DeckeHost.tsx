@@ -1935,8 +1935,13 @@ function settledRect(el: HTMLElement): DOMRect {
         credits={wallet.data ? wallet.data.enabled ? { remaining: wallet.data.balance, allowance: wallet.data.balance, lowAt: wallet.data.lowAt } : null : chat.credits}
         // Prices only where they are charged: an unlimited account, or a
         // deployment with credits off, is quoted nothing rather than a number
-        // for something that is free. See `deepCost`.
-        prices={wallet.data?.enabled && !wallet.data.unlimited ? wallet.data.prices : null}
+        // for something that is free. The balance is the chat's own when it has
+        // one — reported by the leg that is asking, so already net of its
+        // charge — because the wallet is only refetched once a turn ends. See
+        // `DeepQuote`.
+        quote={wallet.data?.enabled && !wallet.data.unlimited
+          ? { ...wallet.data.prices, balance: chat.credits?.remaining ?? wallet.data.balance }
+          : null}
         onTopUp={() => { setChatOpen(false); void navigate({ to: '/credits' }) }}
         // So the history list can mark the row the reader is actually in. It
         // cannot be inferred from the list itself — see `liveId`.

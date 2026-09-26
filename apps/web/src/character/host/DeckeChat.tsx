@@ -52,7 +52,7 @@ import { parkFloor } from './parkFloor'
 import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import type { NoticeAction } from './chat/httpNotice'
-import { deepCost, deepRequestLine, type DeepPrices } from './chat/deepRequest'
+import { deepCost, deepRequestLine, type DeepQuote } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import {
@@ -1036,7 +1036,7 @@ export function DeckeChat({
   desktop,
   characterPx,
   credits,
-  prices,
+  quote,
   conversationId,
   onNewChat,
   onTopUp,
@@ -1117,11 +1117,11 @@ export function DeckeChat({
    */
   credits?: CreditBalance | null
   /**
-   * What a deep call costs, from the wallet — or null when nothing is charged
-   * (credits off, an unlimited account) or the wallet has not answered. The
-   * approval card prints a price only from this; see `deepCost`.
+   * What a deep call costs, from the wallet, and the freshest balance — or null
+   * when nothing is charged (credits off, an unlimited account). The approval
+   * card prints a price only from this; see `deepCost` and `DeepQuote`.
    */
-  prices?: DeepPrices | null
+  quote?: DeepQuote | null
   /** The conversation being recorded right now, so the list can mark it. */
   conversationId?: string | null
   /** Start a fresh conversation: clears the transcript and rotates the id. */
@@ -2989,7 +2989,7 @@ export function DeckeChat({
             onAccept={onApprove}
             onDeny={onDeny}
             busy={approvalBusy}
-            cost={deepCost(asking[0].name, prices, credits?.remaining)}
+            cost={deepCost(asking[0].name, quote)}
             onTopUp={onTopUp}
           />
           </div>

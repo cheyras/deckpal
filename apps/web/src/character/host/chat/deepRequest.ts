@@ -123,14 +123,22 @@ export function isDeepRequest(name: string): boolean {
  */
 export const DEEP_COST_NOTE = 'This takes longer and uses more than a normal answer.'
 
-/** What a paid deep call will charge, against what the reader has. */
+/** What saying yes to a paid deep call will charge, against what the reader has. */
 export type DeepCost = { credits: number; balance: number }
 
-/** Per-operation prices, exactly as the wallet (`/me/credits`) reports them. */
-export type DeepPrices = { analysis: number; planDeck: number }
+/**
+ * The wallet's per-operation prices, exactly as `/me/credits` reports them, and
+ * the balance to check them against.
+ *
+ * `balance` is the FRESHEST one the panel has, which during a held call is the
+ * balance the asking leg's own response reported (`x-decke-credits`), already
+ * net of that leg's charge. The wallet query is only refetched when a turn ends,
+ * so mid-turn it is the balance from before this turn began.
+ */
+export type DeepQuote = { analysis: number; planDeck: number; chatTurn: number; balance: number | null }
 
 /**
- * What this call will cost, or null when there is no number worth showing.
+ * What going ahead will cost, or null when there is no number worth showing.
  *
  * THE PRICE TABLE IS THE SERVER'S. `operationFor` in
  * `apps/api/src/credits/policy.ts` charges `analyze_collection` and
@@ -140,20 +148,27 @@ export type DeepPrices = { analysis: number; planDeck: number }
  * `deck_strategy` has a restatement line but is an ordinary write, and showing
  * it a deep-call price would be a number for something that is not charged.
  *
- * `prices` is null when credits are switched off or the account is unlimited,
- * and `balance` is null until the wallet has answered. Either way the card
+ * PLUS ONE CHAT TURN. Answering the card sends a continuation request, and each
+ * request is metered as a turn before the deep call is charged — so a guide
+ * priced 75 is refused at a balance of exactly 75 (found in review). The number
+ * shown is what "Go ahead" actually costs, which is the only number the reader
+ * is deciding about.
+ *
+ * `quote` is null when credits are switched off or the account is unlimited,
+ * and its balance is null until something has reported one. Either way the card
  * falls back to `DEEP_COST_NOTE` rather than printing a guess.
  */
-export function deepCost(name: string, prices: DeepPrices | null | undefined, balance: number | null | undefined): DeepCost | null {
-  if (!prices || balance == null || !Number.isFinite(balance)) return null;
-  const credits =
+export function deepCost(name: string, quote: DeepQuote | null | undefined): DeepCost | null {
+  if (!quote || quote.balance == null || !Number.isFinite(quote.balance)) return null;
+  const price =
     name === 'analyze_collection' || name === 'research_meta'
-      ? prices.analysis
+      ? quote.analysis
       : name === 'plan_deck' || name === 'write_strategy_guide'
-        ? prices.planDeck
+        ? quote.planDeck
         : null;
-  if (credits == null || !Number.isFinite(credits) || credits <= 0) return null;
-  return { credits, balance: Math.max(0, Math.floor(balance)) };
+  if (price == null || !Number.isFinite(price) || price <= 0) return null;
+  const turn = Number.isFinite(quote.chatTurn) && quote.chatTurn > 0 ? quote.chatTurn : 0;
+  return { credits: price + turn, balance: Math.max(0, Math.floor(quote.balance)) };
 }
 
 /** Would the meter refuse this call as things stand? */

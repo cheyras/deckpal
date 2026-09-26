@@ -20,7 +20,20 @@ export function DryRunList({ items, art }: { items: DryRunItem[]; art: CardArtMa
     return <p className="mt-[6px] text-[12.5px] leading-[18px] text-text-secondary">{items[0]!.text}</p>
   }
   return (
-    <ul className="mt-[10px] flex flex-col gap-[6px]" data-decke-dry-run>
+    /*
+      BOUNDED, AND IT SCROLLS. A create or a big reconcile sends up to twelve
+      lines, and this card sits outside the transcript's scroller in a panel
+      that clips — so an unbounded list pushed Leave it and Go ahead off the
+      bottom of a phone with no way to reach them (found in review). The list
+      gives way; the question and the two answers never do. Focusable because a
+      region that scrolls must be reachable without a pointer.
+    */
+    <ul
+      className="mt-[10px] flex max-h-[min(34svh,272px)] flex-col gap-[6px] overflow-y-auto overscroll-contain rounded-[6px]"
+      data-decke-dry-run
+      tabIndex={0}
+      aria-label="What would change"
+    >
       {items.map((it, i) => {
         if (it.kind === 'deck') {
           return (
