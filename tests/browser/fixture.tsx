@@ -26,7 +26,7 @@ declare global {
     /** `?meter` only — the real hook's own send, so the test drives real fetches. */
     meterChat: { send: (text: string) => void; busy: boolean }
     /** `?errorboundary` only — see `ErrorBoundaryFixture` below. */
-    errorBoundaryFixture: { disarmCrash: () => void; crashOutsideRouter: () => void }
+    errorBoundaryFixture: { disarmCrash: () => void; disarmLoaderCrash: () => void; crashOutsideRouter: () => void }
   }
 }
 function Fixture() {
@@ -95,6 +95,12 @@ function MeterFixture() {
  * masked by resetting state that caused it.
  */
 let crashArmed = true
+// A SEPARATE flag from `crashArmed`: a `beforeLoad` failure lives in the
+// ROUTER's match store, not in React state, which is exactly the distinction
+// Astra review (PR #209) caught `RouteErrorFallback`'s Retry getting wrong —
+// `reset()` alone reads the same stale `match.status === 'error'` and
+// rethrows immediately. See the fixed `retry()` in ErrorBoundary.tsx.
+let loaderCrashArmed = true
 
 function CrashRoute() {
   if (crashArmed) throw new Error('Fixture: deliberate render-time throw')
@@ -110,6 +116,7 @@ function ShellStub() {
     <header role="banner">Fixture shell header</header>
     <nav aria-label="Fixture rail">Fixture rail</nav>
     <Link to="/crash">Go to crash route</Link>
+    <Link to="/loader-crash">Go to loader-crash route</Link>
     <Outlet />
   </div>
 }
@@ -125,8 +132,20 @@ const errorBoundaryCrashRoute = createRoute({
   path: '/crash',
   component: CrashRoute,
 })
+const errorBoundaryLoaderCrashRoute = createRoute({
+  getParentRoute: () => errorBoundaryRootRoute,
+  path: '/loader-crash',
+  beforeLoad: () => {
+    if (loaderCrashArmed) throw new Error('Fixture: deliberate beforeLoad throw')
+  },
+  component: () => <p>Loader recovered — this route renders fine now.</p>,
+})
 const errorBoundaryRouter = createRouter({
-  routeTree: errorBoundaryRootRoute.addChildren([errorBoundaryHomeRoute, errorBoundaryCrashRoute]),
+  routeTree: errorBoundaryRootRoute.addChildren([
+    errorBoundaryHomeRoute,
+    errorBoundaryCrashRoute,
+    errorBoundaryLoaderCrashRoute,
+  ]),
   defaultErrorComponent: RouteErrorFallback,
 })
 declare module '@tanstack/react-router' {
@@ -139,6 +158,7 @@ function ErrorBoundaryFixture() {
   const [outsideRouter, setOutsideRouter] = useState(false)
   window.errorBoundaryFixture = {
     disarmCrash: () => { crashArmed = false },
+    disarmLoaderCrash: () => { loaderCrashArmed = false },
     crashOutsideRouter: () => setOutsideRouter(true),
   }
   return <RootErrorBoundary>

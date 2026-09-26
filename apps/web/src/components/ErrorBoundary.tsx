@@ -34,7 +34,7 @@
  * fighting lazyRoute's own recovery.
  */
 import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
-import { Link, type ErrorComponentProps } from '@tanstack/react-router'
+import { Link, useRouter, type ErrorComponentProps } from '@tanstack/react-router'
 import { Icon } from './Icon'
 import { Button, buttonClass } from './ui/Button'
 import { BugButton } from './BugReport'
@@ -108,14 +108,14 @@ const COPY = {
  * Renders in place of the route's content, inside the same `AppShell` the
  * healthy route would have used, so the header/rail/nav stay interactive.
  */
-export function RouteErrorFallback({ error, reset }: ErrorComponentProps) {
+export function RouteErrorFallback({ error }: ErrorComponentProps) {
+  const router = useRouter()
   const stale = isStaleChunkError(error)
   const message = errorMessage(error)
 
   // Fires once per distinct caught error: `error` is a fresh value each time
   // CatchBoundary's `getDerivedStateFromError` catches (see its state shape,
-  // `{ error: [unknown] }`), and `reset()` clears state entirely rather than
-  // mutating it in place — so a genuinely new crash after a Retry gets a
+  // `{ error: [unknown] }`), so a genuinely new crash after a Retry gets a
   // genuinely new effect run, not a deduped no-op.
   useEffect(() => {
     reportCrash('route', error)
@@ -123,6 +123,25 @@ export function RouteErrorFallback({ error, reset }: ErrorComponentProps) {
   }, [error])
 
   const copy = stale ? COPY.stale : COPY.route
+
+  // NOT the `reset` prop CatchBoundary hands this component. `reset` only
+  // clears CatchBoundary's OWN React state, which does nothing for a route
+  // whose `beforeLoad`/loader threw — that failure lives in the ROUTER's
+  // match store (`match.status === 'error'`), not in React state, so a
+  // bare `reset()` re-renders against the same stale status and rethrows
+  // the identical error immediately: Retry would silently do nothing
+  // (caught by Astra review, PR #209). `router.invalidate()` re-runs the
+  // route's loader/beforeLoad AND changes the match's identity, which is
+  // CatchBoundary's own reset key (`getResetKey: () => match` in
+  // `@tanstack/react-router`'s `Match.js`) — so it clears the boundary as a
+  // side effect once the match updates, for a render-only crash exactly as
+  // for a loader failure. Calling the `reset` prop as well double-fires:
+  // invalidate() already triggers one reset-and-retry cycle, so an
+  // explicit second `reset()` retries a second time (see
+  // `tests/browser/errorBoundary.mjs`, which pins the report count).
+  const retry = () => {
+    void router.invalidate()
+  }
 
   return (
     <div role="alert" className="flex flex-col items-center justify-center gap-[16px] px-[24px] py-[96px] text-center">
@@ -133,7 +152,7 @@ export function RouteErrorFallback({ error, reset }: ErrorComponentProps) {
         {stale ? (
           <Button onClick={() => window.location.reload()}>Reload</Button>
         ) : (
-          <Button onClick={reset}>Retry</Button>
+          <Button onClick={retry}>Retry</Button>
         )}
         <Link to="/" className={buttonClass('secondary')}>
           Go home

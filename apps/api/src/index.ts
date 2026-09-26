@@ -510,6 +510,17 @@ export function createApp(): express.Express {
   // Search is pure catalog — no user_id in the queries at all, so it needs no
   // identity of any kind.
   api.use('/search', searchRouter);
+  // Client-side crash reports (clientErrors.ts): unlike /bugs (mounted below
+  // resolveIdentity — its only caller, the nav's BugButton, is gated on
+  // signedIn === true), an error boundary can fire on ANY page, including a
+  // signed-out visitor's crash on this very catalog. Astra review (PR #209)
+  // caught this mounted below resolveIdentity, where cloud mode's hard 401
+  // for no credential would have silently swallowed every signed-out crash
+  // report before it ever reached the handler — reportClientError() sends no
+  // Authorization header on purpose, so it would 401 every single time.
+  // clientErrorRateLimit (20/min/IP) bounds log volume from a repeating
+  // crash loop; preAuthFloodGuard above already applies too.
+  api.use('/client-errors', clientErrorRateLimit, clientErrorsRouter);
 
   // ── Public catalog (browsable signed-out) ─────────────────────────────────
   // The catalog is the product's shop window: a visitor can read every set,
@@ -603,10 +614,6 @@ export function createApp(): express.Express {
   api.use('/insights', insightsRouter);
   api.use('/scan', scanRouter);
   api.use('/bugs', bugsRouter);
-  // Unauthenticated (see clientErrors.ts) — an error boundary can fire on a
-  // signed-out visitor. clientErrorRateLimit (20/min/IP) bounds log volume
-  // from a repeating crash loop; preAuthFloodGuard above already applies too.
-  api.use('/client-errors', clientErrorRateLimit, clientErrorsRouter);
   // Token management is session-only: a personal access token can use the API,
   // but it can never mint another one or revoke the ones that gate it.
   // requireSession and tokensRateLimit (20/min) already ran above —

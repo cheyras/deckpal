@@ -11,14 +11,23 @@ import { contextFor } from './support.mjs'
  * wired exactly like `main.tsx`: `defaultErrorComponent` on `createRouter()`,
  * the whole thing wrapped in `RootErrorBoundary`.
  *
- * Three things this pins that a screenshot alone would not:
+ * Four things this pins that a screenshot alone would not:
  *   1. A route that throws is caught by ITS OWN boundary — the shell (a
  *      header outside the routed `<Outlet/>`) stays mounted and interactive.
  *   2. Retry actually re-runs the crashed component rather than papering over
  *      it — it still crashes while the underlying bug is "armed", and only
  *      renders real content once the fixture disarms it, mirroring a bug
  *      that was actually fixed rather than a screen that was reset.
- *   3. The root boundary is a strictly LARGER blast radius than the route
+ *   3. Retry ALSO recovers a `beforeLoad` failure, not just a render failure.
+ *      These are two different things inside TanStack Router: a loader/
+ *      beforeLoad error lives in the router's own match store
+ *      (`match.status === 'error'`), not in React state, so a bare
+ *      `CatchBoundary.reset()` re-renders against the same stale status and
+ *      rethrows the identical error immediately — Retry would silently do
+ *      nothing (caught by Astra review, PR #209). `RouteErrorFallback`'s
+ *      Retry calls `router.invalidate()` before `reset()` for exactly this
+ *      case; this scenario is the regression guard for it.
+ *   4. The root boundary is a strictly LARGER blast radius than the route
  *      boundary — a crash outside the router takes the shell down too. If a
  *      future refactor accidentally made `defaultErrorComponent` catch
  *      everything (collapsing the two into one), this would stop
@@ -82,7 +91,22 @@ export async function checkErrorBoundary(browser, server, out) {
       assert.equal(await fallback.count(), 0, 'the fallback is gone once the route renders for real')
       results.push({ case: 'errorboundary-retry-recovers', width })
 
-      // ── 4. The root boundary is the LARGER blast radius: shell goes too ─────
+      // ── 4. Retry ALSO recovers a beforeLoad failure (router state, not React) ─
+      const loaderReported = page.waitForRequest((req) => req.url().includes('/client-errors'))
+      await page.getByRole('link', { name: 'Go to loader-crash route', exact: true }).click()
+      await fallback.waitFor()
+      await shell.waitFor()
+      await loaderReported
+      assert.equal(reports.at(-1).route, '/loader-crash')
+      assert.match(reports.at(-1).message, /deliberate beforeLoad throw/)
+      await page.evaluate(() => window.errorBoundaryFixture.disarmLoaderCrash())
+      await fallback.getByRole('button', { name: 'Retry', exact: true }).click()
+      await page.getByText('Loader recovered — this route renders fine now.', { exact: true }).waitFor()
+      await shell.waitFor()
+      assert.equal(await fallback.count(), 0, 'a beforeLoad failure also recovers once router.invalidate() re-runs it')
+      results.push({ case: 'errorboundary-retry-recovers-beforeload-failure', width })
+
+      // ── 5. The root boundary is the LARGER blast radius: shell goes too ─────
       await page.evaluate(() => window.errorBoundaryFixture.crashOutsideRouter())
       await page.getByRole('alert').filter({ hasText: 'Something went wrong' }).waitFor()
       assert.equal(await shell.count(), 0, 'a crash outside the router takes the shell down too — this IS the last resort')
