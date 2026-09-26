@@ -61,13 +61,11 @@ function setOwned(qc: QueryClient, t: OwnedVariant, quantity: number): void {
     send: (signal) => api.setVariantQuantity(t.variant.variantId, target, signal),
     onSaved: (res) => applyOwned(qc, res, t.card.cardId),
     failure: `Couldn't change ${t.card.name} (${t.variant.displayName}) to ${target} in your collection.`,
+    // The card's own cache is what the table row and the card sheet count from.
+    refresh: () => void qc.invalidateQueries({ queryKey: ['card', t.card.cardId] }),
     retry: () => setOwned(qc, t, target),
   }).then((outcome) => {
-    if (outcome.status === 'superseded' || outcome.status === 'cancelled') return
-    // A failed write may still have landed (a lost answer), and the card's own
-    // cache — which the table row and the card sheet count from — never heard.
-    if (outcome.status === 'failed') void qc.invalidateQueries({ queryKey: ['card', t.card.cardId] })
-    reconcileSoon(qc, t.setId)
+    if (outcome.status !== 'superseded' && outcome.status !== 'cancelled') reconcileSoon(qc, t.setId)
   })
 }
 

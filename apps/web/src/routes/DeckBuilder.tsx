@@ -34,6 +34,7 @@ function restoreDeck(qc: QueryClient, id: string, name: string): void {
     item: 'restore',
     send: (signal) => api.restoreDeck(id, signal),
     onSaved: () => void qc.invalidateQueries({ queryKey: ['decks'] }),
+    refresh: () => void qc.invalidateQueries({ queryKey: ['decks'] }),
     failure: `Couldn't restore ${name}. It's still in Recently deleted.`,
     retry: () => restoreDeck(qc, id, name),
   })
@@ -640,6 +641,10 @@ export function DeckBuilder() {
     await applyAnswer(qc, [key], () => setDetail(d))
     invalidateSideQueries()
   }
+  const refreshDeck = () => {
+    void qc.invalidateQueries({ queryKey: key })
+    invalidateSideQueries()
+  }
 
   // ── Writes ──────────────────────────────────────────────────────────────────
   // Every edit to this deck queues on its lane (lib/writes.ts). Each answer is
@@ -662,6 +667,7 @@ export function DeckBuilder() {
       send: (signal) => api.setDeckCardQuantity(id, c.cardId, target, c.variantId, signal),
       onSaved: adopt,
       failure: target === 0 ? `Couldn't remove ${c.name} from ${deckName}.` : `Couldn't change ${c.name} to ${target} in ${deckName}.`,
+      refresh: refreshDeck,
       retry: () => setCopies(c, target, before),
       success: target === 0 && before > 0 ? { message: `Removed ${c.name} from ${deckName}.`, undo: () => setCopies(c, before, 0) } : undefined,
     })
@@ -680,6 +686,7 @@ export function DeckBuilder() {
         setAdded((prev) => new Set(prev).add(card.cardId))
       },
       failure: `Couldn't add ${quantity} × ${card.name} to ${deckName}.`,
+      refresh: refreshDeck,
     })
   }
 
@@ -691,6 +698,7 @@ export function DeckBuilder() {
       send: (signal) => api.updateDeck(id, { name }, signal),
       onSaved: adopt,
       failure: `Couldn't rename ${from} to “${name}”.`,
+      refresh: refreshDeck,
       retry: () => rename(name),
     })
   }
@@ -703,6 +711,7 @@ export function DeckBuilder() {
       send: (signal) => api.updateDeck(id, { formatCode, ...(glcType ? { glcType } : {}) }, signal),
       onSaved: adopt,
       failure: `Couldn't change ${deckName} to ${FORMAT_META[formatCode].label}.`,
+      refresh: refreshDeck,
       retry: () => setFormat(formatCode, glcType),
     })
   }

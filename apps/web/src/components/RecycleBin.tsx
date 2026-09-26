@@ -57,6 +57,7 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
       send: (signal) => restore(e.id, signal),
       onSaved: refresh,
       failure: `Couldn't restore “${e.name}”.`,
+      refresh,
       retry: () => doRestore(e),
     })
   const doPurge = (e: BinEntry) =>
@@ -68,6 +69,7 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
         refresh()
       },
       failure: `Couldn't delete “${e.name}” for good.`,
+      refresh,
       retry: () => doPurge(e),
     })
 

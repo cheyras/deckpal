@@ -1,11 +1,13 @@
 import { useSyncExternalStore } from 'react'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
-import { NotSentError, WriteLane, type WriteOutcome, type WriteRequest } from './writeLane'
+import { NotSentError, WriteLane, outcomeKnown, type WriteOutcome, type WriteRequest } from './writeLane'
 import { failureMessage } from './writeFailure'
 import { dismissToast, showToast } from './toast'
 import { IDENTITY_CHANGED } from './access'
 import { readSession } from './authSession'
 import { isCloudMode } from './supabase'
+
+export { outcomeKnown } from './writeLane'
 
 /**
  * How a user's change to their collection, a list or a deck is saved and
@@ -85,14 +87,12 @@ export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<Wri
       send: async (signal) => {
         const [asked, now] = await Promise.all([askedBy, sessionIdentity()])
         if (asked !== null && now !== null && asked !== now) throw new AccountChangedError()
-        try {
-          return await request.send(signal)
-        } catch (error) {
-          // Offline, fetch rejects before anything leaves the device, so there
-          // is nothing that could still land and nothing to wait out.
-          if (error instanceof TypeError && !online()) throw new NotSentError(error)
-          throw error
-        }
+        // Decided BEFORE sending: a request refused here certainly never
+        // reached the server, so there is nothing that could still land. A
+        // connection that drops after the request left stays an uncertain
+        // failure, however offline the device reports itself by then.
+        if (!online()) throw new NotSentError()
+        return request.send(signal)
       },
     })
     .then((outcome): WriteOutcome<R> =>
@@ -102,6 +102,7 @@ export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<Wri
 }
 
 const online = () => typeof navigator === 'undefined' || navigator.onLine !== false
+
 
 export function writeFailureText(headline: string, error: unknown): string {
   return failureMessage(headline, error, online())
@@ -118,12 +119,17 @@ export interface Save<R> extends WriteRequest<R> {
   retry?: () => void
   /** Said once the item's last write has saved — for a change worth undoing. */
   success?: { message: string; undo: () => void }
+  /** Re-read what this write changes, after a failure the server never
+   *  answered: it may still have been applied, and the screen (and the next
+   *  absolute target built on it) must not keep showing the old value. */
+  refresh?: () => void
 }
 
 /** Send a write through its document's lane and report its outcome. */
 export function save<R>(laneKey: string, request: Save<R>): Promise<WriteOutcome<R>> {
   return write(laneKey, request).then((outcome) => {
     if (outcome.status === 'failed' && outcome.final) {
+      if (!outcomeKnown(outcome.error)) request.refresh?.()
       reportWriteFailure(request.failure, outcome.error, request.retry)
     } else if (outcome.status === 'saved' && outcome.final && request.success) {
       showToast({ tone: 'info', message: request.success.message, action: { label: 'Undo', run: request.success.undo } })

@@ -253,7 +253,7 @@ export class WriteLane {
  * request never left the device (`NotSentError`). Anything else — a dropped
  * connection, the deadline — is uncertain.
  */
-function outcomeKnown(error: unknown): boolean {
+export function outcomeKnown(error: unknown): boolean {
   return error instanceof NotSentError ||
     (error instanceof Error && typeof (error as Error & { status?: unknown }).status === 'number')
 }

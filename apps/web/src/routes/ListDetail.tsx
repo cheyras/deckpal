@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
-import { api, type ListDetailResponse, type ListItem } from '../lib/api'
+import { api, ApiError, type ListDetailResponse, type ListItem } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
@@ -16,7 +16,7 @@ import { KebabMenu } from '../components/KebabMenu'
 import { fmtUsd, fmtDate } from '../lib/format'
 import { type ListSearch, type ListSortKey, LIST_SEARCH_DEFAULTS } from './listSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
-import { applyAnswer, save, useLane, write, writeFailureText } from '../lib/writes'
+import { applyAnswer, outcomeKnown, save, useLane, write, writeFailureText } from '../lib/writes'
 import { showToast } from '../lib/toast'
 
 const KIND_LABEL = { dynamic: 'Dynamic List', static: 'Static List', pokedex_binder: 'Pokédex Binder' } as const
@@ -198,6 +198,7 @@ export function ListDetail() {
         refresh()
       },
       failure: `Couldn't add ${card.name} to ${named}.`,
+      refresh,
       // The server ignores a card a list already holds — except a static list,
       // which may hold it twice on purpose, so there a repeat is a second copy.
       retry: staticList ? undefined : () => addItem(card, quantity),
@@ -208,7 +209,13 @@ export function ListDetail() {
     void save(laneKey, {
       item: `remove:${item.itemId}`,
       intent: true,
-      send: (signal) => api.removeListItem(id, item.itemId, signal),
+      send: (signal) =>
+        api.removeListItem(id, item.itemId, signal).catch((error: unknown) => {
+          // Already gone is what was asked for: a Retry after a removal whose
+          // answer was lost would otherwise 404 forever.
+          if (error instanceof ApiError && error.status === 404) return null
+          throw error
+        }),
       onSaved: async () => {
         await applyAnswer(qc, [key], () =>
           qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: old.items.filter((i) => i.itemId !== item.itemId) }),
@@ -216,6 +223,7 @@ export function ListDetail() {
         refresh()
       },
       failure: `Couldn't remove ${item.name} from ${named}.`,
+      refresh,
       retry: () => removeItem(item),
     })
 
@@ -227,6 +235,7 @@ export function ListDetail() {
       onSaved: () =>
         applyAnswer(qc, [key], () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: inOrder(old.items, order) })),
       failure: `Couldn't save the new order of ${named}.`,
+      refresh,
       retry: () => reorder(order),
     })
 
@@ -241,8 +250,10 @@ export function ListDetail() {
         refresh()
       },
     }).then((o) => {
-      if (o.status === 'saved') setShowEdit(false)
-      else if (o.status === 'failed') setEditError(writeFailureText(`Couldn't save your changes to ${named}.`, o.error))
+      if (o.status === 'saved') return setShowEdit(false)
+      if (o.status !== 'failed') return
+      if (!outcomeKnown(o.error)) refresh()
+      setEditError(writeFailureText(`Couldn't save your changes to ${named}.`, o.error))
     })
   }
 
@@ -267,6 +278,7 @@ export function ListDetail() {
       send: (signal) => api.updateList(id, { rule: null }, signal),
       onSaved: refresh,
       failure: `Couldn't pin ${named} as a regular list.`,
+      refresh,
       retry: pinList,
     })
 
@@ -536,6 +548,7 @@ function restoreList(qc: QueryClient, id: string, name: string): void {
     item: 'restore',
     send: (signal) => api.restoreList(id, signal),
     onSaved: () => void qc.invalidateQueries({ queryKey: ['lists'] }),
+    refresh: () => void qc.invalidateQueries({ queryKey: ['lists'] }),
     failure: `Couldn't restore ${name}. It's still in Recently deleted.`,
     retry: () => restoreList(qc, id, name),
   })
