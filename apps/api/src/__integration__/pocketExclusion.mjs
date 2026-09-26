@@ -34,6 +34,15 @@
  * Needs PostgreSQL 14+ initdb/pg_ctl/psql/postgres on PATH or TEST_PG_BINDIR.
  * Portable to macOS and Linux (unlike test-db-integration.mjs, which is
  * deliberately Linux-only for the shared CI cluster).
+ *
+ * Environment isolation (B7's intent, applied to this test's own cluster):
+ * refuses to run at all if a repo-root `.env` exists, and — before `migrateUp`
+ * or any fixed function is imported — overwrites every PG* var this repo's
+ * tooling reads and clears SUPABASE_MODE/DATABASE_URL/DIRECT_URL/SUPABASE_*,
+ * so a developer shell configured for cloud-mode local dev cannot change this
+ * test's behaviour (caught in review: SUPABASE_MODE inherited from such a
+ * shell made `migrateUp` attempt migration 021's Supabase-only RLS policies
+ * against this plain cluster, which has no `auth.users`).
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -44,6 +53,22 @@ import pg from 'pg';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolvePath(HERE, '..', '..', '..', '..');
+
+/**
+ * Refuse to run at all if a repo-root `.env` exists, mirroring
+ * `scripts/test-db-integration.mjs`'s `assertNoEnvFile()`. This test's own
+ * connection details are always explicit (never read from `.env`), but
+ * `@deckpal/db`'s `loadEnv()` -- called by both `migrateUp()` and the API
+ * app's module-level pool -- fills any *other* var a `.env` sets that this
+ * script has not already overwritten, and a `.env` pointed at a real
+ * database is exactly the "no existing database or connection URL" case B7
+ * exists to rule out. A clean checkout has none; refusing is cheap insurance.
+ */
+function assertNoRepoEnvFile() {
+  if (existsSync(join(REPO, '.env'))) {
+    throw new Error('Refusing to run pocketExclusion.mjs: a repo-root .env exists. Use a clean checkout; its contents were not read.');
+  }
+}
 
 function executable(path) {
   try {
@@ -234,6 +259,7 @@ async function seedFixture(client) {
 }
 
 async function main() {
+  assertNoRepoEnvFile();
   const conn = await bootCluster();
   const results = [];
   const check = async (name, fn) => {
@@ -248,6 +274,31 @@ async function main() {
   };
 
   try {
+    // Isolate the whole process's environment from whatever the invoking
+    // shell has configured -- BEFORE anything reads it. This matters twice
+    // over: `migrateUp()` below reads `SUPABASE_MODE` to decide which
+    // migrations to skip (a developer shell configured for cloud-mode local
+    // dev, e.g. `set -a && . ./.env && set +a`, would otherwise leave it set,
+    // and migration 021's RLS policies reference `auth.users`, which this
+    // plain disposable cluster does not have -- caught in review), and the
+    // API app's own module-level pool (apps/api/src/db.ts) reads PG* at
+    // import time. Every value is OVERWRITTEN (not defaulted), and every
+    // connection-shaped var this repo's own tooling reads is cleared, so an
+    // inherited value can never leak into either the migration run or the
+    // fixed functions under test -- the same isolation property
+    // scripts/test-db-integration.mjs enforces for its own shared cluster,
+    // applied here to this test's own disposable one (see the file header
+    // for why this test does not share that cluster).
+    for (const key of ['SUPABASE_MODE', 'DATABASE_URL', 'DIRECT_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'SUPABASE_ANON_KEY']) {
+      delete process.env[key];
+    }
+    process.env.PGHOST = conn.host;
+    process.env.PGPORT = String(conn.port);
+    process.env.PGUSER = conn.user;
+    process.env.PGDATABASE = conn.database;
+    process.env.PGPASSWORD = '';
+    process.env.PGSSLMODE = 'disable';
+
     pool = new pg.Pool(conn);
     const { migrateUp } = await import(pathToFileURL(join(REPO, 'packages/db/src/migrate.ts')));
     const migrations = await migrateUp(pool);
@@ -255,17 +306,6 @@ async function main() {
     assert.equal(failed.length, 0, `every migration must be applied or a deliberate supabase-only skip, unexpected: ${JSON.stringify(failed)}`);
 
     const fixture = await seedFixture(pool);
-
-    // Point the API app's own module-level pool (apps/api/src/db.ts, built
-    // via @deckpal/db's makePool) at this same disposable cluster BEFORE
-    // importing anything that constructs it.
-    process.env.PGHOST = conn.host;
-    process.env.PGPORT = String(conn.port);
-    process.env.PGUSER = conn.user;
-    process.env.PGDATABASE = conn.database;
-    process.env.PGPASSWORD = '';
-    process.env.PGSSLMODE = 'disable';
-    delete process.env.SUPABASE_MODE;
 
     const { dexCompletion, speciesGrid, speciesDetail, dexCapturedCount } = await import(
       pathToFileURL(join(REPO, 'apps/api/src/insights/pokedex.ts'))
