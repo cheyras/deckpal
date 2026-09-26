@@ -89,3 +89,13 @@ describe('keyboard_probe.js scroll verdict', () => {
     assert.equal(result.verdicts.documentScrolledWhileKeyboardUp, false)
   })
 })
+
+describe('keyboard_probe.js keyboard height', () => {
+  it('keeps the same estimate when the visual viewport pans toward a focused field', () => {
+    const viewport = { width: 402, height: 409.65625, offsetLeft: 0, pageLeft: 0, scale: 1 }
+    const withoutPan = runProbe({ innerHeight: 541, visualViewport: { ...viewport, offsetTop: 0, pageTop: 0 } })
+    const withPan = runProbe({ innerHeight: 541, visualViewport: { ...viewport, offsetTop: 136.65625, pageTop: 136.65625 } })
+    assert.equal(withPan.keyboardHeightEstimate, 131.34375)
+    assert.equal(withPan.keyboardHeightEstimate, withoutPan.keyboardHeightEstimate)
+  })
+})

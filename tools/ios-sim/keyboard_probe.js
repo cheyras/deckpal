@@ -50,7 +50,7 @@
   var activeRect = rectOf(active);
   // The gap between the layout viewport and the visual one is roughly the
   // keyboard's height (plus any toolbar the keyboard itself adds).
-  var keyboardHeightEstimate = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : null;
+  var keyboardHeightEstimate = vv ? Math.max(0, window.innerHeight - vv.height) : null;
   // Root scrollability must be measured against the LAYOUT viewport
   // (window.innerHeight, which iOS Safari does not shrink for the keyboard),
   // never the visual one (vv.height, which always shrinks while the keyboard

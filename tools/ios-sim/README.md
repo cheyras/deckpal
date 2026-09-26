@@ -143,6 +143,7 @@ $ python3 tools/ios-sim/wir.py eval --app safari '' @tools/ios-sim/keyboard_prob
   "scrollY": 137,
   "documentScrollHeight": 678,
   "documentPannable": true,
+  "keyboardHeightEstimate": 131.34375,
   "dialog": { "selector": "[role=\"dialog\"]", "rect": { "y": -82.75, "bottom": 541, ... } },
   "title": { "selector": "[role=\"dialog\"] h2", "rect": { "y": -49.25, "bottom": -22.25, ... }, "text": "Report a bug" },
   "header": { "selector": "header", "rect": { "y": -137, "bottom": -72, ... } },

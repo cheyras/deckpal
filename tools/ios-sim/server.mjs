@@ -329,9 +329,9 @@ Signing you in…
     if (rel.startsWith('/api/')) {
       if (!unmatchedApiPaths.has(rel)) {
         unmatchedApiPaths.add(rel)
-        console.log('[sim] unknown API path, returning empty 200:', req.method, rel)
+        console.log('[sim] unknown API path, returning 404:', req.method, rel)
       }
-      return { body: {} }
+      return { status: 404, body: { error: 'Fixture API route not found' } }
     }
     return null
   }

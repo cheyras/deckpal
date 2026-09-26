@@ -228,10 +228,13 @@ describe('createFixture falls through to the shared admin fixture, then a safe d
     assert.equal(response.body.owner, false)
     assert.equal(response.body.id, '10000000-0000-4000-8000-000000000002')
   })
-  it('an unrecognized /api/* path gets an empty 200 rather than a hang or a proxy attempt', () => {
+  it('an unrecognized /api/* path gets a JSON 404 rather than malformed success data', () => {
     const { respondApi } = createFixture()
-    const response = get(respondApi, '/api/totally-unknown-route')
-    assert.deepEqual(response.body, {})
+    for (const path of ['/api/totally-unknown-route', '/api/sets/sim1', '/api/cards/sim1-001/legality']) {
+      const response = get(respondApi, path)
+      assert.equal(response.status, 404)
+      assert.equal(typeof response.body.error, 'string')
+    }
   })
   it('a non-API unknown path falls through to null (the static file server\'s job)', () => {
     const { respondApi } = createFixture()
