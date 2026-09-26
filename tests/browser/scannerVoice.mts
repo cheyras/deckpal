@@ -1,5 +1,5 @@
 // Scanner voice, in a real browser: the shipping hook, controls and list
-// (tests/browser/scannerVoice.tsx) driven by a FAKE SpeechRecognition installed
+// (tests/browser/scannerVoiceFixture.tsx) driven by a FAKE SpeechRecognition installed
 // before the page loads, on Playwright's fake clock so the 4 s hold and the 20 s
 // watchdog are exercised exactly rather than slept through. Interim and final
 // results, a refusal, Chrome's session-per-utterance, iOS's silent death, an
@@ -14,7 +14,7 @@ import { createServer } from '../../apps/web/node_modules/vite/dist/node/index.j
 const root = process.cwd()
 const outputDir = process.env.TEST_ARTIFACT_DIR ? path.join(process.env.TEST_ARTIFACT_DIR, 'scanner-voice') : path.join(root, '.cache/scanner-voice')
 await mkdir(outputDir, { recursive: true })
-const fixture = path.join(root, 'tests/browser/scannerVoice.tsx')
+const fixture = path.join(root, 'tests/browser/scannerVoiceFixture.tsx')
 const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Scanner voice proof</title><div id="root"></div><script type="module" src="/@fs/${fixture}"></script>`
 const server = await createServer({
   root: path.join(root, 'apps/web'), configFile: false, appType: 'custom',

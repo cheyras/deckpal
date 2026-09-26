@@ -59,6 +59,9 @@ export interface ParseResult {
   command: VoiceCommand | null
   /** Share of the utterance's words the grammar explained, 0-1. */
   coverage: number
+  /** A word in a card name's place ("the Pikachu is…") that matches no row.
+   *  The command is refused rather than sent to "that one" instead. */
+  unresolvedName?: string
 }
 
 /** A row the reader might name, MOST RECENT FIRST, so a name that appears twice
@@ -182,7 +185,7 @@ const LEXICON: readonly { slot: Slot; phrases: readonly string[] }[] = [
   { slot: { kind: 'remove' }, phrases: ['remove', 'delete', 'discard', 'get rid of', 'take it out', 'take that out', 'toss it', 'toss that', 'throw it out'] },
   { slot: { kind: 'undo' }, phrases: ['undo', 'un do', 'undue', 'cancel', 'never mind', 'nevermind', 'keep it', 'put it back'] },
   { slot: { kind: 'stop' }, phrases: ['stop listening', 'stop voice', 'mic off', 'microphone off'] },
-  { slot: { kind: 'negation' }, phrases: ['not', 'isnt', 'aint', 'never'] },
+  { slot: { kind: 'negation' }, phrases: ['not', 'isnt', 'aint', 'never', 'dont', 'do not', 'doesnt', 'wasnt'] },
   { slot: { kind: 'of' }, phrases: ['of', 'off'] },
   // Words that turn a nearby number into a quantity: "times two", "two copies",
   // "make it two". Either side of the number, because both are said.
@@ -264,6 +267,14 @@ function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase
     const hi = Math.min(keys.length - i, phrase.words + slack)
     let own: Match | null = null
     for (let size = lo; size <= hi; size++) {
+      // A window longer than the phrase must NEED its first word. If the
+      // phrase still matches without it, that word belongs to something else
+      // — the "not" in "not first edition", which would otherwise vanish into
+      // a slightly-misheard first edition.
+      if (size > phrase.words) {
+        const rest = keys.slice(i + 1, i + size).join('')
+        if (similarity(rest, phrase.key) >= minSimilarity(Math.max(rest.length, phrase.key.length))) continue
+      }
       const heard = keys.slice(i, i + size).join('')
       // A plural is the same word: "two reverse holos".
       const forms = heard.endsWith('s') && !phrase.key.endsWith('s') ? [heard, heard.slice(0, -1)] : [heard]
@@ -288,10 +299,11 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
       const forms = [full, core].filter((f, idx, all) => f.length && (idx === 0 || f.join(' ') !== all[0].join(' ')))
       return { row: r, phrases: forms.map((f) => ({ key: f.map(phonetic).join(''), words: f.length })) }
     })
-    // A name shorter than five sound-letters would match too much by accident
-    // ("Mew" inside "mew two", "Eevee" against "even"); those are left to "that
-    // one", which is how a reader refers to the card they just scanned anyway.
-    .map((n) => ({ ...n, phrases: n.phrases.filter((p) => p.key.length >= 5) }))
+    // A name is kept down to three sound-letters ("Mew", "Muk"). Short ones are
+    // safe because `minSimilarity` demands an exact match below five letters,
+    // and dropping them was worse: "the Mew is a holo" would otherwise fall
+    // through to "that one" and change a different card.
+    .map((n) => ({ ...n, phrases: n.phrases.filter((p) => p.key.length >= 3) }))
     .filter((n) => n.phrases.length)
 
   const out: Segment[] = []
@@ -376,11 +388,16 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   if (!words.length) return { command: null, coverage: 0 }
   const segs = segment(words, rows)
 
+  // "Never remove that", "it's not first edition", "don't undo": a negated
+  // word is an objection to that action, never a request for it. ("No, remove
+  // it" is not negation — "no" is how people start a correction.)
+  const negated = (k: number) => slotKind(neighbour(segs, k, -1)) === 'negation'
+
   const used = new Set<number>() // indices into `segs` a rule consumed
   let quantity: number | null = null
   for (let k = 0; k < segs.length && quantity === null; k++) {
     const s = segs[k]
-    if (s.kind !== 'number') continue
+    if (s.kind !== 'number' || negated(k)) continue
     const next = neighbour(segs, k, 1)
     const prev = neighbour(segs, k, -1)
     // "two of those", "two copies", "times two", "make it two" — the frames. A
@@ -420,24 +437,20 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   }
   const coverage = explained / words.length
 
-  const has = (kind: Slot['kind']) => segs.some((s) => slotKind(s) === kind)
+  const has = (kind: Slot['kind']) => segs.some((s, k) => slotKind(s) === kind && !negated(k))
   const nameSeg = [...segs].reverse().find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
   // The LAST finish said wins — people correct themselves forwards ("holo, no,
-  // reverse") — unless it was negated ("that's not a reverse holo"), in which
-  // case it is not a request for that printing at all. "Not a holo" never gets
-  // here: the lexicon reads it as Normal, whole.
+  // reverse") — and a negated one is not a request for that printing at all.
+  // "Not a holo" never gets here: the lexicon reads it as Normal, whole.
   let finish: Finish | null = null
   const modifiers: Modifier[] = []
   for (let k = 0; k < segs.length; k++) {
     const s = segs[k]
-    if (s.kind !== 'slot') continue
-    if (s.slot.kind === 'finish') {
-      if (slotKind(neighbour(segs, k, -1)) !== 'negation') finish = s.slot.value
-    } else if (s.slot.kind === 'modifier' && !modifiers.includes(s.slot.value)) {
-      modifiers.push(s.slot.value)
-    }
+    if (s.kind !== 'slot' || negated(k)) continue
+    if (s.slot.kind === 'finish') finish = s.slot.value
+    else if (s.slot.kind === 'modifier' && !modifiers.includes(s.slot.value)) modifiers.push(s.slot.value)
   }
 
   let command: VoiceCommand | null = null
@@ -447,6 +460,18 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   else if (finish || modifiers.length || quantity !== null) {
     const printing = finish || modifiers.length ? { finish, modifiers, label: printingLabel({ finish, modifiers }) } : null
     command = { kind: 'edit', target, printing, quantity }
+  }
+  // A word where a card's name goes — after "the", or before "is" — that is no
+  // row's name. The reader named a card we cannot find, and sending the change
+  // to "that one" instead would edit a card they did not mean. Said even below
+  // the coverage bar (the unknown name is what pulled it down), though not for
+  // outright conversation.
+  if (command && command.kind !== 'undo' && command.kind !== 'stop' && target.kind === 'anchor' && coverage >= 0.5) {
+    const said = (s: Segment | undefined) => (s ? words.slice(s.from, s.to).join(' ') : '')
+    const missing = segs.find(
+      (s, k) => s.kind === 'unknown' && (said(segs[k - 1]) === 'the' || ['is', 'was', 'are'].includes(said(segs[k + 1]))),
+    )
+    if (missing) return { command: null, coverage, unresolvedName: said(missing) }
   }
   if (coverage < MIN_COVERAGE) command = null
   return { command, coverage }
@@ -461,7 +486,8 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
  * that does not; between two that parse, the one explaining more of itself.
  */
 export function parseAlternatives(alternatives: readonly string[], rows: readonly NamedRow[] = []): ParseResult & { heard: string } {
-  let best: ParseResult & { heard: string } = { command: null, coverage: 0, heard: alternatives[0] ?? '' }
+  const first = alternatives[0] ?? ''
+  let best: ParseResult & { heard: string } = { ...parseUtterance(first, rows), heard: first }
   for (const heard of alternatives) {
     const parsed = parseUtterance(heard, rows)
     if (parsed.command && (!best.command || parsed.coverage > best.coverage)) best = { ...parsed, heard }

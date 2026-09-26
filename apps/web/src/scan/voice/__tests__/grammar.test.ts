@@ -72,6 +72,8 @@ describe('printing', () => {
 
   it('refuses a negated printing instead of setting it', () => {
     assert.equal(command("that's not a reverse holo"), null)
+    assert.equal(command('that is not first edition'), null)
+    assert.equal(command("it's not poke ball"), null)
   })
 
   it('takes the last printing said, because corrections come after', () => {
@@ -149,6 +151,13 @@ describe('remove, undo, stop', () => {
     assert.equal(command('no no undo the remove')?.kind, 'undo')
   })
 
+  it('never acts on a negated command', () => {
+    for (const heard of ['never remove that', "don't remove it", 'do not remove it', "don't undo"]) {
+      assert.equal(command(heard), null, heard)
+    }
+    assert.equal(edit('not two, three of those').quantity, 3)
+  })
+
   it('stops listening on request', () => {
     assert.equal(command('stop listening')?.kind, 'stop')
   })
@@ -168,6 +177,23 @@ describe('targeting', () => {
 
   it('finds a name the recognizer spread over several words', () => {
     assert.deepEqual(edit('the char is hard is a reverse holo').target, { kind: 'row', rowId: 'r2', name: 'Charizard ex' })
+  })
+
+  it('matches short names exactly rather than falling back to "that one"', () => {
+    const rows = [{ id: 'v', name: 'Venonat' }, { id: 'm', name: 'Mew' }]
+    const c = parseUtterance('the mew is a holo', rows).command
+    assert.ok(c?.kind === 'edit')
+    assert.deepEqual(c.target, { kind: 'row', rowId: 'm', name: 'Mew' })
+  })
+
+  it('refuses a name it cannot find instead of changing the latest scan', () => {
+    for (const heard of ['the pikachu is a holo', 'pikachu is a reverse holo', 'remove the pikachu']) {
+      const parsed = parseUtterance(heard, ROWS)
+      assert.equal(parsed.command, null, heard)
+      assert.equal(parsed.unresolvedName, 'pikachu', heard)
+    }
+    // "the" before grammar is not a name.
+    assert.equal(edit('the reverse holo').target.kind, 'anchor')
   })
 
   it('means the most recent scan when a name appears twice', () => {

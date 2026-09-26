@@ -59,7 +59,10 @@ export type VoiceAction = ActionBody & {
 }
 
 export type UndoRecord =
-  | { kind: 'printing'; rowId: string; label: string; before: { variantId: number | null; printingPicked: boolean } }
+  // `cardId`: a printing belongs to one card. If the row has since been
+  // corrected into another card, putting this variant back would commit the
+  // old card under the new one's name, so the undo is refused instead.
+  | { kind: 'printing'; rowId: string; cardId: string; label: string; before: { variantId: number | null; printingPicked: boolean } }
   | { kind: 'quantity'; rowId: string; label: string; before: { quantity: number } }
   | { kind: 'remove'; rowId: string; label: string; row: FeedEntry; index: number }
 
@@ -242,7 +245,7 @@ export function applyAction(feed: FeedEntry[], action: VoiceAction): { feed: Fee
     // `printingPicked`, because a spoken printing IS the reader's pick — the same
     // flag the row's own select sets (printing.ts).
     feed: feed.map((e) => (e.id === row.id ? { ...e, variantId: variant.variantId, printingPicked: true } : e)),
-    record: { kind: 'printing', rowId: row.id, label, before: { variantId: row.variantId, printingPicked: row.printingPicked } },
+    record: { kind: 'printing', rowId: row.id, cardId: row.cardId, label, before: { variantId: row.variantId, printingPicked: row.printingPicked } },
     outcome: { ok: true, message: label },
   }
 }
@@ -251,11 +254,21 @@ export function remember(queue: VoiceQueue, record: UndoRecord): VoiceQueue {
   return { ...queue, history: [record, ...queue.history].slice(0, HISTORY_LIMIT) }
 }
 
+/** Can `record` still be put back? Not onto a row that is gone, not a removal
+ *  whose row is back already, and not a printing onto a different card. */
+export function revertible(feed: readonly FeedEntry[], record: UndoRecord): boolean {
+  const row = feed.find((e) => e.id === record.rowId)
+  if (record.kind === 'remove') return !row
+  if (record.kind === 'printing') return row?.cardId === record.cardId
+  return !!row
+}
+
 /** Put a row back the way an applied action found it. A removed row returns to
- *  its old place in scan order, which is the order everything else sorts from. */
+ *  its old place in scan order, which is the order everything else sorts from.
+ *  The same array back when `revertible` says no. */
 export function revert(feed: FeedEntry[], record: UndoRecord): FeedEntry[] {
+  if (!revertible(feed, record)) return feed
   if (record.kind === 'remove') {
-    if (feed.some((e) => e.id === record.rowId)) return feed
     const at = Math.min(record.index, feed.length)
     return [...feed.slice(0, at), record.row, ...feed.slice(at)]
   }

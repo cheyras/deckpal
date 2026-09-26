@@ -16,6 +16,7 @@ import {
   propose,
   remember,
   revert,
+  revertible,
   settleAll,
   tick,
   undoLatest,
@@ -214,6 +215,15 @@ describe('applying and undoing', () => {
     assert.equal(r.record, null)
     assert.equal(r.feed, corrected)
     assert.equal(r.outcome.ok, false)
+  })
+
+  it('refuses to undo a printing onto a card the row has since been corrected into', () => {
+    const feed = [row('r1', { name: 'Exeggcute' })]
+    const r = applyAction(feed, due('reverse holo', 'r1', feed)[0])
+    const corrected = r.feed.map((e) => ({ ...e, cardId: 'other', name: 'Other', variantId: 99 }))
+    assert.equal(revertible(corrected, r.record!), false)
+    assert.equal(revert(corrected, r.record!), corrected)
+    assert.equal(revertible(r.feed, r.record!), true)
   })
 
   it('says so, and changes nothing, when the printings never loaded', () => {

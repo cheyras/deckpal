@@ -23,6 +23,7 @@ import {
   propose,
   remember,
   revert,
+  revertible,
   settleAll,
   tick,
   undoLatest,
@@ -161,7 +162,9 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     const r = undoLatest(queueRef.current)
     commitQueue(r.queue)
     if (r.cancelled) show('info', 'Cancelled')
-    else if (r.reverted) {
+    else if (r.reverted && !revertible(feedRef.current, r.reverted)) {
+      show('refused', 'Can’t undo that — the card has changed since')
+    } else if (r.reverted) {
       const record = r.reverted
       feedRef.current = revert(feedRef.current, record)
       cbRef.current.setFeed((prev) => revert(prev, record))
@@ -190,6 +193,10 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
 
       const parsed = parseAlternatives(r.alternatives, namedRows(feedRef.current))
       const command = parsed.command
+      if (parsed.unresolvedName) {
+        show('refused', `Couldn’t find “${parsed.unresolvedName}” in the list`)
+        return
+      }
       if (!command) {
         show('ignored', parsed.heard)
         return
