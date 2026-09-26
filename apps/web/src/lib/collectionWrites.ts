@@ -61,8 +61,12 @@ function setOwned(qc: QueryClient, t: OwnedVariant, quantity: number): void {
     send: (signal) => api.setVariantQuantity(t.variant.variantId, target, signal),
     onSaved: (res) => applyOwned(qc, res, t.card.cardId),
     failure: `Couldn't change ${t.card.name} (${t.variant.displayName}) to ${target} in your collection.`,
-    // The card's own cache is what the table row and the card sheet count from.
-    refresh: () => void qc.invalidateQueries({ queryKey: ['card', t.card.cardId] }),
+    // Both views count from their own cache: the grid from the set, the table
+    // row and the card sheet from the card.
+    refresh: () => {
+      void qc.invalidateQueries({ queryKey: ['card', t.card.cardId] })
+      void qc.invalidateQueries({ queryKey: ['set', t.setId] })
+    },
     retry: () => setOwned(qc, t, target),
   }).then((outcome) => {
     if (outcome.status !== 'superseded' && outcome.status !== 'cancelled') reconcileSoon(qc, t.setId)

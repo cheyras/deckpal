@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Icon } from './Icon'
 import { save, useLane } from '../lib/writes'
+import { ApiError } from '../lib/api'
 
 /**
  * Recently deleted — the browser half of soft delete (migration 038).
@@ -63,7 +64,13 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
   const doPurge = (e: BinEntry) =>
     void save(laneKey, {
       item: `purge:${e.id}`,
-      send: (signal) => purge(e.id, signal),
+      send: (signal) =>
+        purge(e.id, signal).catch((error: unknown) => {
+          // Already gone is what was asked for: a Retry after a purge whose
+          // answer was lost would otherwise 404 forever.
+          if (error instanceof ApiError && error.status === 404) return null
+          throw error
+        }),
       onSaved: () => {
         setConfirmPurge(null)
         refresh()
