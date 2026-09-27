@@ -260,6 +260,8 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DECKE_METER_TIMEOUT_MS` | `5000` (default) | Watchdog on the meter's connect and query. A database that has stopped answering must not turn every Deck-E request into a hung socket holding a pooled connection on an instance Vercel is about to freeze. On timeout the meter **fails open** and logs loudly — accounting fails open, access control does not, and they are separate checks for exactly that reason. |
 | `DECKE_PGRLS_MAX_HOLD_MS` | `10000` (default) | How long ONE Deck-E tool call may hold its pooled connection. Deliberately far below the API's 30 s `PGRLS_MAX_HOLD_MS`, because the unit differs: that budget covers a whole request, this one covers a single `search_cards`. A read taking ten seconds is not slow, it is stuck, and on a conversational path the reader gave up several seconds ago. On expiry the connection is **destroyed rather than pooled** — it may be mid-statement inside an open transaction carrying that turn's RLS claims, and returning it would let the next request race a still-running query from someone else's session. |
 | `DECKE_DEEP_BUDGET_MS` | `210000` (default) | Wall-clock ceiling for ONE deep-tier sub-agent (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Must stay comfortably under `api/chat.mjs`'s `maxDuration` (300 s) — the gap is not slack, it is the time needed to write the partial answer out, let the conversational model comment on it, and close the stream properly. A sub-agent that hits this returns **what it has so far, labelled incomplete**, rather than being killed: it streams for exactly that reason, since a call that is simply killed produced nothing and was billed anyway. |
+| `DECKE_JEV` | unset (default) = `off` | **Switches Deck-E's Jev judgments on — `on` or `off`, nothing else.** Jev (`typesafe-ai/jev`, the Gateway's evaluation model) reads the reader's latest message before each chat request (each leg of a turn) and decides three things the model kept getting wrong: force the first step to raise the `log_cards` consent card for a plain collection change, take `escort` out of view for a walk it cannot make, and count a "no" said in words as a decline (`apps/api/src/decke/reflex.ts`); and after each reply it checks whether he claimed a change no tool made, and if so runs one corrective step that raises the real consent card (`audit.ts`). Claimed deletions of lists, decks or battle logs get an admission instead, because those corrective edit tools cannot delete. It uses `DECKE_VERCEL_AI_GATEWAY_KEY`, asks for zero data retention from TypeSafe only on every call, and costs about $0.00004 a request. **Off is a normal state and changes nothing** — Deck-E behaves exactly as before Jev. Any other value is treated as off, warned about at boot, and reported as `deckeJev.status: "invalid"` on `GET /health`. TypeSafe's data retention is unconfirmed (SECURITY.md); switch it on in Preview first. |
+| `DECKE_JEV_TIMEOUT_MS` | `800` (default) | The hard deadline for one Jev call, 100–5000 ms. Past it the turn proceeds exactly as it would with Jev off. 800 is twice the p95 measured through the Gateway on the eval set (0.4 s). Reported on `GET /health` as `deckeJev.timeoutMs`. |
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_PULL_REQUEST_ID`, `VERCEL_GIT_COMMIT_MESSAGE` | Vercel system values | Read on the server at request acceptance. SHA must be full 40 hex; a strict positive preview PR ID takes precedence over a PR parsed from the first commit-message line. Missing/invalid tags remain null. Check system-variable exposure on the intended deployment; never infer it from source or accept browser stamps. See [official system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables). |
 | `DECKE_CREDITS_ENABLED` | unset (default) | Imported exactly once as enabled only for the exact string true, after owner bootstrap succeeds. Thereafter Administration → Settings is authoritative. Existing balances/events remain unchanged; initial quoted prices preserve 1/4/75 and must be reviewed before sales. No pack is created or activated automatically. |
 | `SCAN_EMBED_MATCH` | unset (default) | **Switches on the scanner's embedding matcher — `POST /api/scan/embed`, and the vector's part in `POST /api/scan/resolve`.** Unset, or anything other than the exact string `true`, and `/embed` answers **404** (the honest answer: this deployment does not have that endpoint) while `/resolve` ignores any `vectorMatches` in the body and returns exactly what it returned before the matcher was written — same keys, no `similarity` field, same ordering. The dHash path (`POST /api/scan`) is untouched either way. **THREE things must be true before setting it, and none of them is checked from the API**: migration 051 applied (which needs `pgvector`, see below), `tools/embed-catalog` run for the current stamp, and the ONNX checkpoint present at `SCAN_EMBED_MODEL_PATH`. A serverless function has no boot to verify them in, so each surfaces on the first request instead — a missing table or extension degrades **silently back to the old ladder** (one warning in the log, no 500), while a missing model file is a 500 whose message names the path. Turn it on in **Preview first**, run one real scan, then Production. `GET /health` reports `scanEmbed: "on" \| "off"`, and the API logs one line at boot when it is on. |
@@ -1797,3 +1799,64 @@ Rolling back is `DROP TABLE mutation_event, mutation_batch;`,
 `ALTER TABLE card_list DROP COLUMN deleted_at; ALTER TABLE deck DROP COLUMN deleted_at;`
 plus deleting the three `schema_migrations` rows — but note that the deployed
 code requires all three, so roll the code back first.
+
+---
+
+## Migration 072 (2026-09-26): what PostgREST can reach
+
+A security fix, not a feature. Until it runs, every account's collection
+(`user_id`, `card_id`, owns-two-or-more) is readable at
+`/rest/v1/collection_dupe_predicate` by anyone holding the anon key the SPA
+ships. It also stops a signed-in user from deleting another user's profile
+photo, un-revoking a token an administrator revoked, or planting rows under
+another user's deck or binder item. The full story is DECISIONS.md 2026-09-26.
+
+**It is not `@supabase-only`, on purpose.** Everything in it is plain Postgres
+or guarded on the Supabase roles existing, so it applies on every deployment
+and the runner never reports it as `SKIPPED`. On self-host the grant sections
+are no-ops and the rest applies unchanged. It needs no code deploy: nothing in
+the app reads what it removes or writes what it locks.
+
+**1. Preflight (read-only, SQL editor).** Every count must be `0`. 072 checks
+the same thing and refuses to run otherwise, changing nothing; a non-zero count
+is someone having used one of these holes, so keep the rows and look before
+touching them.
+
+```sql
+SELECT
+  (SELECT count(*) FROM (SELECT avatar_path FROM public.user_profile WHERE avatar_path IS NOT NULL
+                         GROUP BY avatar_path HAVING count(*) > 1) s)                                   AS shared_avatar_keys,
+  (SELECT count(*) FROM public.deck_card c    JOIN public.deck d ON d.id = c.deck_id WHERE c.user_id <> d.user_id) AS foreign_deck_cards,
+  (SELECT count(*) FROM public.deck_version c JOIN public.deck d ON d.id = c.deck_id WHERE c.user_id <> d.user_id) AS foreign_deck_versions,
+  (SELECT count(*) FROM public.battle_log c   JOIN public.deck d ON d.id = c.deck_id WHERE c.user_id <> d.user_id) AS foreign_battle_logs,
+  (SELECT count(*) FROM public.binder_placement b JOIN public.list_item i ON i.id = b.list_item_id
+    WHERE b.user_id <> i.user_id)                                                                        AS foreign_binder_placements;
+```
+
+**2. Apply** (a shell with the production `PG*` credentials, not an agent session):
+
+```bash
+set -a && . ./.env.prod && set +a
+pnpm --filter @deckpal/db build
+pnpm migrate            # expect: APPLIED  072_postgrest_reach
+pnpm migrate:status     # expect: [x] 072_postgrest_reach, 0 pending
+```
+
+**3. Verify from outside**, with only the public anon key (count-only, no rows):
+
+```bash
+CFG=$(curl -s https://deckpal.app/api/public-config)
+URL=$(jq -r .supabaseUrl <<<"$CFG"); ANON=$(jq -r .supabaseAnonKey <<<"$CFG")
+curl -sI "$URL/rest/v1/collection_dupe_predicate?select=user_id" \
+  -H "apikey: $ANON" -H "Authorization: Bearer $ANON" -H "Prefer: count=exact" \
+  | grep -iE '^HTTP|content-range'
+# before: HTTP/2 206 and content-range: 0-999/1549
+# after:  HTTP/2 404 (or 401). Anything with a content-range is still open.
+```
+
+**Rolling back** is deliberately not offered for the dropped view: it had no
+reader, and restoring it restores the leak. Everything else is additive
+(an index, a trigger, two unique constraints, four foreign keys re-pointed from
+`(id)` to `(id, user_id)`, narrower grants) and no app path depends on the old
+shape, so a constraint that refuses a write has found a write that was crossing
+accounts. Report it rather than dropping the constraint.

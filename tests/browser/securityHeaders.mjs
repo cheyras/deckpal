@@ -265,11 +265,15 @@ async function checkServiceWorkerRegistration(browser, server, mount, admin) {
     await page.goto(server.origin + mount + '/dev/decke-compare', { waitUntil: 'load' })
     await page.waitForTimeout(1500)
     const deckeCompareViolations = await violationsOn(page)
-    const panes = await page.locator('iframe').count()
+    const paneFrames = page.frames().filter((frame) => frame.url().includes('/dev/decke-compare?frame='))
+    for (const frame of paneFrames) {
+      await frame.waitForLoadState('load')
+      await frame.locator('canvas').waitFor({ state: 'attached', timeout: 10_000 })
+    }
     assert.deepEqual(deckeCompareViolations, [], "/dev/decke-compare's frame-ancestors 'self' exception was overridden by the service worker's cached shell (frame-ancestors 'none')")
-    assert.ok(panes > 0, '/dev/decke-compare rendered no comparison iframes at all -- diagnostics.view may not be wired the way this check assumes')
+    assert.ok(paneFrames.length > 0, '/dev/decke-compare loaded no comparison iframe documents -- diagnostics.view may not be wired the way this check assumes')
 
-    return { case: 'service-worker-registration', registered, controlled, deckeCompareUnderActiveWorker: { violations: deckeCompareViolations, panes } }
+    return { case: 'service-worker-registration', registered, controlled, deckeCompareUnderActiveWorker: { violations: deckeCompareViolations, panes: paneFrames.length } }
   } finally {
     await context.close()
     admin.state.permissions = []

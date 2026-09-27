@@ -473,3 +473,39 @@ test('researchRanInConversation is false when nothing ran', () => {
     false,
   );
 });
+
+// ── A "NO" SAID IN WORDS ────────────────────────────────────────────────────
+//
+// `reflex.ts` hands in what the reader refused in their latest message. It is
+// only ever ADDED: with no spoken refusal the set is exactly the approvals'.
+
+test('a spoken research refusal suppresses research_meta with no card ever declined', () => {
+  const declined = declinedCalls([], 'stop researching the meta', { research: true, guide: false });
+  // Callers short-circuit on size, so a spoken refusal must leave it non-zero.
+  assert.ok(declined.size > 0);
+  assert.ok(declined.has(callKey('research_meta', { query: 'current Standard lists' })));
+  assert.ok(!declined.has(callKey('write_strategy_guide', { deck: 'd' })), 'research is not the guide family');
+});
+
+test('a spoken refusal OUTRANKS the reader-mention bypass', () => {
+  // With a research card declined earlier, "why are you researching the meta
+  // again" used to RE-OPEN research — "meta" is a bypass word. That is the bug.
+  const history = [msg([part('research_meta', { query: 'q' }, false, 'the reader declined')])];
+  const said = 'why are you researching the meta again? you already did';
+  const other = callKey('research_meta', { query: 'something else' });
+  assert.equal(declinedCalls(history, said).has(other), false, 'today: the bypass re-opens it');
+  assert.equal(declinedCalls(history, said, { research: true, guide: false }).has(other), true);
+});
+
+test('a spoken guide refusal suppresses both guide tools and outranks its bypass', () => {
+  const declined = declinedCalls([], "please don't write a strategy guide", { research: false, guide: true });
+  assert.ok(declined.has(callKey('write_strategy_guide', { deck: 'Gardevoir' })));
+  assert.ok(declined.has(callKey('deck_strategy', { deck_id: 'd1', markdown: '# x' })));
+  assert.ok(!declined.has(callKey('deck_strategy', { deck_id: 'd1' })), 'reading a guide is not writing one');
+});
+
+test('no spoken refusal changes nothing: the bypass still re-opens when asked', () => {
+  const history = [msg([part('research_meta', { query: 'q' }, false, 'the reader declined')])];
+  const other = callKey('research_meta', { query: 'something else' });
+  assert.equal(declinedCalls(history, 'ok fine, do the meta research now', { research: false, guide: false }).has(other), false);
+});

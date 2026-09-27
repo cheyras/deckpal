@@ -106,6 +106,23 @@ function setInPool(card: CardFacts, prefixes: string[]): boolean {
   return prefixes.some((p) => card.setTcgdexId === p || card.setTcgdexId.startsWith(p));
 }
 
+/**
+ * The pool rule as one sentence, per pool strategy. The legality panel prints
+ * it on every NOT_IN_FORMAT violation and the add-cards search echoes it for the
+ * filter it applied (`poolRule`), so the two screens cannot word it differently
+ * and a rotation in formats.json rewrites both.
+ */
+const POOL_RULE = {
+  regulation_mark: (cfg: FormatConfig) => `${cfg.name} is limited to regulation marks ${cfg.legal_marks.join(', ')}.`,
+  set_allowance: (cfg: FormatConfig) => `${cfg.name} pool is Black & White onward.`,
+} as const;
+
+/** The format's pool rule, or null when the format has no pool limit (Unlimited). */
+export function poolRule(code: FormatCode): string | null {
+  const cfg = formatConfig(code);
+  return cfg.pool_strategy === 'all' ? null : POOL_RULE[cfg.pool_strategy](cfg);
+}
+
 /** Standard: mark ∈ {H,I,J} OR a fingerprint-identical legal reprint exists (§2.1.5). */
 function ruleStandardPool(work: WorkCard[], cfg: FormatConfig, ctx: ValidateContext): Violation[] {
   const out: Violation[] = [];
@@ -117,7 +134,7 @@ function ruleStandardPool(work: WorkCard[], cfg: FormatConfig, ctx: ValidateCont
     out.push({
       code: 'NOT_IN_FORMAT',
       severity: 'error',
-      rule: `Standard is limited to regulation marks ${cfg.legal_marks.join(', ')}.`,
+      rule: POOL_RULE.regulation_mark(cfg),
       // A card with NO mark at all (everything pre-Sword & Shield) used to read
       // "has regulation mark — and has no legal reprint", where the dash IS the
       // absent mark. That was survivable in a deck violation list and reads as a
@@ -159,7 +176,7 @@ function ruleSetAllowancePool(
     out.push({
       code: 'NOT_IN_FORMAT',
       severity: 'error',
-      rule: `${formatName} pool is Black & White onward.`,
+      rule: POOL_RULE.set_allowance(cfg),
       message: `${w.card.name} (${w.card.setTcgdexId.toUpperCase()} ${w.card.localId}) is from a set outside the ${formatName} card pool.`,
       scope: 'card',
       subject: w.card.name,

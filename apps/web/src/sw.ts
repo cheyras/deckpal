@@ -77,7 +77,7 @@ const imgPattern = new RegExp(`^${IMAGES_PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\
 // review (2026-09-26) caught this: the crawl in
 // tests/browser/securityHeaders.mjs deliberately blocks service workers
 // (`serviceWorkers: 'block'`) and so never exercised this path.
-const deckeComparePattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}dev/decke-compare$`)
+const deckeComparePattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}dev/decke-compare(?:\\?.*)?$`)
 registerRoute(
   new NavigationRoute(shellHandler, {
     denylist: [apiPattern, imgPattern, deckeComparePattern],
