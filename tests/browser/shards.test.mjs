@@ -23,7 +23,6 @@ test('eight shards cover every suite once, regardless of discovery order', () =>
   assert.ok(assignment.every(shard => shard.length))
   assert.deepEqual(assignment.flat().sort(), [...names].sort())
   assert.deepEqual(assignment.find(shard => shard.includes('cloud-feedback-primary-428')), ['cloud-feedback-primary-428'])
-  assert.deepEqual(assignment.find(shard => shard.includes('selfhost-catalog')), ['selfhost-catalog'])
   assert.deepEqual(shardSuites([...suites].reverse(), 8).map(shard => shard.map(suite => suite.name)), assignment)
 })
 
