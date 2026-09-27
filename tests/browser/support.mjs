@@ -51,7 +51,7 @@ export function buildWeb(dist, cloud, cloudOrigin = 'https://fixture.supabase.in
       VITE_DECKE_TEST_HANDLE: '1',
     } : { VITE_SUPABASE_URL: '', VITE_SUPABASE_ANON_KEY: '' }) })
 }
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp',
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json' }
 export async function serve(dist, mount, respondApi, html = 'index.html', options = {}) {
   const requests = [], unexpected = [], stubbedThirdParty = []

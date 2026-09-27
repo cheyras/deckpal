@@ -205,6 +205,7 @@ async function checkCamera(server, mount) {
       const v = document.querySelector('video')
       return !!(v && v.srcObject)
     }, { timeout: 15_000 }).then(() => true).catch(() => false)
+    await page.locator('[data-scan-engine-status="ready"]').waitFor({ state: 'attached', timeout: 30_000 })
     const violations = await violationsOn(page)
     await context.close()
     assert.ok(gotStream, '/scan never reached a live camera stream -- either a real regression or the fake device/permission setup is wrong, either way this check is not proving what it claims to')

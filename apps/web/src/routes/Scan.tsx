@@ -1608,7 +1608,7 @@ export function Scan() {
                       >
                         <Icon name="plus" size={14} /> Capture
                       </button>
-                      <span className="truncate text-[12px] text-text-muted">
+                      <span data-scan-engine-status={engineStatus} className="truncate text-[12px] text-text-muted">
                         {engineStatus === 'loading' && 'Loading the scanner…'}
                         {engineStatus === 'error' && (engineError ?? 'The scanner could not start.')}
                         {engineStatus === 'ready' && !engineState && 'Warming up…'}
