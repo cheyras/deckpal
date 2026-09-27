@@ -438,6 +438,8 @@ Open branches with old append-only entries can merge main, then run
 `pnpm decisions adopt-branch` (also while resolving a merge conflict). Stage
 the converted files and restored guide, then complete the merge or commit.
 It is safe to run the converter twice.
+If it finds a post-merge correction to a decision, it stops so that correction
+can be moved into the new file without being discarded.
 
 The entry body uses this format:
 

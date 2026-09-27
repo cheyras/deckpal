@@ -29,10 +29,11 @@
 
 # Local merges of the guide should never turn old branch appendices into a
 # conflict that prevents an agent from adopting those entries into files.
-DECISIONS.md merge=union
+DECISIONS.md text eol=lf merge=union
 
-# Historical entries retain their original trailing blank lines byte for byte.
-decisions/**/*.md whitespace=-blank-at-eof
+# Historical entries retain their original bytes on Windows too. Their trailing
+# blank lines are part of the source, not whitespace to "fix" in the migration.
+decisions/**/*.md text eol=lf whitespace=-blank-at-eof
 
 # Everything else keeps the default. Source files are parsed, not hashed, so
 # their line endings are a matter of taste and the tooling already copes; a

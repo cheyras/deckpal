@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { decisionFile, decisions, metadata, parseDecisionFile, root, slug, splitLegacy } from './decisions-lib.mjs';
 
@@ -16,6 +17,16 @@ const flag = (name, fallback) => {
 const display = item => `${item.meta.date}  ${item.meta.title}  (${item.path})`;
 const all = () => decisions().sort((a, b) => b.meta.date.localeCompare(a.meta.date) || a.path.localeCompare(b.path));
 const git = (...gitArgs) => execFileSync('git', gitArgs, { cwd: root, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+
+function unionResult(ours, base, theirs) {
+  const dir = mkdtempSync(join(tmpdir(), 'deckpal-decision-merge-'));
+  try {
+    const paths = ['ours', 'base', 'theirs'].map(name => join(dir, name));
+    for (const [index, content] of [ours, base, theirs].entries()) writeFileSync(paths[index], content);
+    return execFileSync('git', ['merge-file', '--union', '-p', ...paths],
+      { cwd: root, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
 
 function uniquePath(base, block) {
   const stem = `decisions/${block.date.slice(0, 4)}/${block.date}-${slug(block.title)}`;
@@ -46,6 +57,10 @@ function adoptBranch() {
   const base = git('show', `${ancestor}:DECISIONS.md`);
   const targetGuide = git('show', `${baseRef}:DECISIONS.md`);
   const source = sourceFile ? readFileSync(resolve(sourceFile), 'utf8') : git('show', `${sourceRef}:DECISIONS.md`);
+  const expectedUnion = headSource ? unionResult(source, base, targetGuide) : null;
+  if (headSource && sourceRef !== 'HEAD' && headSource !== expectedUnion && headSource !== targetGuide) {
+    fail('DECISIONS.md changed after merging main; review those corrections before adoption');
+  }
   const historic = all();
   // An appended H2 often adds a blank separator to the preceding entry.
   // Ignore that boundary whitespace while recognizing a historical body.
@@ -58,17 +73,10 @@ function adoptBranch() {
   const baseHeadings = new Set(splitLegacy(base).filter(block => block.kind === 'entry').map(block => `${block.date}\n${block.title}`));
   const branchHeadings = new Set(sourceBlocks.filter(block => block.kind === 'entry').map(block => `${block.date}\n${block.title}`));
   if ([...baseHeadings].some(heading => !branchHeadings.has(heading))) fail('The branch removed an existing decision; review its diff manually');
-  if (headSource && sourceRef !== 'HEAD') {
-    const adoptedHeadings = new Set(appended.map(block => `${block.date}\n${block.title}`));
-    const extra = splitLegacy(headSource).filter(block => block.kind === 'entry' &&
-      !knownHeadings.has(`${block.date}\n${block.title}`) && !adoptedHeadings.has(`${block.date}\n${block.title}`));
-    if (extra.length) fail(`The branch added decisions after merging main; review these manually:\n${extra.map(block => block.title).join('\n')}`);
-  }
   if (output === root && !sourceFile && (sourceRef === 'HEAD' || headSource)) {
     const working = readFileSync(join(root, 'DECISIONS.md'), 'utf8');
-    const merging = git('ls-files', '-u', '--', 'DECISIONS.md').trim().length > 0;
-    if (working !== (headSource ?? source) && working !== targetGuide && !merging) {
-      fail('DECISIONS.md has uncommitted edits; save them first');
+    if (working !== (headSource ?? source) && working !== targetGuide && working !== expectedUnion) {
+      fail('DECISIONS.md has edits beyond the automatic merge; resolve it to the main guide or save those edits first');
     }
   }
   let created = 0;
