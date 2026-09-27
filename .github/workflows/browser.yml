@@ -9,9 +9,14 @@ permissions:
   contents: read
 
 jobs:
-  browser:
+  browser-shard:
+    name: browser shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -24,23 +29,71 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install Chromium and WebKit
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(node -e "console.log(require('./package.json').devDependencies.playwright)")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium and WebKit (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Install Playwright OS dependencies (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium webkit
+      - name: Restore built workspace packages
+        id: workspace-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            packages/storage/dist
+            packages/matching/dist
+            packages/db/dist
+            packages/agent-tools/dist
+          key: browser-workspace-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'packages/storage/src/**', 'packages/matching/src/**', 'packages/db/src/**', 'packages/agent-tools/src/**', 'packages/*/package.json', 'packages/*/tsconfig.json', 'tsconfig*.json') }}
       - name: Build browser shared packages
+        if: steps.workspace-cache.outputs.cache-hit != 'true'
         run: |
           pnpm --filter @deckpal/storage build
           pnpm --filter @deckpal/matching build
           pnpm --filter @deckpal/db build
           pnpm --filter @deckpal/agent-tools build
-      - name: Cloud and self-host browser journeys, rendered chat and deployment controls
-        run: pnpm test:browser
+      - name: Check shard assignment
+        run: node --test tests/browser/shards.test.mjs
+      - name: Browser journeys
+        run: pnpm test:browser --shard ${{ matrix.shard }}/8
         env:
           TEST_ARTIFACT_DIR: .cache/browser-tests
       - name: Upload browser evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: browser-boundaries
+          name: browser-shard-${{ matrix.shard }}
           path: .cache/browser-tests/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
+
+  browser:
+    name: browser
+    needs: browser-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Download shard evidence
+        if: needs.browser-shard.result == 'success'
+        uses: actions/download-artifact@v7
+        with:
+          pattern: browser-shard-*
+          path: .cache/browser-shards
+      - name: Check every shard and every browser case
+        env:
+          SHARD_RESULT: ${{ needs.browser-shard.result }}
+        run: |
+          test "$SHARD_RESULT" = success
+          node scripts/check-browser-inventory.mjs .cache/browser-shards/browser-shard-{1,2,3,4,5,6,7,8}/browser-results.json
