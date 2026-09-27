@@ -143,10 +143,15 @@ the existing ledger. Settlement uses the provider-reported fractional cost and
 returns any unused hold in the same transaction as the usage record. Chat sees
 the held balance, so it cannot spend the same last credit. A fix admitted before
 account suspension can still settle, but suspension prevents new fixes.
+If a settlement connection fails after admission, the API retries the
+request-bound settlement. A wallet read releases an unsettled hold after a
+15-minute grace period and records the provider cost as unknown; both paths
+are idempotent.
 It does not create a deck. The model may choose only keys from
 catalogue candidates; a suggested replacement is returned only when the ordinary
 import resolver lands on that exact catalogue card. The browser asks the reader
 to confirm, then rechecks the edited list before the existing import write.
+An incomplete 400-printing candidate page produces no suggestion.
 The request's catalogue and collection reads use its RLS-scoped connection.
 Admission commits and releases that connection before the model call; settlement
 uses the same shared pool afterward, even if the browser disconnects. Narrow

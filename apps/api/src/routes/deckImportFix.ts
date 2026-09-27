@@ -20,6 +20,18 @@ function gatewayKey(): string | null {
     (process.env.NODE_ENV !== 'production' ? process.env.AI_GATEWAY_API_KEY ?? null : null);
 }
 
+async function settleImportFix(userId: string, authKind: string | undefined, values: unknown[]): Promise<void> {
+  const finish = () => withUserSession(userId, authKind, session => session.query(
+    'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', values));
+  try { await finish(); }
+  catch {
+    // The first COMMIT may have succeeded before its acknowledgement failed.
+    // The request-bound database settlement is idempotent on retry.
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await finish();
+  }
+}
+
 /** A focused read-only Deck-E errand; the person confirms the later deck write. */
 export function registerDeckImportFix(router: Router): void {
   router.post('/import/fix', asyncHandler(async (req, res) => {
@@ -71,21 +83,17 @@ export function registerDeckImportFix(router: Router): void {
         maxOutputTokens: 400, maxRetries: 0, abortSignal: AbortSignal.timeout(6000),
       });
     } catch {
-      await withUserSession(userId, req.authKind, session => session.query(
-        'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data',
-        [usage.requestId, usage.operationId, 'failed', null, null, null, null, null, null, 'unknown', null],
-      ));
+      await settleImportFix(userId, req.authKind,
+        [usage.requestId, usage.operationId, 'failed', null, null, null, null, null, null, 'unknown', null]);
       throw new ApiError(503, 'decke_unavailable', "I can't reach my brain right now. You can still edit the lines yourself.");
     }
     const measured = extractUsage(result.usage, result.providerMetadata);
-    await withUserSession(userId, req.authKind, session => session.query(
-      'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', [
+    await settleImportFix(userId, req.authKind, [
         usage.requestId, usage.operationId, 'completed',
         measured.tokens.inputTokens, measured.tokens.outputTokens,
         measured.tokens.cacheReadTokens, measured.tokens.cacheWriteTokens, measured.tokens.reasoningTokens,
         measured.cost.usd, measured.cost.source, measured.generationId,
-      ],
-    ));
+      ]);
     if (res.destroyed) return;
     const verified = await withUserSession(userId, req.authKind, session =>
       verifiedImportFix(session, format, text, prepared, result.text));

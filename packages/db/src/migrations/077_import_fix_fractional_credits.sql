@@ -142,19 +142,82 @@ BEGIN
   RETURN jsonb_build_object('credits',amount,'wholeCredits',whole,'duplicate',false);
 END $$;
 
+-- If the API loses its settlement connection after admission committed, a
+-- later wallet read releases the hold. The 15-minute grace exceeds the model's
+-- six-second timeout and lets an in-flight server retry record measured cost.
+CREATE FUNCTION public.decke_import_fix_recover(p_user text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE actor text; stale record; recovered integer=0;
+BEGIN
+  actor=public.admin_actor_id();
+  IF actor IS NULL OR NOT public.admin_is_session() OR NOT public.admin_account_active(actor) THEN
+    RAISE EXCEPTION 'Sign in required' USING ERRCODE='42501';
+  END IF;
+  IF p_user<>actor THEN PERFORM public.admin_require_permission('credits.read'); END IF;
+  FOR stale IN
+    SELECT r.id, r.pricing_revision, h.credits
+      FROM public.decke_ai_request r
+      JOIN public.decke_import_fix_reservation h ON h.request_id=r.id
+     WHERE r.user_id=p_user AND r.status='started'
+       AND r.started_at<=now()-interval '15 minutes'
+     ORDER BY r.started_at,r.id FOR UPDATE OF r SKIP LOCKED
+  LOOP
+    IF EXISTS(SELECT 1 FROM public.decke_import_fix_settlement WHERE request_id=stale.id) THEN CONTINUE; END IF;
+    IF stale.credits>0 THEN
+      PERFORM public.credit_apply_delta(p_user,stale.credits,'grant','Unsettled Deck-E import fix hold',
+        'import-fix-recover:'||stale.id::text,stale.pricing_revision,
+        jsonb_build_object('operation','importFix','costSource','unknown'));
+    END IF;
+    UPDATE public.decke_ai_operation SET status='abandoned',finished_at=now(),error_code='settlement_unavailable'
+      WHERE request_id=stale.id AND tool_key='import_fix' AND status='started';
+    INSERT INTO public.decke_import_fix_settlement(request_id,user_id,cost_usd,credits,whole_credits)
+      VALUES(stale.id,p_user,NULL,0,0);
+    UPDATE public.decke_ai_request SET status='abandoned',finished_at=now(),charged_credits=0 WHERE id=stale.id;
+    recovered=recovered+1;
+  END LOOP;
+  RETURN recovered;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.credit_wallet_read(p_user text DEFAULT NULL) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE actor text; b integer; d integer; held boolean; stale uuid;
+BEGIN
+ actor=public.admin_actor_id();
+ IF actor IS NULL OR NOT public.admin_is_session() OR NOT public.admin_account_active(actor) THEN RAISE EXCEPTION 'Sign in required' USING ERRCODE='42501'; END IF;
+ p_user=coalesce(p_user,actor);
+ IF p_user<>actor THEN PERFORM public.admin_require_permission('credits.read'); END IF;
+ PERFORM public.decke_import_fix_recover(p_user);
+ -- Preserve the credit-spend crash recovery and its spend-before-wallet order.
+ FOR stale IN
+  SELECT id FROM public.credit_spend
+  WHERE user_id=p_user AND provider_started_at IS NULL AND refunded_at IS NULL
+   AND created_at<=now()-interval '5 minutes'
+  ORDER BY created_at,id FOR UPDATE SKIP LOCKED
+ LOOP
+  PERFORM public.credit_spend_refund(p_user,stale);
+ END LOOP;
+ SELECT balance INTO b FROM public.decke_credit_balance WHERE user_id::text=p_user;
+ SELECT debt INTO d FROM public.credit_wallet_control WHERE user_id=p_user;
+ SELECT EXISTS(SELECT 1 FROM public.credit_order WHERE user_id=p_user AND (pending_refund_cents>0 OR dispute_status IN ('needs_response','under_review','warning_needs_response','warning_under_review','lost'))) INTO held;
+ RETURN jsonb_build_object('balance',coalesce(b,0),'debt',coalesce(d,0),'purchaseHold',held);
+END $$;
+
 REVOKE ALL ON public.decke_import_fix_credit,public.decke_import_fix_settlement,public.decke_import_fix_reservation FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
-  public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) FROM PUBLIC;
+  public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text),
+  public.decke_import_fix_recover(text) FROM PUBLIC;
 DO $$ BEGIN
   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
     REVOKE ALL ON public.decke_import_fix_credit,public.decke_import_fix_settlement,public.decke_import_fix_reservation FROM anon;
     REVOKE ALL ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
-      public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) FROM anon;
+      public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text),
+      public.decke_import_fix_recover(text) FROM anon;
   END IF;
   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
     REVOKE ALL ON public.decke_import_fix_credit,public.decke_import_fix_settlement,public.decke_import_fix_reservation FROM authenticated;
     REVOKE ALL ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
-      public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) FROM authenticated;
+      public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text),
+      public.decke_import_fix_recover(text) FROM authenticated;
     GRANT EXECUTE ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
       public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) TO authenticated;
   END IF;

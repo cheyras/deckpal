@@ -81,6 +81,15 @@ test('legacy and handwritten quantities, glued sets, and subset numbers parse wi
   assert.equal(parsed.lines[9]!.setCode, 'PAL');
 });
 
+test('a glued set code preserves every word of a multiword card name', () => {
+  const lines = parsePtcgl('1 Charizard ex OBF125\n1 Mew ex pal232\n1 Pikachu VMAX CRZ GG30').lines;
+  assert.deepEqual(lines.map(({ name, setCode, number }) => [name, setCode, number]), [
+    ['Charizard ex', 'OBF', '125'],
+    ['Mew ex', 'PAL', '232'],
+    ['Pikachu VMAX', 'CRZ-GG', 'GG30'],
+  ]);
+});
+
 test('parenthesized card names stay intact while numbered set suffixes unwrap', () => {
   const { lines, warnings } = parsePtcgl([
     '1 Gardevoir (Delta Species)',

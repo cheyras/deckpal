@@ -976,6 +976,9 @@ daily Deck-E turn. With paid credits enabled, its provider-reported cost is
 converted using the request's policy. Settlement retains the earned whole
 credit or returns the unused hold; fractions carry forward. A concurrent chat
 spend sees the held balance. Already admitted fixes can settle after suspension.
+If the API loses settlement after admitting a fix, it retries; a wallet read
+releases an unsettled hold after 15 minutes with the provider cost marked
+unknown. No scheduled cleanup service is required.
 
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its

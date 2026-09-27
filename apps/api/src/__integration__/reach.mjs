@@ -266,6 +266,10 @@ try {
         'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
         [120, 'import_fix:suspended', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
       )).rows[0].data);
+      await as('authenticated', A, (c) => rejects(c.query(
+        'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [started.requestId, started.operationId, 'failed', null, null, null, null, null,
+          null, 'unknown', null]), '42501'), { deckpal_auth_kind: 'jwt' });
       await db.query('UPDATE public.admin_account SET suspended=true WHERE user_id=$1', [A]);
       try {
         await assert.rejects(asServer(A, (c) => c.query(
@@ -290,6 +294,38 @@ try {
       } finally {
         await db.query('UPDATE public.admin_account SET suspended=false WHERE user_id=$1', [A]);
       }
+    });
+
+    await test('a wallet read releases an orphaned import hold once', async () => {
+      await as('authenticated', A, (c) => rejects(
+        c.query('SELECT public.decke_import_fix_recover($1)', [A]), '42501'));
+      const started = await asServer(A, async (c) => (await c.query(
+        'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
+        [120, 'import_fix:orphaned', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
+      )).rows[0].data);
+      assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, 0);
+      await db.query("UPDATE public.decke_ai_request SET started_at=now()-interval '16 minutes' WHERE id=$1",
+        [started.requestId]);
+      const first = await asServer(A, async (c) => (await c.query(
+        'SELECT public.credit_wallet_read(NULL) AS data',
+      )).rows[0].data);
+      const again = await asServer(A, async (c) => (await c.query(
+        'SELECT public.credit_wallet_read(NULL) AS data',
+      )).rows[0].data);
+      assert.equal(first.balance, 1);
+      assert.equal(again.balance, 1);
+      assert.equal((await db.query('SELECT status FROM public.decke_ai_request WHERE id=$1',
+        [started.requestId])).rows[0].status, 'abandoned');
+      assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_credit_event WHERE ref=$1',
+        ['import-fix-recover:' + started.requestId])).rows[0].n, 1);
+      const late = await asServer(A, async (c) => (await c.query(
+        'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data',
+        [started.requestId, started.operationId, 'completed', 1000, 100, 0, 0, 0,
+          '0.002', 'provider_reported', 'fixture-late'],
+      )).rows[0].data);
+      assert.equal(late.duplicate, true);
+      assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_import_fix_settlement WHERE request_id=$1',
+        [started.requestId])).rows[0].n, 1);
     });
 
     await test('anon reaches no per-user row in any table or view', async () => {

@@ -5,6 +5,7 @@
  * the catalogue lives in db.ts (the §1.7 five-step ladder).
  */
 import type { ValidationWarning } from './types.js';
+import { resolveSetAlias } from './data.js';
 
 /** §1.2: setcode = UPPER {UPPER|DIGIT} optional "-XX(X)" | literal "Energy". */
 const SETCODE = /^([A-Z][A-Z0-9]{0,7}(-[A-Z]{2,3})?|Energy)$/i;
@@ -64,15 +65,20 @@ function parseCardLine(line: string, section: Section): ParsedLine {
   if (rest.length >= 2) {
     const last = rest[rest.length - 1]!;
     const secondLast = rest[rest.length - 2]!;
-    if (rest.length >= 3 && /^(?:[A-Z]{0,5})?\d+[A-Z0-9]*$/i.test(last) && SETCODE.test(secondLast)) {
+    const glued = /^([A-Z]{2,5})(\d+[A-Z]?)$/i.exec(last);
+    // A known explicit set wins for subset numbers (CRZ GG30). Otherwise a
+    // known glued code wins over a name word such as the "ex" in Charizard ex.
+    const explicit = rest.length >= 3 && /^(?:[A-Z]{0,5})?\d+[A-Z0-9]*$/i.test(last)
+      && SETCODE.test(secondLast) && (!glued || secondLast.toLowerCase() === 'energy'
+        || !!resolveSetAlias(secondLast.toUpperCase()));
+    if (explicit) {
       number = last.toUpperCase();
       setCode = secondLast.toLowerCase() === 'energy' ? 'Energy' : secondLast.toUpperCase();
       if (/^GG\d/i.test(number) && setCode === 'CRZ') setCode = 'CRZ-GG';
       if (/^TG\d/i.test(number) && ['BRS', 'ASR', 'LOR', 'SIT'].includes(setCode)) setCode += '-TG';
       rest = rest.slice(0, -2);
     } else {
-      const glued = /^([A-Z]{2,5})(\d+[A-Z]?)$/i.exec(last);
-      if (glued && SETCODE.test(glued[1]!) && rest.length >= 2) {
+      if (glued && resolveSetAlias(glued[1]!.toUpperCase())) {
         setCode = glued[1]!.toUpperCase();
         number = glued[2]!.toUpperCase();
         rest = rest.slice(0, -1);

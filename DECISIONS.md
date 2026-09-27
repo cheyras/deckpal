@@ -21010,4 +21010,4 @@ environment variable or deployment change.
 
 **Why:** Counting pending fixes did not stop a simultaneous chat spend from consuming the last credit. Requiring an active account at settlement stranded the cost of work already performed. An incomplete printing page could hide another gameplay identity.
 
-**Implications:** Migration 077 records the hold by request and preserves the existing whole-credit wallet and fractional carry. Rare provider cost above the hold remains visible as debt through the wallet's established overrun rule. The import dialog asks the reader to resolve catalogue lines whose candidate search was truncated.
+**Implications:** Migration 077 records the hold by request and preserves the existing whole-credit wallet and fractional carry. The API retries idempotent settlement; a wallet read releases an unsettled hold after 15 minutes and records unknown provider cost. Rare provider cost above the hold remains visible as debt through the wallet's established overrun rule. The import dialog asks the reader to resolve catalogue lines whose candidate search was truncated, and refreshes the cached wallet when a fix finishes.

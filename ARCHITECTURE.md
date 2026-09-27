@@ -1849,7 +1849,9 @@ records its measured fractional charge and atomically returns unused hold
 capacity. A suspended account cannot start a repair, but its already admitted
 request can settle once. Candidate lookup fetches one row beyond its 400
 printing limit and leaves a truncated line for the reader instead of inferring
-a gameplay identity from an incomplete set.
+a gameplay identity from an incomplete set. The route retries settlement when
+its acknowledgement fails; a later wallet read releases any hold still
+unsettled after 15 minutes and marks the usage abandoned with unknown cost.
 
 Usage reads require an active application session, tier 40 or higher and current
 `admin.access`. Custom roles lose metadata and shared-content access immediately

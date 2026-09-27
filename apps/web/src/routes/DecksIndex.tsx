@@ -121,6 +121,7 @@ function NewDeckModal({ busy, error, onClose, onSubmit }: { busy?: boolean; erro
 }
 
 function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error?: string | null; onClose: () => void; onSubmit: (b: { text: string; formatCode: DeckFormat; name?: string }) => void }) {
+  const queryClient = useQueryClient()
   const [text, setText] = useState('')
   const [name, setName] = useState('')
   const [formatCode, setFormatCode] = useState<DeckFormat>('standard')
@@ -136,7 +137,10 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   // shown here, while the text is still in front of them, to fix or to skip.
   const [checked, setChecked] = useState<{ text: string; formatCode: DeckFormat; summary: DeckImportSummary } | null>(null)
   const check = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.checkDeckImport(asked) })
-  const fix = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.fixDeckImport(asked) })
+  const fix = useMutation({
+    mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.fixDeckImport(asked),
+    onSettled: () => { void queryClient.invalidateQueries({ queryKey: ['credits'] }) },
+  })
   const [entitled, setEntitled] = useState(false)
   const [hideCharacter, setHideCharacter] = useState(deckeHidden)
   const [fixResult, setFixResult] = useState<{ text: string; formatCode: DeckFormat; result: DeckImportFixResult } | null>(null)
