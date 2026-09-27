@@ -847,9 +847,11 @@ decksRouter.patch(
         await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_variant_id = $2 AND user_id = $3`, [deckId, variantId, userId]);
       } else {
         await client.query(
-          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (deck_id, card_variant_id) DO UPDATE SET quantity = $5`,
-          [deckId, cardId, variantId, userId, qty],
+          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity, pin_exact)
+           VALUES ($1, $2, $3, $4, $5, COALESCE($6::boolean, FALSE))
+           ON CONFLICT (deck_id, card_variant_id) DO UPDATE
+             SET quantity = $5, pin_exact = COALESCE($6::boolean, deck_card.pin_exact)`,
+          [deckId, cardId, variantId, userId, qty, pinExact ?? null],
         );
       }
       await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1`, [deckId]);
