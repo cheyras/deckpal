@@ -79,10 +79,10 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
   }, [activeCard, cards])
 
   const columns: DataTableColumn<CardRow>[] = [
-    { id: 'image', header: 'Card', headerClassName: 'w-[64px]', className: 'w-[64px] !p-[8px]',
+    { id: 'image', header: 'Card', headerClassName: 'w-[60px]', className: 'w-[60px] !p-[8px]',
       cell: card => <img src={card.images.low} alt="" loading="lazy" decoding="async"
         className="h-[52px] w-[38px] rounded-[3px] object-cover" /> },
-    { id: 'number', header: '#', headerClassName: 'w-[72px]', className: 'w-[72px] whitespace-nowrap',
+    { id: 'number', header: '#', headerClassName: 'w-[60px] lg:w-[72px]', className: 'w-[60px] lg:w-[72px] whitespace-nowrap',
       cell: card => <span className="text-text-muted">{fmtNumber(card.number)}</span> },
     { id: 'name', header: 'Name', className: 'min-w-[160px]',
       cell: card => <CardLink card={card} seriesSlug={card.seriesSlug ?? seriesSlug} setId={card.setId ?? setId}
@@ -90,14 +90,15 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
         className="font-display block rounded-[4px] font-medium text-text-primary underline-offset-[3px] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-action-primary">
         {card.name}
       </CardLink> },
-    { id: 'variant', header: 'Variant', headerClassName: 'w-[170px]', className: 'w-[170px]',
+    { id: 'variant', header: 'Variant', headerClassName: 'w-[110px] lg:w-[170px]', className: 'w-[110px] lg:w-[170px]',
       cell: card => card.variant
-        ? <VariantChip variant={card.variant} className="text-text-body" />
-        : card.variantCount > 1 ? <span className="text-text-muted">{card.variantCount} variants</span> : null },
-    { id: 'price', header: 'Price', align: 'right', headerClassName: 'w-[100px]', className: 'w-[100px] font-medium text-change-positive',
+        ? <VariantChip variant={card.variant} className="max-w-full text-text-body" />
+        : card.variantCount > 1 ? <span className="text-text-muted">{card.variantCount} variants</span>
+          : <span className="text-text-muted" aria-label="No variant">—</span> },
+    { id: 'price', header: 'Price', align: 'right', headerClassName: 'w-[85px] lg:w-[100px]', className: 'w-[85px] lg:w-[100px] font-medium text-change-positive',
       cell: card => fmtPrice(card.price) },
     ...(signedIn === true ? [{ id: 'quantity', header: 'Quantity', align: 'right' as const,
-      headerClassName: 'w-[180px]', className: 'w-[180px]',
+      headerClassName: 'w-[150px] lg:w-[180px]', className: 'w-[150px] lg:w-[180px]',
       cell: (card: CardRow) => {
         const set = card.setId ?? setId
         return set ? <RowCounters card={{ cardId: `${set}-${card.number}`, name: card.name }} setId={set} /> : null
@@ -111,13 +112,16 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
     if (newTab || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       event.preventDefault()
       window.open(link.href, '_blank', 'noopener')
-    } else link.click()
+    } else {
+      link.focus({ preventScroll: true })
+      link.click()
+    }
   }
 
   return <div ref={tableRef}>
     <DataTable label="Cards in table view" rows={cards} columns={columns}
       getRowId={(card) => (card as CardRow & { itemId?: string }).itemId ?? card.cardId}
-      tableClassName="table-fixed min-w-[850px]"
+      tableClassName="table-fixed [&_tbody_tr]:align-middle"
       virtual={{ estimateSize: 69, overscan: 12, scrollToIndexRef }}
       onRowClick={(_card, event) => openFromCell(event)}
       onRowAuxClick={(_card, event) => { if (event.button === 1) openFromCell(event, true) }} />

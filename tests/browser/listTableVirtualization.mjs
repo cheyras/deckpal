@@ -56,7 +56,9 @@ function makeListItems(n) {
       name: `${base.name} #${i + 1}`, category: 'Pokémon', rarity: 'Rare', artist: 'Fixture Artist',
       variantCount: 1, images: PLACEHOLDER_IMG, price: PRICE,
       ownership: { totalQuantity: have ? 1 : 0, requiredCount: 1, ownedRequired: have ? 1 : 0, have, need: !have, dupe: false },
-      setName: 'Simulator Set', seriesSlug: 'sim', setId: 'sim1', variant: null, staticQuantity: null,
+      setName: 'Simulator Set', seriesSlug: 'sim', setId: 'sim1',
+      variant: i === 1 ? { kind: 'reverse', displayName: 'Master Ball Pattern Reverse Holofoil', tier: 'standard', isPrimary: false } : null,
+      staticQuantity: null,
     })
   }
   return items
@@ -155,6 +157,22 @@ async function checkViewport(browser, origin, width, height) {
     await page.setViewportSize({ width: 800, height })
     await page.waitForSelector('[data-decke-list-items] table[aria-rowcount="3201"]')
     assert.equal(new URL(page.url()).searchParams.get('view'), 'table', 'desktop restores the selected Table view')
+    for (const desktopWidth of [768, 800, 900]) {
+      await page.setViewportSize({ width: desktopWidth, height })
+      const tableWidth = await page.locator('[data-decke-list-items] table').evaluate(table => ({
+        table: table.getBoundingClientRect().width,
+        viewport: table.parentElement.clientWidth,
+      }))
+      assert.ok(tableWidth.table <= tableWidth.viewport + 1,
+        `${desktopWidth}px table overflows its region: ${JSON.stringify(tableWidth)}`)
+      const variantFit = await page.locator('tbody tr[data-index="1"]').evaluate(row => ({
+        chipRight: row.cells[3].firstElementChild.getBoundingClientRect().right,
+        cellRight: row.cells[3].getBoundingClientRect().right,
+        priceLeft: row.cells[4].getBoundingClientRect().left,
+      }))
+      assert.ok(variantFit.chipRight <= variantFit.cellRight + 1 && variantFit.chipRight <= variantFit.priceLeft,
+        `${desktopWidth}px long variant overlaps Price: ${JSON.stringify(variantFit)}`)
+    }
     await context.close()
     return { fallback: 'grid', savedView: 'table' }
   }
@@ -176,6 +194,21 @@ async function checkViewport(browser, origin, width, height) {
     return headers.map((header, index) => Math.abs(header.getBoundingClientRect().left - cells[index].getBoundingClientRect().left))
   })
   assert.ok(alignment.every(delta => delta < 1), `header and cell columns drifted: ${alignment}`)
+  const firstRow = page.locator('tbody tr[data-index="0"]')
+  assert.equal(await firstRow.locator('td').nth(3).innerText(), '—', 'a missing variant has a visible placeholder')
+  const rowLayout = await firstRow.evaluate(row => {
+    const rowBox = row.getBoundingClientRect()
+    const imageBox = row.cells[0].firstElementChild.getBoundingClientRect()
+    return { height: rowBox.height,
+      centers: [0, 1, 2, 3, 4, 5].map(index => {
+        const box = row.cells[index].firstElementChild?.getBoundingClientRect() ?? row.cells[index].getBoundingClientRect()
+        return box.top + box.height / 2 - rowBox.top
+      }),
+      imageCenter: imageBox.top + imageBox.height / 2 - rowBox.top }
+  })
+  assert.ok(rowLayout.height <= 70, `table row is taller than its thumbnail needs: ${JSON.stringify(rowLayout)}`)
+  assert.ok(rowLayout.centers.every(center => Math.abs(center - rowLayout.imageCenter) < 2),
+    `row contents are not centered: ${JSON.stringify(rowLayout)}`)
 
   await page.goto(`${origin}/lists/${LIST_ID}?view=table&sort=name&dir=asc`)
   await page.waitForSelector('tbody tr[data-index="0"]')
@@ -194,6 +227,8 @@ async function checkViewport(browser, origin, width, height) {
   await page.keyboard.press('Escape')
   await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
   await page.waitForFunction(() => document.body.style.position !== 'fixed')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-decke-card')), 'sim1-1',
+    'a non-link cell click returns focus to its card link after the sheet closes')
   const priceCell = page.locator('tbody tr[data-index="0"] td').nth(4)
   for (const options of [{ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] }, { button: 'middle' }]) {
     const [popup] = await Promise.all([page.waitForEvent('popup'), priceCell.click(options)])
