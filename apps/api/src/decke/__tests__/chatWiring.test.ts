@@ -238,3 +238,36 @@ test('a read collection change forces the first step, and only the first step', 
     'prepareStep no longer forces the reflex tool on step one',
   );
 });
+
+// ── THE AFTER-TURN AUDIT ────────────────────────────────────────────────────
+//
+// `audit.ts` decides; these are the four lines that make its decision do
+// anything, and the one that keeps a navigation handoff out of it.
+
+test('the audit reads the turn\'s whole tool record, and a handoff is never audited', () => {
+  assert.match(SRC, /from '\.\.\/apps\/api\/dist\/decke\/audit\.js'/);
+  assert.match(CODE, /const audit = calledToolNames\.some\(\(n\) => CLIENT_SET\.has\(n\)\)\s*\? null\s*: await auditTurn\(\{/);
+  assert.match(
+    CODE,
+    /toolsRun: \[\.\.\.calledToolNames, \.\.\.guardEvents\.map\(\(e\) => e\.name\), \.\.\.turnToolNames\(messages\)\]/,
+    'an approved write that ran at the start of this request would read as a phantom',
+  );
+});
+
+test('only a correctable phantom within the step budget gets a corrective leg; the rest are admitted', () => {
+  assert.match(CODE, /const fixable = audit\?\.phantom \? CORRECTIVE_TOOLS\[audit\.phantom\] : undefined/);
+  assert.match(CODE, /if \(fixable && steps\.length < MAX_STEPS\) \{\s*corrective = fixable/);
+  assert.match(CODE, /\} else if \(phantoms\.length > 0 \|\| audit\?\.phantom\) \{/);
+});
+
+test('the corrective leg pins the card, keeps the signature and the prompt prefix, and takes one step', () => {
+  const leg = CODE.slice(CODE.indexOf('if (corrective) {'))
+  assert.match(SRC, /buildDataTools, correctiveApplyTools, dataToolSummary/)
+  assert.match(leg, /tools: correctiveApplyTools\(allDeckeTools, corrective\)/)
+  assert.match(leg, /toolChoice: \{ type: 'tool', toolName: corrective \}/);
+  assert.match(leg, /stopWhen: stepCountIs\(1\)/);
+  assert.match(leg, /experimental_toolApprovalSecret: process\.env\.DECKE_APPROVAL_SECRET/);
+  assert.match(leg, /instructions: `\$\{systemPrompt\}\\n\\n\$\{correctiveInstruction\(corrective\)\}`/);
+  assert.match(leg, /model: observeUsageModel\(gateway\(choice\.id\), meter\)/, 'the leg must be metered like any step');
+  assert.match(CODE, /instructions: systemPrompt,/, 'the turn and the correction no longer share one prompt');
+});

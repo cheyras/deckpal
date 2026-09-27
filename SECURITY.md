@@ -317,7 +317,8 @@ With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSaf
 AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
 (`apps/api/src/decke/reflex.ts`). What it receives: the reader's latest message
 (clipped to 2,000 characters), Deck-E's previous reply (last 800) and the page
-path. No separate collection or account records, or photos, are attached, but
+path — and, for the after-turn audit (`audit.ts`), the reply he just gave (last
+2,000). No separate collection or account records, or photos, are attached, but
 those text fields and the path are not redacted: a reader can include ownership
 counts, card IDs or account details in their message, Deck-E can repeat them,
 and a deck or list path can contain an ID. Every request
@@ -330,8 +331,14 @@ guide says ZDR is available per request, and TypeSafe's own documentation offers
 ZDR to enterprise customers only. Jev never approves anything and is not a
 control: its vendor documents that text in its state can move its answers, so
 its judgments only ever raise a consent card, hide a tool the reader cannot use,
-or add a refusal — each fails safe, and every failure is today's behaviour. Off
+add a refusal, or run one corrective step that can itself only raise a consent
+card. A claimed list, deck or battle-log deletion gets an admission rather than
+forcing an edit tool that cannot delete. Each failure is today's behaviour. Off
 by default; `GET /health` reports `deckeJev`.
+For corrective list, deck and battle-log calls, `dry_run: false` is inserted
+into the parsed, signed tool input before the approval card is issued. The
+write still executes only after that signed approval is replayed; ordinary
+calls keep their preview default.
 
 **Server-side request forgery — where the server is allowed to fetch from.**
 Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
