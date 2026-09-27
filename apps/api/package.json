@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && node -e \"const{cpSync}=require('fs');for(const d of ['deck','scan'])cpSync('src/'+d+'/data','dist/'+d+'/data',{recursive:true})\"",
+    "build": "tsc && node -e \"const{cpSync}=require('fs');for(const d of ['deck/data','scan/data','export/fonts','export/assets'])cpSync('src/'+d,'dist/'+d,{recursive:true})\"",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "test:deck": "node --import tsx --test src/deck/__tests__/*.test.ts",
@@ -44,7 +44,8 @@
     "pg": "^8.23.0",
     "sharp": "^0.35.4",
     "stripe": "^22.6.2",
-    "zod": "4.6.5"
+    "zod": "4.6.5",
+    "svg-to-pdfkit": "^0.1.8"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
@@ -52,6 +53,8 @@
     "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@types/svg-to-pdfkit": "^0.1.4",
+    "pdfjs-dist": "^4.10.38"
   }
 }

@@ -65,7 +65,8 @@ omit the host.
   base **before** the `/decks`, `/lists`, `/sets` routers so the `…/pdf` and
   `checklist.pdf` paths resolve to the PDF renderer (those routers define no such
   routes — explicit ordering removes the ambiguity). Rendered with pdfkit
-  (pure-JS/ARM-safe); `private, no-cache`.
+  (pure-JS/ARM-safe); `private, no-cache`. Letter is the default; append
+  `?paper=a4` to any of the three routes for A4.
 - **Progress.** Read from `user_set_progress` for the requesting user. **Complete
   is a card fraction; Master and Grandmaster are `(card,variant)` pair fractions** —
   the three totals differ (e.g. sv03.5: 207 / 373 / 384). `pct` is one-decimal,
@@ -1304,7 +1305,7 @@ Read-only, parameterized (ids come from the URL), each streams
 A printable deck list for `:id` (UUID). Loads the deck + cards, runs the legality
 engine (`validateDeck`, with a reprint oracle for pool-checked formats) for the
 verdict, and renders Pokémon/Trainer/Energy sections with owned counts, set codes
-(PTCGL alias), per-section counts, distinct-name count, and a generated-at stamp.
+(PTCGL alias), per-section counts, a have/quantity column, and a generated-at stamp.
 `404` for a non-UUID id or a missing deck.
 
 ### GET /deckpal/api/lists/:id/pdf
@@ -1314,11 +1315,11 @@ item/owned counts, and progress for `dynamic`/`pokedex_binder` lists (static
 lists have no progress). `404` for a non-UUID id or a missing list.
 
 ### GET /deckpal/api/sets/:setId/checklist.pdf
-A printable set checklist. One row per card (number, name, rarity, category) with
+A printable set checklist. One row per card (number and name) with
 an owned checkbox; owned = any variant has qty ≥ 1 (the Complete goal's
-card-fraction semantics, matching `/sets/:setId`). Header carries set name, id,
-series, release date, printed/total counts, and a `{ owned, total, pct }`
-progress rollup.
+card-fraction semantics, matching `/sets/:setId`). Printed and secret cards have
+separate labels. Header carries set name, id, series, release date, and a
+`{ owned, total, pct }` progress rollup.
 
 ---
 
