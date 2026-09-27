@@ -43,7 +43,8 @@ const GITHUB_REPO = process.env.GITHUB_REPO ?? ''; // e.g. "cheyras/deckpal"
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
-const isCloudMode = !!(GITHUB_TOKEN && GITHUB_REPO);
+export const bugReportsPublic = !!(GITHUB_TOKEN && GITHUB_REPO);
+const isCloudMode = bugReportsPublic;
 const hasStorage = !!(SUPABASE_URL && SUPABASE_SERVICE_KEY);
 
 // ── Self-host: repo-root detection (unchanged from original) ──────────────────
@@ -146,7 +147,8 @@ export function sanitizePagePath(page: string): string {
 /** Does this (already-sanitized) page path belong to a surface where a
  * screenshot must never be taken? Mount-prefix-aware — see SELF_HOST_MOUNT. */
 export function isSensitiveBugPage(page: string): boolean {
-  let clean = sanitizePagePath(page);
+  // TanStack Router matches paths without regard to case by default.
+  let clean = sanitizePagePath(page).toLowerCase();
   if (clean === SELF_HOST_MOUNT || clean.startsWith(`${SELF_HOST_MOUNT}/`)) {
     clean = clean.slice(SELF_HOST_MOUNT.length) || '/';
   }

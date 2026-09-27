@@ -1163,7 +1163,10 @@ input after successful preflight; no separate secret or deployment step exists.
    reporter's identity is stored privately in the `bug_report` DB table and
    never appears in the public issue. If Supabase Storage is configured
    (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`), screenshots are uploaded to
-   a `bug-reports` storage bucket and linked in the issue body.
+   a `bug-reports` storage bucket. The public issue notes that a screenshot
+   exists but never links to it. The owner can find it by Report-ID in Storage.
+   The reporter's disclosure reflects the server's `GITHUB_TOKEN` and
+   `GITHUB_REPO` setting through `/api/public-config`.
 
 5. Deploy. The `vercel.json` in the repo carries the real build command and the
    rewrites, in this order (order matters — the SPA fallback must stay last, or

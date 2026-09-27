@@ -16,14 +16,10 @@ import { signIn } from './admin.mjs'
 export async function checkBugReport(browser, server, mount, label, out, fixture) {
   const { state } = fixture
   const results = []
-  // The client's disclosure copy depends on a BUILD-time constant
-  // (`isCloudMode` in lib/supabase.ts, set from whether VITE_SUPABASE_URL was
-  // baked in) — which is exactly what differs between the 'cloud' and
-  // 'selfhost' labels in scripts/test-browser.mjs's two builds. Running this
-  // check for both labels is what actually exercises both copy variants.
+  // The API reports whether this deployment files public GitHub issues.
   const disclosure = label === 'cloud'
-    ? /posted publicly on DeckPal's GitHub issue tracker/
-    : /saved to this server.s private issue folder/
+    ? /description and page path will be posted publicly on DeckPal's GitHub issue tracker/
+    : /saved to this server.s issue folder and is not posted to GitHub/
   for (const width of [1440, 390]) {
     state.actor = 'owner'
     const { context, page } = await contextFor(browser, server, width)
@@ -46,7 +42,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       const dialog = page.getByRole('dialog', { name: 'Report a bug', exact: true })
       await dialog.getByText(disclosure, { exact: false }).waitFor()
       await dialog.getByText('Capturing a screenshot of this page…', { exact: true }).waitFor({ state: 'hidden' })
-      const shotImg = dialog.locator('img[alt="Screenshot of the current page that will be attached"]')
+      const shotImg = dialog.locator('img[alt="Screenshot of the current page that will be saved separately"]')
       await shotImg.waitFor()
       assert.match(await shotImg.getAttribute('src'), /^data:image\/jpeg;base64,/, 'a real screenshot must be captured on an ordinary page')
       const checkbox = dialog.getByLabel('Include screenshot', { exact: true })
@@ -87,6 +83,16 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       assert.equal(bugRequests[1].screenshot, undefined, 'a sensitive page must never send a screenshot, toggle or not')
       results.push({ case: 'bugreport-sensitive-page-skips-capture', label, width })
       await sensitiveDialog.getByRole('button', { name: 'Done', exact: true }).click()
+
+      // The router accepts mixed-case URLs for this same page. The capture
+      // guard must agree with the router, including the self-host mount.
+      await page.goto(server.origin + mount + '/ADMIN/users', { waitUntil: 'networkidle' })
+      await page.getByRole('button', { name: 'Report a bug or feature request', exact: true }).click()
+      const mixedCaseDialog = page.getByRole('dialog', { name: 'Report a bug', exact: true })
+      await mixedCaseDialog.getByText(/Screenshots are turned off on this page/, { exact: false }).waitFor()
+      assert.equal(await mixedCaseDialog.getByLabel('Include screenshot', { exact: true }).count(), 0)
+      results.push({ case: 'bugreport-mixed-case-sensitive-page-skips-capture', label, width })
+      await mixedCaseDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     } catch (error) {
       await page.screenshot({ path: path.join(out, label + '-bugreport-failure-' + width + '.png'), fullPage: true })
       error.message += '\nBugReport viewport ' + width + ': ' + (await page.locator('body').innerText()).slice(0, 4000)

@@ -40,7 +40,7 @@ import { warnOnPrintedSetCodeDivergence } from './scan/catalogPort.js';
 import { scanEmbedGate, scanEmbedWarning } from './scan/embedGate.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
 import { scanQueueRouter } from './dev/scanQueue.js';
-import { bugsRouter } from './routes/bugs.js';
+import { bugReportsPublic, bugsRouter } from './routes/bugs.js';
 import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
 import { oauthRouter } from './routes/oauth.js';
@@ -458,7 +458,10 @@ export function createApp(): express.Express {
   // ⚠️ Only ever add values here that are already public in the client bundle.
   // The service-role key and the JWT secret are NOT, and must never be.
   api.get('/public-config', asyncHandler(async (_req, res) => {
-    catalogCache(res, 300);
+    // This now includes the bug reporter's public/private destination. A
+    // cached "private" answer after an operator enables GitHub would give
+    // reporters false assurance, so read this configuration fresh.
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
       // Self-host answers with empty strings and mode 'self-host': it has no
       // Supabase, so a dev server pointed at it correctly gets nothing and
@@ -466,6 +469,7 @@ export function createApp(): express.Express {
       supabaseUrl: SUPABASE_MODE ? (process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '') : '',
       supabaseAnonKey: SUPABASE_MODE ? (process.env.VITE_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '') : '',
       mode: SUPABASE_MODE ? 'cloud' : 'self-host',
+      bugReportsPublic,
       defaults: await appDefaults().catch(()=>({skin:'premium',topbar:'cover'})),
     });
   }));

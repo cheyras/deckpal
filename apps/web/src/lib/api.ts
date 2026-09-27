@@ -1531,7 +1531,7 @@ export interface DeckeConversation {
 
 export const api = {
   // Administration and credit wallet share the authenticated, tier-aware transport.
-  publicDefaults: (signal?: AbortSignal) => get<{ defaults?: AppDefaults }>('/public-config', signal),
+  publicDefaults: (signal?: AbortSignal) => get<{ defaults?: AppDefaults; bugReportsPublic?: boolean }>('/public-config', signal),
   adminOverview: (signal?: AbortSignal) => get<{ adminReady: boolean; counts: { users?: number; suspended?: number; roles?: number; auditEvents?: number }; status: { bootstrap: string; mode: string } }>('/admin/overview', signal),
   adminUsers: (query: string, signal?: AbortSignal) => get<PageResult & { users: AdminUser[] }>('/admin/users?' + query, signal),
   adminUser: (id: string, signal?: AbortSignal) => get<{ user: AdminUser; permissions: string[]; stats: { collectionItems: number; decks: number; connectors: number } }>('/admin/users/' + encodeURIComponent(id), signal),

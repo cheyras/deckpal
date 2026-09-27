@@ -20500,10 +20500,15 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 **Decided by:** Chey (via Claude)
 
 **Decision:** The in-app bug reporter (`apps/web/src/components/BugReport.tsx`,
-`apps/api/src/routes/bugs.ts`) now (1) tells the reporter, before Submit, that
-the report — including any screenshot — is posted publicly on GitHub, and
-lets them exclude the screenshot with a checkbox; (2) never attempts or
-stores a screenshot at all on `/admin`, `/profile` or `/credits` pages
+`apps/api/src/routes/bugs.ts`) now (1) tells the reporter, before Submit, whether
+the description and page path are posted publicly on GitHub, using the API's
+actual `GITHUB_TOKEN` and `GITHUB_REPO` setting exposed as `bugReportsPublic`
+in `/api/public-config` (served with `no-store` so a changed destination cannot
+leave a stale privacy promise); it explains that any screenshot is saved separately,
+never linked in the public issue, and can be excluded with a checkbox;
+(2) never attempts or
+stores a screenshot at all on `/admin`, `/profile` or `/credits` pages, including
+mixed-case URLs the router accepts,
 (`isSensitiveBugPage`, enforced both client- and server-side); and (3) never
 puts a link to the screenshot's bytes — signed or otherwise — in the public
 GitHub issue body. `formatIssueBody` now takes `screenshotSaved: boolean`
@@ -20564,6 +20569,7 @@ in the PR description for the maintainer to act on directly. New tests:
 that actually contains HTML bytes, which must 400). A browser test
 (`tests/browser/bugReport.mjs`) verifies the disclosure copy, the
 include/exclude checkbox, and the sensitive-page skip at 390 and 1440px.
+
 ## 2026-09-26 — Issue #24 reopened: MEP's 49-card gap is real, unfixable from either approved source today, and the process gap that let it grow is fixed
 
 **Decided by:** Claude Sonnet 5 on behalf of @cheyras, investigating the

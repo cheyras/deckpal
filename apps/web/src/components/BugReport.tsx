@@ -3,7 +3,6 @@ import { Modal } from './ListModals'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
 import { api } from '../lib/api'
-import { isCloudMode } from '../lib/supabase'
 
 // In-app bug / feature-request reporter. Clicking the top-nav button opens the
 // comment form *immediately* and captures a screenshot of the current view in
@@ -13,9 +12,9 @@ import { isCloudMode } from '../lib/supabase'
 // repo's issues/ dir for the `fix-issues` skill to work through (cloud mode
 // files a labeled GitHub issue instead; see apps/api/src/routes/bugs.ts).
 //
-// PRIVACY: the report — description, page, and screenshot if any — is posted
-// to DeckPal's PUBLIC GitHub issue tracker in cloud mode. The modal says so
-// before Submit, and a screenshot can be excluded with the checkbox below its
+// PRIVACY: the description and page can be posted to a public GitHub issue,
+// while any screenshot is saved separately and never linked there. The modal
+// reflects the API's actual issue setting before Submit, and a screenshot can be excluded with the checkbox below its
 // preview. On a page that could show account details — the reporter's own
 // (Profile, billing) or another signed-in user's (any /admin page) — no
 // screenshot is even attempted; see `isSensitiveBugPage` below, mirrored
@@ -196,10 +195,12 @@ const SENSITIVE_PAGE_PREFIXES = ['/admin', '/profile', '/credits']
 const SELF_HOST_MOUNT = '/deckpal'
 
 function isSensitiveBugPage(pathname: string): boolean {
+  // TanStack Router accepts mixed-case URLs for the same route.
+  const lowerPath = pathname.toLowerCase()
   const clean =
-    pathname === SELF_HOST_MOUNT || pathname.startsWith(`${SELF_HOST_MOUNT}/`)
-      ? pathname.slice(SELF_HOST_MOUNT.length) || '/'
-      : pathname
+    lowerPath === SELF_HOST_MOUNT || lowerPath.startsWith(`${SELF_HOST_MOUNT}/`)
+      ? lowerPath.slice(SELF_HOST_MOUNT.length) || '/'
+      : lowerPath
   return SENSITIVE_PAGE_PREFIXES.some((p) => clean === p || clean.startsWith(`${p}/`))
 }
 
@@ -209,6 +210,7 @@ export function BugButton() {
   const [shot, setShot] = useState<string | undefined>(undefined)
   const [includeShot, setIncludeShot] = useState(true)
   const [sensitivePage, setSensitivePage] = useState(false)
+  const [reportPublic, setReportPublic] = useState<boolean | null>(null)
   const [kind, setKind] = useState<ReportKind>('bug')
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -227,6 +229,10 @@ export function BugButton() {
     setSavedId(null)
     setIssueUrl(null)
     setError(null)
+    setReportPublic(null)
+    void api.publicDefaults().then((config) => {
+      setReportPublic(typeof config.bugReportsPublic === 'boolean' ? config.bugReportsPublic : null)
+    }).catch(() => setReportPublic(null))
     const sensitive = isSensitiveBugPage(window.location.pathname)
     setSensitivePage(sensitive)
     setOpen(true)
@@ -411,17 +417,14 @@ export function BugButton() {
                 ))}
               </div>
               <p className="text-[14px] leading-[19px] text-text-muted">{KIND_COPY[kind].helper}</p>
-              {/* PRIVACY DISCLOSURE — plain and before Submit, per the reason this
-                  exists: a public issue used to carry a signed screenshot URL with
-                  nobody having been told. See DECISIONS.md 2026-09-26.
-                  `isCloudMode` (this build has a Supabase URL) is the client's best
-                  signal for "this deployment files a public GitHub issue" — every
-                  deployment the docs endorse pairs the two, though AGENTS.md B10
-                  notes they are technically independent env-var gates. */}
+              {/* The API reports the actual GitHub issue setting. If config is
+                  unavailable, warn conservatively instead of promising privacy. */}
               <p className="text-[13px] leading-[18px] text-text-muted">
-                {isCloudMode
-                  ? "This report — including a screenshot of this page, unless you exclude it below — is posted publicly on DeckPal's GitHub issue tracker. Never include anything you wouldn't want public."
-                  : 'This report — including a screenshot of this page, unless you exclude it below — is saved to this server’s private issue folder, not posted anywhere public.'}
+                {reportPublic === true
+                  ? "Your description and page path will be posted publicly on DeckPal's GitHub issue tracker. An included screenshot is saved separately for the project owner and is never linked in the public issue."
+                  : reportPublic === false
+                    ? 'Your report is saved to this server’s issue folder and is not posted to GitHub.'
+                    : 'Your description and page path may be posted publicly on GitHub. An included screenshot is never linked in the public issue.'}
               </p>
               <textarea
                 value={text}
@@ -445,11 +448,11 @@ export function BugButton() {
                 <figure className="overflow-hidden rounded-lg border border-border-default">
                   <img
                     src={shot}
-                    alt="Screenshot of the current page that will be attached"
+                    alt="Screenshot of the current page that will be saved separately"
                     className="block max-h-[220px] w-full object-cover object-top"
                   />
                   <figcaption className="flex items-center justify-between gap-[8px] bg-surface-tertiary px-[10px] py-[6px] text-[14px] text-text-muted">
-                    <span>Attached screenshot · {window.location.pathname}</span>
+                    <span>Screenshot to save · {window.location.pathname}</span>
                     <label className="flex items-center gap-[6px] whitespace-nowrap font-medium text-text-body">
                       <input
                         type="checkbox"

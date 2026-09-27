@@ -470,14 +470,16 @@ mode (see AGENTS.md B10). Three things are enforced so that publishing a
 report cannot publish more than the reporter chose to:
 
 - **Disclosure before Submit.** The modal states, before the report is sent,
-  that it (including any screenshot) is posted publicly on GitHub, and lets
-  the reporter exclude the screenshot with a checkbox. This did not exist
+  whether the description and page path will be posted publicly on GitHub,
+  using the API's actual issue setting. It explains that any screenshot is
+  saved separately, and lets the reporter exclude it with a checkbox. This did not exist
   before 2026-09-26 — the reporter was told a screenshot would be "attached,"
   never that it would be public.
 - **No screenshot at all on a sensitive page.** `isSensitiveBugPage` (mirrored
   in both files, same shape as the `isAllowedRoute`/`routeAllowed` pair for
   Deck-E navigation) refuses to capture, or to store one sent anyway, for any
-  `/admin`, `/profile` or `/credits` page. Those can show account details that
+  `/admin`, `/profile` or `/credits` page, including mixed-case URLs the router
+  accepts. Those can show account details that
   are not the reporter's to publish — most acutely, `/admin/users` renders
   other signed-in users' email addresses. The server-side check is a
   backstop, not a formality: it runs regardless of what the client sends, so
