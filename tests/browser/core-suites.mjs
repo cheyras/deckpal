@@ -3,7 +3,7 @@ import path from 'node:path'
 import { webkit } from 'playwright'
 import { ROOT, WEB, run, buildWeb, isolatedEnv, serve, contextFor } from './support.mjs'
 import { appResponses, announcement, checkUpcoming } from './upcoming.mjs'
-import { adminFixture, checkAdmin } from './admin.mjs'
+import { adminFixture, checkAdmin, checkInsights } from './admin.mjs'
 import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
@@ -42,6 +42,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           }
           adminActive = true
           results.push(...await checkAdmin(browser, server, mount, label, out, admin))
+          results.push(...await checkInsights(browser, server, mount, label, out, admin))
           results.push(...await checkFeedback(browser, server, mount, label, out, admin))
           results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
           if (label === 'cloud') {
