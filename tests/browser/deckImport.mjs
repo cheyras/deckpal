@@ -61,7 +61,7 @@ export async function checkDeckImport(browser, server, fixture, out) {
             confirmedCheckStarted()
             return heldResponse.then(() => route.fulfill({ json: summary([]) }))
           }
-          if (body.text === partlyRestored && body.formatCode === 'standard' && holdChangedReviewCheck) {
+          if (body.text === partlyRestored && body.formatCode === 'expanded' && holdChangedReviewCheck) {
             holdChangedReviewCheck = false
             changedReviewCheckStarted()
             return heldChangedReviewResponse.then(() => route.fulfill({ json: summary(['2 Iono PAL 999']) }))
@@ -270,6 +270,8 @@ export async function checkDeckImport(browser, server, fixture, out) {
       await page.screenshot({ path: path.join(out, `deck-import-format-illegal-${width}.png`) })
       await format.selectOption('expanded')
       await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).nth(1).waitFor()
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button =>
+        button.textContent?.trim() === 'Import deck' && !button.disabled))
       assert.equal(await page.getByRole('button', { name: 'Import deck' }).isEnabled(), true,
         'the accepted fix returns when the selected format allows it')
       // A format switch followed by Undo changes the current list again. The
@@ -278,14 +280,13 @@ export async function checkDeckImport(browser, server, fixture, out) {
       holdChangedReviewCheck = true
       await page.getByRole('button', { name: 'Undo' }).first().click()
       assert.equal(await page.getByRole('textbox', { name: 'Decklist' }).inputValue(), partlyRestored)
-      await format.selectOption('standard')
       await Promise.race([changedReviewStarted, page.waitForTimeout(10_000).then(() => { throw new Error('changed-review dry run did not start') })])
       assert.equal(await page.getByRole('button', { name: /Checking|Import/ }).last().isDisabled(), true,
         'Import stays disabled while the changed list and format are checked')
       assert.equal(created.length, createdBeforeUndo, 'Undo and format changes do not silently create a deck')
       const changedReviewResponse = page.waitForResponse(r => r.url().endsWith('/api/decks/import') &&
         r.request().postDataJSON()?.dryRun && r.request().postDataJSON()?.text === partlyRestored &&
-        r.request().postDataJSON()?.formatCode === 'standard')
+        r.request().postDataJSON()?.formatCode === 'expanded')
       releaseChangedReviewCheck()
       await changedReviewResponse
       await page.getByRole('button', { name: 'Import without them' }).waitFor()
@@ -295,8 +296,8 @@ export async function checkDeckImport(browser, server, fixture, out) {
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
       assert.equal(created.at(-1).text, partlyRestored, 'the explicit skip imports the currently reviewed text')
-      assert.equal(created.at(-1).formatCode, 'standard', 'the explicit skip imports the current format')
-      assert.deepEqual(formatChecks.at(-1), { text: partlyRestored, formatCode: 'standard' },
+      assert.equal(created.at(-1).formatCode, 'expanded', 'the explicit skip imports the current format')
+      assert.deepEqual(formatChecks.at(-1), { text: partlyRestored, formatCode: 'expanded' },
         'the explicit skip uses a dry run for this exact text and format')
 
       // Whitespace before an illegal accepted correction must not move its
