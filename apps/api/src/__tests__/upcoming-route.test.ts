@@ -202,6 +202,10 @@ async function invokeRoute(
       } as unknown as Request;
       const res = {
         setHeader() { return this; },
+        // catalogOrUserCache (PERF-02, http.ts) calls res.append() to compose
+        // its Vary with one a CORS middleware may already have set — a no-op
+        // double here still needs the method to exist.
+        append() { return this; },
         set() { return this; },
         header() { return this; },
         status(n: number) { assert.equal(n, 200); return this; },

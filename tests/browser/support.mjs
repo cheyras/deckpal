@@ -13,12 +13,14 @@ export const WEB = path.join(ROOT, 'apps/web')
 // while the others sit idle -- defeating the concurrency entirely.
 export function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
+    const started = performance.now()
     const child = spawn(command, args, { cwd: ROOT, timeout: 180_000, ...options })
     let stdout = '', stderr = ''
     child.stdout?.setEncoding('utf8').on('data', (chunk) => { stdout += chunk })
     child.stderr?.setEncoding('utf8').on('data', (chunk) => { stderr += chunk })
     child.on('error', reject)
     child.on('close', (code, signal) => {
+      console.log('TIMING command ' + path.basename(args[0]) + ' ' + ((performance.now() - started) / 1000).toFixed(1) + 's')
       if (code === 0) return resolve(stdout)
       reject(new Error(command + ' ' + args.join(' ') + (signal ? ' (killed by ' + signal + ')' : '') + '\n' + stdout + stderr))
     })
@@ -73,7 +75,12 @@ export async function serve(dist, mount, respondApi, html = 'index.html', option
       return
     }
     let file = path.resolve(dist, '.' + rel)
-    if (!file.startsWith(dist + path.sep)) return reject('Path outside fixture output', 403)
+    // `file !== dist`: the bare root request (`rel === '/'`) resolves to `dist`
+    // itself, which does not START WITH `dist + sep` (a string is never a
+    // prefix of itself). Rejecting that as "outside" the fixture output was
+    // never the intent — every path actually escaping `dist` (`..` traversal)
+    // still fails the `startsWith` check below and stays rejected.
+    if (file !== dist && !file.startsWith(dist + path.sep)) return reject('Path outside fixture output', 403)
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       if (path.extname(rel)) return reject('Missing asset: ' + rel)
       file = path.join(dist, html)
