@@ -60,8 +60,15 @@ const PREFIX = 'dev-queue/';
  * platform enforces first, so neither could ever be the thing that refused a
  * photo, and what the reader actually got was a platform error about nothing.
  *
- * The body is base64 (+33%), so 3 MB decoded is 4 MB on the wire and fits with
- * room for the JSON wrapper. It is also the number `dev-flags` already uses.
+ * The body is base64 (+33%), so 3 MB decoded is EXACTLY 4 MB on the wire —
+ * 3,145,728 divides evenly by 3, so there is no rounding to save it — which
+ * leaves no room at all for the `{"jpg":"…","name":"…","source":"…"}`
+ * wrapper around it, not "room for the JSON wrapper" as this comment used to
+ * claim (a max-size upload 413'd against a bare 4mb parser once index.ts
+ * actually enforced one at this boundary — SEC-08 review caught it). The
+ * real headroom lives in index.ts's route-scoped parser for `/dev/scan-queue`
+ * (4200kb, not 4mb), which is the number that actually has to fit this. It
+ * is also the number `dev-flags` already uses for the same decoded cap.
  * Clients normalize down to this before sending (`queueDb.normalizeForUpload`,
  * which steps quality and edge down until it fits); the cap is the backstop for
  * a client that does not.
