@@ -28,9 +28,10 @@
  * original URL, while reading it in an effect sometimes would not.
  * ───────────────────────────────────────────────────────────────────────────── */
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useSearch } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
 import { readSession, updatePasswordBounded } from '../../lib/authSession'
+import { safeNextPath } from '../../lib/landingRoute'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
 import { Spinner } from '../../components/ui'
 import { Field } from '../../components/ui/Field'
@@ -67,6 +68,14 @@ const CALLBACK_ERROR = readCallbackError()
 type Phase = 'checking' | 'ready' | 'invalid' | 'done'
 
 export function ResetPassword() {
+  // UXC-06: carried from the `/auth?next=` that led to "Forgot password?" —
+  // Auth.tsx puts it on the reset email's `redirectTo` as this route's own
+  // `next` search param, so it survives the round trip through the mailbox.
+  // Re-validated here (not just trusted from the route's validateSearch) for
+  // the same reason Auth.tsx re-validates its own: this is the value about to
+  // drive a real navigation.
+  const search = useSearch({ strict: false }) as { next?: string }
+  const next = safeNextPath(search.next)
   const [phase, setPhase] = useState<Phase>(CALLBACK_ERROR ? 'invalid' : 'checking')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -153,9 +162,18 @@ export function ResetPassword() {
           title="Password updated"
           actions={
             <>
-              <Link to="/series" className={CTA_PRIMARY}>
-                Continue to DeckPal
-              </Link>
+              {/* UXC-06: `next` leaves this route's typed knowledge (it can be
+                  any page in the app), so this is a real navigation — same
+                  reasoning as Auth.tsx's post-sign-in redirect, not a <Link>. */}
+              {next ? (
+                <a href={next} className={CTA_PRIMARY}>
+                  Continue
+                </a>
+              ) : (
+                <Link to="/series" className={CTA_PRIMARY}>
+                  Continue to DeckPal
+                </Link>
+              )}
               <Link to="/profile" className={CTA_QUIET}>
                 Go to your profile
               </Link>
@@ -179,8 +197,14 @@ export function ResetPassword() {
           actions={
             <>
               {/* Straight to the request form, not the sign-in tab — whoever
-                  is on this page has already established they cannot sign in. */}
-              <Link to="/auth" search={{ mode: 'forgot' as const }} className={CTA_PRIMARY}>
+                  is on this page has already established they cannot sign in.
+                  `next` rides along so a fresh link still ends up where the
+                  dead one would have (UXC-06). */}
+              <Link
+                to="/auth"
+                search={{ mode: 'forgot' as const, ...(next ? { next } : {}) }}
+                className={CTA_PRIMARY}
+              >
                 Request a new link
               </Link>
               <Link to="/" className={CTA_QUIET}>

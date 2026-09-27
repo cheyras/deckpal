@@ -24,7 +24,7 @@ export { playableFingerprint, hasFullGameplayData, type FingerprintInput } from 
 export { indexFingerprints, collisionReport, type IndexResult } from './fingerprintIndex.js';
 export { indexIdenticalPrints, type IdenticalPrintIndexResult } from './identicalPrintIndex.js';
 export { identicalPrintGroup, canSatisfyByEquivalentPrint } from './identicalPrints.js';
-export { validateDeck, type ValidateContext } from './formats.js';
+export { validateDeck, poolRule, type ValidateContext } from './formats.js';
 export {
   ruleBoxKind, cardIsAceSpec, cardIsRadiant, cardIsPrismStar, cardIsBasicEnergy,
 } from './rules.js';
@@ -45,7 +45,7 @@ export {
 // DB adapter (read-only) is exported separately so the pure engine has no pg dep at import.
 export {
   makeDeckPool, resolveDeck, resolveLine, loadBySetNumber, loadByName, loadByTcgdexId,
-  computeFingerprints, fingerprintInputs, buildReprintOracle,
+  computeFingerprints, fingerprintInputs, buildReprintOracle, formatPoolSql,
 } from './db.js';
 export {
   buildPtcglExport, findLiveReprint, ptcglCodeForSet, ptcglName, basicEnergyBrace,

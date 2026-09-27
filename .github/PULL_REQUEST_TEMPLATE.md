@@ -9,7 +9,7 @@
 - [ ] All affected apps build successfully
 - [ ] UI changes: verified in a real browser at desktop **and** 390px viewport; screenshots attached below
 - [ ] Migrations: new file only (never edited a shipped `.sql`)
-- [ ] `DECISIONS.md` entry added if this involves a non-trivial decision
+- [ ] A file in `decisions/YYYY/` added if this involves a non-trivial decision (`pnpm decisions new "Title"`)
 - [ ] `research/SCHEMA.md` updated if the schema changed
 
 ## Screenshots
