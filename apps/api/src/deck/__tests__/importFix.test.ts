@@ -40,6 +40,9 @@ test('printing order prefers owned, then legal regular, then newest', () => {
   const hinted = parsePtcgl('1 Iono PAL 186').lines[0]!;
   assert.equal(choosePrint([{ ...legalRegular, local_id: '184' }, { ...legalRare, local_id: '186' }], 'standard',
     hinted)?.tcgdex_id, 'rare');
+  const subsetHint = parsePtcgl('1 Pikachu VMAX CRZ GG30').lines[0]!;
+  assert.equal(choosePrint([{ ...legalRegular, local_id: 'TG30' }, { ...legalRare, local_id: 'GG31' }], 'standard',
+    subsetHint)?.tcgdex_id, 'rare', 'collector prefix beats a matching number in another subset');
   assert.equal(choosePrint([legalRare, legalRegular], 'standard')?.tcgdex_id, 'legal');
   const older = row('older', '0', 'J', 'Uncommon', '2023-06-09');
   const newer = row('newer', '0', 'J', 'Uncommon', '2024-01-26');

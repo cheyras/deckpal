@@ -78,18 +78,18 @@ export function registerDeckImportFix(router: Router): void {
       throw new ApiError(503, 'decke_unavailable', "I can't reach my brain right now. You can still edit the lines yourself.");
     }
     const measured = extractUsage(result.usage, result.providerMetadata);
-    const verified = await withUserSession(userId, req.authKind, async session => {
-      await session.query('SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', [
+    await withUserSession(userId, req.authKind, session => session.query(
+      'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', [
         usage.requestId, usage.operationId, 'completed',
         measured.tokens.inputTokens, measured.tokens.outputTokens,
         measured.tokens.cacheReadTokens, measured.tokens.cacheWriteTokens, measured.tokens.reasoningTokens,
         measured.cost.usd, measured.cost.source, measured.generationId,
-      ]);
-      try { return { value: await verifiedImportFix(session, format, text, prepared, result.text) }; }
-      catch (error) { return { error }; } // Commit measured usage even if verification fails.
-    });
-    if ('error' in verified) throw verified.error;
+      ],
+    ));
+    if (res.destroyed) return;
+    const verified = await withUserSession(userId, req.authKind, session =>
+      verifiedImportFix(session, format, text, prepared, result.text));
     userCache(res);
-    if (!res.destroyed) res.json(verified.value);
+    if (!res.destroyed) res.json(verified);
   }));
 }

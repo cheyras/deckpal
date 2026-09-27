@@ -77,19 +77,41 @@ export async function withUserSession<T>(userId: string, authKind: string | unde
   work: (db: pg.PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   let discard = false;
+  let expired = false;
+  const maxHold = Number(process.env.PGRLS_MAX_HOLD_MS ?? 30_000);
+  const cleanupMs = Number(process.env.PGRLS_CLEANUP_MS ?? 5_000);
+  let holdTimer: ReturnType<typeof setTimeout>;
+  const holdDeadline = new Promise<never>((_, reject) => {
+    holdTimer = setTimeout(() => { expired = true; reject(new Error('resumed user session timed out')); }, maxHold);
+  });
+  const bounded = <V>(promise: Promise<V>): Promise<V> => Promise.race([promise, holdDeadline]);
+  const cleanup = async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        client.query('ROLLBACK; RESET ROLE'),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('resumed user session cleanup timed out')), cleanupMs);
+        }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
+  };
   try {
     const claims = client.escapeLiteral(JSON.stringify({
       sub: userId, role: SUPABASE_MODE ? 'authenticated' : 'local',
       deckpal_auth_kind: authKind, deckpal_server_request: true,
     }));
-    await client.query(`BEGIN; SELECT set_config('request.jwt.claims', ${claims}, true); ${SUPABASE_MODE ? "SET LOCAL role = 'authenticated'" : ''}`);
-    const result = await work(client);
-    await client.query('COMMIT; RESET ROLE');
+    await bounded(client.query(`BEGIN; SELECT set_config('request.jwt.claims', ${claims}, true); ${SUPABASE_MODE ? "SET LOCAL role = 'authenticated'" : ''}`));
+    const result = await bounded(work(client));
+    await bounded(client.query('COMMIT; RESET ROLE'));
     return result;
   } catch (error) {
-    try { await client.query('ROLLBACK; RESET ROLE'); } catch { discard = true; }
+    if (!expired) try { await cleanup(); } catch { discard = true; }
     throw error;
-  } finally { client.release(discard); }
+  } finally {
+    clearTimeout(holdTimer!);
+    client.release(discard || expired);
+  }
 }
 
 /**

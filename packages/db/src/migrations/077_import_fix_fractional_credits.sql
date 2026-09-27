@@ -9,7 +9,7 @@ CREATE TABLE public.decke_import_fix_settlement (
   request_id uuid PRIMARY KEY REFERENCES public.decke_ai_request(id),
   user_id text NOT NULL,
   cost_usd numeric(24,12),
-  credits numeric(20,12) NOT NULL,
+  credits numeric(24,12) NOT NULL,
   whole_credits integer NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -25,9 +25,12 @@ BEGIN
   IF coalesce((nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'deckpal_server_request')::boolean,false) IS NOT TRUE THEN
     RAISE EXCEPTION 'A DeckPal server request is required' USING ERRCODE='42501';
   END IF;
-  IF p_cap NOT BETWEEN 1 AND 10000 OR p_model IS NULL OR length(p_model)>160 THEN
+  IF p_cap IS NULL OR p_cap<1 OR p_model IS NULL OR length(p_model)>160 THEN
     RAISE EXCEPTION 'Invalid import fix request' USING ERRCODE='22023';
   END IF;
+  -- Keep the same lock order as ordinary credit reservations: governance,
+  -- wallet control, then balance. Otherwise a chat spend can deadlock this fix.
+  PERFORM pg_advisory_xact_lock_shared(741290064);
   policy=public.credit_effective_policy(actor);
   IF policy IS NULL THEN RAISE EXCEPTION 'Credit accounting is unavailable' USING ERRCODE='P0002'; END IF;
   mode=CASE WHEN (policy->>'unlimited')::boolean THEN 'unlimited'
@@ -44,7 +47,7 @@ BEGIN
       THEN RAISE EXCEPTION 'Deck-E credits are on hold' USING ERRCODE='P0002'; END IF;
     IF mode='paid' THEN
       SELECT count(*)::integer INTO pending FROM public.decke_ai_request
-        WHERE user_id=actor AND request_key LIKE 'import_fix:%' AND status='started'
+        WHERE user_id=actor AND starts_with(request_key,'import_fix:') AND status='started'
           AND started_at>now()-interval '15 minutes';
       IF balance_now<=pending THEN RAISE EXCEPTION 'Deck-E credits are empty' USING ERRCODE='P0001'; END IF;
     END IF;
@@ -66,7 +69,7 @@ CREATE FUNCTION public.decke_import_fix_finish(p_request uuid,p_operation uuid,p
   p_input bigint,p_output bigint,p_cache_read bigint,p_cache_write bigint,p_reasoning bigint,
   p_usd numeric,p_source text,p_generation text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE actor text; r public.decke_ai_request; price_policy jsonb; amount numeric(20,12)=0;
+DECLARE actor text; r public.decke_ai_request; price_policy jsonb; amount numeric(24,12)=0;
   carried numeric(20,12); whole integer=0;
 BEGIN
   actor=public.credit_server_actor();
@@ -74,7 +77,7 @@ BEGIN
     RAISE EXCEPTION 'A DeckPal server request is required' USING ERRCODE='42501';
   END IF;
   SELECT * INTO r FROM public.decke_ai_request WHERE id=p_request AND user_id=actor FOR UPDATE;
-  IF NOT FOUND OR r.request_key NOT LIKE 'import_fix:%' THEN
+  IF NOT FOUND OR NOT starts_with(r.request_key,'import_fix:') THEN
     RAISE EXCEPTION 'Import fix request unavailable' USING ERRCODE='42501';
   END IF;
   IF EXISTS(SELECT 1 FROM public.decke_import_fix_settlement WHERE request_id=p_request) THEN
