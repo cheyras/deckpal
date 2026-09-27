@@ -130,10 +130,23 @@ export function typeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] ?? '#7f8596'
 }
 
-// Set LVL from Complete-Set pct: 0 if 0%, else 1 + floor(pct/25), cap "Max".
-// Mirrors setLevel() in apps/api/src/insights/trainerLevel.ts — keep them in step.
-export function setLevelLabel(pct: number): string {
-  if (pct >= 100) return 'MAX'
-  if (pct === 0) return '0'
-  return String(1 + Math.floor(pct / 25))
+// Set LVL from raw owned/total counts — truncating integer math, never a
+// rounded percentage. Mirrors the DB's generated user_set_progress.set_level
+// column and setLevelFromCounts() in apps/api/src/insights/trainerLevel.ts.
+// QUAL-05: the API already computes and sends this; call sites that instead
+// derived a level from the *display* pct (rounded to one decimal) could round
+// a borderline count like 1999/2000 across a level boundary a card early.
+// Kept here only as a fallback for a `setLevel` field that hasn't loaded yet
+// (e.g. mid-optimistic-update) — prefer the server's value when it's present.
+export function setLevelFromCounts(owned: number, total: number): number {
+  if (!owned || !total) return 0
+  const intPct = Math.floor((owned * 100) / total) // truncating, like Postgres integer division
+  return 1 + Math.min(4, Math.floor(intPct / 25))
+}
+
+// Set LVL label from a level (0–5; 5 = fully complete). Mirrors
+// setLevelLabel() in apps/api/src/insights/trainerLevel.ts, which formats the
+// same authoritative level rather than re-deriving one.
+export function setLevelLabel(level: number): string {
+  return level >= 5 ? 'MAX' : String(level)
 }
