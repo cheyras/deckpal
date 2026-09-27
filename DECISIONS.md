@@ -21052,6 +21052,8 @@ server and browser contexts. The runner checks this registration contract before
 the bounded pool. The main-branch write, insights and sign-in-return checks remain in the run. The
 table keyboard-scroll check waits for the observed scroll instead of assuming it completes
 within 120 ms under concurrent CI load.
+The iOS fixture server merged from main also awaits the shared build helper before
+processing its output; otherwise its `--rebuild` path would read a Promise as a string.
 
 ## 2026-09-26 — Deck-E hardening: a bounded conversation, a normalised route, a guide write bound to its deck
 
