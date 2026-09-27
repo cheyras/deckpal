@@ -374,6 +374,25 @@ button {
   outline-offset: 2px;
 }
 
+/* The showcase search is one control: keep the keyboard ring on its rounded
+   container instead of drawing a second, square outline around the input. */
+.showcase-search:focus-within {
+  outline: 2px solid var(--color-action-primary-strong);
+  outline-offset: 2px;
+}
+.showcase-search input:focus-visible {
+  outline: none;
+}
+:root[data-skin='premium'] .showcase-search:focus-within {
+  outline: 1px solid rgb(var(--px-accent-rgb) / 0.55);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--px-accent-soft);
+}
+:root[data-skin='premium'] .showcase-search input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 
 /* Filled button variants (Button.tsx primary/secondary/danger).
  *

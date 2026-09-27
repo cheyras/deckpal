@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { chromium } from 'playwright'
@@ -23,6 +23,7 @@ import { signIn } from './admin.mjs'
 
 const USER = '10000000-0000-4000-8000-000000000002'
 const PLACEHOLDER = { low: '/__fixture/card.svg', high: '/__fixture/card.svg' }
+const BOARD = process.env.DECKPAL_PROFILE_BOARD_DIR
 // 200 owned cards: comfortably more than the old N+1 fan-out would have
 // wanted to make cheap, so a regression back to per-card requests would be
 // obvious in the assertions below, not just slow.
@@ -106,6 +107,58 @@ try {
         await page.getByText('Add card', { exact: true }).first().click()
         await page.getByText('Pick a Showcase Card', { exact: false }).waitFor()
         await page.getByText('Fixture Card 0', { exact: true }).waitFor()
+        await page.waitForTimeout(250)
+        const search = page.getByPlaceholder('Search your cards…')
+        const searchContainer = search.locator('xpath=..')
+        await page.getByRole('heading', { name: 'Pick a Showcase Card' }).click()
+        await search.evaluate((input) => (input as HTMLInputElement).blur())
+        await page.waitForTimeout(50)
+        assert.equal(await search.evaluate((input) => input.matches(':focus')), false, `${width}px: capture the picker in its unfocused state`)
+        assert.equal(await search.evaluate((input) => getComputedStyle(input).outlineStyle), 'none', `${width}px: the unfocused search input must not draw its own outline`)
+        assert.equal(await searchContainer.evaluate((container) => getComputedStyle(container).outlineStyle), 'none', `${width}px: the unfocused search container must not draw a focus ring`)
+        if (BOARD) {
+          mkdirSync(BOARD, { recursive: true })
+          await page.screenshot({ path: `${BOARD}/after-picker-${width}.png` })
+        }
+
+        // Return focus to the input using the keyboard so :focus-visible is
+        // active, then prove its ring belongs to the rounded container.
+        await search.focus()
+        await page.keyboard.press('Tab')
+        await page.keyboard.press('Shift+Tab')
+        assert.equal(await search.evaluate((input) => input.matches(':focus-visible')), true, `${width}px: search should have keyboard-visible focus`)
+        const focusStyle = await search.evaluate((input) => getComputedStyle(input).outlineStyle)
+        const containerFocus = await searchContainer.evaluate((container) => {
+          const style = getComputedStyle(container)
+          return {
+            skin: document.documentElement.dataset.skin,
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+            outlineColor: style.outlineColor,
+            outlineOffset: style.outlineOffset,
+            boxShadow: style.boxShadow,
+            tokenColor: (() => {
+              const probe = document.createElement('span')
+              probe.style.color = 'var(--color-action-primary-strong)'
+              document.body.append(probe)
+              const color = getComputedStyle(probe).color
+              probe.remove()
+              return color
+            })(),
+          }
+        })
+        assert.equal(focusStyle, 'none', `${width}px: focused input must not draw an inner outline`)
+        assert.equal(containerFocus.outlineStyle, 'solid', `${width}px: keyboard focus must show a ring on the rounded container`)
+        assert.equal(containerFocus.outlineOffset, '2px', `${width}px: container ring must use the app's 2px offset`)
+        if (containerFocus.skin === 'premium') {
+          assert.equal(containerFocus.outlineWidth, '1px', `${width}px: premium container ring must use the app's 1px treatment`)
+          assert.notEqual(containerFocus.boxShadow, 'none', `${width}px: premium container ring must include the app's accent halo`)
+        } else {
+          assert.equal(containerFocus.outlineWidth, '2px', `${width}px: standard container ring must use the app's 2px treatment`)
+          assert.equal(containerFocus.outlineColor, containerFocus.tokenColor, `${width}px: standard container ring must use the action-primary-strong token`)
+        }
+        if (BOARD) await page.screenshot({ path: `${BOARD}/after-picker-focused-${width}.png` })
+
         const afterOpeningPicker = server.requests.slice(startedAtPicker)
         const ownedFromPicker = afterOpeningPicker.filter(isOwnedCardsPath)
         assert.equal(

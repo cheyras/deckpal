@@ -482,14 +482,14 @@ export function Profile() {
           size="md"
         >
           <div className="flex flex-col gap-[16px]">
-            <label className="flex h-[44px] items-center gap-[8px] rounded-lg border border-border-default bg-surface-primary px-[14px]">
+            <label className="showcase-search flex h-[44px] items-center gap-[8px] rounded-lg border border-border-default bg-surface-primary px-[14px]">
               <Icon name="search" size={16} className="shrink-0 text-icon-muted" />
               <input
                 data-autofocus
                 value={pickerTerm}
                 onChange={(e) => setPickerTerm(e.target.value)}
                 placeholder="Search your cards…"
-                className="h-full w-full bg-transparent text-[15px] text-text-primary placeholder:text-text-muted"
+                className="h-full w-full bg-transparent text-[15px] text-text-primary outline-none placeholder:text-text-muted"
               />
             </label>
 
