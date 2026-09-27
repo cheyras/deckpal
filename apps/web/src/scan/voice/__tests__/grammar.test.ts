@@ -169,6 +169,15 @@ describe('remove, undo, stop', () => {
     assert.equal(command('no no undo the remove')?.kind, 'undo')
   })
 
+  it('refuses a named Undo because Undo only acts on the latest action', () => {
+    const rows = [{ id: 'named', name: 'Charizard' }, { id: 'latest', name: 'Venonat' }]
+    for (const heard of ['undo the Charizard', 'cancel the Charizard', 'put it back Charizard']) {
+      assert.equal(parseUtterance(heard, rows).refused, 'ambiguous-target', heard)
+      assert.equal(parseAlternatives([heard, 'undo'], rows).command, null, heard)
+    }
+    assert.deepEqual(parseUtterance('undo that', rows).command, { kind: 'undo' })
+  })
+
   it('never acts on anything said with a negation in it', () => {
     for (const heard of [
       'never remove that', "don't remove it", 'do not remove it', "don't undo",
@@ -422,6 +431,17 @@ describe('target invariants', () => {
       ['N reverse holo', 'reverse holo'],
       ['reverse holo', 'N reverse holo'],
     ]) assert.equal(parseAlternatives(alts, ROWS).command, null, alts.join(' / '))
+  })
+
+  it('refuses a new reference after a clause break instead of applying it to an earlier name', () => {
+    const rows = [{ id: 'named', name: 'Venonat' }, { id: 'latest', name: 'Exeggcute' }]
+    for (const separator of [' then ', ', ', '. ', '; ', ' and ']) {
+      const heard = `Venonat is normal${separator}that one is reverse holo`
+      assert.equal(parseUtterance(heard, rows).refused, 'two-cards', heard)
+      assert.equal(parseAlternatives([heard, 'reverse holo'], rows).command, null, heard)
+    }
+    assert.equal(parseUtterance('the Venonat is a reverse holo', rows).command?.kind, 'edit')
+    assert.equal(parseUtterance('holo, no, reverse', rows).command?.kind, 'edit')
   })
 
   it('reserves adjacent names before a fuzzy printing can absorb either', () => {

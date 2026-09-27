@@ -560,21 +560,18 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // a reverse holo") would otherwise pair one card with the other's command.
   const named = new Set(segs.flatMap((s) => (s.kind === 'name' ? [s.rowId] : [])))
   if (named.size > 1) return { command: null, coverage, refused: 'two-cards' }
-  // A conjunction can introduce a second target even if only one is named:
-  // "remove N and that one". References within the SAME clause can describe
-  // its named card; references in a separate clause are not guessed at.
-  const clauses: Segment[][] = [[]]
-  for (const s of segs) {
-    if (isFiller(s) && words.slice(s.from, s.to).includes('and')) clauses.push([])
-    else clauses.at(-1)!.push(s)
-  }
+  // A second clause can introduce another target without naming it. A
+  // punctuation mark inside a card name does not separate its own segment.
+  const breaks = segs.flatMap((s) => isFiller(s) && words.slice(s.from, s.to).some((w) => w === 'and' || w === 'then')
+    ? [s.to] : [])
+  for (const mark of transcript.matchAll(/[.,;:!?]+/g)) breaks.push(tokenize(transcript.slice(0, mark.index)).length)
   const references = new Set(['it', 'its', 'that', 'thats', 'this', 'those', 'these', 'them', 'they', 'theyre'])
-  if (named.size && clauses.some((clause) =>
-    !clause.some((s) => s.kind === 'name') && clause.some((s) =>
-      s.kind === 'slot' && words.slice(s.from, s.to).some((word) => references.has(word))))) {
+  const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
+  if (nameSeg && segs.some((s) =>
+    s.kind === 'slot' && words.slice(s.from, s.to).some((word) => references.has(word)) &&
+    breaks.some((at) => (nameSeg.to <= at && s.from >= at) || (s.to <= at && nameSeg.from >= at)))) {
     return { command: null, coverage, refused: 'two-cards' }
   }
-  const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
   // The LAST finish said wins — people correct themselves forwards ("holo, no,
@@ -608,6 +605,9 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   if (has('hedge') || transcript.includes('?') || (opener && QUESTION_OPENERS.has(opener))) {
     return { command: null, coverage, refused: 'question' }
   }
+  // Undo has only a global target. Do not silently discard a spoken card name
+  // and undo whichever action happened to be newest.
+  if (command?.kind === 'undo' && nameSeg) return { command: null, coverage, refused: 'ambiguous-target' }
   // "Remove it" and "make it two" in one breath is two instructions; which one
   // was meant is a guess, and one of them deletes a card.
   if (command?.kind === 'remove' && (finish || modifiers.length || quantity !== null)) {

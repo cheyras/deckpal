@@ -21607,3 +21607,9 @@ tests and by `log_cards`' own preflight; it has not been measured live.
 **Decision:** A corrective `edit_list`, `save_deck` or `add_battle_log` call uses a correction-only schema whose `dry_run` defaults to `false` and rejects `true`. The parsed `false` is part of the SDK's signed approval input. The ordinary tool schemas retain their safe `dry_run: true` defaults.
 **Why:** Astra found that forcing a tool name alone could produce only a dry run: those three tools default to preview, so the one-step correction would stop without a card. A real-SDK test for each tool now proves that an omitted `dry_run` becomes a signed apply request, raises the card with zero writes, and applies only after signed approval is replayed under the ordinary tool set.
 **Implications:** Corrective tool choice can no longer silently become a preview because the model omitted `dry_run`. Invalid or declined calls still fail closed, and the existing approval gate remains the only route to a write.
+
+## 2026-09-26 — Scanner voice refuses crossed clauses and named Undo
+**Decided by:** Chey (via Codex gpt-6-sol)
+**Decision:** Treat “then” and punctuation as clause breaks alongside “and” when a named card and a later reference could point to different captures. Refuse a named Undo because the current Undo command can only address the latest action.
+**Why:** A named printing followed by “then that one” could apply the second printing to the named card; “undo the Charizard” could instead reverse Venonat's latest action. Both violate the scanner's one-command, one-target invariant.
+**Implications:** The reader repeats either instruction as a separate command. The grammar tests cover these refusals and their recognizer alternatives; no schema or deployment change.

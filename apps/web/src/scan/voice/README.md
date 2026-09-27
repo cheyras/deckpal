@@ -28,9 +28,11 @@ executing one against the wrong capture can change the collection.
    transcription. A later capture cannot steal a command. A corrected identity
    cannot inherit a command spoken about the previous card.
 6. Recognizer alternatives cannot overrule a refusal or unknown target, or
-   disagree about which capture a command addresses. A conjunction cannot pair
-   a named card with a separately referenced “that one.” Conflicting framed
-   quantities refuse the whole utterance, including a later count of one.
+   disagree about which capture a command addresses. A clause break (“and,”
+   “then,” or punctuation) cannot pair a named card with a separately referenced
+   “that one.” A named Undo is refused because Undo only targets the latest
+   action. Conflicting framed quantities refuse the whole utterance, including
+   a later count of one.
 
 ## Change lifecycle
 
