@@ -186,6 +186,8 @@
   "{\"case\":\"upcoming-suppression\",\"label\":\"selfhost\",\"scenario\":\"expired\"}",
   "{\"case\":\"wire-bounds\",\"width\":1280}",
   "{\"case\":\"wire-bounds\",\"width\":390}",
+  "{\"case\":\"writes-card-grid-keyboard\",\"label\":\"cloud\",\"width\":1280}",
+  "{\"case\":\"writes-card-grid-keyboard\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"writes-collection\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"writes-collection\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"writes-deck\",\"label\":\"cloud\",\"width\":1280}",

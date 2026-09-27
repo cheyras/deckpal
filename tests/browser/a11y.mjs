@@ -178,6 +178,8 @@ export async function checkA11y(browser, server, mount, label, out) {
       assert.equal(await chat.getAttribute('inert'), '', 'the chat must remain open and inert past the retirement deadline')
       await drawer.getByRole('button', { name: 'Close navigation' }).click()
       await reverse.page.waitForFunction(() => !document.querySelector('#mobile-nav-drawer'))
+      await reverse.page.waitForFunction(() =>
+        document.querySelector('[role="dialog"][aria-label="Chat with Deck-E"]')?.hasAttribute('inert') === false)
       assert.equal(await chat.getAttribute('inert'), null, 'closing the menu must reveal the same chat')
       assert.equal(await chat.getByRole('textbox', { name: 'Message Deck-E' }).inputValue(), draft,
         'opening the menu must preserve the reader’s unsent message')
