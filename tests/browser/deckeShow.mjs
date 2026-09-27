@@ -29,11 +29,12 @@
  * ── HOW IT STEPS HIM ─────────────────────────────────────────────────────────
  *
  * Headless browsers draw WebGL in software, and at whatever rate they manage.
- * So the engine's own loop is stopped and he is stepped by exactly 1/60 s per
- * animation frame (`DeckE.step`, the supported recipe in the engine README).
- * Every per-frame number below is therefore a 60 Hz number whatever the
+ * So the engine's own loop is stopped and he is advanced by exactly 1/60 s per
+ * animation frame WITHOUT DRAWING (`DeckE.simulate`: `step` minus the GPU
+ * work). Every per-frame number below is therefore a 60 Hz number whatever the
  * machine, and "time" in the budgets is ENGINE time. Real-time budgets are
- * measured on a real GPU and reported in the PR, not asserted here.
+ * measured on a real GPU and reported in the PR, not asserted here. For the
+ * same reason no assertion here is a wall-clock bound.
  */
 import assert from 'node:assert/strict'
 import path from 'node:path'
@@ -137,7 +138,7 @@ function installRecorder(target) {
   }
   const box = (r) => [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]
   const tick = () => {
-    d.step(1 / 60)
+    d.simulate(1 / 60)
     const him = d.screenRect()
     const origin = d.opts.canvas.getBoundingClientRect()
     const el = R.target ? document.querySelector(R.target) : null
@@ -239,8 +240,22 @@ async function openChat(page, server) {
   await page.goto(server.origin + '/series', { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Chat with Deck-E' }).click()
   await page.waitForFunction(() => !!window.__decke, null, { timeout: 60_000 })
-  // Let his entrance finish on his own clock before the recorder takes it over.
-  await page.waitForFunction(() => !window.__decke.getState().flying && window.__decke.entryScale > 0.99, null, { timeout: 60_000 })
+  // From here he is SIMULATED, never drawn: his own loop stops, and the test
+  // advances him 1/60 s per animation frame without rendering. Drawing this
+  // scene in software was most of every frame's cost on a CI runner, and it
+  // slowed the suites running alongside this one. His entrance finishes on
+  // that same clock.
+  await page.evaluate(() => new Promise((resolve) => {
+    const d = window.__decke
+    d.stop()
+    let n = 0
+    const tick = () => {
+      d.simulate(1 / 60)
+      if ((!d.getState().flying && d.entryScale > 0.99) || ++n > 900) return resolve()
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  }))
   return page.getByRole('dialog', { name: 'Chat with Deck-E' }).getByRole('textbox')
 }
 
@@ -250,7 +265,17 @@ async function ask(page, box, question, target) {
   await box.press('Enter')
 }
 
-const frames = (page) => page.evaluate(() => window.__show.frames)
+/**
+ * Every frame recorded so far, once forty-five more have been recorded. The
+ * second leg can be requested in the very task the ring is drawn in — under
+ * reduced motion he arrives inside `flyTo` itself — so reading the record the
+ * moment that request lands can miss the arrival it was reporting.
+ */
+async function frames(page) {
+  await page.waitForFunction((n) => window.__show.frames.length >= n,
+    (await page.evaluate(() => window.__show.frames.length)) + 45, { timeout: 60_000 })
+  return page.evaluate(() => window.__show.frames)
+}
 
 /**
  * Wait for the model's second leg — the request that carries his tool results —
@@ -384,7 +409,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         const m = analyse(await frames(page))
         assert.deepEqual(fixture.toolOutputs(), [{ ok: true }])
         assert.equal(m.glides, 0, 'reduced motion still glided the page')
-        assert.ok(m.ringOnTarget, 'reduced motion never ringed the card: ' + JSON.stringify({ ...m, last: (await frames(page)).at(-1) }))
+        assert.ok(m.ringOnTarget, 'reduced motion never ringed the card: ' + JSON.stringify(m))
         assert.ok(m.besidePx !== null && m.besidePx <= 40, 'reduced motion put him ' + m.besidePx + ' px from the card')
         results.push({ case: 'decke-show-reduced', engine, ...m, ringT: undefined })
       } finally { await context.close() }

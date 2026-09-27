@@ -2838,7 +2838,19 @@ export class DeckE {
     this.frame(Math.min(dt, 0.1))
   }
 
-  private frame(dt: number) {
+  /**
+   * `step` without drawing: the whole simulation — the flight, the page it
+   * drives, his station, and everything riding him (`onFrame`) — and no GPU
+   * work at all. For measuring him where drawing is the slow part: a CI runner
+   * rendering this scene in software spent most of every stepped frame on
+   * pixels nobody looks at, and starved the suites running beside it.
+   */
+  simulate(dt: number) {
+    if (this.disposed) return
+    this.frame(Math.min(dt, 0.1), false)
+  }
+
+  private frame(dt: number, draw = true) {
     {
       this.markPresence()
       // What OUR frame actually costs, so a slow character can be told apart
@@ -2847,10 +2859,10 @@ export class DeckE {
       const t0 = performance.now()
       this.elapsed += dt
       this.update(dt)
-      this.stage.renderer.render(this.stage.scene, this.stage.camera)
+      if (draw) this.stage.renderer.render(this.stage.scene, this.stage.camera)
       // The beacon's window, drawn into the same canvas over the chip. Second
       // pass, same context — see `Stage.renderInset`.
-      if (this.beacon) {
+      if (draw && this.beacon) {
         // LEVEL, whatever the page is doing.
         //
         //   "When he's in this little pointer, as we go down you notice that his
