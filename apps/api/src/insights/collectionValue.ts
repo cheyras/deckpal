@@ -211,13 +211,13 @@ export interface Mover {
  * window here matches the retention tier exactly, not an arbitrary choice).
  * Collapse overlapping live and archive observations to one best market price
  * per UTC day before averaging; a duplicated day is still one day of history.
-  * `HAVING count(*) >= 2` keeps a single day's observations from posing as an
-  * "average". Only variants that end up with both a market and a (vendor or
-  * derived) avg30 qualify — a sparse feed still yields fewer movers, never a
-  * wrong number.
-  *
-  * Browse only physical cards. Pocket cards have no price rows today, but the
-  * view keeps them excluded if a price feed adds them later.
+ * `HAVING count(*) >= 2` keeps a single day's observations from posing as an
+ * "average". Only variants that end up with both a market and a (vendor or
+ * derived) avg30 qualify — a sparse feed still yields fewer movers, never a
+ * wrong number.
+ *
+ * Browse only physical cards. Pocket cards have no price rows today, but the
+ * view keeps them excluded if a price feed adds them later.
  */
 export async function topMovers(userId: string, currency = 'USD', limit = 5): Promise<Mover[]> {
   const cur = currency.trim().toUpperCase();
@@ -251,7 +251,7 @@ export async function topMovers(userId: string, currency = 'USD', limit = 5): Pr
             pc.market_minor, coalesce(pc.avg30_minor, da.avg30_minor) AS avg30_minor
        FROM owned o
        JOIN card_variant cv ON cv.id = o.card_variant_id
-        JOIN browsable_card c ON c.id = cv.card_id
+       JOIN browsable_card c ON c.id = cv.card_id
        JOIN price_current pc ON pc.card_variant_id = cv.id AND pc.currency_code = $2
        LEFT JOIN derived_avg30 da ON da.card_variant_id = o.card_variant_id
       WHERE pc.market_minor IS NOT NULL
