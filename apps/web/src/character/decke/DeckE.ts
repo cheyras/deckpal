@@ -245,8 +245,13 @@ export type FlyOptions = {
    * skipped in that case (he is not there), and the callback must not do its
    * arrival work either; it is being told so it can stop waiting, not so it
    * can pretend.
+   *
+   * `why` says which kind of not-arriving it was: `replaced` for the above, and
+   * `reader` when the reader scrolled the page away from a flight that was
+   * driving it and the target ended up off screen — he stops where he is drawn
+   * rather than chasing it out of view (see `tookOver`).
    */
-  arrived?: (aborted: boolean) => void
+  arrived?: (aborted: boolean, why?: 'replaced' | 'reader') => void
   /**
    * Stand ON the target rather than beside it.
    *
@@ -756,13 +761,13 @@ export class DeckE {
    *  silence was worse: the ring, the `then` state and the caller's callback
    *  all vanished with nothing to say so, and the host's "scale him away on
    *  arrival" is exactly the kind of cleanup that must run or be told why not. */
-  private onArrive: ((aborted: boolean) => void) | null = null
+  private onArrive: ((aborted: boolean, why?: 'replaced' | 'reader') => void) | null = null
 
   /** Fire-and-clear the pending arrival, exactly once. */
-  private fireOnArrive(aborted: boolean) {
+  private fireOnArrive(aborted: boolean, why: 'replaced' | 'reader' = 'replaced') {
     const arrived = this.onArrive
     this.onArrive = null
-    arrived?.(aborted)
+    arrived?.(aborted, aborted ? why : undefined)
   }
 
   // ---- entrance and reduced motion -------------------------------------
@@ -1781,6 +1786,7 @@ export class DeckE {
     // same spot at the same moment, instead of him chasing a target the drive
     // is carrying away (a 2.3 s first leg, measured, re-aimed the whole way).
     this.aimAhead = false
+    this.tookOver = false
     if (this.pendingScroll !== null && 'selector' in target) {
       const el = document.querySelector(target.selector)
       this.aimAhead = !!el && ridesThePage(el)
@@ -1883,9 +1889,9 @@ export class DeckE {
     // host lost its own "scale him away when he lands" and left a full-size
     // character parked over the page.
     this.fireOnArrive(true)
-    this.onArrive = (aborted) => {
+    this.onArrive = (aborted, why) => {
       if (aborted) {
-        arrived?.(true)
+        arrived?.(true, why)
         return
       }
       if (ring && selector) highlightElement(selector)
@@ -1977,6 +1983,17 @@ export class DeckE {
    * end-state note in `flyTo`, and `planned`.
    */
   private aimAhead = false
+
+  /** Set when the reader's own scroll disarmed this flight's drive. See `driveScroll`. */
+  private tookOver = false
+
+  /** Is the element he is presenting at least partly inside the viewport? */
+  private stationVisible(): boolean {
+    if (this.station.kind !== 'element') return true
+    const r = resolveRect(this.station.target)
+    if (!r) return false
+    return r.top + r.height > 0 && r.top < viewHeight() && r.left + r.width > 0 && r.left < viewWidth()
+  }
 
   /**
    * A target's box as it will be once the scroll this flight is driving lands.
@@ -2406,6 +2423,7 @@ export class DeckE {
     if (!d) return
     if (Math.abs(window.scrollY - d.own) > 2) {
       this.scrollDrive = null
+      this.tookOver = true
       return
     }
     // Eased on the same curve the flight uses, so neither leads the other.
@@ -3258,7 +3276,18 @@ export class DeckE {
             this.flightScale = null
           }
           this.rampMod(TRAVEL_MOD_MS)
-          this.fireOnArrive(false)
+          // THE READER TOOK THE PAGE, AND THE TARGET WENT WITH IT. His flight
+          // re-aims at the live box as they scroll, but a box off screen can
+          // only be approached as far as the edge — and landing there, the pin
+          // would then carry him the rest of the way out of view in one frame
+          // (a 1,794 px jump, measured). He stops where he is drawn instead, and
+          // says so; ringing a card nobody can see would be the lie.
+          if (this.tookOver && !this.stationVisible()) {
+            this.hold()
+            this.fireOnArrive(true, 'reader')
+          } else {
+            this.fireOnArrive(false)
+          }
         }
       }
     } else {

@@ -846,11 +846,13 @@ function present(
         then: opts.point ? 'point' : undefined,
         via: far ? 'background' : undefined,
         scrollWith: true,
-        arrived: (aborted) =>
+        arrived: (aborted, why) =>
           finish(
-            aborted
-              ? { ok: false, reason: 'something moved me somewhere else before I got there' }
-              : { ok: true },
+            !aborted
+              ? { ok: true }
+              : why === 'reader'
+                ? { ok: false, reason: 'you scrolled away before I got there, so I stopped where I was' }
+                : { ok: false, reason: 'something moved me somewhere else before I got there' },
           ),
       },
     )
