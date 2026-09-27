@@ -30,6 +30,7 @@ test('every configured id is checked — primary, fallback AND escalate', () => 
   assert.ok(ids.includes('perplexity/sonar-pro'), 'the research primary');
   assert.ok(ids.includes('perplexity/sonar'), 'the research fallback');
   assert.ok(ids.includes('anthropic/claude-opus-5'), 'an escalate target');
+  assert.ok(ids.includes('typesafe-ai/jev'), 'the judgment model, which fails open and so fails silently');
   assert.equal(new Set(ids).size, ids.length, 'ids are deduplicated');
 });
 
