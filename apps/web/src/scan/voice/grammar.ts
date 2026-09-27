@@ -268,7 +268,10 @@ const phraseOf = (text: string): Phrase => {
 // filler ("the N" into "then") or into a verb ("remove N" into "removed").
 const COMPILED = LEXICON.map((e) => ({
   slot: e.slot, phrases: e.phrases.map(phraseOf),
-  exact: e.slot.kind !== 'finish' && e.slot.kind !== 'modifier',
+  // Cosmog is one sound-alike edit from Cosmos. An absent named Cosmog must
+  // never become an anchor-targeted Cosmos printing.
+  exact: (e.slot.kind !== 'finish' && e.slot.kind !== 'modifier') ||
+    (e.slot.kind === 'modifier' && e.slot.value === 'cosmos'),
 }))
 
 // ── SEGMENTATION ────────────────────────────────────────────────────────────
@@ -567,6 +570,14 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   for (const mark of transcript.matchAll(/[.,;:!?]+/g)) breaks.push(tokenize(transcript.slice(0, mark.index)).length)
   const references = new Set(['it', 'its', 'that', 'thats', 'this', 'those', 'these', 'them', 'they', 'theyre'])
   const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
+  // A printing word before "is/was/are" may be an absent card name heard as
+  // printing vocabulary. Without a recognized name or reference, do not send
+  // that instruction to the latest capture.
+  const copula = words.findIndex((w) => w === 'is' || w === 'was' || w === 'are')
+  if (copula > 0 && !nameSeg && segs.some((s) => s.kind === 'slot' && isPrinting(s) && s.to <= copula) &&
+    !words.slice(0, copula).some((w) => references.has(w))) {
+    return { command: null, coverage, refused: 'ambiguous-target' }
+  }
   if (nameSeg && segs.some((s) =>
     s.kind === 'slot' && words.slice(s.from, s.to).some((word) => references.has(word)) &&
     breaks.some((at) => (nameSeg.to <= at && s.from >= at) || (s.to <= at && nameSeg.from >= at)))) {

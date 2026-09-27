@@ -16,7 +16,10 @@ executing one against the wrong capture can change the collection.
 3. Exact card names reserve their token spans before fuzzy matching. A fuzzy
    window cannot consume a neighbouring exact name. Short names, including N,
    match literally. Otherwise unexplained spans may match longer names by sound
-   (“char is hard”), but filler never introduces a fuzzy target.
+   (“char is hard”), but filler never introduces a fuzzy target. Cosmos is
+   matched literally so an absent Cosmog cannot become a Cosmos printing; a
+   printing-like word in subject position without a known card or reference is
+   refused rather than assigned to the latest capture.
 4. Duplicate captures with the same full name mean the most recent capture by
    `capturedAt`, not arrival order. Distinct names sharing an alias or equally
    good sound match are refused with a request for a full name. A name identical

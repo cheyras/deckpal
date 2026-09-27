@@ -249,6 +249,20 @@ describe('targeting', () => {
     assert.equal(edit('the reverse holo').target.kind, 'anchor')
   })
 
+  it('never reads an absent Cosmog as the Cosmos printing of the latest capture', () => {
+    const rows = [{ id: 'latest', name: 'Metal Energy' }]
+    for (const heard of ['the Cosmog is a holo', 'Cosmog is a holo', 'Cosmog holo']) {
+      assert.equal(parseUtterance(heard, rows).command, null, heard)
+      assert.equal(parseAlternatives([heard, 'holo'], rows).command, null, heard)
+    }
+    for (const heard of ['cosmos holo', 'cosmo holo']) {
+      assert.equal(parseUtterance(heard, rows).command?.kind, 'edit', heard)
+    }
+    const named = parseUtterance('the Cosmog is a holo', [{ id: 'cosmog', name: 'Cosmog' }, ...rows]).command
+    assert.ok(named?.kind === 'edit')
+    assert.deepEqual(named.target, { kind: 'row', rowId: 'cosmog', name: 'Cosmog' })
+  })
+
   it('reads a printing phrase as the printing even when a card is named after it', () => {
     const rows = [{ id: 'e', name: 'Exeggcute' }, { id: 'p', name: 'Poké Ball' }, { id: 'm', name: 'Master Ball' }]
     const c = parseUtterance('that one is a poke ball reverse holo', rows).command
