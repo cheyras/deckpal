@@ -19,10 +19,18 @@
 # access the application, and does not claim to have verified anything.
 # See DECISIONS.md 2026-08-11.
 #
-# ── Secrets the repository owner must add ──────────────────────────────────
+# ── Secret the repository owner must add ────────────────────────────────────
 # Settings → Secrets and variables → Actions → New repository secret:
 #
-#   ANTHROPIC_API_KEY   ← an Anthropic API key (any tier; Haiku is cheap)
+#   AI_GATEWAY_API_KEY   ← a Vercel AI Gateway API key
+#
+# Get one from the Vercel dashboard: the deck-pal team → AI Gateway → API
+# Keys. Mint a DEDICATED key for this workflow rather than reusing one from
+# elsewhere — this is a GitHub Actions repository secret, a separate
+# credential store from any Vercel project environment variable of the same
+# name, and a dedicated key keeps this workflow's tiny, infrequent spend
+# legible and independently revocable (see DEPLOYMENT.md's note on
+# DECKE_VERCEL_AI_GATEWAY_KEY for why that separation matters here too).
 #
 # Until this secret exists the workflow exits cleanly with a notice — it does
 # not fail loudly, because a missing optional enrichment should not spam
@@ -47,7 +55,7 @@ jobs:
       contents: read       # checkout the repo (for the script)
 
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
       GH_TOKEN: ${{ github.token }}
       ISSUE_NUMBER: ${{ github.event.issue.number }}
 
