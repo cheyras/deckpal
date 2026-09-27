@@ -42,7 +42,7 @@
       ]
     },
     {
-      "source": "/((?!api/|dev/decke-compare$|assets/scan-harness-).*)",
+      "source": "/((?!api/|dev/decke-compare$|assets/scan-harness-.*\\.html$).*)",
       "headers": [
         {
           "key": "Content-Security-Policy",

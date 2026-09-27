@@ -22,7 +22,7 @@ const ROOT = path.resolve(import.meta.dirname, '../..')
 const vercelConfig = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'))
 const cspOf = (source) => vercelConfig.headers.find((h) => h.source === source).headers
   .find((h) => h.key === 'Content-Security-Policy').value
-const GENERAL_CSP = cspOf('/((?!api/|dev/decke-compare$|assets/scan-harness-).*)')
+const GENERAL_CSP = cspOf('/((?!api/|dev/decke-compare$|assets/scan-harness-.*\\.html$).*)')
 const DECKE_COMPARE_CSP = cspOf('/dev/decke-compare')
 const SCAN_HARNESS_CSP = cspOf('/assets/scan-harness-(.*).html')
 // Mirrors vercel.json's own per-path carve-out (see check-security-headers.mjs

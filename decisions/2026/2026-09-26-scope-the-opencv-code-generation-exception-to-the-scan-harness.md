@@ -28,6 +28,9 @@ route was reached.
 JavaScript execution boundary than one in the surrounding app. The remaining
 directives match the general policy, except `frame-ancestors 'self'` and the
 matching `X-Frame-Options: SAMEORIGIN` needed for that iframe, and are checked
-for drift. A future CSP-compatible OpenCV build could remove the exception;
+for drift. The general header exclusion matches only the hashed `.html` asset:
+an extensionless path sharing its prefix can serve the app shell and must keep
+the general policy. A future CSP-compatible OpenCV build could remove the
+exception;
 until then, the browser suite must start OpenCV and check that an active
 service worker preserves the iframe's header.

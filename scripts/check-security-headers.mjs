@@ -63,7 +63,7 @@ function cspDirectives(cspValue) {
 }
 
 // ── Locate both rules ─────────────────────────────────────────────────────────
-const general = vercelConfig.headers.find((h) => h.source === '/((?!api/|dev/decke-compare$|assets/scan-harness-).*)')
+const general = vercelConfig.headers.find((h) => h.source === '/((?!api/|dev/decke-compare$|assets/scan-harness-.*\\.html$).*)')
 assert.ok(general, 'vercel.json must protect every app document and leave the two special responses to their own rules')
 const deckeCompare = vercelConfig.headers.find((h) => h.source === '/dev/decke-compare')
 assert.ok(deckeCompare, 'vercel.json must have a dedicated headers rule for /dev/decke-compare (its own same-origin recursive iframe needs frame-ancestors \'self\', not \'none\')')
@@ -86,7 +86,7 @@ for (const [label, byKey] of [['general', generalHeaders], ['/dev/decke-compare'
 const match = /^\/\((.+)\)$/.exec(general.source)
 assert.ok(match, `source "${general.source}" is not the expected /(<pattern>) shape`)
 const re = new RegExp(`^${match[1]}$`)
-for (const p of ['', 'lists', 'collection', 'authorize', 'scan', 'mcp', 'register', 'token', '.well-known/oauth-authorization-server', 'dev/scan-harness']) {
+for (const p of ['', 'lists', 'collection', 'authorize', 'scan', 'mcp', 'register', 'token', '.well-known/oauth-authorization-server', 'dev/scan-harness', 'assets/scan-harness-unprotected']) {
   assert.ok(re.test(p), `general headers source must still match ordinary path "/${p}"`)
 }
 // Bare "/api" (no trailing slash) matches no rewrite and falls through to the
