@@ -17,6 +17,8 @@ import {
   Link,
 } from '@tanstack/react-router'
 import { RootErrorBoundary, RouteErrorFallback } from '../../apps/web/src/components/ErrorBoundary'
+import { PwaUi } from '../../apps/web/src/components/PwaUi'
+import { Sheet } from '../../apps/web/src/components/ui/Sheet'
 import type { PendingApproval } from '../../apps/web/src/character/host/approval'
 import type { ApprovalPreview } from '../../apps/web/src/character/host/chat/approvalCardState'
 import type { DeepQuote } from '../../apps/web/src/character/host/chat/deepRequest'
@@ -33,6 +35,8 @@ declare global {
     meterChat: { send: (text: string) => void; busy: boolean }
     /** `?errorboundary` only — see `ErrorBoundaryFixture` below. */
     errorBoundaryFixture: { disarmCrash: () => void; disarmLoaderCrash: () => void; crashOutsideRouter: () => void }
+    /** `?offline` only — offline.mjs drives the real Sheet/PwaUi collision + connectivity check through this. */
+    offlineFixture: { openSheet: () => void; closeSheet: () => void; submitted: number }
     /** `?refresh` only — the same, beside a mounted deck query. */
     refreshChat: { send: (text: string) => void; busy: boolean }
   }
@@ -48,6 +52,7 @@ function Fixture() {
   </main>
   if (location.search.includes('meter')) return <MeterFixture />
   if (location.search.includes('errorboundary')) return <ErrorBoundaryFixture />
+  if (location.search.includes('offline')) return <OfflineHarness />
   if (location.search.includes('refresh')) return <RefreshFixture />
   const { preview, ...props } = state
   return <DeckeChat {...props} minimised={false} onExpand={() => {}}
@@ -58,6 +63,44 @@ function Fixture() {
     approvalChoices={new Map()} onApprovalChoice={() => {}} approvalBusy={false}
     onRetryTool={id => events.retries.push(id)} desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
     onTopUp={() => { events.topUps++ }} />
+}
+
+/**
+ * The real `PwaUi` (install pill / offline banner / update toast) alongside a
+ * real `Sheet`, footer and all — the exact shape of the Bug Report / Add Cards
+ * sheets `PR-PROTOCOL`'s repro named. `offline.mjs` drives this to prove two
+ * things against the real components rather than a description of them:
+ *
+ * 1. The offline banner never paints over an open sheet's footer (the z-index
+ *    fix in `theme.css`'s `--z-toast`).
+ * 2. The banner reflects a CONFIRMED offline state (`useConnectivity`), not a
+ *    raw `navigator.onLine` hint — the hook makes a real `fetch` to this
+ *    fixture's own `/deckpal/api/me`, so toggling the page offline/online or
+ *    spoofing `navigator.onLine` exercises the real probe, not a stub of it.
+ */
+function OfflineHarness() {
+  const [open, setOpen] = useState(false)
+  const [submitted, setSubmitted] = useState(0)
+  window.offlineFixture = { openSheet: () => setOpen(true), closeSheet: () => setOpen(false), submitted }
+  return (
+    <>
+      <PwaUi />
+      {open && (
+        <Sheet
+          title="Report a problem"
+          onClose={() => setOpen(false)}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button type="button" onClick={() => setOpen(false)}>Cancel</button>
+              <button type="button" onClick={() => { setSubmitted(n => n + 1); setOpen(false) }}>Submit</button>
+            </div>
+          }
+        >
+          <p>Fixture body standing in for the Bug Report sheet&apos;s form.</p>
+        </Sheet>
+      )}
+    </>
+  )
 }
 
 /**

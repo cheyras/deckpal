@@ -51,7 +51,7 @@ export function ToastView({ tone, message, actionLabel, onAction, onDismiss }: T
 /** Errors stay long enough to read and act on; an Undo offer is shorter-lived. */
 const SHOWN_MS = { error: 10_000, info: 6_000 } as const
 
-/** Host for the current toast. Mounted once, in PwaUi's bottom-right stack. */
+/** Host for the current toast. Mounted once, above sheets, by PwaUi. */
 export function Toaster() {
   const toast = useToast()
   // Hovering or focusing the toast holds it open — nobody should lose a Retry
