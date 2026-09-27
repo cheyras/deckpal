@@ -35,11 +35,13 @@ export function shardSuites(suites, count) {
   assert.ok(Number.isInteger(count) && count > 0, 'Shard count must be a positive integer')
   if (count === 1) return [[...suites].sort((a, b) => a.name.localeCompare(b.name))]
   const shards = Array.from({ length: count }, () => ({ weight: 0, suites: [], exclusive: false }))
-  // This long visual case made a concurrent catalog screenshot fail once.
-  // Reserve a runner for it while every other group remains duration-packed.
-  const exclusive = new Set(['cloud-feedback-primary-428'])
-  for (const suite of [...suites].sort((a, b) =>
-    (durations[b.name] ?? 60) - (durations[a.name] ?? 60) || a.name.localeCompare(b.name))) {
+  // Concurrent visual suites have caused catalog screenshots to fail in
+  // Chromium. Keep the affected catalog journey on its own runner.
+  const exclusive = new Set(['cloud-feedback-primary-428', 'selfhost-catalog'])
+  const ordered = [...suites].sort((a, b) =>
+    (durations[b.name] ?? 60) - (durations[a.name] ?? 60) || a.name.localeCompare(b.name))
+  for (const suite of [...ordered.filter(suite => exclusive.has(suite.name)),
+    ...ordered.filter(suite => !exclusive.has(suite.name))]) {
     const available = shards.filter(shard => exclusive.has(suite.name) ? !shard.suites.length : !shard.exclusive)
     assert.ok(available.length, 'No runner available for suite ' + suite.name)
     const target = available.reduce((best, shard) => shard.weight < best.weight ? shard : best, available[0])
