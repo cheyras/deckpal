@@ -32,6 +32,16 @@ jobs:
       - name: Case-insensitive filename collisions
         run: node scripts/check-case-collisions.mjs
 
+      # Also nearly free: needs only vercel.json, no install/build. Guards the
+      # deckscout.io -> deckpal.app redirect (vercel.json) against a
+      # regression to the pre-2026-09-26 carve-out that excluded /mcp, /api,
+      # /register, /token and /.well-known/* -- a cross-origin redirect drops
+      # the Authorization header, so that carve-out existed specifically to
+      # keep MCP connectors and API clients from getting silently 401'd.
+      # See scripts/check-redirects.mjs and DECISIONS.md 2026-09-26.
+      - name: deckscout.io redirect coverage
+        run: node scripts/check-redirects.mjs
+
       - name: Decision archive and append guard
         run: node scripts/check-decisions.mjs
 
@@ -137,6 +147,13 @@ jobs:
       # this; its own step, for the same reason as the row above.
       - name: MCP wire result (mcp adapter)
         run: pnpm --filter deckpal-mcp test:adapter
+
+      # SEC-09: `/mcp` used to sit outside every rate limiter in the codebase.
+      # `mcpRateOk`'s pure unit tests (no DB, no pool) pin the one property
+      # that matters — per-credential, not per-IP, so one heavy user on a
+      # shared connector's egress IP can never exhaust another user's budget.
+      - name: MCP per-credential rate limit (SEC-09)
+        run: pnpm --filter deckpal-mcp test:cloud
 
       # Every serverless function must LOAD. The unit tests exercise the pieces
       # a function imports and never the function itself, so a package that is

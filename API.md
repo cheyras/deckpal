@@ -90,29 +90,38 @@ omit the host.
   IP per process**, before token resolution and before the RLS pool is
   acquired. On Vercel the key is the validated `x-vercel-forwarded-for` (or
   `x-forwarded-for`); off Vercel it is the raw socket peer (`trust proxy` stays
-  `false`). The Stripe raw-body webhook and the bare-origin OAuth discovery /
-  `/register` / `/token` handlers are mounted separately on `app` ahead of that
-  router and are outside this guard; the MCP transport at `/mcp` is a separate
-  function. Session budgets run **after** auth/self-host identity and
-  `requireSession` but **before** RLS request-connection acquisition:
-  `/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min, all `/admin`
-  120/min and all `/me/credits` 180/min. Active-account/action permissions
-  and handlers follow RLS. Authentication and trusted bootstrap may access
-  their own pool earlier. Refusal is **`429`** with a **`Retry-After`** header in
-  seconds; a request is charged once per applicable budget (it may consume
-  both ingress and a per-user session budget, with no duplicate route-level
-  charge). Budgets are in-memory fixed windows, per process / per serverless
-  instance, reset on cold start — speed bumps against retry storms and casual
-  abuse, not a distributed quota. See `SECURITY.md` → Rate limiting.
-- **Caching.** `/series`, `/series/:seriesSlug`, `/sets/:setId`, `/cards/:cardId`,
-  and `/search` all embed the caller's ownership when there is a caller, so the
-  same URL answers differently signed in vs. signed out. A genuinely anonymous
-  request (no `Authorization` header, or one that failed verification) gets
-  `Cache-Control: public, max-age=…, stale-while-revalidate=600` plus
-  `Vary: Authorization`, so a shared cache never hands that body to a request
-  that *does* carry a credential; `/search` has no personalization branch at
-  all, so it's unconditionally public with no `Vary` needed. Anyone signed in
-  gets `private, no-cache, must-revalidate` on all four, exactly as before.
+  `false`). The Stripe raw-body webhook and bare-origin OAuth discovery,
+  `/register` and `/token` handlers sit outside this router; `/mcp` is a
+  separate function. Session budgets run **after** auth and identity but
+  **before** RLS request-connection acquisition: `/tokens` 20/min, `/avatar`
+  10/min, `/oauth` 30/min, `/bugs` 10/hour, all `/admin` 120/min and all
+  `/me/credits` 180/min. The first three and the admin/credits routes require
+  a browser session; `/bugs` uses its signed-in account identity. A request
+  is charged once per applicable budget. Refusal is **`429`** with a
+  **`Retry-After`** header. Budgets are in-memory fixed windows per instance,
+  reset on cold start, and are speed bumps rather than a distributed quota.
+
+  Bare-origin OAuth discovery, `/register` and `/token` have their own 30/min
+  per-source-IP limiter. The MCP transport has a global 300/min-per-instance
+  admission counter before token resolution and a 60/min-per-token budget
+  after. The Stripe webhook relies on signature verification and its retry
+  behavior instead of an application limiter. See `SECURITY.md` → Rate limiting.
+- **Body-size limits.** Per route, most-specific first, immediately after the
+  ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
+  `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
+  `/dev/scan-flags` 4200kb (photos whose maximum base64 form is exactly 4mb
+  before the JSON wrapper), `/decke` 2mb, `/lists` 2mb, `/decks` 512kb, and
+  100kb for every other route. `/register` and `/token` keep their own 16kb
+  parsers. Limits measure bytes on the wire, not characters; the text-heavy
+  routes leave room for ASCII-escaped JSON as well as raw UTF-8. Oversized
+  bodies receive `413 payload_too_large`. See `SECURITY.md` → Body-size limits.
+- **Caching.** `/series`, `/series/:seriesSlug`, `/sets/:setId` and
+  `/cards/:cardId` embed ownership for a signed-in caller, so the same URL
+  answers differently by identity. Anonymous requests get
+  `Cache-Control: public, max-age=…, stale-while-revalidate=600` and
+  `Vary: Authorization`; signed-in requests stay private. `/search` has no
+  personalization branch, so its responses are unconditionally public and
+  do not need `Vary: Authorization`.
 
 ## Authentication
 
