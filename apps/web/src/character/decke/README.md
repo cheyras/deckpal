@@ -210,6 +210,35 @@ enforces one instance.
 
 ---
 
+## Showing someone something: the rules
+
+"Show me my Charizard" was fixed many times and kept coming back, because each
+fix was one more watcher reacting to one more event (DECISIONS.md 2026-09-26,
+"Show me is one planned motion"). These are the rules that make it one motion.
+`tests/browser/deckeShow.mjs` steps him frame by frame in CI and fails if any
+of them breaks — extend it when you add a new way to show something.
+
+- **One scroll owner.** Only his flight moves the page for him (`flyTo` with
+  `scrollWith`, on the flight's own clock). A page asked to `decke:reveal` a
+  card answers by MOUNTING it (`GridView`'s `rangeExtractor`), never by
+  scrolling to it. A second scroller is how the page raced ahead without him.
+- **Plan against the end state.** A driven flight aims at where the target WILL
+  be when the scroll lands (`planned`), and a queued leg is re-solved when it
+  launches (`viaLeg`). A destination solved once and stored goes stale the
+  moment the page moves.
+- **Nothing moves him but a flight.** Before a layout change he did not cause —
+  the chat minimising, a navigation, a press that navigates — `hold()` him, or
+  his station re-solve drags him there in one frame.
+- **The reader wins, on input, not on a number.** A wheel, touch or scroll key
+  ends a driven scroll (`onReaderInput`); `scrollY` disagreeing with the last
+  write does not — iOS reads it back a frame late. A target scrolled out of
+  view is not chased (`tookOver`).
+- **A tool reports a landing, not a dispatch.** `runUiTool('flyTo')` and a
+  `goTo` with a selector answer from `FlyOptions.arrived`, so the model's next
+  words come after the ring, and an interrupted trip is reported as one.
+- **Long pages are thrown, then glided.** At most `MAX_GLIDE_SCREENS` is ever
+  animated; the rest is a jump as he sets off (or before the new page paints).
+
 ## Things that will bite you
 
 Each of these cost someone a debugging pass, upstream or here.
