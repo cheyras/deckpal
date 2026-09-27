@@ -10,6 +10,9 @@
       ],
       "react-dom/*": [
         "../../apps/web/node_modules/@types/react-dom/*"
+      ],
+      "@tanstack/react-query": [
+        "../../apps/web/node_modules/@tanstack/react-query"
       ]
     },
     "types": [
@@ -17,7 +20,8 @@
     ]
   },
   "include": [
-    "fixture.tsx"
+    "fixture.tsx",
+    "../../apps/web/src/pwa-env.d.ts"
   ],
   "exclude": []
 }

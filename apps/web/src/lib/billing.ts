@@ -16,6 +16,14 @@
  * It is loaded LAZILY, on the first render of a payment surface, for the
  * ordinary reason: nobody visiting the Pokédex should pay for a payment SDK.
  *
+ * ⚠️ WHICH IS WHY THE IMPORT IS `/pure`. The package's main entry injects the
+ * script tag as a side effect of being IMPORTED, on the next microtask, whether
+ * or not `loadStripe` is ever called — and this file sits in `app-lib`, the
+ * chunk every page evaluates at boot. So for as long as it imported the main
+ * entry, every visitor to every page fetched Stripe.js (~250 kB) and Stripe's
+ * m.stripe.network fraud iframe, the Pokédex included, while this paragraph
+ * said the opposite. `/pure` injects nothing until `loadStripe` runs (PERF-01).
+ *
  * ── THE PUBLISHABLE KEY COMES FROM THE SERVER ────────────────────────────────
  *
  * Not from `import.meta.env`. A build-time key and a runtime secret key are two
@@ -31,7 +39,8 @@
  * failed. The server names it: `billingGateStatus()` returns `mode-mismatch`,
  * `/health` reports it and the API warns on boot.
  */
-import { loadStripe, type Stripe, type StripeElementsOptions } from '@stripe/stripe-js'
+import { loadStripe } from '@stripe/stripe-js/pure'
+import type { Stripe, StripeElementsOptions } from '@stripe/stripe-js'
 
 /**
  * One Stripe.js instance per key, kept for the tab's lifetime.

@@ -1,0 +1,160 @@
+# Image warm — drive the deployed image tier's own lazy fill after every
+# catalog change, and make what it could not fill impossible to miss.
+#
+# ── Why this workflow exists (issue #24, reopened 2026-09-26) ───────────────
+# `warm:cloud` (`apps/images/src/cloudWarm.ts`) has existed since 2026-08-26 and
+# is the documented way to warm the cloud image tier — its own header says
+# "Run it after a set releases and after any catalog import." Nothing ever ran
+# it on a schedule. `catalog-refresh.yml` (2026-08-10) closed the identical gap
+# for the CATALOG rows — "sets do not stop growing at release — MEP went 60 ->
+# 89 cards after ship" is that workflow's own justification — but it only
+# touches `card`/`card_set`; it never re-warms the images for what it just
+# added. So MEP's 29 new cards landed in the catalog (making #087 Binacle
+# addable, issue #21) and simultaneously created 29 new placeholder tiles
+# (issue #24), and nothing connected the two until a bug report did. This
+# workflow is that connection, made automatic.
+#
+# ── What it does not fix ──────────────────────────────────────────────────
+# This drives the EXISTING lazy fill; it adopts no new upstream and writes no
+# card art itself (`putStorageAsset` inside the image function does, same as a
+# page view — see cloudWarm.ts's own header). A card whose approved sources
+# (`assets.tcgdex.net`, `images.pokemontcg.io` — packages/storage/src/upstream.ts)
+# genuinely have no art still answers the placeholder after this runs; see
+# `research/CARD-ART-SOURCES.md` for what is and is not sourceable today. What
+# this closes is the OTHER failure: a card an approved source *does* cover,
+# left cold because nothing re-checked it after the catalog grew.
+#
+# ── Why full sweeps are cheap enough to schedule ────────────────────────────
+# A warm asset answers one `302 X-Cache: HIT` — no bytes are re-downloaded
+# unless `--warm-edge` is passed (not used here; that flag exists to warm the
+# CDN edge and costs real bandwidth on purpose, see cloudWarm.ts). At >97%
+# coverage (DECISIONS.md 2026-08-26 and 2026-08-31) almost every request in a
+# full sweep is that one cheap HIT, so the whole catalog fits comfortably
+# inside this workflow's timeout even at default concurrency.
+#
+# ── No secrets required ─────────────────────────────────────────────────────
+# `warm:cloud` talks only to public endpoints (`/api/series`, `/api/sets/:id`,
+# `/deckpal/images/*`) — no database, no service-role key, no session (its own
+# header says so). Unlike `catalog-refresh.yml` and the price workflows, this
+# job needs nothing added under Settings → Secrets.
+name: Image warm
+
+on:
+  # The automatic case this workflow exists for: re-check every card and set
+  # image right after the catalog changes, so a newly-added or newly-grown set
+  # gets warmed within minutes rather than waiting on a page view — or, when no
+  # approved source covers it, gets counted in the job summary instead of
+  # rotting silently until someone re-opens a bug report.
+  workflow_run:
+    workflows: ['Catalog refresh']
+    types: [completed]
+  # The manual case: re-check now (optionally one set) without waiting for the
+  # weekly schedule — e.g. right after a source is newly approved, or to
+  # confirm a specific set's residue on demand.
+  workflow_dispatch:
+    inputs:
+      set:
+        description: 'Limit the sweep to one set id (e.g. mep). Leave blank for the whole catalog.'
+        type: string
+        default: ''
+      base:
+        description: 'Deployment to sweep'
+        type: string
+        default: 'https://deckpal.app'
+
+# One sweep at a time. Two concurrent runs would each be individually safe
+# (warm:cloud only reads and drives the tier's own idempotent fill) but would
+# double-count HTTP load against the same deployment for nothing.
+concurrency:
+  group: image-warm
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    # A workflow_run trigger fires for every conclusion; only act on a catalog
+    # refresh that actually finished, not one that failed preflight or aborted.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm --filter <pkg> run <script>` executes with that package's directory
+      # as CWD, not the repo root — every path below is therefore absolute
+      # ($GITHUB_WORKSPACE-rooted) so the cache, summary and upload steps agree
+      # with warm:cloud on where the residue actually landed. `base_slug` is
+      # folded into the cache key below so a manual sweep of a DIFFERENT
+      # deployment (e.g. a preview URL) can never restore or overwrite
+      # production's baseline — comparing one deployment's residue against
+      # another's would report false regressions, or hide real ones.
+      - name: Residue paths
+        id: paths
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.residue"
+          echo "current=$GITHUB_WORKSPACE/.residue/current.json" >> "$GITHUB_OUTPUT"
+          echo "baseline=$GITHUB_WORKSPACE/.residue/baseline.json" >> "$GITHUB_OUTPUT"
+          BASE="${{ inputs.base || 'https://deckpal.app' }}"
+          echo "base_slug=$(echo "$BASE" | sed -E 's~^https?://~~; s~[^A-Za-z0-9.-]~-~g')" >> "$GITHUB_OUTPUT"
+
+      # Only meaningful for a full sweep (no `set` input): restores the most
+      # recent full-catalog residue as this run's comparison baseline, and
+      # always saves this run's residue for the next one. A scoped `--set` run
+      # would make a partial residue look like "everything else resolved," so
+      # it neither restores nor saves this cache (guarded below).
+      - name: Restore previous residue (regression baseline)
+        if: ${{ !inputs.set }}
+        id: residue-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.paths.outputs.baseline }}
+          key: image-warm-residue-${{ steps.paths.outputs.base_slug }}-${{ github.run_id }}
+          restore-keys: |
+            image-warm-residue-${{ steps.paths.outputs.base_slug }}-
+
+      - name: Warm the cloud image tier
+        run: |
+          set -euo pipefail
+          ARGS=(--base "${{ inputs.base || 'https://deckpal.app' }}" --residue "${{ steps.paths.outputs.current }}")
+          if [ -n "${{ inputs.set }}" ]; then
+            ARGS+=(--set "${{ inputs.set }}")
+          fi
+          pnpm --filter deckpal-images warm:cloud -- "${ARGS[@]}"
+
+      - name: Job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          ARGS=(--residue "${{ steps.paths.outputs.current }}" --base "${{ inputs.base || 'https://deckpal.app' }}")
+          if [ -f "${{ steps.paths.outputs.baseline }}" ] && [ -z "${{ inputs.set }}" ]; then
+            ARGS+=(--baseline "${{ steps.paths.outputs.baseline }}")
+          fi
+          pnpm --filter deckpal-images warm:cloud:summary -- "${ARGS[@]}" >> "$GITHUB_STEP_SUMMARY"
+
+      # A full sweep's residue becomes the NEXT run's baseline. A scoped `--set`
+      # run's tiny residue must never overwrite the full-catalog baseline, or
+      # every set outside the scoped one would read as "resolved" next time.
+      - name: Update residue baseline for next run
+        if: ${{ !inputs.set }}
+        run: cp "${{ steps.paths.outputs.current }}" "${{ steps.paths.outputs.baseline }}"
+
+      - name: Upload this run's residue
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: image-warm-residue
+          path: ${{ steps.paths.outputs.current }}
+          if-no-files-found: warn
+          retention-days: 30

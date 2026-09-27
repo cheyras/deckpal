@@ -9,6 +9,7 @@
  * happened, which is the exact failure this whole area was fixed for.
  */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute } from '../tools.js'
 import { ROUTE_SHAPE_LINES } from '../prompt.js'
@@ -90,6 +91,53 @@ test('the route allowlist keeps /profile out, by both spellings', () => {
   assert.equal(isAllowedRoute('//evil.example'), false)
   assert.equal(isAllowedRoute('/\\evil.example'), false)
   assert.equal(isAllowedRoute('/series/mega-evolution/me05'), true)
+})
+
+test('a dot segment cannot walk an allowed prefix somewhere else (SEC-12)', () => {
+  // Each of these passed the raw prefix match as "under /decks" or "under
+  // /series" and resolved to a page off the list — `/profile` mints tokens.
+  for (const path of [
+    '/decks/../profile',
+    '/decks/%2e%2e/profile',
+    '/decks/%2E%2E/profile',
+    '/decks/.%2e/profile',
+    '/decks/./../admin',
+    '/series/../devtools',
+    '/decks/..',
+    '/lists/.',
+    '/decks/..%2fprofile',
+    '/decks/%5c..%5cprofile',
+    '/decks/x\u0000/profile',
+    '/decks/x\n/profile',
+  ]) {
+    assert.equal(isAllowedRoute(path), false, `${JSON.stringify(path)} must be refused`)
+  }
+  // The shapes he is actually given still pass, query and all.
+  assert.equal(isAllowedRoute('/decks/6f1c2a9e-2b7d-4a44-9d0e-1c2b3a4d5e6f'), true)
+  assert.equal(isAllowedRoute('/series/mega-evolution/me05/013'), true)
+  assert.equal(isAllowedRoute('/search?q=../profile'), true)
+})
+
+test('the browser mirror normalises with the same rule and the same list', () => {
+  // `routeAllowed` in the browser is the check nearest the navigation, and a
+  // mirror that drifted would pass every server test while the page that
+  // actually moves the reader kept the old hole. Source pins, because the web
+  // module cannot be loaded from this package.
+  const own = readFileSync(new URL('../tools.ts', import.meta.url), 'utf8')
+  const web = readFileSync(
+    new URL('../../../../web/src/character/host/uiTools.ts', import.meta.url),
+    'utf8',
+  )
+  const rule = (src: string) => src.match(/function isNormalPath[\s\S]*?\n\}/)?.[0].split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+  assert.ok(rule(own), 'isNormalPath is gone from tools.ts')
+  assert.equal(rule(web), rule(own), 'the browser and the server normalise routes differently')
+  assert.match(web, /routeAllowed[\s\S]{0,400}isNormalPath\(clean\) &&/, 'routeAllowed no longer normalises')
+  const list = (src: string, re: RegExp) => [...(src.match(re)?.[1] ?? '').matchAll(/'(\/[a-z]+)'/g)].map((m) => m[1]).sort()
+  assert.deepEqual(
+    list(web, /const ROUTE_ALLOWLIST = \[([^\]]*)\]/),
+    list(own, /const ROUTE_ALLOWLIST = \[([\s\S]*?)\] as const/),
+    'the two route allowlists no longer agree',
+  )
 })
 
 /**
