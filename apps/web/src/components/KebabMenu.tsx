@@ -64,7 +64,7 @@ export function KebabMenu({
               className={[
                 'flex w-full items-center gap-[8px] px-[14px] py-[8px] text-left text-[13px] font-semibold',
                 item.danger
-                  ? 'text-action-danger hover:bg-action-danger hover:text-action-danger-text'
+                  ? 'text-action-danger hover:bg-action-danger-fill hover:text-action-danger-text'
                   : 'text-text-body hover:bg-action-default-hover',
               ].join(' ')}
             >

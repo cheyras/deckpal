@@ -12,6 +12,14 @@ const members: Member[] = Array.from({ length: 63 }, (_, index) => ({
   status: index % 7 === 0 ? 'Suspended' : 'Active',
   decks: (index * 13) % 47,
 }))
+const manyMembers: Member[] = Array.from({ length: 3200 }, (_, index) => ({
+  id: `virtual-member-${index + 1}`,
+  name: `${names[index % names.length]} ${index + 1}`,
+  email: `collector.${index + 1}@example.test`,
+  role: index % 3 === 0 ? 'Contributor' : 'Collector',
+  status: index % 7 === 0 ? 'Suspended' : 'Active',
+  decks: (index * 13) % 47,
+}))
 const columns: DataTableColumn<Member>[] = [
   { id: 'name', header: 'Member', sortable: true, className: 'min-w-[220px] max-w-[320px]', cell: member => <div>
     <span className="font-bold text-text-primary">{member.name}</span>
@@ -21,10 +29,12 @@ const columns: DataTableColumn<Member>[] = [
   { id: 'status', header: 'Status', cell: member => <span className={member.status === 'Active' ? 'text-success' : 'text-error'}>{member.status}</span> },
   { id: 'decks', header: 'Decks', sortable: true, align: 'right', cell: member => member.decks },
 ]
-interface ExampleProps { mode: 'ready' | 'loading' | 'empty' | 'error' }
+interface ExampleProps { mode: 'ready' | 'loading' | 'empty' | 'error' | 'virtual' }
 
 /** Local complete-set example. Server consumers instead pass their API's exact page/total. */
 function DataTableExample({ mode }: ExampleProps) {
+  if (mode === 'virtual') return <DataTable label="Virtual member list" columns={columns} rows={manyMembers}
+    getRowId={member => member.id} virtual={{ estimateSize: 72, overscan: 8 }} />
   // Each gallery mode starts its own scenario, including a fresh failed request.
   return <DataTableExampleState key={mode} mode={mode} />
 }
@@ -75,6 +85,7 @@ export default {
     { label: 'Loading', props: { mode: 'loading' } },
     { label: 'Empty', props: { mode: 'empty' } },
     { label: 'Error and retry', props: { mode: 'error' } },
+    { label: '3,200 virtual rows', props: { mode: 'virtual' } },
   ],
-  knobs: { mode: { kind: 'select', options: ['ready', 'loading', 'empty', 'error'] as const } },
+  knobs: { mode: { kind: 'select', options: ['ready', 'loading', 'empty', 'error', 'virtual'] as const } },
 } satisfies GalleryMeta<ExampleProps>
