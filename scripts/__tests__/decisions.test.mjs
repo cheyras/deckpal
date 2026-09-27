@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { decisionDate, decisionFile, metadata, parseDecisionFile, splitLegacy } from '../decisions-lib.mjs';
+import { decisionDate, decisionFile, metadata, parseDecisionFile, sha256, splitLegacy } from '../decisions-lib.mjs';
 
 const cli = fileURLToPath(new URL('../decisions.mjs', import.meta.url));
+const checker = fileURLToPath(new URL('../check-decisions.mjs', import.meta.url));
 const run = (repo, command, args = []) => execFileSync(command, args, { cwd: repo, encoding: 'utf8',
   env: { ...process.env, DECKPAL_DECISIONS_ROOT: repo, GIT_EDITOR: 'true' }, stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -23,6 +24,23 @@ test('the splitter preserves decorated and undated historical sections exactly',
 
 test('a date remains on the Denver day across midnight UTC', () => {
   assert.equal(decisionDate(new Date('2026-09-27T00:06:00Z')), '2026-09-26');
+});
+
+test('the archive check rejects a decision hidden behind a malformed filename', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'deckpal-decisions-test-'));
+  mkdirSync(join(repo, 'decisions/2026'), { recursive: true });
+  mkdirSync(join(repo, 'decisions/legacy'));
+  writeFileSync(join(repo, 'DECISIONS.md'), '# DeckPal decisions\n');
+  writeFileSync(join(repo, 'decisions/legacy/preamble.md'), '');
+  writeFileSync(join(repo, 'decisions/history.json'), JSON.stringify({
+    source_commit: 'missing', source_sha256: sha256(''),
+    blocks: [{ kind: 'preamble', path: 'decisions/legacy/preamble.md', bytes: 0, sha256: sha256('') }],
+  }));
+  const body = '## 2026-09-26 — Misnamed\n**Decision:** Check the filename.\n';
+  writeFileSync(join(repo, 'decisions/2026/2026-9-26-misnamed.md'), decisionFile(metadata({
+    date: '2026-09-26', title: 'Misnamed', body,
+  }), body));
+  assert.throws(() => run(repo, process.execPath, [checker]), /path does not match date and title/);
 });
 
 function branchFixture(otherConflict = false, mainCorrection = false, extraNote = false, firstMerge = false) {

@@ -97,10 +97,13 @@ export function decisionPaths(base = root) {
   const decisions = join(base, 'decisions');
   if (!existsSync(decisions)) return [];
   return readdirSync(decisions, { withFileTypes: true })
-    .filter(item => item.isDirectory() && /^\d{4}$/.test(item.name))
-    .flatMap(year => readdirSync(join(decisions, year.name))
-      .filter(name => /^\d{4}-\d{2}-\d{2}-.+\.md$/.test(name))
-      .map(name => join(decisions, year.name, name)))
+    .filter(item => item.isDirectory() && item.name !== 'legacy')
+    .flatMap(year => {
+      if (!/^\d{4}$/.test(year.name)) throw new Error(`Invalid decisions year directory: ${year.name}`);
+      return readdirSync(join(decisions, year.name))
+        .filter(name => name.endsWith('.md'))
+        .map(name => join(decisions, year.name, name));
+    })
     .sort();
 }
 
