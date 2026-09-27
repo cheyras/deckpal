@@ -26,9 +26,7 @@ const API_TS = path.join(SRC_DIR, 'lib/api.ts')
 const SET_HEADER = path.join(SRC_DIR, 'components/SetHeader.tsx')
 const LIST_DETAIL = path.join(SRC_DIR, 'routes/ListDetail.tsx')
 
-// `deckPdfUrl` (DeckBuilder.tsx) carries the identical defect — noted in the
-// audit as "outside this area, same fix" — and is deliberately left alone
-// here; it belongs to whichever PR takes on the deck-builder area.
+// DeckBuilder now uses this same downloader through `deckPdfPath` (#216).
 const GATED_PDF_HELPERS = ['listPdfPath', 'setChecklistPdfPath']
 
 function walk(dir: string, out: string[] = []): string[] {
