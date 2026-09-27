@@ -3,6 +3,7 @@ import path from 'node:path'
 import { webkit } from 'playwright'
 import { ROOT, WEB, run, buildWeb, isolatedEnv, serve, contextFor } from './support.mjs'
 import { appResponses, announcement, checkUpcoming } from './upcoming.mjs'
+import { checkNestedRouteRecovery, checkRouteSplit } from './routeSplit.mjs'
 import { adminFixture, checkAdmin, checkInsights } from './admin.mjs'
 import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
@@ -30,6 +31,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           logs.push(await buildWeb(dist, label === 'cloud', server.origin))
           assets.push({ label, ...await checkDeployAssets(dist) })
           results.push(...await checkUpcoming(browser, server, mount, label, out))
+          results.push(...await checkRouteSplit(browser, server, mount, label, out))
           for (scenario of ['expired', 'catalogued']) {
             const { context, page } = await contextFor(browser, server, 390)
             try {
@@ -41,6 +43,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
             } finally { await context.close() }
           }
           adminActive = true
+          results.push(await checkNestedRouteRecovery(browser, server, mount, label))
           results.push(...await checkAdmin(browser, server, mount, label, out, admin))
           results.push(...await checkInsights(browser, server, mount, label, out, admin))
           results.push(...await checkFeedback(browser, server, mount, label, out, admin))

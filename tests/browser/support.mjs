@@ -91,7 +91,9 @@ export async function contextFor(browser, server, width) {
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
     if (url.origin === server.origin && (['GET', 'HEAD'].includes(route.request().method()) || server.allowMutation?.(url.pathname, route.request().method()))) return route.continue()
-    // Stripe's installed loader eagerly inserts this script on public pages.
+    // Stripe's loader inserts this script when a payment surface calls
+    // `loadStripe` (it did so on every page until lib/billing.ts moved to
+    // `/pure`; routeSplit.mjs asserts it no longer does on catalog pages).
     // Fulfill this one known SDK locally; never permit third-party network.
     if (url.href === 'https://js.stripe.com/dahlia/stripe.js' && route.request().resourceType() === 'script') {
       server.stubbedThirdParty.push(url.href)
