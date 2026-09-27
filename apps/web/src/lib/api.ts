@@ -51,8 +51,12 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
     // three can never disagree about which pages are safe to sit on.
     if (!isPublicPathname(window.location.pathname)) {
       // Literal '/auth': the !isCloudMode early return above means the
-      // self-host arm of a mode ternary could never be taken here.
-      window.location.assign('/auth')
+      // self-host arm of a mode ternary could never be taken here. `next`
+      // carries the page that just 401'd (UXC-06 — the same "drop the
+      // destination on the way to /auth" bug as AuthGuard's redirect, just
+      // reached from a stale session instead of never having had one).
+      const next = encodeURIComponent(`${window.location.pathname}${window.location.search}`)
+      window.location.assign(`/auth?next=${next}`)
     }
     throw new Error('Session expired')
   }
@@ -830,6 +834,9 @@ export interface SearchCard {
 export interface SearchResponse {
   pagination: { page: number; pageSize: number; total: number; pageCount: number }
   cards: SearchCard[]
+  /** Present when `?legal=<format>` filtered the results to that format's card
+   *  pool; `rule` is the validator's own sentence for it (null: no pool limit). */
+  legal?: { format: DeckFormat; rule: string | null }
 }
 
 // ── Decks (Phase 5) ────────────────────────────────────────────
@@ -931,13 +938,20 @@ export interface DeckDetail {
   validation: ValidationResult
   cardRefs: Record<string, CardRef>
   glcTypes: string[]
-  import?: {
-    source: string
-    resolvedEntries: number
-    distinctCards: number
-    unresolved: string[]
-    warnings: ValidationWarning[]
-  }
+  import?: DeckImportSummary
+}
+/** What `POST /decks/import` made of a pasted list (with `dryRun`, all it returns). */
+export interface DeckImportSummary {
+  source: string
+  resolvedEntries: number
+  distinctCards: number
+  /** Cards the matched lines add up to. */
+  totalCards: number
+  unresolved: string[]
+  /** The lines that matched no card, verbatim as pasted. */
+  unresolvedLines: string[]
+  warnings: ValidationWarning[]
+  variantNote: string
 }
 export interface HandCard {
   cardId: string | null
@@ -1619,12 +1633,10 @@ export const api = {
   },
   card: (cardId: string, signal?: AbortSignal) =>
     get<CardDetailResponse>(`/cards/${encodeURIComponent(cardId)}`, signal),
-  // Set an absolute owned quantity for a variant.
-  setVariantQuantity: (variantId: number, quantity: number) =>
-    send<CollectionMutationResponse>('PATCH', `/collection/variants/${variantId}`, { quantity }),
-  // Adjust a variant's owned quantity by a signed delta (floors at 0).
-  incrementVariant: (variantId: number, delta: number) =>
-    send<CollectionMutationResponse>('POST', `/collection/variants/${variantId}/increment`, { delta }),
+  // Set an absolute owned quantity for a variant. Idempotent — the reason every
+  // counter uses it (lib/collectionWrites.ts).
+  setVariantQuantity: (variantId: number, quantity: number, signal?: AbortSignal) =>
+    send<CollectionMutationResponse>('PATCH', `/collection/variants/${variantId}`, { quantity }, signal),
   // Tile-level Have/Need toggle by card id (owns/zeroes the primary variant).
   /**
    * MANY variants, ONE transaction — the endpoint a pack haul belongs in.
@@ -1785,10 +1797,38 @@ export const api = {
     return res.blob()
   },
 
-  // PDF export URLs (streamed by the API; open in a new tab).
-  deckPdfUrl: (id: string) => `${BASE}/decks/${encodeURIComponent(id)}/pdf`,
-  listPdfUrl: (id: string) => `${BASE}/lists/${encodeURIComponent(id)}/pdf`,
-  setChecklistPdfUrl: (setId: string) => `${BASE}/sets/${encodeURIComponent(setId)}/checklist.pdf`,
+  // PDF paths are relative to BASE and are fetched with auth by downloadPdf.
+  // A browser link cannot attach the Bearer header these routes require.
+  deckPdfPath: (id: string) => `/decks/${encodeURIComponent(id)}/pdf`,
+  listPdfPath: (id: string) => `/lists/${encodeURIComponent(id)}/pdf`,
+  setChecklistPdfPath: (setId: string) => `/sets/${encodeURIComponent(setId)}/checklist.pdf`,
+
+  /**
+   * Fetch a PDF with the signed-in session, then save the blob through a
+   * temporary download anchor. A link navigation sends no Bearer header;
+   * opening a blob tab after the fetch is popup-blocked by iOS Safari.
+   */
+  downloadPdf: async (path: string, filename: string): Promise<void> => {
+    const headers = await authHeaders()
+    let res = await fetch(`${BASE}${path}`, { headers })
+    if (res.status === 401) {
+      const retry = await handle401(path, { headers })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // The tab that just downloaded this still holds the object URL; a
+    // session that prints ten checklists should not pin ten blobs in memory
+    // forever. 60s comfortably outlives the download itself.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  },
 
   // Lists
   lists: (signal?: AbortSignal) => get<{ lists: ListSummary[] }>('/lists', signal),
@@ -1797,15 +1837,19 @@ export const api = {
   list: async (id: string, signal?: AbortSignal) =>
     normaliseItems(await get<{ list: ListSummary; items: RawListItem[] }>(`/lists/${encodeURIComponent(id)}`, signal)),
   createList: (body: CreateListBody) => send<{ list: ListSummary }>('POST', '/lists', body),
-  updateList: (id: string, body: UpdateListBody) => send<{ list: ListSummary }>('PATCH', `/lists/${encodeURIComponent(id)}`, body),
+  updateList: (id: string, body: UpdateListBody, signal?: AbortSignal) =>
+    send<{ list: ListSummary }>('PATCH', `/lists/${encodeURIComponent(id)}`, body, signal),
   /** Reversible by default; `purge` is the deliberate no-undo path. */
-  deleteList: (id: string) => send<{ deleted: string; restorable: boolean }>('DELETE', `/lists/${encodeURIComponent(id)}`),
-  purgeList: (id: string) => send<{ purged: string }>('DELETE', `/lists/${encodeURIComponent(id)}?purge=true`),
-  restoreList: (id: string) => send<{ restored: string; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/restore`),
-  addListItem: (id: string, body: { cardVariantId?: number; dexId?: number; staticQuantity?: number; note?: string }) =>
-    send<{ itemId: string | null; alreadyPresent: boolean; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/items`, body),
-  removeListItem: (id: string, itemId: string) =>
-    send<{ deleted: string; list: ListSummary | null }>('DELETE', `/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`),
+  deleteList: (id: string, signal?: AbortSignal) =>
+    send<{ deleted: string; restorable: boolean }>('DELETE', `/lists/${encodeURIComponent(id)}`, undefined, signal),
+  purgeList: (id: string, signal?: AbortSignal) =>
+    send<{ purged: string }>('DELETE', `/lists/${encodeURIComponent(id)}?purge=true`, undefined, signal),
+  restoreList: (id: string, signal?: AbortSignal) =>
+    send<{ restored: string; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/restore`, undefined, signal),
+  addListItem: (id: string, body: { cardVariantId?: number; dexId?: number; staticQuantity?: number; note?: string }, signal?: AbortSignal) =>
+    send<{ itemId: string | null; alreadyPresent: boolean; list: ListSummary }>('POST', `/lists/${encodeURIComponent(id)}/items`, body, signal),
+  removeListItem: (id: string, itemId: string, signal?: AbortSignal) =>
+    send<{ deleted: string; list: ListSummary | null }>('DELETE', `/lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`, undefined, signal),
   searchCards: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SearchResponse>(`/search?${params.toString()}`, signal),
 
@@ -1828,29 +1872,32 @@ export const api = {
   deletedDecks: (signal?: AbortSignal) => get<{ decks: DeckSummary[] }>('/decks?deleted=true', signal),
   deck: (id: string, signal?: AbortSignal) => get<DeckDetail>(`/decks/${encodeURIComponent(id)}`, signal),
   createDeck: (body: CreateDeckBody) => send<DeckDetail>('POST', '/decks', body),
-  updateDeck: (id: string, body: UpdateDeckBody) => send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}`, body),
+  updateDeck: (id: string, body: UpdateDeckBody, signal?: AbortSignal) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}`, body, signal),
   /** Reversible by default; `purge` also destroys version history and battle logs. */
-  deleteDeck: (id: string) => send<{ deleted: string; restorable: boolean }>('DELETE', `/decks/${encodeURIComponent(id)}`),
-  purgeDeck: (id: string) => send<{ purged: string }>('DELETE', `/decks/${encodeURIComponent(id)}?purge=true`),
-  restoreDeck: (id: string) => send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`),
+  deleteDeck: (id: string, signal?: AbortSignal) =>
+    send<{ deleted: string; restorable: boolean }>('DELETE', `/decks/${encodeURIComponent(id)}`, undefined, signal),
+  purgeDeck: (id: string, signal?: AbortSignal) =>
+    send<{ purged: string }>('DELETE', `/decks/${encodeURIComponent(id)}?purge=true`, undefined, signal),
+  restoreDeck: (id: string, signal?: AbortSignal) =>
+    send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`, undefined, signal),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
+  /** The same import resolved WITHOUT creating anything, so unmatched lines can be shown first. */
+  checkDeckImport: (body: { text: string; formatCode?: DeckFormat; source?: 'ptcgl' | 'massentry' }) =>
+    send<{ import: DeckImportSummary }>('POST', '/decks/import', { ...body, dryRun: true }),
   // variantId (migration 051): which printing. Omitted = the card's primary
-  // variant on add; on set/remove the server targets the card's single deck
-  // row when there is exactly one and 400s when several printings would be
-  // ambiguous — so pass it whenever the row is known.
-  addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number) =>
-    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }),
-  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number) =>
+  // variant on add; on set the server targets the card's single deck row when
+  // there is exactly one and 400s when several printings would be ambiguous —
+  // so pass it whenever the row is known. Setting 0 removes the printing, which
+  // is how the builder removes one: an absolute write is safe to retry.
+  addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number, signal?: AbortSignal) =>
+    send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }, signal),
+  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number, signal?: AbortSignal) =>
     send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
       quantity,
       ...(variantId != null ? { variantId } : {}),
-    }),
-  removeDeckCard: (id: string, cardId: string, variantId?: number) =>
-    send<DeckDetail>(
-      'DELETE',
-      `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}${variantId != null ? `?variant=${variantId}` : ''}`,
-    ),
+    }, signal),
   validateDeck: (id: string, format?: DeckFormat, signal?: AbortSignal) =>
     get<{ validation: ValidationResult; cardRefs: Record<string, CardRef> }>(
       `/decks/${encodeURIComponent(id)}/validate${format ? `?format=${format}` : ''}`,

@@ -145,6 +145,140 @@ async function checkMeterReplay(page, server, width, out) {
     proof: JSON.parse(fs.readFileSync(proofPath, 'utf8')) }
 }
 
+/**
+ * ── A WRITE REACHES THE PAGE BEHIND HIM ─────────────────────────────────────
+ *
+ * UXD-01, measured: Deck-E said "Done — Counter Catcher is out and you are on
+ * four Iono" and the deck page kept listing Counter Catcher and three Iono for
+ * five minutes, because every query is fresh that long and nothing told the
+ * cache. The real hook runs over a real fetch here, beside a deck query set up
+ * the way the app sets up its own. A read-only turn must NOT re-read the deck;
+ * a finished `save_deck` chip must, within the turn, with no reload.
+ */
+const DECK_V1 = { cards: [{ name: 'Iono', quantity: 3 }, { name: 'Counter Catcher', quantity: 1 }] }
+const DECK_V2 = { cards: [{ name: 'Iono', quantity: 4 }] }
+const REFRESH_LEGS = [
+  sse(
+    { type: 'data-decke-tool', data: { id: 'read-1', name: 'decks', title: 'Reading your deck', phase: 'start' } },
+    { type: 'data-decke-tool', data: { id: 'read-1', name: 'decks', title: 'Reading your deck', phase: 'ok', summary: '1 deck' } },
+    { type: 'text-delta', delta: 'You are on three Iono and a Counter Catcher.' },
+  ),
+  sse(
+    { type: 'data-decke-tool', data: { id: 'save-1', name: 'save_deck', title: 'Saving your deck', phase: 'start' } },
+    { type: 'data-decke-tool', data: { id: 'save-1', name: 'save_deck', title: 'Saving your deck', phase: 'ok',
+      summary: "Updated deck 'Dragapult'" } },
+    { type: 'text-delta', delta: 'Done — Counter Catcher is out and you are on four Iono.' },
+  ),
+]
+async function checkWriteRefresh(page, server, width, out) {
+  let legs = 0
+  let deckReads = 0
+  let deck = DECK_V1
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/decks/deck-browser', route => {
+    deckReads++
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(deck) })
+  })
+  await page.route('**/api/chat', route => {
+    const body = REFRESH_LEGS[legs++]
+    assert.ok(body, 'the hook made more legs than the scenario has: ' + legs)
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body })
+  })
+  await page.goto(server.origin + '/fixture.html?refresh', { waitUntil: 'networkidle' })
+  const list = page.getByRole('list', { name: 'Deck behind the chat' })
+  await list.getByText('3 Iono', { exact: true }).waitFor()
+  assert.equal(deckReads, 1)
+
+  await page.evaluate(() => window.refreshChat.send('What is in my deck?'))
+  await page.getByText('You are on three Iono and a Counter Catcher.').waitFor()
+  await page.waitForFunction(() => window.refreshChat.busy === false)
+  assert.equal(deckReads, 1, 'a read-only turn must not re-read the deck')
+
+  deck = DECK_V2
+  await page.evaluate(() => window.refreshChat.send('Swap the Counter Catcher for a fourth Iono.'))
+  await list.getByText('4 Iono', { exact: true }).waitFor()
+  assert.equal(await list.getByText('Counter Catcher').count(), 0, 'the removed card must leave the page')
+  await page.waitForFunction(() => window.refreshChat.busy === false)
+  assert.equal(deckReads, 2, 'one finished write, one re-read')
+  await page.screenshot({ path: path.join(out, 'write-refresh-' + width + '.png'), fullPage: true })
+  await page.unroute('**/api/chat')
+  await page.unroute('**/api/decks/deck-browser')
+  await page.unroute('**/decke/history')
+  return { case: 'decke-write-refreshes-page', width, readTurnReads: 1, writeTurnReads: 2 }
+}
+
+/**
+ * ── SEC-04: A LONG CHAT STAYS UNDER THE SERVER'S BOUND, AND SAYS SO ONCE ─────
+ *
+ * The server now shows the model a window of recent history and refuses a body
+ * past a hard cap. This drives the real hook through more exchanges than the
+ * window holds and reads the bodies it actually sends: the prior history must
+ * be trimmed to the window, start on the reader's message and keep the newest
+ * exchange, and the reader is told ONCE that the start of the chat is out of
+ * his view. Then the server answers 413, and the reader must see a sentence
+ * rather than a generic failure.
+ */
+const WINDOW_MESSAGES = 24
+async function checkBounds(page, server, width, out) {
+  const bodies = []
+  let status = 200
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    if (status === 413) {
+      return route.fulfill({ status: 413, contentType: 'application/json',
+        body: JSON.stringify({ error: 'That message is too long for Deck-E to read in one go.', code: 'message_too_long' }) })
+    }
+    // The first turn's tool FAILS, so its evidence has to outlive the window:
+    // the server's failing-tool breaker counts failures across the whole
+    // conversation, and the browser now sends only the recent part of it.
+    const failed = bodies.length === 1
+      ? [{ type: 'data-decke-tool', data: { id: 'bl-1', name: 'battle_logs', title: 'Reading battle logs', phase: 'error', summary: 'Internal server error' } }]
+      : []
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' },
+      body: sse(...failed, { type: 'text-delta', delta: 'Answer ' + bodies.length + '.' }) })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  const exchanges = WINDOW_MESSAGES / 2 + 3
+  for (let i = 1; i <= exchanges; i++) {
+    await page.evaluate(t => window.meterChat.send(t), 'Question ' + i)
+    await panel.getByText('Answer ' + i + '.', { exact: true }).waitFor()
+    await page.waitForFunction(() => window.meterChat.busy === false)
+  }
+  const last = bodies[bodies.length - 1].messages
+  assert.equal(last.length, WINDOW_MESSAGES + 1, 'prior history plus the new question must fit the window exactly')
+  assert.equal(last[0].role, 'user', 'the window must start on a reader message')
+  assert.deepEqual(last[last.length - 1].parts, [{ type: 'text', text: 'Question ' + exchanges }])
+  assert.equal(last[last.length - 2].parts[0].text, 'Answer ' + (exchanges - 1) + '.', 'the newest exchange must survive')
+  assert.ok(bodies.every(b => b.messages.length <= WINDOW_MESSAGES + 1), 'no request may carry more than the window')
+  assert.ok(!last.flatMap(m => m.parts).some(p => p.type === 'tool-battle_logs'), 'the first turn must have left the window')
+  assert.deepEqual(bodies[bodies.length - 1].evidence?.flatMap(m => m.parts).filter(p => p.type === 'tool-battle_logs')
+    .map(p => [p.state, p.errorText]), [['output-error', 'Internal server error']], 'the dropped failure must ride along as evidence')
+  assert.equal(bodies[1].evidence, undefined, 'no evidence is sent while nothing has been dropped')
+  const told = panel.getByText('I can only see the recent part of this chat now — start a new one for a clean slate.', { exact: true })
+  assert.equal(await told.count(), 1, 'the reader is told once, not on every turn')
+  await told.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(out, 'bounds-trim-' + width + '.png') })
+
+  status = 413
+  await page.evaluate(() => window.meterChat.send('x'.repeat(70000)))
+  await panel.getByText("That's more than I can read in one go.", { exact: true }).waitFor()
+  // Not exact: the transcript renders a notice's detail as a bare text node
+  // beside the title, so the smallest element holding it holds both.
+  await panel.getByText('Nothing was sent. Try something shorter.').waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  await page.screenshot({ path: path.join(out, 'bounds-413-' + width + '.png') })
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'wire-bounds', width, requests: bodies.length, lastBodyMessages: last.length, droppedFailureEvidence: true, trimNotice: 1, tooLongNotice: true }
+}
+
 export async function checkChat(browser, server, out) {
   const results = []
   for (const width of [1280, 390]) {
@@ -255,6 +389,263 @@ export async function checkChat(browser, server, out) {
       await page.screenshot({ path: path.join(out, 'screen-' + width + '.png'), fullPage: true })
       results.push({ case: 'rendered-screen-keyboard', width, controlled, expandedAndCollapsed: true, focusVisible: true, reducedMotion: true })
       results.push(await checkMeterReplay(page, server, width, out))
+      results.push(await checkWriteRefresh(page, server, width, out))
+      results.push(await checkBounds(page, server, width, out))
+    } finally { await context.close() }
+  }
+  return results
+}
+
+/**
+ * ── THE FIXTURE'S API: /me, and the catalogue cards the dry-run rows name ────
+ *
+ * The fixture builds self-host (no Supabase URL), so the client's base is
+ * `/deckpal/api`. A card this does not know gets no answer, and the rows the
+ * test waits for by NAME never appear — so a missing fixture fails the run
+ * rather than passing on a row that shows the bare id.
+ */
+const CARD_SVG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="63" height="88"><rect width="63" height="88" rx="3" fill="#3b6f8f"/></svg>')
+const CARDS = { 'sv04-160': 'Counter Catcher', 'sv02-185': 'Iono' }
+const HISTORY = /^(?:\/deckpal)?\/api\/decke\/history$/
+/** The one write the chat fixture accepts: see `chatApi`. */
+export const chatAllowMutation = (pathname, method) => method === 'POST' && HISTORY.test(pathname)
+export function chatApi(rel) {
+  if (rel === '/api/me' || rel === '/deckpal/api/me') return { body: { username: 'Browser Reader', owner: false, decke: false } }
+  // The transcript record the real hook writes after a turn. Answered here, not
+  // only by a page route: WebKit sends it as a keepalive request, which page
+  // routes cannot intercept, so it reaches the server either way.
+  if (HISTORY.test(rel)) return { body: { ok: true, recorded: false } }
+  const id = rel.match(/^(?:\/deckpal)?\/api\/cards\/([^/]+)$/)?.[1]
+  if (id && CARDS[id]) return { body: { card: { cardId: id, name: CARDS[id], images: { low: CARD_SVG, high: CARD_SVG } } } }
+  return null
+}
+
+const rect = (loc) => loc.evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom } })
+/** Intersection area of two rects, in CSS px². Zero means the two do not touch. */
+const overlap = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
+  Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
+
+/**
+ * Where he stands, as a box: the park box on a phone. On desktop the host parks
+ * him OUTBOARD-LEFT of the card carrying `data-decke-composer`, so the whole
+ * column right of that card's left edge is clear — the assertion there is that
+ * the landmark exists and everything that must be read sits inside that column.
+ */
+async function assertClear(page, width, targets, label) {
+  const park = page.locator('[data-decke-park]')
+  if (width < 1068) {
+    assert.equal(await park.count(), 1, label + ': the phone park box is missing')
+    // MEASURED ONCE THE LAYOUT HAS HELD STILL for five frames. The park box is
+    // re-solved through a measurement and a React render; he is only flown to
+    // it once it has held still for `MARK_SETTLE_MS` anyway, so the settled box
+    // is the one a reader sees him land on.
+    const key = () => page.evaluate(() => [document.querySelector('[data-decke-park]'), document.querySelector('[data-decke-approval]')]
+      .map(el => el ? Math.round(el.getBoundingClientRect().top) + ':' + Math.round(el.getBoundingClientRect().bottom) : '-').join('|'))
+    let last = await key(), still = 0
+    for (let i = 0; i < 60 && still < 5; i++) {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())))
+      const next = await key()
+      still = next === last ? still + 1 : 0
+      last = next
+    }
+    const him = await rect(park)
+    // What decided the box, for when it is wrong: the panel it is measured in
+    // (its height sets the ceiling in `parkFloor.ts`) and the offset it was given.
+    const why = await page.evaluate(() => {
+      const box = document.querySelector('[data-decke-park]')
+      const r = box?.offsetParent?.getBoundingClientRect()
+      return { panel: r ? { top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height) } : null,
+        style: box?.getAttribute('style') ?? null, viewport: [innerWidth, innerHeight, visualViewport?.height ?? null] }
+    })
+    for (const [name, loc] of Object.entries(targets)) {
+      const r = await rect(loc)
+      assert.equal(overlap(him, r), 0, `${label}: he stands on ${name} (park ${JSON.stringify(him)}, ${name} ${JSON.stringify(r)}, ${JSON.stringify(why)})`)
+    }
+    return him
+  }
+  assert.equal(await park.count(), 0, label + ': a park box on desktop')
+  const floor = page.locator('[data-decke-composer]')
+  assert.equal(await floor.count(), 1, label + ': nothing for him to stand beside on desktop')
+  const edge = (await rect(floor)).left
+  for (const [name, loc] of Object.entries(targets)) {
+    assert.ok((await rect(loc)).left >= edge - 0.5, `${label}: ${name} starts left of the card he stands beside`)
+  }
+  return null
+}
+
+const EDIT_SUMMARY = [
+  "EDIT your existing deck 'Dragapult ex / Dusknoir' (deck-browser), 22 distinct card(s) in it:",
+  'remove x1 sv04-160',
+  'set sv02-185 x3 → x4',
+].join('\n')
+const asked = [{ id: 'u1', role: 'user', parts: [{ kind: 'text', id: 'u1t', text: 'Suggest one improvement to this deck and apply it' }] },
+  { id: 'a1', role: 'assistant', parts: [{ kind: 'text', id: 'a1t', text: "One change I'd make: cut Counter Catcher for a fourth Iono." }] }]
+
+/**
+ * ── UXD-02/03/04/07/08/15: THE STATES A READER HAS TO ACT ON ───────────────
+ *
+ * Each state the audit photographed, rendered by the real panel and measured
+ * rather than looked at: whether he stands on the card, whether its rows and
+ * price are there, and whether every notice offers the one thing it tells the
+ * reader to do. Run in Chromium and WebKit at 390 and 1440.
+ */
+export async function checkDeckeStates(browser, server, out, engine) {
+  const results = []
+  for (const width of [390, 1440]) {
+    const { context, page } = await contextFor(browser, server, width)
+    const tag = engine + '-' + width
+    try {
+      await page.goto(server.origin + '/fixture.html', { waitUntil: 'networkidle' })
+      const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+      await panel.waitFor({ state: 'visible' })
+
+      // ── A deck edit held for approval (UXD-02, UXD-04) ──────────────────
+      await set(page, { busy: true, messages: asked, credits: { remaining: 40, allowance: 100 },
+        asking: [{ approvalId: 'ap-1', toolCallId: 'save-1', title: 'Save this deck', name: 'save_deck', input: { deck_id: 'deck-browser' } }],
+        preview: { toolCallId: 'save-1', tool: 'save_deck', title: 'Create or edit a deck', summary: EDIT_SUMMARY, ok: true, editable: false, rows: [], skipped: [] } })
+      const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
+      await card.waitFor()
+      const rows = card.locator('[data-decke-dry-run] li')
+      assert.equal(await rows.count(), 3, 'the dry run did not become rows')
+      await card.getByText('Changes to Dragapult ex / Dusknoir', { exact: true }).waitFor()
+      await card.getByText('Counter Catcher', { exact: true }).waitFor()
+      await card.getByText('Iono', { exact: true }).waitFor()
+      assert.deepEqual(await card.locator('[data-decke-dry-run] li span.tabular-nums').allTextContents(), ['−1', '3 → 4'])
+      assert.equal(await card.getByText(/DRY RUN/).count(), 0, 'the internal header reached the reader')
+      // He is waiting on the reader, and says so — no clock, no Stop.
+      await panel.getByText('Waiting for your OK', { exact: true }).waitFor()
+      assert.equal(await panel.getByText('Working', { exact: true }).count(), 0, 'says Working while waiting on the reader')
+      assert.equal(await panel.getByRole('button', { name: 'Stop' }).count(), 0, 'Stop is offered beside a held card')
+      await assertClear(page, width, { 'Leave it': card.getByRole('button', { name: 'Leave it' }),
+        'Go ahead': card.getByRole('button', { name: 'Go ahead' }), headline: card.locator('p').first(), rows: card.locator('[data-decke-dry-run]') }, tag + ' approval')
+      await page.screenshot({ path: path.join(out, 'decke-approval-' + tag + '.png') })
+
+      // The longest preview the server sends: twelve lines. The list scrolls;
+      // the question and both answers stay on screen and clear of him. A NEW
+      // held call, as it is in the product — each call mounts its own card with
+      // its preview already in hand, rather than one card growing in place.
+      const long = ["CREATE a new deck called 'Everything Deck' (standard)",
+        ...Array.from({ length: 10 }, (_, i) => `add x4 fixture-${i}`), '…and 9 more'].join('\n')
+      await set(page, { asking: null })
+      await card.waitFor({ state: 'detached' })
+      await set(page, { asking: [{ approvalId: 'ap-3', toolCallId: 'save-2', title: 'Save this deck', name: 'save_deck', input: { name: 'Everything Deck' } }],
+        preview: { toolCallId: 'save-2', tool: 'save_deck', title: 'Create or edit a deck', summary: long, ok: true, editable: false, rows: [], skipped: [] } })
+      await card.waitFor()
+      const list = card.locator('[data-decke-dry-run]')
+      assert.ok(await list.evaluate(el => el.scrollHeight > el.clientHeight + 1), 'twelve lines did not become a scrolling region')
+      const viewportH = await page.evaluate(() => innerHeight)
+      for (const name of ['Leave it', 'Go ahead']) {
+        const b = await rect(card.getByRole('button', { name }))
+        assert.ok(b.top >= 0 && b.bottom <= viewportH, `${name} is off screen under a long preview`)
+      }
+      await assertClear(page, width, { 'Leave it': card.getByRole('button', { name: 'Leave it' }),
+        'Go ahead': card.getByRole('button', { name: 'Go ahead' }), headline: card.locator('p').first() }, tag + ' long approval')
+      await page.screenshot({ path: path.join(out, 'decke-approval-long-' + tag + '.png') })
+
+      // ── A 75-credit deep call with 40 in the wallet (UXD-07) ────────────
+      const QUOTE = { analysis: 4, planDeck: 75, chatTurn: 1 }
+      await set(page, { quote: { ...QUOTE, balance: 40 }, preview: null,
+        asking: [{ approvalId: 'ap-2', toolCallId: 'guide-1', title: 'Write a full strategy guide for this deck', name: 'write_strategy_guide',
+          input: { deck: 'Dragapult ex / Dusknoir', no_research: true } }] })
+      const cost = card.locator('[data-decke-approval-cost]')
+      // 75 for the guide plus the 1-credit turn that answering the card sends.
+      assert.equal(await cost.innerText(), 'This needs 76 credits and you have 40.')
+      assert.equal(await card.getByRole('button', { name: 'Go ahead' }).count(), 0, 'a guaranteed refusal is still offered')
+      await card.getByText('no research behind it this time — the guide will say so', { exact: false }).waitFor()
+      assert.doesNotMatch(await cost.innerText(), /research/, 'the price line contradicts the no-research line')
+      await assertClear(page, width, { 'Leave it': card.getByRole('button', { name: 'Leave it' }),
+        'Top up': card.getByRole('button', { name: 'Top up credits' }), price: cost }, tag + ' deep approval')
+      await page.screenshot({ path: path.join(out, 'decke-price-short-' + tag + '.png') })
+      const before = await page.evaluate(() => ({ ...window.fixture.events }))
+      await card.getByRole('button', { name: 'Top up credits' }).click()
+      const after = await page.evaluate(() => window.fixture.events)
+      // Not a decline: answering would send another metered request. The host's
+      // top-up ends the turn instead (pinned in noticeWiring.test.ts).
+      assert.equal(after.denies, before.denies, 'Top up answered the card, which sends a metered continuation')
+      assert.equal(after.topUps, before.topUps + 1)
+      // Exactly the guide's price is still short: the continuation turn comes first.
+      await set(page, { quote: { ...QUOTE, balance: 75 } })
+      assert.equal(await card.getByRole('button', { name: 'Go ahead' }).count(), 0, 'offered a yes the meter refuses at 75')
+      await set(page, { quote: { ...QUOTE, balance: 400 } })
+      assert.equal(await cost.innerText(), 'This takes longer than a normal answer and uses 76 credits of your 400.')
+      await card.getByRole('button', { name: 'Go ahead' }).waitFor()
+      // Credits off, or an unlimited account: no number at all.
+      await set(page, { quote: null })
+      assert.doesNotMatch(await cost.innerText(), /\d/)
+
+      // ── Notices that carry their way forward (UXD-08) ───────────────────
+      await set(page, { busy: false, asking: null, messages: [asked[0], { id: 'a2', role: 'assistant', parts: [
+        { kind: 'notice', id: 'fault', tone: 'error', title: 'Something went wrong reaching my brain.', detail: 'Nothing was written.', action: 'retry' },
+        { kind: 'tool', id: 'refused', chip: { id: 'guide-2', name: 'write_strategy_guide', title: 'Writing a strategy guide', phase: 'error',
+          summary: 'not enough credits — 75 needed, 40 left', meter: 'credits' } },
+      ] }] })
+      const fault = panel.getByRole('status').filter({ hasText: 'Something went wrong reaching my brain.' })
+      await fault.getByRole('button', { name: 'Try again' }).click()
+      assert.deepEqual((await page.evaluate(() => window.fixture.events.retries)).slice(-1), ['fault'])
+      assert.equal(await panel.getByRole('button', { name: 'Try Writing a strategy guide again' }).count(), 0,
+        'a meter refusal still offers the retry that walks back into it')
+      const topUps = await page.evaluate(() => window.fixture.events.topUps)
+      await panel.locator('li').filter({ hasText: 'Writing a strategy guide' }).getByRole('button', { name: 'Top up credits' }).click()
+      assert.equal(await page.evaluate(() => window.fixture.events.topUps), topUps + 1)
+      await page.screenshot({ path: path.join(out, 'decke-notices-' + tag + '.png') })
+
+      // ── Out of credits (UXD-03) ─────────────────────────────────────────
+      await set(page, { messages: [], credits: { remaining: 0, allowance: 100 } })
+      const notice = panel.getByRole('status').filter({ hasText: "I'm out of credits" })
+      const topUp = notice.getByRole('button', { name: 'Top up credits' })
+      await topUp.waitFor()
+      assert.equal(await notice.locator('xpath=ancestor::*[@data-decke-composer]').count(), 1,
+        'the out-of-credits card is not registered as the floor he stands on')
+      await assertClear(page, width, { 'Top up': topUp, 'out-of-credits card': notice }, tag + ' spent')
+      await page.screenshot({ path: path.join(out, 'decke-spent-' + tag + '.png') })
+      results.push({ case: 'decke-states', engine, width, approvalClear: true, dryRunRows: 3, priceShown: true, noticeActions: true, spentClear: true })
+
+      // ── On a deck, the chips are about that deck (UXD-15) ───────────────
+      // Navigated WHILE CLOSED, the way a reader moves around the app: the pick
+      // has to follow the page he is opened on, not the one he was closed on.
+      const deckQuestions = ['Is this deck legal? If not, why not?', 'What am I missing for this deck, and what will it cost?', 'Suggest one improvement to this deck']
+      const chipsAfterOpeningOn = async (pathname) => {
+        await set(page, { open: false, messages: [], credits: { remaining: 40, allowance: 100 } })
+        await panel.waitFor({ state: 'detached' })
+        await page.evaluate(p => history.pushState(null, '', p), pathname)
+        await set(page, { open: true })
+        await panel.waitFor({ state: 'visible' })
+        return panel.locator('ul button').allTextContents()
+      }
+      const onDeck = await chipsAfterOpeningOn('/decks/deck-browser')
+      assert.equal(onDeck.length, 3)
+      assert.ok(onDeck.slice(0, 2).every(c => deckQuestions.includes(c)), 'a deck page does not lead with that deck: ' + onDeck.join(' | '))
+      const offDeck = await chipsAfterOpeningOn('/lists')
+      assert.ok(offDeck.every(c => !deckQuestions.includes(c)), '"this deck" followed the reader off the deck: ' + offDeck.join(' | '))
+
+      // ── The real hook, over a real fetch: a held wallet, then a fault ───
+      let reply = { status: 429, body: { error: 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.',
+        retryAfterDay: false, credits: { balance: 40, needed: 1, held: true } } }
+      const sent = []
+      await page.route('**/api/chat', route => {
+        sent.push(JSON.parse(route.request().postData() ?? '{}'))
+        return route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) })
+      })
+      await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+      await panel.waitFor({ state: 'visible' })
+      await page.evaluate(() => window.meterChat.send('Is this deck legal?'))
+      const held = panel.getByRole('status').filter({ hasText: 'Your credits are on hold while a payment issue is sorted out.' })
+      await held.waitFor()
+      assert.equal(await held.getByRole('button', { name: 'Open credit wallet' }).count(), 1)
+      assert.doesNotMatch(await held.innerText(), /top up/i, 'a held wallet is told to top up')
+      await page.screenshot({ path: path.join(out, 'decke-held-' + tag + '.png') })
+      reply = { status: 500, body: { error: { message: 'boom' } } }
+      await page.evaluate(() => window.meterChat.send('Is this deck legal, then?'))
+      const broke = panel.getByRole('status').filter({ hasText: 'Something went wrong reaching my brain.' })
+      await broke.waitFor()
+      reply = { status: 500, body: {} }
+      await broke.getByRole('button', { name: 'Try again' }).click()
+      for (let i = 0; i < 100 && sent.length < 3; i++) await page.waitForTimeout(50)
+      assert.equal(sent.length, 3, 'Try again did not resend')
+      const lastUser = body => body.messages.filter(m => m.role === 'user').at(-1).parts.find(p => p.type === 'text').text
+      assert.equal(lastUser(sent[2]), 'Is this deck legal, then?', 'Try again resent something other than the last question')
+      // No unroute: the context and its route close together.
+      results.push({ case: 'decke-refusals', engine, width, heldCopy: true, retryResends: true })
     } finally { await context.close() }
   }
   return results

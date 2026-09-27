@@ -35,5 +35,10 @@ test('chat replay references bind all model-visible request input and each conve
  assert.notEqual(chatChargeReference('conversation_2',messages,'/',[]).key,first.key);
  assert.notEqual(chatChargeReference('conversation_1',[...messages,{id:'assistant_1',parts:[{type:'tool-result',result:'changed'}]}],'/',[]).key,first.key);
  assert.throws(()=>chatChargeReference(undefined,messages,'/',[]));
+ // SEC-04 sends a bounded window, so two new exchanges can carry identical
+ // history; the exchange identity keeps them apart and a retry still collides.
+ const ex=(exchangeId:string,seq:number)=>chatChargeReference('conversation_1',messages,'/',[],{exchangeId,seq});
+ assert.notEqual(ex('11111111-1111-4111-8111-111111111111',3).key,ex('22222222-2222-4222-8222-222222222222',4).key);
+ assert.equal(ex('11111111-1111-4111-8111-111111111111',3).key,ex('11111111-1111-4111-8111-111111111111',3).key);
  assert.match(payloadHash({a:1}),/^[a-f0-9]{64}$/);
 });

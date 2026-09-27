@@ -34,7 +34,7 @@ const OWNED_CARDS = Array.from({ length: 200 }, (_, i) => ({
   price: { market: 200 - i, currency: 'USD' },
 }))
 
-function fixture(rel: string, url: URL, req: { method: string }) {
+function fixture(rel: string, url: URL) {
   if (rel === '/__fixture/card.svg') {
     return { raw: '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280"/>', type: 'image/svg+xml' }
   }
@@ -51,6 +51,10 @@ function fixture(rel: string, url: URL, req: { method: string }) {
     }
   }
   if (rel === '/api/me/showcase') return { body: { showcase: [] } }
+  if (rel === '/api/me/credits') return { body: { enabled: true, balance: 0, debt: 0, purchaseHold: false, lowAt: 100, prices: {}, packs: [], purchasesEnabled: false } }
+  if (rel === '/api/me/billing/history') return { body: { kind: url.searchParams.get('kind'), items: [], nextCursor: null, billingAccountPresent: false } }
+  if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return { body: { available: false, mode: 'unconfigured', prompt: { due: null } } }
+  if (rel === '/api/tokens') return { body: { tokens: [] } }
   if (rel === '/api/me/cards') {
     const q = (url.searchParams.get('q') ?? '').toLowerCase()
     const pageSize = Number(url.searchParams.get('pageSize') ?? 48)
@@ -77,7 +81,9 @@ try {
   // it afterward — so the built bundle's baked-in Supabase URL can be the
   // server's own origin (the `sb-127-auth-token` localStorage key signIn()
   // plants only matches a build baked to a 127.0.0.1 origin).
-  const server = await serve(dist, '', fixture)
+  const server = await serve(dist, '', fixture, 'index.html', {
+    allowMutation: (pathname: string, method: string) => pathname === '/api/me/billing/visit' && method === 'POST',
+  })
   buildWeb(dist, true, server.origin)
   browser = await chromium.launch()
   const results: Record<string, unknown> = {}
@@ -88,15 +94,7 @@ try {
       try {
         const startedAtLoad = server.requests.length
         await page.goto(server.origin + '/profile', { waitUntil: 'networkidle' })
-        try {
-          await page.getByRole('heading', { name: 'Showcase Cards' }).waitFor({ timeout: 5000 })
-        } catch (e) {
-          console.error('DEBUG url:', page.url())
-          console.error('DEBUG body:', (await page.locator('body').innerText()).slice(0, 2000))
-          console.error('DEBUG requests:', JSON.stringify(server.requests.slice(startedAtLoad)))
-          console.error('DEBUG unexpected:', JSON.stringify(server.unexpected))
-          throw e
-        }
+        await page.getByRole('heading', { name: 'Showcase Cards' }).waitFor()
         const onLoad = server.requests.slice(startedAtLoad)
         const pokedexOnLoad = onLoad.filter(isPokedexDetailPath)
         const ownedOnLoad = onLoad.filter(isOwnedCardsPath)
@@ -106,14 +104,15 @@ try {
         const startedAtPicker = server.requests.length
         await page.getByText('Add card', { exact: true }).first().click()
         await page.getByText('Pick a Showcase Card', { exact: false }).waitFor()
-        await page.getByText('Loading your cards', { exact: false }).waitFor({ state: 'hidden' }).catch(() => {})
         await page.getByText('Fixture Card 0', { exact: true }).waitFor()
         const afterOpeningPicker = server.requests.slice(startedAtPicker)
         const ownedFromPicker = afterOpeningPicker.filter(isOwnedCardsPath)
-        assert.ok(
-          ownedFromPicker.length >= 1 && ownedFromPicker.length <= 1,
+        assert.equal(
+          ownedFromPicker.length, 1,
           `${width}px: opening the picker should make exactly one /me/cards request, got ${ownedFromPicker.length}: ${JSON.stringify(afterOpeningPicker)}`,
         )
+        assert.equal(afterOpeningPicker.filter(isPokedexDetailPath).length, 0, `${width}px: opening the picker must not fetch species details`)
+        assert.deepEqual(server.unexpected, [], `${width}px: unexpected browser requests or page errors`)
 
         const totalForTheWholeFlow = ownedOnLoad.length + ownedFromPicker.length
         assert.ok(totalForTheWholeFlow <= 2, `${width}px: visiting Profile and opening the picker should be "a couple" of /me/cards requests, got ${totalForTheWholeFlow}`)

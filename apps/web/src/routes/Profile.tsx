@@ -19,6 +19,7 @@ import { SupportSettings } from '../components/billing/SupportSettings'
 import { PaymentHistory } from '../components/billing/PaymentHistory'
 import { DeckeVisibility } from '../components/DeckeVisibility'
 import { Sheet } from '../components/ui/Sheet'
+import { ConfirmModal } from '../components/ListModals'
 import { fmtUsd } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { signOutBounded } from '../lib/authSession'
@@ -119,6 +120,11 @@ export function Profile() {
   // UXC-04: loads only once the sheet is actually open — not on every Profile
   // visit — and only refetches (rather than growing) when the search changes.
   const picker = useOwnedCards({ pageSize: 48, q: pickerSearch, enabled: picking != null })
+  // UXC-03 (deckpal audit ux-collection): this remove control was
+  // `opacity-0`, revealed only on `:hover` — invisible on a phone, which has
+  // no hover, while remaining a live tap target. Now it's always visible and
+  // gated behind a confirm step instead.
+  const [confirmingSlot, setConfirmingSlot] = useState<number | null>(null)
   const serverShowcase = useQuery({ queryKey: ['showcase'], queryFn: ({ signal }) => api.showcase(signal) })
   const hydratedShowcase = useRef(false)
   useEffect(() => {
@@ -364,15 +370,27 @@ export function Profile() {
                 {slots.map((pick, i) => (
                   <div key={i}>
                     {pick ? (
-                      <div className="group relative">
+                      <div className="relative">
                         <CardImage low={pick.low} high={pick.high} alt={pick.name} />
                         <button
-                          onClick={() => setSlot(i, null)}
+                          onClick={() => setConfirmingSlot(i)}
                           aria-label="Remove showcase card"
-                          className="absolute right-[6px] top-[6px] flex h-[24px] w-[24px] items-center justify-center rounded-full bg-action-danger text-action-danger-text opacity-0 group-hover:opacity-100"
+                          className="absolute right-[6px] top-[6px] flex h-[24px] w-[24px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover"
                         >
                           <Icon name="close" size={14} />
                         </button>
+                        {confirmingSlot === i && (
+                          <ConfirmModal
+                            title="Remove showcase card"
+                            message={`Remove ${pick.name} from your showcase?`}
+                            confirmLabel="Remove"
+                            onClose={() => setConfirmingSlot(null)}
+                            onConfirm={() => {
+                              setConfirmingSlot(null)
+                              setSlot(i, null)
+                            }}
+                          />
+                        )}
                       </div>
                     ) : (
                       <button
@@ -492,4 +510,3 @@ export function Profile() {
     </div>
   )
 }
-
