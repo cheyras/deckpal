@@ -11,6 +11,7 @@
  * Every result is a sentence the model can say out loud. "That is not on this
  * page" is useful to a reader; "ERR_NO_MATCH" is not.
  */
+import { addHighlight } from '../../components/ui/elementHighlight'
 import { MAX_GLIDE_SCREENS } from '../beacon'
 import type { DeckEInstance } from './runtime'
 
@@ -828,6 +829,38 @@ function throwNear(el: Element): void {
 }
 
 /**
+ * Ring every one of `also` that is on screen now, beside the one he landed at,
+ * and say how many that was. Called at the landing, so "these four cards" end
+ * as four rings rather than one ring and a sentence about the other three.
+ * Only tiles that are actually in view: a ring on something below the fold is
+ * a claim the reader cannot check.
+ */
+function ringAlso(also: string[] | undefined): UiToolResult {
+  if (!also?.length) return { ok: true }
+  let rung = 0
+  for (const sel of also) {
+    const { el, refused } = resolveTarget(sel)
+    if (!el || refused) continue
+    const r = el.getBoundingClientRect()
+    const onScreen = r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth
+    if (onScreen && addHighlight(el)) rung++
+  }
+  const total = also.length + 1
+  return rung + 1 === total
+    ? { ok: true, reason: `all ${total} are on screen and ringed` }
+    : { ok: true, reason: `${rung + 1} of the ${total} are on screen and ringed` }
+}
+
+/**
+ * Wait for `selector` to exist on the page he is already on (asking for it if
+ * it is a card tile), take him there, and answer when he lands — the second
+ * half of `goTo`, for a walk that arrived at the page by pressing links.
+ */
+export function travelTo(ctx: UiToolContext, selector: string, also?: string[]): Promise<UiToolResult> {
+  return travelAfterRoute(ctx, selector, false, also, true)
+}
+
+/**
  * Fly him to a landmark and answer when he has ARRIVED — ringed and pointing —
  * or say why not.
  *
@@ -846,7 +879,7 @@ function throwNear(el: Element): void {
 function present(
   ctx: UiToolContext,
   selector: string,
-  opts: { point: boolean; highlight: boolean },
+  opts: { point: boolean; highlight: boolean; also?: string[] },
 ): Promise<UiToolResult> {
   return new Promise((resolve) => {
     const { el, refused } = resolveTarget(selector)
@@ -882,7 +915,7 @@ function present(
         arrived: (aborted, why) =>
           finish(
             !aborted
-              ? { ok: true }
+              ? ringAlso(opts.also)
               : why === 'reader'
                 ? { ok: false, reason: 'you scrolled away before I got there, so I stopped where I was' }
                 : { ok: false, reason: 'something moved me somewhere else before I got there' },
@@ -922,6 +955,8 @@ function travelAfterRoute(
   ctx: UiToolContext,
   selector: string,
   immediate: boolean,
+  also?: string[],
+  armIfPresent = false,
 ): Promise<UiToolResult> {
   const LIMIT_MS = 6000
   return new Promise((resolve) => {
@@ -1012,7 +1047,7 @@ function travelAfterRoute(
       window.clearTimeout(waiting)
       whenStill(el, () => {
         if (settled) return
-        present(ctx, selector, { point: true, highlight: true }).then(settle, () =>
+        present(ctx, selector, { point: true, highlight: true, also }).then(settle, () =>
           settle({ ok: false, reason: 'that did not work' }),
         )
       })
@@ -1080,6 +1115,11 @@ function travelAfterRoute(
       quiet = window.setTimeout(arrived, SETTLE_MS)
     })
     obs.observe(document.body, { childList: true, subtree: true })
+    // Already there, on a page that may not change again: a walk arrives at the
+    // page by pressing links, and a tile that is already mounted produces no
+    // mutation to wake the observer. Armed like one, so later churn re-arms it.
+    // (Not for `goTo`, where anything found this early is the page being left.)
+    if (armIfPresent && resolveTarget(selector).el) quiet = window.setTimeout(arrived, SETTLE_MS)
     timer = window.setTimeout(() => {
       finish()
       // He ARRIVED — the navigation happened. Only the last step failed, and

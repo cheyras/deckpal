@@ -104,6 +104,12 @@ type Live = {
 }
 
 let live: Live | null = null
+/**
+ * Rings drawn IN ADDITION to the primary one — "these four cards" rather than
+ * "this card". They live and die with the primary: `clearHighlight` takes them
+ * all, and `highlighted()` still answers with the one he is standing beside.
+ */
+let also: { el: Element; ring: HTMLElement }[] = []
 let raf = 0
 /** The document offset the whole layer is pinned at, or null while it is pinned
  *  to the viewport. See `setHighlightAnchor`. */
@@ -246,7 +252,49 @@ function follow() {
   // scroller genuinely moves while the document does not. Freezing those was a
   // ring stuck to the wrong place for the life of the pin.
   if (anchorDocY === null || live.el !== anchorEl) place(live)
+  // A secondary ring whose element left the DOM (a virtualized row scrolled
+  // away) goes with it, rather than hanging over whatever replaced it. The
+  // others are placed every frame: none of them is the pinned anchor.
+  also = also.filter((a) => {
+    if (a.el.isConnected) {
+      place({ el: a.el, ring: a.ring, timer: null })
+      return true
+    }
+    retire(a.ring)
+    return false
+  })
   raf = requestAnimationFrame(follow)
+}
+
+/**
+ * Ring one more element beside the primary, without clearing it. A no-op with
+ * no primary ring (there is nothing to be "also" to) or for an element already
+ * ringed. Returns whether a ring was added.
+ */
+export function addHighlight(target: Element | string): boolean {
+  if (!live) return false
+  const el = typeof target === 'string' ? document.querySelector(target) : target
+  if (!el || el === live.el || also.some((a) => a.el === el)) return false
+  const ring = makeRing(el)
+  layer().appendChild(ring)
+  also.push({ el, ring })
+  place({ el, ring, timer: null })
+  return true
+}
+
+function makeRing(el: Element, radiusPx?: number): HTMLElement {
+  const ring = document.createElement('div')
+  ring.className = 'decke-ring'
+  ring.setAttribute('aria-hidden', 'true')
+  const radius = radiusPx ?? (parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0)
+  ring.style.borderRadius = `${radius + Math.abs(INSET)}px`
+  const css = getComputedStyle(document.documentElement)
+  const hue = (name: string, fallback: string) =>
+    css.getPropertyValue(name).trim() || fallback
+  ring.style.setProperty('--decke-hue-1', hue('--color-brand-primary-400', '#00d3f3'))
+  ring.style.setProperty('--decke-hue-2', hue('--color-brand-secondary-400', '#fb64b6'))
+  ring.style.setProperty('--decke-hue-3', hue('--color-brand-tertiary-300', '#ffd230'))
+  return ring
 }
 
 /**
@@ -262,26 +310,7 @@ export function highlightElement(
   if (!el) return null
 
   clearHighlight()
-
-  const ring = document.createElement('div')
-  ring.className = 'decke-ring'
-  ring.setAttribute('aria-hidden', 'true')
-  const radius =
-    opts.radius ?? (parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0)
-  ring.style.borderRadius = `${radius + Math.abs(INSET)}px`
-  // Read from the design tokens so the ring restyles with the theme instead of
-  // pinning three hex values into a module nobody thinks to update.
-  const css = getComputedStyle(document.documentElement)
-  const hue = (name: string, fallback: string) =>
-    css.getPropertyValue(name).trim() || fallback
-  // The three brand hue scales: primary = cyan, secondary = pink/rose,
-  // tertiary = amber. Tertiary is read one step lighter than the other two
-  // because amber-400 is a darker value than cyan-400 or pink-400 and drops out
-  // of the sweep against this surface; -300 sits at the same visual weight.
-  ring.style.setProperty('--decke-hue-1', hue('--color-brand-primary-400', '#00d3f3'))
-  ring.style.setProperty('--decke-hue-2', hue('--color-brand-secondary-400', '#fb64b6'))
-  ring.style.setProperty('--decke-hue-3', hue('--color-brand-tertiary-300', '#ffd230'))
-
+  const ring = makeRing(el, opts.radius)
   layer().appendChild(ring)
   live = { el, ring, timer: null }
   place(live)
@@ -297,6 +326,8 @@ export function clearHighlight() {
   if (!live) return
   if (live.timer !== null) clearTimeout(live.timer)
   retire(live.ring)
+  for (const a of also) retire(a.ring)
+  also = []
   live = null
   if (raf) {
     cancelAnimationFrame(raf)
