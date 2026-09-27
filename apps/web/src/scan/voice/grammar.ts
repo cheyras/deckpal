@@ -457,6 +457,18 @@ function exactWindow(words: readonly string[], i: number, phrases: readonly Phra
   return phrase ? { score: 1, size: phrase.words, weight: phrase.key.length } : null
 }
 
+/** The allowed sentence comma cannot make “Porygon 2,” lose its name and
+ * donate 2 to the shorter Porygon. Keep every other numeric mark literal. */
+function exactNameWindow(words: readonly string[], i: number, phrases: readonly Phrase[]): Match | null {
+  return exactWindow(words, i, phrases.flatMap((phrase) => {
+    const tokens = [...phrase.tokens]
+    const last = tokens.length - 1
+    if (!/\d/.test(tokens[last])) return [phrase]
+    tokens[last] += ','
+    return [phrase, { ...phrase, tokens }]
+  }))
+}
+
 function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[] {
   const keys = words.map(phonetic)
   const structural = new Set<number>()
@@ -476,17 +488,18 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
   // Duplicate captures of the SAME full name use the caller's newest-first
   // order. Distinct names sharing an alias or sound are ambiguity, not a tie
   // broken by list order.
-  const unique = new Map<string, NamedRow>()
+  const unique = new Map<string, { row: NamedRow; phrases: Phrase[] }>()
   for (const row of rows) {
-    const name = tokenize(row.name, true).join(' ')
-    if (name && !unique.has(name)) unique.set(name, row)
+    const phrases = namePhrases(row.name)
+    const name = phrases[0].tokens.join(' ')
+    if (name && !unique.has(name)) unique.set(name, { row, phrases })
   }
-  const names = [...unique.values()].map((row) => ({
+  const names = [...unique.values()].map(({ row, phrases }) => ({
     row,
     // Number-bearing identities require exact aliases. Fuzzy matching may not
     // turn a misspelled identity into a count (or swallow a neighbouring count).
     fuzzy: !/[♀♂!?\p{S}\d]/u.test(row.name) && !tokenize(row.name).some((w) => NUMBER_WORDS.has(w) || w === 'zero'),
-    phrases: namePhrases(row.name),
+    phrases,
   }))
 
   // Exact names are reserved before any fuzzy window runs. A window cannot
@@ -496,7 +509,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
   const reserved = new Map<number, Segment>()
   for (let i = 0; i < words.length; i++) {
     const hits = names.flatMap((n) => {
-      const hit = exactWindow(words, i, n.phrases)
+      const hit = exactNameWindow(words, i, n.phrases)
       return hit ? [{ ...hit, row: n.row }] : []
     }).sort((a, b) => b.size - a.size)
     const best = hits[0]

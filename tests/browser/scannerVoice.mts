@@ -177,7 +177,7 @@ try {
     // name is also scanned, either recognizer ordering must refuse the guess.
     await harness(page, 'land', 'cap-p2', 'Porygon2')
     await until(async () => (await rows.count()) === 4, 'Porygon2 lands')
-    for (const heard of ['Porygon2 reverse holo', 'Porygon 2 reverse holo', 'Porygon two reverse holo']) {
+    for (const heard of ['Porygon2 reverse holo', 'Porygon 2 reverse holo', 'Porygon two reverse holo', 'Porygon 2, reverse holo']) {
       await say(page, heard)
       await row(3).locator('[data-voice-pending="printing"]').waitFor()
       assert.equal(await row(3).locator('[data-voice-pending="quantity"]').count(), 0)
@@ -190,6 +190,7 @@ try {
       ['Porygon two reverse holo', 'Porygon2 reverse holo'],
       ['Porygon2 reverse holo', 'Porygon two reverse holo'],
       ['Porygon 2 reverse holo', 'Porygon2 reverse holo'],
+      ['Porygon 2, reverse holo', 'Porygon2 reverse holo'],
     ]) {
       await say(page, alternatives[0], true, alternatives.slice(1))
       await page.locator('[data-voice-caption="refused"]').getByText('Which card did you mean? Say its full name or tap it in the list').waitFor()

@@ -23,7 +23,8 @@ executing one against the wrong capture can change the collection.
    Literal names keep their numeric punctuation. Number aliases cover joined
    digits, separated digits and spoken words (“Porygon2,” “Porygon 2,” “Porygon
    two”), including decimal identifiers and percent forms. Their numeric spans
-   never become quantities. If a shorter scanned name plus a count also makes a
+   never become quantities, including before a sentence comma. Numeric punctuation
+   also remains distinct when deduplicating full capture names. If a shorter scanned name plus a count also makes a
    valid command, both readings are plausible: refuse with “Which card did you
    mean?” Thus “Porygon two reverse holo” is refused when both Porygon and
    Porygon2 are scanned; “remove Porygon two” names Porygon2 because removal

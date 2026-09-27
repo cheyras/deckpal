@@ -122,6 +122,8 @@ const nameMatrix: readonly [string, string | null, number | null][] = [
   ['Porygon2 reverse holo', 'p2', null],
   ['Porygon 2 reverse holo', null, null],
   ['Porygon two reverse holo', null, null],
+  ['Porygon 2, reverse holo', null, null],
+  ['Porygon2, reverse holo', 'p2', null],
   ['Porygon2 three copies', 'p2', 3],
   ['Porygon two three copies', 'p2', 3],
   ['Porygon is two copies', 'p', 2],
@@ -156,7 +158,7 @@ describe('catalog name before count: contract matrix', () => {
 
   it('resolves every Porygon2 spelling alone without donating its number to the count', () => {
     const rows = [{ id: 'p2', name: 'Porygon2' }]
-    const forms = ['Porygon2', 'Porygon 2', 'Porygon two']
+    const forms = ['Porygon2', 'Porygon 2', 'Porygon two', 'Porygon 2,', 'Porygon2,']
     for (const name of forms) {
       for (const other of forms) {
         const result = parseAlternatives([`${name} reverse holo`, `${other} reverse holo`], rows)
@@ -232,6 +234,18 @@ describe('catalog numeric-name properties', () => {
     assert.ok(counted.command?.kind === 'edit', name)
     assert.equal(counted.command.quantity, 3, name)
     assert.deepEqual(counted.command.target, { kind: 'row', rowId: 'subject', name }, name)
+  })
+
+  it('numeric punctuation cannot deduplicate two different full identities', () => {
+    const rows = [{ id: 'pct', name: 'Zygarde 10%' }, { id: 'number', name: 'Zygarde 10' }]
+    for (const ordered of [rows, [...rows].reverse()]) {
+      for (const row of rows) {
+        const result = parseUtterance(`${row.name} reverse holo`, ordered)
+        assert.ok(result.command?.kind === 'edit')
+        assert.deepEqual(result.command.target, { kind: 'row', rowId: row.id, name: row.name })
+        assert.equal(result.command.quantity, null)
+      }
+    }
   })
 
   it('arbitrary trailing digits are names, independently of the allowed count range', () => {
