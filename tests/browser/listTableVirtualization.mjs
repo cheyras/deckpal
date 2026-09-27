@@ -220,6 +220,9 @@ async function checkViewport(browser, origin, width, height) {
   await page.keyboard.press('Enter')
   await page.waitForSelector('[role="dialog"][aria-modal="true"]')
   await page.setViewportSize({ width: 900, height })
+  await page.waitForFunction(() => [...document.querySelectorAll('tbody tr[data-index]')]
+    .some(row => Number(row.dataset.index) > 100 && row.getBoundingClientRect().bottom > 0
+      && row.getBoundingClientRect().top < innerHeight))
   await page.keyboard.press('Escape')
   await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
   await page.waitForFunction(index => {

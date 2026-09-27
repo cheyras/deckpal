@@ -106,11 +106,22 @@ export function DataTable<T>({
     if (!virtual) return
     const measure = () => {
       const body = bodyRef.current
-      if (body) setScrollMargin(body.getBoundingClientRect().top + window.scrollY)
+      if (!body) return
+      const scrollY = document.body.style.position === 'fixed'
+        ? -parseFloat(document.body.style.top || '0')
+        : window.scrollY
+      setScrollMargin(body.getBoundingClientRect().top + scrollY)
     }
     measure()
+    // A sheet pins the body while it owns focus and restores its scroll after
+    // closing. Both transitions change the coordinate used by the virtualizer.
+    const bodyObserver = new MutationObserver(measure)
+    bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['style'] })
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    return () => {
+      bodyObserver.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [virtual, rows.length, hideRows])
   useEffect(() => {
     const ref = virtual?.scrollToIndexRef
