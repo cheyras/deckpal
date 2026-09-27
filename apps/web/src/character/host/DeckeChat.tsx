@@ -983,6 +983,23 @@ export function messageText(m: ChatMessage): string {
 }
 
 /**
+ * The words he has said since the last thing he DID — his line right now.
+ *
+ * A reply that takes the reader somewhere is several lines with actions between
+ * them ("Let me show you." · a trip · "There it is."). The transcript wants all
+ * of it; the speech bubble he wears out on the page wants only this, or the
+ * arrival line is appended to the departure line and the box grows and moves.
+ */
+export function currentLine(m: ChatMessage): string {
+  let out = ''
+  for (const p of m.parts) {
+    if (p.kind === 'tool') out = ''
+    else if (p.kind === 'text') out += p.text
+  }
+  return out
+}
+
+/**
  * What he actually DID this turn.
  *
  * Also what gets replayed, compacted, as the NEXT turn's evidence — without it
@@ -2267,6 +2284,7 @@ export function DeckeChat({
         // below — is returning focus where it came from on close, which is
         // ordinary courtesy and is missing either way.
         aria-label="Chat with Deck-E"
+        data-decke-ui
         // ── STILL IN THE DOM WHILE HE IS OUT, AND THAT NEEDS SAYING ────────
         //
         // The panel no longer unmounts when it minimises (see the docked bar

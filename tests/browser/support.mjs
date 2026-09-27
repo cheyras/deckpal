@@ -46,6 +46,9 @@ export function buildWeb(dist, cloud, cloudOrigin = 'https://fixture.supabase.in
   return run(process.execPath, [path.join(WEB, 'node_modules/vite/bin/vite.js'),
     'build', '--outDir', dist, '--emptyOutDir'], { cwd: WEB, env: isolatedEnv(cloud ? {
       VITE_SUPABASE_URL: cloudOrigin, VITE_SUPABASE_ANON_KEY: 'synthetic-public-test-key',
+      // Exposes the Deck-E engine as `window.__decke` so `deckeShow.mjs` can
+      // step it frame by frame. Test builds only; see `DeckeHost.tsx`.
+      VITE_DECKE_TEST_HANDLE: '1',
     } : { VITE_SUPABASE_URL: '', VITE_SUPABASE_ANON_KEY: '' }) })
 }
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp',
@@ -92,9 +95,9 @@ export async function serve(dist, mount, respondApi, html = 'index.html', option
   return { requests, unexpected, stubbedThirdParty, allowMutation: options.allowMutation, origin: 'http://127.0.0.1:' + server.address().port,
     close: async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) } }
 }
-export async function contextFor(browser, server, width) {
+export async function contextFor(browser, server, width, options = {}) {
   const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 },
-    timezoneId: 'America/Denver', locale: 'en-US', serviceWorkers: 'block', reducedMotion: 'reduce' })
+    timezoneId: 'America/Denver', locale: 'en-US', serviceWorkers: 'block', reducedMotion: 'reduce', ...options })
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
     if (url.origin === server.origin && (['GET', 'HEAD'].includes(route.request().method()) || server.allowMutation?.(url.pathname, route.request().method()))) return route.continue()

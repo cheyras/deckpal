@@ -156,6 +156,7 @@ export function DeckeButton({
       // button by exactly this string. `aria-busy` is the attribute that means
       // "this control is working", so it is the one used.
       aria-label={failed ? 'Deck-E could not load — try again' : 'Chat with Deck-E'}
+      data-decke-ui
       aria-busy={loading || undefined}
       className={[
         'group fixed bottom-[20px] right-[20px]',

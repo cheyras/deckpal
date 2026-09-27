@@ -47,20 +47,6 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
   const previousActiveCardRef = useRef<string | undefined>(activeCard)
 
   useEffect(() => {
-    if (!reveal) return
-    const index = cards.findIndex((card) => card.cardId === reveal.cardId)
-    if (index < 0) return
-    const mounted = [...(tableRef.current?.querySelectorAll<HTMLElement>('[data-decke-card]') ?? [])]
-      .find((node) => node.dataset.deckeCard === reveal.cardId)
-    if (mounted) {
-      const box = mounted.getBoundingClientRect()
-      const center = box.top + box.height / 2
-      if (center > innerHeight * .3 && center < innerHeight * .7) return
-    }
-    scrollToIndexRef.current?.(index, 'center')
-  }, [cards, reveal])
-
-  useEffect(() => {
     const wasOpen = previousActiveCardRef.current
     previousActiveCardRef.current = activeCard
     if (!wasOpen || activeCard || focusedRowRef.current === null) return
@@ -122,7 +108,8 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
     <DataTable label="Cards in table view" rows={cards} columns={columns}
       getRowId={(card) => (card as CardRow & { itemId?: string }).itemId ?? card.cardId}
       tableClassName="table-fixed [&_tbody_tr]:align-middle"
-      virtual={{ estimateSize: 69, overscan: 12, scrollToIndexRef }}
+      virtual={{ estimateSize: 69, overscan: 12, scrollToIndexRef,
+        keepMountedIndex: reveal ? cards.findIndex(card => card.cardId === reveal.cardId) : -1 }}
       onRowClick={(_card, event) => openFromCell(event)}
       onRowAuxClick={(_card, event) => { if (event.button === 1) openFromCell(event, true) }} />
   </div>

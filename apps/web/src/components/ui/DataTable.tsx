@@ -55,6 +55,7 @@ export interface DataTableProps<T> {
     estimateSize?: number
     overscan?: number
     scrollToIndexRef?: RefObject<((index: number, align?: 'start' | 'center') => void) | null>
+    keepMountedIndex?: number
   }
 }
 
@@ -108,6 +109,7 @@ export function DataTable<T>({
   const correctingPage = Boolean(!busy && !hasError && page?.isOutOfRange)
   const hideRows = busy || hasError || correctingPage
   const focusedIndex = focusedRowId === null ? -1 : rows.findIndex(row => getRowId(row) === focusedRowId)
+  const keepMountedIndex = virtual?.keepMountedIndex ?? -1
   const virtualizer = useWindowVirtualizer({
     enabled: Boolean(virtual && !hideRows),
     count: rows.length,
@@ -118,7 +120,9 @@ export function DataTable<T>({
     observeElementOffset: observePageScroll,
     rangeExtractor: range => {
       const indices = defaultRangeExtractor(range)
-      if (focusedIndex >= 0 && !indices.includes(focusedIndex)) indices.push(focusedIndex)
+      for (const index of [focusedIndex, keepMountedIndex]) {
+        if (index >= 0 && index < rows.length && !indices.includes(index)) indices.push(index)
+      }
       return indices.sort((a, b) => a - b)
     },
   })
