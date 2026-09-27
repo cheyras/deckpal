@@ -77,14 +77,15 @@ applies every migration with Supabase's default grants and asserts that the
 anon role and a second signed-in user reach none of a user's rows in any table
 or view in `public`.
 
-**Service role key:** The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is used
-only server-side (sync jobs, catalog writes, storage uploads). It is set as a
-Vercel environment variable and is never exposed to the client.
+**Server secret key:** `SUPABASE_SERVICE_ROLE_KEY` holds a Supabase `sb_secret_…`
+key after rotation. It bypasses RLS and is used only server-side for Storage
+and manifest access. Server requests send it on `apikey`, never as a Bearer
+token. The old service-role JWT remains supported only during migration.
 
 **Key handling rules:**
-- The anon key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`) is safe to expose -- it is
-  rate-limited and subject to RLS.
-- The service role key must never appear in client-side code, browser
+- The publishable key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, also
+  `VITE_SUPABASE_ANON_KEY`) is safe to expose; RLS still governs data access.
+- The server secret key must never appear in client-side code, browser
   `localStorage`, or git history.
 - Vercel environment variables marked as server-side are not bundled into the
   SPA.
@@ -518,7 +519,7 @@ report cannot publish more than the reporter chose to:
   for that whole year, no sign-in required. The issue body now says only that
   a screenshot was saved privately (never a URL); the project owner reaches
   the bytes through Supabase Storage or the private `bug_report` row, by
-  Report-ID. See DECISIONS.md 2026-09-26 for why this shape was chosen over a
+  Report-ID. See the SEC-06 entry in `decisions/2026/` for why this shape was chosen over a
   short-lived signed URL, and for the disposition of the pre-existing public
   issues that carried the old year-long links.
 

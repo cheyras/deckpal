@@ -284,8 +284,8 @@ checkbox. Nothing about a saved screenshot is ever put in the public issue
 body: no URL of any kind, signed or otherwise. (Before this date,
 `formatIssueBody` embedded a Supabase Storage signed URL valid for **one
 year**, so anyone who found the issue could view the reporter's screen for
-that whole year — see SECURITY.md "Bug-report privacy" and DECISIONS.md
-2026-09-26.) The owner reaches a saved screenshot via Supabase Storage or the
+that whole year — see SECURITY.md "Bug-report privacy" and the SEC-06 entry in
+`decisions/2026/`.) The owner reaches a saved screenshot via Supabase Storage or the
 private `bug_report` row, by Report-ID. `isSensitiveBugPage` (mirrored in
 `BugReport.tsx` and `bugs.ts`, both client- and server-enforced) skips the
 screenshot entirely on any `/admin`, `/profile` or `/credits` page (including
@@ -444,16 +444,30 @@ These are non-negotiable quality gates:
 
 ## Keeping documentation and the wiki current
 
-Two things are true at once: `DECISIONS.md` is the running audit trail (the
-single most useful file when you are confused about why something is the way
+Two things are true at once: `decisions/YYYY/` is the running audit trail (the
+single most useful place when you are confused about why something is the way
 it is), and the docs table + wiki below are what a reader trusts to describe
 *current* behavior. A stale doc is worse than no doc -- it actively misleads.
 Both halves below happen together, in the same sitting a non-trivial task is
 finished in, per gate 6 above.
 
-### 1. Append to DECISIONS.md
+### 1. Add a decision file
 
-**Append a dated entry for any non-trivial decision:**
+**Add a dated file for any non-trivial decision:** run
+`pnpm decisions new "Short title"`, fill in its template under
+`decisions/YYYY/YYYY-MM-DD-short-title.md`, and run `pnpm decisions:check`.
+Each file has `date`, `title`, `decided_by`, `areas`, and `supersedes` front
+matter followed by the entry. Never append to `DECISIONS.md`; CI rejects it.
+The historical index at `decisions/INDEX.md` resolves old citations. Use
+`pnpm decisions search "phrase"`, `list`, `show`, or `recent` to read the log.
+Open branches with old append-only entries can merge main, then run
+`pnpm decisions adopt-branch` (also while resolving a merge conflict). Stage
+the converted files and restored guide, then complete the merge or commit.
+It is safe to run the converter twice.
+If it finds a post-merge correction to a decision, it stops so that correction
+can be moved into the new file without being discarded.
+
+The entry body uses this format:
 
 ```markdown
 ## YYYY-MM-DD — Short title
@@ -478,7 +492,7 @@ than one row.
 | Frontend stack, pattern, or a decision the [Frontend Research](https://github.com/cheyras/deckpal/wiki/Frontend-Research) page already covers | that wiki page |
 | A `README.md` feature bullet, status flag (e.g. "parked for Wave N"), or the apps table | `README.md` |
 | Deploy steps, env vars, or the connect-an-assistant runbook | `DEPLOYMENT.md` |
-| Anything logged in step 1 | `DECISIONS.md` **and** the wiki [Decision Log](https://github.com/cheyras/deckpal/wiki/Decision-Log) -- always both, always together, never one now and the other "later" |
+| Anything logged in step 1 | `decisions/YYYY/` **and** the wiki [Decision Log](https://github.com/cheyras/deckpal/wiki/Decision-Log) -- always both, always together, never one now and the other "later"; generate it with `pnpm decisions:wiki --output <path>` |
 | Any work session at all, however small | wiki [Contribution Record](https://github.com/cheyras/deckpal/wiki/Contribution-Record) -- one ledger line |
 
 If nothing in the table applies, say so to yourself explicitly rather than
@@ -497,7 +511,7 @@ git clone https://github.com/cheyras/deckpal.wiki.git ~/deckpal.wiki
 
 For every wiki page the table above named:
 
-1. Edit the page.
+1. Edit the page. For Decision Log, run `pnpm decisions:wiki --output <wiki-clone>/Decision-Log.md --agent "<agent name>"` after the decision file is complete.
 2. Update its footer: `_Last updated by <agent> on behalf of @<handle> -- <date>_`
 3. Commit and push the wiki repo with the same trailer conventions as the main
    repo (see Attribution below).
@@ -515,7 +529,7 @@ Wiki pages:
 | [MCP Setup](https://github.com/cheyras/deckpal/wiki/MCP-Setup) | Connecting an AI assistant -- tokens, OAuth connect flow, verification, revocation |
 | [Prior Art](https://github.com/cheyras/deckpal/wiki/Prior-Art) | Prior art analysis and license landscape |
 | [Project Brief](https://github.com/cheyras/deckpal/wiki/Project-Brief) | Original mission brief (historical) |
-| [Decision Log](https://github.com/cheyras/deckpal/wiki/Decision-Log) | Snapshot of DECISIONS.md |
+| [Decision Log](https://github.com/cheyras/deckpal/wiki/Decision-Log) | Generated from `decisions/` |
 | [Contribution Record](https://github.com/cheyras/deckpal/wiki/Contribution-Record) | Attribution ledger |
 
 ## Canonical documentation
@@ -526,7 +540,7 @@ Wiki pages:
 | `DEPLOYMENT.md` | Deploy-your-own runbook (Vercel + Supabase) and self-host setup |
 | `research/SCHEMA.md` | Data model (variant taxonomy, tier/goal derivation) |
 | [Wiki: Data Layer](https://github.com/cheyras/deckpal/wiki/Data-Layer) | Data sources, sync strategy |
-| `DECISIONS.md` | Dated audit trail of every decision and correction |
+| `decisions/` | Dated audit trail of every decision and correction; `DECISIONS.md` is the guide |
 | `apps/mcp/SPEC.md` | MCP server specification (deckpal-mcp) |
 | `SECURITY.md` | Security model and disclosure policy |
 | `CONTRIBUTING.md` | Human contributor onboarding |

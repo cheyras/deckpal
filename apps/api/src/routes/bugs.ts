@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sniffContentType } from '@deckpal/storage';
+import { sniffContentType, supabaseKeyHeaders } from '@deckpal/storage';
 import { pool, q1, rlsStore } from '../db.js';
 import { asyncHandler, badRequest, str } from '../http.js';
 
@@ -19,7 +19,7 @@ import { asyncHandler, badRequest, str } from '../http.js';
  *   3. Optionally upload the screenshot to Supabase Storage. The public issue
  *      never links to it — see `formatIssueBody`. (Until 2026-09-26 this
  *      minted a signed URL valid for one year and posted it in the public
- *      issue body; see DECISIONS.md 2026-09-26.)
+ *      issue body; see the SEC-06 entry in decisions/2026/.)
  *   4. Store the returned issue number on the row.
  *   The reporter's identity (email, user id) is NEVER included in the public
  *   issue — it stays in the private `bug_report` table. The screenshot is
@@ -365,7 +365,7 @@ async function createGhIssue(title: string, body: string, kind: BugKind): Promis
  * Upload the screenshot to private Supabase Storage. Returns whether it
  * succeeded — never a URL. A signed URL used to be minted here (1-year
  * expiry) and embedded in the public GitHub issue; anyone holding that URL
- * could view the reporter's screen for a year. See DECISIONS.md 2026-09-26.
+ * could view the reporter's screen for a year. See the SEC-06 entry in decisions/2026/.
  * The owner reaches the bytes directly (Storage dashboard, or the private
  * `bug_report` row), never through the public issue.
  */
@@ -379,7 +379,7 @@ async function uploadScreenshot(reportId: string, imgBuf: Buffer, contentType: s
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          ...supabaseKeyHeaders(SUPABASE_SERVICE_KEY),
           'Content-Type': contentType,
           'x-upsert': 'true',
         },

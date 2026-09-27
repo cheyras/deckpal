@@ -110,10 +110,11 @@ omit the host.
 
 ## Authentication
 
-In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs:
+In **cloud mode** (`SUPABASE_URL` is set), the API verifies Supabase user JWTs:
 
-- All requests pass through `authMiddleware` which decodes the `Authorization:
-  Bearer <token>` header (HS256) and attaches `req.user` with the user's UUID.
+- All requests pass through `authMiddleware`, which verifies the `Authorization:
+  Bearer <token>` header using Supabase's public JWKS for ES256, or
+  `SUPABASE_JWT_SECRET` for legacy HS256, and attaches the user's UUID.
 - **Public routes** (no auth required): `GET /health`, `GET /`, `GET /search`.
 - **Protected routes** (require a valid JWT): everything else (series with
   progress, sets, cards, collection mutations, lists, decks, insights, scan,
@@ -122,7 +123,7 @@ In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs
 - The user UUID comes from the JWT `sub` claim. All SQL queries use this UUID
   as `user_id`.
 
-In **self-host mode** (no `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
+In **self-host mode** (neither `SUPABASE_URL` nor `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
 The reverse proxy is the auth boundary. All requests pass through.
 
 ---
@@ -1518,6 +1519,18 @@ skill walks that dir). No DB.
 ```json
 201 { "id": "2026-07-30T12-34-56_abc123", "saved": "issues/2026-07-30T12-34-56_abc123/" }
 ```
+
+### POST /deckpal/api/client-errors
+The web app's React error boundaries (`apps/web/src/components/ErrorBoundary.tsx`)
+post here automatically when they catch an uncaught render exception — no user
+action, and never a substitute for `/bugs` (which is only ever human-initiated).
+Unauthenticated: a crash on a signed-out page is just as worth knowing about.
+Body (JSON, all fields optional strings):
+`{ "route"?, "message"?, "stack"?, "buildId"? }`, truncated server-side to 300 /
+500 / 4000 / 100 chars respectively. Rate-limited at 20/min per source IP. The
+handler only `console.error`s a single structured line — no DB row, no
+screenshot, no GitHub issue, no user identity — and always answers `204` with
+an empty body, regardless of what it was sent.
 
 ---
 
