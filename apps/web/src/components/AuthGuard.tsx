@@ -58,8 +58,16 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       // Signing out (here or in another tab) and an expiring session both land
       // on the confirmation page — "you're signed out" is true of both, and it
       // is what Profile's Sign out navigates to, so the two cannot race to
-      // different destinations. Someone who was never signed in gets the form.
-      navigate({ to: hadSession.current ? '/signed-out' : '/auth' })
+      // different destinations. Someone who was never signed in gets the form
+      // — with `next` set to the page that was actually gated (UXC-06: this
+      // used to drop straight to a bare `/auth`, so `/lists/<id>` and every
+      // other private deep link lost the destination the moment it needed
+      // sign-in). `window.location`, not the router's own location — it is
+      // literally the address bar of the page being guarded, not user input,
+      // so it needs no `safeNextPath` check before being handed to a route
+      // that will apply one anyway.
+      if (hadSession.current) navigate({ to: '/signed-out' })
+      else navigate({ to: '/auth', search: { next: `${window.location.pathname}${window.location.search}` } })
     }
   }, [session, navigate])
 
