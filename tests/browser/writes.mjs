@@ -345,8 +345,8 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
 
       // Undo recreates the removed row with the exact-print pin it had before removal.
       state.latency = () => 350
-      await page.getByRole('button', { name: 'Pin Fixturemon to this exact printing' }).click()
-      await page.getByRole('button', { name: 'Unpin Fixturemon printing' }).waitFor()
+      await page.getByRole('button', { name: 'Count only this exact printing of Fixturemon' }).click()
+      await page.getByRole('button', { name: 'Allow equivalent printings for Fixturemon' }).waitFor()
       assert.equal(state.deck.find(r => r.i === 0).pinExact, false, 'pin is still saving when removal is requested')
       await page.getByRole('button', { name: 'Remove Fixturemon' }).click()
       await settle()
@@ -354,7 +354,7 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await page.getByRole('button', { name: 'Undo' }).click()
       await settle()
       assert.equal(state.deck.find(r => r.i === 0)?.pinExact, true)
-      assert.equal(await page.getByRole('button', { name: 'Unpin Fixturemon printing' }).getAttribute('aria-pressed'), 'true')
+      assert.equal(await page.getByRole('button', { name: 'Allow equivalent printings for Fixturemon' }).getAttribute('aria-pressed'), 'true')
       await shot('deck-pinned-undo')
 
       // Offline, a deck edit is attempted and explained rather than silently lost.

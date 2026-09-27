@@ -168,13 +168,12 @@ function PrintedSetCode({ code }: { code: string | null }) {
 
 function OwnedAs({ sources }: { sources: DeckCard['ownedAs'] }) {
   if (!sources?.length) return null
+  const printing = (source: DeckCard['ownedAs'][number]) => `${source.setCode} ${source.number}${source.quantity > 1 ? ` ×${source.quantity}` : ''}`
+  const full = `Owned as ${sources.map(printing).join(', ')}`
+  const short = `Owned as ${sources.slice(0, 2).map(printing).join(', ')}${sources.length > 2 ? ` +${sources.length - 2}` : ''}`
   return (
-    <span className="min-w-0 max-w-full text-change-positive" title="Equivalent printing in your collection">
-      Owned as {sources.map((source, index) => (
-        <span key={`${source.setCode}-${source.number}-${index}`} className="mr-1 inline-block whitespace-nowrap">
-          {source.setCode} {source.number}{source.quantity > 1 ? ` ×${source.quantity}` : ''}{index < sources.length - 1 ? ',' : ''}
-        </span>
-      ))}
+    <span className="min-w-0 max-w-full truncate text-change-positive" title={full}>
+      <span aria-hidden="true">{short}</span><span className="sr-only">{full}</span>
     </span>
   )
 }
@@ -223,8 +222,7 @@ function DeckCardContext({ entries, offending, onSet, onAdd, onPin }: {
                 <span className="whitespace-nowrap">{e.setId.toUpperCase()} {e.number}</span>
                 {e.setCode && <PrintedSetCode code={e.setCode} />}
                 {e.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{e.regulationMark}</span>}
-                <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>
-                <OwnedAs sources={e.ownedAs} />
+                {e.ownedAs?.length ? <OwnedAs sources={e.ownedAs} /> : <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>}
                 {unit != null && <span className="whitespace-nowrap text-change-positive">{fmtPrice(e.price)}</span>}
               </div>
               {/* same mutation the deck row uses, so the tab is not read-only */}
@@ -238,10 +236,10 @@ function DeckCardContext({ entries, offending, onSet, onAdd, onPin }: {
                 </button>
                 <button
                   onClick={() => onPin(e.variantId, !e.pinExact)}
-                  aria-label={e.pinExact ? `Unpin ${e.name} printing` : `Pin ${e.name} to this exact printing`}
+                  aria-label={e.pinExact ? `Allow equivalent printings for ${e.name}` : `Count only this exact printing of ${e.name}`}
                   aria-pressed={e.pinExact}
                   title={e.pinExact ? 'Only this printing counts' : 'Only count this printing'}
-                  className={`rounded-md px-[7px] py-[5px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${e.pinExact ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'}`}
+                  className={`rounded-md border px-[7px] py-[5px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${e.pinExact ? 'border-action-primary text-action-primary' : 'border-border-default text-text-secondary hover:bg-action-default-hover'}`}
                 >{e.pinExact ? 'Pinned' : 'Pin'}</button>
               </div>
             </div>
@@ -307,12 +305,12 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen, onPin 
   card: DeckCard; offending: boolean; showVariant: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void; onPin: () => void
 }) {
   return (
-    <div className={`flex items-center gap-[10px] rounded-lg p-[6px] pr-[8px] ${offending ? 'bg-[rgba(255,157,66,0.10)] ring-1 ring-[rgba(255,157,66,0.5)]' : 'hover:bg-surface-tertiary/60'}`}>
+    <div className={`flex flex-col gap-[4px] rounded-lg p-[6px] pr-[8px] sm:flex-row sm:items-center sm:gap-[10px] ${offending ? 'bg-[rgba(255,157,66,0.10)] ring-1 ring-[rgba(255,157,66,0.5)]' : 'hover:bg-surface-tertiary/60'}`}>
       {/* Card identity opens the deck-scoped sheet; the steppers keep their own
           hit targets so tapping +/−/× never opens it by accident. */}
       <button
         onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-[10px] rounded-lg text-left"
+        className="flex w-full min-w-0 flex-1 items-center gap-[10px] rounded-lg text-left"
         aria-label={`Details for ${card.name}`}
       >
         <img src={card.images.low} alt={card.name} loading="lazy" className="h-[52px] w-[37px] shrink-0 rounded object-cover" />
@@ -330,32 +328,29 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen, onPin 
             {showVariant && card.variant && <VariantChip variant={card.variant} className="font-medium" />}
             <PrintedSetCode code={card.setCode} />
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
-            <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
-            <OwnedAs sources={card.ownedAs} />
+            {card.ownedAs?.length ? <OwnedAs sources={card.ownedAs} /> : <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>}
             <span className="whitespace-nowrap text-change-positive">{fmtPrice(card.price)}</span>
           </div>
         </div>
       </button>
-      <div className="flex shrink-0 flex-col items-end gap-[3px]">
+      <div className="flex shrink-0 self-end items-center gap-[5px] sm:self-auto">
         <button
           onClick={onPin}
-          aria-label={card.pinExact ? `Unpin ${card.name} printing` : `Pin ${card.name} to this exact printing`}
+          aria-label={card.pinExact ? `Allow equivalent printings for ${card.name}` : `Count only this exact printing of ${card.name}`}
           aria-pressed={card.pinExact}
           title={card.pinExact ? 'Only this printing counts' : 'Only count this printing'}
-          className={`rounded-md px-[6px] py-[4px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${card.pinExact ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'}`}
+          className={`rounded-md border px-[6px] py-[4px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${card.pinExact ? 'border-action-primary text-action-primary' : 'border-border-default text-text-secondary hover:bg-action-default-hover'}`}
         >{card.pinExact ? 'Pinned' : 'Pin'}</button>
-        <div className="flex items-center gap-[5px]">
-          <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-            <Icon name="minus" size={13} />
-          </button>
-          <span className="w-[20px] text-center text-[14px] font-bold text-text-primary">{card.quantity}</span>
-          <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-            <Icon name="plus" size={13} />
-          </button>
-          <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger hover:text-action-danger-text">
-            <Icon name="close" size={14} />
-          </button>
-        </div>
+        <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+          <Icon name="minus" size={13} />
+        </button>
+        <span className="w-[20px] text-center text-[14px] font-bold text-text-primary">{card.quantity}</span>
+        <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+          <Icon name="plus" size={13} />
+        </button>
+        <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger hover:text-action-danger-text">
+          <Icon name="close" size={14} />
+        </button>
       </div>
     </div>
   )
