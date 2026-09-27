@@ -19,6 +19,13 @@ test('survives Windows line endings', () => {
   assert.equal(LIST.slice(start, end), '4 Dreepy TWM 128')
 })
 
+test('selects the requested physical occurrence when identical lines repeat', () => {
+  const [start, end] = decklistLineRange(LIST, '2 Latias ex SSP 76', 3)!
+  assert.equal(LIST.slice(start, end), '2 Latias ex SSP 76')
+  assert.equal(start, LIST.lastIndexOf('2 Latias'))
+  assert.equal(decklistLineRange(LIST, '2 Latias ex SSP 76', 2), null)
+})
+
 test('says so when the text no longer contains the line', () => {
   assert.equal(decklistLineRange(LIST, '1 Pikachu SVI 1'), null)
   assert.equal(decklistLineRange(LIST, '   '), null)

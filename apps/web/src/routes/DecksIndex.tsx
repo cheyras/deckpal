@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateDeckBody, type DeckFormat, type DeckImportSummary, type DeckImportFixResult, type DeckSummary } from '../lib/api'
 import { confirmedDecklistText } from '../lib/deckImportFixes'
+import { decklistLineRange } from '../lib/decklistLines'
 import { deckeEntitled, onDeckeEntitlementChange } from '../character/host/entitlement'
 import { startDeckeErrand, endDeckeErrand } from '../character/host/errand'
 import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
@@ -256,13 +257,11 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const editLine = (lineIndex: number) => {
     const el = listRef.current
     if (!el) return
-    const lines = el.value.split('\n')
-    const raw = lines[lineIndex]
-    if (raw === undefined) return
-    const start = lines.slice(0, lineIndex).reduce((offset, line) => offset + line.length + 1, 0)
-    const leading = raw.length - raw.trimStart().length
+    const raw = el.value.split('\n')[lineIndex]
+    const range = raw === undefined ? null : decklistLineRange(el.value, raw, lineIndex)
+    if (!range) return
     el.focus()
-    el.setSelectionRange(start + leading, start + leading + raw.trim().length)
+    el.setSelectionRange(range[0], range[1])
   }
   const them = unmatched.length === 1 ? 'it' : 'them'
   // On a phone the panel lands under a tall textarea; bring the lines into view.
