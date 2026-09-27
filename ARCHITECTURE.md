@@ -1288,6 +1288,7 @@ apps/api/src/decke/
   deep.ts               the four sub-agent tools -- the deep tier (§15d)
   jev.ts                typed judgments from Jev, and null (= today's behaviour) on any failure
   reflex.ts             the pre-turn read: force the consent card, steer the walk, hear a spoken no
+  audit.ts              the after-turn check: a claimed change no tool made gets one corrective card
   eval/                 the labelled, synthetic judgment eval set and its scorer
   prompt.ts, tools.ts, screens.ts, gate.ts   system prompt, express/showScreen, screen palette, owner gate
 api/chat.mjs          the standalone serverless brain
@@ -1297,10 +1298,20 @@ api/chat.mjs          the standalone serverless brain
 of the reader's latest message per request (`reflex.ts`, ~0.3 s, ~$0.00004): on
 the leg carrying that message it can pin step one to
 `log_cards` — which only ever raises the signed consent card — hide `escort`,
-and add a spoken refusal to the declined ledger. Every answer acts only above a
+and add a spoken refusal to the declined ledger; after the reply, `audit.ts`
+runs one corrective step (pinned to the consent card's tool) when he claimed a
+collection, list, deck or battle-log change that no tool made. Claims that a
+list, deck or battle log was deleted get an admission instead: the available
+corrective edit tools cannot delete them. Every answer acts only above a
 threshold chosen on `eval/judgments.json`; a timeout, an error or a low answer
 is today's harness exactly. Jev never approves a write and is not a security
 control.
+
+On a corrective list, deck or battle-log step, the tool schema supplies
+`dry_run: false` before the SDK signs the call. The normal tool schema still
+defaults to a preview; the correction's signed apply intent survives the
+approval replay on the next request, and the adapter still holds the write
+until the reader approves it.
 
 `api/chat.mjs` is deliberately standalone rather than a route on the Express app:
 production needs streaming under the RLS-authenticated request, and the two did

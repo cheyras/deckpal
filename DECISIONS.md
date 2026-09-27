@@ -21145,3 +21145,55 @@ words is the owner's taste call.
 **Decision:** Listing, reads, repair, cleanup, and discard resolve an original photo and its deterministic JPEG replacement as one logical queue item under the same server lock. Clients no longer hide photos using device-local cleanup markers. The decoder now uses the upstream `heic-to/csp` build without runtime code evaluation, replacing the patched `heic2any` dependency. The self-host security policy explicitly permits its blob worker.
 **Why:** Interrupted storage operations can leave a photo without its sidecar, either copy without the other, or a sidecar without a photo. A saved client hint cannot establish which bytes still exist, especially after another device discards or repairs them.
 **Implications:** A surviving photo remains visible exactly once; a sidecar alone is not a photo. Repair acknowledges only a complete JPEG/metadata pair. Cleanup cannot remove the last photo. Discard is retryable after interruption and cannot be followed by a repair that resurrects a successfully discarded item. Queue work is bounded before database checkout, within the worker connection cap; each browser refresh reads the shared queue once and retains its last server snapshot on listing errors. Table-driven state/failure/interleaving tests and real HEIC browser checks cover these contracts; the full state table lives beside the queue implementation.
+## 2026-09-26 — Jev checks his reply against what he did, and he corrects himself with the real card
+
+**Decided by:** Chey (via Claude), under the 2026-09-26 approval to use Jev
+wherever it improves the reader's experience of Deck-E.
+
+**Decision:** With `DECKE_JEV=on`, once a leg's stream ends, Jev reads the
+reader's message and Deck-E's reply (`audit.ts`): did the reply claim a change
+or a move, and of which kind? If it claimed a collection, list, deck or
+battle-log change and no tool that performs one ran this turn, the same response
+continues with ONE corrective step — the same model, tools and prompt prefix,
+`toolChoice` pinned to `log_cards` / `edit_list` / `save_deck` /
+`add_battle_log`, the same approval secret — under a line in his voice ("One
+correction: I said that as if it were done, but I hadn't actually run it. Here
+it is for you to confirm."). Every one of those tools holds its change for the
+signed card, so the correction can only ask. A claimed guide or walk gets the
+existing first-person admission instead (a guide is a paid deep call; a walk has
+no card and a forced `goTo` would invent a route). "Performed" is every tool the
+turn touched — the leg's calls, every chip its handlers emitted, and the tool
+parts replayed after the reader's message — because a write approved on the
+previous leg executes before this request's first step. A navigation handoff is
+never audited. Jev off, slow, unsure or failing: the guard chain is exactly as
+before.
+
+**Why:** Phantom actions are the angriest quotes in the owner's history, and the
+guard for them (`phantomClaims`) is regex tuned for precision: on the 40-item
+audit set it catches 3 of 15 phantoms and fixes none. With Jev, over three paid
+passes: 15 of 15 caught, 0 of 25 clean turns flagged, the kind right in all 15;
+12 of the 15 are correctable kinds and get the card, the other 3 get the
+admission. The regexes stay: Jev's recall sits under their precision (a regex
+hit still produces a note when the audit is off or unsure).
+
+**Implications:** The audit adds one Jev call after each leg that spoke
+(~570 input tokens, ~$0.000024, p50 269 ms / p95 371 ms measured), bounded by
+`DECKE_JEV_TIMEOUT_MS`, before the response closes. A corrective step is a real
+model step: it is metered like every other (`observeUsageModel`), rides inside
+the flat chat-turn charge, and only runs while the turn is under `MAX_STEPS`.
+The reader sees the false sentence before the correction: Jev cannot stop a
+stream mid-word, so the fix is fast and honest rather than invisible. Whether
+the chat model, once pinned, fills the arguments well is covered by mocked
+tests and by `log_cards`' own preflight; it has not been measured live.
+
+## 2026-09-26 — A claimed deletion gets an admission, never a forced edit
+**Decided by:** Chey (via Codex)
+**Decision:** Separate claimed deletion of a list, deck or battle log from other changes in Deck-E's after-turn audit. When Jev detects an unperformed deletion, Deck-E admits that nothing changed; it does not force `edit_list`, `save_deck` or `add_battle_log`, because those tools cannot delete. Collection card removals still use `log_cards`, which can change quantities and raises the signed approval card.
+**Why:** The original action labels grouped deletion with creation and edits. A phantom "your deck is gone" could therefore pin `save_deck` and ask for an unrelated change. The revised 43-item synthetic eval includes unperformed deletion of each object and one completed deck deletion. In one paid Jev pass, it caught 17/17 phantom claims, flagged 0/26 clean turns, identified all 17 kinds correctly, and chose the deletion labels for all three new/relabeled phantom examples. The pass cost $0.00353; it does not establish live accuracy.
+**Implications:** Only collection, non-deletion list, deck and battle-log claims may start a corrective step. Deleted-object claims follow the existing first-person admission. Jev remains off by default, and any slow or uncertain judgment still falls back to the previous guard chain.
+
+## 2026-09-26 — Corrective approval cards sign apply intent
+**Decided by:** Chey (via Codex)
+**Decision:** A corrective `edit_list`, `save_deck` or `add_battle_log` call uses a correction-only schema whose `dry_run` defaults to `false` and rejects `true`. The parsed `false` is part of the SDK's signed approval input. The ordinary tool schemas retain their safe `dry_run: true` defaults.
+**Why:** Astra found that forcing a tool name alone could produce only a dry run: those three tools default to preview, so the one-step correction would stop without a card. A real-SDK test for each tool now proves that an omitted `dry_run` becomes a signed apply request, raises the card with zero writes, and applies only after signed approval is replayed under the ordinary tool set.
+**Implications:** Corrective tool choice can no longer silently become a preview because the model omitted `dry_run`. Invalid or declined calls still fail closed, and the existing approval gate remains the only route to a write.
