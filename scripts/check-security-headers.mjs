@@ -110,8 +110,8 @@ assert.ok(!/'unsafe-inline'/.test(generalCsp['script-src'] ?? ''), "script-src m
 // sha256 hash present in script-src, recomputed from the live file on every
 // run rather than eyeballed once and forgotten.
 const inlineScriptSources = [
-  { file: 'apps/web/index.html', label: 'first-paint watchdog', extract: (html) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).find((s) => s.includes('first-paint-watchdog')) },
-  { file: 'apps/web/src/routes/dev/scan-harness.html', label: 'scan-harness bakeoff tool', extract: (html) => /<script>([\s\S]*)<\/script>/.exec(html)?.[1] },
+  { file: 'apps/web/index.html', label: 'first-paint watchdog', extract: (html) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).find((s) => s.includes('first-paint-watchdog')) },
+  { file: 'apps/web/src/routes/dev/scan-harness.html', label: 'scan-harness bakeoff tool', extract: (html) => /<script>([\s\S]*)<\/script>/i.exec(html)?.[1] },
 ]
 for (const { file, label, extract } of inlineScriptSources) {
   const content = extract(readFileSync(path.join(ROOT, file), 'utf8'))
