@@ -409,7 +409,10 @@ export async function checkChat(browser, server, out) {
       assert.equal(emptyPad, width === 390 ? 20 : 12)
       let releaseMarkdown
       let markdownRequested
-      const markdownPending = new Promise(resolve => { markdownRequested = resolve })
+      const markdownPending = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Markdown chunk was not requested')), 10_000)
+        markdownRequested = () => { clearTimeout(timeout); resolve() }
+      })
       await page.route(/ChatMarkdownBody.*\.js/, route => {
         releaseMarkdown = () => route.continue()
         markdownRequested()
