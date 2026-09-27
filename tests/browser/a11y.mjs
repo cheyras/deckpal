@@ -130,10 +130,16 @@ export async function checkA11y(browser, server, mount, label, out) {
     const reverse = await contextFor(browser, server, 390)
     try {
       await signIn(reverse.context)
+      await reverse.page.route('**/api/me/credits', async route => {
+        const response = await route.fetch()
+        await route.fulfill({ response, json: { ...await response.json(), balance: 10 } })
+      })
       await reverse.page.goto(server.origin + '/lists', { waitUntil: 'networkidle' })
       await reverse.page.locator('button[aria-label="Chat with Deck-E"]').click()
       const chat = reverse.page.getByRole('dialog', { name: 'Chat with Deck-E' })
       await chat.waitFor()
+      const draft = 'Keep this draft while I check the menu'
+      await chat.getByRole('textbox', { name: 'Message Deck-E' }).fill(draft)
       await reverse.page.getByRole('button', { name: 'Menu' }).click()
       const drawer = reverse.page.getByRole('dialog', { name: 'Navigation' })
       await drawer.waitFor()
@@ -141,7 +147,16 @@ export async function checkA11y(browser, server, mount, label, out) {
       await reverse.page.keyboard.press('Shift+Tab')
       assert.equal(await reverse.page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
         true, 'Shift+Tab must remain in the drawer after chat is minimised')
-      results.push({ case: 'a11y-chat-to-drawer', label, chatInert: true, focusStayedInDrawer: true })
+      await reverse.page.waitForTimeout(4200)
+      assert.equal(await reverse.page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
+        true, 'focus must remain in the menu after Deck-E’s retirement deadline')
+      assert.equal(await chat.getAttribute('inert'), '', 'the chat must remain open and inert past the retirement deadline')
+      await drawer.getByRole('button', { name: 'Close navigation' }).click()
+      await reverse.page.waitForFunction(() => !document.querySelector('#mobile-nav-drawer'))
+      assert.equal(await chat.getAttribute('inert'), null, 'closing the menu must reveal the same chat')
+      assert.equal(await chat.getByRole('textbox', { name: 'Message Deck-E' }).inputValue(), draft,
+        'opening the menu must preserve the reader’s unsent message')
+      results.push({ case: 'a11y-chat-to-drawer', label, chatInert: true, focusStayedInDrawer: true, draftPreservedAfterDelay: true })
     } finally { await reverse.context.close() }
     const { context, page } = await contextFor(browser, server, 390)
     try {

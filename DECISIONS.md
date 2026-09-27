@@ -21695,3 +21695,13 @@ tests and by `log_cards`' own preflight; it has not been measured live.
 **Why:** On a fresh page, WebKit skipped the ordinary skip-link anchor; on phones, the link's transparent face could disappear into the header. The hash alone left focus on the document body. A blank counter was easy to mistake for a lost focus stop between cards. Identical headings on distinct routes made the announcer fall back to a generic title. Astra found that opening Deck-E above a modal drawer could leave its focus trap active, and a debounced search URL change could announce the generic site title four seconds later.
 
 **Implications:** Enter and click on the skip link focus content, and the next Tab reaches a content control. Each card counter remains a separate, visibly named action; card links retain one Tab stop each. Deck-E and the phone drawer do not hold focus at once, regardless of opening order. Admin sections and same-name cards announce their actual destination; search filter changes preserve `Search`. Browser checks cover Chromium and WebKit at desktop and phone widths, card-grid Tab order, overlay focus, and same-heading navigation.
+
+## 2026-09-26 — Opening phone navigation suspends Deck-E without ending the chat
+
+**Decided by:** Chey (via Codex)
+
+**Decision:** Treat the phone navigation drawer as a temporary suspension of Deck-E's panel. Keep the panel inert while the drawer is open, preserve its conversation and unsent draft, and resume the panel when the drawer closes. A presentation's automatic retirement timer pauses during the suspension. Chat focus restoration yields to any modal dialog still open above it.
+
+**Why:** Reusing Deck-E's `travelling` state to minimise the chat also started its presentation retirement timer. After 3.6 seconds, an otherwise idle chat could close and move focus outside the modal navigation drawer.
+
+**Implications:** Opening the menu over chat cannot end the reader's conversation or steal focus after a delay. A delayed browser check waits beyond the retirement deadline, verifies focus remains in the drawer, then checks that the same unsent draft returns when navigation closes.

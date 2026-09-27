@@ -755,6 +755,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   // exactly zero authenticated calls.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   useEffect(() => {
+    if (!drawerOpen) window.dispatchEvent(new Event('deckpal:navigation-closed'))
+  }, [drawerOpen])
+  useEffect(() => {
     // Deck-E's launcher sits above the phone drawer. Opening chat dismisses
     // that modal first, without returning focus to the now-obscured Menu button.
     const onDeckeOpening = () => {

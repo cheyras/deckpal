@@ -1822,6 +1822,9 @@ export function DeckeChat({
     return () => {
       const el = returnFocusRef.current
       returnFocusRef.current = null
+      // A modal opened over chat owns focus even if another chat close finishes
+      // while it is up. Never restore focus through that dialog.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
       // ── AND A FALLBACK, WHICH IS THE COMMON CASE RATHER THAN THE EDGE ──
       //
       // The launcher unmounts once he has arrived, so the element that opened
@@ -1844,6 +1847,7 @@ export function DeckeChat({
       }
       if (focus(el)) return
       requestAnimationFrame(() => {
+        if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
         focus(document.querySelector<HTMLElement>('button[aria-label="Chat with Deck-E"]'))
       })
     }
