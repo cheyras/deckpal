@@ -11,7 +11,7 @@
       "permanent": false
     },
     {
-      "source": "/:path((?!mcp(?:/|$)|api(?:/|$)|register$|token$|\\.well-known/).*)",
+      "source": "/:path(.*)",
       "has": [
         {
           "type": "host",
