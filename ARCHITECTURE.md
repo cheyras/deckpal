@@ -816,11 +816,12 @@ so the migrate → embed → flag sequence has no step that changes answers earl
 
 The reader can talk while the scanner runs ("that one's a reverse holo", "two
 of those", "remove it") and the list corrects itself (`apps/web/src/scan/voice/`,
-DECISIONS.md 2026-09-26). It lives entirely in the browser, on the Web Speech
-API. The server sees no audio and no transcripts, and its only part is the
-`scanner_voice` feature-catalog row that gates the control (migration 073). The
-browser's own recognizer does send audio to its vendor (Apple for Safari,
-Google for Chrome). The structure is four pure modules and one hook:
+the scanner voice entries in `decisions/2026/`). It lives entirely in the
+browser, on the Web Speech API. The server sees no audio and no transcripts.
+Its only part is the `scanner_voice` feature-catalog row that gates the control
+(migration 073). The browser's own recognizer does send audio to its vendor
+(Apple for Safari, Google for Chrome). The structure is four pure modules and
+one hook:
 
 * `grammar.ts` is a closed grammar matched with a phonetic edit distance, plus
   a coverage gate so conversation is ignored.
