@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { UPCOMING_SETS } from '../apps/api/src/upcomingSets.ts'
 import { ROOT, WEB, run, buildWeb, isolatedEnv } from '../tests/browser/support.mjs'
 
-export function checkDeployAssets(dist) {
+export async function checkDeployAssets(dist) {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deckpal-assets-'))
   const logos = [...new Set(UPCOMING_SETS.map(entry => entry.logoAssetPath)
     .filter(p => p && !p.startsWith('//') && !/^[a-z][a-z\d+.-]*:/i.test(p)))]
@@ -20,15 +20,15 @@ export function checkDeployAssets(dist) {
   try {
     const matcher = path.join(scratch, 'matcher')
     fs.mkdirSync(matcher)
-    run('git', ['init', '-q', matcher])
+    await run('git', ['init', '-q', matcher])
     const ignored = file => {
       const result = spawnSync('git', ['-c', 'core.excludesFile=/dev/null', 'check-ignore', '--no-index', '-q', file],
         { cwd: matcher, encoding: 'utf8' })
       assert.ok([0, 1].includes(result.status), result.stderr)
       return result.status === 0
     }
-    const marketing = run('git', ['ls-files', 'apps/web/public/marketing/*.webp']).trim().split('\n').filter(Boolean)
-    const character = run('git', ['ls-files', 'apps/web/public/models/decke/*.webp']).trim().split('\n').filter(Boolean)
+    const marketing = (await run('git', ['ls-files', 'apps/web/public/marketing/*.webp'])).trim().split('\n').filter(Boolean)
+    const character = (await run('git', ['ls-files', 'apps/web/public/models/decke/*.webp'])).trim().split('\n').filter(Boolean)
     assert.ok(marketing.length && character.length, 'Existing marketing and character controls must be tracked')
     for (const ignoreFile of ['.gitignore', '.vercelignore']) {
       const source = fs.readFileSync(path.join(ROOT, ignoreFile), 'utf8')
@@ -36,7 +36,7 @@ export function checkDeployAssets(dist) {
       for (const logo of logos) {
         const rel = 'apps/web/public/' + logo.replace(/^\/+/, '')
         assert.ok(!rel.includes('..'), 'Unsafe local announcement asset path: ' + logo)
-        run('git', ['ls-files', '--error-unmatch', rel])
+        await run('git', ['ls-files', '--error-unmatch', rel])
         assert.ok(fs.statSync(path.join(ROOT, rel)).size > 0, 'Empty source asset: ' + rel)
         assert.equal(ignored(rel), false, ignoreFile + ' excludes ' + rel)
         // The exception must be precise, leaving unrelated brand/cache images out.
@@ -51,7 +51,7 @@ export function checkDeployAssets(dist) {
       for (const rel of ['apps/web/public/brand/unrelated-cache.webp', 'cache/probe.webp', 'assets/probe.webp'])
         assert.equal(ignored(rel), true, ignoreFile + ' unexpectedly includes cache ' + rel)
     }
-    run(process.execPath, [path.join(WEB, 'scripts/check-precache.mjs'), dist], { env: isolatedEnv() })
+    await run(process.execPath, [path.join(WEB, 'scripts/check-precache.mjs'), dist], { env: isolatedEnv() })
     // Copy the real output, then omit each real announcement logo independently.
     const copied = path.join(scratch, 'dist')
     fs.cpSync(dist, copied, { recursive: true })
@@ -75,8 +75,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deckpal-asset-build-'))
   try {
     const dist = path.join(scratch, 'dist')
-    console.log(buildWeb(dist, false))
-    const results = checkDeployAssets(dist)
+    console.log(await buildWeb(dist, false))
+    const results = await checkDeployAssets(dist)
     const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
     fs.mkdirSync(out, { recursive: true })
     fs.writeFileSync(path.join(out, 'deploy-assets-results.json'), JSON.stringify(results, null, 2) + '\n')

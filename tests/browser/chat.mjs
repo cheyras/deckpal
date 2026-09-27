@@ -135,7 +135,7 @@ async function checkMeterReplay(page, server, width, out) {
   const wirePath = path.join(out, 'meter-wire-' + width + '.json')
   fs.writeFileSync(wirePath, JSON.stringify(captured, null, 2))
   const proofPath = path.join(out, 'meter-proof-' + width + '.json')
-  const proof = run(process.execPath, ['--import', 'tsx',
+  const proof = await run(process.execPath, ['--import', 'tsx',
     fileURLToPath(new URL('./meterReplayProof.mts', import.meta.url)), wirePath, proofPath])
   assert.match(proof, /PASS captured browser wire seeds the real ledger/)
   await page.unroute('**/api/chat')

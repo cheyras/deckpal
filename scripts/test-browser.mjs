@@ -2,91 +2,63 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { chromium, webkit } from 'playwright'
-import { ROOT, WEB, run, buildWeb, isolatedEnv, serve, contextFor } from '../tests/browser/support.mjs'
-import { appResponses, announcement, checkUpcoming } from '../tests/browser/upcoming.mjs'
-import { adminFixture, checkAdmin, checkInsights } from '../tests/browser/admin.mjs'
-import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
-import { checkFeedback } from '../tests/browser/feedback.mjs'
-import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from '../tests/browser/chat.mjs'
-import { checkA11y } from '../tests/browser/a11y.mjs'
-import { writesFixture, checkWrites } from '../tests/browser/writes.mjs'
-import { checkAuthReturn } from '../tests/browser/authReturn.mjs'
-import { checkDeployAssets } from './check-deploy-assets.mjs'
+import { pathToFileURL } from 'node:url'
+import { chromium } from 'playwright'
+import { ROOT } from '../tests/browser/support.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
 fs.mkdirSync(out, { recursive: true })
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deckpal-browser-'))
 const results = [], assets = [], logs = []
 let browser
+
+// Every .mjs module may export browserSuites(context). Helper modules simply
+// omit that export. New suites register by adding their own file, so concurrent
+// PRs no longer have to edit this runner's suite list.
+async function discoverSuites(context) {
+  const dir = path.join(ROOT, 'tests/browser')
+  const files = fs.readdirSync(dir).filter(name => name.endsWith('.mjs')).sort()
+  const suites = []
+  for (const file of files) {
+    const module = await import(pathToFileURL(path.join(dir, file)).href)
+    if (!Object.hasOwn(module, 'browserSuites')) continue
+    assert.equal(typeof module.browserSuites, 'function', file + ': browserSuites must be a function')
+    const discovered = await module.browserSuites(context)
+    assert.ok(Array.isArray(discovered), file + ': browserSuites must return an array')
+    for (const suite of discovered) {
+      assert.ok(typeof suite?.name === 'string' && suite.name && typeof suite.run === 'function',
+        file + ': every suite needs a name and run function')
+      assert.ok(!suites.some(previous => previous.name === suite.name), 'Duplicate browser suite: ' + suite.name)
+      suites.push(suite)
+    }
+  }
+  assert.ok(suites.length, 'No browser suites discovered in tests/browser/*.mjs')
+  return suites
+}
+
+// Suites own their dist, fixture server and browser contexts. A failure does
+// not suppress the other independent suites' results or cleanup.
+async function pool(concurrency, suites) {
+  const errors = []
+  let next = 0
+  async function worker() {
+    while (next < suites.length) {
+      const suite = suites[next++]
+      try { await suite.run() } catch (error) { errors.push(suite.name + ':\n' + (error.stack ?? String(error))) }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, suites.length) }, worker))
+  if (errors.length) throw new Error(errors.join('\n\n'))
+}
+
 let failure
 try {
-  // This entry lives outside apps/web/src and has its own typecheck.
-  logs.push(run(process.execPath, [path.join(ROOT, 'node_modules/typescript/bin/tsc'),
-    '--noEmit', '-p', path.join(ROOT, 'tests/browser/tsconfig.json')]))
   browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
     ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) })
-  for (const [label, mount] of [['selfhost', '/deckpal'], ['cloud', '']]) {
-    const dist = path.join(scratch, label)
-    let scenario = 'active'
-    const admin = adminFixture(mount)
-    const writes = writesFixture(mount, admin)
-    let adminActive = false, writesActive = false
-    const server = await serve(dist, mount, (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html',
-      { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
-    try {
-      logs.push(buildWeb(dist, label === 'cloud', server.origin))
-      assets.push({ label, ...checkDeployAssets(dist) })
-      results.push(...await checkUpcoming(browser, server, mount, label, out))
-      for (scenario of ['expired', 'catalogued']) {
-        const { context, page } = await contextFor(browser, server, 390)
-        try {
-          await page.goto(server.origin + mount + '/series/' + announcement.seriesSlug, { waitUntil: 'networkidle' })
-          await page.getByRole('heading', { name: 'Browser Series', exact: true }).waitFor()
-          assert.equal(await page.getByRole('group', { name: announcement.name + ' — coming soon', exact: true }).count(), 0)
-          await page.getByText(scenario === 'catalogued' ? '3 sets' : '2 sets', { exact: true }).waitFor()
-          results.push({ case: 'upcoming-suppression', label, scenario, placeholderAbsent: true })
-        } finally { await context.close() }
-      }
-      adminActive = true
-      results.push(...await checkAdmin(browser, server, mount, label, out, admin))
-      results.push(...await checkInsights(browser, server, mount, label, out, admin))
-      results.push(...await checkFeedback(browser, server, mount, label, out, admin))
-      results.push(...await checkA11y(browser, server, mount, label, out))
-      results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
-      // Signed-in write paths are one code path in both builds; the cloud build
-      // (real auth headers, synthetic Supabase origin) is the one exercised.
-      if (label === 'cloud') {
-        writesActive = true
-        results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
-      }
-      assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
-    } finally { await server.close() }
-  }
-
-  // UXC-06 / SEC-05: own cloud-only build + fixture server, because this is
-  // the one check in the suite that needs a REAL `supabase.auth.signInWithPassword()`
-  // round trip (the redirect it verifies lives in code that only runs after
-  // that call resolves) rather than the localStorage sign-in shortcut every
-  // other check uses.
-  results.push(...await checkAuthReturn(browser, path.join(scratch, 'authreturn'), out))
-
-  const fixtureDist = path.join(scratch, 'chat')
-  logs.push(run(process.execPath, [path.join(WEB, 'node_modules/vite/bin/vite.js'), 'build',
-    '--config', path.join(ROOT, 'tests/browser/vite.config.mjs'), '--outDir', fixtureDist],
-    { env: isolatedEnv() }))
-  const server = await serve(fixtureDist, '', chatApi, 'fixture.html', { allowMutation: chatAllowMutation })
-  try {
-    results.push(...await checkChat(browser, server, out))
-    // The Deck-E states a reader has to act on, in both engines: WebKit is what
-    // an iPhone runs, and the character's clearance was photographed failing
-    // there too.
-    results.push(...await checkDeckeStates(browser, server, out, 'chromium'))
-    const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
-      ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
-    try { results.push(...await checkDeckeStates(safari, server, out, 'webkit')) } finally { await safari.close() }
-    assert.deepEqual(server.unexpected, [], 'Rendered chat fixture: unexpected network/error events')
-  } finally { await server.close() }
+  const suites = await discoverSuites({ browser, out, scratch, results, assets, logs })
+  // Four workers match a GitHub-hosted runner's four cores. Builds are CPU
+  // heavy, while the browser checks spend much of their time waiting on I/O.
+  await pool(4, suites)
 } catch (error) {
   failure = error
   logs.push(error.stack ?? String(error))
