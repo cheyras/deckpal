@@ -333,7 +333,9 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         const [output] = fixture.toolOutputs()
         assert.equal(output?.ok, false)
         assert.match(output?.reason ?? '', /not in this set/, 'the page\'s own "no" did not reach the model')
-        assert.ok(waited < 5000, 'a card the set does not have still waited out the 6 s cap (' + waited + ' ms)')
+        // No wall-clock bound here: under CI's software WebGL a single frame can
+        // take a quarter of a second. The reason IS the proof of the fast path —
+        // the 6 s cap answers "I could not find that part of it" instead.
         assert.equal(m.glides, 0, 'the page scrolled toward a card that does not exist')
         results.push({ case: 'decke-show-missing', engine, waitedMs: waited })
       } finally { await context.close() }
