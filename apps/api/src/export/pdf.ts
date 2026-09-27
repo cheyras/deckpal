@@ -193,9 +193,16 @@ function columnHead(doc: Doc, x: number, y: number, w: number, first: string): v
 function cardRow(doc: Doc, cell: { x: number; y: number; w: number }, name: string, number: string | null, owned: boolean,
   secondary?: string | null): void {
   checkbox(doc, cell.x, cell.y + 2, owned);
-  fitted(doc, number ?? '—', cell.x + 18, cell.y + 2, 31, 8.5, 'semibold', C.muted);
-  fitted(doc, name, cell.x + 57, cell.y + 1, cell.w - 57, 9, 'regular');
-  if (secondary) fitted(doc, secondary, cell.x + 57, cell.y + 13, cell.w - 57, 7.5, 'regular', C.muted);
+  const id = number?.trim() || '—';
+  const idFont = font(doc, 'semibold').fontSize(8.5);
+  const idWidth = idFont.widthOfString(id);
+  const numberWidth = Math.max(31, Math.min(cell.w - 77, idWidth));
+  const numberSize = Math.min(8.5, 8.5 * numberWidth / idWidth);
+  font(doc, 'semibold').fontSize(numberSize).fillColor(C.muted).text(id, cell.x + 18, cell.y + 2,
+    { lineBreak: false });
+  const nameOffset = Math.max(57, 18 + numberWidth + 6);
+  fitted(doc, name, cell.x + nameOffset, cell.y + 1, cell.w - nameOffset, 9, 'regular');
+  if (secondary) fitted(doc, secondary, cell.x + nameOffset, cell.y + 13, cell.w - nameOffset, 7.5, 'regular', C.muted);
 }
 
 export interface DeckLine { quantity: number; name: string; setCode: string | null; number: string | null; owned: number; }
@@ -230,8 +237,8 @@ export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): vo
     let band = '';
     for (let i = 0; i < d.cards.length; i++) {
       const card = d.cards[i]!;
-      const next = i < d.printedCount ? 'Printed cards' : 'Secret cards';
-      if (next !== band) { flow.section(next); band = next; }
+      const next = d.printedCount > 0 ? i < d.printedCount ? 'Printed cards' : 'Secret cards' : '';
+      if (next && next !== band) { flow.section(next); band = next; }
       cardRow(doc, flow.row(17), card.name ?? '—', card.number, card.owned);
     }
   }

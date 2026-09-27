@@ -158,3 +158,27 @@ test('long continuation labels fit beside the logo on later pages', async () => 
     await task.destroy();
   }
 });
+
+test('prefixed collector numbers retain every digit in set and list rows', async () => {
+  for (const render of [
+    (s: Writable) => renderSetChecklistPdf(s, { ...set, cards: [
+      { ...set.cards[0]!, number: 'SWSH100' }, { ...set.cards[1]!, number: 'SWSH145' },
+    ], printedCount: 2, total: 2, progress: { owned: 0, total: 2, pct: 0 } }),
+    (s: Writable) => renderListPdf(s, { ...list, items: [
+      { ...list.items[0]!, number: 'SWSH100' }, { ...list.items[0]!, number: 'SWSH145' },
+    ], itemCount: 2 }),
+  ]) {
+    const { pages } = await inspect(await renderToBuffer(render));
+    assert.ok(pages[0]!.includes('SWSH100'));
+    assert.ok(pages[0]!.includes('SWSH145'));
+  }
+});
+
+test('promo checklists without a printed denominator do not label every card secret', async () => {
+  const { pages } = await inspect(await renderToBuffer((s) => renderSetChecklistPdf(s, {
+    ...set, setName: 'McDonald’s Collection', printedCount: 0,
+  })));
+  assert.ok(pages[0]!.includes('Nidoran'));
+  assert.ok(!pages[0]!.includes('SECRET CARDS'));
+  assert.ok(!pages[0]!.includes('PRINTED CARDS'));
+});
