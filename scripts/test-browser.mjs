@@ -9,6 +9,8 @@ import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from '../tests/browser/chat.mjs'
+import { writesFixture, checkWrites } from '../tests/browser/writes.mjs'
+import { checkAuthReturn } from '../tests/browser/authReturn.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
@@ -27,8 +29,10 @@ try {
     const dist = path.join(scratch, label)
     let scenario = 'active'
     const admin = adminFixture(mount)
-    let adminActive = false
-    const server = await serve(dist, mount, (rel, url, req) => adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html', { allowMutation: admin.allowMutation })
+    const writes = writesFixture(mount, admin)
+    let adminActive = false, writesActive = false
+    const server = await serve(dist, mount, (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html',
+      { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
     try {
       logs.push(buildWeb(dist, label === 'cloud', server.origin))
       assets.push({ label, ...checkDeployAssets(dist) })
@@ -47,9 +51,22 @@ try {
       results.push(...await checkAdmin(browser, server, mount, label, out, admin))
       results.push(...await checkFeedback(browser, server, mount, label, out, admin))
       results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+      // Signed-in write paths are one code path in both builds; the cloud build
+      // (real auth headers, synthetic Supabase origin) is the one exercised.
+      if (label === 'cloud') {
+        writesActive = true
+        results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
+      }
       assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
     } finally { await server.close() }
   }
+
+  // UXC-06 / SEC-05: own cloud-only build + fixture server, because this is
+  // the one check in the suite that needs a REAL `supabase.auth.signInWithPassword()`
+  // round trip (the redirect it verifies lives in code that only runs after
+  // that call resolves) rather than the localStorage sign-in shortcut every
+  // other check uses.
+  results.push(...await checkAuthReturn(browser, path.join(scratch, 'authreturn'), out))
 
   const fixtureDist = path.join(scratch, 'chat')
   logs.push(run(process.execPath, [path.join(WEB, 'node_modules/vite/bin/vite.js'), 'build',
@@ -76,7 +93,9 @@ try {
   fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({
     status: failure ? 'failed' : 'passed', results, assets, fixedTime: '2026-09-12T18:00:00Z',
     network: 'loopback-only; unexpected requests fail', fixtureScope:
-      'Real built SPA and production presentation/mapping helpers; local JSON fixtures, not database or live authentication.',
+      'Real built SPA and production presentation/mapping helpers; local JSON fixtures, not a real database. ' +
+      'One check (auth-return) drives a real supabase-js sign-in against a fake, in-process Auth REST responder ' +
+      '— still no real account and no network egress; every other check uses a localStorage session shortcut.',
     ...(failure ? { error: failure.message } : {}),
   }, null, 2) + '\n')
   fs.writeFileSync(path.join(out, 'browser-build.log'), logs.join('\n'))

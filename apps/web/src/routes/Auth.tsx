@@ -17,7 +17,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
-import { isSafeNextPath } from '../lib/landingRoute'
+import { safeNextPath } from '../lib/landingRoute'
 import {
   PASSWORD_MIN_LENGTH,
   emailProblem,
@@ -37,14 +37,32 @@ function appUrl(path: string): string {
   return `${window.location.origin}${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
 }
 
+// UXC-06: a bare "Sign in" or "Create your account" tells nobody why they
+// landed here. When `next` points somewhere this app can name, the heading
+// says so instead — the same courtesy /authorize already pays for OAuth.
+// Anything not in this short list (a card page, a set, a deep list) falls
+// back to the generic copy; guessing a label for an arbitrary path is worse
+// than not trying.
+function destinationLabel(next: string | null): string | null {
+  if (!next) return null
+  const path = next.split(/[?#]/)[0]
+  if (path === '/lists' || path.startsWith('/lists/')) return 'your lists'
+  if (path === '/decks' || path.startsWith('/decks/')) return 'your decks'
+  if (path === '/insights') return 'your insights'
+  if (path === '/profile' || path.startsWith('/u/')) return 'your profile'
+  return null
+}
+
 export function Auth() {
   const navigate = useNavigate()
   const search = useSearch({ strict: false }) as { mode?: 'signup' | 'forgot'; next?: string }
   const mode: Mode = search.mode === 'signup' ? 'signup' : search.mode === 'forgot' ? 'forgot' : 'signin'
-  // Where sign-in lands. Only ever a same-origin relative path — validated
-  // again here (not just trusted from the route's own validateSearch) because
-  // this is the value about to drive a real navigation.
-  const next = isSafeNextPath(search.next) ? search.next : null
+  // Where sign-in (and sign-up confirmation, and password reset) lands.
+  // Only ever a same-origin, path-only string — validated again here (not
+  // just trusted from the route's own validateSearch) because this is the
+  // value about to drive a real navigation. SEC-05: `safeNextPath` is the
+  // one place that check happens; nothing here re-implements it.
+  const next = safeNextPath(search.next)
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -62,10 +80,13 @@ export function Auth() {
     setDone(null)
   }, [mode])
 
-  function goTo(next: Mode) {
+  // Renamed param (not `next`) on purpose — this `next` would shadow the
+  // outer redirect target, which is exactly the kind of mix-up that made
+  // toggling sign in ⇄ sign up drop it in the first place (UXC-06).
+  function goTo(toMode: Mode) {
     navigate({
       to: '/auth',
-      search: next === 'signin' ? {} : { mode: next },
+      search: { ...(toMode === 'signin' ? {} : { mode: toMode }), ...(next ? { next } : {}) },
       replace: true,
     })
   }
@@ -94,7 +115,19 @@ export function Auth() {
         if (next) window.location.assign(next)
         else navigate({ to: '/series' })
       } else if (mode === 'signup') {
-        const { error } = await signUpBounded(address, password)
+        // UXC-06: confirming the email is itself a sign-in (GoTrue mints a
+        // session and redirects here with it in the URL), so it needs the
+        // same destination sign-in does. `emailRedirectTo` is a per-call
+        // parameter, not a Supabase project setting (AGENTS.md B9) — the
+        // project's redirect allow-list is the wildcard
+        // `https://deckpal.app/**` (DECISIONS 2026-08-10), which already
+        // covers this query string with no infra change. Landing straight on
+        // `next` (rather than bouncing through `/auth` again) means a dead
+        // or already-used link degrades to AuthGuard's own `next`-preserving
+        // redirect back to sign-in — never a silent drop of the destination.
+        const { error } = await signUpBounded(address, password, {
+          emailRedirectTo: appUrl(next ?? '/series'),
+        })
         if (error) throw error
         // With email confirmation on, Supabase deliberately returns the same
         // shape whether or not the address is already taken (account-existence
@@ -103,7 +136,10 @@ export function Auth() {
         setDone('signup')
       } else {
         const { error } = await resetPasswordForEmailBounded(address, {
-          redirectTo: appUrl('auth/reset'),
+          // `next` rides along as `/auth/reset`'s own `next` search param —
+          // same allow-list coverage as above — so "set a new password"
+          // can hand it to the same destination once the password is saved.
+          redirectTo: appUrl(next ? `auth/reset?next=${encodeURIComponent(next)}` : 'auth/reset'),
         })
         if (error) throw error
         setDone('forgot')
@@ -199,10 +235,11 @@ export function Auth() {
   }
 
   const isSignup = mode === 'signup'
+  const destination = destinationLabel(next)
   return (
     <AuthPage>
       <AuthCard
-        title={isSignup ? 'Create your account' : 'Welcome back'}
+        title={isSignup ? 'Create your account' : destination ? `Sign in to see ${destination}` : 'Welcome back'}
         subtitle={
           isSignup
             ? 'Free, open source, and your collection stays private.'

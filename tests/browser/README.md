@@ -16,7 +16,21 @@ requests outside the mount, unknown API paths and missing static assets. Cloud's
 synthetic Supabase URL is the same loopback server, including image fixtures.
 The installed Stripe loader's exact SDK URL is fulfilled locally with an inert
 stub; no third-party request reaches the network. Every other external request
-fails. This suite does not test Stripe, authentication, real storage or Postgres.
+fails. This suite does not test Stripe, real storage or Postgres.
+
+## Auth return path (UXC-06 / SEC-05)
+
+`tests/browser/authReturn.mjs` is the one check that signs in for real rather
+than planting a session in `localStorage` (`admin.mjs`'s `signIn()`, used by
+every other check here): the redirect it verifies — landing back on the page
+that required sign-in, instead of always on `/series` — lives in code that
+only runs after a genuine `supabase.auth.signInWithPassword()` call resolves.
+Its own fixture server answers `POST /auth/v1/token?grant_type=password` with
+a fake session, built from the installed `@supabase/auth-js` package's actual
+response contract rather than assumed. No real account and no network egress:
+`VITE_SUPABASE_URL` points at this same loopback server. It drives the rail's
+locked "My Lists" row from signed out, at desktop and 390px, and asserts the
+row opens the Sign In tab (not Sign Up) and lands on `/lists` after signing in.
 
 Catalog responses are local fixtures assembled with the production announcement
 selection, mapping and ordering helpers. Active, expired and normalized-name
@@ -92,3 +106,16 @@ Core tests cover controlled paging and semantic/state behavior; browser checks
 exercise built SPA interaction. Neither local fixture lane proves live database
 filtering, production authorization, Stripe processing or deployment. This UI
 change adds no API, schema or production test target.
+
+## Collection, list and deck writes
+
+`tests/browser/writes.mjs` signs in to the cloud build at 1280 and 390px and
+drives the set grid's counters, a list and a deck against a fictional set whose
+write endpoints can be slowed, reordered (each later request answers faster),
+failed with a 500, or cut off with Playwright's offline mode. It asserts the
+visible count, the announced message and what the fixture server ended up
+holding: taps made during a save are kept and coalesced, answers never overlap
+or apply out of order, the set is not re-downloaded per tap, a failure rolls
+back with a Retry that works, a form failure stays inline with the typed input
+intact, and the counters stay disabled offline while a deck edit explains that
+it is offline. Failure-state screenshots are written for both widths.
