@@ -34,18 +34,58 @@ end a session or bounce a signed-in user to `/auth`. A build gate
 (`apps/web/scripts/check-auth-deadlines.mjs`) keeps that single choke point
 single.
 
+**Post-auth redirect (`/auth?next=`, `/auth/reset?next=`).** Every gated entry
+point (a locked nav row, an expired session, a deep link that required
+sign-in) hands `/auth` a `next` value naming where to return once signed in.
+`apps/web/src/lib/landingRoute.ts`'s `safeNextPath` is the one function that
+judges a `next` value safe: it parses with `new URL(value, location.origin)`
+and compares origins — the same algorithm the eventual navigation runs, so
+the check and the navigation cannot disagree — after rejecting every control
+and whitespace character and `\` up front (2026-09-26 fixed a bypass where a
+tab character, `/\t/evil.example`, survived a hand-written prefix-check
+blocklist, since the WHATWG URL parser's own tab-stripping turns it into a
+cross-origin redirect after a real sign-in). It returns the parsed
+`pathname + search + hash`, never the raw string, so nothing downstream can
+diverge from what was validated.
+
 **Authorization:** Row-Level Security (RLS) policies on every table. Catalog
 data is world-readable. Per-user data (collection, decks, lists, battle logs)
 is restricted to the owning user via `user_id = (SELECT auth.uid())`.
 
-**Service role key:** The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is used
-only server-side (sync jobs, catalog writes, storage uploads). It is set as a
-Vercel environment variable and is never exposed to the client.
+Supabase serves the `public` schema over PostgREST to anyone holding the anon
+key, so RLS is only the answer if nothing routes around it. Three shapes did,
+until migration 072 (security audit, 2026-09-26; DECISIONS.md):
+
+- **Views run as their caller.** A view without `security_invoker = true` runs
+  as its owner and skips RLS; one such view exposed every user's collection to
+  the anon key from migration 020 until 072. Every view is now an invoker view,
+  and `packages/db/src/__tests__/migrationLint.test.ts` refuses a new view
+  created any other way.
+- **Own-row policies do not restrict columns.** `user_profile` is writable by
+  its owner only in the avatar columns the API writes, and an avatar object key
+  can belong to one profile at a time, so nobody can point their profile at
+  another user's photo and have the API delete it. A revoked `api_token` cannot
+  be un-revoked, and its identity columns never change (a trigger, for every
+  writer); client roles cannot delete token rows, so a revoked row cannot be
+  deleted and its hash minted again.
+- **Foreign-key checks ignore RLS.** A deck's cards, versions and battle logs,
+  and a binder's placements, reference their parent by `(id, user_id)`, so a
+  row can only hang off a parent its own owner owns.
+
+The database integration suite (`apps/api/src/__integration__/reach.mjs`)
+applies every migration with Supabase's default grants and asserts that the
+anon role and a second signed-in user reach none of a user's rows in any table
+or view in `public`.
+
+**Server secret key:** `SUPABASE_SERVICE_ROLE_KEY` holds a Supabase `sb_secret_…`
+key after rotation. It bypasses RLS and is used only server-side for Storage
+and manifest access. Server requests send it on `apikey`, never as a Bearer
+token. The old service-role JWT remains supported only during migration.
 
 **Key handling rules:**
-- The anon key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`) is safe to expose -- it is
-  rate-limited and subject to RLS.
-- The service role key must never appear in client-side code, browser
+- The publishable key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, also
+  `VITE_SUPABASE_ANON_KEY`) is safe to expose; RLS still governs data access.
+- The server secret key must never appear in client-side code, browser
   `localStorage`, or git history.
 - Vercel environment variables marked as server-side are not bundled into the
   SPA.
@@ -82,6 +122,18 @@ existing daily counters for ordinary accounts. An explicit unlimited override
 still requires current access and holds/budgets. Exact accepted-request replays are rejected rather
 than granting free repeated work. The public health response reports
 `administration` and `deckeEntitlement` readiness/status without account IDs.
+
+**The conversation the browser sends is bounded before anything pays for it**
+(SEC-04, 2026-09-26). The charge is flat per request while every step re-bills
+the whole context, so `/api/chat` reads at most 256 KB, streamed, and validates
+the history with zod before any ledger, credit accounting or model call: at
+most 200 messages, `user`/`assistant` roles only, text and `tool-<name>` parts
+only (no `file` part the provider would fetch, no `reasoning`/`source-*`, no
+`system` message written by the browser), and no part over 60,000 characters.
+Past a size limit the answer is 413; a wrong shape is 400. The model sees the
+current turn whole plus the newest history that fits 24 messages and 64,000
+characters; ledgers derived from history still read all of it. `route` and each
+landmark string are clipped to 200 characters (`apps/api/src/decke/wireBounds.ts`).
 
 
 Deck-E holds **no credential of his own**. He carries the caller's own
@@ -139,13 +191,20 @@ could already have made the same write from the collection UI.
 One write reaches Deck-E outside the approval gate, deliberately: the
 `write_strategy_guide` deep tool (below) is allowed to call `deck_strategy`,
 which is dumb, idempotent storage — "replace the whole guide" — not a general
-write capability.
+write capability. It is bound in code, not in the sub-agent's prompt, to the
+deck the reader approved (`bindGuideWrite` in `deep.ts`, SEC-13): a write that
+resolves to any other deck is refused, and one write is all an approval buys.
+The sub-agent's context carries stranger-written text (`findings` from the web,
+battle-log opponent names), which is why prompt prose was not a control.
 
 **What he may point at, and the narrower set he may press.** Everything the
 model can address is allowlisted: `uiTools.resolveTarget` resolves a selector
 only if it lands inside a `[data-decke-landmark]`, navigation only within
 `ROUTE_ALLOWLIST` — from which `/profile` is deliberately absent, in the
 server's copy and the browser's mirror of it alike, because it mints API tokens.
+Both copies accept a path only if URL resolution leaves it unchanged and refuse
+encoded dots and separators, so a dot segment cannot walk an allowed prefix to
+`/profile`, `/admin` or `/devtools` (SEC-12).
 The `journey` tool takes landmark references rather than free CSS,
 validated at parse time so a bad plan is refused whole before its first step. A
 free selector would be a capability; the allowlist is what bounds it.
@@ -253,6 +312,34 @@ domain-allowlist control available on this Gateway for other research tools —
 `include_domains` — is not available for `o3-deep-research`, since it searches
 provider-side; the compensating controls here are structural rather than that
 allowlist.)
+
+**Jev is a new data processor, and its retention is unconfirmed** (2026-09-26).
+With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
+AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
+(`apps/api/src/decke/reflex.ts`). What it receives: the reader's latest message
+(clipped to 2,000 characters), Deck-E's previous reply (last 800) and the page
+path — and, for the after-turn audit (`audit.ts`), the reply he just gave (last
+2,000). No separate collection or account records, or photos, are attached, but
+those text fields and the path are not redacted: a reader can include ownership
+counts, card IDs or account details in their message, Deck-E can repeat them,
+and a deck or list path can contain an ID. Every request
+sets `zeroDataRetention: true` and pins the provider with `only: ["typesafe-ai"]`.
+That pin matters: measured on 2026-09-26, the Gateway otherwise routes Jev to a
+second host (DigitalOcean) first, and with the flag it skips that host as
+ZDR-ineligible. **Whether TypeSafe itself retains what it is sent is not
+confirmed**: the Gateway's model list reports `zdr: "none"` for Jev, Vercel's
+guide says ZDR is available per request, and TypeSafe's own documentation offers
+ZDR to enterprise customers only. Jev never approves anything and is not a
+control: its vendor documents that text in its state can move its answers, so
+its judgments only ever raise a consent card, hide a tool the reader cannot use,
+add a refusal, or run one corrective step that can itself only raise a consent
+card. A claimed list, deck or battle-log deletion gets an admission rather than
+forcing an edit tool that cannot delete. Each failure is today's behaviour. Off
+by default; `GET /health` reports `deckeJev`.
+For corrective list, deck and battle-log calls, `dry_run: false` is inserted
+into the parsed, signed tool input before the approval card is issued. The
+write still executes only after that signed approval is replayed; ordinary
+calls keep their preview default.
 
 **Server-side request forgery — where the server is allowed to fetch from.**
 Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
@@ -472,12 +559,11 @@ base-path router (`createApp` in `apps/api/src/index.ts`) immediately after
 `preAuthFloodGuard` — ahead of `authMiddleware`, the per-user rate limits and
 the RLS connection acquisition, since none of them are needed to bound a
 body's size — so a flood is throttled, and an oversized body rejected, before
-either a byte is read or a pooled connection is claimed. (This is also
-deliberately the same insertion point a future route with no identity
-requirement of its own would reach for: a second addition there should
-produce a merge conflict to resolve consciously, not a silent, no-conflict
-merge that leaves that route with no body parser at all.) Every character-count
-cap this repo already had (`MAX_TEXT`, `STRATEGY_MAX`, `RAW_LOG_MAX`, …) is a
+either a byte is read or a pooled connection is claimed. The identity-free
+`/client-errors` handler also sits here, after its own parser and the default
+parser, so its crash report is available as `req.body` before any database
+work. Every character-count cap this repo already had (`MAX_TEXT`,
+`STRATEGY_MAX`, `RAW_LOG_MAX`, …) is a
 JS string length — UTF-16 **code units**, not the UTF-8 **bytes** a limit
 here actually measures — and `/decke`, `/lists` and `/decks` are reachable
 over the plain REST API (a personal access token, an MCP client, a script),
@@ -497,6 +583,7 @@ worst case.
 | Route | Limit | Why |
 |---|---|---|
 | `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields (×6 for escaped multibyte text is still negligible against the image). |
+| `/client-errors` | 32 KB | The crash beacon sends route, message, stack and build id. Even if all four fields reach their logged lengths and each character is ASCII-escaped, the JSON stays under 32 KB. This limit runs before the unauthenticated logging handler and its 20/minute/IP limiter. |
 | `/dev/scan-queue` | 4200 KB | The labeler queue photo. `MAX_PHOTO_BYTES` (3 MB decoded) divides evenly by 3, so its base64 form is EXACTLY 4 MB on the wire — leaving no room for the `{"jpg":…,"name":…,"source":…}` wrapper around it. A bare 4 MB parser 413'd a real max-size upload (caught in review); 4200 KB leaves ~104 KB of headroom. Base64 is pure ASCII with no characters JSON needs to escape further, so neither multibyte ratio above applies. Owner-only in production. |
 | `/dev/scan-flags` | 4200 KB | The scan-harness flag capture: `pngBytes + metaJson` combined, decoded, capped at 3 MB — same exact-boundary arithmetic as `/dev/scan-queue` above when nearly the whole budget is the base64 PNG. Owner-only in production. |
 | `/decke` | 2 MB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars. At the ×6 worst case that's ~1 MB before JSON structure; 2 MB leaves real headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
@@ -521,8 +608,10 @@ strategy guide and battle log against `/decks`, and a full-length Japanese
 transcript turn against `/decke`) in BOTH raw-UTF-8 and ASCII-escaped
 serialization, a real base64-encoded max-size photo
 (`Buffer.alloc(3*1024*1024).toString('base64')`, not an ASCII approximation)
-against `/dev/scan-queue` and `/dev/scan-flags`, and a regression control
-that reproduces the shadowing bug on purpose by reversing the mount order —
+against `/dev/scan-queue` and `/dev/scan-flags`, a normal `/client-errors`
+beacon whose fields appear in the log and an oversized one rejected before
+logging, and a regression control that reproduces the shadowing bug on
+purpose by reversing the mount order —
 proving the ordering above is load-bearing, not cosmetic.
 `apps/api/src/__tests__/rateLimit.test.ts` separately asserts the exact mount
 order in `index.ts`'s own source, including that the whole block now
@@ -643,6 +732,12 @@ brand, last four digits, expiry month and year — and nothing else.
 That is what keeps this deployment within PCI SAQ-A. It is a property of the
 code rather than a promise: self-hosting Stripe.js would break the iframe origin
 and is therefore forbidden, not merely discouraged.
+
+Stripe.js is fetched only when a payment surface calls `loadStripe`:
+`lib/billing.ts` imports `@stripe/stripe-js/pure`. Until 2026-09-26 it imported
+the package's main entry, which injects the script as a side effect of being
+imported, so every page load, signed out or not, fetched Stripe.js and opened
+Stripe's `m.stripe.network` fraud-signals frame (PERF-01).
 
 ### The webhook's signature is its only authentication, and there is no fallback
 

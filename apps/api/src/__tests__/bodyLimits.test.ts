@@ -21,6 +21,7 @@ import http from 'node:http';
 import express from 'express';
 import { errorMiddleware } from '../http.js';
 import { mountOAuthServer } from '../oauthServer.js';
+import { clientErrorsRouter } from '../routes/clientErrors.js';
 
 /** A body of roughly `bytes` bytes of valid JSON: {"text":"aaaa...a"}. */
 function jsonBodyOfSize(bytes: number): string {
@@ -79,12 +80,14 @@ function postJson(origin: string, path: string, body: string): Promise<Response>
 function buildBodyLimitFixture(): express.Express {
   const app = express();
   app.use('/bugs', express.json({ limit: '12mb' }));
+  app.use('/client-errors', express.json({ limit: '32kb' }));
   app.use('/dev/scan-queue', express.json({ limit: '4200kb' }));
   app.use('/dev/scan-flags', express.json({ limit: '4200kb' }));
   app.use('/decke', express.json({ limit: '2mb' }));
   app.use('/lists', express.json({ limit: '2mb' }));
   app.use('/decks', express.json({ limit: '512kb' }));
   app.use(express.json({ limit: '100kb' }));
+  app.use('/client-errors', clientErrorsRouter);
   const echo: express.RequestHandler = (req, res) => {
     const body = req.body as { text?: string; strategyMd?: string; rawLog?: string; jpg?: string; png?: string };
     res.status(200).json({ received: (body.text ?? body.strategyMd ?? body.rawLog ?? body.jpg ?? body.png)?.length ?? 0 });
@@ -97,6 +100,31 @@ function buildBodyLimitFixture(): express.Express {
 }
 
 describe('per-route body-size limits (SEC-08)', () => {
+  it('/client-errors logs a normal beacon and rejects a body over 32kb before its handler', async () => {
+    const app = buildBodyLimitFixture();
+    await withServer(app, async (origin) => {
+      const originalError = console.error;
+      const lines: string[] = [];
+      console.error = (...args: unknown[]) => { lines.push(args.join(' ')); };
+      try {
+        const beacon = { route: '/decks/abc', message: 'Render failed', stack: 'Error: boom\n at CardGrid', buildId: 'deadbeef' };
+        const ok = await postJson(origin, '/client-errors', JSON.stringify(beacon));
+        assert.equal(ok.status, 204);
+        assert.equal(lines.length, 1);
+        const logged = JSON.parse(lines[0]!.replace(/^\[client-error\] /, ''));
+        assert.match(logged.ts, /^\d{4}-\d{2}-\d{2}T/);
+        assert.deepEqual({ ...logged, ts: undefined }, { ...beacon, ts: undefined });
+
+        const tooBig = await postJson(origin, '/client-errors', JSON.stringify({ ...beacon, stack: 'x'.repeat(33_000) }));
+        assert.equal(tooBig.status, 413);
+        assert.equal((await tooBig.json()).error.code, 'payload_too_large');
+        assert.equal(lines.length, 1, 'the oversized beacon never reaches the logging handler');
+      } finally {
+        console.error = originalError;
+      }
+    });
+  });
+
   it('the default (100kb) accepts a small body and rejects one just over it — as a proper 413, not a 500', async () => {
     const app = buildBodyLimitFixture();
     await withServer(app, async (origin) => {

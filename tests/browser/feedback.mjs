@@ -114,13 +114,26 @@ export async function checkFeedback(browser, server, mount, label, out, fixture)
       await page.getByLabel('User provider-cost markup (%)',{exact:true}).fill('0')
       await page.getByLabel('Unlimited AI credits',{exact:true}).check()
       await page.getByLabel('Override reason',{exact:true}).fill('Owner reviewed current revision')
+      // Both saves below read `state.override` (the fixture's server-side record)
+      // immediately after the click. A successful save fires PUT then, on
+      // success, an invalidated-query GET refetch -- two real HTTP round trips
+      // through the fixture's http.createServer. The old code "waited" on a
+      // checkbox that is always present on this form (Inherit global markup is
+      // one) and on text that already matched the pre-save value, so both waits
+      // resolved before the round trips landed and the read below raced the
+      // mutation (#216: under scheduler pressure the browser's fetch can lag
+      // behind this Node-side read). Wait on the actual GET the save triggers,
+      // which only resolves once the fixture has applied the PUT.
+      let refetched=page.waitForResponse(r=>r.url().includes('/admin/users/'+USER+'/ai-override')&&r.request().method()==='GET')
       await page.getByRole('button',{name:'Save user AI override',exact:true}).click()
+      await refetched
       await page.getByText('Current effective markup: 0%.',{exact:false}).waitFor()
       assert.equal(state.override.markupBps,0);assert.equal(state.override.unlimited,true)
       await inherit.check()
       await page.getByLabel('Override reason',{exact:true}).fill('Return to global markup')
+      refetched=page.waitForResponse(r=>r.url().includes('/admin/users/'+USER+'/ai-override')&&r.request().method()==='GET')
       await page.getByRole('button',{name:'Save user AI override',exact:true}).click()
-      await page.waitForFunction(()=>document.querySelector('input[type="checkbox"]')!==null)
+      await refetched
       await page.getByText('user override revision '+state.override.revision+'.',{exact:false}).waitFor()
       assert.equal(state.override.markupBps,null)
       await screenshot(page,'owner-override',width)

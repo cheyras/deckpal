@@ -825,6 +825,7 @@ describe('production ingress and session limits over real HTTP', () => {
     // comment for why order is load-bearing here).
     const bodyLimitOrder = [
       "'/bugs',express.json({limit:'12mb'})",
+      "'/client-errors',express.json({limit:'32kb'})",
       "'/dev/scan-queue',express.json({limit:'4200kb'})",
       "'/dev/scan-flags',express.json({limit:'4200kb'})",
       "'/decke',express.json({limit:'2mb'})",
@@ -846,6 +847,9 @@ describe('production ingress and session limits over real HTTP', () => {
     assert.ok(ingress < positions[0]!, 'body-size limits sit right after the pre-auth flood guard');
     assert.ok(positions[positions.length - 1]! < auth, 'the blanket default still precedes authMiddleware');
     assert.ok(positions[positions.length - 1]! < database, 'the blanket default still precedes RLS');
+    const clientErrors = once("'/client-errors',clientErrorRateLimit,clientErrorsRouter");
+    assert.ok(positions[1]! < clientErrors && positions[positions.length - 1]! < clientErrors && clientErrors < auth,
+      'client-errors has its 32kb parser and limiter before its identity-free handler');
 
     // Regression guard: the blanket 12mb parser this PR removed must not
     // silently come back and shadow every per-route limit mounted after it.
