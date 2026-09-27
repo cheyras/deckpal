@@ -2869,6 +2869,15 @@ export class DeckE {
       // from a browser that is not calling us often — on a phone those look
       // identical from the outside and have completely different fixes.
       const t0 = performance.now()
+      // BEFORE his station is solved, so what they move this frame is where he
+      // stands this frame. See `onBeforeFrame`.
+      for (const fn of this.beforeFrameListeners) {
+        try {
+          fn()
+        } catch {
+          /* a caller's bug must not stop him drawing */
+        }
+      }
       this.elapsed += dt
       this.update(dt)
       if (draw) this.stage.renderer.render(this.stage.scene, this.stage.camera)
@@ -2922,6 +2931,8 @@ export class DeckE {
 
   /** See `onFrame`. */
   private readonly frameListeners = new Set<() => void>()
+  /** See `onBeforeFrame`. */
+  private readonly beforeFrameListeners = new Set<() => void>()
 
   /** The clip `clipBelow` asked for, as a CSS value; '' for none. */
   private clipWanted = ''
@@ -2978,6 +2989,24 @@ export class DeckE {
     this.frameListeners.add(fn)
     return () => {
       this.frameListeners.delete(fn)
+    }
+  }
+
+  /**
+   * Run `fn` at the START of every frame, before his station is solved.
+   * Returns the unsubscribe.
+   *
+   * For DOM he stands on that moves when nothing he listens to fires. The phone
+   * chat's park box rides down with his latest reply as the transcript scrolls,
+   * and an element's scroll events are not one per frame everywhere: Linux
+   * WebKit delivered three for a 70-frame scripted scroll, so the box stayed
+   * put and he stood over a card widget. Placing the box here, on his own
+   * frame, keeps him on it whatever the scroll events do.
+   */
+  onBeforeFrame(fn: () => void): () => void {
+    this.beforeFrameListeners.add(fn)
+    return () => {
+      this.beforeFrameListeners.delete(fn)
     }
   }
 

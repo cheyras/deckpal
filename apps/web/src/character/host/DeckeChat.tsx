@@ -2036,8 +2036,12 @@ export function DeckeChat({
     const ro = new ResizeObserver(() => placePark())
     if (content) ro.observe(content)
     placePark()
+    // And on his every frame, before he is placed: a scrolled element's scroll
+    // events are not one per frame in every engine (see `DeckE.onBeforeFrame`).
+    const offFrame = decke.onBeforeFrame(placePark)
     return () => {
       ro.disconnect()
+      offFrame()
       decke.clipBelow(null)
     }
   }, [visible, shownMinimised, desktop, decke, placePark, viewing])
