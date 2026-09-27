@@ -1,21 +1,25 @@
 import assert from 'node:assert/strict'
 
-// The 2026-09-26 CI run measured these groups on hosted runners. Admin was
-// split after its measured cloud journey reached 231s; its two new weights
-// divide that work until they have their own CI timings.
+// The 2026-09-26 CI run measured these groups on hosted runners. Admin's
+// table and access weights divide its measured 168s cloud / 91s self-host
+// controls run until the smaller groups have their own CI timings.
 // Longest-first packing stays stable even if discovery order changes.
 export const durations = {
   'typecheck': 2,
   'selfhost-catalog': 33,
-  'selfhost-admin-journey': 50,
-  'selfhost-admin-controls': 70,
+  'selfhost-admin-journey': 55,
+  'selfhost-admin-tables-1280': 35,
+  'selfhost-admin-tables-390': 35,
+  'selfhost-admin-access': 30,
   'selfhost-feedback-primary-1280': 77,
   'selfhost-feedback-primary-390': 72,
   'selfhost-feedback-primary-428': 70,
   'selfhost-feedback-lifecycle': 67,
   'cloud-catalog': 27,
-  'cloud-admin-journey': 90,
-  'cloud-admin-controls': 141,
+  'cloud-admin-journey': 60,
+  'cloud-admin-tables-1280': 55,
+  'cloud-admin-tables-390': 55,
+  'cloud-admin-access': 58,
   'cloud-feedback-primary-1280': 107,
   'cloud-feedback-primary-390': 87,
   'cloud-feedback-primary-428': 146,
@@ -28,12 +32,18 @@ export const durations = {
 
 export function shardSuites(suites, count) {
   assert.ok(Number.isInteger(count) && count > 0, 'Shard count must be a positive integer')
-  const shards = Array.from({ length: count }, () => ({ weight: 0, suites: [] }))
+  const shards = Array.from({ length: count }, () => ({ weight: 0, suites: [], exclusive: false }))
+  // This long visual case made a concurrent catalog screenshot fail once.
+  // Reserve a runner for it while every other group remains duration-packed.
+  const exclusive = new Set(['cloud-feedback-primary-428'])
   for (const suite of [...suites].sort((a, b) =>
     (durations[b.name] ?? 60) - (durations[a.name] ?? 60) || a.name.localeCompare(b.name))) {
-    const target = shards.reduce((best, shard) => shard.weight < best.weight ? shard : best, shards[0])
+    const available = shards.filter(shard => exclusive.has(suite.name) ? !shard.suites.length : !shard.exclusive)
+    assert.ok(available.length, 'No runner available for suite ' + suite.name)
+    const target = available.reduce((best, shard) => shard.weight < best.weight ? shard : best, available[0])
     target.suites.push(suite)
     target.weight += durations[suite.name] ?? 60
+    target.exclusive = exclusive.has(suite.name)
   }
   return shards.map(shard => shard.suites.sort((a, b) => a.name.localeCompare(b.name)))
 }

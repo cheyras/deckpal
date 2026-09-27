@@ -141,7 +141,7 @@ export async function signIn(context, id = OWNER) {
 }
 export async function checkAdmin(browser, server, mount, label, out, fixture, part = 'all') {
   const results = [], {state} = fixture
-  for (const width of part === 'controls' ? [] : [1280,390]) {
+  for (const width of part === 'all' || part === 'journey' ? [1280,390] : []) {
     state.actor='owner';state.permissions=[...PERMISSIONS]
     const {context,page}=await contextFor(browser,server,width);await signIn(context)
     try {
@@ -250,10 +250,14 @@ export async function checkAdmin(browser, server, mount, label, out, fixture, pa
     }catch(error){await page.screenshot({path:path.join(out,label+'-admin-failure.png'),fullPage:true});error.message+='\nPage: '+(await page.locator('body').innerText()).slice(0,1800)+'\nUnexpected: '+JSON.stringify(server.unexpected);throw error}finally{await context.close()}
   }
   if(part==='journey') return results
-  // The former combined suite created this row through the wallet journey.
-  // Keep the table's descending-sort proof when controls run independently.
-  if(part==='controls') state.packs.push({id:'pack-table-seed',name:'Value 1280',credits:1200,priceCents:950,currency:'usd',active:true,revision:1})
-  results.push(...await checkAdminTables(browser,server,mount,label,out,fixture))
+  if(part==='all' || part.startsWith('tables-')) {
+    // The former combined suite created this row through the wallet journey.
+    // Keep the table's descending-sort proof when tables run independently.
+    if(part!=='all') state.packs.push({id:'pack-table-seed',name:'Value 1280',credits:1200,priceCents:950,currency:'usd',active:true,revision:1})
+    const widths = part==='all' ? [1280,390] : [Number(part.slice('tables-'.length))]
+    results.push(...await checkAdminTables(browser,server,mount,label,out,fixture,widths))
+  }
+  if(part.startsWith('tables-')) return results
   for(const [actor,permissions] of [['readonly',['admin.access','users.read','devtools.access','design.view']],['labeler',['devtools.access','scanner.label']],['ordinary',[]]]){
     state.actor=actor;state.permissions=permissions
     const {context,page}=await contextFor(browser,server,390);await signIn(context,USER)
@@ -343,7 +347,7 @@ export async function checkInsights(browser, server, mount, label, out, fixture)
   }
   return results
 }
-async function checkAdminTables(browser, server, mount, label, out, fixture) {
+async function checkAdminTables(browser, server, mount, label, out, fixture, widths = [1280,390]) {
   const results = [], {state} = fixture
   const go = (page, route) => page.goto(server.origin + mount + route, {waitUntil:'networkidle'})
   const waitRange = (surface, text) => surface.getByRole('status').filter({hasText:text}).waitFor()
@@ -384,7 +388,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
     await region.evaluate(node=>window.scrollTo(0,window.scrollY+node.getBoundingClientRect().top-180))
     await page.screenshot({path:path.join(out,label+'-'+snapshot+'-'+width+'-viewport.jpg'),type:'jpeg',quality:75,fullPage:false})
   }
-  for(const width of [1280,390]){
+  for(const width of widths){
     state.actor='owner';state.permissions=[...PERMISSIONS];state.rolesFail=false
     const {context,page}=await contextFor(browser,server,width);await signIn(context)
     try{
