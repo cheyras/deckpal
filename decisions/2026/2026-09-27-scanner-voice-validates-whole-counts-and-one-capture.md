@@ -8,7 +8,7 @@ supersedes: []
 ## 2026-09-27 — Scanner voice validates whole counts and one capture
 **Decided by:** Chey (via Codex)
 
-**Decision:** Parse counts through one whole-token reader before punctuation normalization, accepting only the existing number-word forms or correctly grouped digits within 1–99. Resolve one capture for the entire utterance independently of whether it changes a count, printing or removal. Refuse multiple card subjects or an unclear second clause. Preserve the explicit shared-target phrase “two of those and they’re reverse.”
+**Decision:** Parse counts through one whole-token reader before punctuation normalization, accepting only the existing number-word forms or correctly grouped digits within 1–99. Resolve one capture for the entire utterance independently of whether it changes a count, printing or removal. Refuse multiple card subjects or an unclear second clause. Only a bare “that” or “this” immediately before a name qualifies that name; additional references are separate subjects. Preserve the explicit shared-target phrase “two of those and they’re reverse.”
 
 **Why:** Repeated punctuation patches still converted “.5 copies” into five. Printing-specific target guards still combined “this one is two copies and that one is a holo” onto one capture and silently removed only one target from “remove this one and that one.” Both defects came from discarding structure before validating it.
 

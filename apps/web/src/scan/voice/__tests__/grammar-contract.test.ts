@@ -8,6 +8,7 @@ const matrix: readonly [string, Expected][] = [
   ['1 copy', 1], ['2 copies', 2], ['99 copies', 99], ['001 copies', 1],
   ['two copies', 2], ['a copy', 1], ['twenty two copies', 22], ['ninety-nine copies', 99],
   ['make it five', 5], ['times four', 4], ['x3', 3], ['two', 2], ['Two.', 2],
+  ["two of those, and they're reverse", 2],
   ['two reverse holos', 2], ["two of those and they're reverse", 2],
   ['3 copies.', 3], ['3, copies', 3], ['okay, make it 3, copies please', 3],
   ['\t2\n copies ', 2], ['1st edition two copies', 2],
@@ -55,6 +56,9 @@ const matrix: readonly [string, Expected][] = [
   ['remove Charizard and Venonat', 'two-cards'],
   ['Charizard holo and Venonat reverse', 'two-cards'],
   ['remove Charizard and that one', 'two-cards'],
+  ['remove Venonat that one', 'two-cards'],
+  ['remove it Charizard', 'two-cards'],
+  ['remove that one Venonat', 'two-cards'],
   ['two copies and Charizard holo', 'two-cards'],
 ]
 

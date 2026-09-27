@@ -655,14 +655,17 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   const subjects = segs.filter((s) => s.kind === 'name' || (s.kind === 'slot' &&
     words.slice(s.from, s.to).some((w) => references.has(w) || w === 'last')))
   const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
+  // Undo has no per-card target, even if its verb contains a pronoun.
+  if (has('undo') && nameSeg) return { command: null, coverage, refused: 'ambiguous-target' }
   const explicitReferences = subjects.filter((s) => s.kind !== 'name' &&
     words.slice(s.from, s.to).some((w) => demonstratives.has(w)))
   if (explicitReferences.length > 1) return { command: null, coverage, refused: 'two-cards' }
   for (let i = 1; i < subjects.length; i++) {
     const previous = subjects[i - 1]
     const subject = subjects[i]
-    const apposition = previous.to === subject.from &&
-      ((previous.kind === 'name') !== (subject.kind === 'name'))
+    const apposition = subject.kind === 'name' && previous.kind === 'slot' &&
+      previous.to === subject.from && previous.to - previous.from === 1 &&
+      ['that', 'this'].includes(words[previous.from])
     if (!apposition && !breaks.some((at) => at >= previous.to && at <= subject.from)) breaks.push(subject.from)
   }
   const removeAndEdit = has('remove') && (quantity !== null || segs.some(isPrinting))
@@ -676,7 +679,7 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     const sharedCopies = !nameSeg && quantity !== null && before.some((s) => slotKind(s) === 'of') &&
       beforeSubjects.length === 1 && words.slice(beforeSubjects[0].from, beforeSubjects[0].to).some((w) => w === 'those' || w === 'these' || w === 'them') &&
       afterSubjects.every((s) => s.kind === 'slot' && words.slice(s.from, s.to).every((w) => w === 'they' || w === 'theyre')) &&
-      words[at - 1] === 'and' && !segs.some((s) => s.from >= at && (slotKind(s) === 'remove' || slotKind(s) === 'qty'))
+      (words[at - 1] === 'and' || words[at] === 'and') && !segs.some((s) => s.from >= at && (slotKind(s) === 'remove' || slotKind(s) === 'qty'))
     if (!sharedCopies) return { command: null, coverage, refused: removeAndEdit && !explicitReferences.length && !nameSeg ? 'two-commands' : 'two-cards' }
   }
   // A printing-like word in subject position may be an absent card name.
@@ -718,9 +721,6 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   if (has('hedge') || transcript.includes('?') || (opener && QUESTION_OPENERS.has(opener))) {
     return { command: null, coverage, refused: 'question' }
   }
-  // Undo has only a global target. Do not silently discard a spoken card name
-  // and undo whichever action happened to be newest.
-  if (command?.kind === 'undo' && nameSeg) return { command: null, coverage, refused: 'ambiguous-target' }
   // "Remove it" and "make it two" in one breath is two instructions; which one
   // was meant is a guess, and one of them deletes a card.
   if (command?.kind === 'remove' && (finish || modifiers.length || quantity !== null)) {

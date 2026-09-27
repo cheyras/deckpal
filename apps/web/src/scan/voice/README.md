@@ -39,7 +39,8 @@ executing one against the wrong capture can change the collection.
    Subjects are checked independently of edits: a second card reference after
    a count, printing or removal refuses the whole command, even when speech
    omits a clause separator. “Two of those and they’re reverse” explicitly
-   shares one target and remains supported.
+   shares one target and remains supported. A bare “that” or “this” may
+   qualify a name (“that Venonat”); a separate reference after a name cannot.
 7. One count reader validates complete tokens before punctuation normalization.
    Digits with valid thousands grouping and existing number-word forms are the
    only count syntax; the result must be an integer within 1–99. Leading or
