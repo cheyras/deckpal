@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type MouseEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type CardRow } from '../lib/api'
 import { useOwnedCounts } from '../lib/collectionWrites'
@@ -104,14 +104,22 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
       } }] : []),
   ]
 
+  const openFromCell = (event: MouseEvent<HTMLTableRowElement>, newTab = false) => {
+    if ((event.target as HTMLElement).closest('a, button, input, select, textarea')) return
+    const link = event.currentTarget.querySelector<HTMLAnchorElement>('[data-decke-card]')
+    if (!link) return
+    if (newTab || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      event.preventDefault()
+      window.open(link.href, '_blank', 'noopener')
+    } else link.click()
+  }
+
   return <div ref={tableRef}>
     <DataTable label="Cards in table view" rows={cards} columns={columns}
       getRowId={(card) => (card as CardRow & { itemId?: string }).itemId ?? card.cardId}
       tableClassName="table-fixed min-w-[850px]"
       virtual={{ estimateSize: 69, overscan: 12, scrollToIndexRef }}
-      onRowClick={(_card, event) => {
-        if ((event.target as HTMLElement).closest('a, button, input, select, textarea')) return
-        event.currentTarget.querySelector<HTMLAnchorElement>('[data-decke-card]')?.click()
-      }} />
+      onRowClick={(_card, event) => openFromCell(event)}
+      onRowAuxClick={(_card, event) => { if (event.button === 1) openFromCell(event, true) }} />
   </div>
 }

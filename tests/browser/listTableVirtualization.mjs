@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { buildWeb } from './support.mjs'
 import { adminFixture } from './admin.mjs'
@@ -193,6 +194,14 @@ async function checkViewport(browser, origin, width, height) {
   await page.keyboard.press('Escape')
   await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
   await page.waitForFunction(() => document.body.style.position !== 'fixed')
+  const priceCell = page.locator('tbody tr[data-index="0"] td').nth(4)
+  for (const options of [{ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] }, { button: 'middle' }]) {
+    const [popup] = await Promise.all([page.waitForEvent('popup'), priceCell.click(options)])
+    await popup.waitForLoadState()
+    assert.equal(new URL(popup.url()).searchParams.get('card'), 'sim1-1', 'modified row click opens the card in a new tab')
+    assert.equal(new URL(page.url()).searchParams.has('card'), false, 'modified row click leaves the list in place')
+    await popup.close()
+  }
   const firstLink = page.locator('tbody tr[data-index="0"] [data-decke-card]')
   await firstLink.focus()
   await page.keyboard.press('PageDown')
@@ -235,11 +244,11 @@ async function checkViewport(browser, origin, width, height) {
   return { domCount, rowCount, renderMs: Math.round(renderMs), alignment, deep }
 }
 
-async function main() {
+async function main(borrowedBrowser) {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deckpal-list-table-'))
   const dist = path.join(scratch, 'dist')
   const results = {}
-  let browser
+  let browser = borrowedBrowser
   try {
     fs.mkdirSync(dist, { recursive: true })
     // Serve first (on an ephemeral port), THEN build against that exact
@@ -250,20 +259,31 @@ async function main() {
     const server = await serve(dist)
     try {
       await buildWeb(dist, true, server.origin)
-      browser = await chromium.launch({ headless: true })
+      browser ??= await chromium.launch({ headless: true })
       results['390x844'] = await checkViewport(browser, server.origin, 390, 844)
       results['1440x900'] = await checkViewport(browser, server.origin, 1440, 900)
     } finally {
       await server.close()
     }
   } finally {
-    await browser?.close()
+    if (!borrowedBrowser) await browser?.close()
     fs.rmSync(scratch, { recursive: true, force: true })
   }
   console.log('PASS list table virtualization (PERF-03):', JSON.stringify(results, null, 2))
+  return results
 }
 
-main().catch((error) => {
-  console.error(error.stack ?? String(error))
-  process.exitCode = 1
-})
+export function browserSuites({ browser, results }) {
+  return [{ name: 'list-table-virtualization', run: async () => {
+    await main(browser)
+    results.push({ case: 'list-table-virtualization', width: 390 },
+      { case: 'list-table-virtualization', width: 1440 })
+  } }]
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error.stack ?? String(error))
+    process.exitCode = 1
+  })
+}

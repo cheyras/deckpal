@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react'
-import { defaultRangeExtractor, useWindowVirtualizer } from '@tanstack/react-virtual'
+import { defaultRangeExtractor, observeWindowOffset, useWindowVirtualizer } from '@tanstack/react-virtual'
 import { Button } from './Button'
 import { Icon } from '../Icon'
 import { Field } from './Field'
@@ -49,11 +49,29 @@ export interface DataTableProps<T> {
   className?: string
   tableClassName?: string
   onRowClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void
+  onRowAuxClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void
   /** Render only the rows near the window viewport. Use for complete local result sets. */
   virtual?: {
     estimateSize?: number
     overscan?: number
     scrollToIndexRef?: RefObject<((index: number, align?: 'start' | 'center') => void) | null>
+  }
+}
+
+function readPageScroll() {
+  if (typeof window === 'undefined') return 0
+  return document.body.style.position === 'fixed'
+    ? -parseFloat(document.body.style.top || '0')
+    : window.scrollY
+}
+
+const observePageScroll: typeof observeWindowOffset = (instance, callback) => {
+  const stopScroll = observeWindowOffset(instance, (_offset, scrolling) => callback(readPageScroll(), scrolling))
+  const bodyObserver = new MutationObserver(() => callback(readPageScroll(), false))
+  bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['style'] })
+  return () => {
+    stopScroll?.()
+    bodyObserver.disconnect()
   }
 }
 
@@ -66,7 +84,7 @@ export function DataTable<T>({
   label, rows, columns, getRowId, toolbar, sort, onSortChange, pagination,
   loading = false, refreshing = false, error, onRetry,
   empty = 'No results match your filters.', renderExpandedRow, getRowLabel, className = '', tableClassName = '',
-  onRowClick, virtual,
+  onRowClick, onRowAuxClick, virtual,
 }: DataTableProps<T>) {
   const id = useId()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -96,6 +114,8 @@ export function DataTable<T>({
     estimateSize: () => virtual?.estimateSize ?? 64,
     overscan: virtual?.overscan ?? 8,
     scrollMargin,
+    initialOffset: readPageScroll,
+    observeElementOffset: observePageScroll,
     rangeExtractor: range => {
       const indices = defaultRangeExtractor(range)
       if (focusedIndex >= 0 && !indices.includes(focusedIndex)) indices.push(focusedIndex)
@@ -107,10 +127,7 @@ export function DataTable<T>({
     const measure = () => {
       const body = bodyRef.current
       if (!body) return
-      const scrollY = document.body.style.position === 'fixed'
-        ? -parseFloat(document.body.style.top || '0')
-        : window.scrollY
-      setScrollMargin(body.getBoundingClientRect().top + scrollY)
+      setScrollMargin(body.getBoundingClientRect().top + readPageScroll())
     }
     measure()
     // A sheet pins the body while it owns focus and restores its scroll after
@@ -209,6 +226,7 @@ export function DataTable<T>({
                       setFocusedRowId(current => current === rowId ? null : current)
                     } : undefined}
                     onClick={onRowClick ? event => onRowClick(row, event) : undefined}
+                    onAuxClick={onRowAuxClick ? event => onRowAuxClick(row, event) : undefined}
                     className={`border-t border-border-default align-top hover:bg-surface-tertiary-subtle focus-within:bg-surface-tertiary-subtle ${onRowClick ? 'cursor-pointer' : ''}`}>
                     {columns.map(column => <td key={column.id}
                       className={`px-[16px] py-[12px] whitespace-normal [overflow-wrap:anywhere] ${column.align === 'right' ? 'text-right tabular-nums' : 'text-left'} ${column.className ?? 'min-w-[120px] max-w-[360px]'}`}

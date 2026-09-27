@@ -29,6 +29,7 @@ export const durations = {
   'chat': 63,
   'error-boundary': 50,
   'payment-history': 15,
+  'list-table-virtualization': 8,
 }
 
 export function shardSuites(suites, count) {

@@ -125,6 +125,8 @@
   "{\"case\":\"insights-renders-on-fixture-stubs\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"insights-renders-on-fixture-stubs\",\"label\":\"selfhost\",\"width\":1280}",
   "{\"case\":\"insights-renders-on-fixture-stubs\",\"label\":\"selfhost\",\"width\":390}",
+  "{\"case\":\"list-table-virtualization\",\"width\":1440}",
+  "{\"case\":\"list-table-virtualization\",\"width\":390}",
   "{\"case\":\"live-account-switch-and-sign-out-clears-private-ui\",\"label\":\"cloud\"}",
   "{\"case\":\"lying-hint-suppressed\"}",
   "{\"case\":\"meter-refusal-replay\",\"width\":1280}",
