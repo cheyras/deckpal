@@ -235,6 +235,8 @@ PR, terminal output, or chat.
 2. In Vercel **Production and Preview**, set `SUPABASE_SERVICE_ROLE_KEY` to the
    `sb_secret_…` value; set `NEXT_PUBLIC_SUPABASE_ANON_KEY` and
    `VITE_SUPABASE_ANON_KEY` (where present) to the `sb_publishable_…` value.
+   Confirm `SUPABASE_URL` is set to this project's URL in both environments:
+   without it DeckPal cannot verify ES256 tokens after the old secret is removed.
    Update local and job environments that hold these keys too. Redeploy both
    environments; changing a variable does not change a running deployment.
 3. Check `GET /api/health` and `GET /api/public-config`, sign in, and exercise
@@ -280,6 +282,7 @@ legacy API keys does not remove DeckPal's own HS256 verifier.
 | Variable | Value | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project>.supabase.co` | |
+| `SUPABASE_URL` | `https://<project>.supabase.co` | Server-side JWKS verification, Storage, and manifest requests. Required before removing `SUPABASE_JWT_SECRET`. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_...` | Public browser key; the existing variable name is retained for compatibility. Also set `VITE_SUPABASE_ANON_KEY` to this value where the web build needs it. |
 | `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` | Server-side only; the existing variable name is retained for compatibility. Never place it in a `VITE_` or `NEXT_PUBLIC_` variable. |
 | `SUPABASE_JWT_SECRET` | **unset after signing-key migration** | Only needed while accepting legacy HS256 user tokens. ES256 tokens are verified using `SUPABASE_URL` and Supabase's public JWKS. |
