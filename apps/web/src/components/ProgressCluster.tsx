@@ -1,7 +1,7 @@
 import type { Progress } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
 import { GOAL_SHORT_LABEL } from '../routes/setSearch'
-import { setLevelLabel } from '../lib/format'
+import { setLevelLabel, setLevelFromCounts } from '../lib/format'
 import { ProgressBar } from './ui/Progress'
 
 // The progress cluster (UI-SPEC §3.6) — ONE bar,
@@ -36,11 +36,14 @@ const GOAL_BADGE_BG: Record<Goal, string> = {
 export function ProgressCluster({ progress, goal }: { progress: Progress; goal: Goal }) {
   const current = progress[goal]
   const accent = GOAL_COLOR[goal]
-  // LVL stays keyed to Complete-Set pct no matter which goal is on screen —
-  // it's an account-level "trainer level" reading (setLevelLabel in
-  // lib/format.ts), not a per-goal stat, so it doesn't retarget
-  // with the bar below it.
-  const lvl = setLevelLabel(progress.complete.pct)
+  // LVL stays keyed to Complete-Set completion no matter which goal is on
+  // screen — it's an account-level "trainer level" reading (setLevelLabel in
+  // lib/format.ts), not a per-goal stat, so it doesn't retarget with the bar
+  // below it. Read the server's already-correct level (QUAL-05: deriving it
+  // from the rounded display pct instead can round a borderline count, e.g.
+  // 1999/2000, across a level boundary a card early) and fall back to exact
+  // integer math from the raw counts if it hasn't loaded.
+  const lvl = setLevelLabel(progress.complete.setLevel ?? setLevelFromCounts(progress.complete.owned, progress.complete.total))
 
   return (
     <div className="flex items-end gap-[16px]">

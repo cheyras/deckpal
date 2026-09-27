@@ -1,7 +1,7 @@
 # DeckPal
 
 **Read `AGENTS.md` first.** It contains the engineering contracts, verification
-standards, build commands, and DECISIONS.md protocol that apply to all
+standards, build commands, and decision-file protocol that apply to all
 contributors.
 
 ---
@@ -71,10 +71,11 @@ vercel dev
 Origin is GitHub: `https://github.com/cheyras/deckpal.git`. GitHub Actions
 (`.github/workflows/ci.yml`) is the active CI.
 
-### DECISIONS.md
+### Decision log
 
-Append a dated entry for any non-trivial decision (see `AGENTS.md` for the
-format).
+Run `pnpm decisions new "Title"` for any non-trivial decision, fill in the
+file under `decisions/YYYY/`, then run `pnpm decisions:check`. `DECISIONS.md`
+is a short guide and `decisions/INDEX.md` resolves historical citations.
 
 ### Secrets
 
