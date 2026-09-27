@@ -6,7 +6,7 @@ import type { Writable } from 'node:stream';
 
 /** White, ink-light exports. All coordinates are points, so Letter and A4 share one layout. */
 const BRAND = 'DeckPal';
-const C = { ink: '#292524', muted: '#57534e', light: '#a8a29e', rule: '#d6d3d1', cyan: '#007595' };
+const C = { ink: '#292524', muted: '#57534e', rule: '#d6d3d1', cyan: '#007595', pink: '#c6005c' };
 const MARGIN = 44;
 const FONT_FILES = {
   regular: 'Figtree-Regular.ttf', semibold: 'Figtree-SemiBold.ttf', display: 'Fraunces-SemiBold.ttf',
@@ -178,7 +178,7 @@ class Columns {
   }
   section(text: string): void {
     if (this.inColumn >= this.balanceLimit || this.y + 34 > bottom(this.doc)) this.advance();
-    font(this.doc, 'semibold').fontSize(8).fillColor(C.cyan).text(text.toUpperCase(), this.x(), this.y + 2,
+    font(this.doc, 'semibold').fontSize(8).fillColor(C.pink).text(text.toUpperCase(), this.x(), this.y + 2,
       { width: this.cellWidth, lineBreak: false, characterSpacing: 0.6 });
     this.y += 18;
   }

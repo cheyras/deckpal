@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { once } from 'node:events';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { renderDeckPdf, renderListPdf, renderSetChecklistPdf,
   type DeckPdfData, type ListPdfData, type SetChecklistData } from '../pdf.js';
 
@@ -77,6 +77,17 @@ test('catalog symbols survive text extraction', async () => {
   const { pages } = await inspect(await renderToBuffer((s) => renderSetChecklistPdf(s, set)));
   const text = pages.join('');
   for (const glyph of ['♀', 'δ', '☆', '◇']) assert.ok(text.includes(glyph), `missing ${glyph}: ${text}`);
+});
+
+test('set section labels use print-legible pink while progress stays cyan', async () => {
+  const task = getDocument({ data: new Uint8Array(await renderToBuffer((s) => renderSetChecklistPdf(s, set))) });
+  const pdf = await task.promise;
+  const ops = await (await pdf.getPage(1)).getOperatorList();
+  const hasColor = (operation: number, color: number[]): boolean => ops.fnArray.some((fn, i) =>
+    fn === operation && Array.from(ops.argsArray[i] as Uint8ClampedArray).every((value, j) => value === color[j]));
+  assert.ok(hasColor(OPS.setFillRGBColor, [198, 0, 92]));
+  assert.ok(hasColor(OPS.setStrokeRGBColor, [0, 117, 149]));
+  await task.destroy();
 });
 
 test('set grouping and pagination keep all cards in order on A4', async () => {
