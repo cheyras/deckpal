@@ -2480,6 +2480,10 @@ export class DeckE {
       this.tookOver = true
       return
     }
+    // While a foreign position is being confirmed, write nothing: writing now
+    // would put back the drive's own value, the next read would match it, and
+    // a click on the scrollbar track would never be seen twice (review).
+    if (d.foreign === 1) return
     // Eased on the same curve the flight uses, so neither leads the other.
     const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
     const y = Math.round(d.from + (d.to - d.from) * Math.min(1, Math.max(0, e)))

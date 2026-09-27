@@ -167,18 +167,26 @@ export function SetDetail() {
   useEffect(() => {
     if (!reveal || !loaded) return
     if (cards.some((c) => c.cardId === reveal.cardId)) return
+    // What the page can honestly say depends on what it filtered. The have /
+    // need / dupes filter runs here, over the whole set, so a card it hides is
+    // known to exist. A search runs on the SERVER, so rows it left out say
+    // nothing about the set — only that the search is hiding it or it is not
+    // there, and the reader can tell which by clearing the box.
     const filtered = allCards.some((c) => c.cardId === reveal.cardId)
+    const searching = !!search.q.trim()
     window.dispatchEvent(
       new CustomEvent<DeckeRevealMissDetail>(DECKE_REVEAL_MISS_EVENT, {
         detail: {
           cardId: reveal.cardId,
           reason: filtered
             ? 'that card is in this set, but the filter at the top is hiding it'
-            : 'that card is not in this set',
+            : searching
+              ? 'the search at the top of the page is hiding it, or it is not in this set'
+              : 'that card is not in this set',
         },
       }),
     )
-  }, [reveal, loaded, cards, allCards])
+  }, [reveal, loaded, cards, allCards, search.q])
 
   return (
     <Content cap={1165}>
