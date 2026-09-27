@@ -343,5 +343,7 @@ Citations such as `DECISIONS.md 2026-08-10` refer to this log. Dates may have se
 | 2026-09-23 | [Preserve relative quantities in conversational card changes](../decisions/2026/2026-09-23-preserve-relative-quantities-in-conversational-card-changes.md) |
 | 2026-09-23 | [Call first to request collection approval](../decisions/2026/2026-09-23-call-first-to-request-collection-approval.md) |
 | 2026-09-23 | [Guard against case-insensitive filename collisions in CI](../decisions/2026/2026-09-23-guard-against-case-insensitive-filename-collisions-in-ci.md) |
+| 2026-09-26 | [Every gated entry point carries a return path; `next` is validated by one strict parse](../decisions/2026/2026-09-26-every-gated-entry-point-carries-a-return-path-next-is-validated-by-one-strict-pa.md) |
 | 2026-09-26 | [Collection, list and deck writes go through per-document lanes and always end visibly](../decisions/2026/2026-09-26-collection-list-and-deck-writes-go-through-per-document-lanes-and-always-end-vis.md) |
 | 2026-09-26 | [Deck-E stands clear of what the reader has to press, and every card and notice says what it will do](../decisions/2026/2026-09-26-deck-e-stands-clear-of-what-the-reader-has-to-press-and-every-card-and-notice-sa.md) |
+| 2026-09-26 | [Deck-E hardening: a bounded conversation, a normalised route, a guide write bound to its deck](../decisions/2026/2026-09-26-deck-e-hardening-a-bounded-conversation-a-normalised-route-a-guide-write-bound-t.md) |

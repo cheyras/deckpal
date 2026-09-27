@@ -26,3 +26,4 @@ supersedes: []
 - `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
 - `CardArt.name` is now rendered, by the dry-run rows only.
 - Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
+

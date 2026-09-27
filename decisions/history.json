@@ -1,6 +1,6 @@
 {
-  "source_commit": "d3ac517428ee9cf054973056ad7e9a7fe7f76eaf",
-  "source_sha256": "95bee92484ddd6bc03512e6208242c97d400f230bf39ff6eac4bb83c7fe5d2e5",
+  "source_commit": "a6b2bd52329bf10e9071ca762f6544dabd746d9b",
+  "source_sha256": "eb14a660f9e5223bf128bc1ad16485face95ab02a080bc53825c4d7f4d0a5411",
   "blocks": [
     {
       "kind": "preamble",
@@ -2752,6 +2752,14 @@
     },
     {
       "kind": "entry",
+      "path": "decisions/2026/2026-09-26-every-gated-entry-point-carries-a-return-path-next-is-validated-by-one-strict-pa.md",
+      "bytes": 6236,
+      "sha256": "bb1897597047bbc1a47a3da8ff111b4db42b4d40cd099cc72f4c8ba4383d93a9",
+      "date": "2026-09-26",
+      "title": "Every gated entry point carries a return path; `next` is validated by one strict parse"
+    },
+    {
+      "kind": "entry",
       "path": "decisions/2026/2026-09-26-collection-list-and-deck-writes-go-through-per-document-lanes-and-always-end-vis.md",
       "bytes": 5946,
       "sha256": "126422dd86bca17752f2bc424a5f0e025c54324e1586e6f33bc8377fd1ecedb0",
@@ -2761,10 +2769,18 @@
     {
       "kind": "entry",
       "path": "decisions/2026/2026-09-26-deck-e-stands-clear-of-what-the-reader-has-to-press-and-every-card-and-notice-sa.md",
-      "bytes": 6147,
-      "sha256": "6a308da14240d5aff6b0104731176265521623db5da7b0c639cfbb62b3a09cda",
+      "bytes": 6148,
+      "sha256": "1688f5d396371a387f482b8f11e0f9f321e6278b2157e4f1f79d59d8af3323e7",
       "date": "2026-09-26",
       "title": "Deck-E stands clear of what the reader has to press, and every card and notice says what it will do"
+    },
+    {
+      "kind": "entry",
+      "path": "decisions/2026/2026-09-26-deck-e-hardening-a-bounded-conversation-a-normalised-route-a-guide-write-bound-t.md",
+      "bytes": 4260,
+      "sha256": "ba09bf845604545f31e3b4ff8debda0b9c9f8d425df277b3d6da99d8b4310a46",
+      "date": "2026-09-26",
+      "title": "Deck-E hardening: a bounded conversation, a normalised route, a guide write bound to its deck"
     }
   ]
 }
