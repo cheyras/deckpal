@@ -243,6 +243,17 @@ of them breaks — extend it when you add a new way to show something.
   never a poll; it changes side only at its beats (appearing, landing, or when
   it would cover him or the ringed card), eased on `clockMs`; it grows away
   from him; and it shows only his current line.
+- **A walk to cards ends on the cards.** If they asked to see particular cards,
+  `escort` gets their ids (`cardIds`, same set, at most `ESCORT_MAX_CARDS`) and
+  its last step is a `flyTo` on the first card through the reveal handshake,
+  then a ring on every matching card on screen (`addHighlight`). Stopping at the
+  set page and saying "they're in the grid" is the bug this rule exists for.
+- **On a phone, nothing resizes for him.** Widgets are always full width; only
+  his own words carry the fixed `.decke-beside` gutter. He rests on the top of
+  his latest response (`data-decke-anchor`), rides off with it by a transform
+  written in the scroll handler, and his canvas is clipped at his resting line
+  (`clipBelow`). Toggling a width on scroll is what made widgets flicker between
+  two widths under him; `decke-chat-phone` fails on a single width change.
 
 ## Things that will bite you
 
@@ -447,7 +458,7 @@ Each of these cost someone a debugging pass, upstream or here.
   normalised integers against blender units.
 - **Never DROP the morph normals**, however tempting 182 KB looks. Measured over
   15 poses: it moves 31% of his pixels on `bend_back`, because the shell deforms
-  while the shading stays at the base pose and he is metallic 0.85. The surprise
+  while the shading stays at the base pose (measured at metalness 0.85). The surprise
   is where it shows — the mouth poses stay fine and the whole-body bends fall
   apart. `optimize.mjs` tier `c` reproduces it on `/dev/decke-compare` if you
   want to see it. Quantising them to 8 bits is free (1.687 vs 1.679 worst mean).
@@ -487,9 +498,16 @@ Each of these cost someone a debugging pass, upstream or here.
   +5%, which is not a shape any occlusion term can produce, and the residual had
   been mis-filed as "missing shadows" for weeks on the strength of a per-pixel
   read.
-- **The environment and the lights are both required.** He is metallic 0.85;
-  with nothing to reflect he renders near-black, and Blender's area lights were
-  *trimmed* when the HDRI was added rather than removed.
+- **The environment and the lights are both required.** The `.blend` has him
+  metallic 0.85, where with nothing to reflect he renders near-black, and
+  Blender's area lights were *trimmed* when the HDRI was added rather than removed.
+- **His body colour deliberately departs from the `.blend`.** `brandBody()` in
+  `materials.ts` sets the body to `--color-brand-primary-400`, metalness 0.3 and
+  the Khronos Neutral tone curve in that one shader; everything else on him keeps
+  AgX. At 0.85 metal under AgX he rendered #5ca2ad, ΔE 25 from DeckPal's cyan
+  and visibly grey. Colour parity against the `.blend` is therefore not expected
+  on the body; `decke-body-color` samples his rendered pixels against the token
+  instead, and `bodyColor.test.ts` fails if the token and he drift apart.
 
 ## Wiki pages that are stale
 
