@@ -281,10 +281,16 @@ async function checkDecke(browser, server, mount, admin) {
       await page.goto(server.origin + mount + '/lists', { waitUntil: 'load' })
       appeared = await bubble.waitFor({ state: 'visible', timeout: 10_000 }).then(() => true).catch(() => false)
     }
-    const opened = appeared && await bubble.click({ timeout: 5000 }).then(() => true).catch(() => false)
-    await page.waitForTimeout(1500)
+    // This check exercises the CSP, not pointer hit-testing. Hovering the
+    // launcher starts an asynchronous warm that can move or rename the button
+    // while Playwright waits for a stable click target on a busy CI runner.
+    // Invoke the same button handler and require the real dialog to appear.
+    if (appeared) await bubble.evaluate(button => button.click())
+    const opened = appeared && await page.getByRole('dialog', { name: 'Chat with Deck-E' })
+      .waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false)
+    if (opened) await page.waitForTimeout(1500)
     const violations = await violationsOn(page)
-    assert.ok(opened, 'the Deck-E launcher button never appeared/was not clickable at /lists with decke.use granted, after 3 fresh attempts')
+    assert.ok(opened, 'the Deck-E launcher or dialog did not appear at /lists with decke.use granted, after 3 fresh attempts')
     assert.deepEqual(violations, [], 'CSP violations while Deck-E\'s runtime chunk and character assets were loading')
     return { case: 'decke-open', opened, cspViolations: violations }
   } finally {
