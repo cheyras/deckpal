@@ -13,12 +13,14 @@ export const WEB = path.join(ROOT, 'apps/web')
 // while the others sit idle -- defeating the concurrency entirely.
 export function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
+    const started = performance.now()
     const child = spawn(command, args, { cwd: ROOT, timeout: 180_000, ...options })
     let stdout = '', stderr = ''
     child.stdout?.setEncoding('utf8').on('data', (chunk) => { stdout += chunk })
     child.stderr?.setEncoding('utf8').on('data', (chunk) => { stderr += chunk })
     child.on('error', reject)
     child.on('close', (code, signal) => {
+      console.log('TIMING command ' + path.basename(args[0]) + ' ' + ((performance.now() - started) / 1000).toFixed(1) + 's')
       if (code === 0) return resolve(stdout)
       reject(new Error(command + ' ' + args.join(' ') + (signal ? ' (killed by ' + signal + ')' : '') + '\n' + stdout + stderr))
     })
