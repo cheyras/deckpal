@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { pool, q, q1 } from '../db.js';
 import { asyncHandler, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
@@ -8,7 +8,7 @@ import {
 } from '../deck/index.js';
 import {
   renderDeckPdf, renderListPdf, renderSetChecklistPdf,
-  type DeckLine, type ListPdfItem, type SetChecklistCard,
+  type DeckLine, type ListPdfItem, type SetChecklistCard, type PdfPaper,
 } from './pdf.js';
 
 /**
@@ -27,6 +27,7 @@ import {
 export const exportRouter: Router = Router();
 
 const nowStamp = (): string => new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+const paperFor = (req: Request): PdfPaper => req.query.paper === 'a4' ? 'A4' : 'LETTER';
 
 /** RFC 5987-ish filename: strip to a safe slug, keep it short. */
 function slug(s: string, fallback = 'export'): string {
@@ -197,6 +198,7 @@ exportRouter.get(
       trainer: byCat('Trainer'),
       energy: byCat('Energy'),
       generatedAt: nowStamp(),
+      paper: paperFor(req),
     });
   }),
 );
@@ -294,6 +296,7 @@ exportRouter.get(
       hasProgress,
       items,
       generatedAt: nowStamp(),
+      paper: paperFor(req),
     });
   }),
 );
@@ -369,6 +372,7 @@ exportRouter.get(
       progress: { owned: ownedCount, total, pct: total ? Math.round((ownedCount / total) * 1000) / 10 : 0 },
       cards,
       generatedAt: nowStamp(),
+      paper: paperFor(req),
     });
   }),
 );
