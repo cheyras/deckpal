@@ -268,6 +268,14 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await picker.getByRole('button', { name: /Mockipom/ }).click()
       await said("Couldn't add Mockipom to “Show binder”.").waitFor()
       await shot('list-add-failed')
+      const retryIsOnTop = await page.evaluate(() => {
+        const retry = [...document.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Retry')
+        if (!retry) return false
+        const rect = retry.getBoundingClientRect()
+        const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return !!top && (top === retry || retry.contains(top))
+      })
+      assert.ok(retryIsOnTop, 'the toast’s Retry is visible and hit-tested above the open sheet')
       await search.focus()
       let reached = false
       for (let i = 0; i < 8 && !reached; i++) {
@@ -312,6 +320,15 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await plus.click()
       await said("Couldn't change Fixturemon to 7 in “Fixture Deck”. You're offline.").waitFor()
       assert.equal(await copies(), 6)
+      await page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor()
+      const noticesSeparate = await page.evaluate(() => {
+        const banner = [...document.querySelectorAll('[role="status"]')].find(node => node.textContent?.includes('Browsing cached data'))
+        const toast = document.querySelector('[data-toaster]')
+        if (!banner || !toast) return false
+        const a = banner.getBoundingClientRect(), b = toast.getBoundingClientRect()
+        return b.bottom <= a.top || a.bottom <= b.top
+      })
+      assert.ok(noticesSeparate, 'offline banner and actionable save feedback do not overlap')
       await shot('deck-offline')
       await context.setOffline(false)
       results.push({ case: 'writes-deck', label, width, ordered: true, rollback: true, retry: true, offline: true })

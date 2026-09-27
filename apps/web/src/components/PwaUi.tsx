@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import { useConnectivity } from '../lib/useConnectivity'
 import { Toaster } from './ui/Toast'
@@ -113,6 +113,30 @@ function OfflineBanner() {
 
 /** Single fixed overlay host for all PWA affordances. */
 export function PwaUi() {
+  const toastHostRef = useRef<HTMLDivElement>(null)
+  const [toastHeight, setToastHeight] = useState(0)
+  useEffect(() => {
+    const host = toastHostRef.current
+    if (!host) return
+    const measure = () => {
+      const toastElement = host.querySelector<HTMLElement>('[data-toaster]')
+      setToastHeight(toastElement ? Math.ceil(toastElement.getBoundingClientRect().height) : 0)
+    }
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    const observeToast = () => {
+      resizeObserver?.disconnect()
+      const toastElement = host.querySelector<HTMLElement>('[data-toaster]')
+      if (toastElement) resizeObserver?.observe(toastElement)
+      measure()
+    }
+    const mutationObserver = new MutationObserver(observeToast)
+    mutationObserver.observe(host, { childList: true, characterData: true, subtree: true })
+    observeToast()
+    return () => {
+      mutationObserver.disconnect()
+      resizeObserver?.disconnect()
+    }
+  }, [])
   // The scan and labeler surfaces put working controls in the bottom-left
   // corner (the labeler's TL/rotate cluster sits exactly under the Install
   // pill — 2026-09-07 readiness pass screenshots). Full-screen working
@@ -136,16 +160,19 @@ export function PwaUi() {
           <InstallButton />
         </div>
       )}
-      {/* bottom-right: offline banner, update toast, then write feedback (the
-          one most likely to carry a button someone needs right now sits
-          nearest the thumb). Lifted clear of the iOS home indicator, which
-          otherwise swallows taps on a Retry sitting 16px from the edge. */}
+      {/* Passive notices stay behind an open Sheet with the rest of the page. */}
       <div
         className="pointer-events-none fixed left-[16px] right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px] nav:left-auto"
-        style={{ bottom: 'calc(16px + env(safe-area-inset-bottom))' }}
+        style={{ bottom: `calc(16px + env(safe-area-inset-bottom) + ${toastHeight ? `${toastHeight}px + 10px` : '0px'})` }}
       >
         <OfflineBanner />
         <UpdateToast />
+      </div>
+      {/* Save feedback stays above a Sheet so Retry remains visible and usable. */}
+      <div
+        ref={toastHostRef}
+        className="pointer-events-none fixed bottom-[calc(16px_+_env(safe-area-inset-bottom))] left-[16px] right-[16px] z-(--z-toast-action) flex justify-end nav:left-auto"
+      >
         <Toaster />
       </div>
     </>
