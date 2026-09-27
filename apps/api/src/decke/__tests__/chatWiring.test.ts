@@ -153,7 +153,7 @@ test('the deep tier is given the turn\'s meter refusals, seeded from the replaye
 test('the same ledger narrows activeTools, so a spent tier leaves the model\'s view', () => {
   assert.match(
     SRC,
-    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\)\)/,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
     'prepareStep no longer removes a spent deep tier from activeTools',
   );
 });
@@ -210,4 +210,64 @@ test('a credit refusal says whether the wallet is HELD, as a flag rather than pr
     /credits: \{ balance: meter\.balance, needed: meter\.needed, held: meter\.held === true \}/,
     'the 429 body no longer carries `held` — a held wallet will be told to top up',
   );
+});
+
+// ── THE REFLEX READ ─────────────────────────────────────────────────────────
+//
+// `reflex.ts` can decide perfectly and change nothing: its three effects are
+// three expressions in this file, each one easy to drop in an edit.
+
+test('the reflex read runs after the meter, from the built module, with the turn\'s abort', () => {
+  assert.match(SRC, /import \{ readReflex \} from '\.\.\/apps\/api\/dist\/decke\/reflex\.js'/);
+  const read = CODE.indexOf('const reflex = await readReflex(messages, route, { key, signal: request.signal })');
+  assert.ok(read > 0, 'readReflex is no longer called with the validated messages, the key and the signal');
+  // A Gateway call: nothing reaches the Gateway unpaid.
+  assert.ok(CODE.indexOf('meter = await meterTurn(') < read, 'the reflex read runs before the meter');
+  assert.ok(CODE.indexOf('if (!meter.allowed)') < read, 'the reflex read runs for a refused turn');
+  assert.ok(read < CODE.indexOf('model: observeUsageModel('), 'the reflex read runs after the model starts');
+});
+
+test('a spoken refusal reaches the declined ledger', () => {
+  assert.match(CODE, /const declined = declinedCalls\(messages, latestUserText\(messages\), reflex\.declines\)/);
+});
+
+test('a read collection change forces the first step, and only the first step', () => {
+  assert.match(
+    CODE,
+    /\.\.\.\(stepNumber === 0 && reflex\.force \? \{ toolChoice: \{ type: 'tool', toolName: reflex\.force \} \} : \{\}\)/,
+    'prepareStep no longer forces the reflex tool on step one',
+  );
+});
+
+// ── THE AFTER-TURN AUDIT ────────────────────────────────────────────────────
+//
+// `audit.ts` decides; these are the four lines that make its decision do
+// anything, and the one that keeps a navigation handoff out of it.
+
+test('the audit reads the turn\'s whole tool record, and a handoff is never audited', () => {
+  assert.match(SRC, /from '\.\.\/apps\/api\/dist\/decke\/audit\.js'/);
+  assert.match(CODE, /const audit = calledToolNames\.some\(\(n\) => CLIENT_SET\.has\(n\)\)\s*\? null\s*: await auditTurn\(\{/);
+  assert.match(
+    CODE,
+    /toolsRun: \[\.\.\.calledToolNames, \.\.\.guardEvents\.map\(\(e\) => e\.name\), \.\.\.turnToolNames\(messages\)\]/,
+    'an approved write that ran at the start of this request would read as a phantom',
+  );
+});
+
+test('only a correctable phantom within the step budget gets a corrective leg; the rest are admitted', () => {
+  assert.match(CODE, /const fixable = audit\?\.phantom \? CORRECTIVE_TOOLS\[audit\.phantom\] : undefined/);
+  assert.match(CODE, /if \(fixable && steps\.length < MAX_STEPS\) \{\s*corrective = fixable/);
+  assert.match(CODE, /\} else if \(phantoms\.length > 0 \|\| audit\?\.phantom\) \{/);
+});
+
+test('the corrective leg pins the card, keeps the signature and the prompt prefix, and takes one step', () => {
+  const leg = CODE.slice(CODE.indexOf('if (corrective) {'))
+  assert.match(SRC, /buildDataTools, correctiveApplyTools, dataToolSummary/)
+  assert.match(leg, /tools: correctiveApplyTools\(allDeckeTools, corrective\)/)
+  assert.match(leg, /toolChoice: \{ type: 'tool', toolName: corrective \}/);
+  assert.match(leg, /stopWhen: stepCountIs\(1\)/);
+  assert.match(leg, /experimental_toolApprovalSecret: process\.env\.DECKE_APPROVAL_SECRET/);
+  assert.match(leg, /instructions: `\$\{systemPrompt\}\\n\\n\$\{correctiveInstruction\(corrective\)\}`/);
+  assert.match(leg, /model: observeUsageModel\(gateway\(choice\.id\), meter\)/, 'the leg must be metered like any step');
+  assert.match(CODE, /instructions: systemPrompt,/, 'the turn and the correction no longer share one prompt');
 });
