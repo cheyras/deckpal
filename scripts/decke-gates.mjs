@@ -1753,13 +1753,13 @@ GATES[5] = {
  *      while he travels — so this gate watches DURING the turn rather than
  *      inspecting the wreckage afterwards.
  *   2. He FLIES to the goal switcher and rings it. The selector is
- *      `[data-decke-goal-switcher]`, which `FilterControls.tsx` publishes as a
- *      landmark labelled "the goal switcher"; `highlight` defaults to true on
+ *      `[data-decke-goal-switcher]`, which `GoalSelect.tsx` publishes beside
+ *      the progress count as "the set goal control"; `highlight` defaults to true on
  *      `flyTo`, so an explicit `highlight:false` is the only way to fail that.
  *   3. He does NOT narrate the location. This is checked with a deliberately
  *      tight regex — position words bound to page furniture — because the
  *      failure it exists to catch is a specific, recognisable one ("it's the
- *      little star at the top of the filter row"), and a loose regex here would
+ *      goal control beside the progress bar"), and a loose regex here would
  *      fail him for saying "here" while pointing correctly.
  *
  * Started on the set page because that is where the control lives. Asking from
@@ -1817,12 +1817,11 @@ GATES[6] = {
       //
       // Checked BOTH WAYS against a corpus before changing: four phrasings that
       // must not fire (all previously red) and eight real narrations that must
-      // still be caught, including the one this rule was written for — "it's the
-      // little star at the top of the filter row".
+      // still be caught, including a description of the control's location.
       const narrated = NARRATED_LOCATION
 
       const detail = [
-        `started on /series/${truth.seriesSlug}/${truth.setId} (the goal switcher lives in FilterControls)`,
+        `started on /series/${truth.seriesSlug}/${truth.setId} (the goal control lives beside the progress count)`,
         `chat minimised during the turn: ${sawMinimised}`,
         `movement calls: ${flights.map((t) => `${t.name}(${JSON.stringify(t.input)})`).join(' ; ') || '(none)'}`,
         `he said: ${said.replace(/\s+/g, ' ').slice(0, 240)}`,

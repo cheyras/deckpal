@@ -14,7 +14,7 @@ import { useSignedIn } from '../lib/session'
 import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 
-export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal }) {
+export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailResponse; goal: Goal; onGoalChange: (goal: Goal) => void }) {
   const { set, progress } = data
   // `progress` is absent for a logged-out visitor. Two of the three header
   // actions are per-user too: Purchase Set builds a cart of the cards you still
@@ -263,7 +263,7 @@ export function SetHeader({ data, goal }: { data: SetDetailResponse; goal: Goal 
               data-decke-landmark="[data-decke-completion-bar]"
               data-decke-label="the completion bar for this set"
             >
-              <ProgressCluster progress={progress} goal={goal} />
+              <ProgressCluster progress={progress} goal={goal} onGoalChange={onGoalChange} />
             </div>
           ) : (
             <SignInPrompt

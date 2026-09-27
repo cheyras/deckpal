@@ -17,17 +17,17 @@ export default {
   name: 'ProgressCluster',
   source: 'apps/web/src/components/ProgressCluster.tsx',
   section: 'component',
-  description: 'Two-bar set-completion cluster (Complete + Master/Grandmaster, milestone dots at 25/50/75/100).',
+  description: 'One set-goal progress bar with an adjacent goal control and milestones at 25/50/75.',
   component: ProgressCluster,
-  defaults: { progress: mockProgress(72, 35, 12), goal: 'master' as Goal },
+  defaults: { progress: mockProgress(72, 35, 12), goal: 'master' as Goal, onGoalChange: () => {} },
   variants: [
-    { label: 'early (goal: complete)', props: { progress: mockProgress(15, 5, 1), goal: 'complete' as Goal } },
-    { label: 'mid (goal: master)', props: { progress: mockProgress(72, 35, 12), goal: 'master' as Goal } },
-    { label: 'near done (goal: grandmaster)', props: { progress: mockProgress(100, 88, 65), goal: 'grandmaster' as Goal } },
-    { label: 'empty', props: { progress: mockProgress(0, 0, 0), goal: 'complete' as Goal } },
-    { label: 'full', props: { progress: mockProgress(100, 100, 100), goal: 'grandmaster' as Goal } },
+    { label: 'early (goal: complete)', props: { progress: mockProgress(15, 5, 1), goal: 'complete' as Goal, onGoalChange: () => {} } },
+    { label: 'mid (goal: master)', props: { progress: mockProgress(72, 35, 12), goal: 'master' as Goal, onGoalChange: () => {} } },
+    { label: 'near done (goal: grandmaster)', props: { progress: mockProgress(100, 88, 65), goal: 'grandmaster' as Goal, onGoalChange: () => {} } },
+    { label: 'empty', props: { progress: mockProgress(0, 0, 0), goal: 'complete' as Goal, onGoalChange: () => {} } },
+    { label: 'full', props: { progress: mockProgress(100, 100, 100), goal: 'grandmaster' as Goal, onGoalChange: () => {} } },
   ],
   knobs: {
     goal: { kind: 'select', options: ['complete', 'master', 'grandmaster'] as const },
   },
-} satisfies GalleryMeta<{ progress: any; goal: Goal }>
+} satisfies GalleryMeta<{ progress: any; goal: Goal; onGoalChange: (goal: Goal) => void }>

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type ListRule } from '../lib/api'
+import { GOAL_TITLE } from '../routes/setSearch'
 
 /**
  * The smart-list rule editor (migration 050).
@@ -22,9 +23,9 @@ import { api, type ListRule } from '../lib/api'
 export type RuleDraft = Partial<ListRule> & { setId?: string }
 
 const GOALS: { key: NonNullable<ListRule['goal']>; label: string; blurb: string }[] = [
-  { key: 'complete', label: 'Complete', blurb: 'One printing of each card' },
-  { key: 'master', label: 'Master', blurb: 'Every standard printing' },
-  { key: 'grandmaster', label: 'Grandmaster', blurb: 'Every printing there is' },
+  { key: 'complete', label: GOAL_TITLE.complete, blurb: 'One printing of each card' },
+  { key: 'master', label: GOAL_TITLE.master, blurb: 'Every standard printing' },
+  { key: 'grandmaster', label: GOAL_TITLE.grandmaster, blurb: 'Every printing there is' },
 ]
 
 const FINISHES = ['normal', 'reverse', 'holo', 'lenticular', 'metal'] as const

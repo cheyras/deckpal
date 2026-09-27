@@ -1,8 +1,8 @@
 import type { Progress } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
-import { GOAL_SHORT_LABEL } from '../routes/setSearch'
 import { setLevelLabel, setLevelFromCounts } from '../lib/format'
 import { ProgressBar } from './ui/Progress'
+import { GoalSelect } from './ui/GoalSelect'
 
 // The progress cluster (UI-SPEC §3.6) — ONE bar,
 // configured to whichever goal is currently selected via the `goal` prop
@@ -12,7 +12,7 @@ import { ProgressBar } from './ui/Progress'
 // exactly that two-bar split; the account owner now wants one bar that
 // retargets to the active goal instead).
 //
-// Bar fill, the badge, and the passed-milestone stars all key off the same
+// Bar fill and the passed-milestone stars key off the same
 // per-goal accent: gradient salmon→yellow for Complete (kept — distinctive,
 // already paired with the milestone dots), flat var(--color-success) for
 // Master, flat var(--color-completion-grandmaster) for Grandmaster — the
@@ -23,17 +23,7 @@ const GOAL_COLOR: Record<Goal, string> = {
   master: 'var(--color-success)',
   grandmaster: 'var(--color-completion-grandmaster)',
 }
-// Translucent badge backgrounds, same idiom as LegalBadge/ResultBadge
-// (routes/deckShared.tsx, routes/deck/intelShared.tsx): a low-alpha wash of
-// the same hue as the text color — derived from the goal's own token rather
-// than hardcoded rgb triplets, so a brand recolour carries the badges along.
-const GOAL_BADGE_BG: Record<Goal, string> = {
-  complete: 'color-mix(in srgb, var(--color-action-primary-strong) 16%, transparent)',
-  master: 'color-mix(in srgb, var(--color-success) 16%, transparent)',
-  grandmaster: 'color-mix(in srgb, var(--color-completion-grandmaster) 18%, transparent)',
-}
-
-export function ProgressCluster({ progress, goal }: { progress: Progress; goal: Goal }) {
+export function ProgressCluster({ progress, goal, onGoalChange }: { progress: Progress; goal: Goal; onGoalChange: (goal: Goal) => void }) {
   const current = progress[goal]
   const accent = GOAL_COLOR[goal]
   // LVL stays keyed to Complete-Set completion no matter which goal is on
@@ -48,17 +38,12 @@ export function ProgressCluster({ progress, goal }: { progress: Progress; goal: 
   return (
     <div className="flex items-end gap-[16px]">
       <div className="min-w-[220px] flex-1">
-        <div className="mb-[6px] flex items-center gap-[8px] text-[14px] font-bold leading-[15px] text-text-muted">
+        <div className="mb-[6px] flex flex-wrap items-center gap-x-[4px] text-[14px] font-bold leading-[15px] text-text-muted">
           <span>
             <span className="text-[15px] font-extrabold text-text-primary">{current.owned}</span>
-            /{current.total} Collected
+            {' / '}{current.total} Collected
           </span>
-          <span
-            className="inline-flex shrink-0 items-center rounded-full px-[8px] py-[2px] text-[9px] font-bold uppercase tracking-wide"
-            style={{ background: GOAL_BADGE_BG[goal], color: accent }}
-          >
-            {GOAL_SHORT_LABEL[goal]}
-          </span>
+          <GoalSelect goal={goal} onChange={onGoalChange} />
         </div>
         {/* One bar, retargeted to the active goal (#30) — rendered by the
             ProgressBar primitive (C4). Complete keeps the primitive's default

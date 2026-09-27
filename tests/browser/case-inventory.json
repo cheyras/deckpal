@@ -258,6 +258,8 @@
   "{\"case\":\"second-device-stable-identity\",\"label\":\"selfhost\",\"width\":1440}",
   "{\"case\":\"second-device-stable-identity\",\"label\":\"selfhost\",\"width\":390}",
   "{\"case\":\"service-worker-registration\"}",
+  "{\"case\":\"set-goal-control\",\"label\":\"cloud\",\"width\":1280}",
+  "{\"case\":\"set-goal-control\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"sheet-footer-not-covered\",\"width\":390}",
   "{\"case\":\"signed-out-admin-denied\",\"label\":\"cloud\"}",
   "{\"case\":\"simultaneous-thumbnail-and-editor-one-repair\",\"label\":\"cloud\",\"width\":1440}",

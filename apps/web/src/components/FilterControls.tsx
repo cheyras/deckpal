@@ -1,5 +1,4 @@
-import type { CardSearch, SortKey, ViewMode, Ownership, Goal } from '../routes/setSearch'
-import { GOAL_TITLE } from '../routes/setSearch'
+import type { CardSearch, SortKey, ViewMode, Ownership } from '../routes/setSearch'
 import { Icon } from './Icon'
 
 type Patch = (p: Partial<CardSearch>) => void
@@ -12,7 +11,7 @@ const SET_SORTS: { key: SortKey; label: string }[] = [
   { key: 'artist', label: 'Artist' },
 ]
 
-// Search input + Show All / Have / Need / Dupes strip + goal star switcher.
+// Search input + Show All / Have / Need / Dupes strip.
 export function OwnershipStrip({
   search,
   patch,
@@ -28,36 +27,9 @@ export function OwnershipStrip({
     { key: 'need', label: `Need (${counts.need})` },
     { key: 'dupes', label: `Dupes (${counts.dupes})` },
   ]
-  const goals: Goal[] = ['complete', 'master', 'grandmaster']
   return (
     <div className="flex flex-wrap items-center gap-[12px]">
       <OwnershipButtons items={owns} activeKey={search.own} onSelect={(key) => patch({ own: key as Ownership })} />
-      {/* goal star switcher — cycles Complete → Master → Grandmaster */}
-      <button
-        onClick={() => {
-          const next = goals[(goals.indexOf(search.goal) + 1) % goals.length]
-          patch({ goal: next })
-        }}
-        title={`Goal: ${GOAL_TITLE[search.goal]} (click to cycle)`}
-        className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
-        // POINTABLE, NOT PRESSABLE. `data-decke-landmark` means only that
-        // Deck-E may fly here and ring it so a reader can see what he is
-        // talking about. Pressing is a separate capability gated on a separate
-        // attribute (SPEC §9.2's clickable marking), which does not exist yet —
-        // do not add it here as a convenience, because cycling the goal rewrites
-        // the page's search params under the reader. That attribute is meant to
-        // stay grep-auditable, so it is spelled nowhere in this repo until the
-        // PR that actually introduces and reviews it.
-        data-decke-goal-switcher
-        data-decke-landmark="[data-decke-goal-switcher]"
-        data-decke-label="the goal switcher"
-      >
-        <Icon
-          name={search.goal === 'complete' ? 'star-outline' : 'star-filled'}
-          size={18}
-          className={search.goal === 'grandmaster' ? 'text-action-primary' : 'text-icon-default'}
-        />
-      </button>
     </div>
   )
 }

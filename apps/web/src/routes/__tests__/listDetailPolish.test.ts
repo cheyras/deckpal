@@ -54,7 +54,7 @@ test('neither list nor deck delete claims to be unrecoverable', () => {
 
 test('a smart list\'s rule caption uses the shared goal label, not the raw enum', () => {
   const src = fs.readFileSync(LIST_DETAIL, 'utf8')
-  assert.match(src, /GOAL_SHORT_LABEL\[list\.rule\.goal\]/, 'the rule caption must render GOAL_SHORT_LABEL[goal] ("Complete"), not the bare enum ("complete")')
+  assert.match(src, /GOAL_SHORT_LABEL\[list\.rule\.goal\]/, 'the rule caption must render GOAL_SHORT_LABEL[goal] ("Standard set"), not the bare enum ("complete")')
 })
 
 test('the price-freshness note no longer describes a self-host deployment', () => {
