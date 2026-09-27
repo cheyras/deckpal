@@ -34,7 +34,7 @@
 // crop and no quad; the moment it acquires them it becomes a label, goes out
 // through `saveLabel.ts`, and is deleted from the queue.
 import { api, ApiError } from '../../lib/api'
-import { decodeQueueImage, isHeic } from './heic'
+import { decodeQueueImage, HeicDecoderLoadError, isHeic } from './heic'
 
 /** One photo waiting to be labelled, as the queue reports it. */
 export interface QueuedPhoto {
@@ -170,6 +170,23 @@ async function stash(items: OutboxItem[]): Promise<void> {
   })
 }
 
+/** A discard can finish while a retry is decoding. Read and update in one
+ * transaction so that late failure cannot recreate the deleted photo. */
+async function markPermanentIfPresent(id: number, failureReason: string): Promise<void> {
+  const db = await open()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite')
+    const store = tx.objectStore(STORE)
+    const get = store.get(id) as IDBRequest<OutboxItem | undefined>
+    get.onsuccess = () => {
+      if (get.result) store.put({ ...get.result, failureReason })
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('could not update the photo in the outbox'))
+    tx.onabort = () => reject(tx.error ?? new Error('the outbox update was aborted'))
+  })
+}
+
 /**
  * The longest edge an uploaded photo keeps.
  *
@@ -254,7 +271,8 @@ async function normalizeForUpload(blob: Blob, name = 'queued'): Promise<Blob> {
   // labelled as a JPEG and came back just as unreadable from the server as it
   // had been locally. If even the HEIC decoder cannot read the picture, no
   // upload of it can be correct, and saying so is the useful thing to do.
-  const src = await decodeQueueImage(blob, name).catch(() => {
+  const src = await decodeQueueImage(blob, name).catch((error: unknown) => {
+    if (error instanceof HeicDecoderLoadError) throw error
     throw new PermanentUploadError(
       `this photo could not be decoded (${name}). Try exporting it as JPEG.`,
     )
@@ -402,7 +420,7 @@ export async function flushOutbox(): Promise<{
       failed += 1
       if (!error) error = message
       if (isPermanentUploadError(e)) {
-        await run('readwrite', (s) => s.put({ ...it, failureReason: message }))
+        await markPermanentIfPresent(it.id, message)
         continue
       }
       if (looksOffline()) {

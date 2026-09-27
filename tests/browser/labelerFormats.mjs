@@ -61,6 +61,8 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
           await checkJxl(browser, server, queue, width,
             { name: 'disguised.jpg', mimeType: 'image/jpeg', buffer: jxl }, 'disguised.jpg', 'signature', out, results)
         }
+        await checkHeicChunkRetry(browser, server, queue, results)
+        await checkDiscardDuringFailedFlush(browser, server, queue, results)
         assert.deepEqual(server.unexpected, [], 'format tests made no unexpected requests')
       } finally {
         await server.close()
@@ -154,6 +156,123 @@ async function checkJxl(browser, server, queue, width, input, name, variant, out
     await page.getByText('Nothing queued.').waitFor()
     results.push({ case: 'labeler-jxl-permanent-error-cloud-csp', label: 'cloud', width, scenario: variant })
   } finally {
+    await context.close()
+  }
+}
+
+async function localOutboxRecord(page, id) {
+  return page.evaluate(async (localId) => {
+    const db = await new Promise((resolve, reject) => {
+      const opened = indexedDB.open('deckpal-labeler', 1)
+      opened.onsuccess = () => resolve(opened.result)
+      opened.onerror = () => reject(opened.error)
+    })
+    const record = await new Promise((resolve, reject) => {
+      const get = db.transaction('queue', 'readonly').objectStore('queue').get(localId)
+      get.onsuccess = () => resolve(get.result)
+      get.onerror = () => reject(get.error)
+    })
+    db.close()
+    return record ? { name: record.name, failureReason: record.failureReason ?? null } : null
+  }, id)
+}
+
+async function seedLocalOutbox(page, id, name, bytes) {
+  await page.evaluate(async ({ id, name, base64 }) => {
+    const db = await new Promise((resolve, reject) => {
+      const opened = indexedDB.open('deckpal-labeler', 1)
+      opened.onsuccess = () => resolve(opened.result)
+      opened.onerror = () => reject(opened.error)
+    })
+    const data = Uint8Array.from(atob(base64), char => char.charCodeAt(0))
+    const tx = db.transaction('queue', 'readwrite')
+    tx.objectStore('queue').put({ id, name, source: 'upload', addedAt: Date.now(),
+      blob: new Blob([data], { type: 'image/heic' }) })
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve
+      tx.onerror = () => reject(tx.error)
+    })
+    db.close()
+    window.dispatchEvent(new Event('deckpal:scan-queue-repaired'))
+  }, { id, name, base64: bytes.toString('base64') })
+}
+
+async function checkHeicChunkRetry(browser, server, queue, results) {
+  queue.reset(0)
+  const { context, page } = await signedInPage(browser, server, 1440)
+  const localName = path.basename(heicPath)
+  let blockedChunks = 0
+  try {
+    await page.route(/\/assets\/heic-to-[^/]+\.js$/, route => {
+      blockedChunks++
+      return route.abort('failed')
+    })
+    await page.locator('input[type="file"]').setInputFiles(heicPath)
+    await page.getByRole('button', { name: `Label ${localName}` }).waitFor({ timeout: 30_000 })
+    await page.getByText('local', { exact: true }).waitFor()
+    assert.equal(blockedChunks, 1, 'one decoder chunk request was blocked')
+    assert.equal(queue.state.uploads, 0, 'failed decoder download did not upload the photo')
+    const localId = await page.getByRole('button', { name: `Label ${localName}` }).evaluate(button => {
+      const opened = indexedDB.open('deckpal-labeler', 1)
+      return new Promise((resolve, reject) => {
+        opened.onsuccess = () => {
+          const get = opened.result.transaction('queue', 'readonly').objectStore('queue').getAllKeys()
+          get.onsuccess = () => resolve(get.result[0])
+          get.onerror = () => reject(get.error)
+        }
+        opened.onerror = () => reject(opened.error)
+      })
+    })
+    assert.deepEqual(await localOutboxRecord(page, localId), { name: localName, failureReason: null },
+      'a chunk download failure remains retryable in IndexedDB')
+    await page.unroute(/\/assets\/heic-to-[^/]+\.js$/)
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: /^queue/i }).click()
+    await page.getByRole('button', { name: `Label ${heicJpegName}` }).waitFor({ timeout: 30_000 })
+    assert.equal(queue.state.uploads, 1, 'reloaded page converted and uploaded the HEIC')
+    assert.equal(await localOutboxRecord(page, localId), null, 'successful retry removed the local copy')
+    await assertNoCspViolation(page)
+    results.push({ case: 'labeler-heic-chunk-retry-cloud-csp', label: 'cloud', width: 1440 })
+  } finally {
+    await context.close()
+  }
+}
+
+async function checkDiscardDuringFailedFlush(browser, server, queue, results) {
+  queue.reset(0)
+  const { context, page } = await signedInPage(browser, server, 390)
+  const id = -1780000000099
+  const corruptHeic = fs.readFileSync(heicPath).subarray(0, 48)
+  let releaseChunk
+  const heldChunk = new Promise(resolve => { releaseChunk = resolve })
+  let chunkEntered
+  const entered = new Promise(resolve => { chunkEntered = resolve })
+  try {
+    // The Upload tab keeps the thumbnail from racing the flush for the same
+    // chunk. Hold the flush exactly between its outbox read and decode error.
+    await page.getByRole('button', { name: /^upload$/i }).click()
+    await page.route(/\/assets\/heic-to-[^/]+\.js$/, async route => {
+      chunkEntered()
+      await heldChunk
+      await route.continue()
+    })
+    await seedLocalOutbox(page, id, 'corrupt.heic', corruptHeic)
+    await page.evaluate(() => window.dispatchEvent(new Event('online')))
+    await Promise.race([entered, new Promise((_, reject) => setTimeout(() => reject(new Error('flush never loaded decoder chunk')), 15_000))])
+    await page.getByRole('button', { name: /^queue/i }).click()
+    await page.getByRole('button', { name: 'Discard corrupt.heic' }).click()
+    await page.getByText('Nothing queued.').waitFor()
+    assert.equal(await localOutboxRecord(page, id), null, 'discard removed the row while decode was pending')
+    releaseChunk()
+    await page.getByText(/1 could not: this photo could not be decoded \(corrupt\.heic\)/).waitFor({ timeout: 30_000 })
+    assert.equal(await localOutboxRecord(page, id), null, 'late permanent failure did not recreate a discarded row')
+    await page.evaluate(() => window.dispatchEvent(new Event('deckpal:scan-queue-repaired')))
+    await page.getByText('Nothing queued.').waitFor()
+    assert.equal(queue.state.uploads, 0)
+    await assertNoCspViolation(page)
+    results.push({ case: 'labeler-discard-during-failed-flush-cloud-csp', label: 'cloud', width: 390 })
+  } finally {
+    releaseChunk()
     await context.close()
   }
 }

@@ -190,6 +190,8 @@
   "{\"case\":\"insights-renders-on-fixture-stubs\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"insights-renders-on-fixture-stubs\",\"label\":\"selfhost\",\"width\":1440}",
   "{\"case\":\"insights-renders-on-fixture-stubs\",\"label\":\"selfhost\",\"width\":390}",
+  "{\"case\":\"labeler-discard-during-failed-flush-cloud-csp\",\"label\":\"cloud\",\"width\":390}",
+  "{\"case\":\"labeler-heic-chunk-retry-cloud-csp\",\"label\":\"cloud\",\"width\":1440}",
   "{\"case\":\"labeler-heic-irot270-cloud-csp\",\"label\":\"cloud\",\"width\":1440}",
   "{\"case\":\"labeler-heic-irot270-cloud-csp\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"labeler-jxl-permanent-error-cloud-csp\",\"label\":\"cloud\",\"width\":1440,\"scenario\":\"extension\"}",
