@@ -508,6 +508,9 @@ export type SetStateOptions = {
 /** Scratch for `screenRect`'s in-flight position; never escapes the call. */
 const _shifted = new Vector3()
 
+/** Input a person scrolls with. Any of them ends a driven scroll. */
+const READER_SCROLL_INPUT = ['wheel', 'touchstart', 'keydown'] as const
+
 const INSTANCES = new WeakMap<HTMLCanvasElement, DeckE>()
 
 /** Scratch for the beacon's silhouette probe. Module scope, not per instance:
@@ -678,6 +681,20 @@ export class DeckE {
    *  under it since. See `syncStation`. */
   private readonly trackDest = new Vector3()
   private readonly trackShift = new Vector3()
+  /**
+   * The reader reaching for the page while a flight is driving it. Trusted
+   * events only — nothing here dispatches input, but a page script could — and
+   * only the ones that scroll. See `driveScroll`.
+   */
+  private readonly onReaderInput = (e: Event) => {
+    if (!this.scrollDrive || !e.isTrusted) return
+    if (e.type === 'keydown') {
+      const k = (e as KeyboardEvent).key
+      if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(k)) return
+    }
+    this.scrollDrive = null
+    this.tookOver = true
+  }
   private readonly onScroll = () => {
     this.stationDirty = true
     // The very same events that move his mark can move the CANVAS he is drawn
@@ -942,6 +959,9 @@ export class DeckE {
     // scroll container counts too — the element he is presenting is very often
     // inside one.
     window.addEventListener('scroll', this.onScroll, { passive: true, capture: true })
+    for (const type of READER_SCROLL_INPUT) {
+      window.addEventListener(type, this.onReaderInput, { passive: true, capture: true })
+    }
 
     // AND THE VIEWPORT ITSELF CAN MOVE HIS MARK WITHOUT ANY SCROLL AT ALL.
     //
@@ -2411,21 +2431,29 @@ export class DeckE {
    * so the scroll and the character share one clock — which is what makes the
    * page appear to move BECAUSE he is moving, rather than alongside him.
    *
-   * THE CANCEL IS THE IMPORTANT HALF. Between frames, `window.scrollY` should
-   * equal what this last wrote; anything else is the reader's wheel, their
-   * trackpad, or a keyboard, and a driven scroll that fights them is worse than
-   * none. `DeckE.scrollIntoView` uses native smooth scrolling for exactly this
-   * reason, and it is not available here because a native scroll cannot be
-   * slaved to a flight's progress.
+   * THE CANCEL IS THE IMPORTANT HALF: the reader's wheel, trackpad, finger or
+   * keyboard wins, instantly and for good, because a driven scroll that fights
+   * them is worse than none. `DeckE.scrollIntoView` uses native smooth
+   * scrolling for exactly this reason, and it is not available here because a
+   * native scroll cannot be slaved to a flight's progress.
+   *
+   * ── AND THE CANCEL LISTENS FOR THE READER, NOT FOR A NUMBER ─────────────────
+   *
+   * It used to infer the reader from `scrollY` disagreeing with the last value
+   * written. iOS Safari scrolls on another thread, and under load its
+   * `scrollY` reads back the write from a frame EARLIER: measured on an
+   * iPhone 16 Pro simulator, the drive wrote 33,955, read back 33,945 a frame
+   * later, decided a person had scrolled ten pixels up, and gave up for good —
+   * the page stopped a screen and a half short while he flew on to a card that
+   * never arrived. The owner described exactly that months ago: "the scrolling
+   * doesn't happen so he just dives off the page downward, leaving me to scroll
+   * down myself." A number the platform can make wrong is not evidence of a
+   * person. Input events are, so the drive now ends on one of those
+   * (`onReaderInput`), and a stale read-back is simply overwritten next frame.
    */
   private driveScroll(t: number) {
     const d = this.scrollDrive
     if (!d) return
-    if (Math.abs(window.scrollY - d.own) > 2) {
-      this.scrollDrive = null
-      this.tookOver = true
-      return
-    }
     // Eased on the same curve the flight uses, so neither leads the other.
     const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
     const y = Math.round(d.from + (d.to - d.from) * Math.min(1, Math.max(0, e)))
@@ -2449,6 +2477,15 @@ export class DeckE {
    */
   private syncStation() {
     if (!this.stationDirty) return
+    // THE READER SCROLLED THE TARGET AWAY. Re-aiming at it now would drag him
+    // off the edge of the screen after it — a 670 px lurch in one frame when a
+    // wheel moved the page — so the flight keeps the aim it had, lands on
+    // screen, and the arrival reports that he stopped short (see `tookOver`).
+    // While the target is still in view he keeps steering to it as before.
+    if (this.tookOver && this.track && !this.stationVisible()) {
+      this.stationDirty = false
+      return
+    }
     // The first leg of a via-background trip is flying to a WAYPOINT, so it is
     // the waypoint the moving page re-aims — steering it at the final park
     // instead would fold the second leg into the first. See `viaLeg`.
@@ -3462,6 +3499,9 @@ export class DeckE {
     // walk's to free) and which are its own.
     this.art?.dispose()
     window.removeEventListener('scroll', this.onScroll, { capture: true })
+    for (const type of READER_SCROLL_INPUT) {
+      window.removeEventListener(type, this.onReaderInput, { capture: true })
+    }
     window.visualViewport?.removeEventListener('resize', this.onScroll)
     window.visualViewport?.removeEventListener('scroll', this.onScroll)
     document.documentElement.style.overscrollBehaviorY = this.overscrollWas
