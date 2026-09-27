@@ -35,7 +35,10 @@ export function Insights() {
   })
 
   const ov = overview.data
-  const val = value.data
+  // React Query may retain the previous range while the next request is pending.
+  // Only render figures when the response belongs to the selected controls.
+  const val = value.data?.range === range && value.data.series.range === range &&
+    value.data.currency === currency ? value.data : null
   // UXC-07 (label): the delta card used to say "Last 30 Days" no matter which
   // chip was selected. `rangeLabel` reads the real label off the same list the
   // chips render from, so the two can't drift apart again.
@@ -44,8 +47,7 @@ export function Insights() {
   // empty history used to render identical "cold start" copy across the chart,
   // delta and movers cards — an outage read as "you don't have data yet",
   // which is a claim about the wrong thing. `placeholderData: keepPreviousData`
-  // means `val` survives a failed refetch, so only treat this as an outage when
-  // there's no cached value left to fall back to.
+  // can retain another range's response, which must not masquerade as this one.
   const valueOutage = value.error && !val ? (value.error as Error).message : null
 
   return (
@@ -169,7 +171,7 @@ export function Insights() {
 
             {/* chart, an outage, or an honest cold-start — in that priority order */}
             <div className="mt-[8px]">
-              {value.isLoading && !val ? (
+              {!val && !valueOutage ? (
                 <Spinner label="Loading series…" />
               ) : valueOutage ? (
                 <ErrorState message={valueOutage} />
@@ -205,6 +207,8 @@ export function Insights() {
           <div className="mt-[16px]">
             {valueOutage ? (
               <ErrorState message={valueOutage} />
+            ) : !val ? (
+              <Spinner label={`Loading ${valueRangeLabel} change…`} />
             ) : val?.series.delta ? (
               <DeltaCard delta={val.series.delta} currency={val.currency} rangeLabel={valueRangeLabel} />
             ) : (
@@ -225,6 +229,8 @@ export function Insights() {
             <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Top Movers</div>
             {valueOutage ? (
               <ErrorState message={valueOutage} />
+            ) : !val ? (
+              <Spinner label="Loading top movers…" />
             ) : val && val.movers.length > 0 ? (
               <ul className="mt-[10px] divide-y divide-divider-subtle">
                 {val.movers.map((m) => (

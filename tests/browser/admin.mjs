@@ -58,7 +58,16 @@ export function adminFixture(mount) {
     // is easy to eyeball-match while the fields drift. `collection`/`tcg`/`completion`/`value` were
     // never real keys of this route; deleted rather than left as fictitious dead weight.
     if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0, uniquePairs: 0, uniqueMode: 'cards', intoLevel: 0, toNext: 10, nextLevelAt: 10, fraction: 0 }, collectionValue: [], pokedex: { captured: 0, total: 1, pct: 0 } })
-    if (rel === '/api/insights/value') { const currency = url.searchParams.get('currency') ?? 'USD', range = url.searchParams.get('range') ?? '30d'; const current = { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 }; return ok({ currency, range, current, series: { currency, range, points: [], delta: null }, movers: [] }) }
+    if (rel === '/api/insights/value') {
+      const currency = url.searchParams.get('currency') ?? 'USD', range = url.searchParams.get('range') ?? '30d'
+      const current = { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 }
+      const result = ok({ currency, range, current, series: { currency, range, points: [], delta: state.insightsTransition ? { value: range === '30d' ? 12 : 34, valueMinor: range === '30d' ? 1200 : 3400, pct: null } : null }, movers: [] })
+      if (state.heldInsights && range === '1y') return new Promise(resolve => {
+        state.heldInsights.finish = () => resolve(result)
+        state.heldInsights.onStart()
+      })
+      return result
+    }
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/me/billing/history') {
@@ -322,7 +331,7 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
 // current.total, series.points) must be present, or this hangs on the heading or throws.
 export async function checkInsights(browser, server, mount, label, out, fixture) {
   const results = [], { state } = fixture
-  for (const width of [1280, 390]) {
+  for (const width of [1440, 390]) {
     state.actor = 'ordinary'; state.permissions = []
     const { context, page } = await contextFor(browser, server, width); await signIn(context)
     try {
@@ -335,7 +344,23 @@ export async function checkInsights(browser, server, mount, label, out, fixture)
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
       await page.screenshot({ path: path.join(out, label + '-insights-' + width + '.png'), fullPage: true })
       results.push({ case: 'insights-renders-on-fixture-stubs', label, width })
-    } finally { await context.close() }
+      state.insightsTransition = true
+      await page.reload({ waitUntil: 'networkidle' })
+      await page.getByText('30 Days Change').waitFor()
+      await page.getByText('$12.00', { exact: false }).waitFor()
+      let requestStarted
+      const started = new Promise(resolve => { requestStarted = resolve })
+      state.heldInsights = { onStart: requestStarted }
+      await page.getByRole('button', { name: '1 Year' }).click()
+      await started
+      await page.getByText('Loading 1 Year change…').waitFor()
+      assert.equal(await page.getByText('$12.00', { exact: false }).count(), 0, 'old delta must disappear while the new range is pending')
+      await page.screenshot({ path: path.join(out, label + '-insights-pending-' + width + '.png'), fullPage: true })
+      state.heldInsights.finish()
+      await page.getByText('1 Year Change').waitFor()
+      await page.getByText('$34.00', { exact: false }).waitFor()
+      results.push({ case: 'insights-range-change-hides-old-delta-until-new-value', label, width })
+    } finally { state.heldInsights?.finish?.(); state.heldInsights = null; state.insightsTransition = false; await context.close() }
   }
   return results
 }
