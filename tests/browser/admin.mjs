@@ -250,6 +250,9 @@ export async function checkAdmin(browser, server, mount, label, out, fixture, pa
     }catch(error){await page.screenshot({path:path.join(out,label+'-admin-failure.png'),fullPage:true});error.message+='\nPage: '+(await page.locator('body').innerText()).slice(0,1800)+'\nUnexpected: '+JSON.stringify(server.unexpected);throw error}finally{await context.close()}
   }
   if(part==='journey') return results
+  // The former combined suite created this row through the wallet journey.
+  // Keep the table's descending-sort proof when controls run independently.
+  if(part==='controls') state.packs.push({id:'pack-table-seed',name:'Value 1280',credits:1200,priceCents:950,currency:'usd',active:true,revision:1})
   results.push(...await checkAdminTables(browser,server,mount,label,out,fixture))
   for(const [actor,permissions] of [['readonly',['admin.access','users.read','devtools.access','design.view']],['labeler',['devtools.access','scanner.label']],['ordinary',[]]]){
     state.actor=actor;state.permissions=permissions
