@@ -141,12 +141,15 @@ function installRecorder(target) {
     const origin = d.opts.canvas.getBoundingClientRect()
     const el = R.target ? document.querySelector(R.target) : null
     const ring = document.querySelector('.decke-ring:not([data-leaving])')
+    const bubble = document.querySelector('[data-decke-bubble]')
+    const bubbleBox = bubble && bubble.dataset.side ? bubble.getBoundingClientRect() : null
     const s = d.getState()
     R.frames.push({
       t: performance.now(), y: Math.round(window.scrollY), path: location.pathname, flying: s.flying,
       him: him ? [Math.round(him.left + origin.left), Math.round(him.top + origin.top), Math.round(him.width), Math.round(him.height)] : null,
       target: el ? box(el.getBoundingClientRect()) : null,
       ring: ring ? box(ring.getBoundingClientRect()) : null,
+      bubble: bubbleBox ? [...box(bubbleBox), bubble.dataset.side, bubble.dataset.switching !== undefined] : null,
     })
     requestAnimationFrame(tick)
   }
@@ -184,19 +187,52 @@ export function analyse(frames) {
     const [ax, ay] = centre(a), [bx, by] = centre(b)
     worst = Math.max(worst, Math.hypot(bx - ax, by - ay))
   }
+  // The speech bubble riding him. Per frame, how far the edge of the bubble
+  // that faces him moved relative to him: 0 is riding exactly. A frame where
+  // the side itself changed is a deliberate, eased move and is counted
+  // separately; docked slots are pinned to the screen by design.
+  const facing = ([x, y, w, h, side]) =>
+    side === 'below' || side === 'under' ? [x + w / 2, y]
+    : side === 'left' ? [x + w, y + h / 2]
+    : side === 'right' ? [x, y + h / 2]
+    : [x + w / 2, y + h]
+  let bubbleWorst = 0, sideChanges = 0, bubbleFrames = 0
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1], b = frames[i]
+    if (b.bubble) bubbleFrames++
+    if (!a.bubble || !b.bubble || !a.him || !b.him || a.him[3] < 12 || b.him[3] < 12) continue
+    if (a.bubble[4] !== b.bubble[4]) { sideChanges++; continue }
+    // Mid-switch it is making its own eased move (bounded by `sideChanges`).
+    if (a.bubble[5] || b.bubble[5] || String(b.bubble[4]).startsWith('dock')) continue
+    const [ax, ay] = facing(a.bubble), [bx, by] = facing(b.bubble)
+    const [hx0, hy0] = centre(a.him), [hx1, hy1] = centre(b.him)
+    bubbleWorst = Math.max(bubbleWorst, Math.hypot((bx - ax) - (hx1 - hx0), (by - ay) - (hy1 - hy0)))
+  }
   const ringAt = frames.findIndex((f) => f.ring)
-  const lookAt = ringAt >= 0 ? frames[Math.min(frames.length - 1, ringAt + 12)] : null
+  // Judged once the ring has had a few frames to settle in: the first frame in
+  // the next forty where ring and card agree, or failing that the twelfth.
+  const aligned = (f) => f.ring && f.target && Math.hypot(centre(f.ring)[0] - centre(f.target)[0], centre(f.ring)[1] - centre(f.target)[1]) < 12
+  const lookAt = ringAt >= 0
+    ? (frames.slice(ringAt + 4, ringAt + 44).find(aligned) ?? frames[Math.min(frames.length - 1, ringAt + 12)])
+    : null
   const flightFrames = frames.filter((f) => f.flying).length
   return {
     glides, jumps, reversals, worstStepPx: Math.round(worst), flightMs: Math.round((flightFrames * 1000) / 60),
+    bubbleFrames, bubbleDesyncPx: Math.round(bubbleWorst), bubbleSideChanges: sideChanges,
     ringT: ringAt >= 0 ? frames[ringAt].t : null,
-    ringOnTarget: !!(lookAt?.ring && lookAt.target && Math.hypot(centre(lookAt.ring)[0] - centre(lookAt.target)[0], centre(lookAt.ring)[1] - centre(lookAt.target)[1]) < 12),
+    ringOnTarget: !!(lookAt && aligned(lookAt)),
     besidePx: lookAt?.him && lookAt.target ? Math.round(gap(lookAt.him, lookAt.target)) : null,
   }
 }
 
 /** The fastest a flight moves him in one 1/60 s step, with headroom. */
 const MAX_STEP_PX = 90
+/**
+ * How far the bubble may move against him in one step: the fastest frame of an
+ * eased 260 ms change of side, with headroom. The 8 Hz follower it replaced
+ * moved up to 668 px against him in a single frame.
+ */
+const MAX_BUBBLE_DESYNC_PX = 24
 
 async function openChat(page, server) {
   await page.goto(server.origin + '/series', { waitUntil: 'networkidle' })
@@ -232,9 +268,9 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
   admin.state.permissions = ['decke.use']
   admin.state.balance = 500
   const results = []
-  const cases = engine === 'chromium'
-    ? [{ width: 1280 }, { width: 390, mobile: true }]
-    : [{ width: 1280 }]
+  // WebKit at phone width too: it is the engine iOS Safari runs, and the
+  // bubble and scroll-drive defects both showed up first on the phone.
+  const cases = [{ width: 1280 }, { width: 390, mobile: true }]
   for (const vp of cases) {
     // ── 1. another page, far down a virtualized grid ──
     {
@@ -266,6 +302,14 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         // WebKit's coarsened clock can stamp both with the same millisecond.
         assert.ok(chats[1] >= m.ringT, where + 'the model was asked for its next line before he had arrived (' +
           JSON.stringify({ chats: chats.map(Math.round), ringT: Math.round(m.ringT), first: Math.round(f[0].t), last: Math.round(f.at(-1).t) }) + ')')
+        // HIS LINE RIDES HIM. The bubble used to follow a position polled at
+        // 8 Hz and re-solve its side on every poll: it moved in steps, flipped
+        // mid-flight, and jumped when the arrival line was appended. Now it
+        // moves with him every frame, and changes side only at its beats (when
+        // it appears and when he lands), eased.
+        assert.ok(m.bubbleFrames > 0, where + 'his line never appeared beside him')
+        assert.ok(m.bubbleDesyncPx <= MAX_BUBBLE_DESYNC_PX, where + 'the bubble moved ' + m.bubbleDesyncPx + ' px against him in one frame')
+        assert.ok(m.bubbleSideChanges <= 2, where + 'the bubble changed sides ' + m.bubbleSideChanges + ' times')
         results.push({ case: 'decke-show-card', engine, width: vp.width, ...m, ringT: undefined })
       } finally { await context.close() }
     }
@@ -337,7 +381,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         const m = analyse(await frames(page))
         assert.deepEqual(fixture.toolOutputs(), [{ ok: true }])
         assert.equal(m.glides, 0, 'reduced motion still glided the page')
-        assert.ok(m.ringOnTarget, 'reduced motion never ringed the card')
+        assert.ok(m.ringOnTarget, 'reduced motion never ringed the card: ' + JSON.stringify({ ...m, last: (await frames(page)).at(-1) }))
         assert.ok(m.besidePx !== null && m.besidePx <= 40, 'reduced motion put him ' + m.besidePx + ' px from the card')
         results.push({ case: 'decke-show-reduced', engine, ...m, ringT: undefined })
       } finally { await context.close() }

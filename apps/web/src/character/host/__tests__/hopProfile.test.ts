@@ -501,3 +501,20 @@ test('a journey step spelling it `then: point` still points', async () => {
   await runUiTool({ decke, navigate: () => {} }, 'flyTo', { selector: '#grid', then: 'point' })
   assert.equal(calls[0]!.then, 'point')
 })
+
+test('Stop mid-flight answers at once, and not as an arrival', async () => {
+  // Waiting for the landing must not outlive the turn: `useDeckeChat.stop()`
+  // aborts the turn's controller and nothing else, so a wait that ignored it
+  // kept the turn busy (and a walk "stepping") until he touched down.
+  const dom = installFakeDom({ selector: '#grid', left: 600, width: 160 })
+  dom.appear()
+  const { decke, land } = fakeDecke(400, 'never')
+  const ac = new AbortController()
+  const pending = runUiTool({ decke, navigate: () => {}, signal: ac.signal }, 'flyTo', { selector: '#grid' })
+  await sleep(30)
+  ac.abort()
+  const r = await pending
+  assert.equal(r.ok, false, 'a stopped flight was reported as an arrival')
+  assert.match(r.reason ?? '', /stopped/)
+  land() // the late landing must be ignored, not answer twice
+})

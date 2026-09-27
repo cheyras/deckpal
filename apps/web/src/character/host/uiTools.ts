@@ -467,8 +467,19 @@ function resolveClickTarget(selector: string): { el: HTMLElement | null; refused
 
 export type UiToolContext = {
   decke: DeckEInstance
-  /** TanStack's imperative navigate. Injected so this module stays router-agnostic. */
-  navigate: (to: string) => void
+  /**
+   * TanStack's imperative navigate. Injected so this module stays router-agnostic.
+   * `keepScroll` skips the router's jump to the top: when he is taking the
+   * reader to something ON the new page, the page's first scroll is his (see
+   * `throwNear`), and a reset landing after it flicked the page back up.
+   */
+  navigate: (to: string, opts?: { keepScroll?: boolean }) => void
+  /**
+   * The turn's own abort. A tool that waits for him to land must stop waiting
+   * the moment the reader presses Stop — otherwise the turn stays busy, and a
+   * walk stays "stepping", until he touches down.
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -624,7 +635,7 @@ export async function runUiTool(
           return { ok: true, reason: 'we are already on that page' }
         }
         holdStill(ctx)
-        ctx.navigate(route)
+        ctx.navigate(route, { keepScroll: typeof input.selector === 'string' })
         if (typeof input.selector !== 'string') return { ok: true }
         return await travelAfterRoute(ctx, input.selector, false)
       }
@@ -840,11 +851,15 @@ function present(
       if (done) return
       done = true
       window.clearInterval(watch)
+      ctx.signal?.removeEventListener('abort', stopped)
       resolve(result)
     }
     const started = Date.now()
     let groundedSince = 0
     const lost = () => finish({ ok: true, reason: 'I set off toward it, but I had not landed when I answered' })
+    const stopped = () => finish({ ok: false, reason: 'you stopped me before I got there' })
+    if (ctx.signal?.aborted) return stopped()
+    ctx.signal?.addEventListener('abort', stopped, { once: true })
     ctx.decke.flyTo(
       { selector },
       {

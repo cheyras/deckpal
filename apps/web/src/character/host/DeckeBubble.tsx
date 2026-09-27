@@ -46,52 +46,12 @@ export function place(
   vw: number,
   vh: number,
 ): { left: number; top: number } {
-  const cx = him.left + him.width / 2
-  // Order IS the preference. Above first: it is where a speech bubble belongs,
-  // and it is furthest from the element he is usually standing beside.
-  const candidates = [
-    { left: cx - bubble.width / 2, top: him.top - bubble.height - GAP },
-    { left: cx - bubble.width / 2, top: him.bottom + GAP },
-    { left: him.left - bubble.width - GAP, top: him.top + him.height / 2 - bubble.height / 2 },
-    { left: him.right + GAP, top: him.top + him.height / 2 - bubble.height / 2 },
-    // LAST RESORTS, docked to the screen rather than to him. Presenting, he is
-    // a third of his size and standing in the gutter between cards, so on a
-    // phone all four slots above can land on the very card he is showing; a
-    // line captioned at the top or bottom edge beats a line over the answer.
-    // Only ever chosen when they are strictly clearer than every slot by him.
-    { left: vw / 2 - bubble.width / 2, top: vh - bubble.height - DOCK_BOTTOM },
-    { left: vw / 2 - bubble.width / 2, top: DOCK_TOP },
-  ]
-
-  let best: { left: number; top: number } | null = null
-  let bestScore = Infinity
-  for (const c of candidates) {
-    const left = Math.max(MARGIN, Math.min(vw - bubble.width - MARGIN, c.left))
-    const top = Math.max(MARGIN, Math.min(vh - bubble.height - MARGIN, c.top))
-    const r: Rect = {
-      left, top,
-      right: left + bubble.width,
-      bottom: top + bubble.height,
-      width: bubble.width,
-      height: bubble.height,
-    }
-    // HIM COUNTS TOO. `avoid` is the thing he is pointing at; `him` is HIM —
-    // and a candidate that covers his own sprite is a worse failure than one
-    // that covers the highlight, because it reads as the bubble erasing the
-    // character speaking it. Weighting his overlap 2x is what makes that
-    // preference stick even when a `him`-clean candidate costs a little
-    // highlight overlap that a `him`-covering candidate would have avoided.
-    const score = 2 * overlap(r, him) + (avoid ? overlap(r, avoid) : 0)
-    // Zero is zero: an early return here is also the tiebreak — candidates
-    // are tried in preference order (above, below, left, right), so the
-    // first fully-clear one wins over a later one that's equally clear.
-    if (score === 0) return { left, top }
-    if (score < bestScore) {
-      bestScore = score
-      best = { left, top }
-    }
-  }
-  return best ?? { left: MARGIN, top: MARGIN }
+  // Order IS the preference (see `SIDES`): above first, where a speech bubble
+  // belongs and furthest from what he usually stands beside; the screen-docked
+  // slots last. HIM COUNTS TOO, double: a bubble covering the character saying
+  // the words reads as the bubble erasing him. A target covering everything
+  // still gets the least-bad slot, because some of the words beat none.
+  return slot(chooseSide(bubble, him, avoid, vw, vh), bubble, him, vw, vh, avoid)
 }
 
 /** Small pop-in/out travel distance, in px. Shared by the enter and leave
@@ -104,87 +64,267 @@ const ENTER_MS = 180
  *  (see `DeckeHost.tsx`'s retire effect) — this has to finish inside that
  *  window with room to spare, not race it. */
 const LEAVE_MS = 240
+/** How long a change of side takes. Eased, never a jump. */
+const SWITCH_MS = 260
+/** The soonest a side may change again after it last changed. */
+const SWITCH_COOLDOWN_MS = 700
+/** The size a side is chosen for: a typical two-line remark. See `pick`. */
+const PLAN_W = 240
+const PLAN_H = 56
+/** How much of the bubble's own area may overlap before its side is blocked. */
+const BLOCKED_SHARE = 0.12
 
+/** Where the bubble sits relative to him. The order is `place`'s preference. */
+export type BubbleSide = 'above' | 'below' | 'left' | 'right' | 'over' | 'under' | 'dock-bottom' | 'dock-top'
+const SIDES: BubbleSide[] = ['above', 'below', 'left', 'right', 'over', 'under', 'dock-bottom', 'dock-top']
+
+/** A bubble's top-left for a side, clamped into the viewport. Exported for tests. */
+export function slot(
+  side: BubbleSide,
+  bubble: { width: number; height: number },
+  him: Rect,
+  vw: number,
+  vh: number,
+  avoid: Rect | null = null,
+): { left: number; top: number } {
+  const cx = him.left + him.width / 2
+  const cy = him.top + him.height / 2
+  // `over` and `under` are a caption's places: just above or below the thing he
+  // is showing, still centred on him. On a phone he stands in the gutter
+  // between two cards and every slot beside him lands on one of them; these
+  // keep the line next to him without covering what he is pointing at.
+  const shown = avoid ?? him
+  const raw =
+    side === 'above' ? { left: cx - bubble.width / 2, top: him.top - bubble.height - GAP }
+    : side === 'below' ? { left: cx - bubble.width / 2, top: him.bottom + GAP }
+    : side === 'over' ? { left: cx - bubble.width / 2, top: Math.min(him.top, shown.top) - bubble.height - GAP }
+    : side === 'under' ? { left: cx - bubble.width / 2, top: Math.max(him.bottom, shown.bottom) + GAP }
+    : side === 'left' ? { left: him.left - bubble.width - GAP, top: cy - bubble.height / 2 }
+    : side === 'right' ? { left: him.right + GAP, top: cy - bubble.height / 2 }
+    : side === 'dock-bottom' ? { left: vw / 2 - bubble.width / 2, top: vh - bubble.height - DOCK_BOTTOM }
+    : { left: vw / 2 - bubble.width / 2, top: DOCK_TOP }
+  return {
+    left: Math.max(MARGIN, Math.min(vw - bubble.width - MARGIN, raw.left)),
+    top: Math.max(MARGIN, Math.min(vh - bubble.height - MARGIN, raw.top)),
+  }
+}
+
+/** How much a bubble at `at` covers what must stay visible. 0 is clear. */
+function cost(at: { left: number; top: number }, bubble: { width: number; height: number }, him: Rect, avoid: Rect | null) {
+  const r: Rect = { left: at.left, top: at.top, right: at.left + bubble.width, bottom: at.top + bubble.height, width: bubble.width, height: bubble.height }
+  return 2 * overlap(r, him) + (avoid ? overlap(r, avoid) : 0)
+}
+
+/**
+ * The side `place` would choose. Exported for tests.
+ *
+ * With `near` — where the bubble is drawn now — the choice among clear slots is
+ * the one it has least far to travel to, not the first in preference order:
+ * a bubble already on screen that has to move should move as little as it can.
+ */
+export function chooseSide(
+  bubble: { width: number; height: number },
+  him: Rect,
+  avoid: Rect | null,
+  vw: number,
+  vh: number,
+  near: { left: number; top: number } | null = null,
+): BubbleSide {
+  let best: BubbleSide = SIDES[0]
+  let bestScore = Infinity
+  let nearest: BubbleSide | null = null
+  let nearestD = Infinity
+  for (const side of SIDES) {
+    const at = slot(side, bubble, him, vw, vh, avoid)
+    const score = cost(at, bubble, him, avoid)
+    if (score === 0) {
+      if (!near) return side
+      const d = Math.hypot(at.left - near.left, at.top - near.top)
+      if (d < nearestD) {
+        nearestD = d
+        nearest = side
+      }
+    }
+    if (score < bestScore) {
+      bestScore = score
+      best = side
+    }
+  }
+  return nearest ?? best
+}
+
+// In-out, not out: a switch that starts at full speed reads as a jump.
+const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+
+/**
+ * His line while he is out on the page, riding him.
+ *
+ * ── WHAT THE OWNER SAW, AND WHY IT HAPPENED ──────────────────────────────────
+ *
+ * "His speech bubble overall doesn't follow him in an acceptable manner. It's
+ * choppy and it often changes position in ways that don't feel deliberate."
+ * And on a phone: "it's still saying 'let me show you' when he arrives at the
+ * card, and then when it updates, it moves down the page." Three mechanisms:
+ *
+ *   - it was placed from his position POLLED at 8 Hz through React state, so
+ *     it moved in 125 ms steps behind a character drawn at 60;
+ *   - every one of those polls re-ran the whole placement solve, so it could
+ *     change sides at any moment, mid-flight, for a pixel of difference;
+ *   - it showed the turn's WHOLE reply, so the arrival line was appended to the
+ *     departure line, the box grew, and the grown box was re-solved somewhere
+ *     else on the page.
+ *
+ * ── WHAT IT DOES NOW ─────────────────────────────────────────────────────────
+ *
+ *   - It follows him from `DeckE.onFrame`: the frame he is drawn in is the
+ *     frame it moves in, written as a transform, with no React render.
+ *   - Its SIDE is chosen at deliberate beats only — when it appears, and when
+ *     he lands — plus when the side it is on would cover him or the thing he is
+ *     showing, at most once per `SWITCH_COOLDOWN_MS`. A change of side is eased
+ *     over `SWITCH_MS`, never a jump.
+ *   - Its size is measured by a ResizeObserver, whose callback runs after
+ *     layout and before paint, and the slot is re-applied there — so new text
+ *     grows the box AWAY from him, from the edge that faces him, in the same
+ *     frame, instead of moving it. The host now hands it only the line he is
+ *     saying NOW (see `currentLine` in `DeckeHost.tsx`).
+ */
 export function DeckeBubble({
   text,
-  himRect,
+  follow,
   leaving,
+  waiting,
 }: {
-  /** What he is saying. Empty hides the bubble entirely. */
+  /** What he is saying. Empty hides the bubble unless `waiting`. */
   text: string
-  /** Where he is on screen, in viewport pixels. */
-  himRect: Rect | null
+  /** The character to ride — his viewport box, and his frame clock. */
+  follow: {
+    viewportRect: () => Rect | null
+    onFrame: (fn: () => void) => () => void
+    getState: () => { flying: boolean }
+    /** His clock, so an eased change of side runs at his pace, not the wall's. */
+    clockMs: () => number
+  } | null
   /** True for the beat between "he's done talking" and "he leaves" — the
-   *  bubble animates away instead of vanishing under him. Undefined behaves
-   *  like `false`; there is no third state. */
+   *  bubble animates away instead of vanishing under him. */
   leaving?: boolean
+  /** He has arrived and his next line is on its way: show that, in place. */
+  waiting?: boolean
 }) {
   const ref = useRef<HTMLDivElement | null>(null)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-  // Which way "toward him" is, from the bubble's own placement — above him,
-  // below, left or right of it — so the pop-in can travel from that side
-  // instead of a fixed direction that would be wrong for three of the four
-  // candidates `place()` can choose. Only recomputed when the bubble is
-  // (re)placed for a new line, not on every scroll/resize tick — see below.
-  const [dir, setDir] = useState({ x: 0, y: 1 })
-  // Plays the enter transition once per mount, the same beat
-  // `decke-chat-in`'s `both` fill used to give it before this replaced it.
+  const shown = !!text || !!waiting
+  // Which way "toward him" is, for the pop-in and pop-out: set from the side.
+  const [side, setSide] = useState<BubbleSide | null>(null)
   const [entered, setEntered] = useState(false)
 
-  // Measured AFTER paint but BEFORE the browser shows it: the bubble's size
-  // depends on its text, and placing it needs that size. `useLayoutEffect` is
-  // what keeps it from being drawn once in the wrong place and corrected.
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el || !himRect || !text) return
-    const b = el.getBoundingClientRect()
-    // The element he is presenting, which must stay visible: whatever is ringed
-    // right now, read from the ring itself. This was handed in as a selector
-    // built from the ringed element's `id` — which card tiles do not have, and
-    // which was never prefixed with `#` when they did — so it was null on every
-    // presentation and the bubble sat on the card he was showing.
-    const avoidEl = highlighted()
-    const avoid = avoidEl ? (avoidEl.getBoundingClientRect() as unknown as Rect) : null
-    const next = place({ width: b.width, height: b.height }, himRect, avoid, window.innerWidth, window.innerHeight)
-    setPos(next)
-    const bubbleCx = next.left + b.width / 2
-    const bubbleCy = next.top + b.height / 2
-    const himCx = himRect.left + himRect.width / 2
-    const himCy = himRect.top + himRect.height / 2
-    const dx = himCx - bubbleCx
-    const dy = himCy - bubbleCy
-    setDir(Math.abs(dy) >= Math.abs(dx) ? { x: 0, y: dy > 0 ? 1 : -1 } : { x: dx > 0 ? 1 : -1, y: 0 })
-  }, [text, himRect])
+    if (!el || !follow || !shown) return
+    let size = { width: el.offsetWidth, height: el.offsetHeight }
+    let current: BubbleSide | null = null
+    let switchedAt = -Infinity
+    let from: { left: number; top: number } | null = null
+    let blendStart = 0
+    let wasFlying = follow.getState().flying
+    let last: { left: number; top: number } | null = null
+    const written = { transform: '', side: '', switching: false, visible: false }
 
-  // Re-place on scroll and resize. He is pinned to the page while presenting, so
-  // both move him and the element he is beside.
-  useEffect(() => {
-    if (!text) return
-    const on = () => setPos((p) => (p ? { ...p } : p))
-    window.addEventListener('scroll', on, { passive: true })
-    window.addEventListener('resize', on)
-    return () => {
-      window.removeEventListener('scroll', on)
-      window.removeEventListener('resize', on)
+    const avoidRect = (): Rect | null => {
+      const a = highlighted()
+      return a ? (a.getBoundingClientRect() as unknown as Rect) : null
     }
-  }, [text])
+    // CHOSEN FOR THE LINE IT WILL HOLD, not the one it holds now. At a beat the
+    // box is often three dots or half a sentence; a side chosen for that size
+    // is blocked a moment later by the full line and the bubble moves again —
+    // on a phone it went right, then below, then docked, inside a second.
+    const pick = (him: Rect, near: { left: number; top: number } | null) =>
+      chooseSide(
+        { width: Math.max(size.width, PLAN_W), height: Math.max(size.height, PLAN_H) },
+        him,
+        avoidRect(),
+        window.innerWidth,
+        window.innerHeight,
+        near,
+      )
+
+    const apply = () => {
+      const him = follow.viewportRect()
+      if (!him || him.height < 1) return
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const now = follow.clockMs()
+      const flying = follow.getState().flying
+      if (!current) {
+        current = pick(him, null)
+        setSide(current)
+      } else {
+        // THE BEATS: he has just landed, or where it sits now covers what it
+        // must not. Never simply because a different side scores a pixel
+        // better mid-flight.
+        const landed = wasFlying && !flying
+        // Blocked means covering a real share of him or of what he is showing,
+        // not grazing a corner: a sliver is not worth a move the reader sees.
+        const avoid = avoidRect()
+        const blocked = cost(slot(current, size, him, vw, vh, avoid), size, him, avoid) > size.width * size.height * BLOCKED_SHARE
+        if ((landed || blocked) && now - switchedAt > SWITCH_COOLDOWN_MS) {
+          const next = pick(him, last)
+          if (next !== current) {
+            from = last
+            blendStart = now
+            switchedAt = now
+            current = next
+            setSide(next)
+          }
+        }
+      }
+      wasFlying = flying
+      let at = slot(current, size, him, vw, vh, avoidRect())
+      if (from) {
+        const t = Math.min(1, (now - blendStart) / SWITCH_MS)
+        const e = easeInOut(t)
+        at = { left: from.left + (at.left - from.left) * e, top: from.top + (at.top - from.top) * e }
+        if (t >= 1) from = null
+      }
+      last = at
+      // Only what changed is written: this runs every frame he is drawn, and an
+      // attribute rewritten to the same value still invalidates style.
+      const transform = `translate3d(${Math.round(at.left)}px, ${Math.round(at.top)}px, 0)`
+      if (transform !== written.transform) el.style.transform = written.transform = transform
+      if (current !== written.side) el.dataset.side = written.side = current
+      // Said out loud for anything measuring it: while set, the bubble is
+      // making a deliberate eased move of its own, not riding him.
+      const switching = !!from
+      if (switching !== written.switching) {
+        written.switching = switching
+        if (switching) el.dataset.switching = ''
+        else delete el.dataset.switching
+      }
+      if (!written.visible) {
+        written.visible = true
+        el.style.visibility = 'visible'
+      }
+    }
+
+    // New text resizes the box; re-apply before that frame paints, so the edge
+    // facing him stays where it was.
+    const ro = new ResizeObserver(() => {
+      size = { width: el.offsetWidth, height: el.offsetHeight }
+      apply()
+    })
+    ro.observe(el)
+    const off = follow.onFrame(apply)
+    apply()
+    return () => {
+      off()
+      ro.disconnect()
+    }
+  }, [follow, shown])
 
   // Flip to the settled state a frame after the first placement, so the
-  // browser has actually painted the offset/faded starting frame before the
-  // transition has anything to animate FROM. A single effect can race React's
-  // batching; two nested rAFs is the reliable version of "next frame, for
-  // real" without reaching for a timer.
-  //
-  // NO ONCE-GUARD REF, and this was a bug caught on camera: StrictMode's dev
-  // mount runs effect → cleanup → effect, and a ref that latched on the first
-  // run survived into the second, whose early-return meant the rAF the
-  // cleanup had just cancelled was never rescheduled — `entered` stayed
-  // false and the bubble rendered at opacity 0, mounted and invisible, for
-  // its whole life. Re-running on a later placement is harmless: `entered`
-  // is already true and the extra `setEntered(true)` is a no-op. "Once per
-  // mount" is the `key`'s job, not a ref's.
+  // browser has painted the offset/faded starting frame before the transition
+  // has anything to animate FROM. Re-running is harmless; "once per mount" is
+  // the `key`'s job, not a ref's (a latched ref broke this under StrictMode).
   useEffect(() => {
-    if (!pos) return
+    if (!side) return
     let raf2 = 0
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => setEntered(true))
@@ -193,97 +333,75 @@ export function DeckeBubble({
       cancelAnimationFrame(raf1)
       cancelAnimationFrame(raf2)
     }
-  }, [pos])
+  }, [side])
 
-  if (!text) return null
+  if (!shown) return null
 
-  // Entering and leaving share one visual: small, faded, and shifted `dir *
-  // POP` toward him — the bubble reads as emerging from him on the way in and
-  // retreating into him on the way out, rather than two unrelated effects.
+  const dir =
+    side === 'below' || side === 'under' || side === 'dock-top' ? { x: 0, y: -1 }
+    : side === 'left' ? { x: 1, y: 0 }
+    : side === 'right' ? { x: -1, y: 0 }
+    : { x: 0, y: 1 }
+  // Entering and leaving share one visual: small, faded, and shifted toward
+  // him, on an INNER element — the outer one's transform is his position, and
+  // two writers of one `transform` is how the old keyframe fought the offset.
   const settled = { opacity: 1, transform: 'translate(0px, 0px) scale(1)' }
-  const off = {
-    opacity: 0,
-    transform: `translate(${dir.x * POP}px, ${dir.y * POP}px) scale(0.94)`,
-  }
-  const anim = leaving || !entered ? off : settled
+  const offState = { opacity: 0, transform: `translate(${dir.x * POP}px, ${dir.y * POP}px) scale(0.94)` }
+  const anim = leaving || !entered ? offState : settled
 
   return (
     <div
       data-decke-ui
+      data-decke-bubble
       ref={ref}
       role="status"
       aria-live="polite"
-      // z-31: ABOVE the canvas (30), because a bubble behind him is not a
-      // bubble. Still below modals and toasts.
-      //
-      // `max-h-[38vh] overflow-y-auto`: a seven-line reply once squatted over
-      // the page, unread, for 63 seconds, because nothing capped its height.
-      // The copy itself is a prompt-side fix owned elsewhere; this is the
-      // backstop that makes a long reply scroll inside its own box instead of
-      // burying whatever it was supposed to be pointing at.
-      //
-      // Motion is a transition, not the old `decke-chat-in` keyframe: a
-      // keyframe's `transform` is a literal value that would fight the
-      // per-render `dir`-based offset below (two different sources both
-      // wanting to own `transform` on the same element), and it can't reverse
-      // for `leaving` without a second keyframe.
-      //
-      // REDUCED MOTION KEEPS THE FADE AND DROPS THE TRAVEL. This used to be
-      // `motion-reduce:transition-none`, which sounds like the careful choice
-      // and is the same mistake issue #49 found on the premium skin: with both
-      // directions instant, a line he starts saying and a line he stops saying
-      // are the same event — the bubble is simply there, or simply not, with
-      // nothing to mark the change. Opacity is not movement and costs nothing,
-      // so it keeps transitioning; only `transform` goes, and it goes at the
-      // source (theme.css neutralises the custom property below) rather than by
-      // being transitioned instantly, which would still snap through the offset
-      // position on the way.
-      className={[
-        // `w-max` for the same photographed reason as `DeckeFarewell`: a
-        // fixed element's auto width shrink-wraps against the viewport edge
-        // before the transform is applied, so near the right edge the box
-        // collapsed to a one-word-per-line column. Words size the box, up to
-        // the max; the placement solve then measures the truth.
-        'pointer-events-none fixed z-[31] w-max max-w-[280px] max-h-[38vh] overflow-y-auto rounded-[14px]',
-        'border border-border-default bg-surface-raised px-[12px] py-[8px]',
-        'text-[13px] leading-[19px] text-text-primary shadow-xl',
-        'decke-speech-pop',
-        'motion-safe:transition-[opacity,transform] motion-safe:ease-[cubic-bezier(0.2,0.9,0.3,1)]',
-        'motion-reduce:transition-[opacity] motion-reduce:ease-out',
-      ].join(' ')}
-      style={{
-        left: pos?.left ?? -9999,
-        top: pos?.top ?? -9999,
-        // Hidden until placed, so it never flashes at the measuring position.
-        visibility: pos ? 'visible' : 'hidden',
-        opacity: anim.opacity,
-        // THROUGH A CUSTOM PROPERTY, NOT `transform` DIRECTLY. The offset is a
-        // per-render JS value and so has to be inline, and an inline
-        // declaration outranks every selector in every stylesheet — writing it
-        // here as `transform` would have forced `!important` on the
-        // reduced-motion rule that takes it away. `.decke-speech-pop` in
-        // theme.css reads this property; the `reduce` rule beside it says
-        // `none` and wins on source order alone.
-        '--decke-speech-pop': anim.transform,
-        transitionDuration: `${leaving ? LEAVE_MS : ENTER_MS}ms`,
-      } as React.CSSProperties}
+      // Positioned by transform from `apply`, never by left/top, so following
+      // him is a compositor move. Hidden until the first placement so it never
+      // flashes at the corner.
+      className="pointer-events-none fixed left-0 top-0 z-[31]"
+      style={{ visibility: 'hidden', willChange: 'transform' }}
     >
-      {/*
-        MARKDOWN HERE TOO, and this is the half that gets forgotten.
-
-        The transcript rendered `{m.text}` raw and so did this, and only the
-        transcript was in the original complaint — because this surface is only
-        used while he is out on the page, which the owner saw less of. That is
-        about to invert: the wayfinding work routes MORE text through the
-        bubble, not less, since a character escorting someone across the app
-        says what he is doing from beside the thing he is pointing at.
-
-        `tone="bubble"` is the tight treatment. A bubble is two sentences over a
-        live page, not a document: no heading larger than the body, no big
-        margins, and tables stay literal rather than trying to lay out a grid in
-        280 pixels.
-      */}
-      <ChatMarkdown text={text} tone="bubble" />
+      <div
+        // z-31 on the outer: ABOVE the canvas (30), because a bubble behind
+        // him is not a bubble. Still below modals and toasts.
+        //
+        // `max-h-[38vh] overflow-y-auto`: a seven-line reply once squatted over
+        // the page, unread, for 63 seconds, because nothing capped its height.
+        //
+        // REDUCED MOTION KEEPS THE FADE AND DROPS THE TRAVEL (issue #49's
+        // lesson): opacity still transitions, and `transform` goes at the
+        // source — theme.css neutralises `--decke-speech-pop` under `reduce`.
+        //
+        // `w-max` so words size the box, up to the max; the slot is solved from
+        // the measured truth.
+        className={[
+          'w-max max-w-[280px] max-h-[38vh] overflow-y-auto rounded-[14px]',
+          'border border-border-default bg-surface-raised px-[12px] py-[8px]',
+          'text-[13px] leading-[19px] text-text-primary shadow-xl',
+          'decke-speech-pop',
+          'motion-safe:transition-[opacity,transform] motion-safe:ease-[cubic-bezier(0.2,0.9,0.3,1)]',
+          'motion-reduce:transition-[opacity] motion-reduce:ease-out',
+        ].join(' ')}
+        style={{
+          opacity: anim.opacity,
+          '--decke-speech-pop': anim.transform,
+          transitionDuration: `${leaving ? LEAVE_MS : ENTER_MS}ms`,
+        } as React.CSSProperties}
+      >
+        {text ? (
+          // MARKDOWN HERE TOO: the transcript and the bubble render the same
+          // words the same way. `tone="bubble"` is the tight treatment — two
+          // sentences over a live page, not a document.
+          <ChatMarkdown text={text} tone="bubble" />
+        ) : (
+          <span className="decke-bubble-dots" aria-label="Deck-E is typing">
+            <span />
+            <span />
+            <span />
+          </span>
+        )}
+      </div>
     </div>
   )
 }

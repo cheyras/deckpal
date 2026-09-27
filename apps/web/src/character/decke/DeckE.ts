@@ -511,6 +511,15 @@ const _shifted = new Vector3()
 /** Input a person scrolls with. Any of them ends a driven scroll. */
 const READER_SCROLL_INPUT = ['wheel', 'touchstart', 'keydown'] as const
 
+/** Does a key pressed on `target` act there, rather than scroll the page? */
+function keyStaysLocal(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false
+  if (target instanceof HTMLElement && target.isContentEditable) return true
+  return !!target.closest(
+    'input, textarea, select, button, a[href], [role="textbox"], [role="combobox"], [role="listbox"], [role="slider"], [role="menu"], [role="button"]',
+  )
+}
+
 const INSTANCES = new WeakMap<HTMLCanvasElement, DeckE>()
 
 /** Scratch for the beacon's silhouette probe. Module scope, not per instance:
@@ -691,6 +700,10 @@ export class DeckE {
     if (e.type === 'keydown') {
       const k = (e as KeyboardEvent).key
       if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(k)) return
+      // The same keys edit text and press controls: in a field they move the
+      // caret, on a button Space presses it. Neither scrolls the page, so
+      // neither is the reader taking the page from him.
+      if (keyStaysLocal(e.target)) return
     }
     this.scrollDrive = null
     this.tookOver = true
@@ -2454,10 +2467,25 @@ export class DeckE {
   private driveScroll(t: number) {
     const d = this.scrollDrive
     if (!d) return
+    // THE BACKSTOP FOR WHAT HAS NO EVENT. Dragging the scrollbar, or clicking
+    // its track, fires none of the input above. A read-back that lags is always
+    // one of the values this drive wrote recently; a scrollbar drag lands
+    // somewhere it never wrote, and stays there. Two frames of that is a person.
+    const y0 = window.scrollY
+    const lo = Math.min(...d.recent) - 2
+    const hi = Math.max(...d.recent) + 2
+    d.foreign = y0 < lo || y0 > hi ? d.foreign + 1 : 0
+    if (d.foreign >= 2) {
+      this.scrollDrive = null
+      this.tookOver = true
+      return
+    }
     // Eased on the same curve the flight uses, so neither leads the other.
     const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
     const y = Math.round(d.from + (d.to - d.from) * Math.min(1, Math.max(0, e)))
     d.own = y
+    d.recent.push(y)
+    if (d.recent.length > 4) d.recent.shift()
     window.scrollTo(0, y)
   }
 
@@ -2548,7 +2576,7 @@ export class DeckE {
    * wrote. Anything that moves the scroll away from `own` between frames was
    * the reader, and the drive gives up immediately — see `driveScroll`.
    */
-  private scrollDrive: { from: number; to: number; own: number } | null = null
+  private scrollDrive: { from: number; to: number; own: number; recent: number[]; foreign: number } | null = null
   /** Set by `flyTo` immediately before `launch`, consumed there. */
   private pendingScroll: number | null = null
 
@@ -2605,7 +2633,7 @@ export class DeckE {
       this.scrollDrive =
         Math.abs(this.pendingScroll - from) < 8
           ? null
-          : { from, to: this.pendingScroll, own: from }
+          : { from, to: this.pendingScroll, own: from, recent: [from], foreign: 0 }
       this.pendingScroll = null
     }
     this.anchor.copy(to)
@@ -2856,6 +2884,60 @@ export class DeckE {
       }
       this.tickMs = performance.now() - t0
     }
+    // AFTER he is drawn, in the same frame: anything that rides him reads the
+    // position he was just drawn at, so it can never be a frame behind him.
+    for (const fn of this.frameListeners) {
+      try {
+        fn()
+      } catch {
+        /* a follower's bug must not stop him drawing */
+      }
+    }
+  }
+
+  /** See `onFrame`. */
+  private readonly frameListeners = new Set<() => void>()
+
+  /**
+   * Run `fn` after every frame he is drawn, on his own clock. Returns the
+   * unsubscribe.
+   *
+   * ── WHY DOM THAT RIDES HIM NEEDS THIS ───────────────────────────────────────
+   *
+   * The speech bubble used to be placed from a position the host POLLED at
+   * 8 Hz and handed down through React state, so it moved in steps an eighth of
+   * a second apart while he flew smoothly — "choppy", in the owner's word — and
+   * every poll could re-solve which side of him it sat on. Following him from
+   * here puts it on the same frame he is drawn in, at 60 Hz, with no render.
+   */
+  onFrame(fn: () => void): () => void {
+    this.frameListeners.add(fn)
+    return () => {
+      this.frameListeners.delete(fn)
+    }
+  }
+
+  /** His own clock, in ms: advanced by every frame he is drawn, so it runs at
+   *  his pace — not the wall's — when frames are slow or stepped by hand. */
+  clockMs(): number {
+    return this.elapsed * 1000
+  }
+
+  /**
+   * `screenRect` in VIEWPORT pixels — the canvas's own client offset added, which
+   * is not zero while he is pinned to the page or the iOS keyboard has moved it.
+   * What DOM positioned `fixed` beside him needs. Read from the canvas's live
+   * box rather than the cached origin: a pin taken late in this same frame
+   * moves the canvas after the cache was filled. Called after a frame has
+   * drawn, the layout it reads is already clean.
+   */
+  viewportRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } | null {
+    const r = this.screenRect()
+    if (!r) return null
+    const c = this.opts.canvas.getBoundingClientRect()
+    const x = c.left
+    const y = c.top
+    return { left: r.left + x, top: r.top + y, right: r.right + x, bottom: r.bottom + y, width: r.width, height: r.height }
   }
 
   stop() {

@@ -237,7 +237,12 @@ of them breaks — extend it when you add a new way to show something.
   `goTo` with a selector answer from `FlyOptions.arrived`, so the model's next
   words come after the ring, and an interrupted trip is reported as one.
 - **Long pages are thrown, then glided.** At most `MAX_GLIDE_SCREENS` is ever
-  animated; the rest is a jump as he sets off (or before the new page paints).
+  animated; the rest is a jump as he sets off (or before the new page paints),
+  and a navigation that shows something skips the router's scroll reset.
+- **What rides him moves on his frame.** The speech bubble follows `onFrame`,
+  never a poll; it changes side only at its beats (appearing, landing, or when
+  it would cover him or the ringed card), eased on `clockMs`; it grows away
+  from him; and it shows only his current line.
 
 ## Things that will bite you
 

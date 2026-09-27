@@ -35,8 +35,8 @@ import { deckeEntitled, onDeckeEntitlementChange } from './entitlement'
 import { DeckeButton } from './DeckeButton'
 import {
   COMPOSER_LANDMARK,
+  currentLine,
   DeckeChat,
-  messageText,
   NAV_BREAKPOINT,
   PARK_LANDMARK,
   STAND_DESKTOP,
@@ -278,7 +278,6 @@ export function DeckeHost() {
     () => typeof window !== 'undefined' && window.innerWidth >= NAV_BREAKPOINT,
   )
   /** Where he is on screen, sampled while he is out on the page. */
-  const [himRect, setHimRect] = useState<Rect | null>(null)
   /**
    * The line he leaves behind on his way back to his corner.
    *
@@ -439,7 +438,7 @@ export function DeckeHost() {
     // clicks therefore still accretes an entry per click. Closing that means
     // intercepting navigation at the router rather than at this seam, which is
     // a larger change than this pass should make on its way past.
-    (to) => {
+    (to, opts) => {
       const first = !turnNavigatedRef.current
       turnNavigatedRef.current = true
       // The PATH half only: the watcher compares this against the router's
@@ -447,7 +446,7 @@ export function DeckeHost() {
       // spotlight rides `?card=`). Comparing path-to-path or the exemption
       // silently stops matching the moment a query appears.
       toolNavRef.current = to.split('?')[0].split('#')[0]
-      navigate({ to, replace: !first })
+      navigate({ to, replace: !first, resetScroll: !opts?.keepScroll })
     },
     // HOLD HIM, THEN MINIMISE. Travelling collapses the panel to its bar, and
     // the composer he stands beside goes with it; a station re-solve would drag
@@ -693,24 +692,6 @@ export function DeckeHost() {
       }
     }
   }, [pathname])
-
-  // SAMPLE HIS POSITION WHILE HE IS OUT, and only while he is out.
-  //
-  // Polled at 8 Hz rather than bound to the render loop. Re-rendering React
-  // sixty times a second to move one bubble is the kind of thing that makes a
-  // 3D character feel expensive, and a bubble that lags his flight by an eighth
-  // of a second is not something anyone can see — the engine's own dev page
-  // polls its readouts at 5 Hz for the same reason.
-  useEffect(() => {
-    if (!live || !travelling) {
-      setHimRect(null)
-      return
-    }
-    const tick = () => setHimRect(live.screenRect())
-    tick()
-    const id = window.setInterval(tick, 125)
-    return () => window.clearInterval(id)
-  }, [live, travelling])
 
   // He is "travelling" from the moment a UI tool moves him until the chat is
   // closed. That is what minimises the transcript and hands his words to the
@@ -1288,7 +1269,15 @@ function settledRect(el: HTMLElement): DOMRect {
   const closeChatRef = useRef(chat.close)
   closeChatRef.current = chat.close
   const lastAssistant = chat.messages.filter((m) => m.role === 'assistant').at(-1)
-  const bubbleText = chatOpen && travelling && lastAssistant ? messageText(lastAssistant) : ''
+  // THE LINE HE IS SAYING NOW, not the whole reply. A reply that moves him is
+  // several lines with trips between them ("Let me show you." · flight · "There
+  // it is."), and showing the whole message appended the arrival line to the
+  // departure line, grew the box, and moved it — the owner's "when it updates,
+  // it moves down the page". The words after his last trip are his current
+  // line; none yet, while a turn is still running, is `waiting`: he has arrived
+  // and is about to speak, which the bubble shows in place.
+  const bubbleText = chatOpen && travelling && lastAssistant ? currentLine(lastAssistant) : ''
+  const bubbleWaiting = chatOpen && travelling && !bubbleText.trim() && chat.busy && !!lastAssistant?.parts.some((p) => p.kind === 'tool')
   useEffect(() => {
     setBubbleLeaving(false)
     if (!chatOpen || !travelling || chat.busy || chat.asking) return
@@ -2003,7 +1992,8 @@ function settledRect(el: HTMLElement): DOMRect {
       {chatOpen && travelling ? (
         <DeckeBubble
           text={bubbleText}
-          himRect={himRect}
+          waiting={bubbleWaiting}
+          follow={live}
           leaving={bubbleLeaving}
         />
       ) : null}
