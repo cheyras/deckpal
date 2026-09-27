@@ -78,6 +78,10 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const QUEUE_SRC = fs.readFileSync(fileURLToPath(new URL('../queueDb.ts', import.meta.url)), 'utf8')
+const SERVER_SRC = fs.readFileSync(fileURLToPath(new URL('../../../../../api/src/dev/scanQueue.ts', import.meta.url)), 'utf8')
+const REPAIR_SRC = fs.readFileSync(fileURLToPath(new URL('../../../../../api/src/dev/queueRepair.ts', import.meta.url)), 'utf8')
+const THUMB_SRC = fs.readFileSync(fileURLToPath(new URL('../AuthThumb.tsx', import.meta.url)), 'utf8')
+const LABELER_SRC = fs.readFileSync(fileURLToPath(new URL('../QuadLabeler.tsx', import.meta.url)), 'utf8')
 
 test('the outbox is consulted by lookup, not by the sign of the id', () => {
   assert.match(QUEUE_SRC, /async function inOutbox\(/, 'a lookup helper must exist')
@@ -125,12 +129,44 @@ test('an undecodable photo is REFUSED, never uploaded as-is', () => {
   // The route stores everything as image/jpeg. Uploading bytes that failed to
   // decode manufactures a server row as broken as the local one — the previous
   // "fall back to the original blob" path did exactly that.
-  assert.match(QUEUE_SRC, /throw new Error\(\s*`this browser cannot decode/, 'decode failure must throw')
+  assert.match(QUEUE_SRC, /throw new Error\(\s*`this photo could not be decoded/, 'decode failure must throw')
   assert.doesNotMatch(
     QUEUE_SRC,
     /async function normalizeForUpload[\s\S]*?\n  \} catch \{\n    return blob\n  \}/,
     'normalizeForUpload must not fall back to the undecodable original',
   )
+})
+
+test('server repair owns identity; client cleanup hints never hide a surviving photo', () => {
+  assert.match(QUEUE_SRC, /if \(!\(await isHeic\(blob\)\)\) return blob/)
+  assert.match(QUEUE_SRC, /repairOf: id/)
+  assert.match(QUEUE_SRC, /await api\.scanQueueDelete\(id, true\)/)
+  assert.doesNotMatch(QUEUE_SRC, /pendingCleanups|replacementIds/)
+  assert.match(QUEUE_SRC, /\.\.\.remote\.map/)
+  assert.match(QUEUE_SRC, /removedIds\.add\(id\)[\s\S]*?await repairs\.get\(id\)/)
+  assert.match(QUEUE_SRC, /catch \(error\) \{\s*removedIds\.delete\(id\)/)
+  assert.match(REPAIR_SRC, /id \* 1000 \+ 1/)
+  assert.match(SERVER_SRC, /if \(await checkedObject\(path, 'HEAD'\)\)/)
+})
+
+test('a missing harvest thumbnail shows an explanation when no removal callback exists', () => {
+  assert.match(THUMB_SRC, /error\.status === 404 && missingRef\.current/)
+  assert.match(THUMB_SRC, /This photo is no longer available\./)
+})
+
+test('a temporary storage failure is not reported as a missing photo', () => {
+  assert.match(SERVER_SRC, /response\.status === 404 \|\| response\.status === 400/)
+  assert.match(SERVER_SRC, /new ApiError\(502, 'queue_storage_unavailable'/)
+})
+
+test('the server refuses HEIC bytes disguised as JPEG', () => {
+  assert.match(SERVER_SRC, /bytes\[0\] !== 0xff \|\| bytes\[1\] !== 0xd8 \|\| bytes\[2\] !== 0xff/)
+})
+
+test('a genuinely missing server photo leaves the grid with a useful message', () => {
+  assert.match(LABELER_SRC, /e instanceof ApiError && e\.status === 404/)
+  assert.match(LABELER_SRC, /items\.filter\(\(photo\) => photo\.id !== item\.id\)/)
+  assert.match(LABELER_SRC, /may have been labeled on another device/)
 })
 
 test('the upload budget is sized under the limit that actually bites', () => {

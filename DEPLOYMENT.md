@@ -1638,6 +1638,11 @@ The API has no built-in authentication in self-host mode. Place a reverse proxy
 (e.g., nginx with an SSO gateway, Caddy with SSO, or any auth-capable proxy) in front
 of the API. See [`SECURITY.md`](SECURITY.md) for details.
 
+Preserve the API's `Content-Security-Policy` header if the proxy sets headers of
+its own. The quad labeler uses a `blob:` worker for HEIC repair and `blob:`
+images for private photo previews; the API allows those only in `worker-src`
+and `img-src`. No extra environment variable or proxy rewrite is required.
+
 ### 6. Set up sync jobs
 
 `deckpal-sync` runs the price and collection-snapshot jobs on its own node-cron

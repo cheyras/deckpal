@@ -13,6 +13,8 @@ import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.
 import { checkOffline } from './offline.mjs'
 import { writesFixture, checkWrites } from './writes.mjs'
 import { checkAuthReturn } from './authReturn.mjs'
+import { checkHeicUnderSelfHostCsp } from './labelerHeic.mjs'
+import { queueFixture, checkQueue } from './queue.mjs'
 import { checkDeployAssets } from '../../scripts/check-deploy-assets.mjs'
 
 // Each returned suite owns its dist, fixture server, and browser contexts.
@@ -28,10 +30,12 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
         const writes = writesFixture(mount, admin)
         let adminActive = group !== 'catalog'
         const writesActive = group === 'writes'
+        const queue = queueFixture(mount)
+        const queueActive = group === 'queue'
         const server = await serve(dist, mount,
-          (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel),
+          (rel, url, req) => queueActive && (rel.startsWith('/api/dev/scan-queue') || rel.startsWith('/api/dev/scan-flags')) ? queue.response(rel, url, req) : writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel),
           'index.html', { allowMutation: (pathname, method) => pathname.endsWith('/api/client-errors') && method === 'POST'
-            || admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
+            || admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) || (queueActive && queue.allowMutation(pathname, method)) })
         try {
           logs.push(await buildWeb(dist, label === 'cloud', server.origin))
           if (group === 'catalog') {
@@ -56,6 +60,9 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           } else if (group.startsWith('feedback-')) {
             results.push(...await checkFeedback(browser, server, mount, label, out, admin, group.slice('feedback-'.length)))
             if (group === 'feedback-lifecycle') results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+          } else if (group === 'queue') {
+            results.push(...await checkQueue(browser, server, mount, label, out, queue))
+            if (label === 'selfhost') results.push(await checkHeicUnderSelfHostCsp(browser, dist))
           } else if (group === 'a11y') {
             results.push(...await checkA11y(browser, server, mount, label, out))
           } else if (group === 'writes') {
@@ -76,9 +83,9 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           '--noEmit', '-p', path.join(ROOT, 'tests/browser/tsconfig.json')]))
       },
     },
-    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'a11y']
+    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'queue', 'a11y']
       .map(group => labelSuite('selfhost', '/deckpal', group)),
-    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'a11y', 'writes']
+    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'a11y', 'writes', 'queue']
       .map(group => labelSuite('cloud', '', group)),
     {
       name: 'authreturn',
