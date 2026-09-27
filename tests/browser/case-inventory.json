@@ -193,6 +193,8 @@
   "{\"case\":\"payment-history\",\"width\":390}",
   "{\"case\":\"pill-signin-returns-to-next\",\"width\":1440}",
   "{\"case\":\"pill-signin-returns-to-next\",\"width\":390}",
+  "{\"case\":\"profile-owned-cards\",\"width\":1440}",
+  "{\"case\":\"profile-owned-cards\",\"width\":390}",
   "{\"case\":\"real-host-top-up-and-unavailable-payments\",\"label\":\"cloud\"}",
   "{\"case\":\"real-service-worker-privacy\",\"label\":\"cloud\"}",
   "{\"case\":\"real-service-worker-privacy\",\"label\":\"selfhost\"}",

@@ -435,6 +435,25 @@ button {
   box-shadow: none;
 }
 
+/* The showcase search is one control: keep the keyboard ring on its rounded
+   container instead of drawing a second, square outline around the input. */
+.showcase-search:focus-within {
+  outline: 2px solid var(--color-action-primary-strong);
+  outline-offset: 2px;
+}
+.showcase-search input:focus-visible {
+  outline: none;
+}
+:root[data-skin='premium'] .showcase-search:focus-within {
+  outline: 1px solid rgb(var(--px-accent-rgb) / 0.55);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--px-accent-soft);
+}
+:root[data-skin='premium'] .showcase-search input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 /* An unowned variant is an empty, colored box over card art. Show its add
    action when a reader reaches it by keyboard or pointer, so that Tab stop
    cannot be mistaken for the card merely losing focus. */
