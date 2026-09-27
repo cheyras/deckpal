@@ -22,16 +22,16 @@ const ROOT = path.resolve(import.meta.dirname, '../..')
 const vercelConfig = JSON.parse(readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'))
 const cspOf = (source) => vercelConfig.headers.find((h) => h.source === source).headers
   .find((h) => h.key === 'Content-Security-Policy').value
-const GENERAL_CSP = cspOf('/((?!api/|dev/decke-compare$|dev/scan-harness$).*)')
+const GENERAL_CSP = cspOf('/((?!api/|dev/decke-compare$|assets/scan-harness-).*)')
 const DECKE_COMPARE_CSP = cspOf('/dev/decke-compare')
-const SCAN_HARNESS_CSP = cspOf('/dev/scan-harness')
+const SCAN_HARNESS_CSP = cspOf('/assets/scan-harness-(.*).html')
 // Mirrors vercel.json's own per-path carve-out (see check-security-headers.mjs
 // for why /dev/decke-compare needs a different frame-ancestors) rather than
 // applying one CSP everywhere -- a route that would only be exercised
 // correctly under its OWN real production header should get it here too.
 // `mount` is always '' here (this check only runs for label === 'cloud').
 const cspForPath = (mount) => (pathname) => pathname === mount + '/dev/decke-compare' ? DECKE_COMPARE_CSP
-  : pathname === mount + '/dev/scan-harness' ? SCAN_HARNESS_CSP : GENERAL_CSP
+  : /^\/assets\/scan-harness-[^/]+\.html$/.test(pathname.slice(mount.length)) ? SCAN_HARNESS_CSP : GENERAL_CSP
 
 // This crawl includes the Deck-E runtime and scanner/WASM path. Keep it serial
 // after the other suites so their parallel builds cannot starve its short auth
@@ -213,16 +213,23 @@ async function checkCamera(server, mount) {
   } finally { await browser.close() }
 }
 
-async function checkScanHarnessOpenCv(browser, server, mount, admin) {
+async function checkScanHarnessOpenCv(browser, server, mount, admin, out) {
   admin.state.actor = 'owner'
   admin.state.signedOut = false
-  admin.state.permissions = ['diagnostics.view']
+  admin.state.permissions = ['devtools.access', 'diagnostics.view']
   const context = await browser.newContext()
   await signIn(context)
   await context.addInitScript(VIOLATION_RECORDER)
   const page = await context.newPage()
   try {
-    await page.goto(server.origin + mount + '/dev/scan-harness', { waitUntil: 'load' })
+    const documentResponse = await page.goto(server.origin + mount + '/devtools', { waitUntil: 'load' })
+    assert.ok(!documentResponse?.headers()['content-security-policy']?.includes("'unsafe-eval'"),
+      'the Dev tools page must retain the strict app policy')
+    const harnessAsset = page.waitForResponse(response => /\/assets\/scan-harness-[^/]+\.html$/.test(new URL(response.url()).pathname))
+    await page.getByRole('link', { name: /Scanner harness/ }).click()
+    const assetResponse = await harnessAsset
+    assert.ok(assetResponse.headers()['content-security-policy']?.includes("'unsafe-eval'"),
+      'the harness iframe must receive its own OpenCV policy after client-side navigation')
     const frame = page.frameLocator('iframe[title="Card-detector harness"]')
     await frame.locator('[data-tab="live"]').click()
     await frame.locator('#engineOpenCv').click()
@@ -235,6 +242,10 @@ async function checkScanHarnessOpenCv(browser, server, mount, admin) {
     assert.deepEqual(await violationsOn(page), [], 'CSP violations while OpenCV initialized in the scan harness')
     assert.deepEqual(await frame.locator('body').evaluate(() => window.__cspViolations ?? []), [],
       'CSP violations inside the scan harness iframe')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.screenshot({ path: path.join(out, 'scan-harness-1440.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.screenshot({ path: path.join(out, 'scan-harness-390.png') })
     return { case: 'scan-harness-opencv', initialized: true }
   } finally {
     await context.close()
@@ -325,9 +336,11 @@ async function checkServiceWorkerRegistration(browser, server, mount, admin) {
     assert.deepEqual(deckeCompareViolations, [], "/dev/decke-compare's frame-ancestors 'self' exception was overridden by the service worker's cached shell (frame-ancestors 'none')")
     assert.ok(paneFrames.length > 0, '/dev/decke-compare loaded no comparison iframe documents -- diagnostics.view may not be wired the way this check assumes')
 
-    const harnessResponse = await page.goto(server.origin + mount + '/dev/scan-harness', { waitUntil: 'load' })
-    assert.ok(harnessResponse?.headers()['content-security-policy']?.includes("'unsafe-eval'"),
-      'the active service worker replaced the scan harness response and lost its OpenCV exception')
+    const harnessAsset = page.waitForResponse(response => /\/assets\/scan-harness-[^/]+\.html$/.test(new URL(response.url()).pathname))
+    await page.goto(server.origin + mount + '/dev/scan-harness', { waitUntil: 'load' })
+    const harnessResponse = await harnessAsset
+    assert.ok(harnessResponse.headers()['content-security-policy']?.includes("'unsafe-eval'"),
+      'the active service worker replaced the harness iframe response and lost its OpenCV exception')
 
     return { case: 'service-worker-registration', registered, controlled, deckeCompareUnderActiveWorker: { violations: deckeCompareViolations, panes: paneFrames.length }, scanHarnessPolicyPreserved: true }
   } finally {
@@ -347,6 +360,9 @@ export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, 
   const webkitBrowser = await webkit.launch()
   const server = await serve(dist, mount, withFallback(admin), 'index.html', { csp: cspForPath(mount) })
   try {
+    // The Deck-E access check has a short auth deadline. Run it before the
+    // camera and OpenCV WASM probes consume memory in this browser process.
+    results.push(await checkDecke(chromiumBrowser, server, mount, admin))
     admin.state.signedOut = true
     admin.state.actor = 'signed-out'
     admin.state.permissions = []
@@ -373,8 +389,7 @@ export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, 
     results.push(await checkAllowDenyProbe(chromiumBrowser, 'chromium', server))
     results.push(await checkAllowDenyProbe(webkitBrowser, 'webkit', server))
     results.push(await checkCamera(server, mount))
-    results.push(await checkScanHarnessOpenCv(chromiumBrowser, server, mount, admin))
-    results.push(await checkDecke(chromiumBrowser, server, mount, admin))
+    results.push(await checkScanHarnessOpenCv(chromiumBrowser, server, mount, admin, out))
     results.push(await checkServiceWorkerRegistration(chromiumBrowser, server, mount, admin))
   } finally {
     await server.close()

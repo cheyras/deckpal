@@ -70,14 +70,14 @@ const imgPattern = new RegExp(`^${IMAGES_PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\
 // NavigationRoute always answers with the ONE cached index.html, whatever
 // headers THAT copy happened to carry, regardless of which path was
 // navigated to. The Deck-E comparison route needs self-framing, and the scan
-// harness needs OpenCV's JavaScript code generation. Both need their own
-// response headers, so their navigations are denylisted here -- they fall
+// harness's standalone iframe document needs OpenCV's JavaScript code
+// generation. Both need their own response headers, so these navigations fall
 // through to an ordinary uncontrolled network fetch, which hits Vercel's
 // edge fresh and gets ITS OWN headers rather than the shell's. Astra
 // review (2026-09-26) caught this: the crawl in
 // tests/browser/securityHeaders.mjs deliberately blocks service workers
 // (`serviceWorkers: 'block'`) and so never exercised this path.
-const specialHeadersPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}dev/(?:decke-compare|scan-harness)(?:\\?.*)?$`)
+const specialHeadersPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:dev/decke-compare|assets/scan-harness-[^/]+\\.html)(?:\\?.*)?$`)
 registerRoute(
   new NavigationRoute(shellHandler, {
     denylist: [apiPattern, imgPattern, specialHeadersPattern],

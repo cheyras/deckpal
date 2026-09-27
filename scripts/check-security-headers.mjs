@@ -17,13 +17,13 @@
  * 1. The inline first-paint watchdog script in `apps/web/index.html`, and
  *    `apps/web/src/routes/dev/scan-harness.html`'s single classic <script>,
  *    are both covered by a `sha256-` source in `script-src` (not
- *    `'unsafe-inline'`) rather than being externalized -- the watchdog's own
+ *    `'unsafe-inline'`) -- the watchdog's own
  *    comment says it MUST stay inline (a watchdog that needs a request of its
  *    own cannot cover a failure to fetch, so moving it to a static file would
  *    reintroduce the exact "blank page, no explanation" bug, #75, it exists
- *    to prevent), and scan-harness is embedded via `<iframe srcDoc>`, which
- *    inherits and is checked against the EMBEDDING page's script-src. A hash
- *    that no longer matches its script doesn't error at build time -- it
+ *    to prevent). The scan harness is a separate iframe document with its
+ *    own policy so OpenCV can use JavaScript code generation without relaxing
+ *    the parent page. A hash that no longer matches its script doesn't error at build time -- it
  *    just silently blocks the script in every real browser. So this
  *    recomputes both hashes from the live files on every run.
  *
@@ -39,8 +39,8 @@
  *    rule's CSP must stay identical to the general one -- this asserts that
  *    directly (a diff, not two independent copies of every assertion), so a
  *    future edit to one can't quietly drift from the other. The scan harness
- *    needs JavaScript code generation for its shipped OpenCV embind wrapper,
- *    so only that page's script-src adds `'unsafe-eval'`.
+ *    asset needs JavaScript code generation for its shipped OpenCV embind
+ *    wrapper and `frame-ancestors 'self'` to sit in the app's iframe.
  */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -63,12 +63,12 @@ function cspDirectives(cspValue) {
 }
 
 // ── Locate both rules ─────────────────────────────────────────────────────────
-const general = vercelConfig.headers.find((h) => h.source === '/((?!api/|dev/decke-compare$|dev/scan-harness$).*)')
-assert.ok(general, 'vercel.json must have a headers rule scoped to every HTML document except /api/* and the two diagnostic routes')
+const general = vercelConfig.headers.find((h) => h.source === '/((?!api/|dev/decke-compare$|assets/scan-harness-).*)')
+assert.ok(general, 'vercel.json must protect every app document and leave the two special responses to their own rules')
 const deckeCompare = vercelConfig.headers.find((h) => h.source === '/dev/decke-compare')
 assert.ok(deckeCompare, 'vercel.json must have a dedicated headers rule for /dev/decke-compare (its own same-origin recursive iframe needs frame-ancestors \'self\', not \'none\')')
-const scanHarness = vercelConfig.headers.find((h) => h.source === '/dev/scan-harness')
-assert.ok(scanHarness, 'vercel.json must have a dedicated headers rule for the OpenCV scan harness')
+const scanHarness = vercelConfig.headers.find((h) => h.source === '/assets/scan-harness-(.*).html')
+assert.ok(scanHarness, 'vercel.json must have a dedicated headers rule for the hashed OpenCV harness document')
 
 const generalHeaders = headersByKey(general)
 const deckeCompareHeaders = headersByKey(deckeCompare)
@@ -86,7 +86,7 @@ for (const [label, byKey] of [['general', generalHeaders], ['/dev/decke-compare'
 const match = /^\/\((.+)\)$/.exec(general.source)
 assert.ok(match, `source "${general.source}" is not the expected /(<pattern>) shape`)
 const re = new RegExp(`^${match[1]}$`)
-for (const p of ['', 'lists', 'collection', 'authorize', 'scan', 'mcp', 'register', 'token', '.well-known/oauth-authorization-server']) {
+for (const p of ['', 'lists', 'collection', 'authorize', 'scan', 'mcp', 'register', 'token', '.well-known/oauth-authorization-server', 'dev/scan-harness']) {
   assert.ok(re.test(p), `general headers source must still match ordinary path "/${p}"`)
 }
 // Bare "/api" (no trailing slash) matches no rewrite and falls through to the
@@ -94,7 +94,7 @@ for (const p of ['', 'lists', 'collection', 'authorize', 'scan', 'mcp', 'registe
 // here -- only "/api/<something>", which the /api/(.*) rewrite sends to the
 // serverless function (and which already gets helmet's headers there), must
 // be excluded. /dev/decke-compare is excluded too -- it has its own rule.
-for (const p of ['api/', 'api/health', 'api/decks/123/pdf', 'dev/decke-compare', 'dev/scan-harness']) {
+for (const p of ['api/', 'api/health', 'api/decks/123/pdf', 'dev/decke-compare', 'assets/scan-harness-abc.html']) {
   assert.ok(!re.test(p), `general headers source must exclude "/${p}"`)
 }
 
@@ -161,12 +161,13 @@ assert.equal(deckeCompareHeaders['X-Frame-Options'], 'SAMEORIGIN', "/dev/decke-c
 // bindings. Keep that exception on the permission-gated diagnostic route only.
 const scanHarnessCsp = cspDirectives(scanHarnessHeaders['Content-Security-Policy'])
 for (const name of Object.keys(generalCsp)) {
-  assert.equal(scanHarnessCsp[name], name === 'script-src'
-    ? generalCsp[name].replace("'wasm-unsafe-eval'", "'wasm-unsafe-eval' 'unsafe-eval'")
-    : generalCsp[name], `/dev/scan-harness's ${name} must differ only by unsafe-eval in script-src`)
+  const expected = name === 'script-src' ? generalCsp[name].replace("'wasm-unsafe-eval'", "'wasm-unsafe-eval' 'unsafe-eval'")
+    : name === 'frame-ancestors' ? "'self'" : generalCsp[name]
+  assert.equal(scanHarnessCsp[name], expected, `the scan harness asset's ${name} changed beyond its scoped exceptions`)
 }
-for (const key of ['X-Frame-Options', 'X-Content-Type-Options', 'Referrer-Policy', 'Permissions-Policy']) {
+for (const key of ['X-Content-Type-Options', 'Referrer-Policy', 'Permissions-Policy']) {
   assert.equal(scanHarnessHeaders[key], generalHeaders[key], `/dev/scan-harness's ${key} has drifted from the general rule`)
 }
+assert.equal(scanHarnessHeaders['X-Frame-Options'], 'SAMEORIGIN', 'the same-origin iframe needs X-Frame-Options: SAMEORIGIN')
 
 console.log('check-security-headers: CSP and security headers consistent across general, Deck-E comparison and scan harness routes. OK')

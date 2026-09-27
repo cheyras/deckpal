@@ -725,8 +725,8 @@ const deckeCompareRoute = createRoute({
  * detector on-device.
  *
  * Same owner gate as the other /dev routes. The harness itself is a
- * self-contained HTML artifact carried as a raw string in this lazy chunk
- * (~72 KB pre-gzip), so only whoever opens the route pays for it.
+ * self-contained HTML artifact loaded into a same-origin iframe by this
+ * lazy route, so only whoever opens the route pays for it.
  */
 const LazyScanHarness = lazyRoute('./routes/dev/ScanHarness', () => import('./routes/dev/ScanHarness'))
 const ScanHarnessRoute = () => (

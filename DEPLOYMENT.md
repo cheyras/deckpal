@@ -1006,10 +1006,10 @@ what matters for a fresh deploy is:
   `https://hooks.stripe.com` are hardcoded (Stripe requires loading its own
   script for PCI reasons — you cannot self-host it), and `connect-src`
   otherwise only allows `'self'` plus Supabase.
-- **The scan harness has its own policy.** `/dev/scan-harness` permits
-  JavaScript code generation for its OpenCV diagnostic engine. The service
-  worker fetches that page from the network to preserve the exception;
-  ordinary pages keep the stricter policy.
+- **The scan harness has its own policy.** Its separate iframe document
+  permits JavaScript code generation for its OpenCV diagnostic engine. The
+  service worker fetches that document from the network to preserve the
+  exception; the surrounding app keeps the stricter policy.
 - **Verify it after deploying:**
   ```bash
   curl -sI https://your-domain/ | grep -i 'content-security-policy\|x-frame-options'

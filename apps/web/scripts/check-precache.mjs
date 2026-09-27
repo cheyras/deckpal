@@ -108,6 +108,10 @@ for (const url of urls) {
     problems.push(`${url} — character assets must never be precached`)
     continue
   }
+  if (/^assets\/scan-harness-[^/]+\.html$/.test(clean)) {
+    problems.push(`${url} — the permission-gated scan harness document must not be precached`)
+    continue
+  }
   if (!clean.endsWith('.js')) continue
 
   const file = join(DIST, clean)
