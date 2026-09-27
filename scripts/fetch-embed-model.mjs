@@ -17,7 +17,7 @@
  *
  * No dependencies, and that is a constraint rather than a preference: this runs
  * BEFORE `pnpm install`'s workspace links are useful and before any package has
- * been built, so it may use nothing but Node itself. It therefore cannot import
+ * been built, so it may use only Node and dependency-free source. It cannot import
  * `@deckpal/matching` for `EMBED_MODEL_ID`, and the name below is duplicated —
  * `apps/api/src/scan/__tests__/fetchEmbedModel.test.ts` is what stops the two
  * from drifting.
@@ -58,6 +58,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync, statSync } from 'node:fs'
 import { dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { supabaseKeyHeaders } from '../packages/storage/src/supabase-key-headers.mjs'
 
 /** Repo root, from `scripts/`. */
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -106,7 +107,7 @@ const warn = (msg) => console.warn(`[fetch-embed-model] ${msg}`)
  * `card-art` happens to be a public bucket today, but a build-time fetch of a
  * production asset should not depend on that staying true — and the build
  * already holds the service-role key for the image tier, so using it costs
- * nothing. Same URL shape and same two headers as
+ * nothing. Same URL shape and key-specific headers as
  * `packages/storage/src/object-store.ts`, which is the module that owns this
  * conversation everywhere else.
  */
@@ -121,7 +122,7 @@ async function fetchPart(url, serviceKey) {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(url, {
-        headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}` },
+        headers: supabaseKeyHeaders(serviceKey),
         signal: AbortSignal.timeout(PART_TIMEOUT_MS),
       })
       // 404 (and Storage's 400-with-a-JSON-error for a missing key) is the

@@ -8,6 +8,7 @@
 
 # ── node / build ──────────────────────────────────────────────────────────
 node_modules/
+.pnpm-store/
 dist/
 *.tsbuildinfo
 **/package-lock.json
