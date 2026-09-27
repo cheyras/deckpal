@@ -1579,6 +1579,29 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
 }
 
 /**
+ * A corrective step must ask for a real write, never stop at these tools'
+ * default dry run. The SDK signs the parsed input, so put `dry_run: false` in
+ * the schema itself: the signed call replays under the ordinary tool set on the
+ * next request and still means apply. The ordinary tool set keeps its safe
+ * preview default. Approval and preview hooks are unchanged.
+ */
+export function correctiveApplyTools(tools: ToolSet, name: string): ToolSet {
+  if (!['edit_list', 'save_deck', 'add_battle_log'].includes(name)) return tools;
+  const selected = tools[name];
+  const def = allTools().find((d) => d.name === name);
+  if (!selected || !def?.inputSchema || !('dry_run' in def.inputSchema.shape)) {
+    throw new Error(`corrective tool ${name} has no dry-run schema`);
+  }
+  return {
+    ...tools,
+    [name]: {
+      ...selected,
+      inputSchema: def.inputSchema.safeExtend({ dry_run: z.literal(false).default(false) }),
+    },
+  };
+}
+
+/**
  * The same list, as `{name, title}` for the system prompt.
  *
  * Generated from the definitions rather than typed into the prompt, so a tool
