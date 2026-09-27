@@ -813,14 +813,20 @@ function settledRect(el: HTMLElement): DOMRect {
     // the landmark actually being inside the viewport, and anything else
     // falls through to the fraction park, which is sane by construction —
     // the composer watch re-parks him onto the real mark once it settles.
+    // Judged at its RESTING place: the phone's park box rides down with his
+    // latest reply when the reader scrolls up (`data-ride`, DeckeChat's
+    // `placePark`), and a box that has ridden off is still his station. He
+    // flies to it and is clipped with it, rather than falling back to a
+    // corner where he would stand over the conversation.
     const onScreen = (el: Element | null): el is Element => {
       if (!el) return false
       const r = el.getBoundingClientRect()
+      const ride = Number((el as HTMLElement).dataset?.ride || 0)
       return (
         r.width > 0 &&
-        r.top > -8 &&
+        r.top - ride > -8 &&
         r.left > -8 &&
-        r.bottom < window.innerHeight + 8 &&
+        r.bottom - ride < window.innerHeight + 8 &&
         r.right < window.innerWidth + 8
       )
     }

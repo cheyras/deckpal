@@ -688,6 +688,32 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
     const back = await page.evaluate(() => window.__layout.frames.at(-1))
     assert.ok(back.him && back.him[3] >= 12 && drawn(back.him, back.floor)[3] >= back.him[3] - 1,
       engine + ': reopened at the latest reply, he is clipped out: ' + JSON.stringify(back))
+
+    // Read a saved conversation and come back: the live transcript is a new
+    // element, and he must still leave with his reply when it is scrolled.
+    const saved = { id: 'c1', title: 'Pikachu promos', startedAt: NOW }
+    const history = /\/api\/decke\/history(\/c1)?$/
+    await page.route(history, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      return route.fulfill({ json: /\/c1$/.test(route.request().url())
+        ? { ...saved, turns: [{ seq: 1, asked: 'Which are the Pikachu promos?', answered: 'SWSH139 to SWSH142.', tools: [], buildPr: null, buildSha: null, at: NOW }] }
+        : { conversations: [{ ...saved, turns: 1, updatedAt: NOW, buildPrMin: null, buildPrMax: null, buildSha: null }] } })
+    })
+    const dialog = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+    await dialog.getByRole('button', { name: /History/ }).click()
+    await dialog.getByText('Pikachu promos').click()
+    await dialog.getByRole('button', { name: 'Back to the live chat' }).click()
+    await page.waitForFunction(() => !!document.querySelector('[data-decke-transcript] [data-decke-anchor]'))
+    // He flies back to the composer from where he stood over the transcript;
+    // a flight is never clipped, so judge him once he has landed.
+    const settle = (n) => page.evaluate((k) => new Promise((resolve) => { let i = 0; const f = () => (++i > k ? resolve() : requestAnimationFrame(f)); requestAnimationFrame(f) }), n)
+    await settle(120)
+    await page.evaluate(scrollTranscript, [-1400, 40])
+    await settle(30)
+    const left = await page.evaluate(() => window.__layout.frames.at(-1))
+    assert.ok(left.him && left.floor !== null && drawn(left.him, left.floor)[3] === 0,
+      engine + ': back from a saved conversation, he stopped following the scroll: ' + JSON.stringify(left))
+    await page.unroute(history)
     results.push({ case: 'decke-chat-phone', engine, ...m, overFrame: undefined, layouts })
   } finally { await context.close() }
   return results

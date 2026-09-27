@@ -1495,7 +1495,11 @@ export function DeckeChat({
     }
     // `asking` mounts and unmounts `askRef`'s node, and neither is a resize of
     // anything already observed — so the effect has to be rebuilt around it.
-  }, [visible, shownMinimised, empty, spent, desktop, asking])
+  // `viewing`: reading a saved conversation swaps the composer for the viewer's
+  // exit bar, and the panel observer measured "no composer" (0) meanwhile. The
+  // composer that comes back is a new element; without re-measuring it, the
+  // park box stayed at the not-measured fallback, 100 px low at 390x844.
+  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing])
 
 
   // HIS FOOTPRINT, from the one number that decides his size.
@@ -2019,6 +2023,10 @@ export function DeckeChat({
   // a widget opening "Show all 8 cards", card art arriving, a font landing.
   // And on close, minimise or a wide screen the clip goes, so nothing he does
   // out on the page is cut off at a composer that is not there.
+  //
+  // `viewing` IS A DEPENDENCY here and on the scroll listener below: reading a
+  // saved conversation unmounts the live transcript, and coming back mounts a
+  // new one. Bound only to the first, he would stop following the scroll.
   useEffect(() => {
     if (!visible || shownMinimised || desktop || !decke) {
       decke?.clipBelow(null)
@@ -2032,7 +2040,7 @@ export function DeckeChat({
       ro.disconnect()
       decke.clipBelow(null)
     }
-  }, [visible, shownMinimised, desktop, decke, placePark])
+  }, [visible, shownMinimised, desktop, decke, placePark, viewing])
 
   // Keep the newest message in view as it streams, then re-solve what that
   // pushed past him.
@@ -2103,6 +2111,18 @@ export function DeckeChat({
     setAtLatest(true)
   }, [open])
 
+  // So does coming back from a saved conversation. The live transcript that
+  // returns is a new element scrolled to its top, which read as the start of
+  // the chat and, on a phone, had him ride off with a reply nobody was on.
+  // Before paint, so the top is never shown.
+  useLayoutEffect(() => {
+    const el = transcriptRef.current
+    if (viewing || !el) return
+    stickRef.current = true
+    setAtLatest(true)
+    el.scrollTop = el.scrollHeight
+  }, [viewing])
+
   // Dragging the transcript moves bubbles past him too. rAF-coalesced: `scroll`
   // can fire several times per frame and the pass reads layout.
   useEffect(() => {
@@ -2139,7 +2159,7 @@ export function DeckeChat({
       window.removeEventListener('resize', on)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [visible, shownMinimised, reflow, placePark])
+  }, [visible, shownMinimised, reflow, placePark, viewing])
 
   /**
    * Dismiss on a click that landed on nothing.
