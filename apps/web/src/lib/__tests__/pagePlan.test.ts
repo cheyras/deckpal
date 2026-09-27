@@ -1,7 +1,6 @@
-// Pure unit test for pagePlan.ts — the page-completeness math behind the
-// Pokédex/dex index's paging fix. Same shape as the (still-open, as of this
-// writing) PR #205's `pagePlan.ts` for `api.setAllCards` — see this module's
-// own header comment for why there are two copies rather than one import.
+// Pure unit test for pagePlan.ts — the page-completeness math behind
+// api.setAllCards (UXC-01: set pages silently dropped every card past #250)
+// and the Pokédex/dex index's paging (1025 species today, the page size too).
 //
 // Mirrors the `node --import tsx --test` convention used by the other lib
 // tests (see jsonContentType.test.ts).
@@ -9,21 +8,32 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { remainingPages } from '../pagePlan.js'
 
-test('a page 1 of 1 needs nothing further — the ordinary case today', () => {
-  // Every dex fetch is page 1 of 1 today, because pageSize (1025) equals the
-  // current National Dex size — which is exactly why this bug is invisible
-  // until a new generation pushes the species count past it.
+test('a page 1 of 1 needs nothing further — the ordinary case', () => {
+  // Every set with <=250 cards is page 1 of 1, and so is every dex fetch
+  // today, because pageSize (1025) equals the current National Dex size.
   assert.deepEqual(remainingPages({ page: 1, pageCount: 1 }), [])
 })
 
-test('a total one row over the page size needs exactly page 2', () => {
-  // The failure this fixes: 1026 species at pageSize=1025 => pageCount=2.
-  // Reading page 1 alone silently drops species #1026 — the newest one,
-  // exactly the case a fresh generation launch produces.
+test('a 260-card set (251+) needs exactly page 2 — the case that silently broke', () => {
+  // pageSize=250 => ceil(260/250) = 2 pages. Before the fix, SetDetail.tsx and
+  // ListRuleEditor.tsx read only page 1 and the 10 highest-numbered cards
+  // never rendered. This is the regression this test pins: read page 1 alone
+  // and cards #251-260 vanish, same as Ascended Heroes' #251-295 in production.
   assert.deepEqual(remainingPages({ page: 1, pageCount: 2 }), [2])
 })
 
-test('a much larger overflow needs every remaining page, oldest-fetched first', () => {
+test('Ascended Heroes-sized set (295 cards / 250 page size) needs page 2 of 2', () => {
+  assert.deepEqual(remainingPages({ page: 1, pageCount: Math.ceil(295 / 250) }), [2])
+})
+
+test('a dex one species over the page size needs exactly page 2', () => {
+  // 1026 species at pageSize=1025 => pageCount=2. Reading page 1 alone
+  // silently drops species #1026 — the newest one, exactly the case a fresh
+  // generation launch produces.
+  assert.deepEqual(remainingPages({ page: 1, pageCount: Math.ceil(1026 / 1025) }), [2])
+})
+
+test('a much larger overflow needs every remaining page, in order', () => {
   assert.deepEqual(remainingPages({ page: 1, pageCount: 4 }), [2, 3, 4])
 })
 

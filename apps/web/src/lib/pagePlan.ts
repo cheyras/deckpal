@@ -11,24 +11,25 @@
  * size, and silently WRONG the day it doesn't — the rows that vanish are
  * always the ones past the edge nobody re-checked.
  *
- * `GET /sets/:setId` hit this first (UXC-01, PR #205, `fix/set-page-all-cards`,
- * still open as of this writing — see that PR/DECISIONS.md 2026-09-26 for the
- * full incident: 9 sets over the API's 250-card page cap silently lost their
- * highest-numbered cards, chase rares included). This module is the SAME
- * shape, implemented locally for the Pokédex/dex index rather than imported,
- * because #205 hadn't merged yet: `PokedexIndex.tsx` and `Profile.tsx` request
- * `pageSize: '1025'`, which happens to equal both `GET /insights/pokedex`'s own
- * server-side cap (`clampInt(req.query.pageSize, 200, 1, 1025)`,
+ * Set pages hit this first (UXC-01, PR #205). `GET /sets/:setId` and
+ * `GET /search` cap `pageSize` server-side (250 — `clampInt` in
+ * `apps/api/src/routes/sets.ts` / `routes/search.ts`) to protect the endpoint,
+ * and the set page fetched exactly one page and read `.cards` as if it were
+ * the whole set. That was silently WRONG for the 9 sets over the cap
+ * (Ascended Heroes has 295 cards; the highest 45 numbers — its chase rares —
+ * never rendered).
+ *
+ * The Pokédex/dex index has the same shape (PR #235): `PokedexIndex.tsx` and
+ * `Profile.tsx` request `pageSize: '1025'`, which happens to equal both
+ * `GET /insights/pokedex`'s own server-side cap
+ * (`clampInt(req.query.pageSize, 200, 1, 1025)`,
  * `apps/api/src/routes/insights.ts`) and the current National Dex size
  * (`NATIONAL_DEX_SIZE`, `apps/api/src/insights/pokedex.ts`) — so today's single
  * request happens to be complete, and the day a new generation adds species
- * #1026+, it silently won't be. `pagination.total`/`pageCount` in the response
- * are already correct regardless; nothing has ever asked for page 2.
+ * #1026+, it silently won't be.
  *
- * If #205 merges before this lands, prefer importing `remainingPages` from
- * its `apps/web/src/lib/pagePlan.ts` instead of keeping two copies — the
- * shape here is deliberately identical so that merge is a no-op rename, not a
- * rewrite.
+ * In both cases `pagination.total`/`pageCount` in the response were always
+ * right; nothing ever asked for page 2.
  *
  * Kept in its own module, with no imports, so the fix is unit-testable without
  * dragging in `lib/api.ts` → `lib/supabase.ts` → `import.meta.env`, which the
@@ -45,7 +46,8 @@ export interface PagePosition {
 
 /**
  * The page numbers beyond `page` that a caller must also fetch to have every
- * row, in ascending order. Empty when `page` already covers everything.
+ * row, in ascending order. Empty when `page` already covers everything, which
+ * covers every query that fits under the server's per-page cap.
  *
  * Fails closed (returns `[]`, never loops) on a malformed `PagePosition` —
  * NaN, an infinite `pageCount`, or `page` already past `pageCount` — because

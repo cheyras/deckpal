@@ -50,9 +50,13 @@ export function ListRuleEditor({
     enabled: !!seriesSlug,
   })
   // The set's own cards, to offer only rarities that actually occur in it.
+  // `setAllCards` (not `set`) so a set past the API's 250-card page cap still
+  // offers every rarity it contains — the same fetch-completeness bug as
+  // SetDetail.tsx (UXC-01); this editor hit it too, since it shares
+  // `api.set()`'s single-page call under the same cap.
   const setCards = useQuery({
     queryKey: ['ruleSetCards', value.setId],
-    queryFn: ({ signal }) => api.set(value.setId!, new URLSearchParams({ pageSize: '250' }), signal),
+    queryFn: ({ signal }) => api.setAllCards(value.setId!, new URLSearchParams({ pageSize: '250' }), signal),
     enabled: !!value.setId,
     staleTime: 5 * 60_000,
   })
