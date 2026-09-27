@@ -396,7 +396,12 @@ These are non-negotiable quality gates:
 
 1. **Browser verification for UI changes.** Open the page at desktop width **and**
    at 390px viewport. Actually look at it -- type-checks and tests verify code
-   correctness, not feature correctness.
+   correctness, not feature correctness. For anything iOS-specific -- the
+   on-screen keyboard, `visualViewport` behavior, Home Screen (standalone PWA)
+   install -- a desktop browser at 390px cannot reproduce the real thing;
+   use `tools/ios-sim/` to test in a real booted iOS Simulator instead (real
+   Mobile Safari, a fake signed-in session, and a Web Inspector client to read
+   live page state from the Mac).
 2. **`manifest:check` exit 0** after any image work (self-host:
    `pnpm --filter deckpal-images manifest:check`).
 3. **Verify the artifact, not the report.** A "done" you did not verify is a

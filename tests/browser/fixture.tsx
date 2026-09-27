@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import './fixture.css'
 import { DeckeChat, type ChatMessage } from '../../apps/web/src/character/host/DeckeChat'
 import { DeckeScreen } from '../../apps/web/src/character/host/DeckeScreen'
@@ -32,6 +33,8 @@ declare global {
     meterChat: { send: (text: string) => void; busy: boolean }
     /** `?errorboundary` only — see `ErrorBoundaryFixture` below. */
     errorBoundaryFixture: { disarmCrash: () => void; disarmLoaderCrash: () => void; crashOutsideRouter: () => void }
+    /** `?refresh` only — the same, beside a mounted deck query. */
+    refreshChat: { send: (text: string) => void; busy: boolean }
   }
 }
 function Fixture() {
@@ -45,6 +48,7 @@ function Fixture() {
   </main>
   if (location.search.includes('meter')) return <MeterFixture />
   if (location.search.includes('errorboundary')) return <ErrorBoundaryFixture />
+  if (location.search.includes('refresh')) return <RefreshFixture />
   const { preview, ...props } = state
   return <DeckeChat {...props} minimised={false} onExpand={() => {}}
     onClose={() => { events.closes++ }} decke={null}
@@ -184,4 +188,34 @@ function ErrorBoundaryFixture() {
   </RootErrorBoundary>
 }
 
-createRoot(document.getElementById('root')!).render(<Fixture />)
+function RefreshFixture() {
+  const decke = useMemo(
+    () => new Proxy({}, { get: () => () => undefined }) as unknown as DeckEInstance,
+    [],
+  )
+  const chat = useDeckeChat(decke, () => {})
+  window.refreshChat = { send: text => { void chat.send(text) }, busy: chat.busy }
+  const deck = useQuery({
+    queryKey: ['deck', 'deck-browser'],
+    queryFn: async () => (await (await fetch('/api/decks/deck-browser')).json()) as
+      { cards: { name: string; quantity: number }[] },
+  })
+  return <>
+    <ul aria-label="Deck behind the chat" style={{ padding: 24 }}>
+      {deck.data?.cards.map(c => <li key={c.name}>{c.quantity} {c.name}</li>)}
+    </ul>
+    <DeckeChat open minimised={false} onExpand={() => {}} onClose={() => {}} decke={null}
+      messages={chat.messages} busy={chat.busy} onSend={chat.send} onStop={chat.stop}
+      asking={chat.asking} onApprove={chat.approve} onDeny={chat.deny}
+      approvalPreview={chat.approvalPreview} approvalChoices={chat.approvalChoices}
+      onApprovalChoice={chat.onApprovalChoice} approvalBusy={chat.approvalBusy}
+      onRetryTool={() => {}} desktop={innerWidth >= 1068} characterPx={160}
+      credits={{ remaining: 2, allowance: 100 }} onTopUp={() => {}} />
+  </>
+}
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 5 * 60_000, retry: false, refetchOnWindowFocus: false } },
+})
+createRoot(document.getElementById('root')!).render(
+  <QueryClientProvider client={queryClient}><Fixture /></QueryClientProvider>,
+)

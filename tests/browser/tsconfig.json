@@ -13,6 +13,9 @@
       ],
       "@tanstack/*": [
         "../../apps/web/node_modules/@tanstack/*"
+      ],
+      "@tanstack/react-query": [
+        "../../apps/web/node_modules/@tanstack/react-query"
       ]
     },
     "types": [
