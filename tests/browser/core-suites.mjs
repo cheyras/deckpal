@@ -8,6 +8,7 @@ import { checkNestedRouteRecovery, checkRouteSplit } from './routeSplit.mjs'
 import { adminFixture, checkAdmin, checkInsights } from './admin.mjs'
 import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
+import { checkA11y } from './a11y.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
 import { checkOffline } from './offline.mjs'
 import { writesFixture, checkWrites } from './writes.mjs'
@@ -55,6 +56,8 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           } else if (group.startsWith('feedback-')) {
             results.push(...await checkFeedback(browser, server, mount, label, out, admin, group.slice('feedback-'.length)))
             if (group === 'feedback-lifecycle') results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+          } else if (group === 'a11y') {
+            results.push(...await checkA11y(browser, server, mount, label, out))
           } else if (group === 'writes') {
             results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
           }
@@ -73,9 +76,9 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           '--noEmit', '-p', path.join(ROOT, 'tests/browser/tsconfig.json')]))
       },
     },
-    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle']
+    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'a11y']
       .map(group => labelSuite('selfhost', '/deckpal', group)),
-    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'writes']
+    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'a11y', 'writes']
       .map(group => labelSuite('cloud', '', group)),
     {
       name: 'authreturn',

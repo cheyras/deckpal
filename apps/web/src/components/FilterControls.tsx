@@ -133,7 +133,11 @@ export function SortChips({ search, patch }: { search: CardSearch; patch: Patch 
  *
  * - Active-direction arrow: `--color-action-primary-strong-text` (dark on gold)
  * - Inactive-direction arrow: `--color-action-primary-hover` (muted gold on gold)
- * - Non-active chip arrow: `--color-icon-muted-strong` (dim on dark background)
+ * - Non-active chip arrow: `--color-text-secondary` (A11Y-03 — this chip's own
+ *   `bg-surface-tertiary` made `--color-icon-muted-strong` measure 1.26:1, and
+ *   even the brighter `--color-icon-muted` only reaches 2.05:1 on this
+ *   specific background; `text-secondary` is the closest existing token that
+ *   clears WCAG 1.4.11's 3:1 floor here, at 3.88:1)
  */
 export function SortChipStrip({
   items,
@@ -173,7 +177,7 @@ export function SortChipStrip({
                     ? activeDir === 'asc'
                       ? 'var(--color-action-primary-strong-text)'
                       : 'var(--color-action-primary-hover)'
-                    : 'var(--color-icon-muted-strong)',
+                    : 'var(--color-text-secondary)',
                 }}
               >
                 ▲
@@ -185,7 +189,7 @@ export function SortChipStrip({
                     ? activeDir === 'desc'
                       ? 'var(--color-action-primary-strong-text)'
                       : 'var(--color-action-primary-hover)'
-                    : 'var(--color-icon-muted-strong)',
+                    : 'var(--color-text-secondary)',
                 }}
               >
                 ▼

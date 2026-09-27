@@ -20,8 +20,9 @@ export default function Admin() {
   if (!access.ready) return <Content><p role="status">Checking access…</p></Content>
   if (!access.permissions.includes('admin.access')) return <Content><EmptyState icon="lists" title="Administration unavailable" body="Your account does not currently have access to this area." /></Content>
   const active = ADMIN_SECTIONS.find(s => s.key !== 'overview' && pathname.includes(s.to))?.key ?? 'overview'
+  const section = ADMIN_SECTIONS.find(s => s.key === active)!.label
   return <Content><div className="space-y-[24px] pb-[40px]">
-    <header><p className="mb-[6px] text-[12px] font-bold uppercase tracking-widest text-text-muted">DeckPal workspace</p><h1 className="font-display text-[32px] text-text-primary">Administration</h1><p className="mt-[8px] max-w-[680px] text-text-muted">Manage your people, permissions, and app settings.</p></header>
+    <header><p className="mb-[6px] text-[12px] font-bold uppercase tracking-widest text-text-muted">DeckPal workspace</p><h1 data-route-announcement={`Administration — ${section}`} className="font-display text-[32px] text-text-primary">Administration</h1><p className="mt-[8px] max-w-[680px] text-text-muted">Manage your people, permissions, and app settings.</p></header>
     <nav aria-label="Administration sections"><Tabs value={active} items={ADMIN_SECTIONS.filter(s => s.key === 'usage' ? access.actorCapabilities.canReadSharedConversations : s.key === 'features' ? access.actorCapabilities.canEditRoles : access.permissions.includes(s.permission) || (s.key === 'settings' && access.permissions.includes('credits.read')))} /></nav>
     <Outlet />
   </div></Content>
