@@ -11,7 +11,7 @@ import {
 import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
 import { pool, SUPABASE_MODE } from '../db.js';
 import { labelerOnlyInProduction } from '../ownerGate.js';
-import { cleanupRepairedOriginal, discardQueuePhoto, repairQueuePhoto, type QueueMeta, type QueueStore } from './queueRepair.js';
+import { cleanupRepairedOriginal, discardQueuePhoto, enqueueQueuePhoto, listQueuePhotos, readQueuePhoto, repairQueuePhoto, validQueuePhotoId, type QueueMeta, type QueueStore } from './queueRepair.js';
 
 /**
  * The labeler's pending-photo queue — POST/GET/DELETE /dev/scan-queue.
@@ -78,7 +78,7 @@ function isHeicBytes(bytes: Buffer): boolean {
 
 async function readMeta(objectPath: string, strict = false): Promise<QueueMeta | null> {
   try {
-    const upstream = await fetch(publicObjectUrl(objectPath));
+    const upstream = await fetch(publicObjectUrl(objectPath), { cache: 'no-store' });
     if (!upstream.ok) {
       if (strict && upstream.status !== 404 && upstream.status !== 400) {
         throw new ApiError(502, 'queue_storage_unavailable', 'Could not read queued photo metadata.');
@@ -131,6 +131,10 @@ const queueStore: QueueStore = {
     }
   },
   exists: async (path) => !!(await checkedObject(path, 'HEAD')),
+  size: async (path) => {
+    const response = await checkedObject(path, 'HEAD');
+    return response ? Number(response.headers.get('content-length') ?? 0) : null;
+  },
   photo: async (path) => {
     // Public GETs may be CDN-cached after another device discards the photo.
     if (!(await checkedObject(path, 'HEAD'))) return null;
@@ -201,28 +205,12 @@ scanQueueRouter.post(
       }
       return;
     }
-    const meta: QueueMeta = {
+    const requested = {
       name: typeof body.name === 'string' && body.name ? body.name.slice(0, 200) : `photo-${epochMs}.jpg`,
-      source: body.source === 'camera' ? 'camera' : 'upload',
-      addedAt: new Date(epochMs).toISOString(),
+      source: body.source === 'camera' ? 'camera' as const : 'upload' as const,
     };
-    const reason = 'quad-labeler pending photo — client camera frame or picked file, no upstream URL';
-    await putUnmanifestedObject({
-      objectPath: `${PREFIX}${epochMs}.jpg`,
-      bytes,
-      provenance: unknownProvenance(reason),
-      tierProvenanceReason: 'work-in-progress photos under dev-queue/, deleted when labelled; every object in the prefix shares this one reason',
-      contentType: 'image/jpeg',
-    });
-    await putUnmanifestedObject({
-      objectPath: `${PREFIX}${epochMs}.json`,
-      bytes: Buffer.from(JSON.stringify(meta, null, 2), 'utf8'),
-      provenance: unknownProvenance(reason),
-      tierProvenanceReason: 'sidecar metadata for the paired photo above — same class, same reason',
-      contentType: 'application/json',
-    });
-
-    res.json({ ok: true, id: epochMs, ...meta });
+    const queued = await enqueueQueuePhoto(epochMs, bytes, requested, queueStore);
+    res.json({ ok: true, ...queued });
   }),
 );
 
@@ -235,33 +223,16 @@ scanQueueRouter.get(
       return;
     }
     const objects = await listObjectsRecursive(PREFIX.slice(0, -1));
-    const byId = new Map<string, { hasJpg: boolean; size: number }>();
+    const ids = new Set<number>();
     for (const obj of objects) {
       const m = QUEUE_ID_RE.exec(obj.path.slice(PREFIX.length));
       if (!m) continue;
-      const entry = byId.get(m[1]!) ?? { hasJpg: false, size: 0 };
-      if (m[2] === 'jpg') {
-        entry.hasJpg = true;
-        entry.size = obj.byteSize;
-      }
-      byId.set(m[1]!, entry);
+      ids.add(Number(m[1]));
     }
     // OLDEST FIRST — the order they were shot, which is the order a reader
     // works a stack of cards in. (The corpus listing is newest-first; that one
     // is a review, this one is a work queue.)
-    const ids = [...byId.entries()].filter(([, e]) => e.hasJpg);
-    const photos = await Promise.all(
-      ids.map(async ([id, { size }]) => {
-        const meta = await readMeta(`${PREFIX}${id}.json`);
-        return {
-          id: Number(id),
-          size,
-          name: meta?.name ?? `photo-${id}.jpg`,
-          source: meta?.source ?? 'upload',
-          addedAt: meta?.addedAt ?? new Date(Number(id)).toISOString(),
-        };
-      }),
-    );
+    const photos = (await listQueuePhotos(ids, queueStore)).map(({ id, size, meta }) => ({ id, size, ...meta }));
     photos.sort((a, b) => Date.parse(a.addedAt) - Date.parse(b.addedAt) || a.id - b.id);
     res.json({ photos });
   }),
@@ -276,7 +247,7 @@ scanQueueRouter.delete(
     if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
 
     const numericId = Number(id);
-    if (!Number.isSafeInteger(numericId) || numericId < 1_000_000_000_000) throw badRequest('bad photo id');
+    if (!validQueuePhotoId(numericId)) throw badRequest('bad photo id');
     let removed: string[];
     if (req.query.repairCleanup === '1') {
       if (numericId >= 1_000_000_000_000_000) throw badRequest('bad repair photo id');
@@ -306,17 +277,17 @@ scanQueueRouter.get(
     if (!QUEUE_ID_RE.test(file)) throw badRequest('bad file id');
     if (!hasStorageEnv()) throw notFound('no object store configured');
 
-    const upstream = await fetch(publicObjectUrl(`${PREFIX}${file}`));
-    if (upstream.status === 404 || upstream.status === 400) throw notFound('no such queued photo');
-    if (!upstream.ok) {
-      throw new ApiError(502, 'queue_storage_unavailable', `Queued photo storage is temporarily unavailable (HTTP ${upstream.status}).`);
+    const [rawId, ext] = file.split('.') as [string, 'jpg' | 'json'];
+    const numericId = Number(rawId);
+    if (!validQueuePhotoId(numericId)) throw badRequest('bad file id');
+    const selected = await readQueuePhoto(numericId, queueStore);
+    if (!selected) throw notFound('no such queued photo');
+    res.setHeader('cache-control', 'no-store');
+    if (ext === 'json') {
+      res.json(selected.photo.meta);
+    } else {
+      res.setHeader('content-type', 'image/jpeg');
+      res.send(selected.bytes);
     }
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    res.setHeader('content-type', file.endsWith('.jpg') ? 'image/jpeg' : 'application/json');
-    // A queued photo is immutable for its short life — it is written once and
-    // deleted, never edited — so the browser may keep it while the reader
-    // scrolls the queue.
-    res.setHeader('cache-control', 'private, max-age=300');
-    res.send(buf);
   }),
 );

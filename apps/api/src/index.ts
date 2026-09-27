@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
+import { selfHostContentSecurityPolicy } from './securityPolicy.js';
 import { closePool, pool, q, rlsStore, SUPABASE_MODE } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
 import { labelerEntitlementStatus } from './ownerGate.js';
@@ -137,10 +138,7 @@ export function createApp(): express.Express {
   // makes the directive a no-op anyway; all content is same-origin.
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        useDefaults: true,
-        directives: { upgradeInsecureRequests: null },
-      },
+      contentSecurityPolicy: selfHostContentSecurityPolicy,
     }),
   );
   // CORS is off by default: the SPA is served same-origin by this very server,

@@ -19,10 +19,10 @@ export async function decodeQueueImage(blob: Blob, name: string): ReturnType<typ
     return await decodeForCanvas(file)
   } catch (originalError) {
     if (!(await isHeic(blob))) throw originalError
-    const { default: heic2any } = await import('heic2any')
-    const converted = await heic2any({ blob, toType: 'image/png' })
-    const png = Array.isArray(converted) ? converted[0] : converted
-    if (!png) throw new Error('that HEIC photo contains no image')
+    // The CSP build uses a blob worker without eval. Only failed native HEIC
+    // decodes pay its download and conversion cost.
+    const { heicTo } = await import('heic-to/csp')
+    const png = await heicTo({ blob, type: 'image/png' })
     return decodeForCanvas(new File([png], `${name}.png`, { type: 'image/png' }))
   }
 }

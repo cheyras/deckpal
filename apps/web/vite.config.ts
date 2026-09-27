@@ -216,7 +216,7 @@ export default defineConfig(async ({ command }) => {
           //   draws. Same reasoning as above, three orders of magnitude smaller.
           // The HEIC decoder belongs to the labeler alone. A route-lazy import
           // still enters every visitor's download if the PWA precaches it.
-          globIgnores: ['models/**', 'assets/Decke-*.js', 'assets/heic2any-*.js', 'dev-assets/**', 'scan-assets/**', 'logo/*-dark.svg'],
+          globIgnores: ['models/**', 'assets/Decke-*.js', 'assets/heic-to-*.js', 'dev-assets/**', 'scan-assets/**', 'logo/*-dark.svg'],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         // Leave this off. Turning it on would put the service worker in front of

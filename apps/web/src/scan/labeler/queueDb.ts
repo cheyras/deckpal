@@ -390,7 +390,6 @@ export async function flushOutbox(): Promise<{
  * thing as "taken before anything that has finished uploading".
  */
 export async function listQueue(): Promise<QueuedPhoto[]> {
-  retryPendingCleanups()
   const [local, remote] = await Promise.all([
     outbox(),
     api
@@ -411,7 +410,7 @@ export async function listQueue(): Promise<QueuedPhoto[]> {
       size: it.blob.size,
       pending: true,
     })),
-    ...remote.filter((p) => !pendingCleanups.has(p.id)).map((p) => ({ ...p, pending: false })),
+    ...remote.map((p) => ({ ...p, pending: false })),
   ]
 }
 
@@ -451,18 +450,14 @@ export async function removeQueued(id: number): Promise<void> {
     await run('readwrite', (s) => s.delete(id))
     return
   }
-  const original = [...replacementIds].find(([, replacement]) => replacement === id)?.[0] ?? id
-  removedIds.add(original)
+  removedIds.add(id)
   try {
-    await repairs.get(original)?.catch(() => {})
-    const replacement = replacementIds.get(original)
-    if (replacement) await api.scanQueueDelete(replacement)
-    await api.scanQueueDelete(original)
-    replacementIds.delete(original)
-    pendingCleanups.delete(original)
-    savePendingCleanups()
+    await repairs.get(id)?.catch(() => {})
+    // The server owns the whole original/replacement family. One deletion is
+    // enough, including when another device performed the repair.
+    await api.scanQueueDelete(id)
   } catch (error) {
-    removedIds.delete(original)
+    removedIds.delete(id)
     throw error
   }
 }
@@ -471,9 +466,11 @@ export async function clearQueue(): Promise<void> {
   const items = await listQueue()
   // Sequential, and failures do not stop the rest: "clear" should clear as much
   // as it can rather than abandoning the job over one stubborn row.
+  let failed = 0
   for (const it of items) {
-    await removeQueued(it.id).catch(() => {})
+    try { await removeQueued(it.id) } catch { failed += 1 }
   }
+  if (failed) throw new Error(`${failed} photo${failed === 1 ? '' : 's'} could not be discarded. Try again.`)
 }
 
 /**
@@ -501,40 +498,8 @@ export async function queueUsage(): Promise<{ bytes: number; localBytes: number;
  *  bearer token, which is the lesson the harvest thumbnails taught. */
 const repairs = new Map<number, Promise<Blob>>()
 const removedIds = new Set<number>()
-const CLEANUP_KEY = 'deckpal-labeler-heic-cleanup-v1'
-
-function loadPendingCleanups(): Map<number, number> {
-  try {
-    return new Map(JSON.parse(localStorage.getItem(CLEANUP_KEY) ?? '[]') as Array<[number, number]>)
-  } catch {
-    return new Map()
-  }
-}
-
-const pendingCleanups = loadPendingCleanups()
-const replacementIds = new Map(pendingCleanups)
-
-function savePendingCleanups(): void {
-  try {
-    localStorage.setItem(CLEANUP_KEY, JSON.stringify([...pendingCleanups]))
-  } catch {
-    // The in-memory mapping still protects the current session.
-  }
-}
-
-async function cleanupOriginal(id: number): Promise<void> {
-  await api.scanQueueDelete(id, true)
-  pendingCleanups.delete(id)
-  savePendingCleanups()
-}
-
-let cleanupRun: Promise<void> | null = null
-function retryPendingCleanups(): void {
-  if (cleanupRun || !pendingCleanups.size) return
-  cleanupRun = (async () => {
-    for (const id of pendingCleanups.keys()) await cleanupOriginal(id).catch(() => {})
-  })().finally(() => { cleanupRun = null })
-}
+// Older clients persisted cleanup hints and hid originals based on them.
+// Ignore those hints: only the server can know which copy still exists.
 
 export async function queuedPhotoBlob(
   id: number,
@@ -548,17 +513,10 @@ export async function queuedPhotoBlob(
   if (removedIds.has(id)) throw new Error('that photo has already been removed')
   const repaired = repairs.get(id)
   if (repaired) return repaired
-  const replacementId = replacementIds.get(id)
-  if (replacementId) {
-    retryPendingCleanups()
-    return api.scanQueueBlob(replacementId, signal)
-  }
   const blob = await api.scanQueueBlob(id, signal)
   if (removedIds.has(id)) throw new Error('that photo has already been removed')
   const alreadyRepaired = repairs.get(id)
   if (alreadyRepaired) return alreadyRepaired
-  const newerReplacement = replacementIds.get(id)
-  if (newerReplacement) return api.scanQueueBlob(newerReplacement, signal)
   if (!(await isHeic(blob))) return blob
   // A former client could upload HEIC bytes under a .jpg path. Keep the old
   // object until the authenticated replacement has landed; a failed repair
@@ -574,12 +532,7 @@ export async function queuedPhotoBlob(
         source: details?.source ?? 'upload',
         repairOf: id,
       })
-      if (added.id !== id) {
-        replacementIds.set(id, added.id)
-        pendingCleanups.set(id, added.id)
-        savePendingCleanups()
-        await cleanupOriginal(id).catch(() => {})
-      }
+      if (added.id !== id) await api.scanQueueDelete(id, true).catch(() => {})
       window.dispatchEvent(new Event('deckpal:scan-queue-repaired'))
       return jpg
     })()

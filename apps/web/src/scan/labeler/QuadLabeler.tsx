@@ -381,6 +381,7 @@ export function QuadLabeler() {
         await removeQueued(id)
         await refreshQueue()
       } catch (e) {
+        await refreshQueue()
         setQueueError(e instanceof Error ? e.message : 'that photo could not be discarded')
       }
     },
@@ -392,6 +393,7 @@ export function QuadLabeler() {
       await clearQueue()
       await refreshQueue()
     } catch (e) {
+      await refreshQueue()
       setQueueError(e instanceof Error ? e.message : 'the queue could not be cleared')
     }
   }, [refreshQueue])

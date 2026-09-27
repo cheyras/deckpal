@@ -137,30 +137,16 @@ test('an undecodable photo is REFUSED, never uploaded as-is', () => {
   )
 })
 
-test('an older server HEIC is replaced before its original is deleted', () => {
+test('server repair owns identity; client cleanup hints never hide a surviving photo', () => {
   assert.match(QUEUE_SRC, /if \(!\(await isHeic\(blob\)\)\) return blob/)
-  const post = QUEUE_SRC.indexOf('await api.scanQueueAdd({', QUEUE_SRC.indexOf('const repairs ='))
-  const cleanup = QUEUE_SRC.indexOf('await cleanupOriginal(id)', post)
-  assert.ok(post > 0 && cleanup > post, 'repair must POST the JPEG before DELETE of the HEIC')
-  assert.match(QUEUE_SRC, /replacementIds\.set\(id, added\.id\)/)
-  assert.match(QUEUE_SRC, /const original = \[\.\.\.replacementIds\]\.find/)
-  assert.match(QUEUE_SRC, /if \(replacement\) await api\.scanQueueDelete\(replacement\)[\s\S]*?await api\.scanQueueDelete\(original\)/,
-    'finishing either an old row or its replacement must retire both objects')
-  assert.match(QUEUE_SRC, /const newerReplacement = replacementIds\.get\(id\)/,
-    'an overlapping fetch must recheck whether another read already repaired the original')
-  assert.match(QUEUE_SRC, /removedIds\.add\(original\)[\s\S]*?await repairs\.get\(original\)/,
-    'discard must wait for an in-flight repair')
-  assert.match(QUEUE_SRC, /pendingCleanups\.set\(id, added\.id\)/,
-    'a failed original deletion must remain available for a later retry')
-  assert.match(QUEUE_SRC, /await api\.scanQueueDelete\(id, true\)/,
-    'repair cleanup must use the original-only endpoint mode')
   assert.match(QUEUE_SRC, /repairOf: id/)
-  assert.match(REPAIR_SRC, /id \* 1000 \+ 1/,
-    'two devices repairing one original must address the same replacement')
-  assert.match(QUEUE_SRC, /catch \(error\) \{\s*removedIds\.delete\(original\)/,
-    'a failed discard must leave the photo openable')
-  assert.match(SERVER_SRC, /if \(await checkedObject\(path, 'HEAD'\)\)/,
-    'a failed object deletion must be checked before cleanup is acknowledged')
+  assert.match(QUEUE_SRC, /await api\.scanQueueDelete\(id, true\)/)
+  assert.doesNotMatch(QUEUE_SRC, /pendingCleanups|replacementIds/)
+  assert.match(QUEUE_SRC, /\.\.\.remote\.map/)
+  assert.match(QUEUE_SRC, /removedIds\.add\(id\)[\s\S]*?await repairs\.get\(id\)/)
+  assert.match(QUEUE_SRC, /catch \(error\) \{\s*removedIds\.delete\(id\)/)
+  assert.match(REPAIR_SRC, /id \* 1000 \+ 1/)
+  assert.match(SERVER_SRC, /if \(await checkedObject\(path, 'HEAD'\)\)/)
 })
 
 test('a missing harvest thumbnail shows an explanation when no removal callback exists', () => {
@@ -169,7 +155,7 @@ test('a missing harvest thumbnail shows an explanation when no removal callback 
 })
 
 test('a temporary storage failure is not reported as a missing photo', () => {
-  assert.match(SERVER_SRC, /upstream\.status === 404 \|\| upstream\.status === 400/)
+  assert.match(SERVER_SRC, /response\.status === 404 \|\| response\.status === 400/)
   assert.match(SERVER_SRC, /new ApiError\(502, 'queue_storage_unavailable'/)
 })
 
