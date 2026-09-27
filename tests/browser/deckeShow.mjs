@@ -37,6 +37,7 @@
  * same reason no assertion here is a wall-clock bound.
  */
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import path from 'node:path'
 import { webkit } from 'playwright'
 import { buildWeb, contextFor, serve } from './support.mjs'
@@ -327,6 +328,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         await secondLeg(page, fixture, 90_000)
         const f = await frames(page)
         const m = analyse(f)
+        fs.writeFileSync(path.join(out, 'decke-show-card-' + engine + '-' + vp.width + '.json'), JSON.stringify({ frames: f, metrics: m }, null, 2) + '\n')
         const chats = await page.evaluate(() => window.__show.chats)
         await page.screenshot({ path: path.join(out, 'decke-show-card-' + engine + '-' + vp.width + '.png') })
         const where = engine + ' ' + vp.width + ': '
