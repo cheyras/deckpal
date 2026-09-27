@@ -150,6 +150,13 @@ test('an older server HEIC is replaced before its original is deleted', () => {
     'discard must wait for an in-flight repair')
   assert.match(QUEUE_SRC, /pendingCleanups\.set\(id, added\.id\)/,
     'a failed original deletion must remain available for a later retry')
+  assert.match(QUEUE_SRC, /repairOf: id/)
+  assert.match(SERVER_SRC, /epochMs = originalId \* 1000 \+ 1/,
+    'two devices repairing one original must address the same replacement')
+  assert.match(QUEUE_SRC, /catch \(error\) \{\s*removedIds\.delete\(original\)/,
+    'a failed discard must leave the photo openable')
+  assert.match(SERVER_SRC, /const check = await fetch\(publicObjectUrl\(p\), \{ method: 'HEAD'/,
+    'a failed object deletion must be checked before cleanup is acknowledged')
 })
 
 test('a temporary storage failure is not reported as a missing photo', () => {

@@ -453,13 +453,18 @@ export async function removeQueued(id: number): Promise<void> {
   }
   const original = [...replacementIds].find(([, replacement]) => replacement === id)?.[0] ?? id
   removedIds.add(original)
-  await repairs.get(original)?.catch(() => {})
-  const replacement = replacementIds.get(original)
-  if (replacement) await api.scanQueueDelete(replacement)
-  await api.scanQueueDelete(original)
-  replacementIds.delete(original)
-  pendingCleanups.delete(original)
-  savePendingCleanups()
+  try {
+    await repairs.get(original)?.catch(() => {})
+    const replacement = replacementIds.get(original)
+    if (replacement) await api.scanQueueDelete(replacement)
+    await api.scanQueueDelete(original)
+    replacementIds.delete(original)
+    pendingCleanups.delete(original)
+    savePendingCleanups()
+  } catch (error) {
+    removedIds.delete(original)
+    throw error
+  }
 }
 
 export async function clearQueue(): Promise<void> {
@@ -567,6 +572,7 @@ export async function queuedPhotoBlob(
         jpg: await blobToBase64(jpg),
         name: jpgName(details?.name ?? `photo-${id}.heic`),
         source: details?.source ?? 'upload',
+        repairOf: id,
       })
       if (added.id !== id) {
         replacementIds.set(id, added.id)

@@ -63,6 +63,15 @@ const PREFIX = 'dev-queue/';
  * a client that does not.
  */
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
+const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs']);
+
+function isHeicBytes(bytes: Buffer): boolean {
+  if (bytes.length < 12 || bytes.toString('ascii', 4, 8) !== 'ftyp') return false;
+  for (let i = 8; i + 4 <= Math.min(bytes.length, 32); i += 4) {
+    if (HEIC_BRANDS.has(bytes.toString('ascii', i, i + 4))) return true;
+  }
+  return false;
+}
 
 interface QueueMeta {
   name: string;
@@ -98,7 +107,7 @@ scanQueueRouter.post(
   asyncHandler(async (req, res) => {
     if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
 
-    const body = (req.body ?? {}) as { jpg?: unknown; name?: unknown; source?: unknown };
+    const body = (req.body ?? {}) as { jpg?: unknown; name?: unknown; source?: unknown; repairOf?: unknown };
     if (typeof body.jpg !== 'string' || !body.jpg) throw badRequest('jpg (base64 string) is required');
     const bytes = Buffer.from(body.jpg, 'base64');
     if (bytes.length === 0) throw badRequest('jpg decoded to 0 bytes');
@@ -112,11 +121,30 @@ scanQueueRouter.post(
     // The id is the server's clock, not the client's. Two devices filling one
     // queue cannot agree on a millisecond, and the id is also the sort order —
     // "the order they were shot" only means anything if one clock stamps it.
-    const epochMs = Date.now();
+    let epochMs = Date.now();
+    let originalMeta: QueueMeta | null = null;
+    if (body.repairOf !== undefined) {
+      const originalId = body.repairOf;
+      if (!Number.isSafeInteger(originalId) || typeof originalId !== 'number' || originalId < 1_000_000_000_000 ||
+          !Number.isSafeInteger(originalId * 1000 + 1)) throw badRequest('bad repair photo id');
+      epochMs = originalId * 1000 + 1;
+      const replacement = await fetch(publicObjectUrl(`${PREFIX}${epochMs}.jpg`), { method: 'HEAD' });
+      if (replacement.ok) {
+        const meta = await readMeta(`${PREFIX}${epochMs}.json`);
+        res.json({ ok: true, id: epochMs, name: meta?.name ?? body.name, source: meta?.source ?? body.source, addedAt: meta?.addedAt ?? new Date(originalId).toISOString() });
+        return;
+      }
+      if (replacement.status !== 404 && replacement.status !== 400) throw new ApiError(502, 'queue_storage_unavailable', 'Could not check the HEIC replacement.');
+      const original = await fetch(publicObjectUrl(`${PREFIX}${originalId}.jpg`));
+      if (original.status === 404 || original.status === 400) throw notFound('no such queued photo');
+      if (!original.ok) throw new ApiError(502, 'queue_storage_unavailable', 'Could not read the HEIC photo to repair.');
+      if (!isHeicBytes(Buffer.from(await original.arrayBuffer()))) throw badRequest('repair source is not HEIC');
+      originalMeta = await readMeta(`${PREFIX}${originalId}.json`);
+    }
     const meta: QueueMeta = {
       name: typeof body.name === 'string' && body.name ? body.name.slice(0, 200) : `photo-${epochMs}.jpg`,
       source: body.source === 'camera' ? 'camera' : 'upload',
-      addedAt: new Date(epochMs).toISOString(),
+      addedAt: originalMeta?.addedAt ?? new Date(body.repairOf === undefined ? epochMs : body.repairOf as number).toISOString(),
     };
     const reason = 'quad-labeler pending photo — client camera frame or picked file, no upstream URL';
     await putUnmanifestedObject({
@@ -161,7 +189,7 @@ scanQueueRouter.get(
     // OLDEST FIRST — the order they were shot, which is the order a reader
     // works a stack of cards in. (The corpus listing is newest-first; that one
     // is a review, this one is a work queue.)
-    const ids = [...byId.entries()].filter(([, e]) => e.hasJpg).sort((a, b) => Number(a[0]) - Number(b[0]));
+    const ids = [...byId.entries()].filter(([, e]) => e.hasJpg);
     const photos = await Promise.all(
       ids.map(async ([id, { size }]) => {
         const meta = await readMeta(`${PREFIX}${id}.json`);
@@ -174,6 +202,7 @@ scanQueueRouter.get(
         };
       }),
     );
+    photos.sort((a, b) => Date.parse(a.addedAt) - Date.parse(b.addedAt) || a.id - b.id);
     res.json({ photos });
   }),
 );
@@ -188,7 +217,14 @@ scanQueueRouter.delete(
 
     const removed: string[] = [];
     for (const p of [`${PREFIX}${id}.jpg`, `${PREFIX}${id}.json`]) {
-      if (await deleteObject(p)) removed.push(p.slice(PREFIX.length));
+      if (await deleteObject(p)) {
+        removed.push(p.slice(PREFIX.length));
+        continue;
+      }
+      const check = await fetch(publicObjectUrl(p), { method: 'HEAD', cache: 'no-store' });
+      if (check.status !== 404 && check.status !== 400) {
+        throw new ApiError(502, 'queue_delete_failed', 'The queued photo could not be removed. Try again.');
+      }
     }
     // Absent is not an error, for `dev/scanFlags.ts`'s reason: two devices can
     // finish the same photo, and the second one must report success rather than

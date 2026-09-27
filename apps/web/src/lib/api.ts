@@ -1723,7 +1723,7 @@ export const api = {
   // on a phone, which is the workflow the queue exists for.
   /** Upload one pending photo. The server stamps the id, so two devices filling
    *  one queue still produce a single coherent order. */
-  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload' }) =>
+  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload'; repairOf?: number }) =>
     send<{ ok: true; id: number; name: string; source: string; addedAt: string }>('POST', '/dev/scan-queue', body),
   scanQueueList: (signal?: AbortSignal) =>
     get<{ photos: Array<{ id: number; name: string; source: 'camera' | 'upload'; addedAt: string; size: number }> }>(
