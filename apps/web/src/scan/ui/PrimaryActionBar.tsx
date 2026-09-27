@@ -10,6 +10,7 @@ export function PrimaryActionBar({
   icon,
   count,
   busy,
+  disabled,
   onClick,
 }: {
   label: string
@@ -17,6 +18,7 @@ export function PrimaryActionBar({
   /** Hides the bar entirely at 0 — there is nothing to verify or commit yet. */
   count: number
   busy?: boolean
+  disabled?: boolean
   onClick: () => void
 }) {
   if (count === 0) return null
@@ -27,9 +29,9 @@ export function PrimaryActionBar({
     >
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={onClick}
-        className="flex h-[44px] w-full items-center justify-center gap-[8px] rounded-full bg-action-primary text-[15px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-60"
+        className={`flex h-[44px] w-full items-center justify-center gap-[8px] rounded-full text-[15px] font-bold ${disabled ? 'bg-surface-tertiary text-text-muted' : 'bg-action-primary text-action-primary-text hover:bg-action-primary-hover disabled:opacity-60'}`}
       >
         {busy ? (
           <>

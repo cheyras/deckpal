@@ -186,6 +186,17 @@ describe('the queue', () => {
     assert.equal(applyAction([row('r1')], s.due[0]).feed[0].quantity, 2)
   })
 
+  it('reports a printing that cannot settle when Verify is tapped during its hold', () => {
+    const feed = [row('r1', { name: 'Venonat', variants: [], variantId: 1 })]
+    const q = enqueue(EMPTY_QUEUE, propose(spec('reverse holo'), 'r1', feed, 0, mint).actions)
+    const settled = settleAll(q, feed)
+    assert.equal(settled.queue.pending.length, 0)
+    const result = applyAction(feed, settled.due[0])
+    assert.equal(result.record, null)
+    assert.equal(result.outcome.message, 'Couldn’t load Venonat’s printings')
+    assert.equal(result.feed[0].variantId, 1, 'the default remains and needs an explicit review warning')
+  })
+
   it('cancels one pending change', () => {
     const q = enqueue(EMPTY_QUEUE, propose(spec('two reverse holos'), 'r1', [], 0, mint).actions)
     assert.deepEqual(at(cancel(q, q.pending[0].id)), ['r1:quantity'])

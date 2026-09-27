@@ -55,7 +55,7 @@ import { gateScanResponse, judgeTie } from '../scan/ui/tieGate'
 import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
 import { useAccess } from '../lib/access'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
-import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, voicePrimerSeen } from '../scan/voice/VoiceControls'
+import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
 
 // The scanner (production rebuild — see roadmap/plans/card-scanner-redesign,
 // PLAN.md D1-D6 — plus the owner's post-field-test UX round, 2026-09-03).
@@ -1558,9 +1558,10 @@ export function Scan() {
   )
 
   const goToVerify = useCallback(() => {
+    voice.settlePending()
     setReviewMode('list')
     setStep('verify')
-  }, [])
+  }, [voice])
   const backToScan = useCallback(() => {
     setStep('scan')
     setBinExpanded(false)
@@ -1782,7 +1783,8 @@ export function Scan() {
               />
             )}
 
-            <PrimaryActionBar label={`Add ${commitCount} card${commitCount === 1 ? '' : 's'}`} icon="plus" count={commitCount} busy={committing} onClick={handleCommit} />
+            <VoiceVerifyWarning voice={voice} />
+            <PrimaryActionBar label={`Add ${commitCount} card${commitCount === 1 ? '' : 's'}`} icon="plus" count={commitCount} busy={committing} disabled={voice.verifyWarnings.length > 0} onClick={handleCommit} />
           </>
         )}
 

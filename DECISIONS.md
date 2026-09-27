@@ -21003,3 +21003,12 @@ and pinned by `wireBounds.test.ts`; `isNormalPath` is mirrored between
 `tools.ts` and `uiTools.ts` and pinned by `tools.test.ts`. A guide sub-agent
 that fails its one write cannot retry within the same approval. No schema,
 environment variable or deployment change.
+
+## 2026-09-26 — Scanner voice protects named cards and failed printings through Verify
+**Decided by:** Chey (via Claude)
+
+**Decision:** An exact card name inside a spoken command cannot be consumed by a fuzzy filler phrase; it targets that named capture or the command is refused. When a spoken printing change fails, Verify keeps its warning visible and Add waits until the reader explicitly chooses to continue without the voice change. Pending changes settle synchronously when Verify is tapped, before the step changes.
+
+**Why:** “Remove the Seel” could otherwise remove the latest capture, and a failed printing change could lose its warning as the camera caption disappeared, allowing the default printing to be committed without notice.
+
+**Implications:** A reader may need to repeat an ambiguous command or acknowledge a failed printing before adding the batch. The scanner tests cover both paths, and the focused browser test checks the Verify warning at desktop and phone widths. No schema, permission or deployment change.

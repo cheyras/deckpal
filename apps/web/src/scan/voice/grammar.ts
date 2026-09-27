@@ -341,6 +341,14 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     .filter((n) => n.phrases.length)
 
   const out: Segment[] = []
+  // A fuzzy filler phrase must not eat a card name starting in its second
+  // word. "the Seel" can sound close enough to a longer filler to explain the
+  // whole phrase, leaving a destructive command aimed at the latest capture.
+  const exactNameStarts = new Set<number>()
+  for (let at = 0; at < words.length; at++) {
+    if (names.some((n) => n.phrases.some((p) =>
+      keys.slice(at, at + p.words).join('') === p.key))) exactNameStarts.add(at)
+  }
   let i = 0
   while (i < words.length) {
     const word = words[i]
@@ -367,7 +375,8 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     // name IS a command phrase is still reachable as "that one".
     let best: Candidate | null = null
     for (const entry of COMPILED) {
-      const hit = bestWindow(keys, i, entry.phrases, 1, entry.exact)
+      const nextName = entry.slot.kind === 'filler' ? [...exactNameStarts].find((at) => at > i) : undefined
+      const hit = bestWindow(nextName === undefined ? keys : keys.slice(0, nextName), i, entry.phrases, 1, entry.exact)
       if (hit && (!best || hit.weight > best.weight)) {
         best = { ...hit, make: (from, to) => ({ kind: 'slot', slot: entry.slot, from, to }) }
       }

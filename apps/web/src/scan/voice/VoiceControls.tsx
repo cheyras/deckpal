@@ -80,6 +80,22 @@ export function VoiceToggle({ voice, onRequestStart, compact = false }: { voice:
   )
 }
 
+/** A failed spoken printing stays visible when the camera and its caption go
+ * away. Adding requires an explicit choice about the printing shown below. */
+export function VoiceVerifyWarning({ voice }: { voice: ScannerVoice }) {
+  if (!voice.verifyWarnings.length) return null
+  return (
+    <div role="alert" className="mx-[14px] mb-[8px] rounded-xl border border-warning/60 bg-surface-secondary p-[12px] text-[13px] text-text-body">
+      <p className="font-bold text-warning">Voice change not applied</p>
+      {voice.verifyWarnings.map((warning) => <p key={warning.rowId}>{warning.message}</p>)}
+      <p>Check this card before adding. The default printing may still be selected.</p>
+      <button type="button" onClick={voice.acknowledgeVerifyWarnings} className="mt-[8px] font-bold text-action-primary-strong underline">
+        Continue without the voice change
+      </button>
+    </div>
+  )
+}
+
 const TROUBLE_COPY: Partial<Record<ScannerVoice['status'], string>> = {
   denied: 'Voice is blocked. Allow the microphone and speech recognition for this site in your settings, then tap Voice.',
   paused: 'Voice paused. Tap Voice to keep listening.',

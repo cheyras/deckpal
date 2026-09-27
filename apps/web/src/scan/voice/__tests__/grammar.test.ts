@@ -207,6 +207,15 @@ describe('targeting', () => {
     assert.deepEqual(c.target, { kind: 'row', rowId: 'm', name: 'Mew' })
   })
 
+  it('keeps a short named card out of a fuzzy filler phrase', () => {
+    const rows = [{ id: 'last', name: 'Venonat' }, { id: 'named', name: 'Seel' }]
+    assert.deepEqual(parseUtterance('remove the Seel', rows).command,
+      { kind: 'remove', target: { kind: 'row', rowId: 'named', name: 'Seel' } })
+    const edit = parseUtterance('the Seel is a holo', rows).command
+    assert.ok(edit?.kind === 'edit')
+    assert.deepEqual(edit.target, { kind: 'row', rowId: 'named', name: 'Seel' })
+  })
+
   it('refuses a name it cannot find instead of changing the latest scan', () => {
     for (const heard of ['the pikachu is a holo', 'pikachu is a reverse holo', 'remove the pikachu', 'please remove pikachu now', 'remove that pikachu please']) {
       const parsed = parseUtterance(heard, ROWS)

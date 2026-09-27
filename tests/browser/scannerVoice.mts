@@ -79,7 +79,7 @@ try {
   const origin = `http://127.0.0.1:${address.port}`
   browser = await chromium.launch()
   const results: Record<string, unknown> = {}
-  for (const [name, width, height] of [['desktop', 1280, 900], ['mobile', 390, 844]] as const) {
+  for (const [name, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]] as const) {
     const page = await browser.newPage({ viewport: { width, height } })
     let external = 0
     await page.route('**/*', async (route) => {
@@ -229,6 +229,26 @@ try {
     await until(async () => (await speech(page)).live, 'shown again on the scan step, listening resumes')
     await drive(page, 'open')
 
+    // A printing whose options have not loaded must remain visible on Verify.
+    // The default may still be present, so Add stays blocked until the reader
+    // explicitly chooses to continue with the printings shown.
+    await harness(page, 'setVariantsLoaded', 'cap-4', false)
+    await say(page, 'normal')
+    await row(3).locator('[data-voice-pending="printing"]').waitFor()
+    await harness(page, 'enterVerify')
+    const warning = page.getByRole('alert').getByText('Voice change not applied')
+    await warning.waitFor()
+    await page.getByText('Couldn’t load Venonat’s printings').waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Add cards' }).isDisabled(), true)
+    await page.screenshot({ path: path.join(outputDir, `${name}-verify-warning.png`) })
+    await page.getByRole('button', { name: 'Continue without the voice change' }).click()
+    assert.equal(await page.getByRole('button', { name: 'Add cards' }).isEnabled(), true)
+    await page.screenshot({ path: path.join(outputDir, `${name}-verify-acknowledged.png`) })
+    await harness(page, 'setVariantsLoaded', 'cap-4', true)
+    await harness(page, 'setEnabled', true)
+    await until(async () => (await speech(page)).live, 'voice resumes after returning from Verify')
+    await drive(page, 'open')
+
     // An engine that ends every session at once is given up on, and says why.
     for (let i = 0; i < 4; i++) { await fail(page, 'network'); await page.clock.runFor(300) }
     await page.locator('[data-voice-caption="error"]').getByText('needs a network connection', { exact: false }).waitFor()
@@ -263,7 +283,7 @@ try {
   await page.close()
 
   await writeFile(path.join(outputDir, 'browser-proof.json'), JSON.stringify({ status: 'passed', generatedAt: new Date().toISOString(), results }, null, 2) + '\n')
-  console.log('PASS scanner voice Chromium proof at 1280 and 390')
+  console.log('PASS scanner voice Chromium proof at 1440 and 390')
 } finally {
   await browser?.close()
   await server.close()

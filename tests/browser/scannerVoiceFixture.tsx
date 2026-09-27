@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../apps/web/src/theme.css'
 import { useScannerVoice } from '../../apps/web/src/scan/voice/useScannerVoice'
-import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, voicePrimerSeen } from '../../apps/web/src/scan/voice/VoiceControls'
+import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../../apps/web/src/scan/voice/VoiceControls'
 import { VerifyFeed } from '../../apps/web/src/scan/ui/VerifyFeed'
 import { DEFAULT_SORT } from '../../apps/web/src/scan/ui/sort'
 import type { FeedEntry, FeedVariant } from '../../apps/web/src/scan/ui/types'
@@ -17,6 +17,8 @@ declare global {
       setInFlight: (captureId: string | null) => void
       land: (id: string, name: string) => void
       setEnabled: (on: boolean) => void
+      setVariantsLoaded: (id: string, loaded: boolean) => void
+      enterVerify: () => void
       unmount: () => void
       feed: () => FeedEntry[]
       restored: string[]
@@ -65,6 +67,8 @@ function Scanner() {
     setInFlight: (id: string | null) => (inFlight.current = id),
     land: (id: string, name: string) => setFeed((f) => [...f, row(id, name, VENONAT, 200)]),
     setEnabled,
+    setVariantsLoaded: (id: string, loaded: boolean) => setFeed((f) => f.map((e) => e.id === id ? { ...e, variants: loaded ? VENONAT : [] } : e)),
+    enterVerify: () => { voice.settlePending(); setEnabled(false) },
     feed: () => feed,
   })
   const requestStart = () => (voicePrimerSeen() ? voice.start() : setPrimer(true))
@@ -94,6 +98,7 @@ function Scanner() {
           onVoiceCancel={voice.cancel}
         />
       </div>
+      {!enabled && <><VoiceVerifyWarning voice={voice} /><button type="button" disabled={voice.verifyWarnings.length > 0}>Add cards</button></>}
       {primer && (
         <VoicePrimer
           onClose={() => setPrimer(false)}

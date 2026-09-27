@@ -834,6 +834,12 @@ Google for Chrome). The structure is four pure modules and one hook:
   recognizer's silent death.
 * `useScannerVoice.ts` owns time, React state and the page lifecycle.
 
+Before Verify opens, pending speech changes settle against the current row.
+A failed printing change remains visible on Verify, and Add waits for the reader
+to explicitly continue without the voice change. An exact spoken card name is
+protected from fuzzy filler matching, so it cannot silently redirect an edit
+or removal to the latest capture.
+
 Nothing in the scanner may play audio, because any playback silently kills the
 iOS recognizer.
 

@@ -75,6 +75,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
   const [interim, setInterim] = useState('')
   const [caption, setCaption] = useState<VoiceCaption | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  const [verifyWarnings, setVerifyWarnings] = useState<{ rowId: string; message: string }[]>([])
   const [queue, setQueueState] = useState<VoiceQueue>(EMPTY_QUEUE)
 
   const queueRef = useRef<VoiceQueue>(EMPTY_QUEUE)
@@ -118,6 +119,10 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     [announce],
   )
 
+  const warnForVerify = useCallback((rowId: string, message: string) => {
+    setVerifyWarnings((prev) => [...prev.filter((warning) => warning.rowId !== rowId), { rowId, message }])
+  }, [])
+
   useEffect(() => {
     if (!caption) return
     const t = window.setTimeout(() => setCaption((c) => (c?.id === caption.id ? null : c)), CAPTION_MS[caption.tone])
@@ -134,8 +139,10 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         const r = applyAction(feedRef.current, action)
         if (!r.record) {
           show('refused', r.outcome.message)
+          if (action.kind === 'printing') warnForVerify(action.rowId, r.outcome.message)
           continue
         }
+        if (action.kind === 'printing') setVerifyWarnings((prev) => prev.filter((warning) => warning.rowId !== action.rowId))
         feedRef.current = r.feed
         cbRef.current.setFeed((prev) => applyAction(prev, action).feed)
         q = remember(q, r.record)
@@ -146,7 +153,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       }
       commitQueue(q)
     },
-    [announce, commitQueue, show],
+    [announce, commitQueue, show, warnForVerify],
   )
 
   const runTick = useCallback(() => {
@@ -252,6 +259,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       const { actions, outcome } = propose(command, rowId, feedRef.current, Date.now(), () => `va-${++actionSeq.current}`)
       if (!actions.length) {
         show('refused', outcome.message)
+        if (command.kind === 'edit' && command.printing) warnForVerify(rowId, outcome.message)
         return
       }
       commitQueue(enqueue(queueRef.current, actions))
@@ -268,7 +276,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       if ('vibrate' in navigator) navigator.vibrate(12)
       if (feedRef.current.some((e) => e.id === rowId)) cbRef.current.onTarget?.(rowId)
     },
-    [commitQueue, runTick, show, stop, undo],
+    [commitQueue, runTick, show, stop, undo, warnForVerify],
   )
 
   const onStatus = useCallback((next: VoiceStatus, why: string | null) => {
@@ -299,6 +307,13 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     recRef.current.start()
   }, [onResult, onStatus, show, supported])
 
+  const settlePending = useCallback(() => {
+    if (!queueRef.current.pending.length) return
+    const s = settleAll(queueRef.current, feedRef.current)
+    commitQueue(s.queue)
+    if (s.due.length) applyDue(s.due)
+  }, [applyDue, commitQueue])
+
   // The scan step ends: the mic goes with the camera, and every pending change
   // the reader has already seen and not objected to applies now.
   useEffect(() => {
@@ -317,14 +332,10 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       resumeRef.current = true
       rec.stop()
     }
-    if (queueRef.current.pending.length) {
-      const s = settleAll(queueRef.current, feedRef.current)
-      commitQueue(s.queue)
-      if (s.due.length) applyDue(s.due)
-    }
+    settlePending()
     setInterim('')
     setCaption(null)
-  }, [enabled, applyDue, commitQueue])
+  }, [enabled, settlePending])
 
   // The page goes away — app switch, lock screen, another tab. iOS would kill
   // the recognizer anyway; stopping it ourselves means it is restarted
@@ -389,7 +400,10 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     interim,
     caption,
     announcement,
+    verifyWarnings,
+    acknowledgeVerifyWarnings: () => setVerifyWarnings([]),
     pendingByRow,
+    settlePending,
     start,
     stop,
     cancel,
