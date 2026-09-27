@@ -51,7 +51,7 @@ export async function checkDeckImport(browser, server, fixture) {
             confirmedCheckStarted()
             return heldResponse.then(() => route.fulfill({ json: summary([]) }))
           }
-          if (body.text === '2 Iono PAL 999')
+          if (body.text === '2 Iono PAL 999' || body.text === '2 Iono PAL 999\n')
             return route.fulfill({ json: summary(['2 Iono PAL 999'], 1) })
           if (body.text.includes('Arven OBF'))
             return route.fulfill({ json: summary(body.text.split('\n').filter(line => line.endsWith('999'))) })
@@ -148,7 +148,7 @@ export async function checkDeckImport(browser, server, fixture) {
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare()
       await page.getByRole('button', { name: 'Undo' }).last().click()
-      await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Iono PAL 999')
+      await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Iono PAL 999\n')
       assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 0,
         'deleting one identical occurrence must not restore its rejected suggestion on the survivor')
       await page.getByRole('button', { name: 'Import deck' }).click()

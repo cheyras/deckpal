@@ -43,4 +43,6 @@ test('keeps the identity of an untouched line across edits and deletion above it
 test('does not guess which identical occurrence survived a deletion', () => {
   const [survivor] = reconcileDecklistLineIds('A\nA', 'A', ['first', 'second'], () => 'new')
   assert.equal(survivor, 'new', 'neither a rejected nor an accepted suggestion may move to an ambiguous line')
+  const withTrailingNewline = reconcileDecklistLineIds('A\nA', 'A\n', ['first', 'second'], () => 'new')
+  assert.equal(withTrailingNewline[0], 'new', 'a trailing newline cannot disguise a removed duplicate')
 })

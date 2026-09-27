@@ -46,18 +46,15 @@ export function reconcileDecklistLineIds(
   }
   for (let i = start; i <= newEnd; i++)
     result[i] = remaining.get(newLines[i])?.shift() ?? nextId()
-  if (newLines.length < oldLines.length) {
-    const oldCounts = new Map<string, number>(), newCounts = new Map<string, number>()
-    for (const line of oldLines) oldCounts.set(line, (oldCounts.get(line) ?? 0) + 1)
-    for (const line of newLines) newCounts.set(line, (newCounts.get(line) ?? 0) + 1)
-    // Identical occurrences cannot be distinguished after one is removed.
-    // Give the survivors fresh identities rather than attach a rejected fix
-    // to the wrong physical line.
-    for (let i = 0; i < newLines.length; i++) {
-      const line = newLines[i]
-      if ((oldCounts.get(line) ?? 0) > 1 && (newCounts.get(line) ?? 0) < (oldCounts.get(line) ?? 0))
-        result[i] = nextId()
-    }
+  const oldCounts = new Map<string, number>(), newCounts = new Map<string, number>()
+  for (const line of oldLines) oldCounts.set(line, (oldCounts.get(line) ?? 0) + 1)
+  for (const line of newLines) newCounts.set(line, (newCounts.get(line) ?? 0) + 1)
+  // Identical occurrences cannot be distinguished when one disappears, even
+  // if a trailing newline keeps the total number of split lines unchanged.
+  for (let i = 0; i < newLines.length; i++) {
+    const line = newLines[i]
+    if ((oldCounts.get(line) ?? 0) > 1 && (newCounts.get(line) ?? 0) < (oldCounts.get(line) ?? 0))
+      result[i] = nextId()
   }
   return result
 }
