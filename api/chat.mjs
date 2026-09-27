@@ -126,6 +126,7 @@ import {
 } from '../apps/api/dist/decke/turnGuards.js'
 import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
 import { priorSummaries } from '../apps/api/dist/decke/toldAlready.js'
+import { readReflex } from '../apps/api/dist/decke/reflex.js'
 import {
   validateWire,
   windowForModel,
@@ -437,19 +438,6 @@ async function serve(request) {
   // never shown to the model. See `boundedEvidence`.
   const evidence = boundedEvidence(body?.evidence)
 
-  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
-  //
-  // Derived from the replayed conversation, before anything else uses it. The
-  // reader watched the same `deck_strategy` dialog on three consecutive turns
-  // having declined it every time, and wrote in the chat that this was the
-  // problem. A matching call is now refused without a dialog. See
-  // `decke/declined.ts` for why the tool is not simply taken away instead.
-  //
-  // `latestUserText` is the reader's OWN latest message — the one fact the model
-  // cannot fake, and what re-opens a name-level family (guide / research) the
-  // reader raises again. See `declined.ts`'s bypass section.
-  const declined = declinedCalls(messages, latestUserText(messages))
-
   // ── AND WHAT THE METER ALREADY REFUSED IN THIS TURN ───────────────────────
   //
   // The other half of `declined`, and a different fact: a decline is the reader
@@ -470,7 +458,7 @@ async function serve(request) {
 
   // ── AND WHAT HAS BEEN FAILING ALL CONVERSATION ────────────────────────────
   //
-  // Same source, same lifetime, same reason as `declined` above: rebuilt from
+  // Same source, same lifetime, same reason as `declined` below: rebuilt from
   // the replayed history because the server keeps nothing between requests.
   // `battle_logs` 500ed on four turns of one conversation and was re-called on
   // every one of them — the error chips were erased at the turn boundary, so
@@ -539,6 +527,38 @@ async function serve(request) {
   }
 
   try {
+  // ── THE REFLEX READ ───────────────────────────────────────────────────────
+  //
+  // What the reader is asking for, judged by Jev before the model runs: a
+  // collection change forces the first step to raise the real consent card, a
+  // walk to a list or deck takes `escort` out of view, and a "no" said in words
+  // counts as a decline. On every leg, from the reader's latest words — the
+  // server keeps nothing between requests, and a refusal must still hold after
+  // a browser result comes back — but only the leg carrying those words may
+  // force. AFTER the meter — this is a Gateway call, and nothing reaches the
+  // Gateway unpaid — and under a hard deadline. On a timeout, an error, a low-confidence answer or `DECKE_JEV`
+  // off, it is `NO_REFLEX`, which is this function exactly as it was.
+  //
+  // Not the classifier turn the deep tier's comment below rejects: that was an
+  // LLM turn in front of every message. This is a typed evaluation — no
+  // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
+  // above a threshold chosen on a labelled set. See `decke/jev.ts`.
+  const reflex = await readReflex(messages, route, { key, signal: request.signal })
+
+  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
+  //
+  // Derived from the replayed conversation, before anything else uses it. The
+  // reader watched the same `deck_strategy` dialog on three consecutive turns
+  // having declined it every time, and wrote in the chat that this was the
+  // problem. A matching call is now refused without a dialog. See
+  // `decke/declined.ts` for why the tool is not simply taken away instead.
+  //
+  // `latestUserText` is the reader's OWN latest message — the one fact the model
+  // cannot fake, and what re-opens a name-level family (guide / research) the
+  // reader raises again. See `declined.ts`'s bypass section. A refusal SAID in
+  // that message (the reflex read above) counts too, and outranks the bypass.
+  const declined = declinedCalls(messages, latestUserText(messages), reflex.declines)
+
   // Where this instance is reachable, for the API hop a tool makes. Derived
   // from the request rather than hardcoded, so a preview deployment talks to
   // ITSELF instead of to production — which matters most when the thing being
@@ -1006,8 +1026,15 @@ async function serve(request) {
         // `activeTools`, "a prompt begging the model to call it produced no
         // call". A decline is never removed this way (the reader can change
         // their mind mid-turn); a spent cap cannot be talked around.
+        //
+        // AND WHAT THE REFLEX READ SETTLED. `escort` leaves view when the reader
+        // is going somewhere it cannot reach. And when they plainly asked to
+        // change their collection, step one MUST call `log_cards` — the call
+        // that raises the signed consent card, and cannot write without it.
+        // Forcing it forces the question, never the answer.
         prepareStep: ({ stepNumber }) => ({
-          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n)),
+          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
+          ...(stepNumber === 0 && reflex.force ? { toolChoice: { type: 'tool', toolName: reflex.force } } : {}),
         }),
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //

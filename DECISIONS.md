@@ -20661,6 +20661,77 @@ a synthetic SET fixture with the entrance animation actively running at measurem
 fix is correct by construction (`getBoundingClientRect` is unaffected by transformed ancestors by
 definition, not by observed behavior in one scenario), which is why this is noted rather than
 claimed as fully covered.
+## 2026-09-26 — A scripted iOS Simulator test kit, permanent under `tools/ios-sim/`
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** `tools/ios-sim/` is a reusable kit for testing DeckPal in real Mobile
+Safari on the iOS Simulator: `wir.py` (a from-scratch, Python-3-stdlib-only Safari
+Web Inspector client over the simulator's local `webinspectord_sim` socket --
+`list`/`eval`/`eval @file`), `server.mjs` (a fixture server -- fake signed-in
+session, fake API, built on the existing `tests/browser/support.mjs` +
+`admin.mjs` harness rather than duplicating it), `keyboard_probe.js` +
+`measure_keyboard.py` (on-screen-keyboard layout measurement), and `shot.sh`
+(a `simctl io screenshot` fallback). `pnpm sim:serve` runs the fixture server;
+`pnpm test:ios-sim` runs the kit's own pure tests.
+
+**Why:** On 2026-09-23 an ad hoc investigation session did this same thing by
+hand -- boot, attach, seed a fake session, drive the UI, read layout state --
+and found a real bug (the Bug Report modal's keyboard-scroll issue, reproduced
+again below as this kit's worked example). That session's own record noted no
+scripted recipe existed, so the method had to be reinvented from scratch next
+time. The prototype files that investigation described (a `wir.py`, a keyboard
+probe, a screenshot helper) did not exist on disk when this kit was built --
+the sandbox they were written in did not persist between sessions -- so this
+kit is written fresh from the technical spec that investigation left behind
+(the plist RPC framing, the `Target.sendMessageToTarget` multiplexing, the
+`awaitPromise` unreliability), cross-checked against `pymobiledevice3` and
+`ios-webkit-debug-proxy`'s published implementations of the same protocol, and
+independently verified end-to-end against a real booted simulator (iPhone 16
+Pro, iOS 18.6) rather than assumed correct from the spec alone.
+
+**What it found, verified today:** the Bug Report modal's keyboard bug still
+reproduces on `main` -- tapping its textarea for real raises the keyboard, and
+`document.scrollY` goes from `0` to `137` with the dialog's own title and the
+app header scrolled to negative `y` (off-screen above the fold), while the
+focused field itself stays visible. See `tools/ios-sim/README.md`'s worked
+example for the full probe output. Also verified: the Home Screen (standalone)
+install flow works end-to-end (`window.navigator.standalone === true` reads
+back through `wir.py --app standalone`), and `webinspectord_sim` has an
+undocumented connection-rate limit (a third fresh connection within roughly
+ten seconds gets no reply at all) -- `wir.py` retries through this itself
+rather than surfacing it as "nothing is open."
+
+**A mistake made and corrected during this work:** the simulator MCP tool's
+`text` action was used once by accident while re-verifying the Home Screen
+flow, despite the task's explicit instruction never to use it. Per the
+documented trap, this switches iOS into hardware-keyboard mode and hides the
+on-screen keyboard; the device was rebooted (`simctl shutdown` + `boot`)
+immediately to clear it before any further keyboard verification continued.
+Recorded here, not just fixed silently, because the same trap is now the
+kit's own README's first line under "Traps" -- it should not recur.
+
+**Implications:** `tools/ios-sim/dist/` (the built SPA) is gitignored (caught
+by the existing repo-wide `dist/` rule) and rebuilds are decoupled from
+`--port` (the auth storage key only depends on the `127.0.0.1` host, not the
+port, so one cached build serves any port). The deckpal-simfixture prototype's
+`hdiutil` case-sensitive-volume workaround was dropped entirely -- PR #201
+already fixed the underlying case-insensitive build collision on `main`, and
+building straight from a normal checkout was reverified clean before removing
+the workaround. Fixed alongside this kit (found by an independent a11y pass
+while this PR was in flight): `tests/browser/admin.mjs`'s
+`/api/insights/overview` fixture stub had drifted from the real
+`apps/api/src/routes/insights.ts` response shape (missing `trainer.intoLevel`/
+`toNext`/`fraction`, four fictitious keys -- `collection`, `tcg`, `completion`,
+`value` -- that were never real fields of that endpoint) and
+`/api/insights/value` had no stub at all; both are now pinned to the real
+shape, and a new `checkInsights` browser check (wired into `test:browser`)
+proves `/insights` actually renders on the fixture rather than trusting the
+stub by inspection. Unrelated and pre-existing: `pnpm test:browser`'s
+`checkAdminTables` "ArrowRight must actually scroll overflowing columns"
+assertion fails deterministically in this sandbox's headless Chromium, on a
+clean `origin/main` checkout with none of this PR's changes applied -- not a
+regression introduced here; left for a separate investigation.
 ## 2026-09-26 — Four collection/list quick fixes from the ux-collection audit (UXC-01, 03, 05, 09)
 **Decided by:** Chey (via Claude)
 
@@ -21170,3 +21241,71 @@ callers retain the shared sheet behavior. The browser fixture checks keyboard cl
 and a resize across the breakpoint deep in a 3,200-row list at phone and desktop sizes.
 The separate question of whether quantity counters should be hidden below 768px
 remains for Chey.
+
+## 2026-09-26 — Jev reads the reader before Deck-E answers
+
+**Decided by:** Chey (via Claude). Chey approved Jev on 2026-09-26 ("implement
+Jev, yes. Use it wherever it would improve a user's experience with Deck-E") and
+confirmed that TypeSafe AI is a US company, so `typesafe-ai` joins the "US
+frontier labs only" list in `models.ts` rather than being an exception to it.
+
+**Decision:** Behind `DECKE_JEV` (default off), each `/api/chat` request gets
+one typed evaluation by `typesafe-ai/jev` of the reader's latest message before
+the model runs (`reflex.ts`, `jev.ts`); a turn with browser or approval legs
+repeats it per leg, because the server keeps nothing between requests, and only
+the leg carrying the reader's message may force (found by Astra in review). Three answers act, each only above a threshold chosen on a labelled
+eval set: a plain collection change pins step one's `toolChoice` to `log_cards`,
+which raises the signed consent card and cannot write without it; a walk to a
+list, deck or other non-set page takes `escort` out of view; and a refusal said
+in words ("stop researching the meta, you already did") is added to the declined
+ledger and outranks the reader-mention bypass. Jev never approves a write. On a
+timeout (`DECKE_JEV_TIMEOUT_MS`, default 800 ms), an HTTP error, a malformed or
+low-confidence answer, or the switch off, the turn runs exactly as before. Every
+call asks the Gateway for zero data retention and pins the provider to
+TypeSafe. The call is plain HTTP to `/v1/evaluate`: `experimental_evaluate`
+needs `ai` 7.0.105 and this repo pins 7.0.94, the version the signed approval
+replay was verified against.
+
+**Why, and why this is not the classifier `api/chat.mjs` rejected:** that
+comment rejects "a classifier turn in front of every message" because it "taxes
+the 90% that do not need one" and "a misroute is INVISIBLE". Both were true of an
+LLM turn and are measured false here. The tax: a reflex read is ~854 input
+tokens, $0.000036 (≈0.3% of a ~$0.0115 chat turn), no output tokens, p50 279 ms
+and p95 418 ms over 198 calls through the Gateway (from a residential
+connection), under a hard deadline. The misroute: every answer carries a
+probability, and an action fires only above its threshold; below it the turn is
+today's. On `apps/api/src/decke/eval/judgments.json` (66 synthetic reader
+messages, three paid passes, identical results each time):
+
+| Judgment | Today | With Jev |
+|---|---|---|
+| Force the consent card for a collection change (20 of 66) | 0 / 20 (nothing forces it) | 20 / 20, 0 false forces |
+| Hide `escort` for a page it cannot reach (8) | 0 / 8 | 8 / 8, 0 false hides |
+| Hear a spoken refusal (8) | 0 / 8, and the bypass re-opens 7 of them | 8 / 8, 0 false refusals |
+| A declined family handled right afterwards (13) | 6 / 13 | 13 / 13 |
+
+Thresholds: force at p ≥ 0.5 (the weakest true positive was 0.56, the strongest
+negative 0.30), destination p ≥ 0.85 / confidence ≥ 0.7, decline p ≥ 0.8.
+
+**Implications:** TypeSafe AI is a new data processor for the reader's latest
+message, Deck-E's previous reply and the page path. No separate collection or
+account records are attached, but those fields are not redacted and may contain
+ownership counts, card IDs, account details or deck/list IDs. Its retention is
+unconfirmed: the Gateway lists `zdr: "none"`, Vercel's guide offers ZDR per
+request, and TypeSafe offers ZDR to enterprise customers only; measured, the
+Gateway honours the per-request flag by skipping a non-ZDR host (SECURITY.md).
+Jev's model id is unpinned on the Gateway, so the thresholds must be re-measured
+with `scripts/decke-jev-eval.mjs` when it changes (`--replay` re-scores saved
+answers for free). The eval set is synthetic and small, written and labelled by
+one author; it is the first persisted offline eval corpus for Deck-E and is
+scored for today's heuristics in CI (`judgmentsEval.test.ts`). Jev's cost rides
+inside the flat chat-turn charge (no new charge, no token settlement) and is
+logged per call as tokens and Gateway-reported cost, never with reader text; it
+is not written as a usage operation, because recording a provider start would
+stop an aborted turn's credit being refunded. The research report's code map was
+corrected against the code: `ai` is 7.0.94 (not 7.0.66), `research_meta` is
+already in the name-level decline set, and `escort`'s description already
+routes lists and decks to `goTo`/`journey`. Body reflexes (the report's #4) were
+not built: no in-code heuristic exists to beat, it would restructure `express`
+and the client state machine, and whether his body should react before his
+words is the owner's taste call.
