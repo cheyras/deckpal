@@ -87,9 +87,12 @@ export function choosePrint(rows: CandidateRow[], format: FormatCode, line?: Par
     if (pastedNumber) {
       const numberDistance = (row: CandidateRow) => {
         if (row.local_id.toUpperCase() === pastedNumber) return 0;
-        const pasted = /\d+/.exec(pastedNumber)?.[0];
-        const candidate = /\d+/.exec(row.local_id)?.[0];
-        return pasted && candidate ? Math.abs(Number(pasted) - Number(candidate)) + 1 : Infinity;
+        const pasted = /^([A-Z]*)(\d+)/.exec(pastedNumber);
+        const candidate = /^([A-Z]*)(\d+)/i.exec(row.local_id);
+        return pasted && candidate
+          ? Math.abs(Number(pasted[2]) - Number(candidate[2])) +
+            (pasted[1] === candidate[1]?.toUpperCase() ? 1 : 1001)
+          : Infinity;
       };
       const distance = numberDistance(a) - numberDistance(b);
       if (Number.isFinite(distance) && distance) return distance;

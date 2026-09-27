@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Queryable } from '@deckpal/db';
 import { choosePrint, finishImportFix, importFixPrompt, prepareImportFix, selectedOptions, verifiedImportFix, type ImportFixOption } from '../importFix.js';
+import { parsePtcgl } from '../ptcgl.js';
 
 const option = (lineIndex: number, key: string): ImportFixOption => ({
   key, lineIndex, replacement: '4 Boss\'s Orders PAL 172',
@@ -36,8 +37,9 @@ test('printing order prefers owned, then legal regular, then newest', () => {
   const legalRegular = row('legal', '0', 'J', 'Uncommon', '2025-01-01');
   const legalRare = row('rare', '0', 'J', 'Special illustration rare', '2026-01-01');
   assert.equal(choosePrint([legalRare, owned, legalRegular], 'standard')?.tcgdex_id, 'owned');
+  const hinted = parsePtcgl('1 Iono PAL 186').lines[0]!;
   assert.equal(choosePrint([{ ...legalRegular, local_id: '184' }, { ...legalRare, local_id: '186' }], 'standard',
-    { number: '186' } as never)?.tcgdex_id, 'rare');
+    hinted)?.tcgdex_id, 'rare');
   assert.equal(choosePrint([legalRare, legalRegular], 'standard')?.tcgdex_id, 'legal');
   const older = row('older', '0', 'J', 'Uncommon', '2023-06-09');
   const newer = row('newer', '0', 'J', 'Uncommon', '2024-01-26');
