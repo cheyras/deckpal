@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import path from 'node:path'
 import { webkit } from 'playwright'
 import { ROOT, WEB, run, buildWeb, isolatedEnv, serve, contextFor } from './support.mjs'
@@ -16,42 +17,45 @@ import { checkDeployAssets } from '../../scripts/check-deploy-assets.mjs'
 // Each returned suite owns its dist, fixture server, and browser contexts.
 // Admin fixture state is shared only by checks within the same label suite.
 export function browserSuites({ browser, out, scratch, results, assets, logs }) {
-  function labelSuite(label, mount) {
+  function labelSuite(label, mount, group) {
     return {
-      name: label,
+      name: label + '-' + group,
       async run() {
-        const dist = path.join(scratch, label)
+        const dist = path.join(scratch, label + '-' + group)
         let scenario = 'active'
         const admin = adminFixture(mount)
         const writes = writesFixture(mount, admin)
-        let adminActive = false, writesActive = false
+        let adminActive = group !== 'catalog'
+        const writesActive = group === 'writes'
         const server = await serve(dist, mount,
           (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel),
           'index.html', { allowMutation: (pathname, method) => pathname.endsWith('/api/client-errors') && method === 'POST'
             || admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
         try {
           logs.push(await buildWeb(dist, label === 'cloud', server.origin))
-          assets.push({ label, ...await checkDeployAssets(dist) })
-          results.push(...await checkUpcoming(browser, server, mount, label, out))
-          results.push(...await checkRouteSplit(browser, server, mount, label, out))
-          for (scenario of ['expired', 'catalogued']) {
-            const { context, page } = await contextFor(browser, server, 390)
-            try {
-              await page.goto(server.origin + mount + '/series/' + announcement.seriesSlug, { waitUntil: 'networkidle' })
-              await page.getByRole('heading', { name: 'Browser Series', exact: true }).waitFor()
-              assert.equal(await page.getByRole('group', { name: announcement.name + ' — coming soon', exact: true }).count(), 0)
-              await page.getByText(scenario === 'catalogued' ? '3 sets' : '2 sets', { exact: true }).waitFor()
-              results.push({ case: 'upcoming-suppression', label, scenario, placeholderAbsent: true })
-            } finally { await context.close() }
-          }
-          adminActive = true
-          results.push(await checkNestedRouteRecovery(browser, server, mount, label))
-          results.push(...await checkAdmin(browser, server, mount, label, out, admin))
-          results.push(...await checkInsights(browser, server, mount, label, out, admin))
-          results.push(...await checkFeedback(browser, server, mount, label, out, admin))
-          results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
-          if (label === 'cloud') {
-            writesActive = true
+          if (group === 'catalog') {
+            assets.push({ label, ...await checkDeployAssets(dist) })
+            results.push(...await checkUpcoming(browser, server, mount, label, out))
+            results.push(...await checkRouteSplit(browser, server, mount, label, out))
+            for (scenario of ['expired', 'catalogued']) {
+              const { context, page } = await contextFor(browser, server, 390)
+              try {
+                await page.goto(server.origin + mount + '/series/' + announcement.seriesSlug, { waitUntil: 'networkidle' })
+                await page.getByRole('heading', { name: 'Browser Series', exact: true }).waitFor()
+                assert.equal(await page.getByRole('group', { name: announcement.name + ' — coming soon', exact: true }).count(), 0)
+                await page.getByText(scenario === 'catalogued' ? '3 sets' : '2 sets', { exact: true }).waitFor()
+                results.push({ case: 'upcoming-suppression', label, scenario, placeholderAbsent: true })
+              } finally { await context.close() }
+            }
+            adminActive = true
+            results.push(await checkNestedRouteRecovery(browser, server, mount, label))
+          } else if (group.startsWith('admin-')) {
+            results.push(...await checkAdmin(browser, server, mount, label, out, admin, group.slice('admin-'.length)))
+            if (group === 'admin-access') results.push(...await checkInsights(browser, server, mount, label, out, admin))
+          } else if (group.startsWith('feedback-')) {
+            results.push(...await checkFeedback(browser, server, mount, label, out, admin, group.slice('feedback-'.length)))
+            if (group === 'feedback-lifecycle') results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+          } else if (group === 'writes') {
             results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
           }
           assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
@@ -69,8 +73,10 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           '--noEmit', '-p', path.join(ROOT, 'tests/browser/tsconfig.json')]))
       },
     },
-    labelSuite('selfhost', '/deckpal'),
-    labelSuite('cloud', ''),
+    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle']
+      .map(group => labelSuite('selfhost', '/deckpal', group)),
+    ...['catalog', 'admin-journey', 'admin-tables-1280', 'admin-tables-390', 'admin-access', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'writes']
+      .map(group => labelSuite('cloud', '', group)),
     {
       name: 'authreturn',
       async run() {
@@ -94,6 +100,19 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           try { results.push(...await checkDeckeStates(safari, server, out, 'webkit')) } finally { await safari.close() }
           assert.deepEqual(server.unexpected, [], 'Rendered chat fixture: unexpected network/error events')
         } finally { await server.close() }
+      },
+    },
+    {
+      name: 'payment-history',
+      async run() {
+        logs.push(await run(process.execPath, ['--import', 'tsx', path.join(ROOT, 'tests/browser/paymentHistory.mts')],
+          { env: isolatedEnv({ TEST_ARTIFACT_DIR: out, NODE_ENV: 'development' }) }))
+        const proof = JSON.parse(fs.readFileSync(path.join(out, 'payment-history/browser-proof.json'), 'utf8'))
+        assert.equal(proof.status, 'passed')
+        for (const [width, record] of [[1280, proof.results.desktop], [390, proof.results.mobile]]) {
+          assert.equal(record.viewport.width, width)
+          results.push({ case: 'payment-history', width })
+        }
       },
     },
   ]
