@@ -1025,6 +1025,20 @@ export interface DeckDetail {
   import?: DeckImportSummary
 }
 /** What `POST /decks/import` made of a pasted list (with `dryRun`, all it returns). */
+export interface DeckImportFix {
+  /** Zero-based physical line in the submitted decklist. Distinguishes duplicate text. */
+  lineIndex: number
+  original: string
+  replacement: string
+  card: { id: string; name: string; set: string; number: string; image?: string }
+  reason: string
+  confidence: 'suggested'
+}
+export interface DeckImportFixResult {
+  fixes: DeckImportFix[]
+  unfixed: string[]
+}
+
 export interface DeckImportSummary {
   source: string
   resolvedEntries: number
@@ -1997,6 +2011,8 @@ export const api = {
   /** The same import resolved WITHOUT creating anything, so unmatched lines can be shown first. */
   checkDeckImport: (body: { text: string; formatCode?: DeckFormat; source?: 'ptcgl' | 'massentry' }) =>
     send<{ import: DeckImportSummary }>('POST', '/decks/import', { ...body, dryRun: true }),
+  fixDeckImport: (body: { text: string; formatCode: DeckFormat }) =>
+    send<DeckImportFixResult>('POST', '/decks/import/fix', body),
   // variantId (migration 051): which printing. Omitted = the card's primary
   // variant on add; on set the server targets the card's single deck row when
   // there is exactly one and 400s when several printings would be ambiguous —

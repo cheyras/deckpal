@@ -81,6 +81,8 @@
   "{\"case\":\"csp-allow-deny-probe\",\"engine\":\"chromium\"}",
   "{\"case\":\"csp-allow-deny-probe\",\"engine\":\"webkit\"}",
   "{\"case\":\"csp-route-crawl\"}",
+  "{\"case\":\"deck-import-fix-confirm\",\"width\":1440}",
+  "{\"case\":\"deck-import-fix-confirm\",\"width\":390}",
   "{\"case\":\"decke-open\"}",
   "{\"case\":\"decke-refusals\",\"width\":1440,\"engine\":\"chromium\"}",
   "{\"case\":\"decke-refusals\",\"width\":1440,\"engine\":\"webkit\"}",

@@ -22,7 +22,7 @@ export function extractUsage(usage:unknown,metadata:unknown):{tokens:UsageTokens
     generationId:typeof id==='string'&&/^[a-zA-Z0-9_-]{1,160}$/.test(id)?id:null,
   };
 }
-export function usageCategory(tool:string):UsageCategory {return tool==='chat_turn'?'response':tool==='research_meta'?'research':'planning'}
+export function usageCategory(tool:string):UsageCategory {return tool==='chat_turn'||tool==='import_fix'?'response':tool==='research_meta'?'research':'planning'}
 export function safeUsageCode(error:unknown):string {
   const e=record(error);
   return e.name==='AbortError'?'cancelled':typeof e.statusCode==='number'&&e.statusCode===429?'provider_rate_limit':'provider_error';

@@ -26,7 +26,7 @@ test('current user excerpt never includes hidden instructions or previous turns'
  assert.equal(safeUsageCode(new Error('SECRET_ERROR')),'provider_error');
 });
 test('business categories and trusted preview PR parsing retain honest unknown values',()=>{
- assert.equal(usageCategory('chat_turn'),'response');assert.equal(usageCategory('research_meta'),'research');
+ assert.equal(usageCategory('chat_turn'),'response');assert.equal(usageCategory('import_fix'),'response');assert.equal(usageCategory('research_meta'),'research');
  assert.equal(usageCategory('analyze_collection'),'planning');assert.equal(usageCategory('plan_deck'),'planning');
  assert.equal(prFromSystemId('188'),188);
  for(const bad of ['',undefined,'0','-1','188junk','1.5',188])assert.equal(prFromSystemId(bad),null);

@@ -4,17 +4,57 @@
  *
  * The import check reports unmatched lines TRIMMED, exactly as the parser read
  * them, so this matches each raw line after trimming and selects only the text,
- * not the indentation around it. First occurrence wins: a repeated bad line is
- * the same fix twice, and the reader will meet the second one next.
+ * not the indentation around it. A supplied physical index selects that exact
+ * occurrence; callers without one keep the first-match behavior.
  */
-export function decklistLineRange(text: string, line: string): [number, number] | null {
+export function decklistLineRange(text: string, line: string, lineIndex?: number): [number, number] | null {
   const want = line.trim()
-  if (!want) return null
+  if (!want || (lineIndex !== undefined && (!Number.isSafeInteger(lineIndex) || lineIndex < 0))) return null
   let offset = 0
-  for (const raw of text.split('\n')) {
+  for (const [index, raw] of text.split('\n').entries()) {
     const lead = raw.length - raw.trimStart().length
-    if (raw.trim() === want) return [offset + lead, offset + lead + want.length]
+    if ((lineIndex === undefined || index === lineIndex) && raw.trim() === want)
+      return [offset + lead, offset + lead + want.length]
     offset += raw.length + 1
   }
   return null
+}
+
+/** Keep the identity of unchanged lines when the reader edits or removes a
+ * neighbor. The matching middle also survives inserted lines and moves. */
+export function reconcileDecklistLineIds(
+  before: string, after: string, ids: readonly string[], nextId: () => string,
+): string[] {
+  const oldLines = before.split('\n'), newLines = after.split('\n')
+  const result: string[] = new Array(newLines.length)
+  let start = 0
+  while (start < oldLines.length && start < newLines.length && oldLines[start] === newLines[start]) {
+    result[start] = ids[start]
+    start++
+  }
+  let oldEnd = oldLines.length - 1, newEnd = newLines.length - 1
+  while (oldEnd >= start && newEnd >= start && oldLines[oldEnd] === newLines[newEnd]) {
+    result[newEnd] = ids[oldEnd]
+    oldEnd--
+    newEnd--
+  }
+  const remaining = new Map<string, string[]>()
+  for (let i = start; i <= oldEnd; i++) {
+    const matches = remaining.get(oldLines[i]) ?? []
+    matches.push(ids[i])
+    remaining.set(oldLines[i], matches)
+  }
+  for (let i = start; i <= newEnd; i++)
+    result[i] = remaining.get(newLines[i])?.shift() ?? nextId()
+  const oldCounts = new Map<string, number>(), newCounts = new Map<string, number>()
+  for (const line of oldLines) oldCounts.set(line, (oldCounts.get(line) ?? 0) + 1)
+  for (const line of newLines) newCounts.set(line, (newCounts.get(line) ?? 0) + 1)
+  // Identical occurrences cannot be distinguished when one disappears, even
+  // if a trailing newline keeps the total number of split lines unchanged.
+  for (let i = 0; i < newLines.length; i++) {
+    const line = newLines[i]
+    if ((oldCounts.get(line) ?? 0) > 1 && (newCounts.get(line) ?? 0) < (oldCounts.get(line) ?? 0))
+      result[i] = nextId()
+  }
+  return result
 }

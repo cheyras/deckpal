@@ -1327,6 +1327,23 @@ daily allowance. Lifecycle policy derives product permission; retired entitlemen
 allowlists do not grant it. The credits-enable flag initializes policy once. See ADMINISTRATION.md and
 SECURITY.md for limits, refunds and suspension.
 
+**The import errand is separate from chat.** When an import check finds
+unmatched lines, `POST /api/decks/import/fix` builds catalogue candidates and
+asks the chat-tier model to select their keys. A server membership check and a
+second pass through the normal resolver guard every replacement. The UI reserves
+a bay in the import dialog for Deck-E, shows each old and proposed line with
+Undo, and sends the confirmed text through the no-write check again before any
+deck is created. The errand store only moves the character; it does not grant
+permission or save cards. The route shares Deck-E's entitlement, Gateway key,
+daily meter, and usage ledger. When paid credits are enabled, it converts the
+provider-reported cost using the request's credit policy and accumulates the
+fraction. Whole credits are debited through the existing wallet ledger as the
+fractions add up. Import repair costs remain in usage history but are excluded
+from the planning price estimates. Admission commits on the request's database
+connection before the model call, which releases that connection. Settlement later checks out one
+connection from the same shared pool, so a disconnected browser cannot erase
+the daily charge or consume a second pool.
+
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly
 one place computes his height, because two writers fought over it and the
@@ -1936,6 +1953,16 @@ attempts; finalization records safe status/tokens and reported decimal cost or
 unknown. It does not persist whole SDK callbacks, tool payloads, private context
 or raw errors. Full server SHA and strict preview PR ID, falling back to merge
 subject, identify the generation build. Unreported upstream work remains unknown.
+
+An import repair uses the same wallet ledger lock as chat to debit one paid
+credit at admission. The provider call runs after admission commits; settlement
+records its measured fractional charge and atomically returns unused hold
+capacity. A suspended account cannot start a repair, but its already admitted
+request can settle once. Candidate lookup fetches one row beyond its 400
+printing limit and leaves a truncated line for the reader instead of inferring
+a gameplay identity from an incomplete set. The route retries settlement when
+its acknowledgement fails; a later wallet read releases any hold still
+unsettled after 15 minutes and marks the usage abandoned with unknown cost.
 
 Usage reads require an active application session, tier 40 or higher and current
 `admin.access`. Custom roles lose metadata and shared-content access immediately

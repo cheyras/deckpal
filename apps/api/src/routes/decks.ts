@@ -3,6 +3,7 @@ import type pg from 'pg';
 import { cardImages, dbHandle, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
+import { registerDeckImportFix } from './deckImportFix.js';
 import { recordDeckChange, recordStrategyChange, restoreSnapshot, type SnapshotEntry } from '../deck/versions.js';
 import { basicEnergyType, loadOwnedPrints, type OwnedSource } from '../deck/ownedPrints.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
@@ -19,6 +20,7 @@ import {
 } from '../deck/index.js';
 
 export const decksRouter: Router = Router();
+registerDeckImportFix(decksRouter);
 
 /**
  * Deck builder (Phase 5, part 2). Persistence + validation + interchange, on top
