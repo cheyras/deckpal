@@ -82,7 +82,7 @@ function makeCtx(api: StubApi): Ctx {
     api,
     db: {
       query: async <T extends pg.QueryResultRow>(sql: string, params: unknown[]): Promise<{ rows: T[] }> => {
-        if (/FROM card c/.test(sql) && /tcgdex_id = ANY\(\$1::text\[\]\)/.test(sql)) {
+        if (/FROM browsable_card c/.test(sql) && /tcgdex_id = ANY\(\$1::text\[\]\)/.test(sql)) {
           const ids = params[0] as string[];
           return { rows: (ids.includes('sv01-25') ? [PIKACHU_ROW] : []) as unknown as T[] };
         }
