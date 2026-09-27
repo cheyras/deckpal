@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { Goal } from '../../routes/setSearch'
 import { GOAL_TITLE } from '../../routes/setSearch'
 import { Icon } from '../Icon'
@@ -12,10 +12,25 @@ const GOALS: { key: Goal; description: string; color: string }[] = [
 
 export function GoalSelect({ goal, onChange }: { goal: Goal; onChange: (goal: Goal) => void }) {
   const [open, setOpen] = useState(false)
+  const [menuLeft, setMenuLeft] = useState(0)
   const menuId = useId()
   const triggerRef = useRef<HTMLButtonElement>(null)
   const wrapperRef = useDismiss<HTMLDivElement>(open, () => setOpen(false))
   const active = GOALS.find((item) => item.key === goal)!
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect()
+      if (!trigger) return
+      const width = Math.min(252, window.innerWidth - 32)
+      const left = Math.max(16, Math.min(trigger.left, window.innerWidth - 16 - width))
+      setMenuLeft(left - trigger.left)
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [open])
 
   return (
     <div
@@ -52,7 +67,8 @@ export function GoalSelect({ goal, onChange }: { goal: Goal; onChange: (goal: Go
           id={menuId}
           role="group"
           aria-label="Set goal"
-          className="absolute left-0 top-full z-30 mt-[4px] w-[252px] max-w-[calc(100vw-32px)] rounded-lg border border-border-default bg-surface-primary p-[4px] shadow-lg"
+          className="absolute top-full z-30 mt-[4px] w-[252px] max-w-[calc(100vw-32px)] rounded-lg border border-border-default bg-surface-primary p-[4px] shadow-lg"
+          style={{ left: menuLeft }}
         >
           {GOALS.map((item) => (
             <button

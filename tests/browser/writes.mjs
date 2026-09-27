@@ -220,6 +220,18 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await page.getByRole('button', { name: /Standard set.*One printing/ }).click()
       await page.waitForURL(url => !url.searchParams.has('goal'))
       await page.getByText('1 / 3 Collected').waitFor()
+      await page.route('**/api/sets/fx1*', async (route) => {
+        const response = await route.fetch()
+        const body = await response.json()
+        body.progress.complete = { ...body.progress.complete, owned: 307, total: 307, pct: 100 }
+        await route.fulfill({ response, json: body })
+      })
+      await go('/series/fx/fx1')
+      await page.locator('[data-decke-goal-switcher]').click()
+      const menu = await page.getByRole('group', { name: 'Set goal' }).boundingBox()
+      assert.ok(menu && menu.x >= 16 && menu.x + menu.width <= width - 16,
+        `the goal menu stays inside a ${width}px viewport with a three-digit count`)
+      await page.unroute('**/api/sets/fx1*')
       results.push({ case: 'set-goal-control', label, width })
       fixture.reset()
       await go('/series/fx/fx1')
