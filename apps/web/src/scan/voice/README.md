@@ -10,7 +10,9 @@ executing one against the wrong capture can change the collection.
 2. Structural phrases (filler, verbs, quantity frames, objections) match exact
    normalized **tokens**. They never use phonetic folding, plural stripping or
    token concatenation. “The N” cannot become “then”; “remove N” cannot become
-   “removed.” Printing vocabulary alone gets fuzzy grammar matching.
+   “removed.” Printing vocabulary alone gets fuzzy grammar matching, bounded
+   by structural tokens at both edges and internally. Literal non-holo phrases
+   retain their explicit meaning; fuzzy windows cannot swallow an objection.
 3. Exact card names reserve their token spans before fuzzy matching. A fuzzy
    window cannot consume a neighbouring exact name. Short names, including N,
    match literally. Otherwise unexplained spans may match longer names by sound
@@ -24,7 +26,9 @@ executing one against the wrong capture can change the collection.
    transcription. A later capture cannot steal a command. A corrected identity
    cannot inherit a command spoken about the previous card.
 6. Recognizer alternatives cannot overrule a refusal or unknown target, or
-   disagree about which capture a command addresses.
+   disagree about which capture a command addresses. A conjunction cannot pair
+   a named card with a separately referenced “that one.” Conflicting framed
+   quantities refuse the whole utterance, including a later count of one.
 
 ## Change lifecycle
 
@@ -43,6 +47,8 @@ executing one against the wrong capture can change the collection.
    manual edits; a deliberate printing/count edit during the hold wins.
 6. Leaving Scan settles all pending actions through the same completion path.
    Missing rows fail visibly rather than disappearing from the queue.
+7. Accumulated warnings scroll inside a bounded panel; acknowledgement stays
+   reachable on a phone even when many captures have failed.
 
 `__tests__/grammar.test.ts` enumerates name × command frame × row order and
 present/absent targets. `__tests__/actions.test.ts` enumerates queue transitions

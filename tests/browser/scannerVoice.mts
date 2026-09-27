@@ -355,6 +355,55 @@ try {
     await until(async () => (await speech(page)).live, 'voice resumes after in-flight warning')
     await drive(page, 'open')
 
+    // Many distinct failed commands must remain reviewable without pushing
+    // the acknowledgement or Add below the clipped Verify panel.
+    const rowsBeforeManyWarnings = await rows.count()
+    for (let i = 0; i < 20; i++) {
+      const id = `cap-warning-${i}`
+      await harness(page, 'setLast', id)
+      await harness(page, 'setInFlight', id)
+      await say(page, 'reverse holo')
+      await harness(page, 'landUnidentified', id)
+      await until(async () => (await rows.count()) === rowsBeforeManyWarnings + i + 1, `failed scan ${i + 1} lands`)
+      await harness(page, 'setInFlight', null)
+      await page.clock.runFor(220)
+    }
+    await harness(page, 'enterVerify')
+    const warningList = page.locator('[data-voice-warning-list]')
+    await until(async () => (await page.locator('[data-voice-warning]').count()) === 20, 'all twenty Verify warnings render')
+    const acknowledge = page.getByRole('button', { name: 'Continue without the voice change' })
+    const addCards = page.getByRole('button', { name: 'Add cards' })
+    const warningLayout = await page.evaluate(`(() => {
+      const list = document.querySelector('[data-voice-warning-list]')
+      const alert = list.closest('[role="alert"]')
+      const title = alert.querySelector('p')
+      const ack = [...alert.querySelectorAll('button')].find((b) => b.textContent?.includes('Continue without'))
+      const add = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Add cards'))
+      const within = (el) => {
+        const r = el.getBoundingClientRect()
+        return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth
+      }
+      return {
+        scrollable: list.scrollHeight > list.clientHeight,
+        titleVisible: within(title), acknowledgeVisible: within(ack), addVisible: within(add),
+        alertHeight: alert.getBoundingClientRect().height,
+        listHeight: list.clientHeight,
+      }
+    })()`)
+    assert.equal(warningLayout.scrollable, true, `${name}: warning details must scroll`)
+    assert.equal(warningLayout.titleVisible, true, `${name}: warning title must remain visible`)
+    assert.equal(warningLayout.acknowledgeVisible, true, `${name}: acknowledgement must remain visible`)
+    assert.equal(warningLayout.addVisible, true, `${name}: Add must remain visible`)
+    assert.equal(await addCards.isDisabled(), true)
+    await page.screenshot({ path: path.join(outputDir, `${name}-many-warnings.png`) })
+    await warningList.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    assert.ok(await warningList.evaluate((el) => el.scrollTop > 0), `${name}: warning details can scroll to the last failure`)
+    await acknowledge.click()
+    assert.equal(await addCards.isEnabled(), true)
+    await harness(page, 'setEnabled', true)
+    await until(async () => (await speech(page)).live, 'voice resumes after many-warning acknowledgement')
+    await drive(page, 'open')
+
     // An engine that ends every session at once is given up on, and says why.
     for (let i = 0; i < 4; i++) { await fail(page, 'network'); await page.clock.runFor(300) }
     await page.locator('[data-voice-caption="error"]').getByText('needs a network connection', { exact: false }).waitFor()
@@ -371,7 +420,7 @@ try {
 
     assert.ok(overflow <= 0, `${name} overflow ${overflow}`)
     assert.equal(external, 0)
-    results[name] = { viewport: { width, height }, externalRequests: external, noHorizontalOverflow: true, primerBeforeRecognizer: true, pendingThenApplied: true, namedTarget: true, cancel: true, chatterIgnored: true, removeKeepUndo: true, voiceUndo: true, commandWaitsForRow: true, watchdog: true, chromeRearm: true, visibility: true, leaveStepSettles: true, fastFailStops: true, unmountStops: true }
+    results[name] = { viewport: { width, height }, externalRequests: external, noHorizontalOverflow: true, primerBeforeRecognizer: true, pendingThenApplied: true, namedTarget: true, cancel: true, chatterIgnored: true, removeKeepUndo: true, voiceUndo: true, commandWaitsForRow: true, watchdog: true, chromeRearm: true, visibility: true, leaveStepSettles: true, manyWarnings: warningLayout, fastFailStops: true, unmountStops: true }
     await page.close()
   }
 

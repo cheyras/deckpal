@@ -406,3 +406,62 @@ describe('target invariants', () => {
     }
   })
 })
+
+describe('structural boundaries around fuzzy vocabulary', () => {
+  it('never consumes an objection at either edge or inside a fuzzy printing window', () => {
+    const printings = ['reverse holo', 'holofoil', 'first edition', 'shadowless', 'poke ball', 'master ball']
+    const objections = ['not', 'dont', 'never', 'cannot', 'shouldnt', 'maybe', 'might']
+    for (const printing of printings) for (const objection of objections) {
+      for (const heard of [
+        `${printing} ${objection} normal`,
+        `${printing} ${objection} first edition`,
+        `${objection} ${printing}`,
+        `${printing.split(' ').join(` ${objection} `)} ${objection} normal`,
+      ]) {
+        assert.equal(parseUtterance(heard, ROWS).command, null, heard)
+        assert.equal(parseAlternatives([heard, printing], ROWS).command, null, heard)
+      }
+    }
+  })
+
+  it('retains the explicit non-holo vocabulary without generalizing away not', () => {
+    for (const heard of ['not holo', 'not a holo', 'not hollow', 'not a hollow', 'non holo']) {
+      assert.equal(edit(heard).printing?.finish, 'normal', heard)
+    }
+    for (const heard of ['reverse holo not normal', 'reverse holo not first edition', 'reverse holo do not remove it']) {
+      assert.equal(parseUtterance(heard).refused, 'negation', heard)
+    }
+  })
+
+  it('preserves quantity frames after a fuzzy printing', () => {
+    for (const count of ['two', 'three', 'four', 'five']) {
+      const c = edit(`reverse hollow ${count} copies`)
+      assert.equal(c.printing?.finish, 'reverse')
+      assert.equal(c.quantity, ['two', 'three', 'four', 'five'].indexOf(count) + 2)
+    }
+  })
+})
+
+describe('one instruction about one capture', () => {
+  it('refuses a named card plus a separately referenced capture in either order', () => {
+    for (const reference of ['that one', 'this one', 'it', 'those']) {
+      for (const heard of [`remove Venonat and ${reference}`, `remove ${reference} and Venonat`]) {
+        assert.equal(parseUtterance(heard, ROWS).refused, 'two-cards', heard)
+        assert.equal(parseAlternatives([heard, 'remove Venonat'], ROWS).command, null, heard)
+      }
+    }
+    assert.equal(edit('that Venonat is a holo').target.kind, 'row')
+    assert.equal(edit('two of those and theyre reverse holo').quantity, 2)
+  })
+
+  it('accounts for every framed count, including one, instead of treating later counts as filler', () => {
+    for (const first of [1, 2, 3, 10, 99]) for (const second of [1, 2, 3, 10, 99]) {
+      const heard = `${first} of those and ${second} reverse holos`
+      const parsed = parseUtterance(heard, ROWS)
+      if (first !== second) assert.equal(parsed.refused, 'two-commands', heard)
+      else assert.equal(edit(heard).quantity, first)
+    }
+    assert.equal(parseUtterance('two of those and one reverse holo').refused, 'two-commands')
+    assert.equal(parseUtterance('100 of those and one reverse holo').refused, 'invalid-count')
+  })
+})

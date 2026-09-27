@@ -85,11 +85,13 @@ export function VoiceToggle({ voice, onRequestStart, compact = false }: { voice:
 export function VoiceVerifyWarning({ voice }: { voice: ScannerVoice }) {
   if (!voice.verifyWarnings.length) return null
   return (
-    <div role="alert" className="mx-[14px] mb-[8px] rounded-xl border border-warning/60 bg-surface-secondary p-[12px] text-[13px] text-text-body">
-      <p className="font-bold text-warning">Voice change not applied</p>
-      {voice.verifyWarnings.map((warning) => <p key={warning.rowId}>{warning.message}</p>)}
-      <p>Check this card before adding. The default printing may still be selected.</p>
-      <button type="button" onClick={voice.acknowledgeVerifyWarnings} className="mt-[8px] font-bold text-action-primary-strong underline">
+    <div role="alert" className="mx-[14px] mb-[8px] flex max-h-[min(45vh,400px)] shrink-0 flex-col overflow-hidden rounded-xl border border-warning/60 bg-surface-secondary p-[12px] text-[13px] text-text-body">
+      <p className="shrink-0 font-bold text-warning">Voice change not applied</p>
+      <div role="region" aria-label="Voice changes requiring review" tabIndex={0} data-voice-warning-list className="min-h-0 overflow-y-auto overscroll-contain">
+        {voice.verifyWarnings.map((warning) => <p key={warning.rowId} data-voice-warning>{warning.message}</p>)}
+      </div>
+      <p className="shrink-0">Check these cards before adding. A default printing may still be selected.</p>
+      <button type="button" onClick={voice.acknowledgeVerifyWarnings} className="mt-[8px] shrink-0 self-start font-bold text-action-primary-strong underline">
         Continue without the voice change
       </button>
     </div>

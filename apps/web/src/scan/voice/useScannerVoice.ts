@@ -247,7 +247,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
 
       const parsed = parseAlternatives(r.alternatives, snapshot.rows)
       const command = parsed.command
-      if (parsed.refused === 'ambiguous-target') {
+      if (parsed.refused === 'ambiguous-target' || parsed.refused === 'two-cards') {
         show('refused', 'Which card did you mean? Say its full name or tap it in the list')
         return
       }

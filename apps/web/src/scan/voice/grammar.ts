@@ -298,13 +298,17 @@ interface Candidate extends Match {
  * Across phrases the reading that explains the most is kept (`weight`), so
  * "reverse whole o" is one reverse holo rather than "reverse" followed by a holo.
  */
-function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase[], slack: number): Match | null {
+function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase[], slack: number, words: readonly string[], protectedWords: ReadonlySet<number>): Match | null {
   let best: Match | null = null
   for (const phrase of phrases) {
     const lo = Math.max(1, phrase.words - 1)
     const hi = Math.min(keys.length - i, phrase.words + slack)
     let own: Match | null = null
     for (let size = lo; size <= hi; size++) {
+      // A fuzzy vocabulary match may not erase structural meaning at EITHER
+      // edge or inside its window. The literal tokens in "not a holo" are
+      // allowed because that normal-printing phrase explicitly contains them.
+      if (words.slice(i, i + size).some((word, offset) => protectedWords.has(i + offset) && phrase.tokens[offset] !== word)) continue
       // A window longer than the phrase must NEED its first word. If the
       // phrase still matches without it, that word belongs to something else
       // — the "not" in "not first edition", which would otherwise vanish into
@@ -336,6 +340,20 @@ function exactWindow(words: readonly string[], i: number, phrases: readonly Phra
 
 function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[] {
   const keys = words.map(phonetic)
+  const structural = new Set<number>()
+  const objections = new Set<number>()
+  for (let at = 0; at < words.length; at++) {
+    if (/^\d+$/.test(words[at]) || NUMBER_WORDS.has(words[at]) || FRAME_ONLY_NUMBERS.has(words[at])) structural.add(at)
+    for (const entry of COMPILED) {
+      if (!entry.exact) continue
+      const hit = exactWindow(words, at, entry.phrases)
+      if (!hit) continue
+      for (let offset = 0; offset < hit.size; offset++) {
+        structural.add(at + offset)
+        if (entry.slot.kind === 'negation' || entry.slot.kind === 'hedge') objections.add(at + offset)
+      }
+    }
+  }
   // Duplicate captures of the SAME full name use the caller's newest-first
   // order. Distinct names sharing an alias or sound are ambiguity, not a tie
   // broken by list order.
@@ -404,7 +422,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     for (const entry of COMPILED) {
       const hit = entry.exact
         ? exactWindow(boundedWords, i, entry.phrases)
-        : bestWindow(boundedKeys, i, entry.phrases, 1)
+        : bestWindow(boundedKeys, i, entry.phrases, 1, words, structural)
       if (hit && (!best || hit.weight > best.weight)) {
         best = { ...hit, make: (from, to) => ({ kind: 'slot', slot: entry.slot, from, to }) }
       }
@@ -414,7 +432,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     // measured "char is hard" transcription of Charizard.
     if (!best) {
       const hits = names.flatMap((n) => {
-        const hit = bestWindow(boundedKeys, i, n.phrases.filter((p) => p.key.length >= 5), 2)
+        const hit = bestWindow(boundedKeys, i, n.phrases.filter((p) => p.key.length >= 5), 2, words, objections)
         return hit ? [{ ...hit, row: n.row }] : []
       }).sort((a, b) => b.score - a.score || b.weight - a.weight)
       const hit = hits[0]
@@ -475,7 +493,8 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
 
   const used = new Set<number>() // indices into `segs` a rule consumed
   let quantity: number | null = null
-  for (let k = 0; k < segs.length && quantity === null; k++) {
+  const quantities = new Set<number>()
+  for (let k = 0; k < segs.length; k++) {
     const s = segs[k]
     if (s.kind !== 'number') continue
     const next = neighbour(segs, k, 1)
@@ -483,25 +502,29 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     // "two of those", "two copies", "times two", "make it two" — the frames. A
     // homophone ("to", "for") is believed only here.
     if (slotKind(next) === 'of' || slotKind(next) === 'qty') {
+      quantities.add(s.value)
       quantity = s.value
       used.add(k).add(segs.indexOf(next!))
     } else if (slotKind(prev) === 'qty') {
+      quantities.add(s.value)
       quantity = s.value
       used.add(k).add(segs.indexOf(prev!))
     } else if (!s.frameOnly && isPrinting(next)) {
       // "two reverse holos".
+      quantities.add(s.value)
       quantity = s.value
       used.add(k)
     } else if (!s.frameOnly && segs.every((o, j) =>
       j === k || (isFiller(o) && words.slice(o.from, o.to).every((w) => BARE_COUNT_FILLER.has(w))))) {
       // "Two." on its own, and nothing else said.
+      quantities.add(s.value)
       quantity = s.value
       used.add(k)
     }
   }
   // A count it cannot set ("0 reverse holos", "100 of those"). Refused below,
   // after the objections, so a lesser guess cannot outvote either.
-  const invalidCount = quantity !== null && !(Number.isInteger(quantity) && quantity >= 1 && quantity <= MAX_QUANTITY)
+  const invalidCount = [...quantities].some((n) => !(Number.isInteger(n) && n >= 1 && n <= MAX_QUANTITY))
 
   // Coverage: every word some segment explains. An unused "one" is filler ("the
   // reverse one"), and an unused "to" is a preposition when a printing follows
@@ -527,6 +550,20 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // a reverse holo") would otherwise pair one card with the other's command.
   const named = new Set(segs.flatMap((s) => (s.kind === 'name' ? [s.rowId] : [])))
   if (named.size > 1) return { command: null, coverage, refused: 'two-cards' }
+  // A conjunction can introduce a second target even if only one is named:
+  // "remove N and that one". References within the SAME clause can describe
+  // its named card; references in a separate clause are not guessed at.
+  const clauses: Segment[][] = [[]]
+  for (const s of segs) {
+    if (isFiller(s) && words.slice(s.from, s.to).includes('and')) clauses.push([])
+    else clauses.at(-1)!.push(s)
+  }
+  const references = new Set(['it', 'its', 'that', 'thats', 'this', 'those', 'these', 'them', 'they', 'theyre'])
+  if (named.size && clauses.some((clause) =>
+    !clause.some((s) => s.kind === 'name') && clause.some((s) =>
+      s.kind === 'slot' && words.slice(s.from, s.to).some((word) => references.has(word))))) {
+    return { command: null, coverage, refused: 'two-cards' }
+  }
   const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
@@ -569,6 +606,7 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // Applying only the printing half of "0 reverse holos" would be a partial
   // answer to a request that was never valid.
   if (invalidCount) return { command: null, coverage, refused: 'invalid-count' }
+  if (quantities.size > 1) return { command: null, coverage, refused: 'two-commands' }
 
   // Every word explained, for every command — "undo" and "stop listening"
   // included: "please keep it in the binder" is not an undo, and "they told me
