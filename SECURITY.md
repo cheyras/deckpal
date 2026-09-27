@@ -34,6 +34,20 @@ end a session or bounce a signed-in user to `/auth`. A build gate
 (`apps/web/scripts/check-auth-deadlines.mjs`) keeps that single choke point
 single.
 
+**Post-auth redirect (`/auth?next=`, `/auth/reset?next=`).** Every gated entry
+point (a locked nav row, an expired session, a deep link that required
+sign-in) hands `/auth` a `next` value naming where to return once signed in.
+`apps/web/src/lib/landingRoute.ts`'s `safeNextPath` is the one function that
+judges a `next` value safe: it parses with `new URL(value, location.origin)`
+and compares origins — the same algorithm the eventual navigation runs, so
+the check and the navigation cannot disagree — after rejecting every control
+and whitespace character and `\` up front (2026-09-26 fixed a bypass where a
+tab character, `/\t/evil.example`, survived a hand-written prefix-check
+blocklist, since the WHATWG URL parser's own tab-stripping turns it into a
+cross-origin redirect after a real sign-in). It returns the parsed
+`pathname + search + hash`, never the raw string, so nothing downstream can
+diverge from what was validated.
+
 **Authorization:** Row-Level Security (RLS) policies on every table. Catalog
 data is world-readable. Per-user data (collection, decks, lists, battle logs)
 is restricted to the owning user via `user_id = (SELECT auth.uid())`.

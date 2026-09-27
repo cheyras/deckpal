@@ -30,7 +30,7 @@ import { lazyRoute } from './lib/lazyRoute'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
-import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
+import { isPublicPathname, safeNextPath } from './lib/landingRoute'
 import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED, ACCESS_CHANGED } from './lib/access'
 import { requireVerifiedCapability } from './lib/capabilities'
 import { Content, EmptyState } from './components/ui'
@@ -357,9 +357,10 @@ const authRoute = createRoute({
   path: '/auth',
   validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' | 'forgot'; next?: string } => ({
     mode: raw.mode === 'signup' ? 'signup' : raw.mode === 'forgot' ? 'forgot' : undefined,
-    // Same-origin relative path only — /authorize is the one caller today,
-    // bouncing a signed-out visitor here and back once they sign in.
-    next: isSafeNextPath(raw.next) ? raw.next : undefined,
+    // Same-origin, path-only, and normalised to `pathname+search+hash` by
+    // `safeNextPath` (SEC-05) — every gated entry point that bounces here
+    // (the rail, AuthGuard, the card sheet, /authorize) writes this param.
+    next: safeNextPath(raw.next) ?? undefined,
   }),
   component: Auth,
 })
@@ -400,6 +401,13 @@ const authResetRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth/reset',
   beforeLoad: cloudOnly,
+  // Carried from the `/auth?next=` that sent them to "Forgot password?" in
+  // the first place (Auth.tsx sets `redirectTo` on the reset email to
+  // `/auth/reset?next=<encoded>`), so "set a new password" ends where
+  // sign-in would have. Same predicate as `/auth`'s own `next`.
+  validateSearch: (raw: Record<string, unknown>): { next?: string } => ({
+    next: safeNextPath(raw.next) ?? undefined,
+  }),
   component: ResetPassword,
 })
 
