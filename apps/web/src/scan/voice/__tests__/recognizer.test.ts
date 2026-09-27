@@ -95,11 +95,12 @@ function setup() {
   const clock = new FakeClock()
   const statuses: [VoiceStatus, string | null][] = []
   const heard: HeardResult[] = []
+  const ended: number[] = []
   const rec = createVoiceRecognizer(
-    { onStatus: (s, d) => statuses.push([s, d]), onResult: (r) => heard.push(r) },
+    { onStatus: (s, d) => statuses.push([s, d]), onResult: (r) => heard.push(r), onSessionEnd: () => ended.push(clock.now()) },
     { ctor: FakeRecognition, timers: clock, lang: 'en-GB' },
   )
-  return { clock, statuses, heard, rec, last: () => statuses.at(-1)?.[0] }
+  return { clock, statuses, heard, ended, rec, last: () => statuses.at(-1)?.[0] }
 }
 
 describe('the recognizer adapter', () => {
@@ -157,12 +158,13 @@ describe('the recognizer adapter', () => {
   })
 
   it('re-arms when a session ends on its own (Chrome, one utterance per session)', () => {
-    const { rec, clock, last } = setup()
+    const { rec, clock, ended, last } = setup()
     rec.start()
     live().open()
     live().say(0, ['two of those'], true)
     clock.advance(3_000)
     live().end()
+    assert.equal(ended.length, 1, 'unfinished words from the old session are cleared')
     assert.equal(FakeRecognition.all.length, 1)
     clock.advance(300)
     assert.equal(FakeRecognition.all.length, 2)
@@ -171,15 +173,17 @@ describe('the recognizer adapter', () => {
   })
 
   it('replaces a session that died without a word (iOS silent death)', () => {
-    const { rec, clock } = setup()
+    const { rec, clock, ended } = setup()
     rec.start()
     live().open()
     const dead = live()
+    dead.say(0, ['remove it'], false)
     // No result, no error, no end — the recognizer just stops talking.
     clock.advance(WATCHDOG_MS - 1)
     assert.equal(FakeRecognition.all.length, 1)
     clock.advance(1)
     assert.equal(dead.aborted, true)
+    assert.equal(ended.length, 1, 'unfinished words are cleared before re-arming')
     assert.equal(FakeRecognition.all.length, 2)
     assert.equal(live().started, true)
     // The corpse is detached: a late end from it re-arms nothing.

@@ -240,6 +240,9 @@ const QUESTION_OPENERS = new Set([
   'what', 'whats', 'which', 'where', 'who', 'why', 'how',
 ])
 const DISCOURSE = new Set(['um', 'uh', 'er', 'oh', 'okay', 'ok', 'so', 'hey', 'well', 'yeah', 'and', 'wait', 'hmm', 'right', 'alright'])
+// A bare count can have a little throat-clearing, but a reference to a card
+// ("that's the one") is not an instruction to set its quantity to one.
+const BARE_COUNT_FILLER = new Set([...DISCOURSE, 'just', 'please', 'now'])
 
 /** Suffixes a spoken card name usually drops — "the Charizard" for Charizard ex. */
 const NAME_SUFFIXES = new Set(['ex', 'v', 'vmax', 'vstar', 'gx', 'break', 'lv', 'x', 'prime', 'legend', 'star', 'delta'])
@@ -444,7 +447,8 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
       // "two reverse holos".
       quantity = s.value
       used.add(k)
-    } else if (!s.frameOnly && segs.every((o, j) => j === k || isFiller(o))) {
+    } else if (!s.frameOnly && segs.every((o, j) =>
+      j === k || (isFiller(o) && words.slice(o.from, o.to).every((w) => BARE_COUNT_FILLER.has(w))))) {
       // "Two." on its own, and nothing else said.
       quantity = s.value
       used.add(k)

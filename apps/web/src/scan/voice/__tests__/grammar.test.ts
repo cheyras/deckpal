@@ -130,6 +130,9 @@ describe('quantity', () => {
     assert.equal(edit("that one's a holo").quantity, null)
     assert.equal(edit('the reverse one').quantity, null)
     assert.equal(edit('just one').quantity, 1)
+    for (const heard of ["that's the one", 'this is the one', 'that one', 'the one']) {
+      assert.equal(command(heard), null, heard)
+    }
   })
 
   it('never takes an inherited object key for a number', () => {

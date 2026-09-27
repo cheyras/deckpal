@@ -76,6 +76,8 @@ export interface HeardResult {
 export interface RecognizerCallbacks {
   onStatus: (status: VoiceStatus, detail: string | null) => void
   onResult: (result: HeardResult) => void
+  /** An unfinished utterance belongs to the old session, not its replacement. */
+  onSessionEnd?: () => void
 }
 
 export interface Timers {
@@ -174,6 +176,7 @@ export function createVoiceRecognizer(callbacks: RecognizerCallbacks, options: R
       watchdog = null
       if (!wanted) return
       kill()
+      callbacks.onSessionEnd?.()
       arm()
     }, watchdogMs)
   }
@@ -243,6 +246,7 @@ export function createVoiceRecognizer(callbacks: RecognizerCallbacks, options: R
       detach(r)
       clearWatchdog()
       if (!wanted) return
+      callbacks.onSessionEnd?.()
       // Only a CONSECUTIVE run of instant failures counts: any session that
       // heard something, or simply lasted, resets it.
       if (!heardThisSession && timers.now() - startedAt < FAST_FAIL_MS) fastFails += 1

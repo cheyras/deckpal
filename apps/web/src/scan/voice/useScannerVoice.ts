@@ -282,7 +282,15 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     if (!recRef.current) {
       const ctor = speechRecognitionCtor(window)
       if (!ctor) return
-      recRef.current = createVoiceRecognizer({ onStatus, onResult }, { ctor, lang: recognitionLang(navigator.language) })
+      recRef.current = createVoiceRecognizer({
+        onStatus,
+        onResult,
+        onSessionEnd: () => {
+          setInterim('')
+          anchorsRef.current.clear()
+          finalsRef.current.clear()
+        },
+      }, { ctor, lang: recognitionLang(navigator.language) })
     }
     if (!greetedRef.current) {
       greetedRef.current = true

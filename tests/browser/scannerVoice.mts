@@ -185,12 +185,16 @@ try {
     await page.clock.runFor(4_300)
     assert.equal((await row(3).locator('[data-printing="resolved"]').textContent())?.trim(), 'Reverse Holofoil')
 
-    // Silent death: no sign of life for 20 s and the session is replaced.
+    // Silent death after interim words: a replacement session must not leave
+    // abandoned text covering later action receipts.
+    await say(page, 'maybe', false)
+    await page.locator('[data-voice-interim]').waitFor()
     const beforeDeath = await speech(page)
     await page.clock.runFor(20_100)
     const afterDeath = await speech(page)
     assert.equal(afterDeath.sessions, beforeDeath.sessions + 1, 'watchdog opened a new session')
     assert.equal(afterDeath.aborts, beforeDeath.aborts + 1, 'and aborted the dead one')
+    await page.locator('[data-voice-interim]').waitFor({ state: 'detached' })
     await drive(page, 'open')
 
     // Chrome: a session ends after an utterance and is re-armed.
