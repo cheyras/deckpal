@@ -1683,9 +1683,11 @@ handler inside its transaction, after the `deck_card` writes):
   snapshot in place. Rename/favorite/cover changes never touch versions. A
   **format change** goes through the same rule as a card edit (it changes what
   the list means).
-- **Revert** applies an old snapshot's cards (+ strategy, by default) through the
-  same write path — so the rule above decides whether it bumps or amends — with
-  the note auto-set to `Reverted to v<k>`. History is never deleted.
+- **Revert** applies an old snapshot's cards (+ strategy, by default) and
+  **always** creates a new version, the one exception to the rule above, so the
+  list it replaces keeps its own snapshot even when it was never played (it used
+  to amend, which erased that list; DECISIONS.md 2026-09-26). The note is
+  auto-set to `Reverted to v<k>`. History is never deleted.
 - Deck create and import seed the v1 snapshot in the same transaction; migration
   019 backfilled a v1 snapshot for every pre-existing deck (`source = 'backfill'`).
 
