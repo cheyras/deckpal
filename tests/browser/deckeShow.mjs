@@ -599,6 +599,9 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
     // colourless), the cyan body, the amber bolts, the rose mouth.
     const color = await page.evaluate(() => {
       const d = window.__decke
+      // Drawn and read until his eyes are open: a frame mid-blink has almost no
+      // white in it, and the pose at any one frame depends on the machine.
+      const read = () => {
       d.step(1 / 60)
       const src = d.opts.canvas, r = d.screenRect(), s = src.width / src.getBoundingClientRect().width
       const c = document.createElement('canvas'); c.width = src.width; c.height = src.height
@@ -637,6 +640,12 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
         white: band(parts.white, 0.5, 0.95), gold: band(parts.gold, 0.5, 0.95), rose: band(parts.rose, 0.5, 0.95),
         blown: blown / (n || 1),
       }
+      }
+      // Eyes open: white pixels at least a tenth of the body's (open, they are
+      // about 15%; mid-blink, under 1%). Up to two seconds of him.
+      let got = read()
+      for (let k = 0; k < 120 && got.n.white < got.n.body / 10; k++) got = read()
+      return got
     })
     const hex = (a) => '#' + a.map((v) => v.toString(16).padStart(2, '0')).join('')
     const BRAND = [0x00, 0xd3, 0xf3], AMBER = [0xfa, 0xb8, 0x20], ROSE = [0xfb, 0x71, 0x85]
