@@ -40,12 +40,20 @@ jobs:
             mkdir -p "$pgroot/packages" "$pgroot/root"
             sudo apt-get update
             cd "$pgroot/packages"
-            apt-get download postgresql-16 postgresql-client-16 libpq5
+            apt-get download postgresql-16 postgresql-client-16 libpq5 postgresql-16-pgvector
             for package in ./*.deb; do dpkg-deb -x "$package" "$pgroot/root"; done
             export TEST_PG_BINDIR="$pgroot/root/usr/lib/postgresql/16/bin"
             export TEST_PG_LIBRARY_PATH="$pgroot/root/usr/lib/x86_64-linux-gnu"
             export LD_LIBRARY_PATH="$TEST_PG_LIBRARY_PATH"
             printf '%s\n' "TEST_PG_BINDIR=$TEST_PG_BINDIR" "TEST_PG_LIBRARY_PATH=$TEST_PG_LIBRARY_PATH" >> "$GITHUB_ENV"
+          else
+            # The reach suite applies every migration, and 051 needs pgvector.
+            # Unpack only its files beside the preinstalled binaries: no
+            # package hooks run and no PostgreSQL service is started.
+            sudo apt-get update
+            cd "$RUNNER_TEMP"
+            apt-get download postgresql-16-pgvector
+            sudo dpkg-deb -x postgresql-16-pgvector_*.deb /
           fi
           "$TEST_PG_BINDIR/postgres" --version
           "$TEST_PG_BINDIR/initdb" --version

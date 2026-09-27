@@ -20495,6 +20495,216 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 
 **Evidence and status:** The observed live result was 9/10 signed approvals, with one residual prose-confirmation miss after `get_card`; the finite sample does not prove causation or universal liveness. This is a metadata-only correction with zero writes. Existing preview descriptor, schemas, normalization, preflight, approval eligibility/HMAC/replay, system prompt, tool routing, API transport and MCP behavior remain unchanged. Live follow-up remains pending.
 
+## 2026-09-26 — Issue #24 reopened: MEP's 49-card gap is real, unfixable from either approved source today, and the process gap that let it grow is fixed
+
+**Decided by:** Claude Sonnet 5 on behalf of @cheyras, investigating the
+2026-09-26 reopen of issue #24 (`/series/mega-evolution/mep`).
+
+**Root cause, measured.** 49 of 89 `mep` cards answer the placeholder today —
+`#032–#036` (5) and `#046–#088` plus `Museum` (44) — all `X-Image-Reason:
+upstream 404: HTTP 404`. This is NOT the 2026-08-10 fix regressing by itself:
+that fix closed a 29-card gap (`046–063, 072, 073, 081–088, Museum`) by warming
+from `assets.pkmn.gg`. Two things happened after it:
+
+1. **pkmn.gg was ruled out on 2026-08-26** because it is an app much like
+   DeckPal, and Chey wants no friction with a competitor (Chey's stated reason,
+   2026-09-26; earlier entries called it a legal call). Its warmer
+   (`apps/images/src/warmFromPkmn.ts`) was retired. The SSRF-hardening allow-list
+   added the same day (`packages/storage/src/upstream.ts`) correctly does not
+   list it — that is the ruling enforced in code, not a regression. The 58
+   `image_asset` rows it had written were then **deleted** in the 2026-08-31
+   provenance cleanup ("Card-art re-sourcing executed") because they carried no
+   approved-source attribution. Confirmed today: the raw Supabase object for
+   `mep-087/low.webp` answers `400 NoSuchKey` — the bytes are gone, not merely
+   unreachable through the proxy.
+2. **`mep` grew from 60 to 89 cards** (`catalog-refresh.yml`'s own header cites
+   exactly this set as its motivating example) and **nothing re-warmed the new
+   cards against an approved source.** `warm:cloud` has existed since
+   2026-08-26 with its own header saying to run it "after a set releases and
+   after any catalog import" — nobody automated that, so it never ran for
+   MEP's growth.
+
+**Checked, read-only, whether either currently-approved source has caught up:
+neither has.** `assets.tcgdex.net` (primary) still 404s all 49 — confirmed
+directly against TCGdex, not just through our proxy. `images.pokemontcg.io`
+(the approved fallback, `DECISIONS.md` 2026-08-31) does not carry this promo
+pool at all: `GET /v2/sets/mep` → 404, and its "Mega Evolution" series lists
+only the eight main sets (`me1`…`me5`, `me55`, `me55c`), no promo id. Name
+searches for several `mep` cards returned nothing. **0 of 49 are fillable from
+an approved source today.** Full write-up: `research/CARD-ART-SOURCES.md` §9.
+
+**Also checked: is this systemic?** Sampled every other growing "Black Star
+Promos" pool (the same shape as MEP — a promo set that keeps gaining cards
+after release) plus a spot check of recent non-promo sets. `svp` (SVP Black
+Star Promos, 226 cards) has the same failure mode at smaller scale: **14
+placeholders, clustered at its newest numbers (`208–223`) plus three scattered
+older ones (`102`, `175`, `176`)** — verified none of those 14 exist at
+`images.pokemontcg.io` either. `bwp`, `hgssp` and `miscp` each carry one or two
+placeholders matching residue already documented in `CARD-ART-SOURCES.md` §1
+(numbering gaps, not new). `xyp`, `smp`, `dpp`, `basep`, `swshp` sampled clean.
+Separately, and NOT part of this fix: `30th-c` (30th Classic Collection) is
+100% placeholder, but that is the **already-flagged, pending-Scrydex-permission**
+gap from the 2026-09-21 entries — a different, already-tracked decision, left
+untouched here.
+
+**Decision — do not re-open the pkmn.gg question, and do not force a code fix
+where no source exists.** With 0 of 49 fillable, the right PR is not a
+sourcing fix (there is nothing to point at) — it is (a) writing the gap down
+properly, since a prior citation to this exact figure (a 2026-09-04
+`DECISIONS.md` entry, the CLIP-embedding bakeoff) pointed at
+`research/CARD-ART-SOURCES.md` describing it and the file never actually said
+so, and (b) closing the process gap that let it grow unnoticed for three weeks,
+which is generalizable and already caught a second instance (`svp`).
+
+**Fix — `.github/workflows/image-warm.yml`.** Runs `warm:cloud` automatically
+after every successful `Catalog refresh` run, plus `workflow_dispatch` (with an
+optional `set` input) for on demand. Needs no secrets — `warm:cloud` only talks
+to public endpoints. Reports the residue via a new companion,
+`apps/images/src/cloudWarmSummary.ts` (`warm:cloud:summary`), which diffs the
+current sweep against the previous run's residue (cached across runs with
+`actions/cache`, keyed so a scoped `--set` dispatch never overwrites the
+full-catalog baseline) and calls out NEW gaps by set in the job summary,
+separately from the residue that is already known and documented. This is the
+piece that would have surfaced MEP's growth as a number in Actions the week it
+happened, instead of as a reopened bug report three weeks later.
+
+**Implications.**
+- The 49-card mep gap and the 14-card svp gap remain open — this PR makes them
+  visible and reproducible on demand, it does not source them. `mep`'s 49 join
+  the residue documented in `CARD-ART-SOURCES.md`; `svp`'s 14 are noted here as
+  evidence for the systemic check and are not separately added to that file
+  (same shape, smaller set, not re-litigated card-by-card).
+- Nothing in `packages/storage/src/upstream.ts` changed. pkmn.gg is not
+  reconsidered here; if the owner wants to revisit that specific tradeoff
+  (the only historical source for these 49), that is a decision for a future
+  dated entry, not something inferred from an allow-list PR.
+- `research/CARD-ART-SOURCES.md` §9 corrects a stale citation: the 2026-09-04
+  entry above described work from a since-retired scratch workspace
+  (`p2-work/art-sweep/`, part of the Project Holo line `#185` retired) that
+  never actually landed in this file. It has now landed.
+- Going forward, a set that grows past what an approved source covers shows up
+  in the `Image warm` workflow's job summary within the week (or immediately,
+  via `workflow_dispatch`), not only when a customer reports it.
+## 2026-09-26 — Disclosure: every user's collection was readable with the anon key, from migration 020 until 072
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Treat `collection_dupe_predicate` as a data disclosure, not a
+cleanup. Migration 072 drops the view, makes every remaining view
+`security_invoker`, and closes two neighbouring holes of the same kind found by
+the same audit (SEC-02 and SEC-10). The fastest mitigation, one
+`DROP VIEW IF EXISTS public.collection_dupe_predicate;` in the Supabase SQL
+editor, goes first, before the PR is merged, because the leak is live until
+something removes the view.
+
+**What leaked, to whom, since when.**
+- *What:* for every account that owned a card, one row per card: `user_id`,
+  `card_id`, and whether they owned two or more copies. No quantities beyond
+  that, no variants, no emails. `user_id` joins to the world-readable
+  `user_profile`, so a row maps to a display name and avatar.
+- *To whom:* anyone holding the anon key. That key is public by design (the
+  SPA bundle and `GET /api/public-config`), so in practice: anyone on the
+  internet who looked at `/rest/v1/collection_dupe_predicate`.
+- *Since when:* migration 020 (commit `3f4bb1fc`, 2026-08-09) recreated the
+  view as a plain, owner-rights view over `collection_item`, and 021 put the
+  project on Supabase with RLS and PostgREST in the same commit. The exposure
+  starts when 020/021 were applied to production:
+  `SELECT applied_at FROM schema_migrations WHERE version = '020_multi_user_uuid'`.
+  It ends when the view is dropped.
+- *Measured:* a count-only `HEAD` with the anon key, which returns a row count
+  and never rows, on 2026-09-26 at 19:06 UTC: `collection_item` answered
+  `*/0` (RLS working), `collection_dupe_predicate` answered `206` with
+  `content-range: 0-999/1549`. That is 1,549 (user, card) rows across the 10
+  accounts `user_profile` counted at the same moment.
+- *Not known:* whether anyone read it. The Supabase API logs are the only
+  record: Logs Explorer, the API/edge logs, filtered on a path containing
+  `collection_dupe_predicate`, over the longest retention the plan keeps. A
+  window shorter than the exposure can show that someone read it, never that
+  nobody did.
+
+**Why it happened.** A Postgres view runs with its owner's rights unless it
+says `security_invoker = true`. The owner is the migration role, which owns
+`collection_item` and is never subject to its RLS, and Supabase's default
+privileges granted SELECT on the new view to `anon`. The view dated from the
+single-user schema (009), where that did not matter. Nothing read it, and
+ARCHITECTURE.md stated the opposite of the truth ("reads through the RLS'd
+`collection_item` table and works correctly"), so it went unexamined for seven
+weeks.
+
+**The same question, answered badly twice more** (what can a user do directly
+over PostgREST, around the API):
+- **SEC-02.** `user_profile`'s own-row UPDATE policy had no column list, so a
+  user could point their `avatar_path` at another user's object key and call
+  `DELETE /api/avatar`, which deletes whatever the caller's row names with the
+  service key. Fixed in the database: a partial unique index (a key belongs to
+  one profile), and `authenticated` may write only the four avatar columns the
+  API writes. The API needs no change, and the same grants stop a user
+  rewriting their public stats or display name.
+- **SEC-10.** A user could PATCH `api_token.revoked_at` back to NULL, undoing
+  an administrator's revoke; a trigger now makes revocation final and a token's
+  identity columns immutable for every writer. The independent review found
+  the same result reachable by deleting the revoked row and inserting its hash
+  again, so client roles also lose DELETE on `api_token` (nothing in the app
+  deletes a token as the user; account deletion still cascades as the owner).
+  And `deck_card`, `deck_version`,
+  `battle_log` and `binder_placement` referenced their parent by id alone, and a
+  foreign-key check ignores RLS, so a user who knew another user's deck or list
+  item id could plant rows under it that the owner could neither see nor get
+  past. They now reference `(id, user_id)`, the shape `list_item` has had since
+  020. `binder_placement` was not in the audit; the new reach suite's
+  enumeration found it.
+
+**Why one migration, and not `@supabase-only`.** The runner skips
+`@supabase-only` files when `SUPABASE_MODE` is unset and says only `SKIPPED`,
+which is easy to read past on a production run. 072 is plain SQL plus
+`pg_roles`-guarded grants (the 064/068 shape), so it applies everywhere and
+cannot be passed over. It opens with a preflight that refuses, changing
+nothing, if any row already violates the new constraints: such a row can only
+come from someone using SEC-02 or SEC-10, so it is evidence to keep rather than
+something a migration should clean away.
+
+**How this class stays closed.**
+- `packages/db/src/__tests__/migrationLint.test.ts` (CI, pure): any view created
+  from 072 on must say `security_invoker = true`, no materialized views in
+  `public`, and replaying every migration must leave no owner-rights view.
+- `apps/api/src/__integration__/reach.mjs` (the disposable-cluster database
+  job, B7): applies every migration with the real runner under Supabase's
+  default grants, seeds one row for a user in every per-user table a client
+  role can read (and fails if a new table is missing from the seed), then
+  asserts that `anon` and a second user reach none of those rows in any table
+  or view. A canary definer view proves the enumeration catches the SEC-01
+  shape. It also runs the SEC-02/SEC-10 negative cases and the API's own
+  avatar and token statements, and applies the whole chain on plain Postgres to
+  prove 072 is safe for self-host.
+
+**Implications:**
+- A new view must be created `WITH (security_invoker = true)`; a
+  `CREATE OR REPLACE VIEW` without the option silently resets it, and the lint
+  catches that too.
+- A new per-user table that a client role can read must get a row in
+  `apps/api/src/__integration__/reach-fixture.sql`, or the database job fails.
+- A new write the API makes to `user_profile` as the user needs its column
+  added to 072's grant, in a new migration.
+- Left as they are, deliberately: `mutation_event`, `collection_event` and
+  `mutation_batch` also reference a parent by id alone, but no unique key there
+  can be squatted and every reader filters on the caller's own rows, so a
+  planted row can only point, not block. Price partitions have no RLS (catalog
+  data, and PostgREST does not expose partitions).
+## 2026-09-26 — Deck builder data: revert always versions, imports check first, Deck-E writes refresh the page, the legal filter runs in SQL
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Four fixes from the ux-decks audit (UXD-05, 06, 01, 13), plus the deck page's Export PDF button.
+
+- **A revert always creates a new version.** `restoreSnapshot` (`apps/api/src/deck/versions.ts`) calls `recordDeckChange(..., { forceBump: true })`. This is the one exception to the auto-bump rule of 2026-07-30. Card edits to an unplayed version still amend it in place.
+- **Import checks before it creates.** `POST /decks/import` accepts `dryRun: true`, which resolves the list and writes nothing, and it now returns `unresolvedLines` (verbatim) and `totalCards`. The web dialog runs the check first. A clean list imports at once. Otherwise every unmatched line is listed with an Edit button that selects it in the pasted text, and the reader fixes the list or imports "without it/them".
+- **Deck-E writes invalidate page data.** `chat/writeRefresh.ts` maps every tool that can ask approval to the query roots it leaves stale. `useDeckeChat` invalidates them when that tool's chip finishes (`ok`, `partial` or `error`; never `declined`). A test fails when a write tool has no entry or an entry names a root no query uses.
+- **The add-cards "legal only" filter runs on the server.** `GET /search?legal=<format>` applies `formatPoolSql`: the validator's pool rule, built from formats.json and the reprint oracle's fingerprint query. The response echoes the rule sentence (`poolRule`, which the validator now uses too). The modal lost its hard-coded `MARK_POOL`, shows "Showing N of M" and pages with "Show N more".
+- **Export PDF downloads the PDF.** It was a plain link to a Bearer-only route, so every signed-in user got a raw 401 (a public GET of the route answers 401). It now goes through `api.downloadPdf`: fetch with the session's header, save the blob through a temporary `<a download>`, never `window.open`, which iOS Safari blocks after an await. PR #214 adds the same helper for set and list checklists.
+
+**Why:** The amend-in-place revert erased the only copy of an unplayed working list, and the confirm dialog said "nothing is lost". The 2026-07-30 rationale (stepper calls shouldn't spray versions) doesn't apply to one deliberate action, and the 2026-08-10 entry that confirmed the amend as "documented semantics" had missed that it destroyed data. Reproduced on real Postgres against origin/main: v2 held "2x Pikachu, 2x Zamazenta", and after "Reverted to v1" no version held Zamazenta. The import dialog promised unresolved lines were "reported, never dropped", then navigated to a deck that silently lacked them. After Deck-E's "Done", the deck page kept the old list for up to five minutes (`staleTime`), and its absolute-quantity steppers could write that old list back. The legal filter's root cause was a paging bug, not a regulation-mark data mismatch: it ran in the browser over the first 30 name-sorted results. The live catalog has 243 Pikachu, none of the first 30 carries H/I/J, and 50 do.
+
+**Implications:** Repeated reverts now add a version each time, which is the intended trade. Production lists could already have been lost this way from 2026-07-30 until this ships. The database no longer holds them; only a backup or point-in-time restore from before the revert does. Candidates are `deck_version` rows whose note matches `^Reverted to v[0-9]+$` and whose `updated_at` is well after `created_at` (a revert that bumped inserted its row, so its two timestamps match). Deck-E-driven cases are recorded exactly in `decke_turn.tools`: a `deck_history` summary containing "amended v… in place". The legal filter answers the pool question (NOT_IN_FORMAT) only. Expanded bans and GLC's rule-box, ACE SPEC and Classic Collection rules stay with the legality panel. A card with no stored fingerprint qualifies for the filter only by its own mark or set. `POST /decks/import` and `GET /search` gained optional parameters; existing callers are unaffected. A new disposable-Postgres child (`apps/api/src/__integration__/decks.mjs`) proves the revert and checks that the filter matches `validateDeck` card for card.
 ## 2026-09-26 — Every gated entry point carries a return path; `next` is validated by one strict parse
 
 **Decided by:** Chey (via Claude)

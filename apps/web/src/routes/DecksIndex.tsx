@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type CreateDeckBody, type DeckFormat, type DeckSummary } from '../lib/api'
+import { api, type CreateDeckBody, type DeckFormat, type DeckImportSummary, type DeckSummary } from '../lib/api'
+import { decklistLineRange } from '../lib/decklistLines'
 import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
 import { Modal } from '../components/ListModals'
 import { RecycleBin } from '../components/RecycleBin'
@@ -119,19 +120,90 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const [text, setText] = useState('')
   const [name, setName] = useState('')
   const [formatCode, setFormatCode] = useState<DeckFormat>('standard')
+  const listRef = useRef<HTMLTextAreaElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  // ── CHECK FIRST, THEN CREATE ──────────────────────────────────────────────
+  //
+  // This dialog promised "unresolved lines are reported, never dropped", and
+  // the import then navigated straight to the new deck: a line that matched no
+  // card was simply missing from it, and the reader met "Not Legal — Add 2"
+  // with no idea which two. So the list is resolved first, without writing
+  // anything. A clean list imports at once; otherwise every unmatched line is
+  // shown here, while the text is still in front of them, to fix or to skip.
+  const [checked, setChecked] = useState<{ text: string; formatCode: DeckFormat; summary: DeckImportSummary } | null>(null)
+  const check = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.checkDeckImport(asked) })
+  // The form as it is NOW, for a check that comes back after the reader kept
+  // typing: its result describes the text it was sent, not this one.
+  const latest = useRef({ text, formatCode, name })
+  latest.current = { text, formatCode, name }
+  const submit = () => {
+    const now = latest.current
+    onSubmit({ text: now.text, formatCode: now.formatCode, name: now.name.trim() || undefined })
+  }
+
+  const unmatched = checked?.summary.unresolvedLines ?? []
+  // Resolution depends on the text AND the format, so either change means the
+  // list shown below describes a list that no longer exists.
+  const stale = checked !== null && (checked.text !== text || checked.formatCode !== formatCode)
+  const skipping = checked !== null && !stale && unmatched.length > 0
+  const matchedCards = checked?.summary.totalCards ?? 0
+
+  const run = () => {
+    if (skipping) return submit()
+    const asked = { text, formatCode }
+    check.mutate(asked, {
+      onSuccess: ({ import: summary }) => {
+        setChecked({ ...asked, summary })
+        // Only a clean check of the list still on screen imports by itself. An
+        // edit made while it ran leaves the result stale, and the reader's next
+        // press checks what they actually wrote.
+        const now = latest.current
+        if (summary.unresolvedLines.length === 0 && now.text === asked.text && now.formatCode === asked.formatCode) submit()
+      },
+    })
+  }
+  const editLine = (line: string) => {
+    const el = listRef.current
+    const range = el ? decklistLineRange(el.value, line) : null
+    if (!el || !range) return
+    el.focus()
+    el.setSelectionRange(range[0], range[1])
+  }
+  const them = unmatched.length === 1 ? 'it' : 'them'
+  // On a phone the panel lands under a tall textarea; bring the lines into view.
+  useEffect(() => {
+    if (checked && checked.summary.unresolvedLines.length > 0) panelRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [checked])
+
+  // The actions are pinned below the scroll area: on a phone the unmatched-line
+  // panel pushes them off screen, right as it tells the reader to use them.
+  const formId = 'deck-import-form'
   return (
-    <Modal title="Import from PTCG Live" onClose={onClose} wide>
+    <Modal
+      title="Import from PTCG Live"
+      onClose={onClose}
+      wide
+      footer={
+        <div className="flex justify-end gap-[10px]">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form={formId} disabled={!text.trim() || (skipping && matchedCards === 0)} loading={busy || check.isPending}>
+            {check.isPending ? 'Checking…' : busy ? 'Importing…' : skipping ? `Import without ${them}` : 'Import Deck'}
+          </Button>
+        </div>
+      }
+    >
       <form
+        id={formId}
         onSubmit={(e) => {
           e.preventDefault()
           if (!text.trim()) return
-          onSubmit({ text, formatCode, name: name.trim() || undefined })
+          run()
         }}
         className="flex flex-col gap-[16px]"
       >
         <p className="text-[14px] text-text-muted">
           Paste a decklist exported from Pokémon TCG Live (or the Limitless deck builder). Each line
-          resolves to a catalogue card; unresolved lines are reported, never dropped.
+          resolves to a catalogue card; any line that doesn't is shown to you before the deck is created.
         </p>
         <div className="flex flex-wrap items-end gap-[16px]">
           <label className="flex flex-1 flex-col gap-[6px]" style={{ minWidth: 200 }}>
@@ -148,20 +220,42 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           </label>
         </div>
         <textarea
+          ref={listRef}
           autoFocus
+          aria-label="Decklist"
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={12}
           placeholder={'Pokémon: 6\n3 Charizard ex OBF 125\n…\n\nTrainer: …\n\nEnergy: …\n\nTotal Cards: 60'}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
         />
-        {error && <div className="text-[14px] text-error">{error}</div>}
-        <div className="flex justify-end gap-[10px]">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!text.trim()} loading={busy}>
-            {busy ? 'Importing…' : 'Import Deck'}
-          </Button>
-        </div>
+        {checked && unmatched.length > 0 && (
+          <div ref={panelRef} role="alert" className="rounded-xl border border-border-default bg-surface-secondary p-[14px]" style={{ borderLeft: '3px solid var(--color-warning)' }}>
+            <div className="flex items-center gap-[8px] text-[14px] font-bold text-text-primary">
+              <Icon name="alert" size={16} className="shrink-0 text-warning" />
+              {unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card
+            </div>
+            <ul className="mt-[10px] flex flex-col gap-[4px]">
+              {unmatched.map((line, i) => (
+                <li key={`${i}:${line}`} className="flex items-center justify-between gap-[10px] rounded-lg bg-surface-primary py-[4px] pl-[12px] pr-[4px]">
+                  <code className="min-w-0 truncate font-mono text-[14px] text-text-primary">{line}</code>
+                  <button type="button" onClick={() => editLine(line)} aria-label={`Edit the line ${line}`}
+                    className="h-[36px] shrink-0 rounded-full px-[12px] text-[14px] font-semibold text-link hover:bg-action-default-hover hover:text-link-hover">
+                    Edit
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-[10px] text-[14px] text-text-muted">
+              {stale
+                ? 'You changed the list, so importing checks it again.'
+                : matchedCards > 0
+                  ? `Fix ${them} above and import again, or import the other ${matchedCards} card${matchedCards === 1 ? '' : 's'} without ${them}.`
+                  : 'Nothing in this list matched a card yet. Fix the lines above to import it.'}
+            </p>
+          </div>
+        )}
+        {(check.error || error) && <div className="text-[14px] text-error">{((check.error as Error | null)?.message ?? error)}</div>}
       </form>
     </Modal>
   )
