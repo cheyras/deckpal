@@ -290,14 +290,13 @@ async function secondLeg(page, fixture, timeout) {
   assert.ok(fixture.bodies.length >= 2, 'the second leg never reached the server')
 }
 
-export async function checkDeckeShow(browser, server, out, engine, fixture, admin) {
+export async function checkDeckeShow(browser, server, out, engine, fixture, admin, cases = [{ width: 1280 }, { width: 390, mobile: true }]) {
   admin.state.actor = 'ordinary'
   admin.state.permissions = ['decke.use']
   admin.state.balance = 500
   const results = []
   // WebKit at phone width too: it is the engine iOS Safari runs, and the
   // bubble and scroll-drive defects both showed up first on the phone.
-  const cases = [{ width: 1280 }, { width: 390, mobile: true }]
   for (const vp of cases) {
     if (engine === 'chromium' && !vp.mobile) {
       const { context, page } = await contextFor(browser, server, vp.width, { reducedMotion: 'reduce' })
@@ -476,7 +475,18 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
         results.push(...await checkDeckeShow(browser, server, out, 'chromium', show, admin))
         const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
           ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
-        try { results.push(...await checkDeckeShow(safari, server, out, 'webkit', show, admin)) } finally { await safari.close() }
+        try {
+          const errors = []
+          for (let repeat = 1; repeat <= 20; repeat++) {
+            const repeatOut = path.join(out, 'webkit-repeat-' + repeat)
+            fs.mkdirSync(repeatOut, { recursive: true })
+            try {
+              await checkDeckeShow(safari, server, repeatOut, 'webkit', show, admin, [{ width: 390, mobile: true }])
+            } catch (error) { errors.push('Run ' + repeat + ': ' + error.message) }
+          }
+          results.push(...await checkDeckeShow(safari, server, out, 'webkit', show, admin))
+          assert.deepEqual(errors, [])
+        } finally { await safari.close() }
         assert.deepEqual(server.unexpected, [], 'decke-show: unexpected network/error events')
       } finally { await server.close() }
     },
