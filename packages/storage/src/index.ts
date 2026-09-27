@@ -49,6 +49,7 @@ export {
   type SetImageFallbackEntry,
 } from './setImageFallback.js';
 export { isWebp, sniffContentType } from './sniff.js';
+export { supabaseKeyHeaders } from './supabase-key-headers.mjs';
 export { PLACEHOLDER_CONTENT_TYPE, PLACEHOLDER_WEBP } from './placeholder.js';
 export {
   FAILURE_CACHE_CONTROL,
