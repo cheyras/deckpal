@@ -65,10 +65,9 @@ try {
   assert.ok(suites.length, 'Shard ' + shard?.index + '/' + shard?.count + ' has no suites')
   selectedNames = suites.map(suite => suite.name)
   console.log('Browser suites: ' + selectedNames.join(', '))
-  // Four workers match a GitHub-hosted runner's four cores. Builds are CPU
-  // heavy, while the browser checks spend much of their time waiting on I/O.
-  await pool(4, suites.filter(suite => !suite.serial))
-  await pool(1, suites.filter(suite => suite.serial))
+  // Eight CI shards already run in parallel. Within a shard, serial suites
+  // keep screenshots and stateful admin journeys from competing in Chromium.
+  await pool(1, suites)
 } catch (error) {
   failure = error
   logs.push(error.stack ?? String(error))
