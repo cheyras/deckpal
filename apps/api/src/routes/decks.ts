@@ -4,6 +4,7 @@ import { cardImages, dbHandle, q, q1, toMajor, tcgplayerUrl, withTx } from '../d
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
+import { loadOwnedPrints, type OwnedSource } from '../deck/ownedPrints.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import { mergeLogFields, parseBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
@@ -197,6 +198,12 @@ interface DeckRow {
   market_minor: number | null;
   currency_code: string | null;
   owned_qty: string;
+  owned_as: OwnedSource[];
+  pin_exact: boolean;
+  identical_print_group: string | null;
+  is_promo: boolean;
+  is_stamped: boolean;
+  format_code: FormatCode;
   tcgplayer_url: string | null;
   tcgplayer_product_id: number | null;
   tcgplayer_printing: string | null;
@@ -221,18 +228,19 @@ interface DeckMeta {
 }
 
 const DECK_CARD_SELECT = `
-  SELECT dc.card_id, dc.card_variant_id, dc.quantity,
+  SELECT dc.card_id, dc.card_variant_id, dc.quantity, dc.pin_exact, d.format_code,
          cvd.variant_kind_code, cvd.display_name AS variant_display, vk.display_name AS variant_kind_display,
          vtr.tier AS variant_tier, cvd.is_primary AS variant_is_primary,
          c.tcgdex_id, c.local_id, c.local_id_numeric, c.number_sort, c.name, c.name_normalized,
          c.category, c.stage, c.suffix, c.trainer_type, c.energy_type, c.hp, c.retreat,
-         c.regulation_mark, c.evolve_from, c.released_on, c.rarity, c.illustrator,
+         c.regulation_mark, c.evolve_from, c.released_on, c.rarity, c.illustrator, c.identical_print_group,
          s.tcgdex_id AS set_tcgdex_id, s.name AS set_name, s.tcgplayer_group_id AS set_group_id, s.card_count_official AS set_card_count,
+         s.is_promo, EXISTS (SELECT 1 FROM variant_kind_stamp vks WHERE vks.variant_kind_code = cvd.variant_kind_code) AS is_stamped,
          ser.tcgdex_id AS series_tcgdex_id, ser.slug AS series_slug,
          price.market_minor, price.currency_code,
-         owned.owned_qty,
          cvd.tcgplayer_url, cvd.tcgplayer_product_id, cvd.tcgplayer_printing, cvd.tcgplayer_mass_entry
     FROM deck_card dc
+    JOIN deck d ON d.id = dc.deck_id
     JOIN card_variant cvd ON cvd.id = dc.card_variant_id
     JOIN variant_kind vk ON vk.code = cvd.variant_kind_code
     LEFT JOIN variant_tier_resolved vtr ON vtr.card_variant_id = cvd.id
@@ -249,13 +257,6 @@ const DECK_CARD_SELECT = `
               AND pc.source_code = 'tcgcsv' AND pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
             LIMIT 1
          ) price ON true
-    LEFT JOIN LATERAL (
-           -- Owned copies OF THIS PRINTING, not a whole-card rollup — "You
-           -- own 0 / 1" stops lying when you own a different printing.
-           SELECT COALESCE(SUM(ci.quantity), 0) AS owned_qty
-             FROM collection_item ci
-            WHERE ci.card_variant_id = dc.card_variant_id AND ci.user_id = dc.user_id
-         ) owned ON true
    WHERE dc.deck_id = $1 AND dc.user_id = $2
    ORDER BY CASE c.category WHEN 'Pokemon' THEN 0 WHEN 'Trainer' THEN 1 ELSE 2 END,
             c.name, c.number_sort, cvd.sort_order`;
@@ -292,6 +293,17 @@ async function loadRows(deckId: string, userId: string): Promise<{ rows: DeckRow
       arr.push(t.type as PokemonType);
       types.set(id, arr);
     }
+  }
+  const allocations = await loadOwnedPrints(dbHandle(), userId, rows[0]?.format_code ?? 'standard', rows.map((r) => ({
+    cardId: Number(r.card_id), variantId: Number(r.card_variant_id), variantKind: r.variant_kind_code,
+    quantity: r.quantity, group: r.identical_print_group,
+    basicEnergyType: r.category === 'Energy' && r.energy_type === 'Normal' ? (types.get(Number(r.card_id))?.[0] ?? null) : null,
+    isPromo: r.is_promo, isStamped: r.is_stamped, pinExact: r.pin_exact,
+  })));
+  for (const row of rows) {
+    const allocation = allocations.get(Number(row.card_variant_id));
+    row.owned_qty = String(allocation?.owned ?? 0);
+    row.owned_as = allocation?.ownedAs ?? [];
   }
   return { rows, types };
 }
@@ -398,6 +410,8 @@ function shapeCard(r: DeckRow) {
     seriesSlug: r.series_slug,
     quantity: r.quantity,
     owned,
+    ownedAs: r.owned_as,
+    pinExact: r.pin_exact,
     have: owned >= r.quantity,
     images: cardImages(r.series_tcgdex_id, r.set_tcgdex_id, r.local_id),
     price: r.market_minor != null ? { market: priceUsd(r), currency: (r.currency_code ?? 'USD').trim() } : null,
@@ -790,8 +804,11 @@ decksRouter.patch(
     const userId = currentUserId(req);
     const ref = String(req.params.cardId);
     const body = req.body ?? {};
-    const qty = Number(body.quantity);
-    if (!Number.isInteger(qty) || qty < 0 || qty > 60) throw badRequest('quantity must be an integer 0..60');
+    const qty = body.quantity === undefined ? null : Number(body.quantity);
+    if (qty !== null && (!Number.isInteger(qty) || qty < 0 || qty > 60)) throw badRequest('quantity must be an integer 0..60');
+    const pinExact = body.pinExact;
+    if (pinExact !== undefined && typeof pinExact !== 'boolean') throw badRequest('pinExact must be a boolean');
+    if (qty === null && pinExact === undefined) throw badRequest('quantity or pinExact is required');
     const source = parseSource(body.source);
     const versionNote = parseNoteText(body.versionNote, VERSION_NOTE_MAX, 'versionNote');
 
@@ -819,7 +836,14 @@ decksRouter.patch(
         }
         variantId = inDeck.rows[0] ? Number(inDeck.rows[0].card_variant_id) : await resolveVariantId(client, cardId, null);
       }
-      if (qty === 0) {
+      if (qty === null) {
+        const changed = await client.query(
+          `UPDATE deck_card SET pin_exact = $4
+            WHERE deck_id = $1 AND card_variant_id = $2 AND user_id = $3`,
+          [deckId, variantId, userId, pinExact],
+        );
+        if (!changed.rowCount) throw notFound('That printing is not in this deck');
+      } else if (qty === 0) {
         await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_variant_id = $2 AND user_id = $3`, [deckId, variantId, userId]);
       } else {
         await client.query(
@@ -829,7 +853,7 @@ decksRouter.patch(
         );
       }
       await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1`, [deckId]);
-      await recordDeckChange(client, deckId, { source, note: versionNote });
+      if (qty !== null) await recordDeckChange(client, deckId, { source, note: versionNote });
     });
 
     const meta = (await loadMeta(deckId, userId))!;

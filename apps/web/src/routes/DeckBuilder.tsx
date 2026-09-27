@@ -149,12 +149,22 @@ function PrintedSetCode({ code }: { code: string | null }) {
   )
 }
 
-function DeckCardContext({ entries, offending, onSet, onAdd }: {
+function OwnedAs({ sources }: { sources: DeckCard['ownedAs'] }) {
+  if (sources.length === 0) return null
+  return (
+    <span className="whitespace-nowrap text-change-positive" title="Equivalent printing in your collection">
+      Owned as {sources.map((source) => `${source.setCode} ${source.number}${source.quantity > 1 ? ` ×${source.quantity}` : ''}`).join(', ')}
+    </span>
+  )
+}
+
+function DeckCardContext({ entries, offending, onSet, onAdd, onPin }: {
   /** Every printing of this card that is in the deck, in deck order. */
   entries: DeckCard[]
   offending: boolean
   onSet: (variantId: number, q: number) => void
   onAdd: (variantId: number) => void
+  onPin: (variantId: number, pinExact: boolean) => void
 }) {
   const first = entries[0]!
   const totalQty = entries.reduce((n, e) => n + e.quantity, 0)
@@ -193,6 +203,7 @@ function DeckCardContext({ entries, offending, onSet, onAdd }: {
                 {e.setCode && <PrintedSetCode code={e.setCode} />}
                 {e.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{e.regulationMark}</span>}
                 <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>
+                <OwnedAs sources={e.ownedAs} />
                 {unit != null && <span className="whitespace-nowrap text-change-positive">{fmtPrice(e.price)}</span>}
               </div>
               {/* same mutation the deck row uses, so the tab is not read-only */}
@@ -204,6 +215,13 @@ function DeckCardContext({ entries, offending, onSet, onAdd }: {
                 <button onClick={() => onSet(e.variantId, e.quantity + 1)} aria-label="Increase copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
                   <Icon name="plus" size={13} />
                 </button>
+                <button
+                  onClick={() => onPin(e.variantId, !e.pinExact)}
+                  aria-label={e.pinExact ? `Unpin ${e.name} printing` : `Pin ${e.name} to this exact printing`}
+                  aria-pressed={e.pinExact}
+                  title={e.pinExact ? 'Only this printing counts' : 'Only count this printing'}
+                  className={`rounded-md px-[7px] py-[5px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${e.pinExact ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'}`}
+                >{e.pinExact ? 'Pinned' : 'Pin'}</button>
               </div>
             </div>
           )
@@ -264,8 +282,8 @@ function DeckCardContext({ entries, offending, onSet, onAdd }: {
   )
 }
 
-function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
-  card: DeckCard; offending: boolean; showVariant: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void
+function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen, onPin }: {
+  card: DeckCard; offending: boolean; showVariant: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void; onPin: () => void
 }) {
   return (
     <div className={`flex items-center gap-[10px] rounded-lg p-[6px] pr-[8px] ${offending ? 'bg-[rgba(255,157,66,0.10)] ring-1 ring-[rgba(255,157,66,0.5)]' : 'hover:bg-surface-tertiary/60'}`}>
@@ -292,21 +310,31 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
             <PrintedSetCode code={card.setCode} />
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
             <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
+            <OwnedAs sources={card.ownedAs} />
             <span className="whitespace-nowrap text-change-positive">{fmtPrice(card.price)}</span>
           </div>
         </div>
       </button>
-      <div className="flex items-center gap-[5px]">
-        <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-          <Icon name="minus" size={13} />
-        </button>
-        <span className="w-[20px] text-center text-[14px] font-bold text-text-primary">{card.quantity}</span>
-        <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-          <Icon name="plus" size={13} />
-        </button>
-        <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger hover:text-action-danger-text">
-          <Icon name="close" size={14} />
-        </button>
+      <div className="flex shrink-0 flex-col items-end gap-[3px]">
+        <button
+          onClick={onPin}
+          aria-label={card.pinExact ? `Unpin ${card.name} printing` : `Pin ${card.name} to this exact printing`}
+          aria-pressed={card.pinExact}
+          title={card.pinExact ? 'Only this printing counts' : 'Only count this printing'}
+          className={`rounded-md px-[6px] py-[4px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${card.pinExact ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-secondary hover:bg-action-default-hover'}`}
+        >{card.pinExact ? 'Pinned' : 'Pin'}</button>
+        <div className="flex items-center gap-[5px]">
+          <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+            <Icon name="minus" size={13} />
+          </button>
+          <span className="w-[20px] text-center text-[14px] font-bold text-text-primary">{card.quantity}</span>
+          <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+            <Icon name="plus" size={13} />
+          </button>
+          <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger hover:text-action-danger-text">
+            <Icon name="close" size={14} />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -624,6 +652,11 @@ export function DeckBuilder() {
     onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
     onSuccess: (d) => { setDetail(d); invalidateSideQueries() },
   })
+  const pinCard = useMutation({
+    mutationFn: ({ cardId, variantId, pinExact }: { cardId: string; variantId: number; pinExact: boolean }) =>
+      api.setDeckCardPin(id, cardId, variantId, pinExact),
+    onSuccess: (d) => { setDetail(d); invalidateSideQueries() },
+  })
   const addCard = useMutation({
     mutationFn: ({ cardId, quantity, variantId }: { cardId: string; quantity: number; variantId?: number }) =>
       api.addDeckCard(id, cardId, quantity, variantId),
@@ -892,6 +925,7 @@ export function DeckBuilder() {
                             showVariant={multiPrint.has(c.cardId) || c.variant?.isPrimary === false}
                             onSet={(q) => setQty.mutate({ cardId: c.cardId, variantId: c.variantId, quantity: Math.max(0, Math.min(60, q)) })}
                             onRemove={() => removeCard.mutate({ cardId: c.cardId, variantId: c.variantId })}
+                            onPin={() => pinCard.mutate({ cardId: c.cardId, variantId: c.variantId, pinExact: !c.pinExact })}
                             onOpen={() => patchSearch({ card: c.cardId })} />
                         ))}
                       </div>
@@ -971,6 +1005,7 @@ export function DeckBuilder() {
               offending={offending.has(sheetCard.cardId)}
               onSet={(variantId, q) => setQty.mutate({ cardId: sheetCard.cardId, variantId, quantity: Math.max(0, Math.min(60, q)) })}
               onAdd={(variantId) => addCard.mutate({ cardId: sheetCard.cardId, quantity: 1, variantId })}
+              onPin={(variantId, pinExact) => pinCard.mutate({ cardId: sheetCard.cardId, variantId, pinExact })}
             />
           }
         />

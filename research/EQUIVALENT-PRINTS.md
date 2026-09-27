@@ -1,8 +1,25 @@
 # Equivalent prints in the deck builder: design memo
 
-Status: research and design done, 2026-09-26. Implementation not started (paused
-for the usage limit). Branch `feat/deck-equivalent-prints`, migration number 076
-claimed.
+Status: implementation in PR #232, 2026-09-26. The catalogue comparisons below
+record the original design research. Chey's later product decision supersedes
+the artwork, rarity and illustrator restrictions proposed in that research.
+Branch `feat/deck-equivalent-prints`; migration 076.
+
+## Final product decision (2026-09-26)
+
+- Ordinary prints with the same complete gameplay fingerprint count across
+  sets and artwork when the owned print is legal in the deck's format.
+- Any ordinary basic Energy of the same type counts, regardless of set or art.
+- A deck row can be pinned to its exact variant; only that variant then counts.
+- Promo-set and stamped variants remain distinct. A regular card does not count
+  as its promo or stamped version, or vice versa.
+- Exact copies are reserved first. Remaining owned copies are allocated once
+  across matching deck rows. The shared result drives deck ownership, buying
+  suggestions, assistant output and the PDF checklist.
+
+The sections below are historical evidence and the earlier proposal. In
+particular, the proposed artwork-window hashing and "Use mine" swap are not
+part of the final rule.
 
 ## The rule, in one sentence
 

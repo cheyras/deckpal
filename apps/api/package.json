@@ -23,6 +23,7 @@
     "test:decke": "node --import tsx --test src/decke/__tests__/*.test.ts",
     "test:export": "node --import tsx --test src/export/__tests__/*.test.ts",
     "fingerprint:index": "node --import tsx src/deck/indexFingerprints.ts",
+    "identical-prints:index": "node --import tsx src/deck/indexIdenticalPrints.ts",
     "test:scan": "node --import tsx --test src/scan/__tests__/*.test.ts",
     "test:ratelimit": "node --import tsx --test src/__tests__/rateLimit.test.ts",
     "test:admin": "node --import tsx --test src/admin/__tests__/*.test.ts",

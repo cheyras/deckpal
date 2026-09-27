@@ -37,9 +37,10 @@ self-hosters.
 - **Upcoming sets** -- announced expansions appear with a release date and a
   "Coming Soon" label, and retire automatically when the real catalog entry
   arrives or the announcement expires.
-- **Deck builder** -- PTCG Live format import/export, legality validation, and
-  battle-log intelligence (record matches, track win rates, get strategy
-  analysis).
+- **Deck builder** -- PTCG Live format import/export, legality validation,
+  ownership across legal gameplay-identical reprints and basic Energy of the
+  same type, exact-printing pins, and battle-log intelligence (record matches,
+  track win rates, get strategy analysis).
 - **Card scanner** -- perceptual-hash index against stored card art; identify a
   card from a photo, or run **rip mode** to log a whole booster pack without
   stopping between cards. The scanner matches artwork, so it names the card and

@@ -881,6 +881,8 @@ export interface DeckCard {
   quantity: number
   owned: number
   have: boolean
+  pinExact: boolean
+  ownedAs: Array<{ setCode: string; number: string; quantity: number }>
   images: { low: string; high: string }
   price: Price | null
 }
@@ -1827,6 +1829,11 @@ export const api = {
     send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
       quantity,
       ...(variantId != null ? { variantId } : {}),
+    }),
+  setDeckCardPin: (id: string, cardId: string, variantId: number, pinExact: boolean) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
+      variantId,
+      pinExact,
     }),
   removeDeckCard: (id: string, cardId: string, variantId?: number) =>
     send<DeckDetail>(
