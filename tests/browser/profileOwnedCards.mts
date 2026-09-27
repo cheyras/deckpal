@@ -86,7 +86,7 @@ try {
   const server = await serve(dist, '', fixture, 'index.html', {
     allowMutation: (pathname: string, method: string) => pathname === '/api/me/billing/visit' && method === 'POST',
   })
-  buildWeb(dist, true, server.origin)
+  await buildWeb(dist, true, server.origin)
   browser = await chromium.launch()
   const results: Record<string, unknown> = {}
   try {
