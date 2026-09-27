@@ -156,7 +156,16 @@ export function CardTile({
               onRemove()
             }}
             aria-label={`Remove ${card.name}`}
-            className="absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger text-action-danger-text opacity-0 transition-opacity hover:bg-action-danger-hover group-hover:opacity-100"
+            // `px-card-badge`: not a badge, but it earns the same premium-skin
+            // rule (theme.css/premium.css §"Counters and overlay badges sit at
+            // z-index 2") for the same reason the counters and the +N/owned
+            // badges need it — the card-art lift on hover/focus (premium.css
+            // §"Card art") promotes `.px-card-art` to z-index 1, and without a
+            // matching z-index this button sat BELOW that lifted layer despite
+            // being later in the DOM: on a real mouse, hovering far enough to
+            // see the (formerly invisible) button also covered it, so it was
+            // unclickable in the premium skin whether or not it was visible.
+            className="px-card-badge absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover"
           >
             <Icon name="close" size={16} />
           </button>
