@@ -32,7 +32,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWallet } from '../../routes/credits/Credits'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
-import { isChromelessPathname } from '../../lib/landingRoute'
+import { isDeckeSuspendedPathname } from '../../lib/landingRoute'
 import { deckeEntitled, onDeckeEntitlementChange } from './entitlement'
 import { DeckeButton } from './DeckeButton'
 import {
@@ -226,7 +226,7 @@ const SNAP_RATE = 2
 type Phase = 'idle' | 'loading' | 'ready' | 'failed'
 
 export function DeckeHost() {
-  // NOT ON THE CHROMELESS ROUTES, and `/dev/decke` is the one that proves the
+  // NOT ON SUSPENDED ROUTES, and `/dev/decke` is the one that proves the
   // rule: that page builds its OWN controller on its OWN canvas, so mounting
   // this host there puts two Deck-Es and two WebGL contexts on one page. It is
   // not a theoretical clash — it hung the route hard enough to time out a 30 s
@@ -234,12 +234,11 @@ export function DeckeHost() {
   //
   // The rest of the list wants him gone for ordinary reasons: `/auth`,
   // `/signed-out` and `/authorize` are signed-out surfaces, `/design` is a
-  // full-screen tool, and `/` is the marketing landing. Reusing the existing
-  // predicate rather than writing a second list is deliberate — `landingRoute.ts`
-  // says in as many words that the call sites MUST agree, and a private copy of
-  // this set is exactly how they stop agreeing.
-  const chromeless = useRouterState({
-    select: (s) => isChromelessPathname(s.location.pathname),
+  // full-screen tool, and `/` is the marketing landing. `/dev/quad-labeler`
+  // keeps its app shell, but its camera and photo queue need the browser's
+  // frame budget more than Deck-E's continuously rendered WebGL canvas.
+  const hostSuspended = useRouterState({
+    select: (s) => isDeckeSuspendedPathname(s.location.pathname),
   })
   /**
    * Has this reader asked not to have him on screen?
@@ -401,7 +400,7 @@ export function DeckeHost() {
    */
   const rulerRef = useRef<ComposerRuler | null>(null)
   const navigate = useNavigate()
-  const wallet = useWallet(entitled && !chromeless)
+  const wallet = useWallet(entitled && !hostSuspended)
   /** True while a journey step owns the transition. Read by the route watcher
    *  below; written by the chat's sequencer through `onStepping`. */
   const journeyStepRef = useRef(false)
@@ -594,7 +593,7 @@ export function DeckeHost() {
   // numbers it had, so the numbers are the thing to read before changing it.
   //
   //   1. ORIGINALLY: an idle-callback timer gated only on `entitled &&
-  //      !chromeless`. Every entitled visitor downloaded the whole character on
+  //      !hostSuspended`. Every entitled visitor downloaded the whole character on
   //      every page whether or not they ever spoke to him — 5,905,250 bytes of
   //      assets plus a ~1.14 MB runtime chunk. The owner's stated number-one
   //      complaint about the feature. It also put the 3D body and the launcher
@@ -634,7 +633,7 @@ export function DeckeHost() {
   // WHEN THE PAGE CHANGES UNDER HIM, HE HAS TO NOTICE.
   //
   // Until this existed, the ONLY route subscription in the whole character host
-  // was the `chromeless` selector above — a boolean deciding whether to render
+  // was the route suspension selector above — a boolean deciding whether to render
   // at all. Nothing reacted to navigation. So when the reader moved to another
   // page:
   //
@@ -1481,7 +1480,7 @@ function settledRect(el: HTMLElement): DOMRect {
   // Keying it on `phase` directly is wrong twice over. It would re-run on the
   // loading -> ready transition this effect itself performs, tearing the
   // controller down and rebuilding it in a loop; and it would NOT re-run when a
-  // chromeless route unmounts the canvas and a later navigation mounts a new
+  // suspended route unmounts the canvas and a later navigation mounts a new
   // one, because `phase` is still 'ready' — leaving a live controller bound to a
   // canvas node that is no longer in the document, and a blank new canvas.
   // `!hidden` is here as well as at the early return. Today it is redundant —
@@ -1490,7 +1489,7 @@ function settledRect(el: HTMLElement): DOMRect {
   // decides whether a WebGL context exists. Someone who asked not to have him
   // should not get a canvas because a future effect learned to warm him.
   const active =
-    !hidden && entitled && !chromeless && (phase === 'loading' || phase === 'ready')
+    !hidden && entitled && !hostSuspended && (phase === 'loading' || phase === 'ready')
 
   // Held once and shared, because the constructor below reads it and the effect
   // after it subscribes to it — two `matchMedia` calls for one question is two
@@ -1534,7 +1533,7 @@ function settledRect(el: HTMLElement): DOMRect {
   // gap after the page is usable. `DeckeButton` still warms on pointer-enter,
   // which now only matters when someone hovers inside that gap.
   useEffect(() => {
-    if (hidden || !entitled || chromeless) return
+    if (hidden || !entitled || hostSuspended) return
     if (phase !== 'idle') return
 
     // NOT ON A CONNECTION THAT SAID NOT TO. Save-Data is an explicit request
@@ -1577,7 +1576,7 @@ function settledRect(el: HTMLElement): DOMRect {
       if (idleHandle !== undefined && cic) cic(idleHandle)
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [hidden, entitled, chromeless, phase])
+  }, [hidden, entitled, hostSuspended, phase])
 
   useEffect(() => {
     if (!active) return
@@ -1624,7 +1623,7 @@ function settledRect(el: HTMLElement): DOMRect {
       // A FRESH controller knows nothing, so neither may the choreography: a
       // reused one (StrictMode's synchronous remount, a quick canvas swap)
       // keeps his pose and his presence, but a fresh one boots at scale 0 —
-      // and if the chat was open across the teardown (a chromeless route and
+      // and if the chat was open across the teardown (a suspended route and
       // back), a stale presence of 'in' would skip the entrance and re-park a
       // character nobody can see. Reset, and the entrance effect brings him
       // in properly once `live` lands.
@@ -1849,7 +1848,7 @@ function settledRect(el: HTMLElement): DOMRect {
       // belonging to a canvas that no longer exists.
       appliedPxRef.current = 0
       // AND BACK TO "NOT READY". `phase` drives the canvas's own opacity, and
-      // leaving it at `ready` across a chromeless-route round trip means the
+      // leaving it at `ready` across a suspended-route round trip means the
       // NEXT mount paints a brand-new canvas at full opacity while the runtime,
       // the glb and the shader compile are all still ahead of it. Nothing is
       // drawn there yet; what shows is whatever the first frames of a cold
@@ -1869,11 +1868,11 @@ function settledRect(el: HTMLElement): DOMRect {
   // it, not about answer quality — so being good is not protection, and this
   // guard is the whole remedy. Restored from Profile.
   //
-  // Placed beside `entitled` and `chromeless` deliberately: this returns before
+  // Placed beside `entitled` and `hostSuspended` deliberately: this returns before
   // the canvas, the launcher and every effect that reaches for the runtime, so
   // hiding him also stops him costing anything.
   if (hidden) return null
-  if (!entitled || chromeless) return null
+  if (!entitled || hostSuspended) return null
 
   return (
     <>

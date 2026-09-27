@@ -1116,6 +1116,10 @@ or live authentication, database or payment behavior.
 `/dev/decke` review route requires `diagnostics.view`. Browser guards and
 server-side gates use current database authority; no owner UUID enters the
 bundle, and preview does not bypass permission checks.
+The shared Deck-E host is suspended on `/dev/quad-labeler`, including its
+renderer warmup and wallet query. The internal camera/photo workbench keeps the
+app shell and Queue controls, but does not compete with another WebGL canvas.
+The host resumes its normal route behavior after navigation away.
 
 Shipping it means the chunk is emitted (~1.17 MB of three.js and the runtime,
 measured 2026-08-22 and approximate on purpose — the precise figure drifts with

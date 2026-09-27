@@ -158,6 +158,7 @@ export async function checkQueue(browser, server, mount, label, out, queue) {
       assert.deepEqual([...queue.objects.keys()].filter(key => key.endsWith('.json')).sort(), [0, 1, 2].map(i => `dev-queue/${replacementId(queue.original + i)}.json`))
       const image = await page.locator('button[aria-label^="Label upright-"] img').first().evaluate(img => ({ width: img.naturalWidth, height: img.naturalHeight }))
       assert.ok(image.height > image.width, 'the actual portrait HEIC becomes an upright JPEG')
+      assert.equal(await page.locator('canvas[aria-hidden].fixed').count(), 0, 'Deck-E yields the browser frame budget on the labeler route')
       await page.screenshot({ path: path.join(out, `queue-after-${label}-${width}.png`), fullPage: true })
       results.push({ case: 'real-heic-stale-cleanup-marker', label, width, repairPosts: queue.state.repairPosts, image })
       trace(`${width} repaired`)
