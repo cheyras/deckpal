@@ -37,15 +37,16 @@ self-hosters.
 - **Upcoming sets** -- announced expansions appear with a release date and a
   "Coming Soon" label, and retire automatically when the real catalog entry
   arrives or the announcement expires.
-- **Deck builder** -- PTCG Live format import/export, legality validation, and
-  battle-log intelligence (record matches, track win rates, get strategy
-  analysis).
-- **Card scanner** -- perceptual-hash index against stored card art. Point the
-  camera at card after card without stopping, and each one lands in a list to
-  review before anything is written. The scanner matches artwork, so it names
-  the card and you say which printing, because a card and its reverse holo are
-  the same picture. An opt-in beta lets you say it out loud while you scan
-  ("that one's a reverse holo", "two of those", "remove it").
+- **Deck builder** -- PTCG Live format import/export, legality validation,
+  ownership across legal gameplay-identical reprints and basic Energy of the
+  same type, exact-printing pins, and battle-log intelligence (record matches,
+  track win rates, get strategy analysis).
+- **Card scanner** -- perceptual-hash index against stored card art; identify a
+  card from a photo, or run **rip mode** to log a whole booster pack without
+  stopping between cards. The scanner matches artwork, so it names the card and
+  you say which printing -- a card and its reverse holo are the same picture.
+  An opt-in beta lets you say it out loud while you scan ("that one's a reverse
+  holo", "two of those", "remove it").
 - **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
   accurate progress tracking.
 - **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.

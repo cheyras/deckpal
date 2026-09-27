@@ -1007,7 +1007,14 @@ type), "source"? }`. `201` returns the full detail payload.
 
 ### GET /deckpal/api/decks/:id
 The full detail payload for one deck. `404` if the deck doesn't exist (non-UUID
-ids are also a `404`).
+ids are also a `404`). Each card row reports `owned`, `have`, `pinExact`, and
+`ownedAs` (the other printings whose copies satisfy this row, with set code,
+number and quantity). Exact copies count first; legal gameplay-identical
+ordinary printings of the same finish then count once across the deck. Basic
+Energy matches by type. Promo and stamped variants remain distinct. Allocation
+reserves pinned exact copies, then unpinned exact copies, then equivalents, with
+ascending variant ID breaking ties for both deck rows and owned candidates. The
+page and PDF share this order regardless of their display order.
 
 ### PATCH /deckpal/api/decks/:id
 Rename / edit description / format / glcType / favorite / cover render. Body
@@ -1028,10 +1035,13 @@ Additive upsert of a card (quantity clamped to 60). Body `{ "cardId"|"card"
 a version snapshot via the auto-bump rule. `201` returns the detail payload.
 
 ### PATCH /deckpal/api/decks/:id/cards/:cardId
-Set the **absolute** quantity for a card in the deck. Body
-`{ "quantity" (int 0–60, required), "source"?, "versionNote"? }`. `quantity: 0`
-removes the row. `:cardId` is a tcgdex id or numeric catalogue id. Records a
-version snapshot. Returns the detail payload.
+Set the **absolute** quantity, or pin an existing row to its exact printing.
+Body `{ "quantity"? (int 0–60), "pinExact"? (boolean), "variantId"?,
+"source"?, "versionNote"? }`; at least one of `quantity` and `pinExact` is
+required. `quantity: 0` removes the row. Pass `variantId` when the card has
+more than one row in this deck. A quantity edit records a version snapshot;
+pinning changes ownership matching without changing the card list snapshot.
+`:cardId` is a tcgdex id or numeric catalogue id. Returns the detail payload.
 
 ### DELETE /deckpal/api/decks/:id/cards/:cardId
 Remove a card from the deck. `:cardId` is a tcgdex id or numeric catalogue id.
@@ -1087,8 +1097,9 @@ extra mulligan). `mulliganChancePct` is the hypergeometric probability of a
 mulligan for this deck's basic count.
 
 ### GET /deckpal/api/decks/:id/pricing
-Per-card and roll-up pricing for the deck against the collection. Primary-variant
-tcgcsv USD market per card; `owned` is summed across all variants of the print.
+Per-card and roll-up pricing for the deck against the collection. The deck's
+selected variant sets the price; `owned` uses the same exact-first, format-legal
+equivalent-print allocation as the deck page and PDF checklist.
 Returns total / owned / missing value, a per-card `cards` array, and a `missing`
 array (cards where owned < deck quantity) with `buyUrl`, a `massEntry` line, and
 image. `massEntryText` joins the missing lines.

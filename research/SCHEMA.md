@@ -970,6 +970,11 @@ CREATE TABLE card (
   playable_fingerprint CHAR(64),        -- SHA-256 reprint-equivalence hash. PRIOR-ART §3 item 4.
                                         -- NULL until full gameplay data is present — never
                                         -- fingerprint a brief list response.
+  identical_print_group CHAR(64),        -- migration 076: safe ordinary-print group, populated
+                                         -- from playable_fingerprint; NULL for promo-set cards.
+                                         -- Stamped variants stay distinct at card_variant level
+                                         -- and are excluded by the ownership allocator via
+                                         -- variant_kind_stamp.
   released_on    DATE,                  -- denormalised from set for the 'Released' sort (§5.3)
   tcgdex_updated_at TIMESTAMPTZ,
   data_source_lang TEXT,                -- provenance stamp. PRIOR-ART §3 item 7. NULL = native.
@@ -1599,12 +1604,15 @@ ALTER TABLE deck_card ADD COLUMN card_variant_id BIGINT NOT NULL; -- (+ FKs, PK 
 CREATE TABLE deck_card (
   deck_id  UUID   NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
   card_id  BIGINT NOT NULL REFERENCES card(id) ON DELETE RESTRICT,
-  user_id  BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  card_variant_id BIGINT NOT NULL, -- migration 051; composite FK checks that it belongs to card_id
+  user_id  UUID NOT NULL,
   quantity SMALLINT NOT NULL CHECK (quantity BETWEEN 1 AND 60),
-  PRIMARY KEY (deck_id, card_id)
+  pin_exact BOOLEAN NOT NULL DEFAULT FALSE, -- migration 076: only this deck row's variant satisfies ownership
+  PRIMARY KEY (deck_id, card_variant_id)
 );
--- Still keyed on CARD, not (card, variant): BEHAVIOR-SPEC §8.6 — deck lists are variant-agnostic
--- and deck price = Σ qty × MAIN-variant market price. Unchanged from the first pass and confirmed.
+-- Each row names and prices its selected variant. Ownership first uses exact
+-- copies, then legal same-gameplay ordinary prints of the same finish (or any
+-- ordinary basic Energy of the same type), unless pin_exact is true.
 ```
 
 ## 8.6 Rule summary, as stored

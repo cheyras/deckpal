@@ -91,9 +91,10 @@ pnpm --filter @deckpal/db migrate:status
 
 # Fill the card-identity index (migration 047 onward). Idempotent; ~6s.
 pnpm --filter deckpal-api fingerprint:index
+pnpm --filter deckpal-api identical-prints:index
 ```
 
-> **On `fingerprint:index`.** `card.playable_fingerprint` says which catalogue
+> **On the fingerprint indexes.** `card.playable_fingerprint` says which catalogue
 > rows are the SAME CARD rather than merely the same name — 218 of 1,409
 > Standard-legal names are more than one card, and two agent tools tell the
 > model to pick "the cheapest printing", which is only safe when something
@@ -103,7 +104,11 @@ pnpm --filter deckpal-api fingerprint:index
 > this line is only needed on a fresh database or a manual migrate. It exits
 > non-zero if nothing hashes or if no name resolves to several cards — the two
 > shapes that mean the hash is broken rather than the catalogue being small.
-> After changing `fingerprint.ts` itself, run it once with `--all`.
+> The following `identical-prints:index` pass writes the safe ordinary-print
+> groups used by deck ownership; promo sets are excluded, and stamped variants
+> are filtered when ownership is resolved. `scripts/refresh-catalog.sh` runs
+> both passes after every import. After changing `fingerprint.ts` itself, run
+> `fingerprint:index --all` and then rerun `identical-prints:index`.
 
 > **On `PGSSLMODE`.** Supabase serves a certificate chain that is not in the
 > system trust store, so a *verifying* mode fails with `self-signed certificate

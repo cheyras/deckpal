@@ -22,6 +22,8 @@ export {
 } from './ptcgl.js';
 export { playableFingerprint, hasFullGameplayData, type FingerprintInput } from './fingerprint.js';
 export { indexFingerprints, collisionReport, type IndexResult } from './fingerprintIndex.js';
+export { indexIdenticalPrints, type IdenticalPrintIndexResult } from './identicalPrintIndex.js';
+export { identicalPrintGroup, canSatisfyByEquivalentPrint } from './identicalPrints.js';
 export { validateDeck, poolRule, type ValidateContext } from './formats.js';
 export {
   ruleBoxKind, cardIsAceSpec, cardIsRadiant, cardIsPrismStar, cardIsBasicEnergy,
