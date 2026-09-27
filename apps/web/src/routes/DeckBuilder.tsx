@@ -166,13 +166,14 @@ function PrintedSetCode({ code }: { code: string | null }) {
   )
 }
 
-function OwnedAs({ sources }: { sources: DeckCard['ownedAs'] }) {
+function OwnedAs({ sources, owned, quantity }: { sources: DeckCard['ownedAs']; owned: number; quantity: number }) {
   if (!sources?.length) return null
   const printing = (source: DeckCard['ownedAs'][number]) => `${source.setCode} ${source.number}${source.quantity > 1 ? ` ×${source.quantity}` : ''}`
-  const full = `Owned as ${sources.map(printing).join(', ')}`
-  const short = `Owned as ${sources.slice(0, 2).map(printing).join(', ')}${sources.length > 2 ? ` +${sources.length - 2}` : ''}`
+  const prefix = owned < quantity ? `${owned}/${quantity} owned as ` : 'Owned as '
+  const full = `${prefix}${sources.map(printing).join(', ')}`
+  const short = `${prefix}${sources.slice(0, 2).map(printing).join(', ')}${sources.length > 2 ? ` +${sources.length - 2}` : ''}`
   return (
-    <span className="min-w-0 max-w-full truncate text-change-positive" title={full}>
+    <span className={`min-w-0 max-w-full truncate ${owned < quantity ? 'text-text-muted' : 'text-change-positive'}`} title={full}>
       <span aria-hidden="true">{short}</span><span className="sr-only">{full}</span>
     </span>
   )
@@ -222,7 +223,7 @@ function DeckCardContext({ entries, offending, onSet, onAdd, onPin }: {
                 <span className="whitespace-nowrap">{e.setId.toUpperCase()} {e.number}</span>
                 {e.setCode && <PrintedSetCode code={e.setCode} />}
                 {e.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{e.regulationMark}</span>}
-                {e.ownedAs?.length ? <OwnedAs sources={e.ownedAs} /> : <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>}
+                {e.ownedAs?.length ? <OwnedAs sources={e.ownedAs} owned={e.owned} quantity={e.quantity} /> : <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>}
                 {unit != null && <span className="whitespace-nowrap text-change-positive">{fmtPrice(e.price)}</span>}
               </div>
               {/* same mutation the deck row uses, so the tab is not read-only */}
@@ -328,7 +329,7 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen, onPin 
             {showVariant && card.variant && <VariantChip variant={card.variant} className="font-medium" />}
             <PrintedSetCode code={card.setCode} />
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
-            {card.ownedAs?.length ? <OwnedAs sources={card.ownedAs} /> : <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>}
+            {card.ownedAs?.length ? <OwnedAs sources={card.ownedAs} owned={card.owned} quantity={card.quantity} /> : <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>}
             <span className="whitespace-nowrap text-change-positive">{fmtPrice(card.price)}</span>
           </div>
         </div>

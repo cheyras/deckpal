@@ -72,9 +72,9 @@ export function writesFixture(mount, admin) {
       staticQuantity: null, ownedQuantity: 0 })),
   })
   const deckDetail = () => {
-    const cards = state.deck.map(({ i, quantity, pinExact }) => ({ ...row(i), variantId: 100 + i * 2, variant: { kind: 'normal', displayName: 'Normal', tier: 'standard', isPrimary: true },
-      section: 'pokemon', stage: null, regulationMark: 'H', setId: SET, setCode: 'FXS', setName: 'Fixture Set', seriesSlug: 'fx', quantity, owned: 0, have: false,
-      ownedAs: [], pinExact }))
+    const cards = state.deck.map(({ i, quantity, pinExact, owned = 0, ownedAs = [] }) => ({ ...row(i), variantId: 100 + i * 2, variant: { kind: 'normal', displayName: 'Normal', tier: 'standard', isPrimary: true },
+      section: 'pokemon', stage: null, regulationMark: 'H', setId: SET, setCode: 'FXS', setName: 'Fixture Set', seriesSlug: 'fx', quantity, owned, have: owned >= quantity,
+      ownedAs, pinExact }))
     const total = cards.reduce((n, c) => n + c.quantity, 0)
     return {
       deck: { id: DECK, name: 'Fixture Deck', description: null, formatCode: 'standard', formatName: 'Standard', glcType: null, isFavorite: false, coverRender: '',
@@ -356,6 +356,14 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       assert.equal(state.deck.find(r => r.i === 0)?.pinExact, true)
       assert.equal(await page.getByRole('button', { name: 'Allow equivalent printings for Fixturemon' }).getAttribute('aria-pressed'), 'true')
       await shot('deck-pinned-undo')
+
+      // A usable equivalent can cover only part of a row. Keep the shortage
+      // count in the one ownership label so the deck never reads as complete.
+      Object.assign(state.deck.find(r => r.i === 0), { pinExact: false, owned: 1, ownedAs: [{ setCode: 'DRI', number: '024', quantity: 1 }] })
+      await go('/decks/' + DECK)
+      const partial = page.getByRole('button', { name: 'Details for Fixturemon' }).locator('span[title="1/6 owned as DRI 024"]')
+      assert.equal(await partial.locator('[aria-hidden="true"]').textContent(), '1/6 owned as DRI 024')
+      assert.match(await partial.getAttribute('class'), /text-text-muted/)
 
       // Offline, a deck edit is attempted and explained rather than silently lost.
       await context.setOffline(true)
