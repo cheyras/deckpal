@@ -325,8 +325,8 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    */
   priorSummaries?: ReadonlySet<string>;
   /**
-   * This conversation's id, for the tripped-breaker log line and the stable
-   * key of an approved collection write. Tests without one use an empty scope.
+   * This conversation's id, for the one structured log line a tripped breaker
+   * writes. Never used for a write key: it is not part of the signed approval.
    */
   conversationId?: string;
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
@@ -1422,7 +1422,6 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             ? {
                 ...sub.value,
                 idempotency_key: `decke:${createHash('sha256').update(callKey('log_cards', {
-                  conversationId: opts.conversationId ?? '',
                   toolCallId,
                   input: exposedLogInput(args),
                 })).digest('hex')}`,

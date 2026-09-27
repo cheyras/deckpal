@@ -1516,7 +1516,8 @@ the same in-flight promise before an approval can be issued. The HMAC still
 binds the SDK's actual exposed input (which contains no `dry_run`); normalization
 happens inside the adapter after signing and never rewrites replayed wire input.
 The approved `log_cards` call gets a server-derived idempotency key from its
-conversation, SDK tool-call ID and signed exposed input. That key survives a
+SDK tool-call ID and signed exposed input, scoped by the collection endpoint to
+the authenticated user. Unsigned conversation metadata is excluded. The key survives a
 replay across the shared tool's 15-minute key boundary; a separate call gets a
 different key. The adapter adds it after approval, leaving signed input intact.
 

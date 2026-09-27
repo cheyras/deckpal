@@ -310,7 +310,7 @@ test('real SDK holds signed exposed input; approve writes once, decline/tamper/r
     await drain(streamText({
       model: mockModel(),
       messages: await replayMessages(true),
-      tools: f.build(),
+      tools: f.build({ conversationId: 'original-conversation' }),
       experimental_toolApprovalSecret: secret,
     }));
     assert.deepEqual(f.counts(), { previews: 2, writeRequests: 1, writes: 1 });
@@ -320,7 +320,7 @@ test('real SDK holds signed exposed input; approve writes once, decline/tamper/r
     // approval crosses the derived key's 15-minute bucket boundary.
     now = boundary + 1_000;
     await drain(streamText({
-      model: mockModel(), messages: await replayMessages(true), tools: f.build(),
+      model: mockModel(), messages: await replayMessages(true), tools: f.build({ conversationId: 'changed-conversation' }),
       experimental_toolApprovalSecret: secret,
     }));
     assert.deepEqual(f.counts(), { previews: 3, writeRequests: 2, writes: 1 });
