@@ -41,7 +41,7 @@ import { warnOnPrintedSetCodeDivergence } from './scan/catalogPort.js';
 import { scanEmbedGate, scanEmbedWarning } from './scan/embedGate.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
 import { scanQueueRouter } from './dev/scanQueue.js';
-import { bugsRouter } from './routes/bugs.js';
+import { bugReportsPublic, bugsRouter } from './routes/bugs.js';
 import { clientErrorsRouter } from './routes/clientErrors.js';
 import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
@@ -50,7 +50,7 @@ import { mountOAuthServer } from './oauthServer.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
-import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit, clientErrorRateLimit } from './rateLimit.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit, bugsRateLimit, clientErrorRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -151,6 +151,15 @@ export function createApp(): express.Express {
   if (corsOrigins) {
     const allowed = new Set(corsOrigins.split(',').map((o) => o.trim()).filter(Boolean));
     app.use((req, res, next) => {
+      // The response depends on the request's Origin whenever this fork has
+      // CORS configured at all — not only on a match — because a shared cache
+      // that ignores that has no way to know a *different* Origin would get a
+      // different Access-Control-Allow-Origin (or none). Append rather than
+      // set: a route further downstream (catalogOrUserCache's `Vary:
+      // Authorization`, PERF-02) must be able to add its own reason to vary
+      // without wiping this one out. Vary is a set of header names, not a
+      // single value, so the two compose correctly in either order.
+      res.append('Vary', 'Origin');
       const origin = req.headers.origin;
       if (origin && allowed.has(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
@@ -169,23 +178,36 @@ export function createApp(): express.Express {
   // ── The Stripe webhook, and it MUST be mounted here ──────────────────────
   //
   // Signature verification hashes the exact bytes Stripe sent, so this route
-  // takes `express.raw()` and has to be registered ahead of the global JSON
-  // parser on the next line. Re-serialising a parsed body produces different
-  // bytes and every signature fails -- the ordering below is load-bearing, not
-  // stylistic. It is also outside the `/api` router on purpose: a Stripe
-  // delivery carries no session and must not meet resolveIdentity or the RLS
-  // middleware. See billing/webhook.ts.
+  // takes `express.raw()` and has to be registered ahead of any JSON parser.
+  // Re-serialising a parsed body produces different bytes and every signature
+  // fails -- the ordering below is load-bearing, not stylistic. It is also
+  // outside the `/api` router on purpose: a Stripe delivery carries no
+  // session and must not meet resolveIdentity or the RLS middleware. See
+  // billing/webhook.ts.
   mountStripeWebhook(app, basePath);
 
-  // 12mb accommodates the bug reporter's screenshot dataURL; every other route
-  // posts tiny JSON, so the raised ceiling only ever matters for /bugs.
-  app.use(express.json({ limit: '12mb' }));
-
+  // SEC-08: there is deliberately NO blanket express.json() here any more.
+  // One used to sit on `app`, sized to 12mb for the bug reporter's screenshot,
+  // ahead of EVERY route including preAuthFloodGuard, authMiddleware and the
+  // OAuth routes mounted just below -- so every route paid that same 12mb
+  // ceiling before anything unauthenticated was even throttled, and it made
+  // /register's and /token's own 16kb parsers (oauthServer.ts) dead code:
+  // body-parser no-ops on a request whose body a PRIOR matching parser
+  // already consumed, so whichever parser runs FIRST for a given path decides
+  // its limit (the same trap dev/scanFlags.ts documents for itself). Body
+  // limits are per-route now -- see the block below `api.use('/me/features'…'`
+  // for the `/api` router's parsers, and mountOAuthServer immediately below
+  // for /register's and /token's, which are effective again now that nothing
+  // upstream of them reads the body first.
+  //
   // The public half of the OAuth "Connect" flow lives at the bare origin
   // (RFC 8414/9728 well-known paths, /register, /token) — mounted on `app`
   // directly, ahead of the `basePath` API router, and only in cloud mode: the
   // flow mints api_token rows tied to a Supabase user, which self-host has no
-  // concept of (SPEC.md §3b).
+  // concept of (SPEC.md §3b). Each of its four routes carries its own
+  // oauthPublicRateLimit (SEC-09): they sit ahead of preAuthFloodGuard too, so
+  // without their own limiter an unauthenticated `POST /register` — a bare
+  // `oauth_client` INSERT — had none at all.
   if (SUPABASE_MODE) {
     mountOAuthServer(app);
   }
@@ -204,6 +226,86 @@ export function createApp(): express.Express {
   // on self-host, raw socket peer (Express trust proxy is FALSE by default,
   // not loopback — see expressjs.com/en/guide/behind-proxies.html).
   api.use(preAuthFloodGuard);
+
+  // ── SEC-08: body-size limits, sized per route ─────────────────────────────
+  //
+  // Mounted here: immediately after preAuthFloodGuard, so a flood is
+  // throttled before a byte of any body is read, and ahead of authMiddleware
+  // and everything after it, since nothing about body-size limiting needs
+  // identity. The client-errors route below is identity-free, so it needs
+  // its own parser in this block before its handler runs.
+  // Ordered most-specific-first on purpose -- express.json() no-ops on a
+  // request whose body a prior matching parser already consumed (see the
+  // note above mountOAuthServer), so whichever line below matches a request
+  // FIRST decides its limit. The blanket default is last so it can never
+  // shadow one of the named exceptions above it.
+  //
+  // routes/bugs.ts's MAX_IMG_BYTES is 8mb decoded; base64 costs +33%, so a
+  // full-size screenshot is ~10.7mb on the wire before the JSON wrapper and
+  // the 20kb text fields. 12mb is what this repo already sized for exactly
+  // this upload -- this line replaces the identical number that used to sit
+  // on `app`, unscoped, above.
+  api.use('/bugs', express.json({ limit: '12mb' }));
+  // The browser beacon sends route, message, stack and build id. Even if
+  // every field reaches the route's log cap and is ASCII-escaped (6 bytes
+  // per character), the JSON stays under 32 KB. The client usually sends
+  // much less; a larger crash payload should be refused before log work.
+  api.use('/client-errors', express.json({ limit: '32kb' }));
+  // dev/scanQueue.ts's MAX_PHOTO_BYTES is 3mb decoded. 3,145,728 bytes is
+  // exactly divisible by 3, so its base64 form is exactly 4,194,304 bytes
+  // (4mb) on the wire -- a photo AT the supported limit, wrapped in
+  // {"jpg":"...","name":"...","source":"..."}, needs more than 4mb, not
+  // "room for the wrapper" as that file's own comment assumed (review
+  // caught this: a real max-size upload 413'd against a bare 4mb parser).
+  // 4200kb leaves ~104kb of headroom for the wrapper and any base64 padding.
+  api.use('/dev/scan-queue', express.json({ limit: '4200kb' }));
+  // dev/scanFlags.ts's MAX_UPLOAD_BYTES (3mb) bounds pngBytes + metaJson
+  // COMBINED, decoded -- the same arithmetic as scan-queue above applies
+  // when nearly the whole budget is the base64 png, so this gets the same
+  // 4200kb headroom rather than a bare 4mb.
+  api.use('/dev/scan-flags', express.json({ limit: '4200kb' }));
+  // Every character-count cap in this file (MAX_TEXT, STRATEGY_MAX, etc.) is
+  // a JS string length -- UTF-16 CODE UNITS, not the UTF-8 BYTES a limit
+  // here actually measures, and these routes are reachable over the plain
+  // REST API (a personal access token, an MCP client, a script) as well as
+  // this repo's own browser client, which never assumes the CALLER's JSON
+  // serialization. A raw UTF-8 client costs up to 3 bytes per BMP code unit
+  // outside Latin-1 (CJK, Hangul, Cyrillic). An ASCII-SAFE-escaping client --
+  // Python's `json.dumps` defaults to `ensure_ascii=True`, and it is a common
+  // default elsewhere too -- costs 6: `\uXXXX` is 6 ASCII bytes for one
+  // character that was 1 UTF-16 code unit. Sizing at x3 (measured against
+  // this repo's own browser client, which does not escape) 413'd a
+  // perfectly valid escaped-JSON request from any other client -- reproduced
+  // directly: a supported 50,000-character rawLog, encoded the way Python's
+  // standard library encodes it, is 300,013 bytes, comfortably over a x3
+  // budget. Every number below is now sized at x6.
+  //
+  // routes/deckeHistory.ts writes one transcript turn per call: two MAX_TEXT
+  // fields (24,000 chars each) plus up to MAX_TOOLS (60) tool records, each up
+  // to name+phase+title+summary+MAX_ARGS_CHARS (roughly 790+1,200 chars). At
+  // x6 that's (48,000 + 60*1,990) * 6 =~ 1004kb before the JSON structure
+  // itself; 2mb leaves real headroom.
+  api.use('/decke', express.json({ limit: '2mb' }));
+  // routes/lists.ts's POST /:id/items/bulk allows BULK_MAX (500) items, each
+  // with its own NOTE_MAX (500-char) note. At x6 that's 500*500*6 =~ 1.43mb
+  // before structure; 2mb leaves headroom without reopening the ceiling for
+  // every other /lists route (a single list's own fields cap out at
+  // DESC_MAX, 2,000 chars).
+  api.use('/lists', express.json({ limit: '2mb' }));
+  // routes/decks.ts's PUT /:id/strategy (STRATEGY_MAX 40,000 chars) and
+  // POST /:id/logs + /log-preview (RAW_LOG_MAX 50,000 chars) are the two
+  // biggest single-field text caps outside the routes above. At x6 the
+  // larger is 50,000*6 =~ 293kb (matches the 300,013-byte reproduction
+  // above almost exactly) -- already over the 100kb default below, so this
+  // route gets its own exception rather than 413ing a legitimate escaped-JSON
+  // or non-English battle log or strategy guide (the regression an
+  // insufficient x3 estimate produced in an earlier version of this block).
+  api.use('/decks', express.json({ limit: '512kb' }));
+  // Every other route posts small JSON (ids, filters, short text) with no
+  // field anywhere near this file's largest caps. 100kb is generous headroom
+  // even at x6 over the biggest of those (list-rules and mass-entry batches,
+  // a few KB of ids).
+  api.use(express.json({ limit: '100kb' }));
 
   // Client-side crash reports (clientErrors.ts): mounted here, before
   // authMiddleware/ensureAdminBootstrap and — the point of being THIS early —
@@ -249,6 +351,13 @@ export function createApp(): express.Express {
   api.use('/admin', requireSession, adminRateLimit);
   api.use('/me/credits', requireSession, creditWalletRateLimit);
   api.use(['/me/features','/me/decke-sharing'], requireSession, adminRateLimit);
+  // SEC-11: no requireSession here — the bug/feature reporter is not
+  // account-administration and self-host's resolved local identity (settled by
+  // resolveOptionalIdentity above) must still be able to file one. It already
+  // has a stable req.user.id by this point in both deployments, which is what
+  // lets this be per-account instead of routes/bugs.ts's old per-`req.ip`
+  // bucket (one shared bucket behind a proxy, defeating the whole limit).
+  api.use('/bugs', bugsRateLimit);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS
@@ -488,7 +597,10 @@ export function createApp(): express.Express {
   // ⚠️ Only ever add values here that are already public in the client bundle.
   // The service-role key and the JWT secret are NOT, and must never be.
   api.get('/public-config', asyncHandler(async (_req, res) => {
-    catalogCache(res, 300);
+    // This now includes the bug reporter's public/private destination. A
+    // cached "private" answer after an operator enables GitHub would give
+    // reporters false assurance, so read this configuration fresh.
+    res.setHeader('Cache-Control', 'no-store');
     res.json({
       // Self-host answers with empty strings and mode 'self-host': it has no
       // Supabase, so a dev server pointed at it correctly gets nothing and
@@ -496,6 +608,7 @@ export function createApp(): express.Express {
       supabaseUrl: SUPABASE_MODE ? (process.env.VITE_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '') : '',
       supabaseAnonKey: SUPABASE_MODE ? (process.env.VITE_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '') : '',
       mode: SUPABASE_MODE ? 'cloud' : 'self-host',
+      bugReportsPublic,
       defaults: await appDefaults().catch(()=>({skin:'premium',topbar:'cover'})),
     });
   }));
