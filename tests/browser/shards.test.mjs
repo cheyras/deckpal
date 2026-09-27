@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { browserSuites } from './core-suites.mjs'
+import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
+
+const names = [
+  'typecheck', 'selfhost-catalog', 'selfhost-admin', 'selfhost-feedback',
+  'cloud-catalog', 'cloud-admin', 'cloud-feedback', 'cloud-writes',
+  'authreturn', 'chat', 'payment-history',
+]
+const suites = browserSuites({})
+
+test('all existing journeys remain named suites', () => {
+  assert.deepEqual(suites.map(suite => suite.name), names)
+})
+
+test('four shards cover every suite once, regardless of discovery order', () => {
+  const assignment = shardSuites(suites, 4).map(shard => shard.map(suite => suite.name))
+  assert.ok(assignment.every(shard => shard.length))
+  assert.deepEqual(assignment.flat().sort(), [...names].sort())
+  assert.deepEqual(shardSuites([...suites].reverse(), 4).map(shard => shard.map(suite => suite.name)), assignment)
+})
+
+test('shard argument rejects missing and out-of-range indexes', () => {
+  assert.deepEqual(parseShard([]), null)
+  assert.deepEqual(parseShard(['--shard', '2/4']), { index: 2, count: 4 })
+  for (const args of [['--shard'], ['--shard', '0/4'], ['--shard', '5/4'], ['--shard', '1/0'], ['--shard', 'a/4']]) {
+    assert.throws(() => parseShard(args))
+  }
+})
