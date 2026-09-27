@@ -43,6 +43,18 @@ function adoptBranch() {
   const baseRef = flag('--base-ref', 'origin/main');
   const sourceFile = flag('--source-file', null);
   const output = resolve(flag('--output-dir', root));
+  const unmerged = git('ls-files', '-u', '--', 'DECISIONS.md').trim();
+  let conflicted = false;
+  if (unmerged) {
+    if (sourceRef !== 'HEAD' || sourceFile || output !== root) {
+      fail('DECISIONS.md is conflicted. Run pnpm decisions adopt-branch in this branch without --source-ref, --source-file, or --output-dir.');
+    }
+    const stages = unmerged.split('\n').map(line => Number(line.match(/\s([123])\tDECISIONS\.md$/)?.[1]));
+    if (stages.join(',') !== '1,2,3') {
+      fail('DECISIONS.md has unexpected Git index stages. Inspect git ls-files -u -- DECISIONS.md; preserve any new decisions as files, restore the guide, then run git add DECISIONS.md decisions/ and git merge --continue.');
+    }
+    conflicted = true;
+  }
   const headSource = !sourceFile && sourceRef === 'HEAD' ? git('show', 'HEAD:DECISIONS.md') : null;
   if (headSource && !headSource.startsWith('# DeckPal — Decision Log\n')) {
     // A union merge can insert the short guide inside the final legacy entry.
@@ -57,6 +69,20 @@ function adoptBranch() {
   const base = git('show', `${ancestor}:DECISIONS.md`);
   const targetGuide = git('show', `${baseRef}:DECISIONS.md`);
   const source = sourceFile ? readFileSync(resolve(sourceFile), 'utf8') : git('show', `${sourceRef}:DECISIONS.md`);
+  if (conflicted) {
+    const [stageBase, stageOurs, stageTheirs] = [1, 2, 3].map(stage => git('show', `:${stage}:DECISIONS.md`));
+    if (stageBase !== base || stageOurs !== source || stageTheirs !== targetGuide ||
+        !stageBase.startsWith('# DeckPal — Decision Log\n') || !stageOurs.startsWith('# DeckPal — Decision Log\n') ||
+        !stageTheirs.startsWith('# DeckPal decisions\n')) {
+      fail('DECISIONS.md is not the expected old-log-versus-guide merge. Inspect git show :1:DECISIONS.md, :2:DECISIONS.md, and :3:DECISIONS.md; preserve any new decisions as files, restore the guide, then run git add DECISIONS.md decisions/ and git merge --continue. No decision files were written.');
+    }
+    let generated;
+    try { generated = git('show', 'AUTO_MERGE:DECISIONS.md'); }
+    catch { fail('Git has no AUTO_MERGE copy of DECISIONS.md to verify the untouched conflict. Preserve any new decisions as files, restore the guide, then run git add DECISIONS.md decisions/ and git merge --continue. No decision files were written.'); }
+    if (readFileSync(join(root, 'DECISIONS.md'), 'utf8') !== generated) {
+      fail('DECISIONS.md differs from Git\'s original conflict markers. Review those edits, preserve any new decisions as files, restore the guide, then run git add DECISIONS.md decisions/ and git merge --continue. No decision files were written.');
+    }
+  }
   const expectedUnion = headSource ? unionResult(source, base, targetGuide) : null;
   if (headSource && sourceRef !== 'HEAD' && headSource !== expectedUnion && headSource !== targetGuide) {
     fail('DECISIONS.md changed after merging main; review those corrections before adoption');
@@ -88,7 +114,7 @@ function adoptBranch() {
   if ([...baseHeadings].some(heading => !branchHeadings.has(heading))) fail('The branch removed an existing decision; review its diff manually');
   if (output === root && !sourceFile && (sourceRef === 'HEAD' || headSource)) {
     const working = readFileSync(join(root, 'DECISIONS.md'), 'utf8');
-    if (working !== (headSource ?? source) && working !== targetGuide && working !== expectedUnion) {
+    if (!conflicted && working !== (headSource ?? source) && working !== targetGuide && working !== expectedUnion) {
       fail('DECISIONS.md has edits beyond the automatic merge; resolve it to the main guide or save those edits first');
     }
   }
@@ -104,7 +130,7 @@ function adoptBranch() {
   }
   if (output === root && !sourceFile && headSource && readFileSync(join(root, 'DECISIONS.md'), 'utf8') !== targetGuide) {
     writeFileSync(join(root, 'DECISIONS.md'), targetGuide);
-    console.log('Restored DECISIONS.md to the main guide. Stage it and the new files, then complete the merge or commit.');
+    console.log('Restored DECISIONS.md to the main guide. Run git add DECISIONS.md decisions/, resolve any other conflicts, then run git merge --continue (or commit if no merge is active).');
   }
   console.log(`Adopted ${appended.length} entries (${created} new, ${appended.length - created} already present).`);
 }

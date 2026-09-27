@@ -25,7 +25,7 @@ test('a date remains on the Denver day across midnight UTC', () => {
   assert.equal(decisionDate(new Date('2026-09-27T00:06:00Z')), '2026-09-26');
 });
 
-function branchFixture(otherConflict = false, mainCorrection = false, extraNote = false) {
+function branchFixture(otherConflict = false, mainCorrection = false, extraNote = false, firstMerge = false) {
   const repo = mkdtempSync(join(tmpdir(), 'deckpal-decisions-test-'));
   run(repo, 'git', ['init', '-q', '-b', 'main']);
   run(repo, 'git', ['config', 'user.name', 'Test']);
@@ -33,7 +33,7 @@ function branchFixture(otherConflict = false, mainCorrection = false, extraNote 
   const old = '# DeckPal — Decision Log\n\n## 2026-01-01 — Original\n**Decided by:** Chey\n\n**Decision:** First.\n';
   const added = '\n## 2026-01-02 — Branch decision\n**Decided by:** Chey\n\n**Decision:** Second.\n' +
     (extraNote ? '\n## Verification\nThis must survive conversion.\n' : '');
-  writeFileSync(join(repo, '.gitattributes'), 'DECISIONS.md merge=union\n');
+  if (!firstMerge) writeFileSync(join(repo, '.gitattributes'), 'DECISIONS.md merge=union\n');
   writeFileSync(join(repo, 'DECISIONS.md'), old);
   if (otherConflict) writeFileSync(join(repo, 'code.txt'), 'baseline\n');
   run(repo, 'git', ['add', '.']);
@@ -41,6 +41,7 @@ function branchFixture(otherConflict = false, mainCorrection = false, extraNote 
   run(repo, 'git', ['branch', 'feature']);
   const guide = '# DeckPal decisions\n\nUse decision files.\n';
   writeFileSync(join(repo, 'DECISIONS.md'), guide);
+  if (firstMerge) writeFileSync(join(repo, '.gitattributes'), 'DECISIONS.md merge=union\n');
   const original = splitLegacy(old)[1];
   mkdirSync(join(repo, 'decisions/2026'), { recursive: true });
   writeFileSync(join(repo, 'decisions/2026/2026-01-01-original.md'), decisionFile(metadata(original),
@@ -53,7 +54,7 @@ function branchFixture(otherConflict = false, mainCorrection = false, extraNote 
   if (otherConflict) writeFileSync(join(repo, 'code.txt'), 'branch change\n');
   run(repo, 'git', ['add', '.']);
   run(repo, 'git', ['commit', '-qm', 'append']);
-  if (otherConflict) assert.throws(() => run(repo, 'git', ['merge', '-q', 'main']));
+  if (otherConflict || firstMerge) assert.throws(() => run(repo, 'git', ['merge', '-q', 'main']));
   else run(repo, 'git', ['merge', '-q', 'main']);
   return { repo, guide, added };
 }
@@ -70,6 +71,48 @@ test('adopt-branch recovers a real union-merge shape and is safe to run twice', 
   const second = run(repo, process.execPath, [cli, 'adopt-branch', '--base-ref', 'main']);
   assert.match(second, /Adopted 0 entries \(0 new, 0 already present\)/);
   assert.equal(readFileSync(join(repo, 'DECISIONS.md'), 'utf8'), guide);
+});
+
+test('adopt-branch resolves the first merge before the branch has the union attribute', () => {
+  const { repo, guide, added } = branchFixture(false, false, false, true);
+  assert.match(run(repo, 'git', ['ls-files', '-u', '--', 'DECISIONS.md']), /\tDECISIONS\.md/);
+  assert.match(readFileSync(join(repo, 'DECISIONS.md'), 'utf8'), /<<<<<<< HEAD/);
+  const result = run(repo, process.execPath, [cli, 'adopt-branch', '--base-ref', 'main']);
+  assert.match(result, /git add DECISIONS\.md decisions\//);
+  assert.match(result, /git merge --continue/);
+  assert.match(result, /1 new, 0 already present/);
+  assert.equal(readFileSync(join(repo, 'DECISIONS.md'), 'utf8'), guide);
+  const adopted = readdirSync(join(repo, 'decisions/2026')).find(file => file.includes('branch-decision'));
+  assert.equal(parseDecisionFile(readFileSync(join(repo, 'decisions/2026', adopted), 'utf8')).body, added.trimStart());
+  run(repo, 'git', ['add', 'DECISIONS.md', 'decisions/']);
+  run(repo, 'git', ['merge', '--continue']);
+  assert.equal(run(repo, 'git', ['ls-files', '-u', '--', 'DECISIONS.md']), '');
+  const second = run(repo, process.execPath, [cli, 'adopt-branch', '--base-ref', 'main']);
+  assert.match(second, /Adopted 0 entries \(0 new, 0 already present\)/);
+});
+
+test('adopt-branch refuses edited conflict markers without writing files', () => {
+  const { repo } = branchFixture(false, false, false, true);
+  const path = join(repo, 'DECISIONS.md');
+  writeFileSync(path, readFileSync(path, 'utf8').replace('**Decision:** Second.', '**Decision:** Hand edited.'));
+  assert.throws(() => run(repo, process.execPath, [cli, 'adopt-branch', '--base-ref', 'main']),
+    /differs from Git's original conflict markers/);
+  assert.equal(readdirSync(join(repo, 'decisions/2026')).length, 1);
+  assert.match(readFileSync(path, 'utf8'), /Hand edited/);
+});
+
+test('adopt-branch refuses a first-merge conflict that changes an old decision', () => {
+  const { repo } = branchFixture(false, false, false, true);
+  run(repo, 'git', ['merge', '--abort']);
+  const path = join(repo, 'DECISIONS.md');
+  writeFileSync(path, readFileSync(path, 'utf8').replace('**Decision:** First.', '**Decision:** Branch correction.'));
+  run(repo, 'git', ['add', 'DECISIONS.md']);
+  run(repo, 'git', ['commit', '-qm', 'correct old decision']);
+  assert.throws(() => run(repo, 'git', ['merge', '-q', 'main']));
+  assert.throws(() => run(repo, process.execPath, [cli, 'adopt-branch', '--base-ref', 'main']),
+    /edits existing decisions/);
+  assert.equal(readdirSync(join(repo, 'decisions/2026')).length, 1);
+  assert.match(readFileSync(path, 'utf8'), /Branch correction/);
 });
 
 test('adopt-branch refuses corrections made after the main merge', () => {
