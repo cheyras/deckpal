@@ -211,6 +211,10 @@ try {
       assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, 1);
       assert.equal(Number((await db.query('SELECT fractional_credits FROM public.decke_import_fix_credit WHERE user_id=$1', [A])).rows[0].fractional_credits), 0);
       assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_import_fix_settlement WHERE user_id=$1', [A])).rows[0].n, 5);
+      const pricing = await asServer(A, async (c) => (await c.query(
+        "SELECT public.decke_usage_observations(7,'fixture') AS data",
+      )).rows[0].data);
+      assert.deepEqual(pricing.groups, [], 'repair usage must not appear as planning price samples');
       const pending = await asServer(A, async (c) => (await c.query(
         'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
         [120, 'import_fix:pending', 'a'.repeat(64), 'fixture-model', 'fixture', 233],

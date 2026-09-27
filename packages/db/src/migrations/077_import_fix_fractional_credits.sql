@@ -202,6 +202,34 @@ BEGIN
  RETURN jsonb_build_object('balance',coalesce(b,0),'debt',coalesce(d,0),'purchaseHold',held);
 END $$;
 
+-- Import repairs are recorded in usage history, but their chat-tier costs must
+-- not become planDeck samples when an admin drafts planning prices.
+CREATE OR REPLACE FUNCTION public.decke_usage_observations(p_days integer,p_sha text DEFAULT NULL) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE groups jsonb;
+BEGIN
+ PERFORM public.decke_usage_require_admin();
+ IF p_days NOT IN (7,30,90) OR (p_sha IS NOT NULL AND length(p_sha)>64) THEN RAISE EXCEPTION 'Invalid observation window' USING ERRCODE='22023'; END IF;
+ WITH samples AS (
+ SELECT r.id,r.build_sha,o.operation_key,o.category,
+ CASE WHEN o.tool_key='chat_turn' THEN 'chatTurn' WHEN o.tool_key IN ('research_meta','analyze_collection') THEN 'analysis' ELSE 'planDeck' END operation,
+ array_agg(DISTINCT o.model_id ORDER BY o.model_id) models,
+ count(*)=count(o.cost_usd) AND bool_and(o.status='completed') complete,sum(o.cost_usd) usd
+ FROM public.decke_ai_request r JOIN public.decke_ai_operation o ON o.request_id=r.id
+ WHERE r.started_at>=now()-make_interval(days=>p_days) AND (p_sha IS NULL OR r.build_sha=p_sha)
+   AND o.tool_key<>'import_fix'
+ GROUP BY r.id,r.build_sha,o.operation_key,o.category,o.tool_key
+ ), grouped AS (
+ SELECT operation,category,build_sha,models,count(*) n,count(*) FILTER(WHERE complete) complete,
+ ceil(avg(usd) FILTER(WHERE complete)*1000000)::bigint mean,
+ ceil((percentile_cont(0.95) WITHIN GROUP(ORDER BY usd) FILTER(WHERE complete))*1000000)::bigint p95,
+ coalesce(sum(usd),0)::text known FROM samples GROUP BY operation,category,build_sha,models)
+ SELECT coalesce(jsonb_agg(jsonb_build_object('operation',operation,'category',category,'buildSha',build_sha,'modelIds',models,
+ 'sampleCount',n,'completeCount',complete,'unknownCount',n-complete,'meanMicroUsd',mean,'p95MicroUsd',p95,'knownUsd',known)),'[]'::jsonb) INTO groups FROM grouped;
+ RETURN jsonb_build_object('days',p_days,'buildSha',p_sha,'groups',groups,
+ 'notice','Only complete reported-cost samples inform estimates. Review coverage and save an explicit pricing revision; existing flat charges are unchanged.');
+END $$;
+
 REVOKE ALL ON public.decke_import_fix_credit,public.decke_import_fix_settlement,public.decke_import_fix_reservation FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
   public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text),
