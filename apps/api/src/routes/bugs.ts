@@ -147,8 +147,17 @@ export function sanitizePagePath(page: string): string {
 /** Does this (already-sanitized) page path belong to a surface where a
  * screenshot must never be taken? Mount-prefix-aware — see SELF_HOST_MOUNT. */
 export function isSensitiveBugPage(page: string): boolean {
-  // TanStack Router matches paths without regard to case by default.
-  let clean = sanitizePagePath(page).toLowerCase();
+  // The router decodes escaped path characters and ignores case. If a path
+  // cannot be decoded, skip the screenshot rather than guessing it is safe.
+  let clean: string;
+  try {
+    clean = decodeURIComponent(sanitizePagePath(page)).toLowerCase().replace(/\/+/g, '/');
+  } catch {
+    return true;
+  }
+  // A second escape layer could become a sensitive route after further
+  // decoding. Treat the unresolved spelling as unsafe to capture.
+  if (clean.includes('%')) return true;
   if (clean === SELF_HOST_MOUNT || clean.startsWith(`${SELF_HOST_MOUNT}/`)) {
     clean = clean.slice(SELF_HOST_MOUNT.length) || '/';
   }

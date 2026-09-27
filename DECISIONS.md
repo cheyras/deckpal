@@ -20508,7 +20508,7 @@ leave a stale privacy promise); it explains that any screenshot is saved separat
 never linked in the public issue, and can be excluded with a checkbox;
 (2) never attempts or
 stores a screenshot at all on `/admin`, `/profile` or `/credits` pages, including
-mixed-case URLs the router accepts,
+mixed-case and encoded URLs the router accepts,
 (`isSensitiveBugPage`, enforced both client- and server-side); and (3) never
 puts a link to the screenshot's bytes — signed or otherwise — in the public
 GitHub issue body. `formatIssueBody` now takes `screenshotSaved: boolean`

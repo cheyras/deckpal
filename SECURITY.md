@@ -478,7 +478,7 @@ report cannot publish more than the reporter chose to:
 - **No screenshot at all on a sensitive page.** `isSensitiveBugPage` (mirrored
   in both files, same shape as the `isAllowedRoute`/`routeAllowed` pair for
   Deck-E navigation) refuses to capture, or to store one sent anyway, for any
-  `/admin`, `/profile` or `/credits` page, including mixed-case URLs the router
+  `/admin`, `/profile` or `/credits` page, including mixed-case and encoded URLs the router
   accepts. Those can show account details that
   are not the reporter's to publish — most acutely, `/admin/users` renders
   other signed-in users' email addresses. The server-side check is a

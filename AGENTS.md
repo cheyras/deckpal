@@ -289,7 +289,7 @@ that whole year — see SECURITY.md "Bug-report privacy" and DECISIONS.md
 private `bug_report` row, by Report-ID. `isSensitiveBugPage` (mirrored in
 `BugReport.tsx` and `bugs.ts`, both client- and server-enforced) skips the
 screenshot entirely on any `/admin`, `/profile` or `/credits` page (including
-mixed-case URLs accepted by the router) — those can
+mixed-case and encoded URLs accepted by the router) — those can
 show account details that are not the reporter's to publish, most acutely
 other users' email addresses on `/admin/users`. The reported page path is
 always stripped of its query string and fragment before storage or

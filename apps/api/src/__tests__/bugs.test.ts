@@ -153,6 +153,9 @@ describe('isSensitiveBugPage', () => {
     assert.equal(isSensitiveBugPage('/admin/users'), true);
     assert.equal(isSensitiveBugPage('/admin/users/10000000-0000-4000-8000-000000000002'), true);
     assert.equal(isSensitiveBugPage('/ADMIN/users'), true);
+    assert.equal(isSensitiveBugPage('/%61dmin/users'), true);
+    assert.equal(isSensitiveBugPage('/%2561dmin/users'), true);
+    assert.equal(isSensitiveBugPage('/%2Fadmin/users'), true);
   });
 
   test('flags /profile and /credits', () => {
@@ -184,6 +187,7 @@ describe('isSensitiveBugPage', () => {
     // self-host build).
     assert.equal(isSensitiveBugPage('/deckpal/admin/users'), true);
     assert.equal(isSensitiveBugPage('/DECKPAL/ADMIN/users'), true);
+    assert.equal(isSensitiveBugPage('/deckpal/%61dmin/users'), true);
     assert.equal(isSensitiveBugPage('/deckpal/profile'), true);
     assert.equal(isSensitiveBugPage('/deckpal/credits?checkout=1'), true);
     assert.equal(isSensitiveBugPage('/deckpal/series'), false);

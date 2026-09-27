@@ -195,8 +195,15 @@ const SENSITIVE_PAGE_PREFIXES = ['/admin', '/profile', '/credits']
 const SELF_HOST_MOUNT = '/deckpal'
 
 function isSensitiveBugPage(pathname: string): boolean {
-  // TanStack Router accepts mixed-case URLs for the same route.
-  const lowerPath = pathname.toLowerCase()
+  // The router decodes escaped path characters and ignores case. If decoding
+  // fails, skip capture rather than guessing that the page is safe.
+  let lowerPath: string
+  try {
+    lowerPath = decodeURIComponent(pathname).toLowerCase().replace(/\/+/g, '/')
+  } catch {
+    return true
+  }
+  if (lowerPath.includes('%')) return true
   const clean =
     lowerPath === SELF_HOST_MOUNT || lowerPath.startsWith(`${SELF_HOST_MOUNT}/`)
       ? lowerPath.slice(SELF_HOST_MOUNT.length) || '/'

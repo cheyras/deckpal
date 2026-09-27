@@ -48,7 +48,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       const checkbox = dialog.getByLabel('Include screenshot', { exact: true })
       assert.equal(await checkbox.isChecked(), true, 'screenshot inclusion defaults to checked')
       await page.evaluate(() => window.scrollTo(0, 0))
-      await page.screenshot({ path: path.join(out, label + '-bugreport-normal-' + width + '.png'), fullPage: false })
+      await page.screenshot({ path: path.join(out, label + '-bugreport-normal-' + width + '.png'), fullPage: false, animations: 'disabled' })
       await checkbox.uncheck()
       await dialog.getByRole('textbox').fill('Browser test: normal-page disclosure and exclude toggle')
       await dialog.getByRole('button', { name: 'Submit', exact: true }).click()
@@ -65,6 +65,21 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       results.push({ case: 'bugreport-normal-disclosure-exclude', label, width })
       await dialog.getByRole('button', { name: 'Done', exact: true }).click()
 
+      if (label === 'cloud' && width === 390) {
+        // The API's GitHub setting, rather than the cloud bundle, determines
+        // the disclosure. This also covers a cloud build without GitHub.
+        await page.route('**/api/public-config', route => route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ defaults: state.defaults.settings, bugReportsPublic: false }),
+        }))
+        await page.getByRole('button', { name: 'Report a bug or feature request', exact: true }).click()
+        const privateDialog = page.getByRole('dialog', { name: 'Report a bug', exact: true })
+        await privateDialog.getByText(/saved to this server.s issue folder and is not posted to GitHub/).waitFor()
+        results.push({ case: 'bugreport-disclosure-follows-api', label, width })
+        await privateDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+        await page.unroute('**/api/public-config')
+      }
+
       // ── Sensitive page: no capture is even attempted, no toggle to offer ──
       await page.goto(server.origin + mount + '/admin/users?search=member', { waitUntil: 'networkidle' })
       await page.getByRole('button', { name: 'Report a bug or feature request', exact: true }).click()
@@ -74,7 +89,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       assert.equal(await sensitiveDialog.locator('figure').count(), 0, 'no screenshot preview on a sensitive page')
       assert.equal(await sensitiveDialog.getByLabel('Include screenshot', { exact: true }).count(), 0, 'no toggle when nothing was captured')
       await page.evaluate(() => window.scrollTo(0, 0))
-      await page.screenshot({ path: path.join(out, label + '-bugreport-sensitive-' + width + '.png'), fullPage: false })
+      await page.screenshot({ path: path.join(out, label + '-bugreport-sensitive-' + width + '.png'), fullPage: false, animations: 'disabled' })
       await sensitiveDialog.getByRole('textbox').fill('Browser test: admin page must never capture a screenshot')
       await sensitiveDialog.getByRole('button', { name: 'Submit', exact: true }).click()
       await sensitiveDialog.getByText('Thanks — your report was saved.', { exact: true }).waitFor()
@@ -93,6 +108,14 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       assert.equal(await mixedCaseDialog.getByLabel('Include screenshot', { exact: true }).count(), 0)
       results.push({ case: 'bugreport-mixed-case-sensitive-page-skips-capture', label, width })
       await mixedCaseDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+
+      await page.goto(server.origin + mount + '/%61dmin/users', { waitUntil: 'networkidle' })
+      await page.getByRole('button', { name: 'Report a bug or feature request', exact: true }).click()
+      const encodedDialog = page.getByRole('dialog', { name: 'Report a bug', exact: true })
+      await encodedDialog.getByText(/Screenshots are turned off on this page/, { exact: false }).waitFor()
+      assert.equal(await encodedDialog.getByLabel('Include screenshot', { exact: true }).count(), 0)
+      results.push({ case: 'bugreport-encoded-sensitive-page-skips-capture', label, width })
+      await encodedDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     } catch (error) {
       await page.screenshot({ path: path.join(out, label + '-bugreport-failure-' + width + '.png'), fullPage: true })
       error.message += '\nBugReport viewport ' + width + ': ' + (await page.locator('body').innerText()).slice(0, 4000)
