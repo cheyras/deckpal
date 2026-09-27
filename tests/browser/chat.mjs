@@ -135,7 +135,7 @@ async function checkMeterReplay(page, server, width, out) {
   const wirePath = path.join(out, 'meter-wire-' + width + '.json')
   fs.writeFileSync(wirePath, JSON.stringify(captured, null, 2))
   const proofPath = path.join(out, 'meter-proof-' + width + '.json')
-  const proof = run(process.execPath, ['--import', 'tsx',
+  const proof = await run(process.execPath, ['--import', 'tsx',
     fileURLToPath(new URL('./meterReplayProof.mts', import.meta.url)), wirePath, proofPath])
   assert.match(proof, /PASS captured browser wire seeds the real ledger/)
   await page.unroute('**/api/chat')
@@ -328,6 +328,57 @@ async function checkForcedCard(page, server, width, out) {
   return { case: 'reflex-forced-card', width, cardBeforeProse: true, signedAnswerLast: true }
 }
 
+/**
+ * ── THE AUDIT'S CORRECTION: HIS WORDS, THEN THE REAL CARD ───────────────────
+ *
+ * With Jev on, a reply that claims a change no tool made ("Done! I've added
+ * it") is followed in the same response by one corrective step pinned to the
+ * tool that raises the consent card (`audit.ts`, pinned server-side by
+ * `conversationalLogging.test.ts` over the real SDK). This is the browser half:
+ * the phantom sentence, the correction line, then the card — in that order,
+ * over the real hook — and the signed answer rides last on the next request.
+ */
+async function checkCorrection(page, server, width, out) {
+  const bodies = []
+  const legs = [
+    sse(
+      { type: 'text-delta', delta: "Done! I've added the Charizard ex to your collection." },
+      { type: 'text-delta', id: 'turn-guard', delta: "\n\nOne correction: I said that as if it were done, but I hadn't actually run it. Here it is for you to confirm." },
+      { type: 'tool-input-available', toolCallId: 'corrective-1', toolName: 'log_cards',
+        input: { items: [{ card_id: 'sv3-125', delta: 1 }] } },
+      { type: 'tool-approval-request', approvalId: 'ap-corrective', toolCallId: 'corrective-1', signature: 'sig-corrective' },
+    ),
+    sse({ type: 'text-delta', delta: 'Added for real this time: 1 → 2.' }),
+  ]
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body: legs[bodies.length - 1] })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  await page.evaluate(() => window.meterChat.send('add one Charizard ex'))
+  const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
+  await card.waitFor()
+  const text = await panel.innerText()
+  const claim = text.indexOf("Done! I've added")
+  const fix = text.indexOf('One correction:')
+  assert.ok(claim >= 0 && fix > claim, 'the correction must follow the claim it corrects')
+  await page.screenshot({ path: path.join(out, 'audit-correction-' + width + '.png') })
+  await card.getByRole('button', { name: 'Go ahead' }).click()
+  await panel.getByText('Added for real this time', { exact: false }).waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  const last = bodies[1].messages[bodies[1].messages.length - 1].parts
+  assert.equal(last[last.length - 1].state, 'approval-responded')
+  assert.equal(last[last.length - 1].approval.signature, 'sig-corrective', 'the signature must survive')
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'audit-correction', width, claimThenCorrectionThenCard: true, signedAnswerLast: true }
+}
+
 export async function checkChat(browser, server, out) {
   const results = []
   for (const width of [1280, 390]) {
@@ -441,6 +492,7 @@ export async function checkChat(browser, server, out) {
       results.push(await checkWriteRefresh(page, server, width, out))
       results.push(await checkBounds(page, server, width, out))
       results.push(await checkForcedCard(page, server, width, out))
+      results.push(await checkCorrection(page, server, width, out))
     } finally { await context.close() }
   }
   return results

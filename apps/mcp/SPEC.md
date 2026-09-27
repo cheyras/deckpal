@@ -1,5 +1,9 @@
 # deckpal-mcp — SPEC (design contract)
 
+Cloud MCP personal-access and OAuth tokens are opaque `dsk_…` credentials,
+independent of Supabase API keys and JWT signing keys. Rotating those keys does
+not revoke an existing MCP connection.
+
 > **deckpal-mcp** is the MCP face of DeckPal: a thin tool layer that lets Claude (Code, claude.ai,
 > iOS) retrieve collection/catalog/price/deck data and log collection changes with attribution.
 > This file is the build contract; implementation

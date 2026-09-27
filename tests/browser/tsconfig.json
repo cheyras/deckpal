@@ -21,7 +21,8 @@
   },
   "include": [
     "fixture.tsx",
-    "scannerVoiceFixture.tsx"
+    "scannerVoiceFixture.tsx",
+    "../../apps/web/src/pwa-env.d.ts"
   ],
   "exclude": []
 }

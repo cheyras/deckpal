@@ -660,7 +660,9 @@ billingRouter.get(
     }
     const stripe = stripeClient() ?? creditStripeClient();
     if (!stripe) throw new ApiError(503, 'provider_unavailable', 'Payment history is temporarily unavailable. Try again later.');
-    const cursorSecret = process.env.SUPABASE_JWT_SECRET ?? process.env.STRIPE_SECRET_KEY ?? '';
+    // A history cursor belongs to billing, not to Supabase's rotatable JWT key.
+    // Both billing clients above require STRIPE_SECRET_KEY to be configured.
+    const cursorSecret = process.env.STRIPE_SECRET_KEY ?? '';
     try {
       res.json(await paymentHistory({
         actorId, kind, customerId, expectedLive: stripeMode() === 'live', cursor: req.query.cursor,
