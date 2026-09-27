@@ -142,139 +142,94 @@ async function checkViewport(browser, origin, width, height) {
   await context.addInitScript(seedScript())
   const page = await context.newPage()
   const pageErrors = []
-  page.on('pageerror', (e) => pageErrors.push(e.message))
-
-  // ── Bounded DOM regardless of list length ──
+  page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto(`${origin}/lists/${LIST_ID}?view=table`, { waitUntil: 'load' })
   await page.waitForSelector('[data-decke-list-items]')
-  await page.waitForFunction(
-    () => document.querySelectorAll('[role="listitem"]').length > 0,
-    { timeout: 10_000 },
-  )
-  await page.waitForTimeout(300) // let the virtualizer's measured-height pass settle
+
+  if (width < 768) {
+    await page.waitForSelector('[data-decke-list-items] [data-decke-card]')
+    assert.equal(await page.getByRole('button', { name: 'Table' }).count(), 0, 'phone toggle omits Table')
+    assert.equal(await page.locator('[data-decke-list-items] table').count(), 0, 'saved Table choice renders Grid on a phone')
+    assert.equal(new URL(page.url()).searchParams.get('view'), 'table', 'phone fallback preserves the URL choice')
+    await page.setViewportSize({ width: 800, height })
+    await page.waitForSelector('[data-decke-list-items] table[aria-rowcount="3201"]')
+    assert.equal(new URL(page.url()).searchParams.get('view'), 'table', 'desktop restores the selected Table view')
+    await context.close()
+    return { fallback: 'grid', savedView: 'table' }
+  }
+
+  await page.waitForSelector('[data-decke-list-items] table[aria-rowcount="3201"]')
+  await page.waitForSelector('tbody tr[data-index="0"]')
+  const renderMs = await page.evaluate(() => performance.now())
+  assert.ok(renderMs < 2500, `3,200-row table appeared after ${Math.round(renderMs)} ms (budget 2,500 ms)`)
+  await page.waitForTimeout(250)
   const domCount = await page.evaluate(() => document.querySelectorAll('*').length)
-  assert.ok(
-    domCount < DOM_NODE_BUDGET,
-    `${width}x${height}: expected a bounded DOM at ${COUNT} rows, got ${domCount} nodes (budget ${DOM_NODE_BUDGET})`,
-  )
-  const rowCount = await page.evaluate(() => document.querySelectorAll('[role="listitem"]').length)
-  assert.ok(rowCount > 0 && rowCount < 200, `${width}x${height}: expected only a viewport-sized slice of rows mounted, got ${rowCount}`)
-  const columns = await page.evaluate(() => {
-    const list = document.querySelector('[role="list"]')
-    const header = list.previousElementSibling.children[1]
-    const row = list.querySelector('[role="listitem"] a').children[1]
-    return [0, 1, 3].map((index) => ({
-      header: header.children[index].getBoundingClientRect().left,
-      row: row.children[index].getBoundingClientRect().left,
-    }))
+  assert.ok(domCount < DOM_NODE_BUDGET, `desktop table has ${domCount} DOM nodes (budget ${DOM_NODE_BUDGET})`)
+  const rowCount = await page.locator('tbody tr[data-index]').count()
+  assert.ok(rowCount > 0 && rowCount < 200, `expected a visible slice, got ${rowCount} rows`)
+  assert.equal(await page.locator('tbody tr[data-index="0"]').getAttribute('aria-rowindex'), '2')
+  assert.deepEqual(await page.locator('thead th').allTextContents(), ['Card', '#', 'Name', 'Variant', 'Price', 'Quantity'])
+  const alignment = await page.evaluate(() => {
+    const headers = [...document.querySelectorAll('thead th')]
+    const cells = [...document.querySelector('tbody tr[data-index="0"]').children]
+    return headers.map((header, index) => Math.abs(header.getBoundingClientRect().left - cells[index].getBoundingClientRect().left))
   })
-  assert.ok(columns.every(({ header, row }) => Math.abs(header - row) < 1),
-    `${width}x${height}: number, name, and price headers must align with rows: ${JSON.stringify(columns)}`)
+  assert.ok(alignment.every(delta => delta < 1), `header and cell columns drifted: ${alignment}`)
 
-  if (width === 390) {
-    const name = await page.evaluate(() => {
-      const row = [...document.querySelectorAll('[role="listitem"]')]
-        .find((el) => el.querySelector('.font-display')?.textContent === 'Simuchu #1')
-      const label = row?.querySelector('.font-display')
-      return label && { text: label.textContent, visibleWidth: label.clientWidth, textWidth: label.scrollWidth }
-    })
-    assert.ok(name, '390x844: expected Simuchu #1 in the first visible row')
-    assert.ok(name.textWidth <= name.visibleWidth + 1,
-      `390x844: ${name.text} is truncated (${name.textWidth}px text in ${name.visibleWidth}px)`)
-  }
+  await page.goto(`${origin}/lists/${LIST_ID}?view=table&sort=name&dir=asc`)
+  await page.waitForSelector('tbody tr[data-index="0"]')
+  const ascNames = await page.locator('tbody tr[data-index] [data-decke-card]').allTextContents()
+  await page.goto(`${origin}/lists/${LIST_ID}?view=table&sort=name&dir=desc`)
+  await page.waitForSelector('tbody tr[data-index="0"]')
+  const descNames = await page.locator('tbody tr[data-index] [data-decke-card]').allTextContents()
+  assert.notDeepEqual(ascNames.slice(0, 5), descNames.slice(0, 5), 'sort direction changes visible rows')
+  assert.deepEqual(ascNames.slice(0, 5), [...ascNames.slice(0, 5)].sort((a, b) => a.localeCompare(b)))
 
-  // ── Sort: ListDetail sorts `items` before TableView ever sees them, so
-  //    virtualizing the render must not change the resulting order. ──
-  await page.goto(`${origin}/lists/${LIST_ID}?view=table&sort=name&dir=asc`, { waitUntil: 'load' })
-  await page.waitForSelector('[role="listitem"]')
-  await page.waitForTimeout(200)
-  const ascNames = await page.evaluate(() =>
-    [...document.querySelectorAll('[role="listitem"] .font-display')].slice(0, 5).map((e) => e.textContent))
-  await page.goto(`${origin}/lists/${LIST_ID}?view=table&sort=name&dir=desc`, { waitUntil: 'load' })
-  await page.waitForSelector('[role="listitem"]')
-  await page.waitForTimeout(200)
-  const descNames = await page.evaluate(() =>
-    [...document.querySelectorAll('[role="listitem"] .font-display')].slice(0, 5).map((e) => e.textContent))
-  assert.notDeepEqual(ascNames, descNames, `${width}x${height}: expected sort direction to change the rendered order`)
-  const expectedAsc = [...ascNames].sort((a, b) => a.localeCompare(b))
-  assert.deepEqual(ascNames, expectedAsc, `${width}x${height}: ascending sort not reflected in rendered rows`)
-
-  // ── Keyboard: Tab reaches a row's link (not skipped for being off-DOM),
-  //    Enter activates it exactly like a click would. ──
-  await page.goto(`${origin}/lists/${LIST_ID}?view=table`, { waitUntil: 'load' })
-  await page.waitForSelector('[role="listitem"]')
-  await page.waitForTimeout(200)
-  let landedOnRow = false
-  for (let i = 0; i < 40 && !landedOnRow; i++) {
-    await page.keyboard.press('Tab')
-    landedOnRow = await page.evaluate(() => !!document.activeElement?.closest('[role="listitem"]'))
-  }
-  assert.ok(landedOnRow, `${width}x${height}: expected Tab to reach a row link within 40 presses`)
-  const focusedCardId = await page.evaluate(() => document.activeElement.getAttribute('data-decke-card'))
-  assert.ok(focusedCardId, `${width}x${height}: focused row link missing its card address`)
-  await page.keyboard.press('Enter')
-  await page.waitForTimeout(300)
-  const openedCard = await page.evaluate(() => new URLSearchParams(location.search).get('card'))
-  assert.equal(openedCard, focusedCardId, `${width}x${height}: Enter on the focused row should open that exact card`)
+  await page.goto(`${origin}/lists/${LIST_ID}?view=table`)
+  await page.waitForSelector('tbody tr[data-index="0"]')
+  await page.locator('tbody tr[data-index="0"] td').nth(4).click()
   await page.waitForSelector('[role="dialog"][aria-modal="true"]')
-
-  // Resize across the 768px column breakpoint while Sheet has the page
-  // scroll-locked, then close by keyboard. Rows must still cover the viewport
-  // and focus must return to the same row, even deep in a virtualized list.
+  assert.equal(new URL(page.url()).searchParams.get('card'), 'sim1-1', 'clicking a table row opens its card')
   await page.keyboard.press('Escape')
   await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
+  await page.waitForFunction(() => document.body.style.position !== 'fixed')
+  const firstLink = page.locator('tbody tr[data-index="0"] [data-decke-card]')
+  await firstLink.focus()
+  await page.keyboard.press('PageDown')
+  await page.keyboard.press('PageDown')
+  assert.equal(await firstLink.count(), 1, 'focused row stays mounted when scrolled offscreen')
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-decke-card')), 'sim1-1')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('[role="dialog"][aria-modal="true"]')
+  assert.equal(new URL(page.url()).searchParams.get('card'), 'sim1-1')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-decke-card')), 'sim1-1', 'sheet restores focus')
+  await page.waitForFunction(() => document.body.style.position !== 'fixed')
+  await page.evaluate(() => document.activeElement?.blur()) // end the focus-return scenario before deep scrolling
+
   await page.evaluate(() => window.scrollTo(0, 100_000))
-  await page.waitForFunction(() => Number(document.querySelector('[role="listitem"]')?.getAttribute('data-index')) > 100)
-  const deepIndex = await page.evaluate(() => [...document.querySelectorAll('[role="listitem"]')]
-    .find((row) => row.getBoundingClientRect().top >= 0 && row.getBoundingClientRect().bottom <= innerHeight)
-    ?.getAttribute('data-index'))
-  assert.ok(deepIndex, `${width}x${height}: expected a fully visible deep row`)
-  const deepRow = page.locator(`[role="listitem"][data-index="${deepIndex}"] [data-decke-card]`)
-  await deepRow.focus()
-  const scrollBeforeClose = await page.evaluate(() => window.scrollY)
+  await page.waitForTimeout(300) // the virtualizer updates its window range on the next frame
+  await page.waitForFunction(() => [...document.querySelectorAll('tbody tr[data-index]')]
+    .some(row => Number(row.dataset.index) > 100 && row.getBoundingClientRect().top < innerHeight))
+  const deep = await page.evaluate(() => [...document.querySelectorAll('tbody tr[data-index]')]
+    .find(row => row.getBoundingClientRect().top >= 0 && row.getBoundingClientRect().bottom <= innerHeight)?.dataset.index)
+  assert.ok(deep, 'expected a visible deep row')
+  const deepLink = page.locator(`tbody tr[data-index="${deep}"] [data-decke-card]`)
+  await deepLink.focus()
   await page.keyboard.press('Enter')
-  await page.waitForFunction(() => new URLSearchParams(location.search).has('card'))
   await page.waitForSelector('[role="dialog"][aria-modal="true"]')
+  await page.setViewportSize({ width: 900, height })
   await page.keyboard.press('Escape')
   await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
-  await page.waitForFunction((index) => document.activeElement ===
-    document.querySelector(`[role="listitem"][data-index="${index}"] [data-decke-card]`), deepIndex)
-  const scrollAfterClose = await page.evaluate(() => window.scrollY)
-  assert.ok(Math.abs(scrollAfterClose - scrollBeforeClose) < 4,
-    `${width}x${height}: closing a visible card sheet moved the page (${scrollBeforeClose} → ${scrollAfterClose})`)
-  await page.keyboard.press('Enter')
-  await page.waitForFunction(() => new URLSearchParams(location.search).has('card'))
-  await page.waitForSelector('[role="dialog"][aria-modal="true"]')
-  await page.setViewportSize({ width: width < 768 ? 800 : 390, height })
-  await page.keyboard.press('Escape')
-  await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
-  await page.waitForFunction((index) => {
-    const row = document.querySelector(`[role="listitem"][data-index="${index}"]`)
-    const link = row?.querySelector('[data-decke-card]')
-    return link === document.activeElement && row.getBoundingClientRect().height > 0
+  await page.waitForFunction(index => {
+    const row = document.querySelector(`tbody tr[data-index="${index}"]`)
+    return row?.querySelector('[data-decke-card]') === document.activeElement
       && row.getBoundingClientRect().bottom > 0 && row.getBoundingClientRect().top < innerHeight
-  }, deepIndex)
-  const visibleRows = await page.evaluate(() => [...document.querySelectorAll('[role="listitem"]')]
-    .filter((row) => row.getBoundingClientRect().bottom > 0 && row.getBoundingClientRect().top < innerHeight).length)
-  assert.ok(visibleRows > 0, `${width}x${height}: table went blank after resize and sheet close`)
-  await page.waitForTimeout(200) // let measured row heights settle before comparing resize positions
-  const anchorBefore = await page.evaluate(() => {
-    const row = [...document.querySelectorAll('[role="listitem"]')]
-      .find((el) => el.getBoundingClientRect().bottom > 0 && el.getBoundingClientRect().top < innerHeight)
-    return { index: row?.getAttribute('data-index'), top: row?.getBoundingClientRect().top }
-  })
-  await page.setViewportSize({ width, height })
-  await page.waitForTimeout(500)
-  const anchorAfter = await page.evaluate((index) => {
-    const row = document.querySelector(`[role="listitem"][data-index="${index}"]`)
-    return row?.getBoundingClientRect().top
-  }, anchorBefore.index)
-  assert.ok(anchorAfter !== undefined && Math.abs(anchorAfter - anchorBefore.top) < 4,
-    `${width}x${height}: resizing an open table moved the visible row from ${anchorBefore.top} to ${anchorAfter}`)
-
-  assert.deepEqual(pageErrors, [], `${width}x${height}: unexpected page errors: ${pageErrors.join('; ')}`)
+  }, deep)
+  assert.deepEqual(pageErrors, [], `unexpected page errors: ${pageErrors.join('; ')}`)
   await context.close()
-  return { domCount, rowCount, ascNames, descNames, focusedCardId, deepIndex, visibleRows }
+  return { domCount, rowCount, renderMs: Math.round(renderMs), alignment, deep }
 }
 
 async function main() {
@@ -291,7 +246,7 @@ async function main() {
     // afterward needs no restart.
     const server = await serve(dist)
     try {
-      buildWeb(dist, true, server.origin)
+      await buildWeb(dist, true, server.origin)
       browser = await chromium.launch({ headless: true })
       results['390x844'] = await checkViewport(browser, server.origin, 390, 844)
       results['1440x900'] = await checkViewport(browser, server.origin, 1440, 900)

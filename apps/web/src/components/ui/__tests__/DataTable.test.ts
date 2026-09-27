@@ -81,6 +81,18 @@ test('pending, refreshing, error and out-of-range states never expose stale rows
   assert.match(empty, /No results match your filters\./)
 })
 
+test('virtual mode declares the complete table size and keeps the default table unchanged', () => {
+  const many = Array.from({ length: 3200 }, (_, index) => ({ id: `row-${index}`, name: `Member ${index}` }))
+  const virtual = render({ rows: many, virtual: { estimateSize: 56, overscan: 4 }, tableClassName: 'compact-table' })
+  assert.match(virtual, /<table aria-rowcount="3201" class="[^"]*compact-table"/)
+  assert.match(virtual, /<tr aria-rowindex="1">/)
+  assert.match(virtual, /3,200 results/)
+  assert.ok(virtual.length < 100_000, 'a large result set must not render every row')
+  const regular = render()
+  assert.doesNotMatch(regular, /aria-rowcount|aria-rowindex|data-index|compact-table/)
+  assert.match(regular, /href="\/members\/b"/)
+})
+
 test('toolbar names search/filter form and action controls using kit primitives', () => {
   const html = renderToStaticMarkup(createElement(DataTableToolbar, { label: 'Filter members',
     search: { label: 'Email', value: '', onChange: () => {}, placeholder: 'Search members', maxLength: 200 },

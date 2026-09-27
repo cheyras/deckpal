@@ -1,3 +1,4 @@
+import { useDesktopTable } from '../lib/useDesktopTable'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
@@ -83,6 +84,8 @@ export function SetDetail() {
   // Dupes tabs and the goal selector have nothing to filter on. The sign-up
   // prompt lives in the header, where the progress bars were (SetHeader).
   const signedOut = useSignedIn() === false
+  const desktopTable = useDesktopTable()
+  const effectiveView = search.view === 'table' && !desktopTable ? 'grid' : search.view
 
   // Merge and navigate; the route's stripSearchParams middleware drops
   // default-valued keys so the canonical URL only carries deviations.
@@ -205,9 +208,9 @@ export function SetDetail() {
               <div
                 data-decke-view-toggle
                 data-decke-landmark="[data-decke-view-toggle]"
-                data-decke-label="the grid / table / binder view toggle"
+                data-decke-label={desktopTable ? 'the grid / table / binder view toggle' : 'the grid / binder view toggle'}
               >
-                <ViewToggle view={search.view} patch={patch} />
+                <ViewToggle view={effectiveView} patch={patch} />
               </div>
             </div>
           </div>
@@ -229,9 +232,9 @@ export function SetDetail() {
               <div className="py-[60px] text-center text-[14px] text-text-muted">
                 {allCards.length === 0 ? 'No cards in this set yet.' : 'No cards match this filter.'}
               </div>
-            ) : search.view === 'grid' ? (
+            ) : effectiveView === 'grid' ? (
               <GridView cards={cards} seriesSlug={series} setId={set} reveal={reveal} />
-            ) : search.view === 'binder' ? (
+            ) : effectiveView === 'binder' ? (
               <BinderView cards={cards} />
             ) : (
               <TableView cards={cards} seriesSlug={series} setId={set} reveal={reveal} activeCard={search.card ? `${set}-${search.card}` : undefined} />
