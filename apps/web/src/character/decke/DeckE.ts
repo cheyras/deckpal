@@ -2900,6 +2900,7 @@ export class DeckE {
       }
       this.tickMs = performance.now() - t0
     }
+    this.applyClip()
     // AFTER he is drawn, in the same frame: anything that rides him reads the
     // position he was just drawn at, so it can never be a frame behind him.
     for (const fn of this.frameListeners) {
@@ -2913,6 +2914,45 @@ export class DeckE {
 
   /** See `onFrame`. */
   private readonly frameListeners = new Set<() => void>()
+
+  /** The clip `clipBelow` asked for, as a CSS value; '' for none. */
+  private clipWanted = ''
+  /** What is on the canvas now, so a frame writes only a change. */
+  private clipDrawn = ''
+
+  /**
+   * Draw nothing of him below viewport `y` — the edge of the thing he stands
+   * on — or `null` to draw all of him again.
+   *
+   * ── WHY THE CANVAS IS CLIPPED ────────────────────────────────────────────────
+   *
+   * On a phone he stands beside his latest words, and when the reader scrolls
+   * those words down the page he goes with them (`placePark` in DeckeChat). The
+   * canvas is a layer above the whole app, so "goes with them" would otherwise
+   * mean sliding down over the composer. Clipped at its top edge, he passes
+   * behind it the way the words he is beside do. `clip-path` is applied by the
+   * compositor; nothing here re-renders to hide him.
+   *
+   * NEVER WHILE HE IS FLYING: his entrance starts at the launcher chip and his
+   * exit ends in it, both below this line, so a flight draws all of him.
+   */
+  clipBelow(y: number | null) {
+    if (y === null) {
+      this.clipWanted = ''
+    } else {
+      const c = this.opts.canvas.getBoundingClientRect()
+      const inset = Math.max(0, Math.round(c.bottom - y))
+      this.clipWanted = inset > 0 ? `inset(0px 0px ${inset}px 0px)` : ''
+    }
+    this.applyClip()
+  }
+
+  private applyClip() {
+    const want = this.track ? '' : this.clipWanted
+    if (want === this.clipDrawn) return
+    this.clipDrawn = want
+    this.opts.canvas.style.clipPath = want
+  }
 
   /**
    * Run `fn` after every frame he is drawn, on his own clock. Returns the

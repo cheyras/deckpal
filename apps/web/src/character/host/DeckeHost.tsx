@@ -1430,10 +1430,16 @@ function settledRect(el: HTMLElement): DOMRect {
   useEffect(() => {
     if (!live || (!chatOpen && !errand) || travelling) return
     const read = (): MarkBox | null => {
-      const el = document.querySelector(errand ? ERRAND_SELECTOR : `[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
+      const el = document.querySelector<HTMLElement>(errand ? ERRAND_SELECTOR : `[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
       if (!el) return null
       const r = el.getBoundingClientRect()
-      return { top: Math.round(r.top), left: Math.round(r.left), h: Math.round(r.height) }
+      // THE RESTING BOX, NOT THE RIDDEN ONE. On a phone the park box rides
+      // down with his latest words as the reader scrolls (`placePark` in
+      // DeckeChat), and the engine already follows that frame by frame through
+      // his station. Watching the ridden box here re-parked him 420 ms after
+      // every scroll, a flight to where he already stood.
+      const ride = Number(el.dataset.ride || 0)
+      return { top: Math.round(r.top - ride), left: Math.round(r.left), h: Math.round(r.height) }
     }
     let last = read()
     let settle = 0
