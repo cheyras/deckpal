@@ -159,6 +159,29 @@ async function checkViewport(browser, origin, width, height) {
   )
   const rowCount = await page.evaluate(() => document.querySelectorAll('[role="listitem"]').length)
   assert.ok(rowCount > 0 && rowCount < 200, `${width}x${height}: expected only a viewport-sized slice of rows mounted, got ${rowCount}`)
+  const columns = await page.evaluate(() => {
+    const list = document.querySelector('[role="list"]')
+    const header = list.previousElementSibling.children[1]
+    const row = list.querySelector('[role="listitem"] a').children[1]
+    return [0, 1, 3].map((index) => ({
+      header: header.children[index].getBoundingClientRect().left,
+      row: row.children[index].getBoundingClientRect().left,
+    }))
+  })
+  assert.ok(columns.every(({ header, row }) => Math.abs(header - row) < 1),
+    `${width}x${height}: number, name, and price headers must align with rows: ${JSON.stringify(columns)}`)
+
+  if (width === 390) {
+    const name = await page.evaluate(() => {
+      const row = [...document.querySelectorAll('[role="listitem"]')]
+        .find((el) => el.querySelector('.font-display')?.textContent === 'Simuchu #1')
+      const label = row?.querySelector('.font-display')
+      return label && { text: label.textContent, visibleWidth: label.clientWidth, textWidth: label.scrollWidth }
+    })
+    assert.ok(name, '390x844: expected Simuchu #1 in the first visible row')
+    assert.ok(name.textWidth <= name.visibleWidth + 1,
+      `390x844: ${name.text} is truncated (${name.textWidth}px text in ${name.visibleWidth}px)`)
+  }
 
   // ── Sort: ListDetail sorts `items` before TableView ever sees them, so
   //    virtualizing the render must not change the resulting order. ──

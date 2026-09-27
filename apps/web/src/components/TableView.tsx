@@ -269,9 +269,9 @@ export function TableView({
         aria-hidden="true"
         className="mb-[8px] flex items-stretch overflow-hidden rounded-t-lg bg-surface-tertiary text-[12px] font-bold uppercase tracking-wide text-text-muted"
       >
-        <div className="w-[72px] shrink-0" />
-        <div className="flex flex-1 items-center gap-[16px] px-[16px] py-[10px]">
-          <span className="w-[48px] shrink-0">#</span>
+        <div className="w-[48px] shrink-0 md:w-[72px]" />
+        <div className="flex flex-1 items-center gap-[8px] px-[8px] py-[10px] md:gap-[16px] md:px-[16px]">
+          <span className="w-[32px] shrink-0 md:w-[48px]">#</span>
           <span className="flex-1">Name</span>
           {/* Fixed widths (110px/72px/128px), matched literally below on each
               row rather than computed — Tailwind's class generator only sees
@@ -297,7 +297,7 @@ export function TableView({
               re-verified at 640/700/768/800/900px with none of the fixed
               columns ever pushing `Name` below a readable width. */}
           <span className="hidden w-[110px] shrink-0 truncate text-right md:block">Variant</span>
-          <span className="w-[72px] shrink-0 text-right">Price</span>
+          <span className="w-[56px] shrink-0 text-right md:w-[72px]">Price</span>
           {/* `hidden md:block`, same as Variant above and for the same reason
               as its row-side comment: reserving the full 128px this needs for
               up to 4 counter chips (wiki: Frontend-Research, "1-4 badges")
@@ -366,7 +366,7 @@ export function TableView({
               >
                 {/* Thumbnail: object-cover into a landscape window crops to the card's
                     art box — full card width, centred on the upper illustration. */}
-                <div className="w-[72px] shrink-0 overflow-hidden bg-surface-secondary">
+                <div className="w-[48px] shrink-0 overflow-hidden bg-surface-secondary md:w-[72px]">
                   <img
                     src={card.images.low}
                     alt=""
@@ -385,8 +385,8 @@ export function TableView({
                     (which already has its own `min-w-0`) actually give up
                     space. Confirmed empirically at 390px: without this, the
                     content div rendered ~100px wider than the row itself. */}
-                <div className="flex min-w-0 flex-1 items-center gap-[16px] px-[16px] py-[12px]">
-                  <span className="w-[48px] shrink-0 text-[14px] text-text-muted">{fmtNumber(card.number)}</span>
+                <div className="flex min-w-0 flex-1 items-center gap-[8px] px-[8px] py-[12px] md:gap-[16px] md:px-[16px]">
+                  <span className="w-[32px] shrink-0 text-[14px] text-text-muted md:w-[48px]">{fmtNumber(card.number)}</span>
                   {/* `min-w-0`: a flex item's default min-width is its own
                       content size, not 0 — without this, a long name refuses
                       to shrink for the fixed columns after it and pushes them
@@ -412,7 +412,7 @@ export function TableView({
                       )
                     )}
                   </div>
-                  <span className="w-[72px] shrink-0 text-right text-[14px] font-medium text-change-positive">
+                  <span className="w-[56px] shrink-0 text-right text-[14px] font-medium text-change-positive md:w-[72px]">
                     {fmtPrice(card.price)}
                   </span>
                   {/* Write affordance: hidden signed-out (the API sends no quantities
