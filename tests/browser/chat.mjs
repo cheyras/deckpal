@@ -543,11 +543,16 @@ async function assertClear(page, width, targets, label) {
     // is the one a reader sees him land on.
     const key = () => page.evaluate(() => [document.querySelector('[data-decke-park]'), document.querySelector('[data-decke-approval]')]
       .map(el => el ? Math.round(el.getBoundingClientRect().top) + ':' + Math.round(el.getBoundingClientRect().bottom) : '-').join('|'))
-    let last = await key(), still = 0
-    for (let i = 0; i < 60 && still < 5; i++) {
+    // AND for half a second. Frames alone are not enough: on a busy runner the
+    // frames come quickly while a debounced re-solve is still waiting on its
+    // timer, so five identical frames were once measured just before the box
+    // moved (a flake on main at 5313fdb). Stillness has to hold in both clocks.
+    let last = await key(), still = 0, since = Date.now()
+    for (let i = 0; i < 240 && (still < 5 || Date.now() - since < 500); i++) {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())))
       const next = await key()
-      still = next === last ? still + 1 : 0
+      if (next === last) still++
+      else { still = 0; since = Date.now() }
       last = next
     }
     const him = await rect(park)
