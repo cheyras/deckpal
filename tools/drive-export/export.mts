@@ -3,6 +3,7 @@ import { basename, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { supabaseKeyHeaders } from '../../packages/storage/src/supabase-key-headers.mjs';
 
 /**
  * Curated scan exemplars → Google Drive `/deckpal/card_scans`.
@@ -1086,7 +1087,7 @@ export async function readCropFromObjectStore(objectKey: string): Promise<Buffer
   }
   const bucket = process.env[CROP_BUCKET_ENV] ?? 'card-scans';
   const url = new URL(`/storage/v1/object/${bucket}/${objectKey}`, origin.origin);
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${serviceKey}` } });
+  const res = await fetch(url, { headers: supabaseKeyHeaders(serviceKey) });
   if (!res.ok) {
     throw new Error(`${LOG} crop ${objectKey} came back ${res.status} ${res.statusText}`);
   }

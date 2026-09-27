@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pool, q1, rlsStore } from '../db.js';
 import { asyncHandler, badRequest, str } from '../http.js';
+import { supabaseKeyHeaders } from '@deckpal/storage';
 
 /**
  * In-app bug / feature-request reporter.
@@ -271,7 +272,7 @@ async function uploadScreenshot(
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          ...supabaseKeyHeaders(SUPABASE_SERVICE_KEY),
           'Content-Type': contentType,
           'x-upsert': 'true',
         },
@@ -289,7 +290,7 @@ async function uploadScreenshot(
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          ...supabaseKeyHeaders(SUPABASE_SERVICE_KEY),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ expiresIn: 365 * 24 * 60 * 60 }),
