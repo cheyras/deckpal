@@ -31,9 +31,15 @@ BEGIN
   IF policy IS NULL THEN RAISE EXCEPTION 'Credit accounting is unavailable' USING ERRCODE='P0002'; END IF;
   mode=CASE WHEN (policy->>'unlimited')::boolean THEN 'unlimited'
             WHEN (policy->'policy'->>'enabled')::boolean THEN 'paid' ELSE 'daily' END;
-  IF mode='paid' AND NOT EXISTS (
-    SELECT 1 FROM public.decke_credit_balance WHERE user_id::text=actor AND balance>0
-  ) THEN RAISE EXCEPTION 'Deck-E credits are empty' USING ERRCODE='P0001'; END IF;
+  IF mode='paid' THEN
+    IF NOT EXISTS (SELECT 1 FROM public.decke_credit_balance WHERE user_id::text=actor AND balance>0)
+      THEN RAISE EXCEPTION 'Deck-E credits are empty' USING ERRCODE='P0001'; END IF;
+    IF EXISTS(SELECT 1 FROM public.credit_wallet_control WHERE user_id=actor AND debt>0) OR
+       EXISTS(SELECT 1 FROM public.credit_order WHERE user_id=actor AND
+         (pending_refund_cents>0 OR dispute_status IN
+          ('needs_response','under_review','warning_needs_response','warning_under_review','lost')))
+      THEN RAISE EXCEPTION 'Deck-E credits are on hold' USING ERRCODE='P0002'; END IF;
+  END IF;
   INSERT INTO public.decke_usage AS u(user_id,day,chat_turns)
     VALUES(actor::uuid,(now() AT TIME ZONE 'utc')::date,1)
     ON CONFLICT(user_id,day) DO UPDATE SET chat_turns=u.chat_turns+1,updated_at=now()
@@ -79,7 +85,7 @@ BEGIN
     WHERE id=p_operation AND request_id=p_request AND tool_key='import_fix' AND status='started';
   IF NOT FOUND THEN RAISE EXCEPTION 'Import fix operation unavailable' USING ERRCODE='42501'; END IF;
   IF r.charge_mode='paid' AND p_usd IS NOT NULL THEN
-    SELECT c.policy INTO price_policy FROM public.credit_policy_revision c WHERE c.revision=r.pricing_revision;
+    price_policy=public.credit_effective_policy(actor,r.pricing_revision,r.override_revision)->'policy';
     amount=round(p_usd*1000000*(10000+(price_policy->>'markupBps')::numeric)
       /((price_policy->>'microUsdPerCredit')::numeric*10000),12);
     INSERT INTO public.decke_import_fix_credit(user_id) VALUES(actor) ON CONFLICT DO NOTHING;
@@ -102,8 +108,15 @@ REVOKE ALL ON public.decke_import_fix_credit,public.decke_import_fix_settlement 
 REVOKE ALL ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
   public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) FROM PUBLIC;
 DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
+    REVOKE ALL ON public.decke_import_fix_credit,public.decke_import_fix_settlement FROM anon;
+    REVOKE ALL ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
+      public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) FROM anon;
+  END IF;
   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
     REVOKE ALL ON public.decke_import_fix_credit,public.decke_import_fix_settlement FROM authenticated;
+    REVOKE ALL ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
+      public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) FROM authenticated;
     GRANT EXECUTE ON FUNCTION public.decke_import_fix_begin(integer,text,text,text,text,integer),
       public.decke_import_fix_finish(uuid,uuid,text,bigint,bigint,bigint,bigint,bigint,numeric,text,text) TO authenticated;
   END IF;

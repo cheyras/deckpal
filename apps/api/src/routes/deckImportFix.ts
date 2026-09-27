@@ -54,6 +54,7 @@ export function registerDeckImportFix(router: Router): void {
       const code = (error as { code?: string }).code;
       if (code === '54000') throw new ApiError(429, 'decke_daily_limit', `Deck-E has used his ${cap} turns for today. You can still edit the lines yourself.`);
       if (code === 'P0001') throw new ApiError(402, 'decke_credits_empty', 'Deck-E credits are empty. You can still edit the lines yourself.');
+      if (code === 'P0002') throw new ApiError(423, 'decke_credits_held', 'Deck-E credits are on hold. You can still edit the lines yourself.');
       throw error;
     }
     const usage = started.rows[0]?.data;

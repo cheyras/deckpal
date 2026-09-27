@@ -1050,7 +1050,8 @@ Deck-E selects only from catalogue candidates; the server discards a proposed
 replacement unless the regular importer resolves it to that exact card. The
 reader reviews every suggestion and the web app checks the confirmed text again
 before creating a deck. Uncertain lines remain unresolved. A daily-limit refusal
-is `429`; an empty paid wallet is `402`; loss of entitlement is `403`; model failure is `503`.
+is `429`; an empty paid wallet is `402`, a held wallet is `423`; loss of
+entitlement is `403`; model failure is `503`.
 
 ### GET /deckpal/api/decks/:id/export
 Serialize the deck to interchange text. Query `?format=ptcgl|massentry` (default
