@@ -1,6 +1,19 @@
 <!doctype html>
 <html lang="en" class="deckpalDark" data-theme="dark">
   <head>
+    <!-- 2026-09-26: vercel.json started attaching a CSP/frame-ancestors/nosniff
+         header set to this document at the edge. This file's BYTES are otherwise
+         unchanged, but the service worker's precached copy of this exact shell
+         (Tier 0, sw.ts) is what a RETURNING visitor's navigations are served
+         from — and Workbox's precache install step can copy an unchanged
+         revision forward from an old cache rather than refetching it, which
+         would leave already-installed users on a stale, header-less copy
+         indefinitely (Astra review, 2026-09-26). This comment exists solely to
+         change this file's content hash, so the precache manifest entry gets a
+         new revision and every existing service worker is forced to fetch a
+         fresh copy — carrying the new headers — the next time it updates. Do
+         not remove it without confirming some OTHER change to this file will
+         keep bumping the hash on every deploy that needs one. -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />

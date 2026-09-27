@@ -32,6 +32,14 @@ jobs:
       - name: Case-insensitive filename collisions
         run: node scripts/check-case-collisions.mjs
 
+      # Also install-free: needs only vercel.json and apps/web/index.html.
+      # Guards the CSP/frame-ancestors/nosniff/Permissions-Policy headers
+      # (vercel.json) that protect every HTML document Vercel's static layer
+      # serves against a silent regression -- see scripts/check-security-headers.mjs
+      # and DECISIONS.md 2026-09-26.
+      - name: Security headers coverage
+        run: node scripts/check-security-headers.mjs
+
       # Also nearly free: needs only vercel.json, no install/build. Guards the
       # deckscout.io -> deckpal.app redirect (vercel.json) against a
       # regression to the pre-2026-09-26 carve-out that excluded /mcp, /api,
@@ -41,7 +49,6 @@ jobs:
       # See scripts/check-redirects.mjs and DECISIONS.md 2026-09-26.
       - name: deckscout.io redirect coverage
         run: node scripts/check-redirects.mjs
-
       - name: Decision archive and append guard
         run: node scripts/check-decisions.mjs
 

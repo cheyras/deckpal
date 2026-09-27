@@ -471,6 +471,88 @@ whose session has lapsed to the sign-in form instead of the marketing page
 (`lib/returningVisitor.ts`); it carries no email, user id or token, and no
 authorization decision anywhere consults it. Clearing site data resets both.
 
+**HTTP security headers on the SPA (2026-09-26).** The Supabase session above,
+including its refresh token, lives in `localStorage` — the ordinary place for
+a token-based SPA to keep it, but it means an XSS on `deckpal.app` would be a
+persistent account takeover, not just a stolen session. `apps/api/src/index.ts`
+puts `helmet()` in front of the Express API, but on Vercel the HTML document
+itself is served by the **static layer**, which never touches Express or
+helmet — so until this date it shipped no `Content-Security-Policy`,
+`X-Frame-Options`, `X-Content-Type-Options` or `Referrer-Policy` at all
+(DECISIONS.md 2026-09-26). `vercel.json`'s `headers` array now attaches, to
+every path except `/api/*` (helmet already covers those):
+- **`Content-Security-Policy`**, enforcing (not report-only — there is no
+  `report-uri`/`report-to` collector in this app, so report-only mode would
+  collect nothing and simply delay real protection). `default-src 'self'`,
+  with narrow, purpose-scoped exceptions: `https://js.stripe.com` and
+  `https://*.js.stripe.com` for Stripe.js scripts and payment frames,
+  `https://hooks.stripe.com` for payment challenges, and
+  `https://api.stripe.com` for payment requests. The Payment Element offers
+  Link, so `frame-src` and `connect-src` also allow `https://link.com` and
+  `https://*.link.com`, while `img-src` allows `https://*.link.com`.
+  These are the hosts in [Stripe's CSP guide](https://docs.stripe.com/security/guide#content-security-policy)
+  for the payment flow in `apps/web/src/components/billing/CardForm.tsx`.
+  `https://*.supabase.co`/`wss://*.supabase.co` cover
+  Storage/Realtime — a wildcard rather than one project's hostname, since any
+  Vercel+Supabase fork (`DEPLOYMENT.md`) has its own project ref and should
+  not have to edit this file to unblock its own images; `data:`/`blob:` for
+  the scanner's captured frames, the bug reporter's `html2canvas-pro`
+  screenshot, and card art; `'wasm-unsafe-eval'` for the scanner's
+  onnxruntime-web engine. `frame-ancestors 'none'` closes the clickjacking gap
+  (below) and `object-src 'none'`/`base-uri 'self'`/`form-action 'self'` are
+  the standard hardening trio. `script-src` carries **no** `'unsafe-inline'`:
+  the one inline script in `apps/web/index.html` (the first-paint watchdog,
+  which must stay inline — a watchdog that needs a request of its own cannot
+  cover a failure to fetch, exactly the #75 bug it exists to prevent) is
+  allow-listed by its exact `sha256-` hash instead, recomputed from the live
+  file and checked against `vercel.json` on every run by
+  `scripts/check-security-headers.mjs`.
+- **`X-Frame-Options: DENY`** and CSP's `frame-ancestors 'none'` together
+  (belt-and-suspenders for older browsers): confirmed framing was previously
+  possible — `/authorize` (the OAuth consent screen) and any page with a
+  destructive control could be embedded in a hostile iframe. Third-party
+  storage partitioning means a framed copy loads signed out, which is what
+  kept this at medium severity rather than high.
+- **`X-Content-Type-Options: nosniff`** and **`Referrer-Policy:
+  strict-origin-when-cross-origin`**.
+- **`Permissions-Policy`**: `geolocation=()` (unused, denied outright), but
+  **`camera=(self)` and `microphone=(self)` stay allowed** — the scanner needs
+  the camera today, and scanner voice annotation (shipping) needs the
+  microphone. Locking these to `()` the way a generic hardening pass would is
+  the wrong instinct here; `self` still excludes every third-party frame.
+
+`scripts/check-security-headers.mjs` (wired into `test:security-headers` and
+CI) asserts the header set exists with these properties — not by string
+equality, but by parsing the live directives, so a future edit that quietly
+drops `frame-ancestors` or lets the hash drift fails the same way
+`scripts/check-redirects.mjs` catches a redirect regression.
+
+The permission-gated `/dev/scan-harness` diagnostic route loads its HTML in a
+separate same-origin iframe. Its shipped OpenCV build creates JavaScript
+functions while loading, so only that iframe document permits `'unsafe-eval'`;
+the surrounding app document retains the stricter policy even when reached
+through client-side navigation. The service worker fetches the iframe document
+from the network so its special header is preserved, and the browser check
+starts OpenCV through the real Dev tools link.
+Missing `/assets/` files are excluded from both Vercel's app-shell rewrite and
+the service worker's navigation fallback. A nonexistent harness-shaped URL
+therefore returns a missing-file response rather than the app under the
+harness's looser policy.
+
+**SEC-14, in the same change: private API responses are `no-store`, not
+`no-cache`.** `apps/api/src/http.ts`'s `userCache()` (used by every
+collection/decks/lists/dex/insights/avatar/export route) sent `private,
+no-cache, must-revalidate`, which still permits a shared disk cache to keep a
+revalidated copy around — on a shared device, a stale copy of one account's
+collection JSON could sit on disk after that account signs out. It now sends
+`private, no-store`, matching this document's own "all private APIs are
+no-store" promise and the service worker's own
+`NetworkOnly` route (`apps/web/src/sw.ts`), which already forces
+`fetchOptions: { cache: 'no-store' }` for every non-catalog GET — this only
+tightens the HTTP contract to match what the app already assumed. The PDF
+export routes (`apps/api/src/export/router.ts`) carried the same stale
+`no-cache` literal and are fixed the same way.
+
 ### Rate limiting (REST API)
 
 Two layers of in-memory rate limiting were added to the REST API
