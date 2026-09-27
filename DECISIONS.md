@@ -21033,7 +21033,9 @@ Thresholds: force at p ≥ 0.5 (the weakest true positive was 0.56, the stronges
 negative 0.30), destination p ≥ 0.85 / confidence ≥ 0.7, decline p ≥ 0.8.
 
 **Implications:** TypeSafe AI is a new data processor for the reader's latest
-message, Deck-E's previous reply and the page path. Its retention is
+message, Deck-E's previous reply and the page path. No separate collection or
+account records are attached, but those fields are not redacted and may contain
+ownership counts, card IDs, account details or deck/list IDs. Its retention is
 unconfirmed: the Gateway lists `zdr: "none"`, Vercel's guide offers ZDR per
 request, and TypeSafe offers ZDR to enterprise customers only; measured, the
 Gateway honours the per-request flag by skipping a non-ZDR host (SECURITY.md).

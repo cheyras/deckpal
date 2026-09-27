@@ -317,7 +317,10 @@ With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSaf
 AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
 (`apps/api/src/decke/reflex.ts`). What it receives: the reader's latest message
 (clipped to 2,000 characters), Deck-E's previous reply (last 800) and the page
-path — no collection data, no ids, no photos, no account details. Every request
+path. No separate collection or account records, or photos, are attached, but
+those text fields and the path are not redacted: a reader can include ownership
+counts, card IDs or account details in their message, Deck-E can repeat them,
+and a deck or list path can contain an ID. Every request
 sets `zeroDataRetention: true` and pins the provider with `only: ["typesafe-ai"]`.
 That pin matters: measured on 2026-09-26, the Gateway otherwise routes Jev to a
 second host (DigitalOcean) first, and with the flag it skips that host as
