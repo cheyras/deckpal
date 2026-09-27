@@ -24,7 +24,7 @@ export type RuleDraft = Partial<ListRule> & { setId?: string }
 
 const GOALS: { key: NonNullable<ListRule['goal']>; label: string; blurb: string }[] = [
   { key: 'complete', label: GOAL_TITLE.complete, blurb: 'One printing of each card' },
-  { key: 'master', label: GOAL_TITLE.master, blurb: 'Every standard printing' },
+  { key: 'master', label: GOAL_TITLE.master, blurb: 'Every printing except stamped ones' },
   { key: 'grandmaster', label: GOAL_TITLE.grandmaster, blurb: 'Every printing there is' },
 ]
 

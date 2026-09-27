@@ -6,8 +6,8 @@ import { useDismiss } from './useDismiss'
 
 const GOALS: { key: Goal; description: string; color: string }[] = [
   { key: 'complete', description: 'One printing of each card', color: 'var(--color-action-primary-strong)' },
-  { key: 'master', description: 'Every standard printing', color: 'var(--color-success)' },
-  { key: 'grandmaster', description: 'Every printing, including stamps', color: 'var(--color-completion-grandmaster)' },
+  { key: 'master', description: 'Every printing except stamped ones', color: 'var(--color-success)' },
+  { key: 'grandmaster', description: 'Every printing, stamped ones too', color: 'var(--color-completion-grandmaster)' },
 ]
 
 export function GoalSelect({ goal, onChange }: { goal: Goal; onChange: (goal: Goal) => void }) {
