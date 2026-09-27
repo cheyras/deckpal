@@ -33,7 +33,7 @@
  * It also never blocks a boot. A Gateway that is unreachable at cold start is
  * not a reason to take Deck-E down; it is a reason to say so.
  */
-import { MODELS, type Job } from './models.js';
+import { EVALUATION, MODELS, type Job } from './models.js';
 
 /** Where the Gateway lists what a key can reach. */
 const MODELS_URL = 'https://ai-gateway.vercel.sh/v1/models';
@@ -62,6 +62,9 @@ export function configuredModelIds(): string[] {
     if (c.fallback) out.add(c.fallback);
     if (c.escalate) out.add(c.escalate);
   }
+  // The judgment model too: a Jev id the Gateway stopped listing would fail
+  // open on every turn, silently, which is exactly what this check exists for.
+  out.add(EVALUATION.id);
   return [...out].sort();
 }
 

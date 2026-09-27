@@ -204,6 +204,56 @@ test('deck_history revert_to on an EXACT name still runs its dry run', async () 
   assert.equal(api.sends.length, 0);
 });
 
+// ── deck_history: a revert never costs the list it replaces ──────────────────
+//
+// The current v2 above has NO battle logs. A revert used to amend it in place,
+// erasing the only copy of that list, and the dry run said so in passing
+// ("v2 is amended in place"). The API now always creates a new version, and the
+// preview and the result must both promise exactly that.
+
+test('deck_history revert dry run promises a new version even when the current one is unplayed', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      if (path === '/decks/deck-1/versions') return versionsPayload;
+      if (path === '/decks/deck-1/versions/1') return versionDetail(1, false);
+      if (path === '/decks/deck-1/versions/2') return versionDetail(2, true);
+      throw new Error(`unexpected get ${path}`);
+    },
+  });
+
+  const res = await byName('deck_history').handler(
+    { deck_id: 'Toolbox Slowking', revert_to: 1, include_strategy: true, dry_run: true },
+    makeCtx(api),
+  );
+
+  assert.match(res.text, /the revert will create v3; the current v2 keeps its list in history/);
+  assert.doesNotMatch(res.text, /amended in place/);
+});
+
+test('deck_history revert reports the version it created and the one that kept the old list', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      throw new Error(`unexpected get ${path}`);
+    },
+    send: () => ({
+      ...deckDetail,
+      deck: { ...deckDetail.deck, version: 3 },
+      revert: { toVersion: 1, version: 3, bumped: true, skippedCards: [] },
+    }),
+  });
+
+  const res = await byName('deck_history').handler(
+    { deck_id: 'Toolbox Slowking', revert_to: 1, include_strategy: true, dry_run: false },
+    makeCtx(api),
+  );
+
+  assert.equal(res.isError, undefined);
+  assert.match(res.text.split('\n')[0]!, /^Reverted 'Toolbox Slowking' to v1 → created v3; v2 keeps the list it replaced/);
+  assert.deepEqual(api.sends.map((s) => s.path), ['/decks/deck-1/revert']);
+});
+
 // ── decks: include 'strategy' returns the guide, not a label for it ──────────
 
 const GUIDE = '# Opening plan\n\nLead with Slowking, retreat into Fezandipiti.';

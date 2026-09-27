@@ -25,67 +25,115 @@
  * THE RECOVERY. A module that will not load is very likely a stale shell, so:
  * pull the waiting service worker forward, reload once, and let the fresh shell
  * ask for a hash that exists. Guarded by a session flag so a genuinely broken
- * chunk surfaces as an error instead of a reload loop, and gated on there
- * actually being a service worker in control — in dev there is none, and a
- * failed import there is a real error that should be seen, not reloaded away.
+ * chunk surfaces as an error instead of a reload loop. The guard belongs to
+ * that chunk: a parent route or background preload succeeding must not clear
+ * a child's failed-import guard. Recovery never runs in dev — there
+ * a failed import is a real error that should be seen, not reloaded away.
+ *
+ * ── EVERY PRODUCT PAGE IS ONE OF THESE NOW (2026-09-26, PERF-01) ─────────────
+ *
+ * `main.tsx` used to import every page statically, so the admin panel, the
+ * scanner and Stripe's checkout UI were all in the one entry chunk every visitor
+ * downloaded and parsed before seeing a card. Carrying that meant three changes:
+ *
+ *   1. `preload()`. TanStack Router calls `component.preload()` while it loads
+ *      a match and does not commit the navigation until it settles, so the old
+ *      page stays up while the new one's chunk arrives. It is also what
+ *      `defaultPreload: 'intent'` fires on hover and touchstart. A preload is
+ *      SPECULATIVE, so it never rejects and never reloads — hovering a link must
+ *      not reload the page. A failed preload just leaves the render to try
+ *      again, and the render is where the recovery lives.
+ *   2. No Suspense flash. Once the module is here the page renders it directly,
+ *      not through `React.lazy`, so a preloaded route paints in the frame the
+ *      router commits it.
+ *   3. The uncontrolled case recovers too. With one chunk there was nothing to go
+ *      stale; with thirty, a tab opened before a deploy and NOT under a service
+ *      worker (a first visit, a browser without one) asks for hashes the server
+ *      no longer has. A plain reload fetches the new shell, so a production
+ *      build reloads once either way; the worker is pulled forward only when
+ *      there is one to pull.
  */
-import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
+import { createElement, lazy, useState, type ComponentProps, type ComponentType, type ReactElement } from 'react'
 import { activateLatest } from '../pwa'
 
 const RETRY_KEY = 'deckpal:chunk-retry'
 
-function retried(): boolean {
+function retryKey(chunkId: string): string {
+  return `${RETRY_KEY}:${chunkId}`
+}
+
+function retried(chunkId: string): boolean {
   try {
-    return sessionStorage.getItem(RETRY_KEY) !== null
+    return sessionStorage.getItem(retryKey(chunkId)) !== null
   } catch {
-    // Storage can be unavailable (Safari private mode, a partitioned iframe).
-    // Without it we cannot tell a first failure from a second, and reloading
-    // forever is far worse than showing the error, so treat it as "already
-    // tried".
     return true
   }
 }
 
-function markRetried(): void {
+function markRetried(chunkId: string): void {
   try {
-    sessionStorage.setItem(RETRY_KEY, String(Date.now()))
+    sessionStorage.setItem(retryKey(chunkId), String(Date.now()))
   } catch {
-    /* see `retried` */
   }
 }
 
-function clearRetry(): void {
+function clearRetry(chunkId: string): void {
   try {
-    sessionStorage.removeItem(RETRY_KEY)
+    sessionStorage.removeItem(retryKey(chunkId))
   } catch {
-    /* nothing to clear */
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React's own
-// signature for `lazy`; narrowing it rejects perfectly ordinary components.
-export function lazyRoute<T extends ComponentType<any>>(
-  load: () => Promise<{ default: T }>,
-): LazyExoticComponent<T> {
-  return lazy(async () => {
+export type LazyRoute<C extends ComponentType<any>> = ((props: ComponentProps<C>) => ReactElement) & {
+  /** Fetch and evaluate the chunk without rendering it. Never rejects. */
+  preload: () => Promise<void>
+  /** True once the chunk is here, after which rendering cannot suspend. */
+  ready: () => boolean
+}
+
+export function lazyRoute<M extends Record<string, any>, K extends keyof M = 'default'>(
+  chunkId: string,
+  load: () => Promise<M>,
+  exportName: K = 'default' as K,
+): M[K] extends ComponentType<any> ? LazyRoute<M[K]> : never {
+  let loaded: ComponentType<any> | undefined
+  let inflight: Promise<void> | undefined
+
+  const settle = (mod: M): ComponentType<any> => {
+    const page: ComponentType<any> = mod[exportName]
+    loaded = page
+    clearRetry(chunkId)
+    return page
+  }
+
+  const preload = () =>
+    (inflight ??= load().then(
+      (mod) => void settle(mod),
+      () => {
+        inflight = undefined
+      },
+    ))
+
+  const Recovering = lazy(async () => {
     try {
-      const mod = await load()
-      // Reaching here means the shell and the chunk agree again.
-      clearRetry()
-      return mod
+      return { default: settle(await load()) }
     } catch (err) {
-      const controlled =
-        typeof navigator !== 'undefined' &&
-        'serviceWorker' in navigator &&
-        !!navigator.serviceWorker.controller
-      if (!controlled || retried()) throw err
-
-      markRetried()
-      await activateLatest()
+      if (import.meta.env.DEV || retried(chunkId)) throw err
+      markRetried(chunkId)
+      if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) await activateLatest()
       window.location.reload()
-      // The reload wins the race; resolving would flash the route for a frame
-      // on the way out.
       return new Promise<never>(() => {})
     }
   })
+
+  function Route(props: object) {
+    // Decided once per mount: an instance that started on the lazy path stays
+    // on it, because swapping the element type under a mounted page would
+    // remount it and throw its state away.
+    const [direct] = useState(() => loaded !== undefined)
+    return createElement<object>(direct ? loaded! : Recovering, props)
+  }
+  Route.preload = preload
+  Route.ready = () => loaded !== undefined
+  return Route as never
 }
