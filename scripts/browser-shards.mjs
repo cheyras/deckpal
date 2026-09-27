@@ -37,7 +37,9 @@ export function shardSuites(suites, count) {
   const shards = Array.from({ length: count }, () => ({ weight: 0, suites: [], exclusive: false }))
   // Concurrent visual suites have caused catalog screenshots to fail in
   // Chromium. Keep the affected catalog journey on its own runner.
-  const exclusive = new Set(['cloud-feedback-primary-428', 'selfhost-catalog'])
+  const exclusiveNames = new Set(['cloud-feedback-primary-428', 'selfhost-catalog'])
+  const exclusive = count > suites.filter(suite => exclusiveNames.has(suite.name)).length
+    ? exclusiveNames : new Set()
   const ordered = [...suites].sort((a, b) =>
     (durations[b.name] ?? 60) - (durations[a.name] ?? 60) || a.name.localeCompare(b.name))
   for (const suite of [...ordered.filter(suite => exclusive.has(suite.name)),
