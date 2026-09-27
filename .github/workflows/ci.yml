@@ -158,6 +158,16 @@ jobs:
       - name: Insights caption tests (pure, no DB)
         run: pnpm --filter deckpal-web test:insights
 
+      # Collection/list quick-fix guards (deckpal audit ux-collection, UXC-01/
+      # 03/05/09): no checklist PDF link points at a gated route by URL, the
+      # list-tile and showcase remove controls aren't hover-only, a completed
+      # smart list never offers an add that can only 400, and neither delete
+      # dialog claims a soft-deleted row is unrecoverable. Wired here for the
+      # same reason the two suites above were: CI does not run `pnpm -r test`,
+      # so an unwired suite never runs at all.
+      - name: Collection quick-fix guards (pure, no DB)
+        run: pnpm --filter deckpal-web test:collection
+
       # The chunked price-history replay's resume protocol. A two-year backfill
       # is ~16 sequential workflow runs and its failure mode is a run that
       # reports success while the range never advances — sixteen green runs and

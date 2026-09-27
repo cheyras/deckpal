@@ -236,15 +236,22 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       const removeButtons = page.getByRole('button', { name: /^Remove / })
       await removeButtons.first().waitFor()
       state.fail = true; state.latency = () => 300
-      // The remove control is hover-revealed on the tile; its handler is what is under test.
-      await page.getByRole('button', { name: 'Remove Fixturemon', exact: true }).dispatchEvent('click')
+      await page.getByRole('button', { name: 'Remove Fixturemon', exact: true }).click()
+      const confirmRemove = page.getByRole('dialog', { name: 'Remove card', exact: true })
+      assert.equal(await removeButtons.count(), 2, 'opening confirmation has not removed the card')
+      await confirmRemove.getByRole('button', { name: 'Remove', exact: true }).click()
       assert.equal(await removeButtons.count(), 1, 'removed at once')
       await said("Couldn't remove Fixturemon from “Trade binder”.").waitFor()
       assert.equal(await removeButtons.count(), 2, 'back after the failure')
       await shot('list-remove-failed')
       await page.getByRole('button', { name: 'Dismiss', exact: true }).click()
 
-      await page.getByRole('button', { name: 'Edit list', exact: true }).click()
+      if (width === 390) {
+        await page.getByRole('button', { name: 'List actions' }).click()
+        await page.getByRole('menuitem', { name: 'Edit list', exact: true }).click()
+      } else {
+        await page.getByRole('button', { name: 'Edit list', exact: true }).click()
+      }
       const dialog = page.getByRole('dialog', { name: 'Edit List', exact: true })
       await dialog.getByPlaceholder('My Charizard chase list').fill('Show binder')
       await dialog.getByRole('button', { name: 'Save', exact: true }).click()
@@ -280,6 +287,20 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await picker.getByText('Added', { exact: true }).waitFor()
       assert.ok(state.list.some(x => x.itemId === 'added-2'), 'the retried add reached the server')
       results.push({ case: 'writes-list', label, width, removeRollback: true, editInline: true, retryReachableFromSheet: true })
+
+      // Opening a sheet locks the body scroll. A virtualized tile far down
+      // the list can unmount when that happens; its dialog must stay mounted.
+      state.list = Array.from({ length: 80 }, (_, i) => ({ itemId: 'item-' + i, i: i % 3 }))
+      await go('/lists/' + LIST)
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+      const lateRemove = page.getByRole('button', { name: /^Remove / }).last()
+      await lateRemove.click()
+      const lateDialog = page.getByRole('dialog', { name: 'Remove card' })
+      await lateDialog.waitFor()
+      await sleep(250)
+      assert.equal(await lateDialog.isVisible(), true, 'the removal dialog survives tile unmount after scroll lock')
+      await lateDialog.getByRole('button', { name: 'Cancel' }).click()
+      results.push({ case: 'writes-list-virtualized-remove', label, width, dialogSurvivesScrollLock: true })
 
       // ── Deck quantity ──────────────────────────────────────────────────────
       await go('/decks/' + DECK)
