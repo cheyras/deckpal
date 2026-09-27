@@ -29,6 +29,7 @@ interface CandidateRow {
   id: string;
   tcgdex_id: string;
   name: string;
+  name_normalized: string;
   category: 'Pokemon' | 'Trainer' | 'Energy';
   local_id: string;
   set_tcgdex_id: string;
@@ -74,6 +75,10 @@ export function selectedOptions(raw: unknown, options: ImportFixOption[]): Impor
 /** Prefer an owned printing, then legal regular art; never choose Pocket. */
 export function choosePrint(rows: CandidateRow[], format: FormatCode): CandidateRow | null {
   const legal = formatConfig(format).legal_marks;
+  const releasedAt = (value: Date | string | null): number => {
+    const time = value instanceof Date ? value.getTime() : value ? Date.parse(value) : NaN;
+    return Number.isFinite(time) ? time : -Infinity;
+  };
   return rows.slice().sort((a, b) => {
     const own = Number(b.owned) - Number(a.owned);
     if (own) return own;
@@ -82,7 +87,7 @@ export function choosePrint(rows: CandidateRow[], format: FormatCode): Candidate
     if (marks) return marks;
     const rarity = (RARITY_RANK[a.rarity ?? ''] ?? 50) - (RARITY_RANK[b.rarity ?? ''] ?? 50);
     if (rarity) return rarity;
-    const date = String(b.released_on ?? '').localeCompare(String(a.released_on ?? ''));
+    const date = releasedAt(b.released_on) - releasedAt(a.released_on);
     return date || a.tcgdex_id.localeCompare(b.tcgdex_id);
   })[0] ?? null;
 }
@@ -116,7 +121,7 @@ async function printRows(db: Queryable, names: string[], userId: string, format:
   const params: unknown[] = [names, userId];
   const poolRule = formatPoolSql(format, value => { params.push(value); return `$${params.length}`; });
   const { rows } = await db.query<CandidateRow>(
-    `SELECT c.id, c.tcgdex_id, c.name, c.category, c.local_id, c.regulation_mark,
+    `SELECT c.id, c.tcgdex_id, c.name, c.name_normalized, c.category, c.local_id, c.regulation_mark,
             c.released_on, c.rarity, c.playable_fingerprint,
             cs.tcgdex_id AS set_tcgdex_id, sr.tcgdex_id AS serie_tcgdex_id,
             ${poolRule ?? 'TRUE'} AS pool_legal,
@@ -148,7 +153,7 @@ export async function prepareImportFix(db: Queryable, text: string, format: Form
     const all = await printRows(db, names, userId, format);
     let slot = 0;
     for (const name of names) {
-      const sameName = all.filter(row => normalizeName(row.name) === name);
+      const sameName = all.filter(row => row.name_normalized === name);
       // A name can have genuinely different game text. Pick a base print first,
       // then narrow any owned/regular preference to its gameplay fingerprint.
       const base = choosePrint(sameName, format);

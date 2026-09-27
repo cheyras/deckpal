@@ -141,15 +141,20 @@ export async function loadByName(pool: Queryable, rawName: string): Promise<Card
   const facts = await factsFromRows(pool, rows);
   const exact = facts.filter((f) => f.normalizedName === nn);
   if (exact.length) return exact;
-  // Importers often omit accents or punctuation; only equal folded names count.
-  const folded = (s: string) => normalizeName(s).normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  // Loose spelling may fold accents and punctuation, but identity marks such
+  // as Nidoran's gender and Prism Star must survive. If different printed
+  // names still collapse to one key, leave the line for explicit review.
+  const folded = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '')
+    .toLowerCase().replace(/♀/gu, 'female').replace(/♂/gu, 'male')
+    .replace(/◇/gu, 'prismstar').replace(/[^\p{L}\p{N}]/gu, '');
   const nearby = await pool.query<CardRow>(
     `${CARD_SELECT} JOIN series sr ON sr.id=s.series_id
       WHERE sr.catalogue_code='en' AND c.lang='en' AND c.name_normalized % $1::text
       ORDER BY similarity(c.name_normalized,$1::text) DESC LIMIT 120`, [nn],
   );
-  return (await factsFromRows(pool, nearby.rows)).filter((f) => folded(f.name) === folded(rawName));
+  const matches = (await factsFromRows(pool, nearby.rows)).filter((f) => folded(f.name) === folded(rawName));
+  const printedNames = new Set(matches.map(f => f.name.normalize('NFC').replace(/’/g, "'").toLowerCase()));
+  return printedNames.size === 1 ? matches : [];
 }
 
 /** Basic Energy of a given type (for {brace}/`Energy` pseudo-set, §1.5 case 2/3). */

@@ -28,7 +28,7 @@ test('duplicate raw lines retain distinct positions and only a chosen position i
 
 test('printing order prefers owned, then legal regular, then newest', () => {
   const row = (id: string, owned: string, mark: string | null, rarity: string, released: string) => ({
-    id, tcgdex_id: id, name: 'Iono', category: 'Trainer' as const, local_id: '185',
+    id, tcgdex_id: id, name: 'Iono', name_normalized: 'iono', category: 'Trainer' as const, local_id: '185',
     set_tcgdex_id: 'sv02', serie_tcgdex_id: 'sv', regulation_mark: mark,
     released_on: released, rarity, playable_fingerprint: 'abc', owned,
   });
@@ -37,29 +37,34 @@ test('printing order prefers owned, then legal regular, then newest', () => {
   const legalRare = row('rare', '0', 'J', 'Special illustration rare', '2026-01-01');
   assert.equal(choosePrint([legalRare, owned, legalRegular], 'standard')?.tcgdex_id, 'owned');
   assert.equal(choosePrint([legalRare, legalRegular], 'standard')?.tcgdex_id, 'legal');
+  const older = row('older', '0', 'J', 'Uncommon', '2023-06-09');
+  const newer = row('newer', '0', 'J', 'Uncommon', '2024-01-26');
+  assert.equal(choosePrint([{ ...older, released_on: new Date('2023-06-09') },
+    { ...newer, released_on: new Date('2024-01-26') }], 'standard')?.tcgdex_id, 'newer');
 });
 
 test('a suggested fix is admitted only if the ordinary resolver lands on that catalogue card', async () => {
   const card = {
     id: '172', tcgdex_id: 'sv02-172', set_tcgdex_id: 'sv02', serie_tcgdex_id: 'sv',
-    local_id: '172', local_id_numeric: 172, name: "Boss's Orders", category: 'Trainer',
+    local_id: '172', local_id_numeric: 172, name: "Boss's Orders (Ghetsis)",
+    name_normalized: "boss's orders (ghetsis)", category: 'Trainer',
     stage: null, suffix: null, trainer_type: 'Supporter', energy_type: null,
     hp: null, retreat: null, regulation_mark: 'G', evolve_from: null,
     released_on: '2023-06-09', rarity: 'Rare', playable_fingerprint: 'same', owned: '0',
   };
   let exactId = card.tcgdex_id;
   const db = { query: async (sql: string) => {
-    if (sql.includes('SELECT c.name_normalized, max(')) return { rows: [{ name_normalized: "boss's orders" }] };
+    if (sql.includes('SELECT c.name_normalized, max(')) return { rows: [{ name_normalized: "boss's orders (ghetsis)" }] };
     if (sql.includes('coalesce((SELECT sum(ci.quantity)')) return { rows: [card] };
     if (sql.includes('c.local_id_numeric =')) return { rows: [{ ...card, tcgdex_id: exactId }] };
     if (sql.includes('FROM card_type')) return { rows: [] };
     return { rows: [] };
   } } as unknown as Queryable;
-  const good = await prepareImportFix(db, '4 Bss', 'standard', 'user');
+  const good = await prepareImportFix(db, '4 Boss', 'standard', 'user');
   assert.equal(good.options.length, 1);
   assert.equal(good.options[0]!.replacement, "4 Boss's Orders PAL 172");
-  assert.deepEqual(finishImportFix('4 Bss', good, '{"choices":[{"key":"l0c0"}]}').unfixed, []);
+  assert.deepEqual(finishImportFix('4 Boss', good, '{"choices":[{"key":"l0c0"}]}').unfixed, []);
   exactId = 'sv02-999';
-  const bad = await prepareImportFix(db, '4 Bss', 'standard', 'user');
+  const bad = await prepareImportFix(db, '4 Boss', 'standard', 'user');
   assert.equal(bad.options.length, 0);
 });
