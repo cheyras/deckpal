@@ -16,7 +16,6 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const LIST_DETAIL = fileURLToPath(new URL('../ListDetail.tsx', import.meta.url))
-const LIST_MODALS = fileURLToPath(new URL('../../components/ListModals.tsx', import.meta.url))
 
 function emptyStateBlock(src: string): string {
   const start = src.indexOf('{items.length === 0 ? (')
@@ -58,15 +57,11 @@ test('the completion claim only fires when nothing narrowed the rule below its g
   )
 })
 
-test('a failed add surfaces the server\'s message instead of vanishing', () => {
+test('a failed add uses the list write lane\'s single visible failure', () => {
   const src = fs.readFileSync(LIST_DETAIL, 'utf8')
-  assert.doesNotMatch(
-    src,
-    /onError:\s*\(\)\s*=>\s*setAddingId\(null\)/,
-    'addItem.onError must not go back to silently swallowing the failure (the original UXC-05 defect)',
-  )
-  assert.match(src, /<AddCardModal[\s\S]*?error=\{addError\}/, 'AddCardModal must receive the add mutation\'s error')
-
-  const modals = fs.readFileSync(LIST_MODALS, 'utf8')
-  assert.match(modals, /error\?:\s*string \| null/, 'AddCardModal must accept an optional error prop')
+  const add = src.slice(src.indexOf('const addItem ='), src.indexOf('const removeItem ='))
+  assert.match(add, /save\(laneKey,\s*\{/, 'adds must use the per-list write lane')
+  assert.match(add, /failure: `Couldn't add/, 'the lane must show a failed add')
+  assert.match(add, /setAdded\(/, 'a saved card must be marked on its picker tile')
+  assert.doesNotMatch(src, /addError|setAddingId/, 'the old mutation error path must not compete with the lane message')
 })

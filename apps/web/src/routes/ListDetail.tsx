@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { api, ApiError, type ListDetailResponse, type ListItem } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button } from '../components/ui'
@@ -17,6 +17,8 @@ import { fmtUsd, fmtDate } from '../lib/format'
 import { type ListSearch, type ListSortKey, LIST_SEARCH_DEFAULTS } from './listSearch'
 import { GOAL_SHORT_LABEL } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { applyAnswer, outcomeKnown, save, useLane, write, writeFailureText } from '../lib/writes'
+import { showToast } from '../lib/toast'
 
 const KIND_LABEL = { dynamic: 'Dynamic List', static: 'Static List', pokedex_binder: 'Pokédex Binder' } as const
 const SORTS: { key: ListSortKey; label: string }[] = [
@@ -117,8 +119,10 @@ export function ListDetail() {
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [reordering, setReordering] = useState(false)
-  const [addingId, setAddingId] = useState<string | null>(null)
-  const [addError, setAddError] = useState<string | null>(null)
+  // Cards added since the picker opened, so a finished add says so on its tile.
+  const [added, setAdded] = useState<ReadonlySet<string>>(new Set())
+  const [editError, setEditError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // Print checklist (UXC-01, deckpal audit ux-collection): the route only
   // accepts a Bearer header, so a plain `<a href>` 401s for every signed-in
@@ -138,8 +142,19 @@ export function ListDetail() {
     }
   }
 
+  const laneKey = `list:${id}`
+  const lane = useLane(laneKey)
+  const laneVersion = lane.getVersion()
   const list = data?.list
-  const items = useMemo(() => data?.items ?? [], [data])
+  // What the server has, as the person is about to see it: a removal that is
+  // still saving is already gone, and a reorder that is still saving already
+  // applies. A write that fails simply stops being pending, and the row is back.
+  const items = useMemo(() => {
+    const kept = (data?.items ?? []).filter((i) => !lane.intent(`remove:${i.itemId}`))
+    const order = lane.intent<string[]>('order')
+    return order ? inOrder(kept, order) : kept
+    // laneVersion stands in for `lane`: one stable object whose intents change underneath.
+  }, [data, lane, laneVersion])
   // A rule-backed list: membership is a saved query the server re-evaluates
   // on every read. Add/reorder don't exist for it; "remove" excludes.
   const smart = !!list?.rule
@@ -193,98 +208,122 @@ export function ListDetail() {
     return out
   }, [items, search.own, search.q, search.sort, search.dir, list?.kind])
 
-  // ── Mutations ───────────────────────────────────────────────────────────────
-  const addItem = useMutation({
-    mutationFn: async (vars: { cardId: string; quantity: number }) => {
-      // Resolve the card's primary variant, then add it.
-      const detail = await api.card(vars.cardId)
-      const primary = detail.variants.find((v) => v.isPrimary) ?? detail.variants[0]
-      if (!primary) throw new Error('Card has no variant to add')
-      return api.addListItem(id, { cardVariantId: primary.variantId, ...(list?.kind === 'static' ? { staticQuantity: vars.quantity } : {}) })
-    },
-    onSuccess: () => {
-      setAddingId(null)
-      setAddError(null)
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-    // UXC-05 (deckpal audit ux-collection): this used to swallow the error —
-    // a smart list's 400 ("cards cannot be added by hand") vanished with no
-    // message. The empty-state fix below means a smart list can no longer
-    // reach this modal at all, but the server is the source of truth for
-    // what an add can fail for, so any other failure still surfaces here
-    // rather than silently reverting to "nothing happened".
-    onError: (err) => {
-      setAddingId(null)
-      setAddError(err instanceof ApiError ? err.message : 'Could not add that card.')
-    },
-  })
+  // ── Writes ──────────────────────────────────────────────────────────────────
+  // All of them queue on this list's lane (lib/writes.ts): one request at a
+  // time, so the list summary each one answers with lands in order, and each
+  // ends visibly — saved, or rolled back with a message saying what did not.
+  const named = list ? `“${list.name}”` : 'this list'
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: key })
+    void qc.invalidateQueries({ queryKey: ['lists'] })
+  }
 
-  const removeItem = useMutation({
-    mutationFn: (itemId: string) => api.removeListItem(id, itemId),
-    onMutate: async (itemId: string) => {
-      await qc.cancelQueries({ queryKey: key })
-      const prev = qc.getQueryData<ListDetailResponse>(key)
-      if (prev) qc.setQueryData<ListDetailResponse>(key, { ...prev, items: prev.items.filter((i) => i.itemId !== itemId) })
-      return { prev }
-    },
-    onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const addItem = (card: { cardId: string; name: string }, quantity: number) => {
+    const staticList = list?.kind === 'static'
+    void save(laneKey, {
+      item: `add:${card.cardId}`,
+      send: async (signal) => {
+        // Resolve the card's primary variant, then add it.
+        const detail = await api.card(card.cardId, signal)
+        const primary = detail.variants.find((v) => v.isPrimary) ?? detail.variants[0]
+        if (!primary) throw new Error('Card has no variant to add')
+        return api.addListItem(id, { cardVariantId: primary.variantId, ...(staticList ? { staticQuantity: quantity } : {}) }, signal)
+      },
+      onSaved: () => {
+        setAdded((prev) => new Set(prev).add(card.cardId))
+        refresh()
+      },
+      failure: `Couldn't add ${card.name} to ${named}.`,
+      refresh,
+      // The server ignores a card a list already holds — except a static list,
+      // which may hold it twice on purpose, so there a repeat is a second copy.
+      retry: staticList ? undefined : () => addItem(card, quantity),
+    })
+  }
 
-  const reorder = useMutation({
-    mutationFn: (order: string[]) => api.updateList(id, { itemOrder: order }),
-    onMutate: async (order: string[]) => {
-      await qc.cancelQueries({ queryKey: key })
-      const prev = qc.getQueryData<ListDetailResponse>(key)
-      if (prev) {
-        const byId = new Map(prev.items.map((i) => [i.itemId, i]))
-        const reordered = order.map((oid, idx) => ({ ...byId.get(oid)!, position: idx }))
-        qc.setQueryData<ListDetailResponse>(key, { ...prev, items: reordered })
-      }
-      return { prev }
-    },
-    onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
-    onSettled: () => qc.invalidateQueries({ queryKey: key }),
-  })
+  const removeItem = (item: ListItem) =>
+    void save(laneKey, {
+      item: `remove:${item.itemId}`,
+      intent: true,
+      send: (signal) =>
+        api.removeListItem(id, item.itemId, signal).catch((error: unknown) => {
+          // Already gone is what was asked for: a Retry after a removal whose
+          // answer was lost would otherwise 404 forever.
+          if (error instanceof ApiError && error.status === 404) return null
+          throw error
+        }),
+      onSaved: async () => {
+        await applyAnswer(qc, [key], () =>
+          qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: old.items.filter((i) => i.itemId !== item.itemId) }),
+        )
+        refresh()
+      },
+      failure: `Couldn't remove ${item.name} from ${named}.`,
+      refresh,
+      retry: () => removeItem(item),
+    })
 
-  const editList = useMutation({
-    mutationFn: (body: Parameters<typeof api.updateList>[1]) => api.updateList(id, body),
-    onSuccess: () => {
-      setShowEdit(false)
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const reorder = (order: string[]) =>
+    void save(laneKey, {
+      item: 'order',
+      intent: order,
+      send: (signal) => api.updateList(id, { itemOrder: order }, signal),
+      onSaved: () =>
+        applyAnswer(qc, [key], () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: inOrder(old.items, order) })),
+      failure: `Couldn't save the new order of ${named}.`,
+      refresh,
+      retry: () => reorder(order),
+    })
 
-  const deleteList = useMutation({
-    mutationFn: () => api.deleteList(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['lists'] })
+  // A form that stays open reports in place: the person is looking at it.
+  const editList = (body: Parameters<typeof api.updateList>[1]) => {
+    setEditError(null)
+    void write(laneKey, {
+      item: 'edit',
+      send: (signal) => api.updateList(id, body, signal),
+      onSaved: async (res) => {
+        await applyAnswer(qc, [key], () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, list: res.list }))
+        refresh()
+      },
+    }).then((o) => {
+      if (o.status === 'saved') return setShowEdit(false)
+      if (o.status !== 'failed') return
+      if (!outcomeKnown(o.error)) refresh()
+      setEditError(writeFailureText(`Couldn't save your changes to ${named}.`, o.error))
+    })
+  }
+
+  const deleteList = () => {
+    setDeleteError(null)
+    const name = named
+    void write(laneKey, { item: 'delete', send: (signal) => api.deleteList(id, signal) }).then((o) => {
+      if (o.status === 'failed') return setDeleteError(writeFailureText(`Couldn't delete ${name}.`, o.error))
+      if (o.status !== 'saved') return
+      void qc.invalidateQueries({ queryKey: ['lists'] })
       navigate({ to: '/lists' })
-    },
-  })
+      showToast({ tone: 'info', message: `Moved ${name} to Recently deleted.`, action: { label: 'Undo', run: () => restoreList(qc, id, name) } })
+    })
+  }
 
   // Pin a smart list: the server materialises the current evaluation into
   // stored rows and detaches the rule — the list keeps today's cards and
   // stops changing on its own. Undoable via the mutation log.
-  const pinList = useMutation({
-    mutationFn: () => api.updateList(id, { rule: null }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const pinList = () =>
+    void save(laneKey, {
+      item: 'pin',
+      send: (signal) => api.updateList(id, { rule: null }, signal),
+      onSaved: refresh,
+      failure: `Couldn't pin ${named} as a regular list.`,
+      refresh,
+      retry: pinList,
+    })
 
   const moveItem = (from: number, to: number) => {
     if (to < 0 || to >= items.length) return
     const order = items.map((i) => i.itemId)
     const [m] = order.splice(from, 1)
     order.splice(to, 0, m)
-    reorder.mutate(order)
+    reorder(order)
   }
 
   const forceBinder = list?.kind === 'pokedex_binder'
@@ -373,9 +412,9 @@ export function ListDetail() {
                       ...(smart
                         ? [{
                             key: 'pin',
-                            label: pinList.isPending ? 'Pinning…' : 'Pin as regular list',
+                            label: lane.busy('pin') ? 'Pinning…' : 'Pin as regular list',
                             icon: 'lists' as const,
-                            onSelect: () => pinList.mutate(),
+                            onSelect: pinList,
                           }]
                         : []),
                       { key: 'delete', label: 'Delete list', icon: 'close' as const, danger: true, onSelect: () => setShowDelete(true) },
@@ -404,9 +443,9 @@ export function ListDetail() {
                       ...(smart
                         ? [{
                             key: 'pin',
-                            label: pinList.isPending ? 'Pinning…' : 'Pin as regular list',
+                            label: lane.busy('pin') ? 'Pinning…' : 'Pin as regular list',
                             icon: 'lists' as const,
-                            onSelect: () => pinList.mutate(),
+                            onSelect: pinList,
                           }]
                         : []),
                       { key: 'delete', label: 'Delete list', icon: 'close' as const, danger: true, onSelect: () => setShowDelete(true) },
@@ -519,7 +558,7 @@ export function ListDetail() {
                 </EmptyState>
               )
             ) : reordering && list.kind === 'static' ? (
-              <ReorderRows items={items} onMove={moveItem} onRemove={(it) => removeItem.mutate(it.itemId)} />
+              <ReorderRows items={items} onMove={moveItem} onRemove={removeItem} />
             ) : view.length === 0 ? (
               <div className="py-[60px] text-center text-[14px] text-text-muted">No cards match this filter.</div>
             ) : effectiveView === 'binder' ? (
@@ -527,7 +566,7 @@ export function ListDetail() {
             ) : effectiveView === 'table' ? (
               <TableView cards={view} seriesSlug="" setId="" />
             ) : (
-              <GridView cards={view} seriesSlug="" setId="" onRemove={(c) => removeItem.mutate((c as ListItem).itemId)} />
+              <GridView cards={view} seriesSlug="" setId="" onRemove={(c) => removeItem(c as ListItem)} />
             )}
           </div>
         </>
@@ -552,17 +591,13 @@ export function ListDetail() {
       {showAdd && list && (
         <AddCardModal
           listKind={list.kind}
-          addingId={addingId}
-          error={addError}
+          isAdding={(cardId) => lane.busy(`add:${cardId}`)}
+          wasAdded={(cardId) => added.has(cardId)}
           onClose={() => {
             setShowAdd(false)
-            setAddError(null)
+            setAdded(new Set())
           }}
-          onAdd={(card, quantity) => {
-            setAddError(null)
-            setAddingId(card.cardId)
-            addItem.mutate({ cardId: card.cardId, quantity })
-          }}
+          onAdd={addItem}
         />
       )}
       {showEdit && list && (
@@ -570,10 +605,14 @@ export function ListDetail() {
           mode="edit"
           initial={list}
           excluded={data?.excluded}
-          busy={editList.isPending}
-          onClose={() => setShowEdit(false)}
+          busy={lane.busy('edit')}
+          error={editError}
+          onClose={() => {
+            setShowEdit(false)
+            setEditError(null)
+          }}
           onSubmit={(body) =>
-            editList.mutate({
+            editList({
               name: body.name,
               description: body.description ?? null,
               visibility: body.visibility ?? 'private',
@@ -586,15 +625,38 @@ export function ListDetail() {
       {showDelete && list && (
         <ConfirmModal
           title="Delete list"
-          message={`Delete “${list.name}”? You can restore it from Recently deleted on My Lists.`}
+          message={`Delete “${list.name}”? It moves to Recently deleted, where you can restore it.`}
           confirmLabel="Delete List"
-          busy={deleteList.isPending}
-          onClose={() => setShowDelete(false)}
-          onConfirm={() => deleteList.mutate()}
+          busy={lane.busy('delete')}
+          error={deleteError}
+          onClose={() => {
+            setShowDelete(false)
+            setDeleteError(null)
+          }}
+          onConfirm={deleteList}
         />
       )}
     </Content>
   )
+}
+
+/** `items` in the order given, positions renumbered to match. */
+function inOrder(items: ListItem[], order: string[]): ListItem[] {
+  const rank = new Map(order.map((itemId, i) => [itemId, i]))
+  const at = (i: ListItem) => rank.get(i.itemId) ?? Number.MAX_SAFE_INTEGER
+  return [...items].sort((a, b) => at(a) - at(b)).map((it, position) => ({ ...it, position }))
+}
+
+/** Undo a delete: the list comes back out of Recently deleted. */
+function restoreList(qc: QueryClient, id: string, name: string): void {
+  void save(`list:${id}`, {
+    item: 'restore',
+    send: (signal) => api.restoreList(id, signal),
+    onSaved: () => void qc.invalidateQueries({ queryKey: ['lists'] }),
+    refresh: () => void qc.invalidateQueries({ queryKey: ['lists'] }),
+    failure: `Couldn't restore ${name}. It's still in Recently deleted.`,
+    retry: () => restoreList(qc, id, name),
+  })
 }
 
 export { LIST_SEARCH_DEFAULTS }

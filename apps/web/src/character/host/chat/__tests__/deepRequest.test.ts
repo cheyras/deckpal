@@ -14,7 +14,8 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DEEP_COST_NOTE, deepRequestLine, isDeepRequest } from '../deepRequest'
+import { readFileSync } from 'node:fs'
+import { DEEP_COST_NOTE, deepCost, deepCostLine, deepRequestLine, isDeepRequest, isShort } from '../deepRequest'
 
 test('it shows the request, then its qualifiers', () => {
   assert.equal(
@@ -172,10 +173,68 @@ test('no_research: true appends the no-research warning to the line', () => {
     no_research: true,
   })!
   assert.match(out, /Slowking toolbox/)
-  assert.match(out, /no research this conversation/)
+  assert.match(out, /no research behind it this time/)
 })
 
 test('without no_research the warning does not appear', () => {
   const out = deepRequestLine('write_strategy_guide', { deck: 'Slowking toolbox' })!
   assert.doesNotMatch(out, /no research/i)
+})
+
+// ── UXD-07: THE CARD NAMES THE PRICE ─────────────────────────────────────────
+//
+// With 40 credits a reader approved a 75-credit guide and was refused a second
+// later. Credits are bought with money since 2026-09-13, so the card says what
+// the call costs and what they have — and when there is no honest number, it
+// falls back to the sentence above rather than printing a guess.
+
+const Q = { analysis: 4, planDeck: 75, chatTurn: 1 }
+
+test('each deep tool is priced from the wallet exactly as the server charges it, plus the turn that answers it', () => {
+  // Answering the card sends a continuation request, metered as a chat turn
+  // BEFORE the deep call is charged — so "Go ahead" costs price + one turn.
+  assert.deepEqual(deepCost('write_strategy_guide', { ...Q, balance: 40 }), { credits: 76, balance: 40 })
+  assert.deepEqual(deepCost('plan_deck', { ...Q, balance: 400 }), { credits: 76, balance: 400 })
+  assert.deepEqual(deepCost('analyze_collection', { ...Q, balance: 40 }), { credits: 5, balance: 40 })
+  assert.deepEqual(deepCost('research_meta', { ...Q, balance: 40 }), { credits: 5, balance: 40 })
+  // An ordinary write with a restatement line is not a deep call and is not
+  // charged as one.
+  assert.equal(deepCost('deck_strategy', { ...Q, balance: 40 }), null)
+  assert.equal(deepCost('log_cards', { ...Q, balance: 40 }), null)
+})
+
+test('a balance of exactly the guide price is short — the review finding', () => {
+  // 76 before the first leg, 1 spent on it, 75 left: the continuation turn
+  // takes one more and the guide is refused at 74.
+  assert.equal(isShort(deepCost('write_strategy_guide', { ...Q, balance: 75 })), true)
+  assert.equal(isShort(deepCost('write_strategy_guide', { ...Q, balance: 76 })), false)
+})
+
+test('the client price table is the server one — read from its source', () => {
+  // `operationFor` decides what the meter charges. If it gains a tool or moves
+  // one between prices, this fails rather than the card quietly quoting the
+  // wrong number on a consent dialog.
+  const src = readFileSync(new URL('../../../../../../api/src/credits/policy.ts', import.meta.url), 'utf8')
+  const body = src.match(/export function operationFor\(tool: string\)[^{]*\{([\s\S]*?)\n\}/)?.[1]
+  assert.ok(body, 'operationFor is gone from apps/api/src/credits/policy.ts')
+  assert.match(body, /\['analyze_collection', 'research_meta'\]\.includes\(tool\) \? 'analysis' : 'planDeck'/,
+    'the server priced a tool differently — update deepCost to match')
+})
+
+test('no honest number means no number', () => {
+  // Credits switched off or unlimited (no prices), or a wallet not loaded yet.
+  assert.equal(deepCost('plan_deck', null), null)
+  assert.equal(deepCost('plan_deck', { ...Q, balance: null }), null)
+  assert.equal(deepCost('plan_deck', { ...Q, planDeck: 0, balance: 40 }), null)
+  assert.equal(deepCostLine(null), DEEP_COST_NOTE)
+})
+
+test('the line says what it takes and what they have, and says so when short', () => {
+  assert.equal(deepCostLine({ credits: 75, balance: 400 }),
+    'This takes longer than a normal answer and uses 75 credits of your 400.')
+  assert.equal(deepCostLine({ credits: 75, balance: 40 }), 'This needs 75 credits and you have 40.')
+  assert.equal(deepCostLine({ credits: 1, balance: 0 }), 'This needs 1 credit and you have 0.')
+  assert.equal(isShort({ credits: 75, balance: 75 }), false, 'exactly enough is enough')
+  assert.equal(isShort({ credits: 75, balance: 74 }), true)
+  assert.equal(isShort(null), false)
 })

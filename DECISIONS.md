@@ -20501,10 +20501,117 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 **Decision:** Fixed four findings from `audits/ux-collection.md`, scoped to the set/list/profile surfaces, all behind `fix/collection-quick-fixes`:
 
 - **UXC-01 (Print checklist 401s).** `<a href={api.listPdfUrl}/setChecklistPdfUrl}>` sent no `Authorization` header — cloud's PDF routes 401 every signed-in user who clicked Print Checklist. Added `api.downloadPdf(path, filename)` (`lib/api.ts`), which fetches with the same auth pipeline as `scanFlagBlob`, then downloads via a temporary `<a download>` on a `blob:` URL — never `window.open`, which iOS Safari popup-blocks once a request has crossed an `await`. `SetHeader.tsx` and `ListDetail.tsx` now call it from buttons instead of link `href`s. `deckPdfUrl` (`DeckBuilder.tsx`) has the identical defect and is deliberately untouched — out of this area, flagged for whoever owns Decks.
-- **UXC-03 (hover-only destructive controls).** The list-tile and showcase remove buttons were `opacity-0 group-hover:opacity-100` — invisible on any device with no `:hover`, while still live to a tap. Both are now always visible and gated behind the existing `ConfirmModal` primitive (no new toast component — `fix/visible-save-failures` owns building the shared Toast/Undo; this PR uses a plain confirm step and can migrate to that hook later without touching the removal logic). Verification surfaced a SEPARATE, pre-existing bug this fix would otherwise have shipped silently broken: the premium skin (the app's **default** skin, `lib/skin.ts`) lifts `.px-card-art` to `z-index: 1` on hover/focus (`premium.css`, "Card art"), and the remove button had no matching `z-index`, so once visible it was still unclickable by an actual desktop mouse hovering the tile. Given the `px-card-badge` class (`z-index: 2` under premium) already exists for exactly this — the owned-qty badge and the variant counters carry it — the remove button now carries it too.
-- **UXC-05 (completed smart list dead-ends into a failing "Add Cards").** `ListDetail`'s empty state didn't check `smart`, so a finished smart list said "This list is empty" and offered an add that always 400s ("cards cannot be added by hand"), with the error swallowed (`onError: () => setAddingId(null)`). Smart + zero items now renders a completion state ("You've collected everything in this list"); `AddCardModal` gained an `error` prop so any other add failure surfaces the server's message instead of vanishing.
+- **UXC-03 (hover-only destructive controls).** The list-tile and showcase remove buttons were `opacity-0 group-hover:opacity-100` — invisible on any device with no `:hover`, while still live to a tap. Both are now always visible and gated behind the existing `ConfirmModal` primitive; the underlying removal uses #219's per-list write lane and failure feedback. Verification surfaced a SEPARATE, pre-existing bug this fix would otherwise have shipped silently broken: the premium skin (the app's **default** skin, `lib/skin.ts`) lifts `.px-card-art` to `z-index: 1` on hover/focus (`premium.css`, "Card art"), and the remove button had no matching `z-index`, so once visible it was still unclickable by an actual desktop mouse hovering the tile. Given the `px-card-badge` class (`z-index: 2` under premium) already exists for exactly this — the owned-qty badge and the variant counters carry it — the remove button now carries it too.
+- **UXC-05 (completed smart list dead-ends into a failing "Add Cards").** `ListDetail`'s empty state didn't check `smart`, so a finished smart list said "This list is empty" and offered an add that always 400s ("cards cannot be added by hand"), with the error swallowed (`onError: () => setAddingId(null)`). Smart + zero items now renders a completion state only when the rule is not narrowed by price, rarity, finish, or manual exclusion; a narrowed rule gets neutral copy. The merged per-list write lane from #219 reports any failed add once, while successful cards stay marked in the picker.
 - **UXC-09 (quick polish).** List header buttons wrapped to two lines at 390px, against issue #154's rule ("on mobile, consolidate them all into an actions dropdown") — the set page already followed it, the list page didn't. Mirrored `SetHeader`'s pattern: full row hidden below the `gap` breakpoint, collapsed into a single "List actions" kebab; also dropped a genuine duplicate — a smart list rendered BOTH "Edit Rule" and a separate "Edit list" icon button that opened the exact same modal. "Delete '<name>'? This can't be undone" was false (migration 038 soft-deletes both lists and decks; the row is restorable from Recently deleted) — fixed in both `ListDetail.tsx` and `DeckBuilder.tsx`, since it's the same copy bug in both places. Smaller: a smart list's rule caption printed the raw goal enum (`· complete`) instead of the shared `GOAL_SHORT_LABEL` map every other surface uses; card detail's price-freshness note described "self-hosted feed" on the cloud product every visitor is on. Left alone on purpose: the dead link button on card detail (another PR covers it).
 
 **Why:** Each is documented in `audits/ux-collection.md` with production/fixture evidence. The premium-skin z-index gap was not in the audit — it only surfaced because verification drove the fix with a real (non-force) Playwright click at desktop width, which is exactly the gap a `force: true` click or a manual hover-then-inspect check would have hidden.
 
-**Implications:** `api.ts`'s `listPdfUrl`/`setChecklistPdfUrl` are gone (replaced by `listPdfPath`/`setChecklistPdfPath` + `downloadPdf`); nothing else referenced them. A source-guard suite (`apps/web/src/components/__tests__/{pdfDownload,destructiveControls}.test.ts`, `apps/web/src/routes/__tests__/{listDetailSmart,listDetailPolish}.test.ts`, wired as `deckpal-web`'s `test:collection` and into `ci.yml`) pins all four regressions in source text, the same idiom `gatedAssets.test.ts` already uses for the scanner harvest. Any future overlay control added inside a card tile (`CardTile.tsx`) needs the `px-card-badge`/`px-card-counters` marker class to stay clickable under the premium skin's hover-lift — that contract isn't enforced by a test, only by this note and the comment at the call site.
+**Implications:** `api.ts`'s `listPdfUrl`/`setChecklistPdfUrl` are gone (replaced by `listPdfPath`/`setChecklistPdfPath` + `downloadPdf`); nothing else referenced them. A source-guard suite (`apps/web/src/components/__tests__/{pdfDownload,destructiveControls}.test.ts`, `apps/web/src/routes/__tests__/{listDetailSmart,listDetailPolish}.test.ts`, wired as `deckpal-web`'s `test:collection` and into `ci.yml`) pins the collection behaviors; #219's write-lane suite verifies queued writes and visible failures. Any future overlay control added inside a card tile (`CardTile.tsx`) needs the `px-card-badge`/`px-card-counters` marker class to stay clickable under the premium skin's hover-lift — that contract isn't enforced by a test, only by this note and the comment at the call site.
+## 2026-09-26 — Collection, list and deck writes go through per-document lanes and always end visibly
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Collection counters, list edits and deck edits stop using one
+`useMutation` per write. They go through `lib/writeLane.ts`: one request in
+flight per document (`collection:<setId>`, `list:<id>`, `deck:<id>`); a write
+still waiting its turn is replaced by a newer write for the same item (the last
+intent wins); and the control shows the pending intent until the item's last
+write settles. Every such write states an absolute target — the counters use
+`PATCH /collection/variants/:id` instead of `…/increment`, and a deck row's ×
+is `PATCH …/cards/:cardId {quantity: 0}` — which is what makes coalescing and
+Retry safe. Outcomes are reported one way (`lib/writes.ts`): a final failure
+rolls back and raises a `Toast` naming what did not save ("Couldn't remove
+Pikachu from “Trade binder”."), adds why only when it is actionable (offline,
+timed out, deleted, a 4xx's own message), and offers Retry when repeating the
+request is harmless. A form that stays open (Edit list, the delete
+confirmations) reports inline through `FormAlert` instead. Deleting a list or a
+deck, and removing a card from a deck, offer Undo through the existing restore
+and absolute-set endpoints. The server's answer to a collection write is folded
+into the cached card and set responses (after cancelling any older read still in
+flight, which would otherwise land last and undo it on screen); the set itself is
+re-read once, two seconds after the taps stop, for the goal-specific have/need
+flags the answer cannot supply, and the grid is no longer dimmed for a
+background read. `Toast` is a new `components/ui` primitive: one at a time, in
+PwaUi's bottom-right stack with the offline banner, errors announced
+assertively.
+
+**Why:** Quality audit QUAL-02: fifteen collection/list/deck mutations failed
+with no message (restore, edit, delete, pin, add card, update deck among them);
+Restore in Recently deleted — the undo for every delete — did nothing visible
+on a 500. QUAL-06: the deck stepper fired unordered requests, and a stale
+answer landing last replaced the whole deck with an older count. UX audit
+UXC-02: the grid counters disabled themselves during a write, so the 2nd and
+3rd tap of a three-copy pull were dropped, and each tap re-downloaded the whole
+set (0.8–6.5 s on production) while dimming the grid. UXC-08: no undo in the UI,
+although the server has one. TanStack Query does not order concurrent
+`mutate()` calls, and its `scope` option serialises without coalescing or
+saying which answer is an item's last word; those three properties are the
+whole fix, so they live in one small module unit-tested on its own
+(`lib/__tests__/writeLane.test.ts`) and in a browser check that injects 500s,
+reordered latency and offline (`tests/browser/writes.mjs`).
+
+**Implications:**
+- Offline is unchanged where it was defined: the service worker still never
+  queues a write, and the collection counters stay disabled offline. Other
+  writes are attempted and fail with "You're offline." — they are no longer
+  held by TanStack's paused-mutation queue and replayed later.
+- A write that has not answered in 20 s is aborted and reported, so one stalled
+  request cannot freeze the document's other writes. Aborting a fetch does not
+  stop the server, though, so when a write got no answer (the deadline, a
+  dropped connection) its outcome is UNKNOWN: the newer write already queued
+  for that item fails with it (reported once, as the item's final word, so
+  Retry targets the latest intent), and nothing more is sent for that item
+  until 75 s after the unanswered one left — longer than the API function's
+  60 s `maxDuration`, so it can no longer land after its replacement. A unit
+  test holds that margin against `vercel.json`. Failures the server answered
+  (a 500), and requests that never left an offline device, fence nothing.
+  After an unanswered failure the surface re-reads what the write touched,
+  at once and again when the window closes, in case the change landed late.
+- Offline, a write is refused when it is asked for, not queued: one waiting
+  behind another would otherwise go out by itself on reconnecting.
+- `applyAnswer` cancels every read of the data a write touched that is in
+  flight when its answer arrives, applies the answer, then asks those reads
+  again, so a slow GET can neither undo the edit on screen nor be lost (an
+  add's list refresh, a first load).
+- The write-feedback toast sits outside every sheet, so the topmost `Sheet`'s
+  Tab loop now runs through it: a keyboard can reach Retry for a save that
+  failed inside a sheet. Only the topmost dialog handles Tab.
+- Writes belong to the account that asked for them. On IDENTITY_CHANGED every
+  lane is cancelled (queue dropped, in-flight request aborted, its answer
+  ignored) and any Retry/Undo toast is dismissed; each write also re-checks the
+  session just before it is sent, because another tab signing in changes
+  storage before this tab hears about it.
+- The set progress bars move when the server confirms (one round trip) rather
+  than instantly from CardDetail's client-side copy of the progress maths,
+  which is removed. Have/Need/Dupes counts and the "Need" filter catch up with
+  the one re-read after the taps stop, so a card no longer vanishes from under
+  the finger logging it.
+- Additive writes — adding N copies from the deck search picker, adding to a
+  static list — get no Retry, and their tile stays disabled while saving.
+- Not done here: an exact Undo for removing a card from a list needs the list
+  item DELETE to return its mutation `batchId` for `POST /mutations/revert`.
+  Scanner and Deck-E batch commits have their own flows and are unchanged.
+- New writes to these documents should use `save()` / `laneFor()` from
+  `lib/writes.ts`, not a bare `useMutation`.
+## 2026-09-26 — Deck-E stands clear of what the reader has to press, and every card and notice says what it will do
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Six findings from the `ux-decks` audit (UXD-02, 03, 04, 07, 08, 15), fixed by extending mechanisms that already existed rather than adding cases.
+
+1. **The mark watch reads the mark he is flown to** (`DeckeHost.tsx`). On a phone `park()` aims at the park box, whose floor `parkFloor.ts` already lifts over an approval card; the 10 Hz watch read only `[data-decke-composer]`, which does not move when a card mounts above it. So the layout was right and the flight never happened. The watch now reads `[data-decke-park]` on a phone and the composer on desktop, which are the two elements `park()` targets.
+2. **The out-of-credits card is registered as the floor** (`DeckeChat.tsx`, `spentRef`). It replaced the composer and took neither of the composer's registrations with it: no floor measurement, so the park box fell back to the old corner at hero size, and no `COMPOSER_LANDMARK`, so desktop found nothing to stand beside and used a viewport fraction that lands on the card. It now carries both. It also becomes the size ruler when no composer has been seen this visit. `composerRuler.ts` keeps the shortest card, so a reader who runs out mid-conversation keeps the composer's size. A reader who opens the panel already spent gets the viewport ceiling, which on a phone is exactly the conversation size and on a 1440×900 desktop is 216 px against the conversation's ~162.
+3. **While a card is up, he is waiting, not working** (`WaitingRow`). The row shows "Waiting for your OK", static, with no ring and no clock. Stop is hidden because "Leave it" is the answer, and the turn clock restarts when the card is answered.
+4. **A dry run reaches the card as its operations.** `buildApprovalPreview` took the chip's first-line summary, which for `save_deck` is `DRY RUN — nothing executed. Would:`. `previewSummary` (`apps/api/src/decke/adapters/aisdk.ts`) keeps every operation line and drops the model-facing preamble and `Re-run with dry_run` instruction. It caps at 12 lines with a counted tail. Any text that is not a dry run keeps the old summary. The card (`DryRunList`, `dryRun.ts`) parses `describeOp`'s fixed grammar into rows with the catalogue's name and art and a green/red change chip. It shows any unrecognised line verbatim, never drops one, and never shows the bare header. The rows scroll in a bounded region, so a twelve-line create cannot push the card's buttons off a phone in a panel that clips.
+5. **A paid deep call names its price** (`deepCost`, `deepCostLine`). The price comes from the wallet's own per-operation prices, mapped exactly as the server's `operationFor` charges them (a test reads that function's source). It is quoted as price + one chat turn, because answering the card sends a continuation request that is metered as a turn before the deep call is charged. Review found the edge: a 75-credit guide is refused at a balance of exactly 75. The balance is a wallet read taken after the card goes up. The wallet is otherwise refetched only when a turn ends, and a leg's `x-decke-credits` header predates any deep call that ran in the same leg. The price line shows no number until that read lands. If the balance is short, the primary action becomes "Top up credits". Like every other top-up, it ends the turn (`chat.close()`) on its way to the wallet, so the held call is settled by the abort instead of being answered with another metered request. There is no number when credits are off, the account is unlimited, or the balance is unknown. The strategy-guide headline now says "write", not "save … I just wrote", and the cost line no longer says "research" under a "no research" line.
+6. **Refusals carry their way forward** (`httpNotice.ts`). A notice part carries an intent (`retry`, `top-up`, `wallet`), and the panel owns the handlers. The chat 429 body gains `held` (`api/chat.mjs`) because a held wallet can have a short balance too. A meter-refused tool row offers Top up or the wallet instead of a "Try again" that walks back into the same refusal.
+7. **On a deck page the first two openers are about that deck** (`openersFor`). The same least-seen rotation applies, and the last chip comes from any other kind. Because the chips now depend on the page, the pick is made on the panel's rising edge instead of on close. Otherwise a pick made on the page it was closed on would follow the reader to the next page. Deck-page sightings are kept in the stored log like every other opener's.
+
+**Why:** Each of these was photographed failing on the real app with the fixture backend: covering "Leave it" at 390 in both engines, covering "Top up credits" at 390 and 1440 in both engines, a consent card with no facts on it, a 75-credit approval with 40 in the wallet, and notices that name an action they do not offer. The placement mechanism was already correct (the park box, `parkFloor`, the composer landmark). Two elements were never registered with it and one trigger read the wrong element, so the fix is registration, not a new rule.
+
+**Implications:**
+- Measured on the real app (Chromium and WebKit, via a pixel diff of the canvas on and off), overlap of his drawn silhouette in px², before → after: "Leave it" 2,880 → 0 (390, both engines); save_deck card 12,546 → 0; deep card 14,352 → 0; "Top up credits" 4,608 → 0 (390) and 4,572 → 0 (1440).
+- `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
+- `CardArt.name` is now rendered, by the dry-run rows only.
+- Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
