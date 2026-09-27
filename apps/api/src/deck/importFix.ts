@@ -1,8 +1,9 @@
 import type { Queryable } from '@deckpal/db';
 import { cardImages } from '../db.js';
+import { ApiError } from '../http.js';
 import { parsePtcgl, type ParsedLine } from './ptcgl.js';
 import { formatConfig, resolveSetAlias } from './data.js';
-import { formatPoolSql, resolveDeck, resolveLine } from './db.js';
+import { formatPoolSql, resolveLine } from './db.js';
 import { normalizeName } from './names.js';
 import { ptcglCodeForSet, ptcglName } from './export.js';
 import { RARITY_RANK } from '../rarity.js';
@@ -139,35 +140,47 @@ async function printRows(db: Queryable, names: string[], userId: string, format:
 export async function prepareImportFix(db: Queryable, text: string, format: FormatCode, userId: string): Promise<{
   options: ImportFixOption[]; unfixed: string[];
 }> {
+  // Leave time under the request's 30-second RLS watchdog for the model and
+  // the selected-card verification. Slow catalogues return partial suggestions.
+  const deadline = Date.now() + 15_000;
   const parsed = parsePtcgl(text);
-  const resolved = await resolveDeck(db, parsed, format);
-  const unresolved = (resolved.importWarnings ?? []).filter(w => w.code === 'UNRESOLVED_CARD')
+  const unresolved = parsed.warnings.filter(w => w.code === 'UNRESOLVED_CARD')
     .map(w => w.line ?? '').filter(Boolean);
+  for (const line of parsed.lines) {
+    if (Date.now() >= deadline)
+      throw new ApiError(503, 'decke_import_slow', 'Deck-E needs a shorter list to check. You can still edit or skip these lines.');
+    if (!(await resolveLine(db, line, format))) unresolved.push(line.raw);
+  }
   const entries = lineIndices(text, unresolved);
   const options: ImportFixOption[] = [];
   for (const { raw, index } of entries.slice(0, 20)) {
+    if (Date.now() >= deadline) break;
     const line = quantityLine(raw);
     if (!line || line.quantity < 1 || line.quantity > 60 || !line.name.trim()) continue;
     const names = await candidateNames(db, line.name);
     if (!names.length) continue;
     const all = await printRows(db, names, userId, format);
+    const hintedSet = line.setCode ? resolveSetAlias(line.setCode)?.set : undefined;
     let slot = 0;
     for (const name of names) {
       const sameName = all.filter(row => row.name_normalized === name);
-      // A name can have genuinely different game text. Pick a base print first,
-      // then narrow any owned/regular preference to its gameplay fingerprint.
-      const base = choosePrint(sameName, format);
-      if (!base) continue;
-      const samePlay = base.playable_fingerprint
-        ? sameName.filter(row => row.playable_fingerprint === base.playable_fingerprint)
-        : [base];
-      const card = choosePrint(samePlay.filter(row => ptcglCodeForSet(row.set_tcgdex_id)), format);
+      // Ownership chooses a printing only AFTER the card's gameplay identity
+      // is clear. If no stated set distinguishes multiple game texts, abstain.
+      const identities = new Map<string, CandidateRow[]>();
+      for (const row of sameName) {
+        const key = row.playable_fingerprint ?? `unknown:${row.tcgdex_id}`;
+        identities.set(key, [...(identities.get(key) ?? []), row]);
+      }
+      const matching = [...identities.values()].filter(group =>
+        !hintedSet || group.some(row => row.set_tcgdex_id === hintedSet));
+      if (matching.length !== 1) continue;
+      const prints = matching[0]!.filter(row =>
+        ptcglCodeForSet(row.set_tcgdex_id) && (!hintedSet || row.set_tcgdex_id === hintedSet));
+      const card = choosePrint(prints, format);
       if (!card) continue;
       const code = ptcglCodeForSet(card.set_tcgdex_id)?.code;
       if (!code || !resolveSetAlias(code)?.set) continue;
       const replacement = `${line.quantity} ${ptcglName(card.name, card.category)} ${code} ${card.local_id}`;
-      const reParsed = quantityLine(replacement);
-      if (!reParsed || (await resolveLine(db, reParsed, format))?.card.tcgdexId !== card.tcgdex_id) continue;
       options.push({
         key: `l${index}c${slot++}`, lineIndex: index, replacement,
         card: { id: card.tcgdex_id, name: card.name, set: code, number: card.local_id,
@@ -179,6 +192,23 @@ export async function prepareImportFix(db: Queryable, text: string, format: Form
     }
   }
   return { options, unfixed: unresolved };
+}
+
+/** Verify only the keys the model selected, with duplicate replacements cached. */
+export async function verifiedImportFix(db: Queryable, format: FormatCode, text: string,
+  prepared: Awaited<ReturnType<typeof prepareImportFix>>, modelOutput: unknown): Promise<ImportFixResult> {
+  const checked = new Map<string, boolean>();
+  const valid: ImportFixOption[] = [];
+  for (const option of selectedOptions(modelOutput, prepared.options)) {
+    const key = `${option.card.id}:${option.replacement}`;
+    if (!checked.has(key)) {
+      const parsed = quantityLine(option.replacement);
+      checked.set(key, !!parsed &&
+        (await resolveLine(db, parsed, format))?.card.tcgdexId === option.card.id);
+    }
+    if (checked.get(key)) valid.push(option);
+  }
+  return finishImportFix(text, { ...prepared, options: valid }, modelOutput);
 }
 
 export function finishImportFix(text: string, prepared: Awaited<ReturnType<typeof prepareImportFix>>,

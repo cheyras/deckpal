@@ -125,14 +125,15 @@ try {
   });
 
   // ── Import fix: fuzzy SQL candidates must resolve to the exact print ──────
-  const { prepareImportFix, finishImportFix } = await import('../deck/importFix.ts');
+  const { prepareImportFix, verifiedImportFix } = await import('../deck/importFix.ts');
   await client.query('INSERT INTO collection_item (user_id, card_variant_id, quantity) VALUES ($1, $2, $3)',
     [userId, 101, 2]);
   const misspelled = '4 Pikachoo';
   const prepared = await prepareImportFix(client, misspelled, 'standard', userId);
   const owned = prepared.options.find(option => option.card.id === 'sv05-051');
   assert.ok(owned, 'real PostgreSQL finds the owned English printing and re-resolves its PTCGL line');
-  const fixed = finishImportFix(misspelled, prepared, JSON.stringify({ choices: [{ key: owned.key }] }));
+  const fixed = await verifiedImportFix(client, 'standard', misspelled, prepared,
+    JSON.stringify({ choices: [{ key: owned.key }] }));
   assert.deepEqual(fixed.fixes.map(fix => [fix.lineIndex, fix.card.id, fix.replacement]),
     [[0, 'sv05-051', '4 Pikachu TEF 051']]);
   assert.deepEqual(fixed.unfixed, []);

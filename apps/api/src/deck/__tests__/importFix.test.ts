@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Queryable } from '@deckpal/db';
-import { choosePrint, finishImportFix, importFixPrompt, prepareImportFix, selectedOptions, type ImportFixOption } from '../importFix.js';
+import { choosePrint, finishImportFix, importFixPrompt, prepareImportFix, selectedOptions, verifiedImportFix, type ImportFixOption } from '../importFix.js';
 
 const option = (lineIndex: number, key: string): ImportFixOption => ({
   key, lineIndex, replacement: '4 Boss\'s Orders PAL 172',
@@ -63,8 +63,32 @@ test('a suggested fix is admitted only if the ordinary resolver lands on that ca
   const good = await prepareImportFix(db, '4 Boss', 'standard', 'user');
   assert.equal(good.options.length, 1);
   assert.equal(good.options[0]!.replacement, "4 Boss's Orders PAL 172");
-  assert.deepEqual(finishImportFix('4 Boss', good, '{"choices":[{"key":"l0c0"}]}').unfixed, []);
+  const chosen = '{"choices":[{"key":"l0c0"}]}';
+  assert.deepEqual((await verifiedImportFix(db, 'standard', '4 Boss', good, chosen)).unfixed, []);
   exactId = 'sv02-999';
   const bad = await prepareImportFix(db, '4 Boss', 'standard', 'user');
-  assert.equal(bad.options.length, 0);
+  assert.equal(bad.options.length, 1, 'the candidate remains available for model selection');
+  const refused = await verifiedImportFix(db, 'standard', '4 Boss', bad, chosen);
+  assert.deepEqual(refused.fixes, [], 'the selected option is discarded after re-resolution');
+  assert.deepEqual(refused.unfixed, ['4 Boss']);
+});
+
+test('a stated set establishes gameplay identity before owned-print preference', async () => {
+  const row = (id: string, set: string, fingerprint: string, owned: string) => ({
+    id, tcgdex_id: id, name: 'Charizard ex', name_normalized: 'charizard ex',
+    category: 'Pokemon', local_id: id.split('-').at(-1), set_tcgdex_id: set,
+    serie_tcgdex_id: 'sv', regulation_mark: 'G', released_on: '2023-01-01',
+    rarity: 'Rare', playable_fingerprint: fingerprint, owned,
+  });
+  const obf = row('sv03-125', 'sv03', 'obf-gameplay', '0');
+  const mew = row('sv03.5-006', 'sv03.5', 'mew-gameplay', '3');
+  const db = { query: async (sql: string) => {
+    if (sql.includes('SELECT c.name_normalized, max(')) return { rows: [{ name_normalized: 'charizard ex' }] };
+    if (sql.includes('coalesce((SELECT sum(ci.quantity)')) return { rows: [obf, mew] };
+    return { rows: [] };
+  } } as unknown as Queryable;
+  const hinted = await prepareImportFix(db, '1 Charizrd ex OBF 999', 'standard', 'user');
+  assert.deepEqual(hinted.options.map(option => option.card.id), ['sv03-125']);
+  const ambiguous = await prepareImportFix(db, '1 Charizrd ex', 'standard', 'user');
+  assert.deepEqual(ambiguous.options, [], 'without a set, different game texts are left for manual review');
 });

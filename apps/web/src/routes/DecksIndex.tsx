@@ -141,6 +141,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const [undone, setUndone] = useState<ReadonlySet<number>>(new Set())
   const [fixError, setFixError] = useState<string | null>(null)
   const [errandActive, setErrandActive] = useState(false)
+  const reviewRevision = useRef(0)
+  const close = () => { reviewRevision.current++; onClose() }
   useEffect(() => {
     if (errandActive) startDeckeErrand()
     else endDeckeErrand()
@@ -222,10 +224,11 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     setErrandActive(false)
     const asked = { text: confirmedText, formatCode }
     const source = { text, formatCode }
+    const revision = reviewRevision.current
     check.mutate(asked, {
       onSuccess: ({ import: summary }) => {
         const now = latest.current
-        if (now.text !== source.text || now.formatCode !== source.formatCode) return
+        if (now.text !== source.text || now.formatCode !== source.formatCode || reviewRevision.current !== revision) return
         // Move the accepted text into the editor, then show any lines that still
         // need the reader. Only a clean server check may create a deck.
         setText(asked.text)
@@ -263,6 +266,10 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     el.focus()
     el.setSelectionRange(range[0], range[1])
   }
+  const undoFix = (lineIndex: number) => {
+    reviewRevision.current++
+    setUndone(prev => new Set([...prev, lineIndex]))
+  }
   const them = unmatched.length === 1 ? 'it' : 'them'
   // On a phone the panel lands under a tall textarea; bring the lines into view.
   useEffect(() => {
@@ -278,11 +285,11 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   return (
     <Modal
       title="Import from PTCG Live"
-      onClose={onClose}
+      onClose={close}
       wide
       footer={
         <div className="flex justify-end gap-[10px]">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="secondary" onClick={close}>Cancel</Button>
           <Button type="submit" form={formId} disabled={!text.trim() || (reviewing ? !confirmedText : skipping && matchedCards === 0) || fix.isPending} loading={busy || check.isPending}>
             {check.isPending ? 'Checking…' : busy ? 'Importing…' : reviewing ? (remaining ? 'Confirm fixes' : 'Confirm and import') : skipping ? `Import without ${them}` : 'Import Deck'}
           </Button>
@@ -365,8 +372,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                           <div className="break-words font-mono text-[14px] font-semibold text-text-primary">{found.replacement}</div>
                           <div className="text-[13px] text-text-muted">{found.reason}</div>
                         </div>
-                        <button type="button" onClick={() => setUndone(prev => new Set([...prev, lineIndex]))}
-                          className="shrink-0 rounded-full px-[8px] py-[6px] text-[14px] font-semibold text-link hover:bg-action-default-hover">Undo</button>
+                        <button type="button" onClick={() => undoFix(lineIndex)} disabled={check.isPending}
+                          className="shrink-0 rounded-full px-[8px] py-[6px] text-[14px] font-semibold text-link hover:bg-action-default-hover disabled:opacity-50">Undo</button>
                       </div>
                     </> : <div className="flex min-w-0 items-center justify-between gap-[10px]">
                       <code className="min-w-0 break-words font-mono text-[14px] text-text-primary">{line}</code>

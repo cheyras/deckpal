@@ -22,6 +22,11 @@ export async function checkDeckImport(browser, server, fixture) {
     const { context, page } = await contextFor(browser, server, width)
     await signIn(context, USER)
     const created = [], checked = []
+    let holdConfirmedCheck = true
+    let releaseConfirmedCheck
+    let confirmedCheckStarted
+    const heldResponse = new Promise(resolve => { releaseConfirmedCheck = resolve })
+    const started = new Promise(resolve => { confirmedCheckStarted = resolve })
     await page.route('**/api/decks**', route => {
       const url = new URL(route.request().url())
       if (url.pathname === '/api/decks' && route.request().method() === 'GET') return route.fulfill({ json: { decks: [] } })
@@ -30,6 +35,11 @@ export async function checkDeckImport(browser, server, fixture) {
         const body = route.request().postDataJSON()
         if (body.dryRun) {
           checked.push(body.text)
+          if (body.text === confirmed && holdConfirmedCheck) {
+            holdConfirmedCheck = false
+            confirmedCheckStarted()
+            return heldResponse.then(() => route.fulfill({ json: summary([]) }))
+          }
           return route.fulfill({ json: summary(body.text === confirmed ? [] : ['2 Iono PAL 999', '2 Iono PAL 999']) })
         }
         created.push(body)
@@ -56,12 +66,29 @@ export async function checkDeckImport(browser, server, fixture) {
       await prepare()
       assert.equal(created.length, 0, 'review must remain read-only')
       await page.getByRole('button', { name: 'Confirm and import' }).click()
+      await started
+      assert.equal(await page.getByRole('button', { name: 'Undo' }).first().isDisabled(), true,
+        'Undo must be disabled while the confirmation dry run is pending')
+      assert.equal(created.length, 0, 'the pending check must not create a deck')
+      await page.getByRole('button', { name: 'Cancel' }).click()
+      await page.getByRole('textbox', { name: 'Decklist' }).waitFor({ state: 'hidden' })
+      const response = page.waitForResponse(r => r.url().endsWith('/api/decks/import') &&
+        r.request().postDataJSON()?.text === confirmed)
+      releaseConfirmedCheck()
+      await response
+      await page.waitForTimeout(100)
+      assert.equal(created.length, 0, 'a canceled confirmation response must not create a deck')
+      await prepare()
+      assert.equal(created.length, 0, 'reopening review must remain read-only')
+      await page.getByRole('button', { name: 'Confirm and import' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
-      assert.deepEqual(checked, [original, original, confirmed], 'the second dry run must check the exact accepted text')
+      assert.deepEqual(checked, [original, original, confirmed, original, confirmed],
+        'the second dry run must check the exact accepted text on each review')
       assert.equal(created.length, 1)
       assert.equal(created[0].text, confirmed, 'import must receive only the text the reader confirmed')
-      results.push({ case: 'deck-import-fix-confirm', width, checked: checked.length, created: created.length })
-    } finally { await context.close() }
+      results.push({ case: 'deck-import-fix-confirm', width, checked: checked.length, created: created.length,
+        undoDisabledDuringCheck: true, canceledCheckCreated: false })
+    } finally { releaseConfirmedCheck(); await context.close() }
   }
   return results
 }

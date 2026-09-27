@@ -1040,7 +1040,7 @@ fix the text or import without those lines.
 ### POST /deckpal/api/decks/import/fix
 Ask Deck-E to suggest repairs for unmatched PTCG Live lines. Authenticated
 accounts need `decke.use`; this route makes no deck write. Body:
-`{ "text": "…" (required, ≤20000 characters), "formatCode": "standard" }`.
+`{ "text": "…" (required, ≤20000 characters and 60 card lines), "formatCode": "standard" }`.
 It charges one daily Deck-E turn, with no credit charge. The response has
 `{ "fixes": [{ "lineIndex", "original", "replacement", "card": { "id", "name", "set", "number", "image" }, "reason", "confidence": "suggested" }], "unfixed": ["…"] }`.
 `lineIndex` is the zero-based physical line, so identical lines stay distinct.

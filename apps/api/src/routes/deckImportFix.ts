@@ -10,7 +10,8 @@ import { assertDeckeAccess, payloadHash, readPolicy } from '../credits/runtime.j
 import { capFor, chargeSql } from '../decke/meter.js';
 import { beginAiRequest, finishAiRequest, observeUsageModel, runAiUsage, runUsageOperation } from '../decke/usage.js';
 import { MODELS } from '../decke/models.js';
-import { finishImportFix, importFixPrompt, prepareImportFix } from '../deck/importFix.js';
+import { importFixPrompt, prepareImportFix, verifiedImportFix } from '../deck/importFix.js';
+import { parsePtcgl } from '../deck/ptcgl.js';
 import type { FormatCode } from '../deck/types.js';
 
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const;
@@ -31,6 +32,7 @@ export function registerDeckImportFix(router: Router): void {
     const text = typeof req.body?.text === 'string' ? req.body.text : '';
     if (!text.trim()) throw badRequest('text is required');
     if (text.length > 20_000) throw badRequest('decklist text too large');
+    if (parsePtcgl(text).lines.length > 60) throw badRequest('decklist has too many card lines');
     const format = oneOf<FormatCode>(req.body?.formatCode, FORMATS, 'standard');
     const userId = currentUserId(req);
     await assertDeckeAccess(userId);
@@ -71,6 +73,6 @@ export function registerDeckImportFix(router: Router): void {
       throw new ApiError(503, 'decke_unavailable', "I can't reach my brain right now. You can still edit the lines yourself.");
     }
     userCache(res);
-    res.json(finishImportFix(text, prepared, output));
+    res.json(await verifiedImportFix(dbHandle(), format, text, prepared, output));
   }));
 }
