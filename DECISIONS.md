@@ -20524,7 +20524,7 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
    reads `rangeLabel(range)` from a shared `VALUE_RANGES` list (in
    `insightsCaption.ts`) instead of a hardcoded "Last 30 Days" literal.
    `collectionValue.ts`'s `topMovers()` now falls back to a self-derived
-   30-day average of `price_observation.market_minor` (the last ~30 days of
+   30-day average of daily best `price_observation.market_minor` (the last ~30 days of
    daily rows the retention tiers already guarantee) when
    `price_current.avg30_minor` is absent — which it always is for USD/TCGCSV,
    since only Cardmarket's feed supplies that metric — instead of silently
@@ -20564,10 +20564,13 @@ changed (pct → level) — its only callers were updated in the same commit.
 `insightsCaption.ts` gained `VALUE_RANGES`/`rangeLabel`, which `Insights.tsx`
 now imports instead of keeping its own copy of the range list.
 `collectionValue.ts`'s `topMovers()` query changed shape (a `WITH` CTE over
-`price_observation`). It was hand-verified against a disposable local Postgres
+`price_observation`). An independent review found that archive replay and live
+ingestion can create multiple observations for one UTC day; the query now
+collapses each day to its best market quote before averaging and requires two
+distinct days. It was hand-verified against a disposable local Postgres
 instance before the pause, and now has a regression case in the Linux-only
-`test:integration` runner for derived USD, sparse USD, vendor-preferred EUR,
-and user isolation. The fixture schema is focused rather than a migration of
+`test:integration` runner for derived USD, duplicate same-day observations,
+sparse USD, vendor-preferred EUR, and user isolation. The fixture schema is focused rather than a migration of
 the production schema. `pnpm -r
 --workspace-concurrency=1 exec tsc --noEmit` and `pnpm --filter deckpal-web
 build` are clean. New/updated unit tests: `format.ts`'s level math (7 cases,

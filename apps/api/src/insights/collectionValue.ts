@@ -209,7 +209,9 @@ export interface Mover {
  * for the same (variant, currency) — data we already retain for exactly this
  * long (rollup.ts: "last ~30 days daily rows in price_observation", so the
  * window here matches the retention tier exactly, not an arbitrary choice).
- * `HAVING count(*) >= 2` keeps a single same-day observation from posing as an
+ * Collapse overlapping live and archive observations to one best market price
+ * per UTC day before averaging; a duplicated day is still one day of history.
+ * `HAVING count(*) >= 2` keeps a single day's observations from posing as an
  * "average". Only variants that end up with both a market and a (vendor or
  * derived) avg30 qualify — a sparse feed still yields fewer movers, never a
  * wrong number.
@@ -225,14 +227,21 @@ export async function topMovers(userId: string, currency = 'USD', limit = 5): Pr
          FROM collection_item ci
         WHERE ci.user_id = $1 AND ci.quantity > 0
      ),
-     derived_avg30 AS (
-       SELECT po.card_variant_id, round(avg(po.market_minor))::bigint AS avg30_minor
+     daily_market AS (
+       SELECT po.card_variant_id,
+              (po.captured_at AT TIME ZONE 'UTC')::date AS observed_on,
+              max(po.market_minor) AS market_minor
          FROM price_observation po
          JOIN owned o ON o.card_variant_id = po.card_variant_id
         WHERE po.currency_code = $2
           AND po.captured_at >= now() - interval '30 days'
           AND po.market_minor IS NOT NULL
-        GROUP BY po.card_variant_id
+        GROUP BY po.card_variant_id, (po.captured_at AT TIME ZONE 'UTC')::date
+     ),
+     derived_avg30 AS (
+       SELECT card_variant_id, round(avg(market_minor))::bigint AS avg30_minor
+         FROM daily_market
+        GROUP BY card_variant_id
        HAVING count(*) >= 2
      )
      SELECT c.tcgdex_id, cv.variant_kind_code, c.name, o.quantity,

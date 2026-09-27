@@ -321,9 +321,11 @@ try {
       (3, 'EUR', 3500, 1000);
     DELETE FROM price_observation WHERE card_variant_id IN (1, 2) AND currency_code = 'USD';
     INSERT INTO price_observation VALUES
-      (1, 'USD', now() - interval '2 days', 700),
-      (1, 'USD', now() - interval '1 day', 900),
-      (2, 'USD', now(), 2000),
+      (1, 'USD', ((CURRENT_DATE - 3)::timestamp + interval '12 hours') AT TIME ZONE 'UTC', 700),
+      (1, 'USD', ((CURRENT_DATE - 3)::timestamp + interval '13 hours') AT TIME ZONE 'UTC', 100),
+      (1, 'USD', ((CURRENT_DATE - 2)::timestamp + interval '12 hours') AT TIME ZONE 'UTC', 900),
+      (2, 'USD', ((CURRENT_DATE - 1)::timestamp + interval '12 hours') AT TIME ZONE 'UTC', 2000),
+      (2, 'USD', ((CURRENT_DATE - 1)::timestamp + interval '13 hours') AT TIME ZONE 'UTC', 1000),
       (3, 'EUR', now() - interval '2 days', 3000),
       (3, 'EUR', now() - interval '1 day', 3200);
   `);
@@ -332,7 +334,7 @@ try {
   assert.deepEqual(usdMovers.map((mover) => mover.cardId), ['base1-1']);
   assert.equal(usdMovers[0].quantity, 2);
   assert.equal(usdMovers[0].marketMinor, 1500);
-  assert.equal(usdMovers[0].avg30Minor, 800);
+  assert.equal(usdMovers[0].avg30Minor, 800, 'duplicate observations on one UTC day count once');
   assert.equal(usdMovers[0].changeMinor, (1500 - 800) * 2);
   const eurMovers = await topMovers('mover-user', 'EUR');
   assert.equal(eurMovers.length, 1);
@@ -341,7 +343,8 @@ try {
   evidence.cases.push({
     name: 'real_postgres_top_movers_derived_usd_sparse_history_vendor_eur',
     derivedUsdAverageMinor: usdMovers[0].avg30Minor,
-    sparseUsdExcluded: true, vendorEurAverageMinor: eurMovers[0].avg30Minor,
+    sameDayDuplicatesCollapsed: true, sparseUsdExcluded: true,
+    vendorEurAverageMinor: eurMovers[0].avg30Minor,
     otherUserRows: 0,
   });
   evidence.status = 'passed';
