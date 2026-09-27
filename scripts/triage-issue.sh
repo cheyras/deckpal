@@ -2,18 +2,27 @@
 # scripts/triage-issue.sh — AI triage for issues filed via the in-app reporter.
 #
 # Called by .github/workflows/issue-triage.yml.  Reads the issue via `gh`,
-# assembles bounded wiki context, calls the Anthropic API (Haiku), and posts a
-# draft analysis as a GitHub comment.  Never modifies labels, priority, or issue
-# state — comment-only.
+# assembles bounded wiki context, calls a Haiku-class model through the Vercel
+# AI Gateway, and posts a draft analysis as a GitHub comment.  Never modifies
+# labels, priority, or issue state — comment-only.
 #
 # Required env:
-#   ISSUE_NUMBER        — the GitHub issue number to triage
-#   GITHUB_REPOSITORY   — owner/repo (set automatically by Actions)
-#   GH_TOKEN            — GitHub token for `gh` CLI (set automatically by Actions)
-#   ANTHROPIC_API_KEY   — Anthropic API key (repository secret)
+#   ISSUE_NUMBER          — the GitHub issue number to triage
+#   GITHUB_REPOSITORY     — owner/repo (set automatically by Actions)
+#   GH_TOKEN              — GitHub token for `gh` CLI (set automatically by Actions)
+#   AI_GATEWAY_API_KEY    — Vercel AI Gateway API key (repository secret)
 #
 # Optional env:
-#   WIKI_DIR            — pre-cloned wiki directory (skips clone step)
+#   WIKI_DIR                — pre-cloned wiki directory (skips clone step)
+#   TRIAGE_DRY_RUN           — when set, print the would-be comment to stdout
+#                              instead of posting it. Still makes the real
+#                              Gateway call; never touches GitHub. For local
+#                              testing.
+#   TRIAGE_TEST_ISSUE_JSON   — a JSON string shaped like `gh issue view --json
+#                              title,body,labels`'s output. When set, replaces
+#                              the `gh issue view` call, so the whole pipeline
+#                              can be exercised against a synthetic issue with
+#                              no real issue to read. For local testing.
 #
 # Exit codes:
 #   0 on success, on missing key, or on any external-service failure.
@@ -24,8 +33,8 @@ set -euo pipefail
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo "::notice title=AI triage not configured::ANTHROPIC_API_KEY secret is not set. See the header of .github/workflows/issue-triage.yml for setup instructions."
+if [ -z "${AI_GATEWAY_API_KEY:-}" ]; then
+  echo "::notice title=AI triage not configured::AI_GATEWAY_API_KEY secret is not set. See the header of .github/workflows/issue-triage.yml for setup instructions."
   exit 0
 fi
 
@@ -34,11 +43,16 @@ fi
 
 # ── Fetch issue details ───────────────────────────────────────────────────────
 
-issue_json=$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
-  --json title,body,labels 2>&1) || {
-  echo "::warning::Could not fetch issue #${ISSUE_NUMBER} via gh CLI — skipping AI triage"
-  exit 0
-}
+if [ -n "${TRIAGE_TEST_ISSUE_JSON:-}" ]; then
+  # Local testing: skip `gh` entirely and triage a synthetic issue instead.
+  issue_json="$TRIAGE_TEST_ISSUE_JSON"
+else
+  issue_json=$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+    --json title,body,labels 2>&1) || {
+    echo "::warning::Could not fetch issue #${ISSUE_NUMBER} via gh CLI — skipping AI triage"
+    exit 0
+  }
+fi
 
 title=$(echo "$issue_json" | jq -r '.title // ""')
 body_raw=$(echo "$issue_json" | jq -r '.body // ""')
@@ -165,12 +179,17 @@ ${body}
 **Project context (from wiki):**
 ${wiki_context:-No wiki context available — assess the issue on its own merits.}"
 
-# ── Call the Anthropic API ────────────────────────────────────────────────────
+# ── Call the model, through the Vercel AI Gateway ─────────────────────────────
+# The Gateway's Anthropic-Messages-compatible endpoint
+# (https://vercel.com/docs/ai-gateway/sdks-and-apis/anthropic-messages-api,
+# confirmed 2026-09) takes the same request/response shape as Anthropic's own
+# /v1/messages — only the base URL, auth header, and model id change — so this
+# stays dependency-free shell + curl + jq, same as before.
 
 # Build the request payload with jq to safely handle arbitrary issue content
 # (newlines, quotes, special characters in the body).
 request_body=$(jq -n \
-  --arg model "claude-haiku-4-5" \
+  --arg model "anthropic/claude-haiku-4.5" \
   --argjson max_tokens 4096 \
   --arg system "$system_prompt" \
   --arg user_content "$user_prompt" \
@@ -183,12 +202,11 @@ request_body=$(jq -n \
 
 response=$(curl -s -w "\n%{http_code}" \
   --max-time 60 \
-  -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-  -H "anthropic-version: 2023-06-01" \
+  -H "authorization: Bearer ${AI_GATEWAY_API_KEY}" \
   -H "content-type: application/json" \
   -d "$request_body" \
-  "https://api.anthropic.com/v1/messages") || {
-  echo "::warning::Anthropic API request failed (network error) — skipping AI triage"
+  "https://ai-gateway.vercel.sh/v1/messages") || {
+  echo "::warning::AI Gateway request failed (network error) — skipping AI triage"
   exit 0
 }
 
@@ -198,32 +216,43 @@ http_code=$(echo "$response" | tail -1)
 response_body=$(echo "$response" | sed '$d')
 
 if [ "$http_code" != "200" ]; then
-  echo "::warning::Anthropic API returned HTTP ${http_code} — skipping AI triage"
+  echo "::warning::AI Gateway returned HTTP ${http_code} — skipping AI triage"
   # Log a bounded snippet for debugging, never the full response (could be large
   # on a 4xx with a detailed error body).
   echo "Response (first 500 chars): $(echo "$response_body" | head -c 500)"
   exit 0
 fi
 
-# Extract the text content from the API response.
+# Extract the text content from the response (same content-block shape as
+# Anthropic's native API — the Gateway passes it through unchanged).
 ai_text=$(echo "$response_body" | jq -r '
   [.content[] | select(.type == "text") | .text] | join("\n")
 ')
 
 if [ -z "$ai_text" ] || [ "$ai_text" = "null" ]; then
-  echo "::warning::Anthropic API returned empty content — skipping AI triage"
+  echo "::warning::AI Gateway returned empty content — skipping AI triage"
   exit 0
 fi
 
-# ── Post the comment ──────────────────────────────────────────────────────────
-# Use --body-file with stdin to avoid shell escaping issues with the AI output.
+# ── Compose and deliver the comment ───────────────────────────────────────────
+# Built into a variable (rather than piped straight to `gh`) so TRIAGE_DRY_RUN
+# can print exactly what would have been posted.
 
-{
+comment_body=$(
   printf '🤖 **AI Triage (draft — for maintainer review, not authoritative)**\n\n'
   printf '%s\n\n' "$ai_text"
   printf -- '---\n'
-  printf '<sub>Generated by the <a href="https://github.com/%s/blob/main/.github/workflows/issue-triage.yml">issue-triage</a> workflow · model: claude-haiku-4-5 · wiki context: Project-Brief, recent Decision-Log</sub>\n' "$GITHUB_REPOSITORY"
-} | gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - || {
+  printf '<sub>Generated by the <a href="https://github.com/%s/blob/main/.github/workflows/issue-triage.yml">issue-triage</a> workflow · model: anthropic/claude-haiku-4.5 (Vercel AI Gateway) · wiki context: Project-Brief, recent Decision-Log</sub>\n' "$GITHUB_REPOSITORY"
+)
+
+if [ -n "${TRIAGE_DRY_RUN:-}" ]; then
+  echo "::notice::TRIAGE_DRY_RUN set — printing the would-be comment instead of posting it"
+  printf '%s\n' "$comment_body"
+  exit 0
+fi
+
+# Use --body-file with stdin to avoid shell escaping issues with the AI output.
+printf '%s' "$comment_body" | gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file - || {
   echo "::warning::Failed to post triage comment on issue #${ISSUE_NUMBER}"
   exit 0
 }

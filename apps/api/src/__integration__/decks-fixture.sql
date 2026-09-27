@@ -17,6 +17,13 @@ CREATE TABLE card (
   rarity text, illustrator text, hp integer, released_on date, number_sort text NOT NULL
 );
 CREATE TABLE card_type (card_id bigint NOT NULL REFERENCES card(id), type text NOT NULL, slot integer NOT NULL);
+-- The production search route reads browsable_card; keep the focused fixture's
+-- catalog boundary aligned with migration 074 without loading the full schema.
+CREATE VIEW browsable_set WITH (security_invoker = true) AS
+  SELECT cs.* FROM card_set cs JOIN series s ON s.id = cs.series_id
+  WHERE s.tcgdex_id <> 'tcgp';
+CREATE VIEW browsable_card WITH (security_invoker = true) AS
+  SELECT c.* FROM card c JOIN browsable_set cs ON cs.id = c.set_id;
 CREATE TABLE variant_kind (code text PRIMARY KEY, display_name text NOT NULL);
 CREATE TABLE card_variant (
   id bigint PRIMARY KEY, card_id bigint NOT NULL REFERENCES card(id),

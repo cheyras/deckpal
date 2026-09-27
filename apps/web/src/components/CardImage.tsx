@@ -20,6 +20,13 @@ import { useState } from 'react'
 import { directArtUrl } from '../lib/cardArt'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
+// The grid's own rendered width (UI-SPEC measurement): a tile is 208px at
+// `nav:` and up, 45vw of the mobile column below it. This is a real hint for
+// a GRID tile — it is wrong for any caller rendering the art larger (the
+// card-detail hero, previously stuck with this same value: UXC-03 stretched
+// the 245px thumbnail to 396px and read as blurry on any 1x desktop screen).
+const GRID_SIZES = '(min-width: 1068px) 208px, 45vw'
+
 export function CardImage({
   low,
   high,
@@ -32,6 +39,12 @@ export function CardImage({
   // a thumbnail keeps the same SHAPE as a detail view rather than the same
   // pixel radius. A STRING is applied verbatim to `border-radius`.
   radius = CARD_RADIUS_CSS,
+  // The `sizes` hint MUST match the caller's actual rendered width, or the
+  // browser picks the wrong srcSet candidate for the viewport it thinks it's
+  // filling — a caller rendering wider than a grid tile (the card-detail hero)
+  // must pass its own. Defaults to the grid's own value so every existing
+  // grid caller is unaffected.
+  sizes = GRID_SIZES,
 }: {
   low: string
   high: string
@@ -39,6 +52,7 @@ export function CardImage({
   eager?: boolean
   className?: string
   radius?: number | string
+  sizes?: string
 }) {
   const direct = directArtUrl(low)
   const directHigh = directArtUrl(high)
@@ -76,7 +90,7 @@ export function CardImage({
           key={step}
           src={src}
           srcSet={srcSet}
-          sizes="(min-width: 1068px) 208px, 45vw"
+          sizes={sizes}
           alt={alt}
           loading={eager ? 'eager' : 'lazy'}
           decoding="async"

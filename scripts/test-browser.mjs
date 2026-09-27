@@ -5,12 +5,15 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { chromium } from 'playwright'
 import { ROOT } from '../tests/browser/support.mjs'
+import { parseShard, shardSuites } from './browser-shards.mjs'
 
+const shard = parseShard(process.argv.slice(2))
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
 fs.mkdirSync(out, { recursive: true })
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deckpal-browser-'))
 const results = [], assets = [], logs = []
 let browser
+let selectedNames = []
 
 // Every .mjs module may export browserSuites(context). Helper modules simply
 // omit that export. New suites register by adding their own file, so concurrent
@@ -44,7 +47,9 @@ async function pool(concurrency, suites) {
   async function worker() {
     while (next < suites.length) {
       const suite = suites[next++]
+      const started = performance.now()
       try { await suite.run() } catch (error) { errors.push(suite.name + ':\n' + (error.stack ?? String(error))) }
+      finally { console.log('TIMING suite ' + suite.name + ' ' + ((performance.now() - started) / 1000).toFixed(1) + 's') }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, suites.length) }, worker))
@@ -55,10 +60,14 @@ let failure
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
     ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH } : {}) })
-  const suites = await discoverSuites({ browser, out, scratch, results, assets, logs })
-  // Four workers match a GitHub-hosted runner's four cores. Builds are CPU
-  // heavy, while the browser checks spend much of their time waiting on I/O.
-  await pool(4, suites)
+  const discovered = await discoverSuites({ browser, out, scratch, results, assets, logs })
+  const suites = shard ? shardSuites(discovered, shard.count)[shard.index - 1] : discovered
+  assert.ok(suites.length, 'Shard ' + shard?.index + '/' + shard?.count + ' has no suites')
+  selectedNames = suites.map(suite => suite.name)
+  console.log('Browser suites: ' + selectedNames.join(', '))
+  // Eight CI shards already run in parallel. Within a shard, serial suites
+  // keep screenshots and stateful admin journeys from competing in Chromium.
+  await pool(1, suites)
 } catch (error) {
   failure = error
   logs.push(error.stack ?? String(error))
@@ -67,6 +76,7 @@ try {
   fs.rmSync(scratch, { recursive: true, force: true })
   fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({
     status: failure ? 'failed' : 'passed', results, assets, fixedTime: '2026-09-12T18:00:00Z',
+    suites: selectedNames, shard,
     network: 'loopback-only; unexpected requests fail', fixtureScope:
       'Real built SPA and production presentation/mapping helpers; local JSON fixtures, not a real database. ' +
       'One check (auth-return) drives a real supabase-js sign-in against a fake, in-process Auth REST responder ' +

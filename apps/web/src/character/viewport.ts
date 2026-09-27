@@ -195,9 +195,9 @@ let docHAt = -1e9
  * does. The worst it can do is mis-time the first frame of a bottom bounce, or
  * take one extra tick to notice that a pin would now overhang the page.
  */
-export function documentHeight(): number {
+export function documentHeight(fresh = false): number {
   const now = performance.now()
-  if (now - docHAt > 250) {
+  if (fresh || now - docHAt > 250) {
     docHAt = now
     docH = document.documentElement.scrollHeight
   }
@@ -208,6 +208,17 @@ export function elasticOffset(): number {
   const y = window.scrollY
   // Cheap case first, and it is the top bounce — no layout read at all.
   if (y < 0) return y
-  const maxScroll = Math.max(0, documentHeight() - viewHeight())
+  let maxScroll = Math.max(0, documentHeight() - viewHeight())
+  // PAST THE END IS A BOUNCE ONLY IF THE END IS REAL. The height above can be a
+  // quarter of a second old, and the page it was measured on can be gone: a
+  // navigation lands on a page twenty thousand pixels tall, "show me" throws
+  // the scroll straight down it, and against the old page's 900 px that read as
+  // an 18,350 px rubber-band. The canvas was translated off the top of the
+  // screen to "follow" it, and a flight solved in that frame put him 18,000 px
+  // away from the card he was showing (measured, on half the reduced-motion
+  // runs). So a bounce is confirmed against a fresh height before it is
+  // believed — the only time this pays for a layout read is the rare frame
+  // that looks like a bottom bounce.
+  if (y > maxScroll) maxScroll = Math.max(0, documentHeight(true) - viewHeight())
   return y > maxScroll ? y - maxScroll : 0
 }

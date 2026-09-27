@@ -7,6 +7,7 @@ import { appResponses, announcement } from './upcoming.mjs'
 export const PERMISSIONS = ['devtools.access','admin.access','users.read','users.manage','roles.read','roles.manage','settings.read','settings.write','credits.read','credits.manage','audit.read','scanner.use','scanner.label','design.view','diagnostics.view','decke.use']
 const OWNER = '10000000-0000-4000-8000-000000000001', USER = '10000000-0000-4000-8000-000000000002'
 const now = '2026-09-12T18:00:00Z'
+const DELAYED_SEARCH_MS = 1500
 export function adminFixture(mount) {
   const state = {
     actor: 'owner', permissions: [...PERMISSIONS], conflicts: false, requests: [], signedOut: false, usersFailOnce: false, rolesFail: false, delayedSearch: '',
@@ -50,7 +51,7 @@ export function adminFixture(mount) {
     // fictional requests local without allowing arbitrary assets or API routes.
     if (/^\/(?:storage\/v1\/object\/public\/card-art|(?:deckpal\/)?images)\/sets\/(?:swsh1\/(?:symbol|logo)|swshp\/symbol|sv1\/logo|xy1\/logo)\.webp$/.test(rel)) return { raw: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"><rect width="100" height="40" fill="#64748b"/></svg>', type: 'image/svg+xml' }
     if (/^\/api\/cards\/base1-[1-5]$/.test(rel)) return { status: 404, body: { error: { message: 'Fictional gallery card has no live detail.' } } }
-    if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud' } }
+    if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud', bugReportsPublic: !mount } }
     if (rel === '/api/me') return state.signedOut ? { status: 401, body: { error: { message: 'Signed out' } } } : ok({ id: state.actor === 'owner' ? OWNER : USER, username: state.actor, permissions: state.permissions, roles: state.actor === 'owner' ? [{ id: 'super-role', name: 'Super administrator' }] : [], adminReady: true, owner: state.actor === 'owner', decke: state.permissions.includes('decke.use') })
     if (rel === '/api/me/settings') return ok({ settings: { defaultGoal: 'complete', displayCurrency: 'USD', pricingEnabled: true, showCollectionValue: true, binderPocketSize: 9, binderStackVariants: true, binderAdditionalVariants: 'hide', deckeHidden: false, skin: null, topbar: null, seriesSortKey: 'recency', seriesSortDir: 'desc', seriesGroupOwned: false }, defaults: state.defaults.settings })
     // Shape pinned to apps/api/src/routes/insights.ts's actual response (mirrored client-side as
@@ -58,7 +59,16 @@ export function adminFixture(mount) {
     // is easy to eyeball-match while the fields drift. `collection`/`tcg`/`completion`/`value` were
     // never real keys of this route; deleted rather than left as fictitious dead weight.
     if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0, uniquePairs: 0, uniqueMode: 'cards', intoLevel: 0, toNext: 10, nextLevelAt: 10, fraction: 0 }, collectionValue: [], pokedex: { captured: 0, total: 1, pct: 0 } })
-    if (rel === '/api/insights/value') { const currency = url.searchParams.get('currency') ?? 'USD', range = url.searchParams.get('range') ?? '30d'; const current = { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 }; return ok({ currency, range, current, series: { currency, range, points: [], delta: null }, movers: [] }) }
+    if (rel === '/api/insights/value') {
+      const currency = url.searchParams.get('currency') ?? 'USD', range = url.searchParams.get('range') ?? '30d'
+      const current = { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 }
+      const result = ok({ currency, range, current, series: { currency, range, points: [], delta: state.insightsTransition ? { value: range === '30d' ? 12 : 34, valueMinor: range === '30d' ? 1200 : 3400, pct: null } : null }, movers: [] })
+      if (state.heldInsights && range === '1y') return new Promise(resolve => {
+        state.heldInsights.finish = () => resolve(result)
+        state.heldInsights.onStart()
+      })
+      return result
+    }
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/me/billing/history') {
@@ -81,7 +91,7 @@ export function adminFixture(mount) {
       const users = state.users.filter(u => (!search || u.id === search || u.username.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase())) && (status === 'all' || u.suspended === (status === 'suspended')) && (!role || u.roles.some(r => r.id === role)))
       const limit = Number(url.searchParams.get('limit') ?? 25), offset = Number(url.searchParams.get('offset') ?? 0)
       const result = ok({ users: users.slice(offset, offset + limit), total: users.length, limit, offset })
-      return state.delayedSearch && search === state.delayedSearch ? new Promise(resolve => setTimeout(() => resolve(result), 400)) : result
+      return state.delayedSearch && search === state.delayedSearch ? new Promise(resolve => setTimeout(() => resolve(result), DELAYED_SEARCH_MS)) : result
     }
     if (rel === '/api/admin/users/' + USER) return ok({ user: state.users[0], permissions: state.users[0].roles.flatMap(r => state.roles.find(role => role.id === r.id)?.permissions ?? []), stats: { collectionItems: 3, decks: 1, connectors: 2 } })
     if (rel === '/api/admin/users/' + USER + '/role') {
@@ -139,9 +149,9 @@ export async function signIn(context, id = OWNER) {
     localStorage.setItem('deckpal.settings.pushed.v1','1')
   }, { id })
 }
-export async function checkAdmin(browser, server, mount, label, out, fixture) {
+export async function checkAdmin(browser, server, mount, label, out, fixture, part = 'all') {
   const results = [], {state} = fixture
-  for (const width of [1280,390]) {
+  for (const width of part === 'all' || part === 'journey' ? [1280,390] : []) {
     state.actor='owner';state.permissions=[...PERMISSIONS]
     const {context,page}=await contextFor(browser,server,width);await signIn(context)
     try {
@@ -249,7 +259,15 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
       results.push({case:'admin-role-economy-wallet-journey',label,width,hostedCheckoutAsserted:true})
     }catch(error){await page.screenshot({path:path.join(out,label+'-admin-failure.png'),fullPage:true});error.message+='\nPage: '+(await page.locator('body').innerText()).slice(0,1800)+'\nUnexpected: '+JSON.stringify(server.unexpected);throw error}finally{await context.close()}
   }
-  results.push(...await checkAdminTables(browser,server,mount,label,out,fixture))
+  if(part==='journey') return results
+  if(part==='all' || part.startsWith('tables-')) {
+    // The former combined suite created this row through the wallet journey.
+    // Keep the table's descending-sort proof when tables run independently.
+    if(part!=='all') state.packs.push({id:'pack-table-seed',name:'Value 1280',credits:1200,priceCents:950,currency:'usd',active:true,revision:1})
+    const widths = part==='all' ? [1280,390] : [Number(part.slice('tables-'.length))]
+    results.push(...await checkAdminTables(browser,server,mount,label,out,fixture,widths))
+  }
+  if(part.startsWith('tables-')) return results
   for(const [actor,permissions] of [['readonly',['admin.access','users.read','devtools.access','design.view']],['labeler',['devtools.access','scanner.label']],['ordinary',[]]]){
     state.actor=actor;state.permissions=permissions
     const {context,page}=await contextFor(browser,server,390);await signIn(context,USER)
@@ -322,7 +340,7 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
 // current.total, series.points) must be present, or this hangs on the heading or throws.
 export async function checkInsights(browser, server, mount, label, out, fixture) {
   const results = [], { state } = fixture
-  for (const width of [1280, 390]) {
+  for (const width of [1440, 390]) {
     state.actor = 'ordinary'; state.permissions = []
     const { context, page } = await contextFor(browser, server, width); await signIn(context)
     try {
@@ -335,11 +353,27 @@ export async function checkInsights(browser, server, mount, label, out, fixture)
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
       await page.screenshot({ path: path.join(out, label + '-insights-' + width + '.png'), fullPage: true })
       results.push({ case: 'insights-renders-on-fixture-stubs', label, width })
-    } finally { await context.close() }
+      state.insightsTransition = true
+      await page.reload({ waitUntil: 'networkidle' })
+      await page.getByText('30 Days Change').waitFor()
+      await page.getByText('$12.00', { exact: false }).waitFor()
+      let requestStarted
+      const started = new Promise(resolve => { requestStarted = resolve })
+      state.heldInsights = { onStart: requestStarted }
+      await page.getByRole('button', { name: '1 Year' }).click()
+      await started
+      await page.getByText('Loading 1 Year change…').waitFor()
+      assert.equal(await page.getByText('$12.00', { exact: false }).count(), 0, 'old delta must disappear while the new range is pending')
+      await page.screenshot({ path: path.join(out, label + '-insights-pending-' + width + '.png'), fullPage: true })
+      state.heldInsights.finish()
+      await page.getByText('1 Year Change').waitFor()
+      await page.getByText('$34.00', { exact: false }).waitFor()
+      results.push({ case: 'insights-range-change-hides-old-delta-until-new-value', label, width })
+    } finally { state.heldInsights?.finish?.(); state.heldInsights = null; state.insightsTransition = false; await context.close() }
   }
   return results
 }
-async function checkAdminTables(browser, server, mount, label, out, fixture) {
+async function checkAdminTables(browser, server, mount, label, out, fixture, widths = [1280,390]) {
   const results = [], {state} = fixture
   const go = (page, route) => page.goto(server.origin + mount + route, {waitUntil:'networkidle'})
   const waitRange = (surface, text) => surface.getByRole('status').filter({hasText:text}).waitFor()
@@ -380,7 +414,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
     await region.evaluate(node=>window.scrollTo(0,window.scrollY+node.getBoundingClientRect().top-180))
     await page.screenshot({path:path.join(out,label+'-'+snapshot+'-'+width+'-viewport.jpg'),type:'jpeg',quality:75,fullPage:false})
   }
-  for(const width of [1280,390]){
+  for(const width of widths){
     state.actor='owner';state.permissions=[...PERMISSIONS];state.rolesFail=false
     const {context,page}=await contextFor(browser,server,width);await signIn(context)
     try{
@@ -416,7 +450,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
       await users.getByRole('status').filter({hasText:'Loading results'}).waitFor()
       assert.equal(await userTable.getByRole('link').count(),0,'New request hides the previous-filter accounts')
       await users.getByLabel('Search users',{exact:true}).fill('Member 058');await users.getByRole('button',{name:'Search',exact:true}).click()
-      await userTable.getByRole('link',{name:'Member 058',exact:true}).waitFor();await page.waitForTimeout(500)
+      await userTable.getByRole('link',{name:'Member 058',exact:true}).waitFor();await page.waitForTimeout(DELAYED_SEARCH_MS + 100)
       assert.equal(await userTable.getByRole('link',{name:'Member 059',exact:true}).count(),0,'Late cancelled response must not replace newer results')
       state.delayedSearch='';state.usersFailOnce=true
       await users.getByLabel('Search users',{exact:true}).fill('Member 057');await users.getByRole('button',{name:'Search',exact:true}).click()

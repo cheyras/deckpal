@@ -983,6 +983,23 @@ export function messageText(m: ChatMessage): string {
 }
 
 /**
+ * The words he has said since the last thing he DID — his line right now.
+ *
+ * A reply that takes the reader somewhere is several lines with actions between
+ * them ("Let me show you." · a trip · "There it is."). The transcript wants all
+ * of it; the speech bubble he wears out on the page wants only this, or the
+ * arrival line is appended to the departure line and the box grows and moves.
+ */
+export function currentLine(m: ChatMessage): string {
+  let out = ''
+  for (const p of m.parts) {
+    if (p.kind === 'tool') out = ''
+    else if (p.kind === 'text') out += p.text
+  }
+  return out
+}
+
+/**
  * What he actually DID this turn.
  *
  * Also what gets replayed, compacted, as the NEXT turn's evidence — without it
@@ -2035,9 +2052,30 @@ export function DeckeChat({
    * each guard is protecting. `DISMISS_SLOP` is generous enough to survive a
    * trackpad twitch and far short of a scroll.
    */
-  const downRef = useRef<{ x: number; y: number } | null>(null)
+  const lastSelectedNodeRef = useRef<Node | null>(null)
+  useEffect(() => {
+    if (!open) {
+      lastSelectedNodeRef.current = null
+      return
+    }
+    const onSelectionChange = () => {
+      const selection = window.getSelection()
+      if (!selection?.toString()) return
+      const anchor = selection.anchorNode
+      lastSelectedNodeRef.current = anchor && transcriptRef.current?.contains(anchor) ? anchor : null
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [open])
+  const downRef = useRef<{ x: number; y: number; hadSelection: boolean } | null>(null)
   const onSurfaceDown = useCallback((e: React.PointerEvent) => {
-    downRef.current = { x: e.clientX, y: e.clientY }
+    const selected = !!window.getSelection()?.toString()
+    // The lazy Markdown renderer can replace the selected fallback node before
+    // this pointerdown. A detached anchor means the reader's selection was
+    // lost to that render, rather than cleared by a deliberate click.
+    const replacedSelection = !!lastSelectedNodeRef.current && !lastSelectedNodeRef.current.isConnected
+    downRef.current = { x: e.clientX, y: e.clientY, hadSelection: selected || replacedSelection }
+    lastSelectedNodeRef.current = null
   }, [])
   const onSurfaceClick = useCallback(
     (e: React.MouseEvent) => {
@@ -2048,7 +2086,7 @@ export function DeckeChat({
       if (down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > DISMISS_SLOP) return
       // A release that finishes a text selection is not a dismissal. `toString()`
       // is empty for a collapsed caret, which is what an ordinary click leaves.
-      if ((window.getSelection()?.toString() ?? '').length > 0) return
+      if (down?.hadSelection || (window.getSelection()?.toString() ?? '').length > 0) return
       onClose()
     },
     [onClose],
@@ -2267,6 +2305,7 @@ export function DeckeChat({
         // below — is returning focus where it came from on close, which is
         // ordinary courtesy and is missing either way.
         aria-label="Chat with Deck-E"
+        data-decke-ui
         // ── STILL IN THE DOM WHILE HE IS OUT, AND THAT NEEDS SAYING ────────
         //
         // The panel no longer unmounts when it minimises (see the docked bar
