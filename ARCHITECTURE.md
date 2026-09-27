@@ -837,7 +837,8 @@ Google for Chrome). The structure is four pure modules and one hook:
 Before Verify opens, pending speech changes settle against the current row.
 Unfinished speech and failures from proposal through timeout, unidentified landing and application are
 stored in the voice queue, independently of captions. They survive Verify,
-later commands and Undo until explicitly acknowledged; Add remains disabled.
+later commands and Undo until explicitly acknowledged. Both Add and the
+unresolved-row confirmation pass the same warning gate before a collection write.
 The bounded warning list scrolls while acknowledgement stays reachable.
 
 Targeting snapshots both named captures and “that one” at the first words.
@@ -845,7 +846,9 @@ Structural phrases match normalized token arrays, while exact names reserve
 boundaries before fuzzy printing/name matching. Fuzzy windows also preserve
 structural tokens, including trailing objections. Distinct names tied for a match
 or recognizer alternatives that disagree on the target are refused. Identical
-names resolve by capture time, not row arrival order. The full rules and test
+names resolve by capture time, not row arrival order. Gender signs and other
+identity-bearing symbols remain distinct, with exact matches required for those
+names. The full rules and test
 matrix are in [`scan/voice/README.md`](apps/web/src/scan/voice/README.md).
 
 Nothing in the scanner may play audio, because any playback silently kills the
