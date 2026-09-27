@@ -3,6 +3,13 @@ import path from 'node:path'
 import { contextFor } from './support.mjs'
 import { signIn } from './admin.mjs'
 
+async function dismissSavedDialog(dialog) {
+  // The success panel auto-closes. A quick Done click is optional, but the
+  // panel must be gone before the next route starts.
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click({ timeout: 1000 }).catch(() => {})
+  await dialog.waitFor({ state: 'hidden' })
+}
+
 // SEC-06 coverage: the in-app bug reporter's privacy disclosure and the
 // screenshot include/exclude toggle (apps/web/src/components/BugReport.tsx),
 // plus the sensitive-page skip (isSensitiveBugPage) that must never even
@@ -63,7 +70,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       assert.equal(bugRequests[0].screenshot, undefined, 'unchecking the toggle must exclude the screenshot')
       assert.equal(bugRequests[0].text, 'Browser test: normal-page disclosure and exclude toggle')
       results.push({ case: 'bugreport-normal-disclosure-exclude', label, width })
-      await dialog.waitFor({ state: 'hidden' })
+      await dismissSavedDialog(dialog)
 
       if (label === 'cloud' && width === 390) {
         // The API's GitHub setting, rather than the cloud bundle, determines
@@ -97,7 +104,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       assert.equal(bugRequests[1].page, mount + '/admin/users', 'the admin search filter must never leak into the reported page')
       assert.equal(bugRequests[1].screenshot, undefined, 'a sensitive page must never send a screenshot, toggle or not')
       results.push({ case: 'bugreport-sensitive-page-skips-capture', label, width })
-      await sensitiveDialog.waitFor({ state: 'hidden' })
+      await dismissSavedDialog(sensitiveDialog)
 
       // The router accepts mixed-case URLs for this same page. The capture
       // guard must agree with the router, including the self-host mount.
