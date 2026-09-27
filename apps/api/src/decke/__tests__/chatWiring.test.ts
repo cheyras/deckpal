@@ -262,6 +262,8 @@ test('only a correctable phantom within the step budget gets a corrective leg; t
 
 test('the corrective leg pins the card, keeps the signature and the prompt prefix, and takes one step', () => {
   const leg = CODE.slice(CODE.indexOf('if (corrective) {'))
+  assert.match(SRC, /buildDataTools, correctiveApplyTools, dataToolSummary/)
+  assert.match(leg, /tools: correctiveApplyTools\(allDeckeTools, corrective\)/)
   assert.match(leg, /toolChoice: \{ type: 'tool', toolName: corrective \}/);
   assert.match(leg, /stopWhen: stepCountIs\(1\)/);
   assert.match(leg, /experimental_toolApprovalSecret: process\.env\.DECKE_APPROVAL_SECRET/);

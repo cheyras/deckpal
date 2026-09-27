@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { convertToModelMessages, stepCountIs, streamText } from 'ai';
+import { convertToModelMessages, stepCountIs, streamText, tool } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { allTools, type ToolDefinition } from '@deckpal/agent-tools';
 import { callKey } from '../repeat.js';
-import { buildDataTools, dataToolSummary } from '../adapters/aisdk.js';
+import { buildDataTools, correctiveApplyTools, dataToolSummary, requiresApproval } from '../adapters/aisdk.js';
 import { openingTools } from '../focus.js';
 
 const CARD = {
@@ -382,6 +382,55 @@ test('real SDK holds signed exposed input; approve writes once, decline/tamper/r
       assert.equal(legacyFixture.counts().writes, 1, 'tampered legacy signed input mutated');
     } finally { legacyFixture.restore(); }
   } finally { f.restore(); }
+});
+
+test('corrective list, deck and battle-log calls sign apply intent and wait for approval', async () => {
+  const examples = {
+    edit_list: { name: 'Chase Cards' },
+    save_deck: { name: 'Budget Gardevoir', cards: [] },
+    add_battle_log: { deck_id: '00000000-0000-4000-8000-000000000001', log: 'PTCGL battle log' },
+  } as const;
+  const secret = 'test-only-corrective-approval-secret';
+  for (const [name, input] of Object.entries(examples)) {
+    const def = allTools().find((d) => d.name === name)!;
+    let writes = 0;
+    const ordinary = { [name]: tool({
+      inputSchema: def.inputSchema!,
+      needsApproval: (args: unknown) => requiresApproval(def, args),
+      execute: async (args: unknown) => {
+        if ((args as { dry_run?: boolean }).dry_run === false) writes++;
+        return 'done';
+      },
+    }) };
+    const corrected = correctiveApplyTools(ordinary, name);
+    assert.equal(def.inputSchema!.safeParse(input).data?.dry_run, true, `${name} no longer defaults to preview`);
+    const schema = corrected[name]!.inputSchema as typeof def.inputSchema;
+    assert.equal(schema!.safeParse(input).data?.dry_run, false);
+    assert.equal(schema!.safeParse({ ...input, dry_run: true }).success, false);
+    const issued = await drain(streamText({
+      model: mockModel([{ toolCallId: 'fix-1', toolName: name, input }]),
+      messages: [{ role: 'user', content: 'please do it' }],
+      tools: corrected as Record<string, any>,
+      experimental_toolApprovalSecret: secret,
+    }));
+    const request = issued.find((p) => p.type === 'tool-approval-request');
+    const call = issued.find((p) => p.type === 'tool-call');
+    assert.ok(request && call, `${name} did not raise the signed card`);
+    assert.equal((call.input as { dry_run?: boolean }).dry_run, false, `${name} signed a preview`);
+    assert.equal(typeof request.signature, 'string');
+    assert.equal(writes, 0, `${name} wrote before approval`);
+    const replay = await convertToModelMessages([
+      { id: 'u1', role: 'user', parts: [{ type: 'text', text: 'please do it' }] },
+      { id: 'a1', role: 'assistant', parts: [{
+        type: `tool-${name}`, toolCallId: 'fix-1', input: call.input,
+        state: 'approval-responded',
+        approval: { id: request.approvalId, approved: true, signature: request.signature },
+      }] },
+    ] as never);
+    await drain(streamText({ model: mockModel(), messages: replay, tools: ordinary as Record<string, any>,
+      experimental_toolApprovalSecret: secret }));
+    assert.equal(writes, 1, `${name} did not apply after the signed approval replay`);
+  }
 });
 
 // ── THE REFLEX READ FORCES THE QUESTION, NEVER THE ANSWER ───────────────────

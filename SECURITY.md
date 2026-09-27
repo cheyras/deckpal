@@ -293,6 +293,10 @@ add a refusal, or run one corrective step that can itself only raise a consent
 card. A claimed list, deck or battle-log deletion gets an admission rather than
 forcing an edit tool that cannot delete. Each failure is today's behaviour. Off
 by default; `GET /health` reports `deckeJev`.
+For corrective list, deck and battle-log calls, `dry_run: false` is inserted
+into the parsed, signed tool input before the approval card is issued. The
+write still executes only after that signed approval is replayed; ordinary
+calls keep their preview default.
 
 **Server-side request forgery — where the server is allowed to fetch from.**
 Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical

@@ -104,7 +104,7 @@ import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls, researchRanInConversation } from '../apps/api/dist/decke/declined.js'
 import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
 import { outOfCreditsText } from '../apps/api/dist/decke/credits.js'
-import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
+import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
@@ -1467,7 +1467,7 @@ async function serve(request) {
               model: observeUsageModel(gateway(choice.id), meter),
               instructions: `${systemPrompt}\n\n${correctiveInstruction(corrective)}`,
               messages: [...preparedMessages, ...(await result.response).messages],
-              tools: allDeckeTools,
+              tools: correctiveApplyTools(allDeckeTools, corrective),
               toolChoice: { type: 'tool', toolName: corrective },
               stopWhen: stepCountIs(1),
               ...(process.env.DECKE_APPROVAL_SECRET

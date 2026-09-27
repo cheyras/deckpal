@@ -1261,6 +1261,12 @@ threshold chosen on `eval/judgments.json`; a timeout, an error or a low answer
 is today's harness exactly. Jev never approves a write and is not a security
 control.
 
+On a corrective list, deck or battle-log step, the tool schema supplies
+`dry_run: false` before the SDK signs the call. The normal tool schema still
+defaults to a preview; the correction's signed apply intent survives the
+approval replay on the next request, and the adapter still holds the write
+until the reader approves it.
+
 `api/chat.mjs` is deliberately standalone rather than a route on the Express app:
 production needs streaming under the RLS-authenticated request, and the two did
 not compose. It is a web-standard handler using `createGateway({ apiKey })` —
