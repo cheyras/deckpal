@@ -197,7 +197,7 @@ users of that service.
 | [`ADMINISTRATION.md`](ADMINISTRATION.md) | Owner/contributor guide to access, defaults, AI credits, payment readiness and recovery |
 | [`research/SCHEMA.md`](research/SCHEMA.md) | Dated data-model research -- variant taxonomy, tier/goal derivation (schema of record: `packages/db/src/migrations/`) |
 | [`API.md`](API.md) | REST API contract -- the endpoint inventory lives here |
-| [`DECISIONS.md`](DECISIONS.md) | Dated audit trail of every decision, correction, and gotcha |
+| [`DECISIONS.md`](DECISIONS.md) | Guide to the per-decision audit trail and historical index |
 | [`AGENTS.md`](AGENTS.md) | Engineering contracts and conventions for AI agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide -- setup, workflow, code conventions |
 | [`SECURITY.md`](SECURITY.md) | Security model (auth, RLS, self-host) and disclosure policy |

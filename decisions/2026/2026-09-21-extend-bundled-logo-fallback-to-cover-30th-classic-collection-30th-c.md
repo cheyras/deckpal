@@ -1,0 +1,16 @@
+---
+date: "2026-09-21"
+title: "Extend bundled logo fallback to cover 30th Classic Collection (30th-c)"
+decided_by: "classic-logo worker (Claude Sonnet 4.6) delegated by @cheyras"
+areas: ["images"]
+supersedes: []
+---
+## 2026-09-21 — Extend bundled logo fallback to cover 30th Classic Collection (30th-c)
+**Decided by:** classic-logo worker (Claude Sonnet 4.6) delegated by @cheyras
+**Decision:** Add `'30th-c': '/brand/pokemon-30th-celebration-logo.webp'` to `BUNDLED_SET_LOGOS` in `apps/web/src/lib/releasedSetAssets.ts`. This extends the existing fallback mechanism — already live for `30th` — to also cover the sibling Classic Collection set.
+**Why:** TCGdex publishes the 30th-c set with `logo: null` and `symbol: null` (confirmed in research evidence `tcgdex-30th-c-set-api.json`). Without this entry, `SetLogo` and the `SetHeader` logo guard both receive a falsy `bundledSetLogo('30th-c')`, causing the header to show no logo on `/series/mega-evolution/30th-c` and the series tile to show no logo on the series list. The pokemontcg.io record for me55c (the matching set) points its logo field at `https://images.scrydex.com/pokemon/me55c-logo/logo`; that image and the captured evidence file `me55c-logo-scrydex-candidate.png` show the same gold 30th Celebration wordmark as the already-bundled `pokemon-30th-celebration-logo.webp`. This change does NOT adopt Scrydex bytes or assert that a distinct Classic Collection-specific logo exists — it reuses the existing approved bundled bytes (448×247 WebP, Bulbagarden Archives, approved 2026-09-11) as a display fallback for the sibling set, exactly as those bytes are already used for `30th`.
+**Metadata mismatch documented:** TCGdex `30th-c` has id `30th-c`, 30 cards, released 2026-09-16, `logo: null`. pokemontcg.io equivalent is `me55c` (name: "30th Celebration: Classic Collection", total: 30, releaseDate: "2026/09/16") with a logo pointing at Scrydex CDN. This cross-source discrepancy is a known catalog state at launch; the Classic Collection remains a separate set from the parent `30th`/`me55` in both catalogs (DeckPal: 158; pokemontcg.io me55: 161 — counts differ across sources). Preserving the visual separation between the two sets (different names, different card counts, different set pages) while sharing the parent wordmark as a fallback is the correct display decision pending upstream logo population.
+**What was NOT changed:** No new image source, no new bytes, no Scrydex URL adoption, no alterations to frozen fallback tables, no card-scan fixes, no redesign. The parent `30th` fallback entry is unchanged. Unrelated sets are unaffected. The patch is intentionally narrow.
+**@cheyras approval not claimed for Scrydex:** This worker identified the scrydex URL from the pokemontcg.io API response as evidence that the canonical 30th-c logo visually matches the parent wordmark. No Scrydex bytes were stored, published, or adopted; research evidence was downloaded to an isolated taskdir only. The decision to reuse the existing approved bundled asset is delegated implementation; @cheyras retains final review before merge.
+**Verification:** Playwright fixture tests at 1440px and 390px on `/series/mega-evolution/30th-c` and the series list confirm logo `naturalWidth=448`, "30th Classic Collection" heading visible, no horizontal overflow. Screenshots in task directory.
+
