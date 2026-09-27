@@ -498,7 +498,10 @@ const ids = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => 'sim1-' + Stri
 function installLayoutRecorder() {
   const d = window.__decke
   d.stop()
-  const L = (window.__layout = { frames: [] })
+  const L = (window.__layout = { frames: [], scrolls: 0 })
+  // Counted in the capture phase, so it sees every scroll event the transcript
+  // gets whoever else is listening: for a failure message.
+  document.addEventListener('scroll', () => { L.scrolls++ }, { capture: true, passive: true })
   const box = (r) => [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]
   const dialog = document.querySelector('[role="dialog"]')
   const tick = () => {
@@ -518,6 +521,7 @@ function installLayoutRecorder() {
       anchor: (() => { const a = dialog.querySelector('[data-decke-anchor]'); return a ? box(a.getBoundingClientRect()) : null })(),
       // For a failure message: what he is standing on, and where the park box is.
       park: (() => { const p = document.querySelector('[data-decke-park]'); return p ? [Math.round(p.getBoundingClientRect().top), p.dataset.ride ?? null] : null })(),
+      scrolls: L.scrolls,
       stn: (() => { const t = d.station; if (!t) return null; const g = t.target; return t.kind + (g ? ':' + (g.selector ?? (g.rect ? 'rect' : typeof g)) : '') })(),
     })
     requestAnimationFrame(tick)
@@ -695,7 +699,9 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
     assert.ok(m.scrolled >= 60, engine + ': the transcript barely scrolled (' + m.scrolled + ' frames)')
     assert.equal(m.widgetResizes, 0, engine + ': a widget changed size or position against the column while scrolling (' + m.widgetResizes + ' frames)')
     assert.equal(m.textResizes, 0, engine + ': his words re-wrapped while scrolling (' + m.textResizes + ' frames)')
-    assert.equal(m.overWidgetPx2, 0, engine + ': he was drawn over a widget (' + m.overWidgetPx2 + ' px²): ' + JSON.stringify(m.overFrame))
+    assert.equal(m.overWidgetPx2, 0, engine + ': he was drawn over a widget (' + m.overWidgetPx2 + ' px²): ' + JSON.stringify(m.overFrame) +
+      ' after ' + JSON.stringify(f.slice(Math.max(0, f.indexOf(m.overFrame) - 3), f.indexOf(m.overFrame)).map((x) => ({ st: x.st, him: x.him?.[1], anchor: x.anchor?.[1], park: x.park, scrolls: x.scrolls }))) +
+      ' of ' + f.length + ' frames, first ' + JSON.stringify({ st: f[0].st, anchor: f[0].anchor?.[1], park: f[0].park, scrolls: f[0].scrolls }))
     // Widgets take the whole column on a phone: 390 less the panel's 16 px sides.
     const widest = Math.max(...f.at(-1).widgets.map((w) => w[2]))
     assert.ok(widest >= 390 - 32 - 2, engine + ': a widget is narrower than the column (' + widest + ' px)')
