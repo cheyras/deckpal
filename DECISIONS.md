@@ -21152,3 +21152,21 @@ and pinned by `wireBounds.test.ts`; `isNormalPath` is mirrored between
 `tools.ts` and `uiTools.ts` and pinned by `tools.test.ts`. A guide sub-agent
 that fails its one write cannot retry within the same approval. No schema,
 environment variable or deployment change.
+## 2026-09-26 — Keep virtualized Table rows visible and focusable across card sheets
+**Decided by:** Chey (via Codex)
+
+**Decision:** Table view clears cached row heights and recomputes its document offset on
+window resize, including when a card sheet has pinned the body. When a keyboard-opened
+card sheet closes, Table view scrolls the opening row back into its virtual window and
+focuses its newly mounted link.
+
+**Why:** Changing width across 768px changes the row layout. Cached dimensions and an
+offset measured while body scroll is locked can make the list appear blank after the
+sheet closes. The sheet's ordinary focus return points to a DOM node that virtualization
+may already have removed.
+
+**Implications:** The table owns focus restoration for its own rows; other card-sheet
+callers retain the shared sheet behavior. The browser fixture checks keyboard close
+and a resize across the breakpoint deep in a 3,200-row list at phone and desktop sizes.
+The separate question of whether quantity counters should be hidden below 768px
+remains for Chey.

@@ -99,6 +99,7 @@ function respondApi(rel, url) {
   if (rel === '/sw.js') return { status: 404, body: 'no service worker in this fixture', type: 'text/plain' }
   if (rel === '/api/lists' && url.searchParams.get('deleted') !== 'true') return { body: { lists: [LIST_SUMMARY] } }
   if (rel === `/api/lists/${LIST_ID}`) return { body: { list: LIST_SUMMARY, items: ITEMS } }
+  if (rel.startsWith('/api/cards/')) return { status: 404, body: { error: 'Card detail is outside this fixture' } }
   return null
 }
 
@@ -192,10 +193,37 @@ async function checkViewport(browser, origin, width, height) {
   await page.waitForTimeout(300)
   const openedCard = await page.evaluate(() => new URLSearchParams(location.search).get('card'))
   assert.equal(openedCard, focusedCardId, `${width}x${height}: Enter on the focused row should open that exact card`)
+  await page.waitForSelector('[role="dialog"][aria-modal="true"]')
+
+  // Resize across the 768px column breakpoint while Sheet has the page
+  // scroll-locked, then close by keyboard. Rows must still cover the viewport
+  // and focus must return to the same row, even deep in a virtualized list.
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
+  await page.evaluate(() => window.scrollTo(0, 100_000))
+  await page.waitForFunction(() => Number(document.querySelector('[role="listitem"]')?.getAttribute('data-index')) > 100)
+  const deepRow = page.locator('[role="listitem"] [data-decke-card]').first()
+  const deepIndex = await deepRow.locator('xpath=..').getAttribute('data-index')
+  await deepRow.focus()
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => new URLSearchParams(location.search).has('card'))
+  await page.waitForSelector('[role="dialog"][aria-modal="true"]')
+  await page.setViewportSize({ width: width < 768 ? 800 : 390, height })
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !new URLSearchParams(location.search).has('card'))
+  await page.waitForFunction((index) => {
+    const row = document.querySelector(`[role="listitem"][data-index="${index}"]`)
+    const link = row?.querySelector('[data-decke-card]')
+    return link === document.activeElement && row.getBoundingClientRect().height > 0
+      && row.getBoundingClientRect().bottom > 0 && row.getBoundingClientRect().top < innerHeight
+  }, deepIndex)
+  const visibleRows = await page.evaluate(() => [...document.querySelectorAll('[role="listitem"]')]
+    .filter((row) => row.getBoundingClientRect().bottom > 0 && row.getBoundingClientRect().top < innerHeight).length)
+  assert.ok(visibleRows > 0, `${width}x${height}: table went blank after resize and sheet close`)
 
   assert.deepEqual(pageErrors, [], `${width}x${height}: unexpected page errors: ${pageErrors.join('; ')}`)
   await context.close()
-  return { domCount, rowCount, ascNames, descNames, focusedCardId }
+  return { domCount, rowCount, ascNames, descNames, focusedCardId, deepIndex, visibleRows }
 }
 
 async function main() {

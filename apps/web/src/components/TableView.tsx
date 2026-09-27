@@ -99,14 +99,18 @@ export function TableView({
   seriesSlug,
   setId,
   reveal,
+  activeCard,
 }: {
   cards: CardRow[]
   seriesSlug: string
   setId: string
   reveal?: GridReveal | null
+  activeCard?: string
 }) {
   const signedIn = useSignedIn()
   const containerRef = useRef<HTMLDivElement>(null)
+  const focusedRowRef = useRef<number | null>(null)
+  const previousActiveCardRef = useRef<string | undefined>(activeCard)
   const [offsetTop, setOffsetTop] = useState(0)
 
   // `getBoundingClientRect().top + scrollY`, NOT `.offsetTop` (Astra caught
@@ -122,17 +126,6 @@ export function TableView({
   // correct whether or not that animation is still running — re-measured on
   // resize too, since a reflow elsewhere on the page (not just this element)
   // can move it without this element's own size changing.
-  useLayoutEffect(() => {
-    const measure = () => {
-      if (containerRef.current) {
-        setOffsetTop(containerRef.current.getBoundingClientRect().top + window.scrollY)
-      }
-    }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [])
-
   const virtualizer = useWindowVirtualizer({
     count: cards.length,
     estimateSize: () => ROW_ESTIMATE,
@@ -140,6 +133,43 @@ export function TableView({
     gap: ROW_GAP,
     scrollMargin: offsetTop,
   })
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const container = containerRef.current
+      if (!container) return
+      // Sheet pins the body and makes scrollY read zero. Its negative top is
+      // the page position until it releases the lock.
+      const scrollY = document.body.style.position === 'fixed'
+        ? -parseFloat(document.body.style.top || '0')
+        : window.scrollY
+      setOffsetTop(container.getBoundingClientRect().top + scrollY)
+      // Width changes also change row heights; discard their cached sizes.
+      virtualizer.measure()
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [virtualizer])
+
+  useEffect(() => {
+    const wasOpen = previousActiveCardRef.current
+    previousActiveCardRef.current = activeCard
+    if (!wasOpen || activeCard || focusedRowRef.current === null) return
+    const index = focusedRowRef.current
+    focusedRowRef.current = null
+    if (cards[index]?.cardId !== wasOpen) return
+    // The opener may have been recycled while the sheet held focus. Recreate
+    // its row before focusing the new anchor, after Sheet releases scroll lock.
+    const frame = requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(index, { align: 'center', behavior: 'auto' })
+      requestAnimationFrame(() => {
+        containerRef.current?.querySelector<HTMLElement>(`[data-index="${index}"] [data-decke-card]`)
+          ?.focus({ preventScroll: true })
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [activeCard, cards, virtualizer])
 
   // Mirrors `GridView`'s reveal effect exactly (down to the "already
   // centred, don't re-animate" check) — one row per index here instead of
@@ -285,6 +315,7 @@ export function TableView({
                 card={card}
                 seriesSlug={series}
                 setId={set}
+                onFocus={() => { focusedRowRef.current = vRow.index }}
                 className="group flex items-stretch overflow-hidden rounded-lg bg-surface-tertiary hover:bg-action-default-hover"
               >
                 {/* Thumbnail: object-cover into a landscape window crops to the card's

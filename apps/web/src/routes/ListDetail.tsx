@@ -564,7 +564,7 @@ export function ListDetail() {
             ) : effectiveView === 'binder' ? (
               <BinderView cards={view} mode="list" alwaysBright={list.kind === 'static'} />
             ) : effectiveView === 'table' ? (
-              <TableView cards={view} seriesSlug="" setId="" />
+              <TableView cards={view} seriesSlug="" setId="" activeCard={search.card} />
             ) : (
               <GridView cards={view} seriesSlug="" setId="" onRemove={(c) => removeItem(c as ListItem)} />
             )}
