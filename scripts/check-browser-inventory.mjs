@@ -31,6 +31,6 @@ for (const [entry, count] of found) {
   for (let n = baseline.get(entry) ?? 0; n < count; n++) extra.push(entry)
 }
 assert.deepEqual({ missing: missing.sort(), extra: extra.sort() }, { missing: [], extra: [] },
-  'Browser case names or variants changed from the 176-case baseline')
+  'Browser case names or variants changed from the 184-case baseline')
 assert.deepEqual(assets.sort(), ['cloud', 'selfhost'], 'Both deployment builds need asset checks')
 console.log('PASS browser inventory: ' + actual.length + ' cases in ' + suites.length + ' suites, no omissions or duplicates')
