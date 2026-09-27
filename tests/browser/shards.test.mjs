@@ -3,6 +3,7 @@ import test from 'node:test'
 import { browserSuites } from './core-suites.mjs'
 import { browserSuites as deckeShowSuites } from './deckeShow.mjs'
 import { browserSuites as errorBoundarySuites } from './errorBoundary.mjs'
+import { browserSuites as listTableSuites } from './listTableVirtualization.mjs'
 import { browserSuites as bugReportSuites } from './bugReport.mjs'
 import { browserSuites as profileOwnedCardsSuites } from './profileOwnedCardsSuite.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
@@ -12,9 +13,9 @@ const names = [
   'selfhost-feedback-primary-1280', 'selfhost-feedback-primary-390', 'selfhost-feedback-primary-428', 'selfhost-feedback-lifecycle',
   'cloud-catalog', 'cloud-admin-journey', 'cloud-admin-tables-1280', 'cloud-admin-tables-390', 'cloud-admin-access',
   'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-writes',
-  'authreturn', 'chat', 'payment-history', 'decke-show', 'error-boundary', 'bug-report-selfhost', 'bug-report-cloud', 'profile-owned-cards',
+  'authreturn', 'chat', 'payment-history', 'decke-show', 'error-boundary', 'list-table-virtualization', 'bug-report-selfhost', 'bug-report-cloud', 'profile-owned-cards',
 ]
-const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({})]
+const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({})]
 
 test('all existing journeys remain named suites', () => {
   assert.deepEqual(suites.map(suite => suite.name), names)

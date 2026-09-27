@@ -1,3 +1,4 @@
+import { useDesktopTable } from '../lib/useDesktopTable'
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
@@ -327,7 +328,8 @@ export function ListDetail() {
   }
 
   const forceBinder = list?.kind === 'pokedex_binder'
-  const effectiveView = forceBinder ? 'binder' : search.view
+  const desktopTable = useDesktopTable()
+  const effectiveView = forceBinder ? 'binder' : search.view === 'table' && !desktopTable ? 'grid' : search.view
 
   return (
     <Content cap={1165}>
@@ -513,7 +515,7 @@ export function ListDetail() {
                     <Icon name="lists" size={15} /> {reordering ? 'Done' : 'Reorder'}
                   </button>
                 )}
-                {!forceBinder && <ViewToggle view={search.view} patch={patch as never} />}
+                {!forceBinder && <ViewToggle view={effectiveView} patch={patch as never} />}
               </div>
             </div>
           </div>
@@ -564,7 +566,7 @@ export function ListDetail() {
             ) : effectiveView === 'binder' ? (
               <BinderView cards={view} mode="list" alwaysBright={list.kind === 'static'} />
             ) : effectiveView === 'table' ? (
-              <TableView cards={view} seriesSlug="" setId="" />
+              <TableView cards={view} seriesSlug="" setId="" activeCard={search.card} />
             ) : (
               <GridView cards={view} seriesSlug="" setId="" onRemove={(c) => removeItem(c as ListItem)} />
             )}
