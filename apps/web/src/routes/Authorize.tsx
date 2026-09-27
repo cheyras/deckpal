@@ -23,7 +23,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
 import { readSession } from '../lib/authSession'
 import { api, type OAuthClientInfo } from '../lib/api'
-import { consentView, SCOPE_OPTIONS, type ConsentScope, type ConsentView } from '../lib/oauthConsent'
+import { consentView, SCOPE_OPTIONS, supportsScopedConsent, type ConsentScope, type ConsentView } from '../lib/oauthConsent'
 import { Icon } from '../components/Icon'
 import { Spinner } from '../components/ui'
 import { AuthCard, AuthPage, CTA_GHOST, SubmitButton } from './auth/authUi'
@@ -143,7 +143,7 @@ export function Authorize() {
         codeChallengeMethod: codeChallengeMethod!,
         state,
         resource,
-        scope,
+        scope: client && supportsScopedConsent(client) ? scope : 'full',
       })
       window.location.href = redirectTo
     } catch (err) {
@@ -196,6 +196,8 @@ export function Authorize() {
   }
 
   const view = consentView(client)
+  const scopedConsent = supportsScopedConsent(client)
+  const displayedScope = scopedConsent ? scope : 'full'
 
   return (
     <AuthPage>
@@ -205,11 +207,11 @@ export function Authorize() {
         <fieldset className="mb-[16px]" disabled={busy !== null}>
           <legend className="mb-[8px] text-[14px] font-bold text-text-primary">What it can do</legend>
           <div className="flex flex-col gap-[8px]">
-            {SCOPE_OPTIONS.map((option) => (
+            {SCOPE_OPTIONS.filter((option) => option.value === 'full' || scopedConsent).map((option) => (
               <label
                 key={option.value}
                 className={`flex cursor-pointer items-start gap-[10px] rounded-[12px] border p-[12px] transition-colors ${
-                  scope === option.value
+                  displayedScope === option.value
                     ? 'border-action-primary bg-halo-neutral'
                     : 'border-action-ghost-border bg-surface-tertiary hover:border-text-muted'
                 }`}
@@ -218,7 +220,7 @@ export function Authorize() {
                   type="radio"
                   name="scope"
                   value={option.value}
-                  checked={scope === option.value}
+                  checked={displayedScope === option.value}
                   onChange={() => setScope(option.value)}
                   className="mt-[3px] h-[16px] w-[16px] shrink-0 accent-[var(--color-action-primary)]"
                 />
@@ -232,8 +234,9 @@ export function Authorize() {
         </fieldset>
 
         <p className="mb-[20px] text-[14px] leading-[1.55] text-text-muted">
-          Either way it can’t see your password, change your account settings or spend money. It stays connected
-          while you use it, and you can disconnect it any time in Profile → Agent access.
+          {scopedConsent
+            ? 'Either way it can’t see your password, change your account settings or spend money. It stays connected while you use it, and you can disconnect it any time in Profile → Agent access.'
+            : 'This connection has full access to your DeckPal account. You can disconnect it any time in Profile → Agent access.'}
         </p>
 
         {actionError && <FormAlert kind="error">{actionError}</FormAlert>}

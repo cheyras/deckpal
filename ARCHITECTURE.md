@@ -581,6 +581,8 @@ so revocation, suspension and expiry are decided in one place
 rather than the app's self-chosen name, and a connection may be read-only,
 enforced at the MCP edge (read tools only, `BEGIN READ ONLY`) and at the REST
 API (`enforceTokenScope`). Tokens from before 075 are unchanged.
+When a newer web app reaches an older API, missing `trust` on `GET /oauth/client`
+limits the consent screen to full access because the older API ignores scope.
 
 ## 11. Correctness traps that shape the design
 

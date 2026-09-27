@@ -111,7 +111,9 @@ pnpm --filter deckpal-api fingerprint:index
 > statements and logs `migration 075_oauth_grants is not applied` once per
 > instance), but a *new* OAuth connection is refused with a 503 asking the
 > person to try again in a few minutes, because there is nowhere yet to record
-> a read-only choice honestly. Nothing about 075 needs a reconnect.
+> a read-only choice honestly. If the web app reaches an older API during the
+> deploy, it shows full access alone because that API ignores read-only scope.
+> Nothing about 075 needs a reconnect.
 
 > **On `PGSSLMODE`.** Supabase serves a certificate chain that is not in the
 > system trust store, so a *verifying* mode fails with `self-signed certificate

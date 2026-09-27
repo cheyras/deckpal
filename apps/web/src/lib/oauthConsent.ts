@@ -65,6 +65,11 @@ export const SCOPE_OPTIONS: ReadonlyArray<{ value: ConsentScope; label: string; 
   { value: 'read', label: 'Read only', detail: 'See them, but change nothing.' },
 ]
 
+/** Older APIs omit trust and ignore scope, so only promise a choice when the API can enforce it. */
+export function supportsScopedConsent(client: OAuthClientInfo): boolean {
+  return client.trust === 'verified' || client.trust === 'unverified' || client.trust === 'local'
+}
+
 // ── Profile → Agent access ─────────────────────────────────────────────────
 
 export type TokenState = 'active' | 'expired' | 'revoked'

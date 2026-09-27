@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { ApiTokenRow } from '../api.js'
-import { consentView, lifetimeText, redirectBadge, SCOPE_OPTIONS, tokenState } from '../oauthConsent.js'
+import { consentView, lifetimeText, redirectBadge, SCOPE_OPTIONS, supportsScopedConsent, tokenState } from '../oauthConsent.js'
 
 // Security audit SEC-07: an app's registered name is a claim, the redirect is
 // the truth. These pin what the consent screen and Profile say for each case.
@@ -56,6 +56,14 @@ describe('consent screen', () => {
 
   test('full access is the first choice, read-only the second', () => {
     assert.deepEqual(SCOPE_OPTIONS.map((o) => o.value), ['full', 'read'])
+  })
+
+  test('only a server that sends redirect trust may offer read-only access', () => {
+    const oldClient = { clientName: 'Claude', redirectUri: 'https://claude.ai/api/mcp/auth_callback' }
+    assert.equal(supportsScopedConsent(oldClient), false)
+    for (const trust of ['verified', 'unverified', 'local'] as const) {
+      assert.equal(supportsScopedConsent({ ...oldClient, trust }), true)
+    }
   })
 })
 

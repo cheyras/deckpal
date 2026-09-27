@@ -20553,6 +20553,10 @@ hand when it ran out.
   force one manual reconnect each.
 - Hand-made tokens still never expire: the URL-pasting clients they exist for
   cannot renew.
+- During a mixed-version deploy, the browser offers **Read only** only when
+  `GET /oauth/client` includes the new server's `trust` field. An older API
+  ignores `scope`, so its consent screen shows full access alone and makes no
+  promise about renewal or routes that the older API has not yet restricted.
 - Migrations run by hand and Vercel deploys on merge. Until 075 is applied, the
   code resolves tokens through their pre-075 statements (the 046 pattern) and
   refuses only *new* connections, with a 503. Apply 075 with the deploy.
@@ -20571,6 +20575,7 @@ hand when it ran out.
   it shows as Unverified); an optional expiry for hand-made tokens; and the
   admin user projection's connector count, which still counts lapsed
   connections.
+
 ## 2026-09-26 — Four collection/list quick fixes from the ux-collection audit (UXC-01, 03, 05, 09)
 **Decided by:** Chey (via Claude)
 

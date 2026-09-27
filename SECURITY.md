@@ -136,7 +136,9 @@ the host receiving the approval sat in a muted line below. Now:
   detection). One refresh token never yields two pairs, so the chain cannot
   fork into two that renew independently. Every access token resolves
   through its row, so revoke-all, suspension and Revoke end it with no race.
-- **Read-only is a real scope.** The consent screen offers it; a `read`
+- **Read-only is a real scope.** The consent screen offers it only when
+  `GET /oauth/client` includes the new server's `trust` field; an older API
+  ignores scope and therefore gets a full-access choice alone. A `read`
   connection is served only the `readOnlyHint` tools, inside a `BEGIN READ
   ONLY` transaction, and the REST API refuses its every non-GET request with
   `403 insufficient_scope` before any route runs (`enforceTokenScope`). The one
