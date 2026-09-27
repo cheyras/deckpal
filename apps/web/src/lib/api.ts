@@ -945,6 +945,8 @@ export interface DeckCard {
   quantity: number
   owned: number
   have: boolean
+  pinExact: boolean
+  ownedAs: Array<{ setCode: string; number: string; quantity: number }>
   images: { low: string; high: string }
   price: Price | null
 }
@@ -1977,11 +1979,22 @@ export const api = {
   // is how the builder removes one: an absolute write is safe to retry.
   addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number, signal?: AbortSignal) =>
     send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }, signal),
-  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number, signal?: AbortSignal) =>
+  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number, signal?: AbortSignal, pinExact?: boolean) =>
     send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
       quantity,
       ...(variantId != null ? { variantId } : {}),
+      ...(pinExact !== undefined ? { pinExact } : {}),
     }, signal),
+  setDeckCardPin: (id: string, cardId: string, variantId: number, pinExact: boolean, signal?: AbortSignal) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
+      variantId,
+      pinExact,
+    }, signal),
+  removeDeckCard: (id: string, cardId: string, variantId?: number) =>
+    send<DeckDetail>(
+      'DELETE',
+      `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}${variantId != null ? `?variant=${variantId}` : ''}`,
+    ),
   validateDeck: (id: string, format?: DeckFormat, signal?: AbortSignal) =>
     get<{ validation: ValidationResult; cardRefs: Record<string, CardRef> }>(
       `/decks/${encodeURIComponent(id)}/validate${format ? `?format=${format}` : ''}`,

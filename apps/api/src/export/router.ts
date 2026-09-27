@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { pool, q, q1 } from '../db.js';
+import { dbHandle, q, q1 } from '../db.js';
+import { basicEnergyType, loadOwnedPrints } from '../deck/ownedPrints.js';
 import { asyncHandler, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import {
@@ -43,6 +44,13 @@ function sendPdfHeaders(res: import('express').Response, filename: string): void
 
 interface DeckCardRow {
   card_id: string;
+  card_variant_id: string;
+  variant_kind_code: string;
+  identical_print_group: string | null;
+  is_promo: boolean;
+  is_stamped: boolean;
+  pin_exact: boolean;
+  basic_energy_type: string | null;
   quantity: number;
   tcgdex_id: string;
   local_id: string;
@@ -82,25 +90,33 @@ exportRouter.get(
     if (!meta) throw notFound(`No deck '${deckId}'`);
 
     const rows = await q<DeckCardRow>(
-      `SELECT dc.card_id, dc.quantity,
+      `SELECT dc.card_id, dc.card_variant_id, dc.quantity, dc.pin_exact,
+              cv.variant_kind_code, c.identical_print_group, s.is_promo,
+              EXISTS (SELECT 1 FROM variant_kind_stamp vks WHERE vks.variant_kind_code = cv.variant_kind_code) AS is_stamped,
+              CASE WHEN c.category = 'Energy' AND c.energy_type = 'Normal' THEN ct.type ELSE NULL END AS basic_energy_type,
               c.tcgdex_id, c.local_id, c.local_id_numeric, c.name, c.name_normalized,
               c.category, c.stage, c.suffix, c.trainer_type, c.energy_type, c.hp, c.retreat,
               c.regulation_mark, c.evolve_from, c.released_on,
               s.tcgdex_id AS set_tcgdex_id,
-              COALESCE(owned.owned_qty, 0) AS owned_qty
+              '0'::text AS owned_qty
          FROM deck_card dc
+         JOIN card_variant cv ON cv.id = dc.card_variant_id
          JOIN card c ON c.id = dc.card_id
          JOIN card_set s ON s.id = c.set_id
-    LEFT JOIN LATERAL (
-            SELECT COALESCE(SUM(ci.quantity), 0) AS owned_qty
-              FROM card_variant cv
-              JOIN collection_item ci ON ci.card_variant_id = cv.id AND ci.user_id = dc.user_id
-             WHERE cv.card_id = c.id
-          ) owned ON true
+         LEFT JOIN card_type ct ON ct.card_id = c.id AND ct.slot = 0
         WHERE dc.deck_id = $1 AND dc.user_id = $2
         ORDER BY CASE c.category WHEN 'Pokemon' THEN 0 WHEN 'Trainer' THEN 1 ELSE 2 END, c.name, c.number_sort`,
       [deckId, userId],
     );
+
+    const allocation = await loadOwnedPrints(dbHandle(), userId, meta.format_code, rows.map((r) => ({
+      cardId: Number(r.card_id), variantId: Number(r.card_variant_id), variantKind: r.variant_kind_code,
+      quantity: r.quantity, group: r.identical_print_group,
+      basicEnergyType: r.category === 'Energy' && r.energy_type === 'Normal'
+        ? basicEnergyType(r.name, r.basic_energy_type) : null,
+      isPromo: r.is_promo, isStamped: r.is_stamped, pinExact: r.pin_exact,
+    })));
+    for (const row of rows) row.owned_qty = String(allocation.get(Number(row.card_variant_id))?.owned ?? 0);
 
     // Since migration 051 deck_card is one row per PRINTING; the PDF (like
     // the engine) is card-level, so merge rows of the same card first — the
@@ -109,7 +125,10 @@ exportRouter.get(
     for (const r of rows) {
       const id = Number(r.card_id);
       const cur = merged.get(id);
-      if (cur) cur.quantity = Math.min(60, cur.quantity + r.quantity);
+      if (cur) {
+        cur.quantity = Math.min(60, cur.quantity + r.quantity);
+        cur.owned_qty = String(Number(cur.owned_qty) + Number(r.owned_qty));
+      }
       else merged.set(id, { ...r });
     }
     const cardRows = [...merged.values()];
@@ -162,7 +181,7 @@ exportRouter.get(
     const validation =
       cfg.pool_strategy === 'all' || facts.length === 0
         ? validateDeck(deck, {})
-        : validateDeck(deck, { isInFormatByReprint: await buildReprintOracle(pool, facts, cfg.legal_marks) });
+        : validateDeck(deck, { isInFormatByReprint: await buildReprintOracle(dbHandle(), facts, cfg.legal_marks) });
 
     const toLine = (r: DeckCardRow): DeckLine => ({
       quantity: r.quantity,

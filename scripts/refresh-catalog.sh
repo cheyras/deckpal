@@ -114,6 +114,11 @@ pnpm --filter deckpal-sync import:catalog
 # After changing fingerprint.ts itself, run it once with --all.
 pnpm --filter deckpal-api fingerprint:index
 
+# Materialize groups of ordinary cards with identical gameplay text. Promo sets
+# are deliberately left out; stamped variants are excluded when a reader's
+# owned variants are resolved because stamps live at the variant level.
+pnpm --filter deckpal-api identical-prints:index
+
 cat <<'EOF'
 
 ==> done. Two things worth checking after a refresh:

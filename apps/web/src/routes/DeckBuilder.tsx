@@ -166,12 +166,26 @@ function PrintedSetCode({ code }: { code: string | null }) {
   )
 }
 
-function DeckCardContext({ entries, offending, onSet, onAdd }: {
+function OwnedAs({ sources, owned, quantity }: { sources: DeckCard['ownedAs']; owned: number; quantity: number }) {
+  if (!sources?.length) return null
+  const printing = (source: DeckCard['ownedAs'][number]) => `${source.setCode} ${source.number}${source.quantity > 1 ? ` ×${source.quantity}` : ''}`
+  const prefix = owned < quantity ? `${owned}/${quantity} owned as ` : 'Owned as '
+  const full = `${prefix}${sources.map(printing).join(', ')}`
+  const short = `${prefix}${sources.slice(0, 2).map(printing).join(', ')}${sources.length > 2 ? ` +${sources.length - 2}` : ''}`
+  return (
+    <span className={`min-w-0 max-w-full truncate ${owned < quantity ? 'text-text-muted' : 'text-change-positive'}`} title={full}>
+      <span aria-hidden="true">{short}</span><span className="sr-only">{full}</span>
+    </span>
+  )
+}
+
+function DeckCardContext({ entries, offending, onSet, onAdd, onPin }: {
   /** Every printing of this card that is in the deck, in deck order. */
   entries: DeckCard[]
   offending: boolean
   onSet: (variantId: number, q: number) => void
   onAdd: (variantId: number) => void
+  onPin: (variantId: number, pinExact: boolean) => void
 }) {
   const first = entries[0]!
   const totalQty = entries.reduce((n, e) => n + e.quantity, 0)
@@ -209,7 +223,7 @@ function DeckCardContext({ entries, offending, onSet, onAdd }: {
                 <span className="whitespace-nowrap">{e.setId.toUpperCase()} {e.number}</span>
                 {e.setCode && <PrintedSetCode code={e.setCode} />}
                 {e.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{e.regulationMark}</span>}
-                <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>
+                {e.ownedAs?.length ? <OwnedAs sources={e.ownedAs} owned={e.owned} quantity={e.quantity} /> : <span className={`whitespace-nowrap ${e.owned >= e.quantity ? 'text-change-positive' : ''}`}>{e.owned}/{e.quantity} owned</span>}
                 {unit != null && <span className="whitespace-nowrap text-change-positive">{fmtPrice(e.price)}</span>}
               </div>
               {/* same mutation the deck row uses, so the tab is not read-only */}
@@ -221,6 +235,13 @@ function DeckCardContext({ entries, offending, onSet, onAdd }: {
                 <button onClick={() => onSet(e.variantId, e.quantity + 1)} aria-label="Increase copies" className="flex h-[28px] w-[28px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
                   <Icon name="plus" size={13} />
                 </button>
+                <button
+                  onClick={() => onPin(e.variantId, !e.pinExact)}
+                  aria-label={e.pinExact ? `Allow equivalent printings for ${e.name}` : `Count only this exact printing of ${e.name}`}
+                  aria-pressed={e.pinExact}
+                  title={e.pinExact ? 'Only this printing counts' : 'Only count this printing'}
+                  className={`rounded-md border px-[7px] py-[5px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${e.pinExact ? 'border-action-primary text-action-primary' : 'border-border-default text-text-secondary hover:bg-action-default-hover'}`}
+                >{e.pinExact ? 'Pinned' : 'Pin'}</button>
               </div>
             </div>
           )
@@ -281,16 +302,16 @@ function DeckCardContext({ entries, offending, onSet, onAdd }: {
   )
 }
 
-function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
-  card: DeckCard; offending: boolean; showVariant: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void
+function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen, onPin }: {
+  card: DeckCard; offending: boolean; showVariant: boolean; onSet: (q: number) => void; onRemove: () => void; onOpen: () => void; onPin: () => void
 }) {
   return (
-    <div className={`flex items-center gap-[10px] rounded-lg p-[6px] pr-[8px] ${offending ? 'bg-[rgba(255,157,66,0.10)] ring-1 ring-[rgba(255,157,66,0.5)]' : 'hover:bg-surface-tertiary/60'}`}>
+    <div className={`flex flex-col gap-[4px] rounded-lg p-[6px] pr-[8px] sm:flex-row sm:items-center sm:gap-[10px] ${offending ? 'bg-[rgba(255,157,66,0.10)] ring-1 ring-[rgba(255,157,66,0.5)]' : 'hover:bg-surface-tertiary/60'}`}>
       {/* Card identity opens the deck-scoped sheet; the steppers keep their own
           hit targets so tapping +/−/× never opens it by accident. */}
       <button
         onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-[10px] rounded-lg text-left"
+        className="flex w-full min-w-0 flex-1 items-center gap-[10px] rounded-lg text-left"
         aria-label={`Details for ${card.name}`}
       >
         <img src={card.images.low} alt={card.name} loading="lazy" className="h-[52px] w-[37px] shrink-0 rounded object-cover" />
@@ -308,12 +329,19 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen }: {
             {showVariant && card.variant && <VariantChip variant={card.variant} className="font-medium" />}
             <PrintedSetCode code={card.setCode} />
             {card.regulationMark && <span className="rounded bg-surface-tertiary px-[4px] font-bold">{card.regulationMark}</span>}
-            <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>
+            {card.ownedAs?.length ? <OwnedAs sources={card.ownedAs} owned={card.owned} quantity={card.quantity} /> : <span className={`whitespace-nowrap ${card.have ? 'text-change-positive' : 'text-text-muted'}`}>{card.owned >= card.quantity ? 'owned' : `${card.owned}/${card.quantity} owned`}</span>}
             <span className="whitespace-nowrap text-change-positive">{fmtPrice(card.price)}</span>
           </div>
         </div>
       </button>
-      <div className="flex items-center gap-[5px]">
+      <div className="flex shrink-0 self-end items-center gap-[5px] sm:self-auto">
+        <button
+          onClick={onPin}
+          aria-label={card.pinExact ? `Allow equivalent printings for ${card.name}` : `Count only this exact printing of ${card.name}`}
+          aria-pressed={card.pinExact}
+          title={card.pinExact ? 'Only this printing counts' : 'Only count this printing'}
+          className={`rounded-md border px-[6px] py-[4px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${card.pinExact ? 'border-action-primary text-action-primary' : 'border-border-default text-text-secondary hover:bg-action-default-hover'}`}
+        >{card.pinExact ? 'Pinned' : 'Pin'}</button>
         <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
           <Icon name="minus" size={13} />
         </button>
@@ -699,7 +727,7 @@ export function DeckBuilder() {
   const laneVersion = lane.getVersion()
   const named = `“${data?.deck.name ?? 'this deck'}”`
 
-  const setCopies = (c: DeckCard, quantity: number, before = c.quantity) => {
+  const setCopies = (c: DeckCard, quantity: number, before = c.quantity, restorePin?: boolean) => {
     const target = Math.max(0, Math.min(60, quantity))
     const deckName = named
     void save(laneKey, {
@@ -707,12 +735,24 @@ export function DeckBuilder() {
       intent: target,
       // PATCH is an absolute upsert (0 removes the printing), which makes every
       // count change — the × included — safe to retry and to undo.
-      send: (signal) => api.setDeckCardQuantity(id, c.cardId, target, c.variantId, signal),
+      send: (signal) => api.setDeckCardQuantity(id, c.cardId, target, c.variantId, signal, restorePin),
       onSaved: adopt,
       failure: target === 0 ? `Couldn't remove ${c.name} from ${deckName}.` : `Couldn't change ${c.name} to ${target} in ${deckName}.`,
       refresh: refreshDeck,
-      retry: () => setCopies(c, target, before),
-      success: target === 0 && before > 0 ? { message: `Removed ${c.name} from ${deckName}.`, undo: () => setCopies(c, before, 0) } : undefined,
+      retry: () => setCopies(c, target, before, restorePin),
+      success: target === 0 && before > 0 ? { message: `Removed ${c.name} from ${deckName}.`, undo: () => setCopies(c, before, 0, c.pinExact) } : undefined,
+    })
+  }
+
+  const pinCard = (c: DeckCard, pinExact: boolean) => {
+    void save(laneKey, {
+      item: `${rowKey(c)}:pin`,
+      intent: pinExact,
+      send: (signal) => api.setDeckCardPin(id, c.cardId, c.variantId, pinExact, signal),
+      onSaved: adopt,
+      failure: `Couldn't ${pinExact ? 'pin' : 'unpin'} ${c.name} in ${named}.`,
+      refresh: refreshDeck,
+      retry: () => pinCard(c, pinExact),
     })
   }
 
@@ -782,7 +822,10 @@ export function DeckBuilder() {
     const cards = data.cards
       .map((c) => {
         const quantity = lane.intent<number>(rowKey(c))
-        return quantity === undefined ? c : { ...c, quantity }
+        const pinExact = lane.intent<boolean>(`${rowKey(c)}:pin`)
+        return quantity === undefined && pinExact === undefined ? c : {
+          ...c, quantity: quantity ?? c.quantity, pinExact: pinExact ?? c.pinExact,
+        }
       })
       .filter((c) => c.quantity > 0)
     return { ...data, cards, deck: { ...data.deck, ...(name !== undefined ? { name } : {}), ...format } }
@@ -1022,6 +1065,7 @@ export function DeckBuilder() {
                             showVariant={multiPrint.has(c.cardId) || c.variant?.isPrimary === false}
                             onSet={(q) => setCopies(c, q)}
                             onRemove={() => setCopies(c, 0)}
+                            onPin={() => pinCard(c, !c.pinExact)}
                             onOpen={() => patchSearch({ card: c.cardId })} />
                         ))}
                       </div>
@@ -1108,6 +1152,10 @@ export function DeckBuilder() {
               }}
               // Another printing is a row that does not exist yet: set it to 1.
               onAdd={(variantId) => setCopies({ ...sheetCard, variantId, quantity: 0 }, 1)}
+              onPin={(variantId, pinExact) => {
+                const row = sheetEntries.find((e) => e.variantId === variantId)
+                if (row) pinCard(row, pinExact)
+              }}
             />
           }
         />
