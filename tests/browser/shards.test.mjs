@@ -4,8 +4,10 @@ import { browserSuites } from './core-suites.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [
-  'typecheck', 'selfhost-catalog', 'selfhost-admin', 'selfhost-feedback',
-  'cloud-catalog', 'cloud-admin', 'cloud-feedback', 'cloud-writes',
+  'typecheck', 'selfhost-catalog', 'selfhost-admin',
+  'selfhost-feedback-primary-1280', 'selfhost-feedback-primary-390', 'selfhost-feedback-primary-428', 'selfhost-feedback-lifecycle',
+  'cloud-catalog', 'cloud-admin',
+  'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-writes',
   'authreturn', 'chat', 'payment-history',
 ]
 const suites = browserSuites({})
@@ -14,11 +16,11 @@ test('all existing journeys remain named suites', () => {
   assert.deepEqual(suites.map(suite => suite.name), names)
 })
 
-test('four shards cover every suite once, regardless of discovery order', () => {
-  const assignment = shardSuites(suites, 4).map(shard => shard.map(suite => suite.name))
+test('six shards cover every suite once, regardless of discovery order', () => {
+  const assignment = shardSuites(suites, 6).map(shard => shard.map(suite => suite.name))
   assert.ok(assignment.every(shard => shard.length))
   assert.deepEqual(assignment.flat().sort(), [...names].sort())
-  assert.deepEqual(shardSuites([...suites].reverse(), 4).map(shard => shard.map(suite => suite.name)), assignment)
+  assert.deepEqual(shardSuites([...suites].reverse(), 6).map(shard => shard.map(suite => suite.name)), assignment)
 })
 
 test('shard argument rejects missing and out-of-range indexes', () => {

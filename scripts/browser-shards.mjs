@@ -1,20 +1,27 @@
 import assert from 'node:assert/strict'
 
-// Initial group weights estimate the split of the measured single-runner job.
-// Refresh them from TIMING suite lines after a successful sharded CI run.
+// The 2026-09-26 CI run measured the unsplit groups (cloud feedback 386s,
+// cloud admin 174s, self-host feedback 139s). Width weights divide that
+// measured work; refresh them when the smaller groups have their own timings.
 // Longest-first packing stays stable even if discovery order changes.
 export const durations = {
-  'typecheck': 5,
-  'selfhost-catalog': 35,
-  'selfhost-admin': 180,
-  'selfhost-feedback': 180,
-  'cloud-catalog': 35,
-  'cloud-admin': 180,
-  'cloud-feedback': 180,
+  'typecheck': 2,
+  'selfhost-catalog': 33,
+  'selfhost-admin': 64,
+  'selfhost-feedback-primary-1280': 35,
+  'selfhost-feedback-primary-390': 35,
+  'selfhost-feedback-primary-428': 35,
+  'selfhost-feedback-lifecycle': 40,
+  'cloud-catalog': 28,
+  'cloud-admin': 174,
+  'cloud-feedback-primary-1280': 90,
+  'cloud-feedback-primary-390': 90,
+  'cloud-feedback-primary-428': 90,
+  'cloud-feedback-lifecycle': 120,
   'cloud-writes': 60,
-  'authreturn': 35,
-  'chat': 120,
-  'payment-history': 15,
+  'authreturn': 11,
+  'chat': 41,
+  'payment-history': 16,
 }
 
 export function shardSuites(suites, count) {

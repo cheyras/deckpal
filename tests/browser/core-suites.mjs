@@ -50,9 +50,9 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           } else if (group === 'admin') {
             results.push(...await checkAdmin(browser, server, mount, label, out, admin))
             results.push(...await checkInsights(browser, server, mount, label, out, admin))
-          } else if (group === 'feedback') {
-            results.push(...await checkFeedback(browser, server, mount, label, out, admin))
-            results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+          } else if (group.startsWith('feedback-')) {
+            results.push(...await checkFeedback(browser, server, mount, label, out, admin, group.slice('feedback-'.length)))
+            if (group === 'feedback-lifecycle') results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
           } else if (group === 'writes') {
             results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
           }
@@ -71,8 +71,10 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           '--noEmit', '-p', path.join(ROOT, 'tests/browser/tsconfig.json')]))
       },
     },
-    ...['catalog', 'admin', 'feedback'].map(group => labelSuite('selfhost', '/deckpal', group)),
-    ...['catalog', 'admin', 'feedback', 'writes'].map(group => labelSuite('cloud', '', group)),
+    ...['catalog', 'admin', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle']
+      .map(group => labelSuite('selfhost', '/deckpal', group)),
+    ...['catalog', 'admin', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'writes']
+      .map(group => labelSuite('cloud', '', group)),
     {
       name: 'authreturn',
       async run() {
@@ -101,7 +103,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
       name: 'payment-history',
       async run() {
         logs.push(await run(process.execPath, ['--import', 'tsx', path.join(ROOT, 'tests/browser/paymentHistory.mts')],
-          { env: isolatedEnv({ TEST_ARTIFACT_DIR: out }) }))
+          { env: isolatedEnv({ TEST_ARTIFACT_DIR: out, NODE_ENV: 'development' }) }))
         const proof = JSON.parse(fs.readFileSync(path.join(out, 'payment-history/browser-proof.json'), 'utf8'))
         assert.equal(proof.status, 'passed')
         for (const [width, record] of [[1280, proof.results.desktop], [390, proof.results.mobile]]) {

@@ -189,7 +189,9 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       const counter = page.locator('.px-card-counters').first().getByRole('button').first()
       const owned = async () => Number((await counter.getAttribute('aria-label')).match(/: (\d+) owned/)[1])
       const readsBefore = state.setReads
-      fresh(); state.latency = () => 500
+      // CI browser scheduling can stretch three Playwright clicks past 500ms.
+      // Keep the first request in flight while all three user intents arrive.
+      fresh(); state.latency = () => 2500
       // UXC-02: taps made while a write is saving used to hit a disabled button.
       for (let n = 1; n <= 3; n++) { await counter.click(); assert.equal(await owned(), n, 'every tap shows at once') }
       await settle()

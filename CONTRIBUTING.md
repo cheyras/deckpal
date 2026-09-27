@@ -89,7 +89,7 @@ Three independent workflows run for PRs and pushes to `main`:
 |---|---|
 | `.github/workflows/ci.yml` | Frozen install; shared-package builds; workspace typechecks; the pure API, agent-tool, adapter, web, storage, matching and other wired suites; deployable builds and serverless-function loading. No database. |
 | `.github/workflows/db-integration.yml` | Real PostgreSQL in a private disposable cluster: series/price/adapter boundaries in UTC/Denver; selected admin/credit migrations, direct SQL/RLS, bootstrap, role/token races and financial accounting in cloud and self-host fixtures. |
-| `.github/workflows/browser.yml` | Four parallel shards run deployment asset checks, actual cloud/self-host SPA builds at desktop and 390px, and real chat components exercised through a test-only Vite entry. The final `browser` check verifies every shard and the complete case inventory. Deterministic local fixtures; results and screenshots retained per shard as artifacts. |
+| `.github/workflows/browser.yml` | Six parallel shards run deployment asset checks, actual cloud/self-host SPA builds at desktop and 390px, and real chat components exercised through a test-only Vite entry. The final `browser` check verifies every shard and the complete case inventory. Deterministic local fixtures; results and screenshots retained per shard as artifacts. |
 
 The database and browser workflows retain their result artifacts even when a
 check fails. Both boundary workflows use Node 24; use that version to
@@ -100,7 +100,7 @@ used by CI:
 pnpm --filter deckpal-api test:integration
 pnpm test:deploy-assets
 pnpm test:browser
-pnpm test:browser --shard 1/4 # run one CI shard locally
+pnpm test:browser --shard 1/6 # run one CI shard locally
 ```
 
 Database integration requires Linux (WSL is suitable), a non-root user, and
