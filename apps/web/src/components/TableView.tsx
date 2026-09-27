@@ -198,11 +198,16 @@ export function TableView({
     previousActiveCardRef.current = activeCard
     if (!wasOpen || activeCard || focusedRowRef.current === null) return
     const index = focusedRowRef.current
-    focusedRowRef.current = null
     if (cards[index]?.cardId !== wasOpen) return
     // The opener may have been recycled while the sheet held focus. Recreate
     // its row before focusing the new anchor, after Sheet releases scroll lock.
     const frame = requestAnimationFrame(() => {
+      const link = containerRef.current?.querySelector<HTMLElement>(`[data-index="${index}"] [data-decke-card]`)
+      const box = link?.getBoundingClientRect()
+      if (link && box && box.bottom > 0 && box.top < window.innerHeight) {
+        link.focus({ preventScroll: true })
+        return
+      }
       virtualizer.scrollToIndex(index, { align: 'center', behavior: 'auto' })
       requestAnimationFrame(() => {
         containerRef.current?.querySelector<HTMLElement>(`[data-index="${index}"] [data-decke-card]`)
