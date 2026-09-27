@@ -127,6 +127,22 @@ export async function checkA11y(browser, server, mount, label, out) {
         'opening Deck-E must not return focus to the drawer trigger')
       results.push({ case: 'a11y-drawer-to-chat', label, drawerClosed: true, focusStayedOutOfMenu: true })
     } finally { await decke.context.close() }
+    const reverse = await contextFor(browser, server, 390)
+    try {
+      await signIn(reverse.context)
+      await reverse.page.goto(server.origin + '/lists', { waitUntil: 'networkidle' })
+      await reverse.page.locator('button[aria-label="Chat with Deck-E"]').click()
+      const chat = reverse.page.getByRole('dialog', { name: 'Chat with Deck-E' })
+      await chat.waitFor()
+      await reverse.page.getByRole('button', { name: 'Menu' }).click()
+      const drawer = reverse.page.getByRole('dialog', { name: 'Navigation' })
+      await drawer.waitFor()
+      assert.equal(await chat.getAttribute('inert'), '', 'opening the menu must make the chat panel inert')
+      await reverse.page.keyboard.press('Shift+Tab')
+      assert.equal(await reverse.page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
+        true, 'Shift+Tab must remain in the drawer after chat is minimised')
+      results.push({ case: 'a11y-chat-to-drawer', label, chatInert: true, focusStayedInDrawer: true })
+    } finally { await reverse.context.close() }
     const { context, page } = await contextFor(browser, server, 390)
     try {
       await signIn(context)

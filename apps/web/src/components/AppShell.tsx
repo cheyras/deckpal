@@ -777,7 +777,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         signedOut={signedIn === false}
         permissions={permissions}
       />
-      <Header onBurger={() => { drawerReturnFocus.current = true; setDrawerOpen((o) => !o) }} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
+      <Header onBurger={() => {
+        drawerReturnFocus.current = true
+        if (!drawerOpen) window.dispatchEvent(new Event('deckpal:navigation-opening'))
+        setDrawerOpen((o) => !o)
+      }} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} returnFocusRef={drawerReturnFocus} signedIn={signedIn} permissions={permissions} />
       <main id="main" tabIndex={-1} className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>

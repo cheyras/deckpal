@@ -343,6 +343,15 @@ export function DeckeHost() {
    */
   const travellingRef = useRef(false)
   travellingRef.current = travelling
+  useEffect(() => {
+    // The phone menu is modal. Minimise an open chat before its focus trap
+    // starts, preserving the conversation while making the panel inert.
+    const onNavigationOpening = () => {
+      if (chatOpen) setTravelling(true)
+    }
+    window.addEventListener('deckpal:navigation-opening', onNavigationOpening)
+    return () => window.removeEventListener('deckpal:navigation-opening', onNavigationOpening)
+  }, [chatOpen])
   /** The bubble is animating away — the beat between "read" and "he leaves".
    *  See the retire effect below. */
   const [bubbleLeaving, setBubbleLeaving] = useState(false)
