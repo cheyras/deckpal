@@ -9,6 +9,11 @@ overrides:
   qs: ^6.16.0
   fast-uri: ^3.1.6
 
+patchedDependencies:
+  heic2any@0.0.4:
+    hash: 1d9507b2472c9efc3940a5915ed77029d134a49181505fe2c87f1aa48a315773
+    path: patches/heic2any@0.0.4.patch
+
 importers:
 
   .:
@@ -224,7 +229,7 @@ importers:
         version: 3.14.11(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       heic2any:
         specifier: 0.0.4
-        version: 0.0.4
+        version: 0.0.4(patch_hash=1d9507b2472c9efc3940a5915ed77029d134a49181505fe2c87f1aa48a315773)
       html2canvas-pro:
         specifier: 2.4.2
         version: 2.4.2
@@ -5886,7 +5891,7 @@ snapshots:
     dependencies:
       '@types/hast': 3.0.5
 
-  heic2any@0.0.4: {}
+  heic2any@0.0.4(patch_hash=1d9507b2472c9efc3940a5915ed77029d134a49181505fe2c87f1aa48a315773): {}
 
   helmet@8.3.0: {}
 

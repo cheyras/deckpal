@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { cleanupRepairedOriginal, discardQueuePhoto, repairQueuePhoto, replacementId, type QueueMeta, type QueueStore } from '../queueRepair.js';
 
 const ID = 1_700_000_000_000;
@@ -38,6 +40,13 @@ function fakeStore() {
 }
 
 const isHeic = (bytes: Buffer) => bytes.toString() === 'heic';
+
+test('storage operations hold a dedicated lock beyond the request transaction in cloud mode', () => {
+  const route = readFileSync(fileURLToPath(new URL('../scanQueue.ts', import.meta.url)), 'utf8');
+  assert.match(route, /SUPABASE_MODE \? makePool\(\{ role: 'worker', max: 1 \}\) : pool/);
+  assert.match(route, /const result = await work\(\);\s*await client\.query\('COMMIT'\)/);
+  assert.doesNotMatch(route, /withTx\(/);
+});
 
 test('retry completes an interrupted JPEG and restores missing metadata before acknowledging', async () => {
   const { files, store, interruptSidecar } = fakeStore();

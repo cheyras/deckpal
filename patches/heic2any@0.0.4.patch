@@ -1,0 +1,15 @@
+diff --git a/dist/heic2any.js b/dist/heic2any.js
+index a4d555ef1c80cf3dfe4597cbe07e0eb3fb31ac83..205231735475d47f8080d45e3d6cfcb433412a1a 100644
+--- a/dist/heic2any.js
++++ b/dist/heic2any.js
+@@ -188,8 +188,9 @@ function decodeBuffer(buffer) {
+         var id = (Math.random() * new Date().getTime()).toString();
+         var message = { id: id, buffer: buffer };
+         window.__heic2any__worker.postMessage(message);
+-        window.__heic2any__worker.addEventListener("message", function (message) {
++        window.__heic2any__worker.addEventListener("message", function onMessage(message) {
+             if (message.data.id === id) {
++                window.__heic2any__worker.removeEventListener("message", onMessage);
+                 if (message.data.error) {
+                     return reject(message.data.error);
+                 }
