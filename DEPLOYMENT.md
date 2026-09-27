@@ -1236,6 +1236,7 @@ input after successful preflight; no separate secret or deployment step exists.
    | Variable | Effect |
    |---|---|
    | `VITE_CARD_ART_BUCKET` | Storage bucket the SPA addresses card art in **directly**, skipping the `/deckpal/images` function and its redirect (DECISIONS.md 2026-08-26). Build-time only. Defaults to `card-art`, which is the same default the server uses (`CARD_ART_BUCKET`, `packages/storage/src/config.ts`) — **set it only if you renamed the bucket, and set it to the same value on both.** Getting it wrong does not break images: the direct URL 404s, `CardImage` falls back to the image tier, and you silently get the slower pre-2026-08-26 behaviour. `VITE_SUPABASE_URL` must be set at build time for the fast path to exist at all; without it every image uses the proxy (expected on self-host, and the dev build warns). |
+   | `VITE_DECKE_TEST_HANDLE` | **Test builds only — never set it in a deployment.** `1` exposes the Deck-E engine as `window.__decke` so `tests/browser/deckeShow.mjs` can step him frame by frame. Set by `tests/browser/support.mjs`'s build and nothing else; unset, the handle is folded out of the bundle entirely. |
 
    After a catalog import or a set release, warm the new art or the first person
    to view it pays a ~1.5–2.5 s fill per image:
@@ -1457,9 +1458,10 @@ pnpm --filter deckpal-images manifest:check --object-store
 ### 7. AI issue triage (optional)
 
 **`.github/workflows/issue-triage.yml` — runs on every issue opened via the
-in-app reporter.**  A cheap AI model (Claude Haiku) reviews the report and posts
-a draft analysis as a comment — noting missing details for bugs, and ranking
-against current priorities from the wiki.  The comment is clearly labeled as
+in-app reporter.**  A cheap Haiku-class model (`anthropic/claude-haiku-4.5`,
+called through the Vercel AI Gateway) reviews the report and posts a draft
+analysis as a comment — noting missing details for bugs, and ranking against
+current priorities from the wiki.  The comment is clearly labeled as
 AI-generated and non-authoritative; the workflow never modifies labels or issue
 state.
 
@@ -1467,10 +1469,10 @@ Add one repository secret:
 
 | Secret | Value | Required |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | An Anthropic API key (any tier — Haiku is very cheap) | yes |
+| `AI_GATEWAY_API_KEY` | A Vercel AI Gateway API key — Vercel dashboard, the deck-pal team → AI Gateway → API Keys. Mint a **dedicated** key for this workflow rather than reusing an existing one: this is a GitHub Actions repository secret (a separate credential store from any Vercel project environment variable of the same name), and a dedicated key keeps triage's tiny, infrequent spend legible and independently revocable — the same reasoning `DECKE_VERCEL_AI_GATEWAY_KEY` above is deliberately split from the marketing generator's key. | yes |
 
 ```bash
-gh secret set ANTHROPIC_API_KEY --repo cheyras/deckpal
+gh secret set AI_GATEWAY_API_KEY --repo cheyras/deckpal
 # paste the key when prompted
 ```
 

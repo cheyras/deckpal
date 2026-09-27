@@ -21,38 +21,94 @@ export interface DatedPoint {
   date: string // YYYY-MM-DD
 }
 
-/** YYYY-MM-DD in UTC, matching the `to_char(observed_on, 'YYYY-MM-DD')` shape the API returns. */
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+/**
+ * Every range Insights.tsx offers, with its display label — the single source
+ * for both the range chips and any other copy that names the selected range
+ * (e.g. the delta card's heading). UXC-07: that heading used to hardcode
+ * "Last 30 Days" regardless of which chip was active, because the label lived
+ * as a literal string in the JSX instead of being read from the same list the
+ * chips render from. Kept here, next to `ValueRangeKey`, rather than in
+ * Insights.tsx, so it's covered by this file's pure unit tests.
+ */
+export const VALUE_RANGES: { key: ValueRangeKey; label: string }[] = [
+  { key: '30d', label: '30 Days' },
+  { key: '3m', label: '3 Months' },
+  { key: '6m', label: '6 Months' },
+  { key: '1y', label: '1 Year' },
+  { key: '18m', label: '18 Months' },
+  { key: '2y', label: '2 Years' },
+]
+
+/** Display label for a range key, e.g. for "{label} Change" headings. */
+export function rangeLabel(range: ValueRangeKey): string {
+  return VALUE_RANGES.find((r) => r.key === range)?.label ?? range
 }
 
 /**
- * The nominal start of a range's window, mirroring the backend's
- * `CURRENT_DATE - interval` filter (collectionValue.ts RANGE_INTERVAL) closely
- * enough for a UI caption — exact calendar-month/year semantics, not a fixed day
- * count, so this agrees with Postgres's `interval '3 months'` etc. to within a
- * day at month-length edge cases, which is immaterial here.
+ * YYYY-MM-DD for the VIEWER'S LOCAL calendar day (QUAL-07 — see the note below
+ * on why this deliberately does not match the server).
+ *
+ * `d.toISOString().slice(0, 10)` reads `d`'s UTC calendar day, which runs up to
+ * a full day ahead of the viewer's own clock for anyone west of UTC (worst
+ * case: a US evening, where it's already tomorrow in UTC). That made the
+ * chart's rightmost axis tick — built from `isoDate(new Date())` — show
+ * tomorrow's date for roughly the back half of every local day. Build the
+ * string from the Date's own local fields instead, the same "when did this
+ * happen here" rule fmtDate/fmtCalendarDate (lib/format.ts) already apply to
+ * timestamps.
+ */
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/**
+ * The nominal start of a range's window, anchored to the viewer's LOCAL
+ * calendar day (see `isoDate` above) and offset by calendar months/years —
+ * not a fixed day count — so a span like "3 months" reads the way a person
+ * means it.
+ *
+ * This intentionally does NOT reuse the backend's own anchor.
+ * `collection_value_point.observed_on` (what `points[].date` is read from) is
+ * a UTC calendar day: the daily snapshot cron runs once, on a fixed UTC clock,
+ * and stamps every account with the same global day regardless of where its
+ * owner lives (Supabase and GitHub Actions both run `timezone = UTC` —
+ * DECISIONS.md). That is the right anchor for a once-a-day, all-accounts
+ * write. It is the wrong anchor for a chart AXIS a human is looking at right
+ * now: "today" on the rightmost tick should read as today wherever the viewer
+ * is sitting, not wherever the cron's clock is. Two coherent, deliberately
+ * different definitions — storage keys off the cron's UTC day, the window
+ * boundary keys off the viewer's local day — so this can disagree with the
+ * server's own `CURRENT_DATE`-based window filter by up to a day at the
+ * edges. That's immaterial: the chart only ever plots points that exist in
+ * `points` (no interpolation), so a boundary that's a day "wider" than the
+ * server's own filter just means the widest possible request, never a wrong
+ * one — matching the calendar-month/year slop this function already accepts
+ * (agrees with Postgres's `interval '3 months'` etc. to within a day at
+ * month-length edge cases).
  */
 export function rangeWindowStart(range: ValueRangeKey, from: Date): Date {
   const d = new Date(from.getTime())
   switch (range) {
     case '30d':
-      d.setUTCDate(d.getUTCDate() - 30)
+      d.setDate(d.getDate() - 30)
       break
     case '3m':
-      d.setUTCMonth(d.getUTCMonth() - 3)
+      d.setMonth(d.getMonth() - 3)
       break
     case '6m':
-      d.setUTCMonth(d.getUTCMonth() - 6)
+      d.setMonth(d.getMonth() - 6)
       break
     case '1y':
-      d.setUTCFullYear(d.getUTCFullYear() - 1)
+      d.setFullYear(d.getFullYear() - 1)
       break
     case '18m':
-      d.setUTCMonth(d.getUTCMonth() - 18)
+      d.setMonth(d.getMonth() - 18)
       break
     case '2y':
-      d.setUTCFullYear(d.getUTCFullYear() - 2)
+      d.setFullYear(d.getFullYear() - 2)
       break
   }
   return d

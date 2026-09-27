@@ -11,6 +11,7 @@
  * Every result is a sentence the model can say out loud. "That is not on this
  * page" is useful to a reader; "ERR_NO_MATCH" is not.
  */
+import { MAX_GLIDE_SCREENS } from '../beacon'
 import type { DeckEInstance } from './runtime'
 
 export type UiToolResult = { ok: boolean; reason?: string }
@@ -183,6 +184,20 @@ function isNormalPath(clean: string): boolean {
  */
 export const DECKE_REVEAL_EVENT = 'decke:reveal'
 
+/**
+ * The page's answer when the card he asked for can never appear on it — not in
+ * this set, or hidden by the filter the reader has on. Without it he waited out
+ * the whole 6 s cap in a "loading" pose to learn what the page knew the moment
+ * its data landed. See `SetDetail`.
+ */
+export const DECKE_REVEAL_MISS_EVENT = 'decke:reveal-miss'
+
+export type DeckeRevealMissDetail = {
+  cardId: string
+  /** Finishes the sentence "we are on the page, but …". */
+  reason: string
+}
+
 export type DeckeRevealDetail = {
   /** The selector he is waiting on, verbatim. */
   selector: string
@@ -203,6 +218,20 @@ export type DeckeRevealDetail = {
  * bounded anyway by the same 6 s cap that bounds the wait.
  */
 export const REVEAL_RETRY_MS = 400
+
+/**
+ * The reveal he is waiting on right now, for a page that mounts AFTER he asked.
+ *
+ * The retry above covers that page eventually — up to 400 ms eventually, and
+ * the first ask after a navigation always lands before the page exists. That
+ * 400 ms was on screen: the new page's header sat there, then the throw jumped
+ * it down to the card. A page reading this as it mounts starts with the row
+ * already in hand, so the tile exists on the grid's very first render.
+ */
+let pending: DeckeRevealDetail | null = null
+export function pendingReveal(): DeckeRevealDetail | null {
+  return pending
+}
 
 /**
  * The ONE selector shape that names something the app does not keep in the DOM.
@@ -438,8 +467,19 @@ function resolveClickTarget(selector: string): { el: HTMLElement | null; refused
 
 export type UiToolContext = {
   decke: DeckEInstance
-  /** TanStack's imperative navigate. Injected so this module stays router-agnostic. */
-  navigate: (to: string) => void
+  /**
+   * TanStack's imperative navigate. Injected so this module stays router-agnostic.
+   * `keepScroll` skips the router's jump to the top: when he is taking the
+   * reader to something ON the new page, the page's first scroll is his (see
+   * `throwNear`), and a reset landing after it flicked the page back up.
+   */
+  navigate: (to: string, opts?: { keepScroll?: boolean }) => void
+  /**
+   * The turn's own abort. A tool that waits for him to land must stop waiting
+   * the moment the reader presses Stop — otherwise the turn stays busy, and a
+   * walk stays "stepping", until he touches down.
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -512,6 +552,15 @@ function himX(ctx: UiToolContext): number | null {
   return box.left + box.width / 2
 }
 
+/** Freeze him in place on screen before the page moves under him. Never throws. */
+function holdStill(ctx: UiToolContext): void {
+  try {
+    ctx.decke.hold()
+  } catch {
+    /* an engine mid-teardown must not stop the page it was about to change */
+  }
+}
+
 /**
  * Run one browser-side tool call.
  *
@@ -526,41 +575,14 @@ export async function runUiTool(
   try {
     switch (name) {
       case 'flyTo': {
-        const { el, refused } = resolveTarget(String(input.selector ?? ''))
-        if (refused) return { ok: false, reason: refused }
-        if (!el) return { ok: false, reason: 'there is nothing like that on this page' }
-        // VIA THE BACKGROUND when it is a real journey, straight there when it
-        // is not. See `viaBackground` for the measurement and the reason the
-        // same rule now governs the post-navigation flight too.
-        //
-        // The `flying` guard is this caller's own: chaining a far-plane round
-        // trip onto a leg already in the air reads as him changing his mind
-        // mid-flight, and the leg he is on already carries the travel.
-        const here = ctx.decke.getState()
-        const target = el.getBoundingClientRect()
-        const far =
-          !here.flying &&
-          viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
-        ctx.decke.flyTo(
-          { selector: String(input.selector) },
-          {
-            // HE RESTS SMALL WHILE PRESENTING. The background depth system was
-            // only ever used as a mid-flight waypoint; every destination
-            // hard-coded 'foreground', so he swelled back to full size the
-            // instant he arrived — "he's very big himself here, annoyingly
-            // big." A presentation is pointing at someone else's content: he
-            // parks on the far plane (a third of his size), the ring and the
-            // bubble carry the message, and the content stays the subject.
-            // The park solve, keep-out, screenRect and the beacon all take the
-            // same depth-scaled distance, so everything downstream agrees.
-            depth: 'background',
-            highlight: input.highlight !== false,
-            then: input.point === true ? 'point' : undefined,
-            via: far ? 'background' : undefined,
-            scrollWith: true,
-          },
-        )
-        return { ok: true }
+        // `point` is the schema's name for it; `then: 'point'` is accepted too,
+        // because that is how a journey step spelled it for its whole life and
+        // the flag was silently dropped on every escort.
+        const point = input.point === true || input.then === 'point'
+        return await present(ctx, String(input.selector ?? ''), {
+          point,
+          highlight: input.highlight !== false,
+        })
       }
 
       case 'highlight': {
@@ -584,6 +606,12 @@ export async function runUiTool(
         // A REAL CLICK on the element itself, not a synthesised event on the
         // document: React listens at the root and reconstructs the path, so
         // `el.click()` is what a person's press actually looks like to it.
+        //
+        // HELD FIRST. A press may navigate, and he may be pinned to the page it
+        // leaves: the router's reset to the top then carried him half a screen
+        // for a frame before the pin noticed its element had gone. Held, he
+        // stays where he is drawn while the page changes under him.
+        holdStill(ctx)
         el.click()
         // ANSWERED WITH WHAT IT WAS, not just "ok". "I opened the Mega
         // Evolution row" is something he can say; "true" is not, and the whole
@@ -606,7 +634,8 @@ export async function runUiTool(
           }
           return { ok: true, reason: 'we are already on that page' }
         }
-        ctx.navigate(route)
+        holdStill(ctx)
+        ctx.navigate(route, { keepScroll: typeof input.selector === 'string' })
         if (typeof input.selector !== 'string') return { ok: true }
         return await travelAfterRoute(ctx, input.selector, false)
       }
@@ -663,90 +692,7 @@ export async function runUiTool(
  * mutation, so a page that settles instantly waits 120 ms and a page that churns
  * waits until it stops — bounded by `LIMIT_MS`, which does not move.
  *
- * X1, ANSWERED EXPLICITLY RATHER THAN BY SILENCE: nothing here adds motion, so
- * there is no new reduce path to ship with it. Both changes in this pair make
- * the existing motion shorter and gentler, and the reduced-motion route is
- * untouched — `DeckE.flyTo` still cuts, and a cut lands on a settled page for
- * the same reason a flight does.
  */
-/**
- * How long to wait for the page to stop scrolling before flying at something.
- *
- * ── THE RACE THIS CLOSES ─────────────────────────────────────────────────────
- *
- * There are TWO things that scroll this page on his behalf and they were never
- * introduced to each other.
- *
- * `DeckE.driveScroll` is the good one: `flyTo({ scrollWith: true })` solves a
- * scroll target and drives it from the flight's own clock, so the page moves
- * because he is moving. Its cancel is deliberately paranoid and its own comment
- * says why — "between frames `window.scrollY` should equal what the drive last
- * wrote; anything else is the reader's wheel, their trackpad, or a keyboard" —
- * and the reader is meant to win, instantly and permanently.
- *
- * The other one is `GridView`'s answer to a `decke:reveal`: a virtualized tile
- * does not exist until it is scrolled to, so the grid scrolls to it ITSELF, with
- * the browser's own `behavior: 'smooth'`. That scroll is not the reader and the
- * drive has no way to know it. So the sequence was: the grid starts a smooth
- * scroll, the tile mounts, the mutation observer settles 120 ms later with the
- * scroll still animating, `flyTo` solves its destination and its scroll target
- * against a rect captured MID-SCROLL, and on the drive's very first frame it
- * sees a `scrollY` it did not write and disarms itself for good.
- *
- * What that looks like is the report: "he goes to show me a card, but the
- * scrolling doesn't happen so he just dives off the page downward, leaving me
- * to scroll down myself. defeats the point." — and then, once the reader
- * scrolls down by hand, "his message is still there, but he's nowhere to be
- * seen", because he flew to a spot solved against a rect that had not finished
- * moving.
- *
- * Waiting for quiet is the whole fix: one writer at a time, and the rect he is
- * aimed at is the rect it will still be when he gets there.
- *
- * The cap is a bound, not a schedule. A page that never stops scrolling — an
- * infinite loader, a reader with their finger on the wheel — must not strand a
- * tool call, and flying at a moving rect is what he did before this existed, so
- * the fallback is the old behaviour rather than a failure.
- */
-const SCROLL_QUIET_CAP_MS = 700
-
-/**
- * Call `then` once the page's scroll offset has held still for two consecutive
- * frames, or the cap expires.
- *
- * TWO frames, not one: a smooth scroll's final frame and the frame after it
- * carry the same offset only once it has actually finished, and a single
- * sample cannot tell "arrived" from "a frame where it happened not to move".
- * The same shape the entrance's park-settle poll uses, and for the same reason.
- */
-function whenScrollQuiet(then: () => void): void {
-  // A FRAME, or a timer where there are no frames. `runUiTool`'s tests drive
-  // this module against a hand-built `window` with no compositor behind it, and
-  // a bare `requestAnimationFrame` there is a `ReferenceError` that surfaces as
-  // the tool answering "requestAnimationFrame is not defined" — a real failure
-  // mode for any host that is not a browser tab, not only for the tests.
-  const frame =
-    typeof requestAnimationFrame === 'function'
-      ? requestAnimationFrame
-      : (fn: () => void) => window.setTimeout(fn, 16)
-  const read = () => window.scrollY ?? 0
-  let last = read()
-  let same = 0
-  const started = Date.now()
-  const tick = () => {
-    const now = read()
-    same = now === last ? same + 1 : 0
-    last = now
-    if (same >= 2 || Date.now() - started >= SCROLL_QUIET_CAP_MS) {
-      then()
-      return
-    }
-    frame(tick)
-  }
-  frame(tick)
-}
-
-
 const SETTLE_MS = 120
 
 /**
@@ -773,7 +719,195 @@ const SETTLE_MS = 120
 const DEAD_AIR_MS = 300
 
 /**
- * Wait for the destination to actually exist and stop moving, then travel to it.
+ * How long the tool waits for a landing that the engine has stopped owing.
+ *
+ * The engine ALWAYS reports a flight's end — a landing, or an abort when
+ * something replaces it — so this is not a timeout on the flight. It is the
+ * grace allowed once he is no longer in the air and still nothing has been
+ * heard, which only a teardown mid-flight produces. Measuring his flight in
+ * wall-clock time instead would be wrong in exactly the places it matters: a
+ * slow phone, a busy tab, or a test stepping him frame by frame all stretch a
+ * 1.5 s flight well past any fixed cap, and the tool would then answer "not
+ * landed" for a trip that landed fine.
+ */
+export const ARRIVAL_GRACE_MS = 1000
+/** The absolute bound, so a tool can never hang a turn whatever the engine does. */
+export const ARRIVAL_HARD_CAP_MS = 20000
+
+/**
+ * How long a found destination may keep moving before he flies at it anyway.
+ * See `whenStill`.
+ */
+const STILL_CAP_MS = 600
+
+/**
+ * Call `then` once `el`'s box has held still for two consecutive frames, or
+ * the cap expires.
+ *
+ * ── WHY THE BOX AND NOT THE SCROLL OR THE DOM ────────────────────────────────
+ *
+ * What he flies at is a RECT, so the rect is the thing to wait on. The mutation
+ * settle above only knows the DOM stopped changing; a grid can still be
+ * re-flowing, a header still growing into its final height, and the page's own
+ * scroll reset still landing (the router ends every navigation with a jump to
+ * the top). Two identical reads a frame apart is the cheapest proof that the
+ * spot he solves against is the spot that will still be there when he lands.
+ *
+ * The cap is a bound, not a schedule: flying at a moving rect is what he did
+ * before this existed, and his flight re-aims as it goes, so the fallback is a
+ * slightly longer correction rather than a failure.
+ */
+function whenStill(el: Element, then: () => void): void {
+  // A FRAME, or a timer where there are no frames. `runUiTool`'s tests drive
+  // this module against a hand-built `window` with no compositor behind it, and
+  // a bare `requestAnimationFrame` there is a `ReferenceError`.
+  const frame =
+    typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (fn: () => void) => window.setTimeout(fn, 16)
+  const read = () => {
+    const r = el.getBoundingClientRect()
+    return `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`
+  }
+  let last = read()
+  let same = 0
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    window.clearTimeout(guard)
+    then()
+  }
+  // A TIMER, NOT ONLY FRAMES. A hidden tab delivers no animation frames at
+  // all, and a cap checked inside the frame loop then never fires — the wait
+  // hung the whole turn (found by review). Timers still run, if slowly.
+  const guard = window.setTimeout(finish, STILL_CAP_MS)
+  const tick = () => {
+    if (done) return
+    const now = read()
+    same = now === last ? same + 1 : 0
+    last = now
+    if (same >= 2) {
+      finish()
+      return
+    }
+    frame(tick)
+  }
+  frame(tick)
+}
+
+/**
+ * On a page he has just opened, start it already most of the way to the target.
+ *
+ * ── WHY HERE, AND WHY NOW ────────────────────────────────────────────────────
+ *
+ * `DeckE.flyTo` throws the page to within `MAX_GLIDE_SCREENS` of a far target
+ * as he sets off, and glides the rest with him. After a navigation that throw
+ * came several frames AFTER the grid first painted — the settle, then the
+ * still-box check — so the reader saw the top of the new page, then a jump.
+ * A MutationObserver callback runs before the browser paints the mutation it
+ * reports, so doing the same throw here, the first time the target exists,
+ * means the page is simply never seen anywhere else: it arrives near the card,
+ * and he flies the last stretch down to it.
+ *
+ * Only after a navigation (the caller's `immediate` is false): on a page the
+ * reader has already been looking at, jumping without him is a cut, and the
+ * throw belongs to his take-off. Never upward, and never a small move.
+ */
+function throwNear(el: Element): void {
+  try {
+    const h = window.innerHeight
+    const r = el.getBoundingClientRect()
+    const max = Math.max(0, document.documentElement.scrollHeight - h)
+    const centred = Math.min(max, Math.max(0, window.scrollY + r.top + r.height / 2 - h / 2))
+    const start = centred - h * MAX_GLIDE_SCREENS
+    if (start > window.scrollY + h / 2) window.scrollTo(0, start)
+  } catch {
+    /* a page that cannot be measured is simply not thrown */
+  }
+}
+
+/**
+ * Fly him to a landmark and answer when he has ARRIVED — ringed and pointing —
+ * or say why not.
+ *
+ * ── WHY THE TOOL WAITS FOR THE LANDING ───────────────────────────────────────
+ *
+ * This used to hand the flight to the engine and answer `{ ok: true }` in the
+ * same tick. The model's next leg therefore started while he was still in the
+ * air, so "There it is!" streamed into the bubble before there was any "it" on
+ * screen, and the bubble's read-timer — which retires him — started counting
+ * down during the flight. Measured on "show me my Charizard": the ring was up
+ * for 2.3 s before he was sent home. Worse, it made every result a promise
+ * rather than a report, so a flight that was replaced mid-air still went back
+ * to the model as a success. The engine has always said when a flight lands
+ * and when one is aborted (`FlyOptions.arrived`); this listens.
+ */
+function present(
+  ctx: UiToolContext,
+  selector: string,
+  opts: { point: boolean; highlight: boolean },
+): Promise<UiToolResult> {
+  return new Promise((resolve) => {
+    const { el, refused } = resolveTarget(selector)
+    if (refused) return resolve({ ok: false, reason: refused })
+    if (!el) return resolve({ ok: false, reason: 'there is nothing like that on this page' })
+    const target = el.getBoundingClientRect()
+    const here = ctx.decke.getState()
+    const far =
+      !here.flying && viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
+    let done = false
+    let watch = 0
+    const finish = (result: UiToolResult) => {
+      if (done) return
+      done = true
+      window.clearInterval(watch)
+      ctx.signal?.removeEventListener('abort', stopped)
+      resolve(result)
+    }
+    const started = Date.now()
+    let groundedSince = 0
+    const lost = () => finish({ ok: true, reason: 'I set off toward it, but I had not landed when I answered' })
+    const stopped = () => finish({ ok: false, reason: 'you stopped me before I got there' })
+    if (ctx.signal?.aborted) return stopped()
+    ctx.signal?.addEventListener('abort', stopped, { once: true })
+    ctx.decke.flyTo(
+      { selector },
+      {
+        depth: 'background',
+        highlight: opts.highlight,
+        then: opts.point ? 'point' : undefined,
+        via: far ? 'background' : undefined,
+        scrollWith: true,
+        arrived: (aborted, why) =>
+          finish(
+            !aborted
+              ? { ok: true }
+              : why === 'reader'
+                ? { ok: false, reason: 'you scrolled away before I got there, so I stopped where I was' }
+                : { ok: false, reason: 'something moved me somewhere else before I got there' },
+          ),
+      },
+    )
+    if (done) return
+    watch = window.setInterval(() => {
+      let flying = false
+      try {
+        flying = ctx.decke.getState().flying
+      } catch {
+        /* an engine that has gone away is not flying */
+      }
+      const now = Date.now()
+      if (flying) groundedSince = 0
+      else if (!groundedSince) groundedSince = now
+      if ((groundedSince && now - groundedSince > ARRIVAL_GRACE_MS) || now - started > ARRIVAL_HARD_CAP_MS) lost()
+    }, 250)
+  })
+}
+
+/**
+ * Wait for the destination to actually exist and stop moving, then take him to
+ * it, and answer once he is there.
  *
  * "After the route settles" is not a moment the router can tell us about. A
  * route renders, then its data resolves, then the list it renders appears —
@@ -796,11 +930,11 @@ function travelAfterRoute(
     // A virtualized tile is the one target that will not turn up on its own,
     // so waiting for it has to be accompanied by asking for it. See
     // `DECKE_REVEAL_EVENT` above for why this is an event and why it repeats.
-    // Everything below this — the observer, the settle, the flight, the cap —
-    // is untouched: the request only changes whether the thing being waited
-    // for ever mounts, not what happens when it does.
+    // The page answers by MOUNTING the tile, never by scrolling to it: the
+    // flight owns the one scroll (see `GridView`).
     const cardId = revealCardId(selector)
     let asking = 0
+    if (cardId) pending = { selector, cardId }
     const ask = () => {
       window.dispatchEvent(
         new CustomEvent<DeckeRevealDetail>(DECKE_REVEAL_EVENT, {
@@ -808,26 +942,51 @@ function travelAfterRoute(
         }),
       )
     }
-    // ONE EXIT, so the interval cannot outlive the wait down any of the four
-    // paths that end it (found, refused, settled-but-gone, capped). An interval
-    // that survives its promise would keep scrolling the reader's page for a
-    // turn that finished.
+    // ── AND HEARING A NO ─────────────────────────────────────────────────────
+    //
+    // The page that owns the card knows, the moment its data lands, whether the
+    // card can ever appear. Its "no" ends the wait with its reason instead of
+    // leaving him spinning out the 6 s cap.
+    const onMiss = (e: Event) => {
+      const d = (e as CustomEvent<DeckeRevealMissDetail>).detail
+      if (!cardId || d?.cardId !== cardId) return
+      finish()
+      settle({ ok: false, reason: `we are on the page, but ${d.reason}` })
+    }
+    if (cardId) window.addEventListener(DECKE_REVEAL_MISS_EVENT, onMiss)
+    // STOP ENDS THE WAIT AT EVERY STAGE: for the page, for the box to settle,
+    // and (inside `present`) for the landing.
+    const onAbort = () => {
+      finish()
+      settle({ ok: false, reason: 'you stopped me before I got there' })
+    }
+    if (ctx.signal?.aborted) {
+      resolve({ ok: false, reason: 'you stopped me before I got there' })
+      return
+    }
+    ctx.signal?.addEventListener('abort', onAbort, { once: true })
+
     // ── SHOWING THAT HE IS WAITING ───────────────────────────────────────────
     //
     // Armed below, once, if the destination has not turned up promptly. Cleared
-    // through `settle`, which is the one exit — the same reason the reveal
-    // interval is cleared there.
+    // through `settle`, which is the one exit.
     let waiting = 0
     let showedWaiting = false
+    let settled = false
     const settle = (result: UiToolResult) => {
+      if (settled) return
+      settled = true
       if (asking) window.clearInterval(asking)
       asking = 0
       window.clearTimeout(waiting)
-      // A SUCCESS HANDS HIM OVER, A FAILURE HANDS HIM BACK. `go` has just
-      // launched a flight whose `then: 'point'` owns his state from the moment
-      // it lands, so clearing the posture here would fight it. Nothing was
-      // launched on the failing paths, and a character left spinning over a
-      // page he never reached is the dead air again with a costume on.
+      if (cardId) window.removeEventListener(DECKE_REVEAL_MISS_EVENT, onMiss)
+      ctx.signal?.removeEventListener('abort', onAbort)
+      if (pending?.selector === selector) pending = null
+      // A SUCCESS HANDS HIM OVER, A FAILURE HANDS HIM BACK. The flight's
+      // `then: 'point'` owns his state from the moment it lands, so clearing the
+      // posture there would fight it. Nothing was launched on the failing
+      // paths, and a character left spinning over a page he never reached is
+      // the dead air again with a costume on.
       if (showedWaiting && !result.ok) {
         try {
           ctx.decke.setState('idle')
@@ -838,6 +997,9 @@ function travelAfterRoute(
       resolve(result)
     }
 
+    // Found: stop asking and waiting, let the box hold still, then fly and
+    // answer from the landing. `settle` is idempotent, so a cap that fires
+    // mid-flight cannot answer twice.
     const go = (): boolean => {
       const { el, refused } = resolveTarget(selector)
       if (refused) {
@@ -845,66 +1007,29 @@ function travelAfterRoute(
         return true
       }
       if (!el) return false
-      // AFTER THE PAGE HAS STOPPED MOVING, and the measurement below is the
-      // reason. `whenScrollQuiet`'s header has the full account; the short
-      // version is that the reveal this tool just asked for is answered with
-      // the grid's own smooth scroll, the settle above waits for DOM mutations
-      // rather than for that scroll, and both the destination rect and the
-      // flight's own scroll drive were being solved against a page still in
-      // motion.
-      //
-      // The rect is therefore read INSIDE the callback, not out here: reading
-      // it now and using it later is the same bug wearing a different hat.
-      whenScrollQuiet(() => {
-        const again = resolveTarget(selector)
-        // The page moved for most of a second; the thing being pointed at may
-        // not have survived it. Nothing to fly to is not an error worth
-        // re-answering — `settle` below has already told the model he is on
-        // his way — but flying at a stale rect is. He does have to stop
-        // LOOKING like he is on his way, though: no flight will arrive to take
-        // his state back off the waiting posture.
-        if (!again.el || again.refused) {
-          if (showedWaiting) {
-            try {
-              ctx.decke.setState('idle')
-            } catch {
-              /* an engine mid-teardown must not take the tool's answer with it */
-            }
-          }
-          return
-        }
-        // THE SAME QUESTION `flyTo` ASKS, and it used to be answered here with
-        // a hard-coded "always the long way round". `viaBackground` carries the
-        // measurement and the reason; the short version is that forcing the
-        // far-plane round trip made every navigation cost two 30-unit legs,
-        // which is the "it kind of just became big" this is filed under (C35).
-        //
-        // A destination genuinely across the new page still gets it. That
-        // reading — he travelled, the page changed under him — is what the
-        // round trip was for, and it survives.
-        const target = again.el.getBoundingClientRect()
-        const far = viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
-        ctx.decke.flyTo(
-          { selector },
-          {
-            // Background, for the same reason the same-page `flyTo` case gives:
-            // arriving on a new page to present something is still presenting,
-            // and full size over fresh content is the "annoyingly big" the
-            // owner filed. See the `flyTo` case above.
-            depth: 'background',
-            highlight: true,
-            then: 'point',
-            via: far ? 'background' : undefined,
-            scrollWith: true,
-          },
+      if (asking) window.clearInterval(asking)
+      asking = 0
+      window.clearTimeout(waiting)
+      whenStill(el, () => {
+        if (settled) return
+        present(ctx, selector, { point: true, highlight: true }).then(settle, () =>
+          settle({ ok: false, reason: 'that did not work' }),
         )
       })
-      settle({ ok: true })
       return true
     }
 
-    // ALREADY ON THE PAGE. Nothing was replaced, so there is nothing to settle
-    // and waiting would only make him look slow.
+    let quiet = 0
+    let timer = 0
+    let thrown = false
+    let obs: MutationObserver | null = null
+    const finish = () => {
+      obs?.disconnect()
+      obs = null
+      window.clearTimeout(timer)
+      window.clearTimeout(quiet)
+    }
+
     if (immediate) {
       const { el, refused } = resolveTarget(selector)
       if (refused || el) {
@@ -913,19 +1038,6 @@ function travelAfterRoute(
       }
     }
 
-    // BOTH PATHS ARRIVE HERE, and both need the request. The waiting path is
-    // obvious — the page is being replaced and the tile has never existed. The
-    // `immediate` path is the one the owner actually hit: he was ALREADY on the
-    // set page, the card was two thousand pixels below the fold, and the only
-    // difference between that and a bad card id was that one of them could be
-    // fixed by scrolling. Falling through to here means the selector did not
-    // resolve, which is precisely when the reveal is worth asking for.
-    //
-    // Asking is unconditional rather than "only if it is missing" for the
-    // navigating case: the outgoing page can still be mounted for a tick, so a
-    // resolve-first test would read the OLD page's tile and skip the request
-    // that the new page needs. A reveal for a card already sitting in the
-    // middle of the screen is a no-op on the listening side.
     if (cardId) {
       ask()
       asking = window.setInterval(ask, REVEAL_RETRY_MS)
@@ -940,10 +1052,8 @@ function travelAfterRoute(
       }
     }, DEAD_AIR_MS)
 
-    let quiet = 0
-    const finish = () => {
-      obs.disconnect()
-      window.clearTimeout(timer)
+    const arrived = () => {
+      finish()
       // Resolved again HERE rather than trusting the match that armed the
       // settle: the whole point of waiting is that the page moved, and the
       // element that armed it may have been replaced by the real one.
@@ -951,25 +1061,27 @@ function travelAfterRoute(
         settle({ ok: false, reason: 'we are on the page, but I could not find that part of it' })
       }
     }
-    const obs = new MutationObserver(() => {
+    obs = new MutationObserver(() => {
       const { el, refused } = resolveTarget(selector)
       // A REFUSAL IS AN ANSWER, and waiting for the page to stop moving cannot
-      // change it — the selector resolves to something he is not allowed to
-      // point at, and it will still be that in 120 ms.
+      // change it.
       if (refused) {
-        finish()
+        arrived()
         return
       }
       if (!el) return
+      if (!immediate && !thrown) {
+        thrown = true
+        throwNear(el)
+      }
       // Re-armed, not scheduled once: the first match is usually the skeleton,
       // and every mutation after it is the page still arriving.
       window.clearTimeout(quiet)
-      quiet = window.setTimeout(finish, SETTLE_MS)
+      quiet = window.setTimeout(arrived, SETTLE_MS)
     })
     obs.observe(document.body, { childList: true, subtree: true })
-    const timer = window.setTimeout(() => {
-      obs.disconnect()
-      window.clearTimeout(quiet)
+    timer = window.setTimeout(() => {
+      finish()
       // He ARRIVED — the navigation happened. Only the last step failed, and
       // saying which half worked is the difference between "I took you there,
       // but I cannot find it" and an unexplained shrug.

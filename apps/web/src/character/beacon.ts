@@ -90,6 +90,14 @@ export function beaconRect(b: Beacon): { x: number; y: number; w: number; h: num
 }
 
 /**
+ * The most page a `scrollWith` flight will visibly glide, in screen heights.
+ * Anything further jumps to this distance as he sets off. See the long throw in
+ * `flyTo`. 1.5 screens reads unmistakably as "down the page" and stays legible
+ * at the drive's peak speed; the 18,500 px trip it replaced did neither.
+ */
+export const MAX_GLIDE_SCREENS = 1.5
+
+/**
  * Where the page would have to be scrolled for him to sit vertically centred.
  *
  * "It scrolls back up so that he's kind of vertically centred as much as
