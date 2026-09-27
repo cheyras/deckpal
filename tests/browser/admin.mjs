@@ -53,7 +53,12 @@ export function adminFixture(mount) {
     if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud' } }
     if (rel === '/api/me') return state.signedOut ? { status: 401, body: { error: { message: 'Signed out' } } } : ok({ id: state.actor === 'owner' ? OWNER : USER, username: state.actor, permissions: state.permissions, roles: state.actor === 'owner' ? [{ id: 'super-role', name: 'Super administrator' }] : [], adminReady: true, owner: state.actor === 'owner', decke: state.permissions.includes('decke.use') })
     if (rel === '/api/me/settings') return ok({ settings: { defaultGoal: 'complete', displayCurrency: 'USD', pricingEnabled: true, showCollectionValue: true, binderPocketSize: 9, binderStackVariants: true, binderAdditionalVariants: 'hide', deckeHidden: false, skin: null, topbar: null, seriesSortKey: 'recency', seriesSortDir: 'desc', seriesGroupOwned: false }, defaults: state.defaults.settings })
-    if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0 }, collectionValue: [], collection: {}, pokedex: { captured: 0, total: 1 }, tcg: {}, completion: {}, value: {} })
+    // Shape pinned to apps/api/src/routes/insights.ts's actual response (mirrored client-side as
+    // InsightsOverview / ValueResponse in apps/web/src/lib/api.ts) -- not the endpoint's name, which
+    // is easy to eyeball-match while the fields drift. `collection`/`tcg`/`completion`/`value` were
+    // never real keys of this route; deleted rather than left as fictitious dead weight.
+    if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0, uniquePairs: 0, uniqueMode: 'cards', intoLevel: 0, toNext: 10, nextLevelAt: 10, fraction: 0 }, collectionValue: [], pokedex: { captured: 0, total: 1, pct: 0 } })
+    if (rel === '/api/insights/value') { const currency = url.searchParams.get('currency') ?? 'USD', range = url.searchParams.get('range') ?? '30d'; const current = { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 }; return ok({ currency, range, current, series: { currency, range, points: [], delta: null }, movers: [] }) }
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/me/billing/history') {
@@ -307,6 +312,30 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
       assert.equal(await switched.page.getByText('contributor-with-a-long-address@example.invalid',{exact:true}).count(),0)
       results.push({case:'live-account-switch-and-sign-out-clears-private-ui',label})
     }finally{state.signedOut=false;await switched.context.close()}
+  }
+  return results
+}
+// Proves the fixture's /api/insights/overview + /api/insights/value stubs actually satisfy
+// Insights.tsx's real render path (added after those stubs were found stale -- see
+// tools/ios-sim/README.md's DECISIONS.md entry): every insights-reading field the component
+// dereferences without an optional-chain (trainer.intoLevel/toNext/fraction, pokedex.pct,
+// current.total, series.points) must be present, or this hangs on the heading or throws.
+export async function checkInsights(browser, server, mount, label, out, fixture) {
+  const results = [], { state } = fixture
+  for (const width of [1280, 390]) {
+    state.actor = 'ordinary'; state.permissions = []
+    const { context, page } = await contextFor(browser, server, width); await signIn(context)
+    try {
+      await page.goto(server.origin + mount + '/insights', { waitUntil: 'networkidle' })
+      await page.getByRole('heading', { name: 'Insights', exact: true }).waitFor()
+      // Collection-value zero-state text (Insights.tsx renders '—' via fmtMoney when
+      // val.current.total is reachable but zero -- reaching this line at all is the proof
+      // val.current didn't throw on an under-shaped stub).
+      await page.getByText('No value snapshots recorded yet', { exact: false }).waitFor()
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+      await page.screenshot({ path: path.join(out, label + '-insights-' + width + '.png'), fullPage: true })
+      results.push({ case: 'insights-renders-on-fixture-stubs', label, width })
+    } finally { await context.close() }
   }
   return results
 }
