@@ -42,6 +42,12 @@ jobs:
       - name: deckscout.io redirect coverage
         run: node scripts/check-redirects.mjs
 
+      - name: Decision archive and append guard
+        run: node scripts/check-decisions.mjs
+
+      - name: Decision converter tests
+        run: node --test scripts/__tests__/decisions.test.mjs
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
@@ -142,6 +148,13 @@ jobs:
       - name: MCP wire result (mcp adapter)
         run: pnpm --filter deckpal-mcp test:adapter
 
+      # SEC-09: `/mcp` used to sit outside every rate limiter in the codebase.
+      # `mcpRateOk`'s pure unit tests (no DB, no pool) pin the one property
+      # that matters — per-credential, not per-IP, so one heavy user on a
+      # shared connector's egress IP can never exhaust another user's budget.
+      - name: MCP per-credential rate limit (SEC-09)
+        run: pnpm --filter deckpal-mcp test:cloud
+
       # Every serverless function must LOAD. The unit tests exercise the pieces
       # a function imports and never the function itself, so a package that is
       # imported but not declared resolves locally by hoisting and 500s in
@@ -167,6 +180,16 @@ jobs:
       # does not run `pnpm -r test`, so an unwired suite never runs at all.
       - name: Insights caption tests (pure, no DB)
         run: pnpm --filter deckpal-web test:insights
+
+      # Collection/list quick-fix guards (deckpal audit ux-collection, UXC-01/
+      # 03/05/09): no checklist PDF link points at a gated route by URL, the
+      # list-tile and showcase remove controls aren't hover-only, a completed
+      # smart list never offers an add that can only 400, and neither delete
+      # dialog claims a soft-deleted row is unrecoverable. Wired here for the
+      # same reason the two suites above were: CI does not run `pnpm -r test`,
+      # so an unwired suite never runs at all.
+      - name: Collection quick-fix guards (pure, no DB)
+        run: pnpm --filter deckpal-web test:collection
 
       # The chunked price-history replay's resume protocol. A two-year backfill
       # is ~16 sequential workflow runs and its failure mode is a run that
@@ -232,6 +255,13 @@ jobs:
 
       - name: CLI error safety (pure, no DB)
         run: pnpm --filter @deckpal/db test:cli
+
+      # Supabase advisor rule 0010 over the migration files: a view that runs
+      # with its owner's rights skips the caller's RLS, which is how every
+      # user's collection was readable with the anon key (security audit
+      # SEC-01, migration 072). The database suite checks the real catalog too.
+      - name: Migration lint — views run as their caller (pure, no DB)
+        run: pnpm --filter @deckpal/db test:migrations
 
       - name: Build web
         run: pnpm --filter deckpal-web build

@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import express from 'express';
 import { pool, withTx } from './db.js';
 import { MAX_ACTIVE_TOKENS } from './routes/tokens.js';
+import { oauthPublicRateLimit } from './rateLimit.js';
 import {
   OAuthValidationError,
   consumeAuthCode,
@@ -32,6 +33,12 @@ import {
  * `/authorize` itself is deliberately NOT here: a human's browser lands on
  * it, so it is a normal frontend route (apps/web `/authorize`) served by the
  * existing SPA catch-all, not a JSON endpoint.
+ *
+ * All four are mounted ahead of the ordinary `/api` router (see index.ts), so
+ * none of that router's limiters — not `preAuthFloodGuard`, not any
+ * per-route body-size parser — ever run for them (SEC-08, SEC-09). Each
+ * route below therefore carries its own `oauthPublicRateLimit` (first, before
+ * any body is read) and its own appropriately-sized body parser.
  */
 
 function originFor(req: Request): string {
@@ -63,7 +70,7 @@ function oauthError(res: Response, status: number, error: string, description?: 
 
 /** Mount the four public OAuth endpoints directly on `app` (root, not under basePath). Call only when SUPABASE_MODE. */
 export function mountOAuthServer(app: Express): void {
-  app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  app.get('/.well-known/oauth-authorization-server', oauthPublicRateLimit, (req, res) => {
     if (!hostAllowed(req)) {
       res.status(421).json({ error: { code: 'bad_host', message: 'Host not allowed' } });
       return;
@@ -81,7 +88,7 @@ export function mountOAuthServer(app: Express): void {
     });
   });
 
-  app.get('/.well-known/oauth-protected-resource', (req, res) => {
+  app.get('/.well-known/oauth-protected-resource', oauthPublicRateLimit, (req, res) => {
     if (!hostAllowed(req)) {
       res.status(421).json({ error: { code: 'bad_host', message: 'Host not allowed' } });
       return;
@@ -95,7 +102,7 @@ export function mountOAuthServer(app: Express): void {
 
   // POST /register — RFC 7591 dynamic client registration. Public by design:
   // any MCP client self-registers before it has ever seen a DeckPal user.
-  app.post('/register', express.json({ limit: '16kb' }), (req, res) => {
+  app.post('/register', oauthPublicRateLimit, express.json({ limit: '16kb' }), (req, res) => {
     void (async () => {
       if (!hostAllowed(req)) {
         res.status(421).json({ error: { code: 'bad_host', message: 'Host not allowed' } });
@@ -132,6 +139,7 @@ export function mountOAuthServer(app: Express): void {
   // are mounted and whichever matches Content-Type does the work.
   app.post(
     '/token',
+    oauthPublicRateLimit,
     express.urlencoded({ extended: false, limit: '16kb' }),
     express.json({ limit: '16kb' }),
     (req, res) => {

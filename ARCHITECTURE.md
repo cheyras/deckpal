@@ -2,7 +2,7 @@
 
 **Status:** Target architecture for the cloud pivot, drafted 2026-08-09. This
 document supersedes the prior self-hosted architecture. Historical design
-decisions are preserved in `DECISIONS.md`.
+decisions are preserved in `decisions/`; `DECISIONS.md` explains the archive.
 
 This document is the synthesis. It states *what we are building and why*, and
 points at the research documents that justify each choice. It deliberately does
@@ -19,7 +19,7 @@ where it was measured.
 | [UI Spec (wiki)](https://github.com/cheyras/deckpal/wiki/UI-Spec) | Design tokens, components, layout |
 | [Frontend Research (wiki)](https://github.com/cheyras/deckpal/wiki/Frontend-Research) | Frontend stack + performance plan |
 | [Prior Art (wiki)](https://github.com/cheyras/deckpal/wiki/Prior-Art) | What to borrow, what to avoid, license posture |
-| `DECISIONS.md` | Locked decisions + corrections to the original brief |
+| `decisions/` | Locked decisions + corrections to the original brief; `DECISIONS.md` is the guide |
 
 ---
 
@@ -158,22 +158,50 @@ router (`/api` on Vercel, `/deckpal/api` self-host) as follows:
    Vercel's validated `x-vercel-forwarded-for` (then `x-forwarded-for`)
    identifies the client; outside Vercel, forwarded headers are ignored and
    the raw socket peer is used. Express `trust proxy` remains false.
-2. **Authentication and local identity** — `authMiddleware` verifies a JWT
+2. **Body-size limits, per route (SEC-08)** — mounted immediately after the
+   ingress guard and *ahead of authentication*, since bounding a body's size
+   needs no identity: named exceptions mounted most-specific-first, then a
+   100kb default. `/bugs` 12mb, `/client-errors` 32kb,
+   `/dev/scan-queue` and `/dev/scan-flags`
+   4200kb (not a bare 4mb — a max-size upload's base64 form is exactly 4mb,
+   with nothing left for its JSON wrapper), `/decke` 2mb, `/lists` 2mb,
+   `/decks` 512kb.
+   Order is load-bearing here, not cosmetic: `express.json()` no-ops on a
+   request whose body a *prior* matching parser already consumed, so
+   whichever parser for a path runs first decides its limit — the exceptions
+   must precede the default, which is why there is no longer a single
+   blanket parser on `app` ahead of everything (that parser used to shadow
+   `/register`'s and `/token`'s own smaller ones the same way). The
+   identity-free `/client-errors` handler follows its own 32kb parser and the
+   default parser, before authentication and RLS. Every number here is sized
+   in bytes on the wire, not characters, for whatever a caller's OWN JSON
+   encoder does — `/decke`,
+   `/lists` and `/decks` are reachable over the plain REST API (a personal
+   access token, an MCP client, a script), not only this repo's browser
+   client. A character-count cap elsewhere in the codebase (`STRATEGY_MAX`,
+   `RAW_LOG_MAX`, …) counts UTF-16 code units; a raw-UTF-8 client costs up to
+   3 bytes per non-Latin unit, and an ASCII-safe-escaping client (Python's
+   `json.dumps` default) costs 6. `/decke`, `/lists` and `/decks` are all
+   sized at that ×6 worst case.
+3. **Authentication and local identity** — `authMiddleware` verifies a JWT
    or resolves a PAT. Self-host resolves its single local account before the
    session limits. The trusted bootstrap check also precedes RLS. Token lookup,
    local-identity lookup or initialization may use the base/trusted pool here;
    RLS is not necessarily the first database access.
-3. **Session gates and per-user limits** — `requireSession` rejects cloud
-   anonymous callers (401) and PATs (403), then applies `/tokens` 20/min,
-   `/avatar` 10/min, `/oauth` 30/min, the whole `/admin` subtree 120/min
-   and the whole `/me/credits` subtree 180/min. Credit administration consumes
-   the parent admin budget once; wallet polling has its own budget. Rejection
-   happens before the RLS request connection is acquired.
-4. **RLS context** — acquire the per-request connection and establish claims/
+4. **Session gates and per-user limits** — `requireSession` rejects cloud
+   anonymous callers (401) and PATs (403) for `/tokens` (20/min), `/avatar`
+   (10/min), `/oauth` (30/min), the whole `/admin` subtree (120/min) and the
+   whole `/me/credits` subtree (180/min). `/bugs` (10/hour, SEC-11) sits beside
+   these but carries no `requireSession` — a PAT, or self-host's resolved
+   local identity, may still file a report — only identity, which this stage
+   has already settled. Credit administration consumes the parent admin
+   budget once; wallet polling has its own budget. Rejection happens before
+   the RLS request connection is acquired.
+5. **RLS context** — acquire the per-request connection and establish claims/
    SQL role. Cloud requests, including accepted anonymous catalog reads, use
    the existing transaction path. Self-host request transactions are scoped
    to admin, wallet and OAuth; other local routes retain their prior pool use.
-5. **Account/action authorization and handlers** — user routes resolve identity,
+6. **Account/action authorization and handlers** — user routes resolve identity,
    check active-account state, then enforce action permissions in their router
    and SQL functions. Early rate limiting does not replace authorization.
 
@@ -184,18 +212,37 @@ expiry remain. No skip rules, response-based count refunds or validation
 suppression are configured. Store errors do not admit the request. These are
 per-process/function-instance budgets, reset on restart; they are not global
 distributed quotas. Budget exhaustion returns 429, Retry-After seconds and no-store.
-Existing token/avatar/OAuth guards keep their existing implementation and rates.
+Existing token/avatar/OAuth/bugs guards keep their existing implementation and rates.
 
-The guard is on the ordinary base-path API router only. Two flows are mounted
-**separately on `app`, ahead of that router**, and are deliberately **not**
-covered by the new guard: the Stripe raw-body webhook (signature-verified,
-registered before the global JSON parser — re-serialising the body would break
-signature checks), and the bare-origin OAuth discovery / `/register` / `/token`
-handlers (cloud-only, mint `api_token` rows). No new quota is claimed for
-either. The MCP transport at `/mcp` (separate `api/mcp.mjs` function) is also
-**not** automatically covered — but the MCP token/OAuth **management**
-endpoints (`/tokens`, `/oauth`, `/avatar`) are these REST routes and use these
-controls. See `SECURITY.md` → Rate limiting.
+The rate-limiting steps above cover the ordinary base-path API router only.
+Three flows are mounted **separately on `app`, ahead of that router**:
+
+- The **Stripe raw-body webhook** (signature-verified, registered before any
+  JSON parser — re-serialising the body would break signature checks). No
+  application rate limit; Stripe's own retry/backoff and signature
+  verification are the control.
+- The **bare-origin OAuth discovery / `/register` / `/token` handlers**
+  (cloud-only, mint `api_token` rows). Each now carries `oauthPublicRateLimit`
+  (SEC-09) — 30/min per source IP, checked before the host allowlist or any
+  body parsing — where previously none of the pipeline above ever ran for
+  them at all.
+- The **MCP transport** at `/mcp` (separate `api/mcp.mjs` function) is not
+  part of this pipeline either, but it now carries two limiters (SEC-09): a
+  global 300/min-per-instance admission counter before `resolveToken`
+  (deliberately keyed on nothing, not the credential — an unauthenticated
+  caller can mint unlimited distinct credential strings for free, and an
+  earlier version of this fix that checked a per-credential map at this stage
+  let exactly that flood fill the map and lock out brand-new, legitimate
+  credentials too), and a 60/min-per-token budget checked only after
+  `resolveToken` succeeds, keyed on the resolved, database-verified `tokenId`
+  rather than the source IP — because hosted MCP connectors (claude.ai and
+  others) call from shared egress IPs common to all of their users, and an
+  IP-keyed limit there would let one heavy connector user exhaust the budget
+  for every other user behind the same IP.
+
+The MCP token/OAuth **management** endpoints (`/tokens`, `/oauth`, `/avatar`)
+are ordinary REST routes on the base-path router and use its controls, same as
+before. See `SECURITY.md` → Rate limiting and → Body-size limits.
 
 ### Request identity — the one accessor
 
@@ -216,7 +263,7 @@ router) settles it per request:
 | No credential | **401** — no fallback exists | the single local user (`defaultUserId()`) |
 
 The self-host branch is gated on *any* Supabase environment being absent
-(`SUPABASE_URL`, `SUPABASE_JWT_SECRET` **or** `SUPABASE_MODE`), so a
+(`SUPABASE_URL`, legacy `SUPABASE_JWT_SECRET` **or** `SUPABASE_MODE`), so a
 half-configured cloud deployment fails closed rather than serving one tenant's
 rows to anonymous callers. Cloud identity derives from the verified JWT and
 nothing else.
@@ -243,15 +290,22 @@ branches without a database and fails if a route reaches for `req.user` again.
 
 ### Classification
 
-Every table is either **catalog (shared)** or **per-user**:
+Every table is **catalog (shared)**, **per-user**, or a **public profile** table:
 
 - **Catalog tables** (card, series, card_set, card_variant, price_current,
   price_observation, sync_run, image_asset, etc.): world-readable, service-role-
   writable. No `user_id` column. RLS policy: `SELECT: true`.
 - **Per-user tables** (collection_item, deck, deck_card, deck_version,
-  battle_log, card_list, list_item, binder_placement, user_settings,
-  user_profile, etc.): readable/writable only by the owning user. RLS policy:
-  `user_id = (SELECT auth.uid())`.
+  battle_log, card_list, list_item, binder_placement, user_settings, etc.):
+  readable/writable only by the owning user. RLS policy:
+  `user_id = (SELECT auth.uid())`. A child row's foreign key includes
+  `user_id` (`(deck_id, user_id) REFERENCES deck (id, user_id)`), because a
+  foreign-key check ignores RLS and would otherwise let a user attach rows to
+  someone else's parent (migration 072).
+- **Public profile tables** (`user_profile`, `user_showcase`): world-readable
+  for the `/u/{name}` profile page, writable only by the owner. `user_profile`
+  is writable only in its avatar columns, and an avatar key can belong to one
+  profile at a time (migration 072).
 
 ### The user ID migration
 
@@ -266,10 +320,27 @@ as a constant.
 
 ### Views
 
-Catalog views (`variant_tier_resolved`, `master_required_variant`,
-`set_variant_coverage`, `card_without_standard_variant`) have no user_id and
-need no RLS change. `collection_dupe_predicate` reads through the RLS'd
-`collection_item` table and works correctly.
+A Postgres view runs with its **owner's** rights unless it is created
+`WITH (security_invoker = true)`, and the owner here is the migration role,
+which owns every table and so never meets their RLS. A plain view over a
+per-user table therefore publishes all of it to anyone Supabase's default
+grants let SELECT the view, which includes the anon key.
+
+That is exactly what `collection_dupe_predicate` did. This section used to say
+it "reads through the RLS'd `collection_item` table and works correctly"; it
+did not. From migration 020 until 072 it served every account's
+(user, card, owns-two-or-more) rows at `/rest/v1/collection_dupe_predicate` to
+anyone with the anon key (DECISIONS.md 2026-09-26). Nothing read it, and 072
+dropped it.
+
+Every remaining view (`variant_tier_resolved`, `master_required_variant`,
+`set_variant_coverage`, `card_without_standard_variant`, and the service-only
+`admin_user_role`) is `security_invoker` since 072, so a view applies the
+caller's RLS like the tables beneath it. Two checks hold that line:
+`packages/db/src/__tests__/migrationLint.test.ts` fails any migration that
+creates a view without the option, and the database integration suite
+(`apps/api/src/__integration__/reach.mjs`) applies every migration and asserts
+that anon and a second user reach none of a user's rows in any table or view.
 
 ## 7. Image storage
 
@@ -830,6 +901,52 @@ backstop for the failures nobody has diagnosed yet, not for this one.
 `scripts/visual-harness/probe-first-paint.mjs` asserts the property against a
 real browser with the token endpoint held open.
 
+**Every page is its own chunk, and what loads before first paint has a budget
+(PERF-01, 2026-09-26).** `main.tsx` registers each product page with
+`lazyRoute()` (`lib/lazyRoute.ts`) instead of importing it, so the entry carries
+React, the router and the shell, and a page arrives as its own chunk. The router
+preloads it on hover and touchstart (`defaultPreload: 'intent'`) and awaits it
+before committing a navigation, so there is no flash; the likely next pages are
+warmed once the first has loaded; and the service worker precaches every page
+chunk with the rest of Tier 0, so offline is unchanged. The auth pages stay
+static: ResetPassword must read the recovery link's URL at module scope, before
+auth-js rewrites it. React's first commit waits for `router.load()`, so the
+inline boot card stays up until the whole first page can paint, and the
+first-paint watchdog covers a page chunk that never arrives as well as an entry
+that never does. The two always-mounted features load only for whoever can see
+them — Deck-E's host for an entitled account, the support prompt (and Stripe's
+payment UI) for a signed-in cloud visitor, at idle — and `lib/billing.ts`
+imports `@stripe/stripe-js/pure`, because the package's main entry fetches
+Stripe.js as a side effect of being imported. A page chunk that vanished in a
+deploy costs one reload, under a service worker or not. The retry guard is
+scoped to that chunk, so a parent page loading cannot clear a missing child's
+guard and start a reload loop.
+`scripts/check-critical-path.mjs` fails the build if the scripts `index.html`
+loads up front exceed 230 kB gzipped (about 200 kB now, against 364 kB when
+every page was in the entry).
+
+**Writes go through a lane, and end visibly (2026-09-26).** Every collection,
+list and deck write is sent by `lib/writeLane.ts`: one request in flight per
+document (`collection:<setId>`, `list:<id>`, `deck:<id>`), so answers — which
+are whole-document snapshots — land in the order sent; a write still waiting its
+turn is replaced by a newer one for the same item, so a burst of taps sends the
+last intent rather than every step; and the control shows that intent until the
+item's last write settles, which makes rollback nothing more than the intent
+going away. That only works because every such write states an absolute target
+(`PATCH` a quantity, never `…/increment`). `lib/writes.ts` is the single place
+that reports the outcome: a final failure raises the `Toast` with what did not
+save, why when it is actionable, and Retry when repeating is harmless; a form
+that stays open reports inline through `FormAlert`; a destructive success offers
+Undo. A write that does not answer in 20 s is aborted so it cannot hold its
+document's later writes, and every lane is cancelled when the signed-in account
+changes. A write the server never answered (the deadline, a dropped connection)
+may still land, so for that item the lane fails the newer write queued behind
+it and sends nothing more for 75 s after the unanswered one left — past the API
+function's 60 s limit. Answers go into the cache through `applyAnswer`, which
+cancels any read of the same data still in flight and asks it again afterwards.
+Nothing is queued offline — the service worker keeps mutations `NetworkOnly`,
+and the collection counters stay disabled offline.
+
 ## 14. Design system and the /design editor
 
 The visual language is a token system in `apps/web/src/theme.css`: three brand
@@ -839,7 +956,7 @@ match, actions, status, energy types, variant accents, z-layers). Two type
 roles — Figtree (body/UI) and Fraunces (display, reserved for the app's
 proper nouns) — with a 14px floor and named exceptions. Shared primitives
 live in `apps/web/src/components/ui/` (Button, Tabs, Progress, StatTile,
-SelectableCard, EmptyState, CounterBox, Field/FormAlert/StatusPanel,
+SelectableCard, EmptyState, CounterBox, Field/FormAlert/StatusPanel, Toast,
 useDismiss), each with a co-located `*.gallery.tsx` that type-checks its
 catalog entry against the real prop surface. The premium visual pass
 (`premium.css`) is scoped entirely under `[data-skin='premium']` — a
@@ -1240,9 +1357,32 @@ apps/api/src/decke/
   grounding.ts          the card ids a tool actually returned this turn (§15f)
   narration.ts          tool syntax that reached the reader as prose, removed (§15f)
   deep.ts               the four sub-agent tools -- the deep tier (§15d)
+  jev.ts                typed judgments from Jev, and null (= today's behaviour) on any failure
+  reflex.ts             the pre-turn read: force the consent card, steer the walk, hear a spoken no
+  audit.ts              the after-turn check: a claimed change no tool made gets one corrective card
+  eval/                 the labelled, synthetic judgment eval set and its scorer
   prompt.ts, tools.ts, screens.ts, gate.ts   system prompt, express/showScreen, screen palette, owner gate
 api/chat.mjs          the standalone serverless brain
 ```
+
+**Judgments ride under the words.** `DECKE_JEV=on` adds one typed evaluation
+of the reader's latest message per request (`reflex.ts`, ~0.3 s, ~$0.00004): on
+the leg carrying that message it can pin step one to
+`log_cards` — which only ever raises the signed consent card — hide `escort`,
+and add a spoken refusal to the declined ledger; after the reply, `audit.ts`
+runs one corrective step (pinned to the consent card's tool) when he claimed a
+collection, list, deck or battle-log change that no tool made. Claims that a
+list, deck or battle log was deleted get an admission instead: the available
+corrective edit tools cannot delete them. Every answer acts only above a
+threshold chosen on `eval/judgments.json`; a timeout, an error or a low answer
+is today's harness exactly. Jev never approves a write and is not a security
+control.
+
+On a corrective list, deck or battle-log step, the tool schema supplies
+`dry_run: false` before the SDK signs the call. The normal tool schema still
+defaults to a preview; the correction's signed apply intent survives the
+approval replay on the next request, and the adapter still holds the write
+until the reader approves it.
 
 `api/chat.mjs` is deliberately standalone rather than a route on the Express app:
 production needs streaming under the RLS-authenticated request, and the two did
@@ -1492,6 +1632,14 @@ with more than one printing and no stated variant used to be silently resolved
 to the primary *and written*. It is now asked about, and not written if the
 question is ignored.
 
+**A write reaches the page behind him.** Page data is TanStack Query, fresh for
+five minutes, so a write he made used to leave the deck page showing the old list
+(and its absolute-quantity steppers able to write it back). `useDeckeChat`
+now invalidates query roots when a write's chip finishes, whether the server ran
+the tool or the card committed a corrected batch. The roots come from
+`chat/writeRefresh.ts`, one entry per tool that can ask. A test fails when a write
+tool has no entry, or when an entry names a root no query uses.
+
 ### 15f. Fabrication is bounded, not cured
 
 Nine defects were found by deploying this branch to a preview and asking it real
@@ -1689,10 +1837,10 @@ Two shapes of collection write, deliberately:
 | | per-variant | batch |
 |---|---|---|
 | endpoint | `PATCH /collection/variants/:id`, `POST …/increment` | `POST /collection/batch` |
-| caller | the web UI's stepper | `log_cards`, imports |
+| caller | the web UI's counters and steppers (absolute `PATCH` only, via `lib/collectionWrites.ts`); `…/increment` is for agents | `log_cards`, imports |
 | transaction | one per variant | ONE for the whole batch |
 | progress recompute | one per call | one per DISTINCT SET |
-| idempotency | none (a human pressing again means it) | keyed |
+| idempotency | `PATCH` is idempotent by being absolute; `…/increment` has none (a human pressing again means it) | keyed |
 
 The batch endpoint exists because the per-variant shape does not scale to a
 pack-opening haul. Driving it in a loop from the MCP cost **0.65 s per item** in

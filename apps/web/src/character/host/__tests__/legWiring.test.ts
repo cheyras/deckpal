@@ -231,8 +231,21 @@ test('the refusal goes in the PREFIX, ahead of the approval answers', () => {
 test('the server rebuilds the failure ledger from those parts', () => {
   // The client half is worthless without the server half, and the server half
   // is worthless without the client half — so both are pinned in one place.
-  assert.match(CHAT, /const failing = failingTools\(messages\)/)
+  // Plus the evidence of replies the window dropped, which this hook sends
+  // alongside the trimmed wire (SEC-04) so the breaker stays conversation-wide.
+  assert.match(CHAT, /const failing = failingTools\(\[\.\.\.evidence, \.\.\.messages\]\)/)
   assert.match(CHAT, /\n\s*failing,\r?\n\s*retryRequested,/)
+  assert.match(HOOK, /\.\.\.\(evidence\.length \? \{ evidence \} : \{\}\)/, 'the hook no longer sends the evidence')
+})
+
+test('a queued question is the current turn, set aside before the window trims history', () => {
+  // Found by Astra: a question sent while he was still loading sits on the
+  // transcript already, and the window used to treat it as history — an
+  // oversized one was filtered out and the request went with NO question.
+  const lift = HOOK.indexOf("const queuedWire = alreadyShown && last?.role === 'user' ? transcriptWire.pop() : undefined")
+  assert.ok(lift > 0, 'the queued question is no longer lifted off the transcript wire')
+  assert.ok(lift < HOOK.indexOf('windowPrior(transcriptWire)'), 'the window runs before the queued question is set aside')
+  assert.match(HOOK, /const wire: WireMessage\[\] = \[\.\.\.priorWire, queuedWire \?\? \{ role: 'user', parts: \[\{ type: 'text', text \}\] \}\]/)
 })
 
 // Captured conversation/exchange correlation is verified through actual HTTP
