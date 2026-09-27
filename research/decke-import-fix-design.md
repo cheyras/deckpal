@@ -59,13 +59,11 @@ with punctuation as printed (`Buddy-Buddy Poffin`, `PokéStop`, `Technical Machi
 Chey's principle: an identical reprint is fine; a different art or rarity is not, unless we say so.
 
 - A line that names an existing print is never changed.
-- A line with no print, or a print that does not exist: `choosePrint()` (new, `apps/api/src/deck/printChoice.ts`)
-  keeps the chosen card's `playable_fingerprint` (never mixes different cards), excludes TCG Pocket, then prefers a
-  print the reader owns, then a legal-in-format mark, then the lowest rarity (`RARITY_RANK` in `apps/api/src/rarity.ts`),
-  then the newest. The reason line says what happened: "No set given, so I used Iono PAL 185, the regular print."
-- Coordination: feat/deck-equivalent-prints (not on origin yet) is adding migration 076,
-  `card.identical_print_group` (same fingerprint, rarity, illustrator and artwork hash). When it lands, the "owns"
-  preference narrows to the same group. Agreed with that lane by message on 2026-09-26.
+- A line with no print, or a print that does not exist: `choosePrint()` in `apps/api/src/deck/importFix.ts`
+  keeps the chosen card's `playable_fingerprint` (never mixes different game text), excludes TCG Pocket, then
+  prefers a print the reader owns even if it is rarer. Without an owned print, the closest collector number in
+  the pasted line wins; if that gives no clue, a legal regular print wins, then the newest. A stated set stays
+  a hard filter before this ordering.
 
 ## 4. The moment (UX)
 
@@ -95,11 +93,13 @@ Chey's principle: an identical reprint is fine; a different art or rarity is not
 - **Who sees it.** Only accounts with `decke.use`, the same test the launcher uses (`deckeEntitled()`). Everyone else
   sees #216's dialog unchanged. If the reader has hidden Deck-E (`deckeHidden()`), the button still works; the fix
   happens without his body.
-- **Cost: free in credits.** Measured model cost is a fraction of a cent (Jev about $0.0001; the chat model about
-  $0.002 for a short prompt), and charging people to repair a line our own parser could not read is the wrong
-  lesson. Abuse bound: each fix request uses one unit of the durable daily meter (`chargeSql('chat_turns')`, 120/day
-  by default). Accounting: one `decke_ai_request` (charge mode `daily`, no conversation) and one `decke_ai_operation`
-  per model call, `tool_key`/`operation_key` `import_fix`, with the Gateway's reported cost. No migration needed.
+- **Cost: measured fractions.** Chey decided that a fix uses the provider's reported cost, converted by the
+  Deck-E credit policy. A short chat-model fix was estimated at about $0.002, roughly 0.2 credit at the default
+  $0.01-per-credit mapping; the billed fraction comes from the Gateway report, not that estimate. Fractions accrue
+  until the existing whole-credit wallet can be debited. When paid credits are disabled, only the daily meter applies.
+  Each fix also uses one durable daily chat turn (120/day by default). One `decke_ai_request` and one
+  `decke_ai_operation` record the provider use; migration 077 holds fractional settlement and uses the existing
+  credit ledger for whole-credit debits.
 - **Consent.** The fix is read-only, so no approval card. The import is the write, and Confirm is the consent. This
   fits DECKE-AGENT-SPEC.md: approval cards gate writes Deck-E performs; here the reader performs the write.
 - **Failure.** Offline, 429 (meter), 403 (lost entitlement), or a 6 s deadline: he says so in one line in the bay

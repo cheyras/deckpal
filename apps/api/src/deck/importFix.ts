@@ -73,8 +73,8 @@ export function selectedOptions(raw: unknown, options: ImportFixOption[]): Impor
   return out;
 }
 
-/** Prefer an owned printing, then legal regular art; never choose Pocket. */
-export function choosePrint(rows: CandidateRow[], format: FormatCode): CandidateRow | null {
+/** Prefer an owned printing, then the collector number the person pasted. */
+export function choosePrint(rows: CandidateRow[], format: FormatCode, line?: ParsedLine): CandidateRow | null {
   const legal = formatConfig(format).legal_marks;
   const releasedAt = (value: Date | string | null): number => {
     const time = value instanceof Date ? value.getTime() : value ? Date.parse(value) : NaN;
@@ -83,6 +83,19 @@ export function choosePrint(rows: CandidateRow[], format: FormatCode): Candidate
   return rows.slice().sort((a, b) => {
     const own = Number(b.owned) - Number(a.owned);
     if (own) return own;
+    const pastedNumber = line?.number;
+    if (pastedNumber) {
+      const numberDistance = (row: CandidateRow) => {
+        if (row.local_id.toUpperCase() === pastedNumber) return 0;
+        const pasted = /\d+/.exec(pastedNumber)?.[0];
+        const candidate = /\d+/.exec(row.local_id)?.[0];
+        return pasted && candidate ? Math.abs(Number(pasted) - Number(candidate)) + 1 : Infinity;
+      };
+      const distance = numberDistance(a) - numberDistance(b);
+      if (Number.isFinite(distance) && distance) return distance;
+      if (Number.isFinite(numberDistance(a)) !== Number.isFinite(numberDistance(b)))
+        return Number.isFinite(numberDistance(a)) ? -1 : 1;
+    }
     const marks = Number(b.pool_legal ?? legal.includes(b.regulation_mark ?? '')) -
       Number(a.pool_legal ?? legal.includes(a.regulation_mark ?? ''));
     if (marks) return marks;
@@ -176,7 +189,7 @@ export async function prepareImportFix(db: Queryable, text: string, format: Form
       if (matching.length !== 1) continue;
       const prints = matching[0]!.filter(row =>
         ptcglCodeForSet(row.set_tcgdex_id) && (!hintedSet || row.set_tcgdex_id === hintedSet));
-      const card = choosePrint(prints, format);
+      const card = choosePrint(prints, format, line);
       if (!card) continue;
       const code = ptcglCodeForSet(card.set_tcgdex_id)?.code;
       if (!code || !resolveSetAlias(code)?.set) continue;

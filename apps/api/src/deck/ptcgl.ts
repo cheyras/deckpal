@@ -46,7 +46,9 @@ function splitLines(text: string): string[] {
 
 /** Right-to-left card-line parser (§1.2). */
 function parseCardLine(line: string, section: Section): ParsedLine {
-  const tokens = line.trim().replace(/\(([A-Z][A-Z0-9-]+)\s+#?([A-Z0-9]+)\)$/i, '$1 $2').split(/\s+/);
+  // A parenthesized set suffix needs a collector number. Card names can also
+  // end in parentheses, such as Gardevoir (Delta Species).
+  const tokens = line.trim().replace(/\(([A-Z][A-Z0-9-]+)\s+#?([A-Z]*\d[A-Z0-9]*)\)$/i, '$1 $2').split(/\s+/);
   const quantity = parseInt(tokens[0]!, 10);
   let rest = tokens.slice(1);
 

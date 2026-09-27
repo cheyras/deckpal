@@ -80,3 +80,23 @@ test('legacy and handwritten quantities, glued sets, and subset numbers parse wi
   assert.equal(parsed.lines[8]!.number, '185');
   assert.equal(parsed.lines[9]!.setCode, 'PAL');
 });
+
+test('parenthesized card names stay intact while numbered set suffixes unwrap', () => {
+  const { lines, warnings } = parsePtcgl([
+    '1 Gardevoir (Delta Species)',
+    '2 Charizard (Crystal Guardians)',
+    '1 Pikachu (Special Delivery)',
+    '1 Gardevoir (Delta Species) EX 93',
+    '1 Iono (PAL 185)',
+    '1 Pikachu VMAX (CRZ GG30)',
+  ].join('\n'));
+  assert.equal(warnings.length, 0);
+  assert.deepEqual(lines.map(({ name, setCode, number }) => [name, setCode, number]), [
+    ['Gardevoir (Delta Species)', null, null],
+    ['Charizard (Crystal Guardians)', null, null],
+    ['Pikachu (Special Delivery)', null, null],
+    ['Gardevoir (Delta Species)', 'EX', '93'],
+    ['Iono', 'PAL', '185'],
+    ['Pikachu VMAX', 'CRZ-GG', 'GG30'],
+  ]);
+});

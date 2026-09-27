@@ -138,13 +138,16 @@ landmark string are clipped to 200 characters (`apps/api/src/decke/wireBounds.ts
 **Import fixes (`POST /api/decks/import/fix`).** This separate read-only route
 checks the same current `decke.use` permission on the server, charges the daily
 turn meter before invoking the model, and uses the dedicated Deck-E Gateway key.
-It does not debit credits or create a deck. The model may choose only keys from
+When paid credits are enabled, it accrues provider-reported cost as a fraction
+of a credit and debits the existing wallet when fractions total a whole credit.
+It does not create a deck. The model may choose only keys from
 catalogue candidates; a suggested replacement is returned only when the ordinary
 import resolver lands on that exact catalogue card. The browser asks the reader
 to confirm, then rechecks the edited list before the existing import write.
-The request's catalogue and collection reads use its RLS-scoped database handle;
-meter and usage accounting use a separate small server pool because the request
-already holds one RLS connection.
+The request's catalogue, collection and accounting work share its RLS-scoped
+database connection. Narrow server-only database functions enforce the daily
+limit, account ownership, usage recording and fractional settlement. A direct
+browser RPC cannot invoke them without the server's request claim.
 
 
 Deck-E holds **no credential of his own**. He carries the caller's own

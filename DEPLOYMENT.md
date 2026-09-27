@@ -967,6 +967,15 @@ production. Verify the runner's applied/checksum state against this exact list:
 | `070_credit_user_overrides.sql` | Owner-only override revisions and frozen explicit paid/unlimited reservations. |
 | `071_decke_usage.sql` | Server request/attempt metadata, current-epoch optional content and owned history correlation. |
 
+Import fixes additionally require `077_import_fix_fractional_credits.sql` before
+the updated API serves requests. Apply it with the same numbered migration
+runner after migrations 073–076 have landed. It creates the fractional credit
+accumulator and narrow server-only settlement functions; there is no new
+environment variable or infrastructure setting. An import fix still uses one
+daily Deck-E turn. With paid credits enabled, its provider-reported cost is
+converted using the request's policy; fractions accumulate until the existing
+wallet debits a whole credit.
+
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its
 wallet/economy functions also support the current UUID self-host account.

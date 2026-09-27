@@ -1253,7 +1253,10 @@ a bay in the import dialog for Deck-E, shows each old and proposed line with
 Undo, and sends the confirmed text through the no-write check again before any
 deck is created. The errand store only moves the character; it does not grant
 permission or save cards. The route shares Deck-E's entitlement, Gateway key,
-daily meter, and usage ledger, but does not consume credits.
+daily meter, and usage ledger. When paid credits are enabled, it converts the
+provider-reported cost using the request's credit policy and accumulates the
+fraction. Whole credits are debited through the existing wallet ledger as the
+fractions add up. Accounting uses the request's existing database connection.
 
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly

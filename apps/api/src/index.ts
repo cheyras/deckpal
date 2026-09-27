@@ -245,7 +245,7 @@ export function createApp(): express.Express {
     api.use((req, res, next) => {
       // Legacy self-host handlers retain their established direct-pool shape.
       // Only the new session-derived SQL surfaces need a request transaction.
-      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$))/.test(req.path)) {
+      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$)|decks\/import\/fix$)/.test(req.path)) {
         next();
         return;
       }
@@ -331,7 +331,7 @@ export function createApp(): express.Express {
           // (see DECISIONS.md 2026-08-10).
           const setup = userId
             ? `BEGIN; SELECT set_config('request.jwt.claims', ${client.escapeLiteral(
-                JSON.stringify({ sub: userId, role: SUPABASE_MODE ? 'authenticated' : 'local', deckpal_auth_kind: req.authKind }),
+                JSON.stringify({ sub: userId, role: SUPABASE_MODE ? 'authenticated' : 'local', deckpal_auth_kind: req.authKind, deckpal_server_request: true }),
                )}, true); ${SUPABASE_MODE ? "SET LOCAL role = 'authenticated'" : ''}`
             : `BEGIN; ${SUPABASE_MODE ? "SET LOCAL role = 'anon'" : ''}`;
           await client.query(setup);

@@ -5,6 +5,7 @@ import { api, type CreateDeckBody, type DeckFormat, type DeckImportSummary, type
 import { confirmedDecklistText } from '../lib/deckImportFixes'
 import { decklistLineRange } from '../lib/decklistLines'
 import { deckeEntitled, onDeckeEntitlementChange } from '../character/host/entitlement'
+import { deckeHidden, onDeckeVisibilityChange } from '../character/deckePreference'
 import { startDeckeErrand, endDeckeErrand } from '../character/host/errand'
 import { Content, Spinner, ErrorState, Button, EmptyState, SelectableCard } from '../components/ui'
 import { Modal } from '../components/ListModals'
@@ -137,6 +138,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const check = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.checkDeckImport(asked) })
   const fix = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.fixDeckImport(asked) })
   const [entitled, setEntitled] = useState(false)
+  const [hideCharacter, setHideCharacter] = useState(deckeHidden)
   const [fixResult, setFixResult] = useState<{ text: string; formatCode: DeckFormat; result: DeckImportFixResult } | null>(null)
   const [undone, setUndone] = useState<ReadonlySet<number>>(new Set())
   const [fixError, setFixError] = useState<string | null>(null)
@@ -147,6 +149,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     if (errandActive) startDeckeErrand()
     else endDeckeErrand()
   }, [errandActive])
+  useEffect(() => onDeckeVisibilityChange(() => setHideCharacter(deckeHidden())), [])
   useEffect(() => {
     let active = true
     const refresh = () => { void deckeEntitled().then(ok => { if (active) setEntitled(ok) }) }
@@ -334,11 +337,12 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
         />
         {checked && unmatched.length > 0 && (
-          <div ref={panelRef} role="alert" className="rounded-xl border border-border-default bg-surface-secondary p-[14px]" style={{ borderLeft: '3px solid var(--color-warning)' }}>
-            <div className="flex items-start justify-between gap-[12px]">
-              <div className="flex min-w-0 flex-col gap-[8px]">
+          <div ref={panelRef} role="alert" className="rounded-xl border border-action-primary/45 bg-surface-secondary p-[14px] shadow-sm">
+            <div className="flex items-start gap-[12px]">
+              {entitled && errandActive && !hideCharacter && <div data-decke-errand aria-hidden="true" className="h-[92px] w-[72px] shrink-0 sm:h-[112px] sm:w-[88px]" />}
+              <div className="flex min-w-0 flex-1 flex-col gap-[8px]">
                 <div className="flex items-center gap-[8px] text-[14px] font-bold text-text-primary">
-                  <Icon name="alert" size={16} className="shrink-0 text-warning" />
+                  <Icon name="sparkle" size={16} className="shrink-0 text-action-primary" />
                   {reviewing ? 'Review Deck-E’s fixes' : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}
                 </div>
                 {!stale && entitled && !reviewing && (
@@ -347,23 +351,22 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                     {fix.isPending ? 'Deck-E is checking…' : 'Ask Deck-E'}
                   </button>
                 )}
+                {fix.isPending && !stale && <p role="status" className="text-[14px] text-text-muted">Deck-E is checking {unmatched.length} line{unmatched.length === 1 ? '' : 's'}…</p>}
+                {reviewing && <p aria-live="polite" className="text-[14px] text-text-secondary">
+                  Does this look correct? {acceptedFixes.length === 0
+                    ? 'No fixes are selected.'
+                    : unmatched.length === 1
+                      ? 'Deck-E suggested a fix for this line.'
+                      : `Deck-E suggested fixes for ${acceptedFixes.length} of ${unmatched.length} lines.`}
+                  {remaining > 0 && ` ${remaining} line${remaining === 1 ? '' : 's'} still need${remaining === 1 ? 's' : ''} your help.`}
+                </p>}
               </div>
-              {entitled && errandActive && <div data-decke-errand aria-hidden="true" className="h-[92px] w-[72px] shrink-0 sm:h-[112px] sm:w-[88px]" />}
             </div>
-            {fix.isPending && !stale && <p role="status" className="mt-[8px] text-[14px] text-text-muted">Deck-E is checking {unmatched.length} line{unmatched.length === 1 ? '' : 's'}…</p>}
-            {reviewing && <p aria-live="polite" className="mt-[8px] text-[14px] text-text-secondary">
-              Does this look correct? {acceptedFixes.length === 0
-                ? 'No fixes are selected.'
-                : unmatched.length === 1
-                  ? 'Deck-E suggested a fix for this line.'
-                  : `Deck-E suggested fixes for ${acceptedFixes.length} of ${unmatched.length} lines.`}
-              {remaining > 0 && ` ${remaining} line${remaining === 1 ? '' : 's'} still need${remaining === 1 ? 's' : ''} your help.`}
-            </p>}
             <ul className="mt-[10px] flex flex-col gap-[8px]">
               {unmatchedWithIndexes.map(({ line, lineIndex }) => {
                 const found = fixedByLine.get(lineIndex)
                 return (
-                  <li key={lineIndex} className="flex min-w-0 flex-col gap-[6px] rounded-lg bg-surface-primary p-[10px]">
+                  <li key={lineIndex} className={`flex min-w-0 flex-col gap-[6px] rounded-lg bg-surface-primary p-[10px] ${reviewing && !found ? 'border-l-[3px] border-warning' : ''}`}>
                     {found ? <>
                       <div className="flex min-w-0 items-start gap-[10px]">
                         {found.card.image && <img src={found.card.image} alt="" className="h-[56px] w-[40px] shrink-0 rounded object-cover" />}

@@ -36,6 +36,8 @@ test('printing order prefers owned, then legal regular, then newest', () => {
   const legalRegular = row('legal', '0', 'J', 'Uncommon', '2025-01-01');
   const legalRare = row('rare', '0', 'J', 'Special illustration rare', '2026-01-01');
   assert.equal(choosePrint([legalRare, owned, legalRegular], 'standard')?.tcgdex_id, 'owned');
+  assert.equal(choosePrint([{ ...legalRegular, local_id: '184' }, { ...legalRare, local_id: '186' }], 'standard',
+    { number: '186' } as never)?.tcgdex_id, 'rare');
   assert.equal(choosePrint([legalRare, legalRegular], 'standard')?.tcgdex_id, 'legal');
   const older = row('older', '0', 'J', 'Uncommon', '2023-06-09');
   const newer = row('newer', '0', 'J', 'Uncommon', '2024-01-26');
