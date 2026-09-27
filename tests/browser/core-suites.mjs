@@ -8,6 +8,7 @@ import { adminFixture, checkAdmin, checkInsights } from './admin.mjs'
 import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
+import { checkOffline } from './offline.mjs'
 import { writesFixture, checkWrites } from './writes.mjs'
 import { checkAuthReturn } from './authReturn.mjs'
 import { checkDeployAssets } from '../../scripts/check-deploy-assets.mjs'
@@ -26,7 +27,8 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
         let adminActive = false, writesActive = false
         const server = await serve(dist, mount,
           (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel),
-          'index.html', { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
+          'index.html', { allowMutation: (pathname, method) => pathname.endsWith('/api/client-errors') && method === 'POST'
+            || admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
         try {
           logs.push(await buildWeb(dist, label === 'cloud', server.origin))
           assets.push({ label, ...await checkDeployAssets(dist) })
@@ -85,6 +87,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
         const server = await serve(fixtureDist, '', chatApi, 'fixture.html', { allowMutation: chatAllowMutation })
         try {
           results.push(...await checkChat(browser, server, out))
+          results.push(...await checkOffline(browser, server, out))
           results.push(...await checkDeckeStates(browser, server, out, 'chromium'))
           const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
             ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })

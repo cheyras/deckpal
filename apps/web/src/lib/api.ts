@@ -142,6 +142,32 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   return jsonBody<T>(res, path)
 }
 
+/**
+ * Report an uncaught render error to the maintainer (see
+ * `components/ErrorBoundary.tsx`, `apps/api/src/routes/clientErrors.ts`).
+ *
+ * Deliberately NOT `request()`/`send()`: this runs from inside an error
+ * boundary, which is exactly the wrong place for a second failure mode to
+ * appear from. No auth (the endpoint takes none — a signed-out visitor's
+ * crash on the public catalog is just as worth knowing about), no 401
+ * retry, no thrown `ApiError`, no parsed response — the server answers 204
+ * and there is nothing to do with success or failure alike. `keepalive`
+ * so the report still lands if the same click that triggered it also
+ * navigates away (e.g. the fallback's own "Go home").
+ */
+export function reportClientError(payload: { route: string; message: string; stack?: string; buildId?: string }): void {
+  void fetch(`${BASE}/client-errors`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {
+    // Nothing to do — see the function comment. Swallowed, not logged: a
+    // console.error for a telemetry beacon that failed to send its own
+    // console.error would be noise on top of noise.
+  })
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const headers = await authHeaders()
   return request<T>(path, { signal, headers })
@@ -165,6 +191,36 @@ async function send<T>(
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     ...(signal ? { signal } : {}),
   })
+}
+
+/**
+ * Reachability probe for the offline banner's truthfulness check
+ * (`lib/useConnectivity.ts`). Deliberately bypasses `request()`: no auth
+ * header, no 401 retry, no JSON parsing — a 401 still proves the round trip
+ * completed, which is the only thing this is asking. Resolves the instant
+ * ANY response arrives and rejects only on a real network failure or the
+ * caller's own `AbortSignal`.
+ *
+ * `/me` on purpose, not `/health`: `sw.ts`'s `publicCatalog` allowlist routes
+ * `/health` NetworkFirst, so a stale cached 200 could answer "reachable"
+ * while genuinely offline — exactly the false confidence this probe exists to
+ * rule out. `/me` isn't on that list, so the service worker always sends it
+ * to the network.
+ *
+ * `redirect: 'manual'`, so this never actually follows one: self-host's
+ * supported reverse-proxy-auth deployment (AGENTS.md, "Environment setup")
+ * turns an expired session into a 3xx to a cross-origin login page — the
+ * same shape `sw.ts`'s SSO guard exists for. Default `fetch` behavior
+ * FOLLOWS that redirect, and a login page with no CORS headers for this
+ * origin makes the followed request reject — reporting a perfectly reachable
+ * proxy as offline, forever (this hook retries on a timer). `redirect:
+ * 'manual'` stops at the 3xx itself: fetch resolves with an opaque
+ * `type: 'opaqueredirect'` response instead of throwing, which is exactly
+ * the reachability evidence this probe is asking for — the response is never
+ * read, so an opaque body is no loss.
+ */
+function pingReachable(signal: AbortSignal): Promise<Response> {
+  return fetch(`${BASE}/me`, { method: 'GET', cache: 'no-store', redirect: 'manual', signal })
 }
 
 /**
@@ -1937,6 +1993,7 @@ export const api = {
   adminFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/admin/features', signal),
   adminSetFeature: (key: string, lifecycle: FeatureAccess['lifecycle'], expectedRevision: number, reason: string) => send<{ features: FeatureAccess[] }>('PATCH', '/admin/features/' + encodeURIComponent(key), { lifecycle, expectedRevision, reason }),
   me: (signal?: AbortSignal) => get<MeResponse>('/me', signal),
+  ping: (signal: AbortSignal) => pingReachable(signal),
   // Account settings (migration 049) — the server-side home of what used to be
   // device-only preferences. PATCH takes any subset and returns the whole row.
   settings: (signal?: AbortSignal) => get<{ settings: UserSettings; defaults?: AppDefaults }>('/me/settings', signal),
@@ -2105,6 +2162,8 @@ export const api = {
     kind?: 'bug' | 'feature'
   }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),
+  // See the standalone `reportClientError` above for why this is not `send()`.
+  reportClientError,
   cardPriceHistory: (cardId: string, range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
     get<CardPriceHistoryResponse>(
       `/cards/${encodeURIComponent(cardId)}/prices?range=${range}&currency=${encodeURIComponent(currency)}`,
