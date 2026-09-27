@@ -338,8 +338,11 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       // Offline, a deck edit is attempted and explained rather than silently lost.
       await context.setOffline(true)
       await page.waitForFunction(() => !navigator.onLine)
+      await page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor()
+      const beforeOfflineWrites = state.writes.length
       await plus.click()
       await said("Couldn't change Fixturemon to 7 in “Fixture Deck”. You're offline.").waitFor()
+      assert.equal(state.writes.length, beforeOfflineWrites, 'confirmed offline refuses before contacting the server')
       assert.equal(await copies(), 6)
       await page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor()
       const noticesSeparate = await page.evaluate(() => {
@@ -354,6 +357,26 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await context.setOffline(false)
       results.push({ case: 'writes-deck', label, width, ordered: true, rollback: true, retry: true, offline: true })
     } finally { await context.close() }
+
+    // iOS can report offline while requests still work. The same successful
+    // probe that hides the banner must leave deck saves enabled.
+    fixture.reset()
+    const lying = await contextFor(browser, server, width)
+    await signIn(lying.context, USER)
+    try {
+      await lying.page.addInitScript(() => {
+        Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
+      })
+      await lying.page.goto(server.origin + mount + '/decks/' + DECK, { waitUntil: 'networkidle' })
+      await lying.page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor({ state: 'hidden' })
+      const plus = lying.page.getByRole('button', { name: 'Increase', exact: true }).first()
+      await plus.click()
+      for (let i = 0; i < 40 && state.deck[0].quantity !== 2; i++) await sleep(50)
+      assert.equal(state.deck[0].quantity, 2, 'deck save reached the server despite navigator.onLine=false')
+      if (width === 1280) await lying.page.setViewportSize({ width: 1440, height: 900 })
+      await lying.page.screenshot({ path: path.join(out, `${label}-writes-false-hint-${width === 1280 ? 1440 : 390}.png`) })
+      results.push({ case: 'writes-false-offline-hint', label, width, saved: true })
+    } finally { await lying.context.close() }
   }
   return results
 }

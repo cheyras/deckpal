@@ -6,6 +6,7 @@ import { dismissToast, showToast } from './toast'
 import { IDENTITY_CHANGED } from './access'
 import { readSession } from './authSession'
 import { isCloudMode } from './supabase'
+import { canAttemptWrite } from './connectivity'
 
 export { outcomeKnown } from './writeLane'
 
@@ -83,7 +84,7 @@ export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<Wri
   // Refused on the spot while offline, not queued: a write waiting behind
   // another would otherwise sit there and go out by itself on reconnecting —
   // the offline queue this app deliberately does not have.
-  if (!online()) return Promise.resolve({ status: 'failed', error: new NotSentError(), final: true })
+  if (!canAttemptWrite()) return Promise.resolve({ status: 'failed', error: new NotSentError(), final: true })
   const askedBy = sessionIdentity()
   return laneFor(laneKey)
     .write({
@@ -96,7 +97,7 @@ export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<Wri
         // never reached the server, so there is nothing that could still land;
         // a connection that drops after the request left stays an uncertain
         // failure, however offline the device reports itself by then.
-        if (!online()) throw new NotSentError()
+        if (!canAttemptWrite()) throw new NotSentError()
         return request.send(signal)
       },
     })
@@ -106,11 +107,8 @@ export function write<R>(laneKey: string, request: WriteRequest<R>): Promise<Wri
     )
 }
 
-const online = () => typeof navigator === 'undefined' || navigator.onLine !== false
-
-
 export function writeFailureText(headline: string, error: unknown): string {
-  return failureMessage(headline, error, online())
+  return failureMessage(headline, error, canAttemptWrite())
 }
 
 export function reportWriteFailure(headline: string, error: unknown, retry?: () => void): void {

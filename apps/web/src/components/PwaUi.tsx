@@ -87,8 +87,7 @@ function UpdateToast() {
  * unvisited card art shows the skeleton, not real art. Collection edits are
  * network-only, so the steppers disable while offline (see CardDetail).
  *
- * `useConnectivity`, not `useOnline` — this makes a claim ("Offline.") that
- * has to be right, not just a hint (see `lib/connectivity.ts`).
+ * The banner and write controls share the probe outcome (see `lib/connectivity.ts`).
  */
 function OfflineBanner() {
   const offline = useConnectivity()

@@ -1,37 +1,31 @@
 /**
- * Pure decision logic for the offline banner's confirmed status (DECISIONS.md
- * 2026-09-26). Kept framework- and fetch-free — no React, no `./api` — so
- * `node --import tsx --test` can exercise every branch directly; see
- * `useConnectivity.ts` for the thin layer that wires this to real browser
- * events and the reachability probe in `lib/api.ts`.
- *
- * ── WHY A HINT ISN'T A VERDICT ────────────────────────────────────────────────
- *
- * `navigator.onLine` reports link state, not reachability. Observed false:
- * the iOS Simulator reports it `false` while every fetch succeeds — the
- * banner said "Offline" over a working connection and never corrected itself,
- * because nothing ever asked it to. It can also report `true` on a captive
- * portal or a VPN mid-handshake. A banner that repeats a wrong hint erodes
- * trust in every other status the app shows, so every transition is
- * CONFIRMED with a cheap same-origin probe before the displayed state moves:
- *
- *   probe settled  → the round trip completed — PROBE WINS outright, in
- *                     either direction, over a hint that has no comparable
- *                     evidence behind it.
- *   probe errored  → a real network failure (not a timeout): the request
- *                     could not even leave the browser. That is stronger
- *                     evidence than a stale `navigator.onLine === true`, so
- *                     this reports OFFLINE regardless of the hint.
- *   probe timed out → INCONCLUSIVE. A slow response proves nothing either
- *                     way — flipping the banner on it would trade "wrong
- *                     hint" for "wrong on a slow network" — so this falls
- *                     back to the hint rather than guessing.
+ * Shared reachability result for the offline banner and write gate.
+ * `navigator.onLine` reports link state, not server reachability: iOS can
+ * report false while requests succeed. Only a failed same-origin probe
+ * confirms offline. A timeout is inconclusive, so writes try and report their
+ * real outcome while the banner makes no offline claim.
  */
 export type ProbeOutcome = 'settled' | 'timed-out' | 'errored'
 
-/** Confirmed offline state for the given hint + probe outcome. See the table above. */
-export function deriveOffline(hintOffline: boolean, probe: ProbeOutcome): boolean {
-  if (probe === 'settled') return false
-  if (probe === 'errored') return true
-  return hintOffline
+// The banner and write gate share the latest probe result. A pending or timed
+// out check cannot prove the browser is offline, so writes are allowed to try.
+export type Connectivity = 'online' | 'offline' | 'unknown'
+let connectivity: Connectivity = 'unknown'
+const listeners = new Set<() => void>()
+
+export function getConnectivity(): Connectivity { return connectivity }
+export function subscribeConnectivity(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
 }
+export function setConnectivity(outcome: ProbeOutcome | 'pending'): void {
+  const next = outcome === 'settled' ? 'online' : outcome === 'errored' ? 'offline' : 'unknown'
+  if (next === connectivity) return
+  connectivity = next
+  for (const listener of listeners) listener()
+}
+
+export function canAttemptWrite(): boolean { return connectivity !== 'offline' }
+
+/** Only a failed reachability probe confirms an outage. */
+export function deriveOffline(probe: ProbeOutcome): boolean { return probe === 'errored' }

@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { api } from './api'
-import { deriveOffline, type ProbeOutcome } from './connectivity'
+import { deriveOffline, getConnectivity, setConnectivity, subscribeConnectivity, type ProbeOutcome } from './connectivity'
 
-/** Past this, a hung probe proves nothing — see `connectivity.ts`'s
- *  "timed out" branch — so the caller stops waiting and falls back to the hint. */
+/** Past this, a hung probe proves nothing — see `connectivity.ts`. */
 const PROBE_TIMEOUT_MS = 3000
 
 /**
@@ -31,12 +30,8 @@ async function probe(): Promise<ProbeOutcome> {
 }
 
 /**
- * Confirmed offline state for the offline banner ONLY — `lib/useOnline.ts`
- * stays the raw hint for the collection-write gate (CardDetail, CardTile,
- * TableView), which wants "offline → disable, online → let it try and
- * surface any real error" and is fine with an occasional false disable. The
- * banner makes a claim ("Offline.") the write-gate never does, so it earns
- * the extra round trip; see `connectivity.ts` for the decision table.
+ * The banner and write gate share the latest probe outcome. A timed-out probe
+ * leaves both unknown rather than treating a browser hint as proof.
  *
  * Event-driven on the healthy path — mount, `online`, `offline`, window
  * regaining `focus` — so this costs nothing while the tab sits idle online.
@@ -47,7 +42,7 @@ async function probe(): Promise<ProbeOutcome> {
  * on/off/on only ever lands on the LATEST settled answer.
  */
 export function useConnectivity(): boolean {
-  const [offline, setOffline] = useState(false)
+  const offline = useSyncExternalStore(subscribeConnectivity, () => getConnectivity() === 'offline', () => false)
   const generation = useRef(0)
 
   useEffect(() => {
@@ -60,16 +55,15 @@ export function useConnectivity(): boolean {
       }
     }
     const check = () => {
-      const hintOffline = !navigator.onLine
       const gen = ++generation.current
+      if (getConnectivity() !== 'offline') setConnectivity('pending')
       void probe().then((outcome) => {
         if (disposed || gen !== generation.current) return // superseded by a newer check
-        const nextOffline = deriveOffline(hintOffline, outcome)
-        setOffline(nextOffline)
+        setConnectivity(outcome)
         clearRetry()
         // See RETRY_WHILE_OFFLINE_MS: only self-schedules while confirmed
         // offline, so recovery doesn't depend on another browser event firing.
-        if (nextOffline) retryTimer = window.setTimeout(check, RETRY_WHILE_OFFLINE_MS)
+        if (deriveOffline(outcome)) retryTimer = window.setTimeout(check, RETRY_WHILE_OFFLINE_MS)
       })
     }
     check()
