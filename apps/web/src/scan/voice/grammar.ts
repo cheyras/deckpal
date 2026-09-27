@@ -275,16 +275,17 @@ const COMPILED = LEXICON.map((e) => ({
     (e.slot.kind === 'modifier' && e.slot.value === 'cosmos'),
 }))
 
-/** Keep digit-bearing tokens intact until readCount decides their meaning.
- * Punctuation on ordinary speech still follows the name/printing normalizer.
- * Only the existing `x3` frame and `1st` printing have digit-bearing syntax. */
+/** Keep digit-bearing tokens intact until a catalog name or readCount claims
+ * them. Punctuation on ordinary speech follows the name/printing normalizer;
+ * the existing `x3` frame and `1st` printing keep their special syntax. */
 function speechWords(text: string): string[] {
   const rawWords: string[] = []
-  const numeric = (word: string) => /\p{N}/u.test(word) || NUMBER_WORDS.has(word.toLowerCase())
+  const numeric = (word: string) => (/\p{N}/u.test(word) && !/\p{L}/u.test(word)) || NUMBER_WORDS.has(word.toLowerCase())
   const punctuation = (word: string) => /^[\p{P}\p{S}]+$/u.test(word)
   for (const raw of text.match(/\S+/gu) ?? []) {
     const previous = rawWords.at(-1) ?? ''
-    // Whitespace cannot hide a sign or decimal point from its number.
+    // Whitespace cannot hide a sign or decimal point from its number. A
+    // digit inside an identifier is not a count continued by the next word.
     if ((numeric(previous) && punctuation(raw)) ||
       (numeric(raw) && (punctuation(previous) || ((numeric(previous) || tokenize(previous).some((w) => NUMBER_WORDS.has(w))) && /[\p{P}\p{S}]$/u.test(previous))))) {
       rawWords[rawWords.length - 1] += raw
@@ -348,11 +349,45 @@ function readCount(words: readonly string[], at: number): CountToken | null {
   return { value, size, frameOnly }
 }
 
+/** Number spellings belong to name aliases, never to the count tokenizer.
+ * Keeping the literal spelling too protects decimal model names and punctuation
+ * such as “Pokégear 3.0” and “Blaine's Quiz #1”. */
+function spokenNumber(digits: string): string {
+  const value = Number(digits)
+  if (value === 0) return 'zero'
+  const direct = [...NUMBER_WORDS].find(([, n]) => n === value)
+  if (direct) return direct[0]
+  if (value < 100) return `${spokenNumber(String(Math.floor(value / 10) * 10))} ${spokenNumber(String(value % 10))}`
+  if (value < 1000) return `${spokenNumber(String(Math.floor(value / 100)))} hundred${value % 100 ? ` ${spokenNumber(String(value % 100))}` : ''}`
+  // Long identifiers are read digit by digit, with no quantity limit.
+  return [...digits].map((digit) => spokenNumber(digit)).join(' ')
+}
+
+function namePhrases(name: string): Phrase[] {
+  const literal = name.replace(/!/g, ' exclamation ').replace(/\?/g, ' question ')
+  const separated = literal.replace(/([a-z])(\d)/gi, '$1 $2').replace(/(\d)([a-z])/gi, '$1 $2')
+  const spoken = literal
+    .replace(/(\d+)\.(\d+)/g, (_, whole: string, fraction: string) => ` ${spokenNumber(whole)} point ${[...fraction].map(spokenNumber).join(' ')} `)
+    .replace(/\d+/g, (digits) => ` ${spokenNumber(digits)} `)
+    .replace(/%/g, ' percent ')
+  const digitWords = literal.replace(/\b[a-z]+\b/gi, (word) => {
+    const value = word.toLowerCase() === 'zero' ? 0 : NUMBER_WORDS.get(word.toLowerCase())
+    return value === undefined ? word : String(value)
+  })
+  const forms = [literal, separated, spoken, spoken.replace(/#/g, ' number '), spoken.replace(/#/g, ''), digitWords]
+  const phrases = forms.flatMap((form) => {
+    const full = speechWords(form)
+    const core = full.filter((w, idx) => idx === 0 || !NAME_SUFFIXES.has(w))
+    return [full, core].map((tokens) => ({ tokens, key: tokens.map(phonetic).join(''), words: tokens.length }))
+  })
+  return [...new Map(phrases.map((p) => [p.tokens.join(' '), p])).values()]
+}
+
 // ── SEGMENTATION ────────────────────────────────────────────────────────────
 
 type Segment =
   | { kind: 'slot'; slot: Slot; from: number; to: number }
-  | { kind: 'name'; rowId: string; name: string; from: number; to: number }
+  | { kind: 'name'; rowId: string; name: string; from: number; to: number; shorter?: readonly { row: NamedRow; to: number; count: CountToken }[] }
   | { kind: 'number'; value: number; frameOnly: boolean; from: number; to: number }
   | { kind: 'ambiguous'; from: number; to: number }
   | { kind: 'unknown'; from: number; to: number }
@@ -446,14 +481,13 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     const name = tokenize(row.name, true).join(' ')
     if (name && !unique.has(name)) unique.set(name, row)
   }
-  const names = [...unique.values()].map((row) => {
-    const full = /\d/.test(row.name) ? speechWords(row.name) : tokenize(row.name, true)
-    const core = full.filter((w, idx) => idx === 0 || !NAME_SUFFIXES.has(w))
-    // A one-character difference between symbols is a different identity,
-    // even though its flattened phonetic key looks like a near-perfect match.
-    const fuzzy = !/[♀♂!?\p{S}]/u.test(row.name)
-    return { row, fuzzy, phrases: [phraseOf(full.join(' ')), phraseOf(core.join(' '))] }
-  })
+  const names = [...unique.values()].map((row) => ({
+    row,
+    // Number-bearing identities require exact aliases. Fuzzy matching may not
+    // turn a misspelled identity into a count (or swallow a neighbouring count).
+    fuzzy: !/[♀♂!?\p{S}\d]/u.test(row.name) && !tokenize(row.name).some((w) => NUMBER_WORDS.has(w) || w === 'zero'),
+    phrases: namePhrases(row.name),
+  }))
 
   // Exact names are reserved before any fuzzy window runs. A window cannot
   // consume a neighbouring name, even a one-letter trainer such as N. Names
@@ -470,9 +504,18 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     const grammar = COMPILED.some((e) => e.phrases.some((p) => p.words === best.size && exactWindow(words, i, [p])))
     if (grammar) continue
     const tied = hits.filter((h) => h.size === best.size)
+    // Keep shorter readings until interpretation: “Porygon two reverse” can
+    // name Porygon2 OR request two Porygon. Only a complete, valid second
+    // command is ambiguity; “remove Porygon two” has no quantity reading.
+    const shorter = hits.flatMap((h) => {
+      if (h.row.id === best.row.id || h.size >= best.size) return []
+      const count = readCount(words, i + h.size)
+      return count && !count.frameOnly && Number.isFinite(count.value) && h.size + count.size === best.size
+        ? [{ row: h.row, to: i + h.size, count }] : []
+    })
     reserved.set(i, tied.length > 1
       ? { kind: 'ambiguous', from: i, to: i + best.size }
-      : { kind: 'name', rowId: best.row.id, name: best.row.name, from: i, to: i + best.size })
+      : { kind: 'name', rowId: best.row.id, name: best.row.name, from: i, to: i + best.size, shorter })
     i += best.size - 1
   }
 
@@ -568,6 +611,27 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   const words = speechWords(transcript)
   if (!words.length) return { command: null, coverage: 0 }
   const segs = segment(words, rows)
+  const result = interpret(transcript, words, segs)
+  if (!result.command) return result
+  for (let k = 0; k < segs.length; k++) {
+    const name = segs[k]
+    if (name.kind !== 'name') continue
+    for (const alternative of name.shorter ?? []) {
+      const reading: Segment[] = [
+        ...segs.slice(0, k),
+        { kind: 'name', rowId: alternative.row.id, name: alternative.row.name, from: name.from, to: alternative.to },
+        { kind: 'number', value: alternative.count.value, frameOnly: false, from: alternative.to, to: name.to },
+        ...segs.slice(k + 1),
+      ]
+      if (interpret(transcript, words, reading).command) {
+        return { command: null, coverage: result.coverage, refused: 'ambiguous-target' }
+      }
+    }
+  }
+  return result
+}
+
+function interpret(transcript: string, words: readonly string[], segs: readonly Segment[]): ParseResult {
   if (segs.some((s) => s.kind === 'number' && Number.isNaN(s.value))) {
     return { command: null, coverage: 0, refused: 'invalid-count' }
   }

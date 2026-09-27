@@ -13,13 +13,23 @@ executing one against the wrong capture can change the collection.
    “removed.” Printing vocabulary alone gets fuzzy grammar matching, bounded
    by structural tokens at both edges and internally. Literal non-holo phrases
    retain their explicit meaning; fuzzy windows cannot swallow an objection.
-3. Exact card names reserve their token spans before fuzzy matching. A fuzzy
+3. Exact card names reserve their longest token spans before counts or fuzzy matching. A fuzzy
    window cannot consume a neighbouring exact name. Short names, including N,
    match literally. Otherwise unexplained spans may match longer names by sound
    (“char is hard”), but filler never introduces a fuzzy target. Cosmos is
    matched literally so an absent Cosmog cannot become a Cosmos printing; a
    printing-like word in subject position without a known card or reference is
    refused rather than assigned to the latest capture.
+   Literal names keep their numeric punctuation. Number aliases cover joined
+   digits, separated digits and spoken words (“Porygon2,” “Porygon 2,” “Porygon
+   two”), including decimal identifiers and percent forms. Their numeric spans
+   never become quantities. If a shorter scanned name plus a count also makes a
+   valid command, both readings are plausible: refuse with “Which card did you
+   mean?” Thus “Porygon two reverse holo” is refused when both Porygon and
+   Porygon2 are scanned; “remove Porygon two” names Porygon2 because removal
+   cannot also set a count. Numeric identities use exact aliases, not fuzzy
+   matching. The contract corpus contains all 52 numeric/number-word names in
+   the 2026-09-27 upstream English catalog snapshot, plus synthetic digit suffixes.
 4. Duplicate captures with the same full name mean the most recent capture by
    `capturedAt`, not arrival order. Distinct names sharing an alias or equally
    good sound match are refused with a request for a full name. A name identical

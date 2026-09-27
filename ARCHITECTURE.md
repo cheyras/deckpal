@@ -882,7 +882,10 @@ Its only part is the `scanner_voice` feature-catalog row that gates the control
 one hook:
 
 * `grammar.ts` is a closed grammar matched with a phonetic edit distance, plus
-  a coverage gate so conversation is ignored. It validates whole numeric
+  a coverage gate so conversation is ignored. It reserves the longest scanned
+  catalog name, including literal and spoken numeric aliases, before counts.
+  A competing shorter name plus a valid count refuses the whole command rather
+  than guessing which card was meant. It validates remaining whole numeric
   tokens with one count reader before punctuation is removed, refusing any
   count it cannot apply exactly within 1–99. Subject resolution is independent
   of the operation: a second capture or an unclear second subject refuses the
