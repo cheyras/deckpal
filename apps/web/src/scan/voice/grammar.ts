@@ -592,6 +592,14 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     breaks.some((at) => (nameSeg.to <= at && s.from >= at) || (s.to <= at && nameSeg.from >= at)))) {
     return { command: null, coverage, refused: 'two-cards' }
   }
+  // A fresh subject after a completed printing can mean a newer capture even
+  // when neither clause names its card. The first clause's anchor must not
+  // receive the second clause's finish.
+  if (breaks.some((at) => segs.some((s) => isPrinting(s) && s.to <= at) &&
+    segs.some((s) => s.kind === 'slot' && s.from >= at &&
+      words.slice(s.from, s.to).some((word) => references.has(word))))) {
+    return { command: null, coverage, refused: 'two-cards' }
+  }
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
   // The LAST finish said wins — people correct themselves forwards ("holo, no,

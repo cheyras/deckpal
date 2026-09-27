@@ -36,6 +36,9 @@ executing one against the wrong capture can change the collection.
    “that one.” A named Undo is refused because Undo only targets the latest
    action. Conflicting framed quantities refuse the whole utterance, including
    a later count of one.
+   A second referenced subject after a printing is also refused without an
+   explicit card name; “this one’s a holo and that one’s reverse” cannot apply
+   its second clause to the first capture.
 7. Numeric punctuation stays attached to its count until validation. Grouped
    thousands exceed the 1–99 limit; decimals, fractions, negative numbers and
    malformed grouping refuse the entire command. A trailing comma before a

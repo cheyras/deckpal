@@ -471,6 +471,19 @@ describe('target invariants', () => {
     assert.equal(parseUtterance('holo, no, reverse', rows).command?.kind, 'edit')
   })
 
+  it('refuses a second referenced printing clause even without a named card', () => {
+    for (const heard of [
+      "this one's a holo and that one's reverse",
+      'that one is normal, this one is reverse holo',
+      'holo then that one is reverse',
+    ]) {
+      assert.equal(parseUtterance(heard, ROWS).refused, 'two-cards', heard)
+      assert.equal(parseAlternatives([heard, 'reverse holo'], ROWS).command, null, heard)
+    }
+    assert.equal(edit('that one is holo and reverse').printing?.finish, 'reverse')
+    assert.equal(edit('two of those and theyre reverse holo').quantity, 2)
+  })
+
   it('reserves adjacent names before a fuzzy printing can absorb either', () => {
     const rows = [{ id: 'n', name: 'N' }, ...ROWS]
     for (const heard of ['N reverse holo', 'reverse holo N', 'the N is a reverse hollow']) {
