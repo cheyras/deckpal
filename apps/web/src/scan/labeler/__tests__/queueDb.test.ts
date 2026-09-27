@@ -138,11 +138,18 @@ test('an undecodable photo is REFUSED, never uploaded as-is', () => {
 test('an older server HEIC is replaced before its original is deleted', () => {
   assert.match(QUEUE_SRC, /if \(!\(await isHeic\(blob\)\)\) return blob/)
   const post = QUEUE_SRC.indexOf('await api.scanQueueAdd({', QUEUE_SRC.indexOf('const repairs ='))
-  const remove = QUEUE_SRC.indexOf('await api.scanQueueDelete(id)', post)
-  assert.ok(post > 0 && remove > post, 'repair must POST the JPEG before DELETE of the HEIC')
+  const cleanup = QUEUE_SRC.indexOf('await cleanupOriginal(id)', post)
+  assert.ok(post > 0 && cleanup > post, 'repair must POST the JPEG before DELETE of the HEIC')
   assert.match(QUEUE_SRC, /replacementIds\.set\(id, added\.id\)/)
-  assert.match(QUEUE_SRC, /scanQueueDelete\(replacementIds\.get\(id\) \?\? id\)/,
-    'finishing an old row must retire its replacement, not leave a duplicate in the queue')
+  assert.match(QUEUE_SRC, /const original = \[\.\.\.replacementIds\]\.find/)
+  assert.match(QUEUE_SRC, /if \(replacement\) await api\.scanQueueDelete\(replacement\)[\s\S]*?await api\.scanQueueDelete\(original\)/,
+    'finishing either an old row or its replacement must retire both objects')
+  assert.match(QUEUE_SRC, /const newerReplacement = replacementIds\.get\(id\)/,
+    'an overlapping fetch must recheck whether another read already repaired the original')
+  assert.match(QUEUE_SRC, /removedIds\.add\(original\)[\s\S]*?await repairs\.get\(original\)/,
+    'discard must wait for an in-flight repair')
+  assert.match(QUEUE_SRC, /pendingCleanups\.set\(id, added\.id\)/,
+    'a failed original deletion must remain available for a later retry')
 })
 
 test('a temporary storage failure is not reported as a missing photo', () => {
