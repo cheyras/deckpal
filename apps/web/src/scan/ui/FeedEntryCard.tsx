@@ -60,6 +60,8 @@ import { revealEntry, staggerReveal } from './motion'
 import { printingState } from './printing'
 import type { FeedEntry } from './types'
 import { AlternatesPopover } from './AlternatesPopover'
+import type { VoiceAction } from '../voice/actions'
+import { VoicePendingChips } from '../voice/VoiceControls'
 
 export function FeedEntryCard({
   entry,
@@ -72,6 +74,8 @@ export function FeedEntryCard({
   onOpenDetail,
   onPickerOpenChange,
   registerThumbNode,
+  voicePending,
+  onVoiceCancel,
 }: {
   entry: FeedEntry
   onQuantityChange: (id: string, quantity: number) => void
@@ -105,6 +109,10 @@ export function FeedEntryCard({
    */
   onPickerOpenChange?: (id: string, open: boolean) => void
   registerThumbNode: (id: string, el: HTMLDivElement | null) => void
+  /** Changes the reader SAID about this row that have not applied yet
+   *  (scan/voice/actions.ts) — drawn as chips they can still call back. */
+  voicePending?: readonly VoiceAction[]
+  onVoiceCancel?: (actionId: string) => void
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [popoverOpen, setPopoverOpenState] = useState(false)
@@ -159,6 +167,11 @@ export function FeedEntryCard({
   // amber the reader sees and the row `commit.ts` will skip cannot disagree.
   const needsInput = !entry.matched
   const ocrHint = ocrHintLabel(entry.identity?.read ?? null)
+  // "Remove it" is pending: the row stays, struck through, until the hold ends
+  // or the reader says keep. Everything but the voice chip fades — the chip
+  // carries the Keep button and must not fade with the row it could save.
+  const voiceRemoving = !!voicePending?.some((a) => a.kind === 'remove')
+  const fade = voiceRemoving ? 'opacity-50' : ''
 
   const report = async () => {
     setReportState('sending')
@@ -175,7 +188,8 @@ export function FeedEntryCard({
       ref={rootRef}
       data-entry-state={needsInput ? 'needs-input' : 'identified'}
       data-verified={entry.verified || undefined}
-      className={`relative flex gap-[10px] rounded-xl border p-[10px] ${
+      data-voice-removing={voiceRemoving || undefined}
+      className={`relative flex gap-[10px] rounded-xl border p-[10px] ${voicePending?.length ? 'ring-1 ring-action-primary/60' : ''} ${
         entry.verified
           ? 'border-change-positive/50 bg-surface-secondary'
           : needsInput
@@ -203,7 +217,7 @@ export function FeedEntryCard({
         aria-label={needsInput ? 'Identify this capture, or discard it' : undefined}
         className={`relative w-[60px] shrink-0 cursor-pointer overflow-hidden rounded-md shadow-panel ${
           needsInput ? 'ring-2 ring-warning' : ''
-        }`}
+        } ${fade}`}
         onClick={() => (needsInput ? setPopoverOpen(!popoverOpen) : entry.cardId && onOpenDetail(entry.cardId))}
       >
         {entry.matched && entry.images ? (
@@ -227,7 +241,11 @@ export function FeedEntryCard({
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="fe-name flex items-center gap-[6px] truncate font-display text-[15px] font-semibold leading-[19px] text-text-primary">
+        <div
+          className={`fe-name flex items-center gap-[6px] truncate font-display text-[15px] font-semibold leading-[19px] text-text-primary ${
+            voiceRemoving ? `line-through decoration-2 ${fade}` : ''
+          }`}
+        >
           {entry.matched ? (
             entry.name
           ) : (
@@ -239,7 +257,7 @@ export function FeedEntryCard({
             </>
           )}
         </div>
-        <div className="fe-set flex items-center gap-[6px] text-[12px] text-text-muted">
+        <div className={`fe-set flex items-center gap-[6px] text-[12px] text-text-muted ${fade}`}>
           {entry.matched ? (
             <>
               <span className="truncate">
@@ -280,7 +298,7 @@ export function FeedEntryCard({
           </div>
         )}
         {entry.matched && printing === 'needs-pick' && (
-          <div data-printing="needs-pick" className="fe-chips mt-[3px] flex flex-wrap items-center gap-[6px]">
+          <div data-printing="needs-pick" className={`fe-chips mt-[3px] flex flex-wrap items-center gap-[6px] ${fade}`}>
             {/* `min-w-0 max-w-full truncate` is the fix for the 2026-09-07
                 sideways-scroll ruling (see the file header): a select's
                 intrinsic min-content width is its longest option, and printing
@@ -303,7 +321,7 @@ export function FeedEntryCard({
           </div>
         )}
         {entry.matched && printing === 'resolved' && selectedVariant && (
-          <div data-printing="resolved" className="fe-chips mt-[3px]">
+          <div data-printing="resolved" className={`fe-chips mt-[3px] ${fade}`}>
             <VariantChip
               variant={{
                 kind: selectedVariant.kind,
@@ -315,8 +333,12 @@ export function FeedEntryCard({
           </div>
         )}
 
+        {voicePending?.length && onVoiceCancel ? (
+          <VoicePendingChips entry={entry} actions={voicePending} onCancel={onVoiceCancel} />
+        ) : null}
+
         {entry.matched && hasPhashOpinion && (
-          <div className="fe-conf mt-[4px]">
+          <div className={`fe-conf mt-[4px] ${fade}`}>
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-text-muted">Match</span>
               <span className="font-extrabold text-text-primary">
@@ -327,14 +349,14 @@ export function FeedEntryCard({
           </div>
         )}
         {entry.matched && !hasPhashOpinion && (
-          <div className="fe-conf mt-[4px] text-[11px] text-text-muted">Matched from the printed number</div>
+          <div className={`fe-conf mt-[4px] text-[11px] text-text-muted ${fade}`}>Matched from the printed number</div>
         )}
 
         {/* Wrappable, and the stepper is the part that must not shrink: at
             390 px "pick a match" + "report" + the stepper is within a few pixels
             of the column, and a rarity or a long card name earlier in the row
             can spend those pixels. It wraps instead of widening the list. */}
-        <div className="fe-row mt-[6px] flex flex-wrap items-center justify-between gap-x-[8px] gap-y-[6px]">
+        <div className={`fe-row mt-[6px] flex flex-wrap items-center justify-between gap-x-[8px] gap-y-[6px] ${fade}`}>
           <div className="flex min-w-0 flex-wrap items-center gap-x-[10px] gap-y-[4px]">
             {/* A needs-input row ALWAYS offers this, even when `/scan` came back
                 with nothing to offer: the picker is also where "discard and

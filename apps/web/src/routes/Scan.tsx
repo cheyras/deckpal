@@ -53,6 +53,9 @@ import type { FeedEntry, FeedVariant, StackItem } from '../scan/ui/types'
 import type { Quad } from '../scan/engine/contract'
 import { gateScanResponse, judgeTie } from '../scan/ui/tieGate'
 import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
+import { useAccess } from '../lib/access'
+import { useScannerVoice } from '../scan/voice/useScannerVoice'
+import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
 
 // The scanner (production rebuild — see roadmap/plans/card-scanner-redesign,
 // PLAN.md D1-D6 — plus the owner's post-field-test UX round, 2026-09-03).
@@ -315,6 +318,40 @@ export function Scan() {
   const captureDataRef = useRef(new Map<string, StackItem>())
   const arrivalsRef = useRef(new Map<string, Promise<void>>())
   const landingRef = useRef(new Set<string>())
+
+  // ── VOICE (scan/voice/**) ─────────────────────────────────────────────────
+  //
+  // An opt-in capability of the scanner itself: the reader talks while scanning
+  // and the list corrects itself. OFF unless the reader opted into the
+  // `scanner_voice` beta (Profile → Feature preferences), because transcription
+  // on a real iPhone alongside this live camera is not yet verified; and hidden
+  // outright where the browser has no speech recognition (Firefox).
+  //
+  // "That one" means the most recent CAPTURE — `lastCaptureIdRef`, written the
+  // instant the shutter fires — not the most recent row: a card is usually still
+  // being identified when the reader starts talking about it, and its row id is
+  // this same capture id once it lands.
+  const access = useAccess()
+  const voiceFeature = access.features.some((f) => f.key === 'scanner_voice' && f.enabled)
+  const lastCaptureIdRef = useRef<string | null>(null)
+  const voice = useScannerVoice({
+    enabled: voiceFeature && step === 'scan',
+    feed,
+    setFeed,
+    lastCaptureId: () => lastCaptureIdRef.current,
+    inFlight: (id) => identitiesRef.current.has(id),
+    onTarget: (rowId) => setScrollTo((s) => ({ id: rowId, signal: s.signal + 1 })),
+    // `loadVariants` answers from its cache, and fills only rows still waiting
+    // for their printings — a row restored by Undo, here.
+    onRowRestored: (row) => {
+      if (row.cardId) void loadVariants(row.cardId)
+    },
+  })
+  const [voicePrimerOpen, setVoicePrimerOpen] = useState(false)
+  const requestVoice = () => {
+    if (voicePrimerSeen()) voice.start()
+    else setVoicePrimerOpen(true)
+  }
 
   const refractoryRef = useRef(new Set<number>())
 
@@ -817,6 +854,7 @@ export function Scan() {
       // what the card was. Without a shared key the second is unattributable —
       // which is the shape round 7's 26 unknown outcomes already had.
       const captureId = makeId('cap')
+      lastCaptureIdRef.current = captureId
       // The matcher's verdict, handed to the recorder below as a promise so the
       // capture record can carry it (scan/ui/flags.ts `CaptureEventInput.outcome`).
       // The record's frame and crop are snapshotted before this ever settles.
@@ -1451,7 +1489,12 @@ export function Scan() {
     return () => window.clearTimeout(t)
   }, [celebration])
 
-  const doCommit = useCallback(async () => {
+  const doCommit = useCallback(async (acknowledgedUnresolved = false) => {
+    const gate = commitGate(feedRef.current, acknowledgedUnresolved, voice.hasVerifyWarnings())
+    if (!gate.proceed) {
+      setCommitConfirm(gate.prompt ? { prompt: gate.prompt, rowId: firstUnresolvedId(viewRef.current) } : null)
+      return
+    }
     setCommitConfirm(null)
     setCommitting(true)
     try {
@@ -1482,7 +1525,7 @@ export function Scan() {
     } finally {
       setCommitting(false)
     }
-  }, [])
+  }, [voice.hasVerifyWarnings])
 
   /**
    * Pressing Add. Between the press and the write sits `commitGate` — the
@@ -1500,16 +1543,7 @@ export function Scan() {
    * a perfectly good answer.
    */
   const handleCommit = useCallback(() => {
-    const gate = commitGate(feedRef.current, false)
-    if (!gate.proceed && gate.prompt) {
-      // The ROW THE READER WILL SEE FIRST, so it is asked of the sorted view.
-      // Since 2026-09-07 the order is theirs to choose, and "go back to them"
-      // scrolling to a row that is last on their screen would be a worse answer
-      // than not scrolling at all.
-      setCommitConfirm({ prompt: gate.prompt, rowId: firstUnresolvedId(viewRef.current) })
-      return
-    }
-    void doCommit()
+    void doCommit(false)
   }, [doCommit])
 
   const openDetail = useCallback(
@@ -1520,10 +1554,12 @@ export function Scan() {
   )
 
   const goToVerify = useCallback(() => {
+    voice.settlePending()
     setReviewMode('list')
     setStep('verify')
-  }, [])
+  }, [voice])
   const backToScan = useCallback(() => {
+    setCommitConfirm(null)
     setStep('scan')
     setBinExpanded(false)
   }, [])
@@ -1535,6 +1571,7 @@ export function Scan() {
   // again", which is the more useful next step than jumping straight to a
   // file picker for a permission the reader might simply re-grant.
   const showCamera = supportsCamera && camState !== 'unavailable'
+  const showVoice = voiceFeature && voice.supported && showCamera
 
   return (
     // Fixed against AppShell's own published offsets — see the file header
@@ -1590,6 +1627,7 @@ export function Scan() {
                       onRetry={() => void retryCamera()}
                       onReportCamera={() => void reportCamera()}
                       flashSignal={flashSignal}
+                      overlay={showVoice ? <VoiceCaption voice={voice} /> : null}
                       onBoxChange={(b) => {
                         // Recorded for the capture-flight courier's start pose
                         // ONLY, and deliberately NOT reported to the engine:
@@ -1608,11 +1646,12 @@ export function Scan() {
                       >
                         <Icon name="plus" size={14} /> Capture
                       </button>
-                      <span data-scan-engine-status={engineStatus} className="truncate text-[12px] text-text-muted">
+                      <span data-scan-engine-status={engineStatus} className="min-w-0 flex-1 truncate text-[12px] text-text-muted">
                         {engineStatus === 'loading' && 'Loading the scanner…'}
                         {engineStatus === 'error' && (engineError ?? 'The scanner could not start.')}
                         {engineStatus === 'ready' && !engineState && 'Warming up…'}
                       </span>
+                      {showVoice && <VoiceToggle voice={voice} onRequestStart={requestVoice} />}
                     </div>
                   </>
                 ) : (
@@ -1642,14 +1681,19 @@ export function Scan() {
                 onSortChange={changeSort}
                 title="Cards"
                 headerExtra={
-                  <button
-                    type="button"
-                    onClick={() => setBinExpanded((v) => !v)}
-                    aria-label={binExpanded ? 'Collapse the card list' : 'Expand the card list to full screen'}
-                    className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:text-icon-hover"
-                  >
-                    <Icon name="chevron-down" size={14} className={binExpanded ? '' : 'rotate-180'} />
-                  </button>
+                  <>
+                    {/* The capture bar hides with the camera; the microphone
+                        does not stop, so its switch comes up here with the list. */}
+                    {showVoice && binExpanded && <VoiceToggle voice={voice} onRequestStart={requestVoice} compact />}
+                    <button
+                      type="button"
+                      onClick={() => setBinExpanded((v) => !v)}
+                      aria-label={binExpanded ? 'Collapse the card list' : 'Expand the card list to full screen'}
+                      className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:text-icon-hover"
+                    >
+                      <Icon name="chevron-down" size={14} className={binExpanded ? '' : 'rotate-180'} />
+                    </button>
+                  </>
                 }
                 onQuantityChange={changeQuantity}
                 onVariantChange={changeVariant}
@@ -1665,10 +1709,13 @@ export function Scan() {
                 }}
                 scrollToId={scrollTo.id}
                 scrollSignal={scrollTo.signal}
+                voicePending={voice.pendingByRow}
+                onVoiceCancel={voice.cancel}
               />
             </div>
 
             <PrimaryActionBar label={`Verify (${totalQuantity})`} icon="check" count={totalQuantity} onClick={goToVerify} />
+            {showVoice && binExpanded && <VoiceCaption voice={voice} placement="list" />}
           </>
         ) : (
           <>
@@ -1733,7 +1780,8 @@ export function Scan() {
               />
             )}
 
-            <PrimaryActionBar label={`Add ${commitCount} card${commitCount === 1 ? '' : 's'}`} icon="plus" count={commitCount} busy={committing} onClick={handleCommit} />
+            <VoiceVerifyWarning voice={voice} />
+            <PrimaryActionBar label={`Add ${commitCount} card${commitCount === 1 ? '' : 's'}`} icon="plus" count={commitCount} busy={committing} disabled={voice.verifyWarnings.length > 0} onClick={handleCommit} />
           </>
         )}
 
@@ -1776,7 +1824,7 @@ export function Scan() {
               </button>
               <button
                 type="button"
-                onClick={() => void doCommit()}
+                onClick={() => void doCommit(true)}
                 className="h-[34px] flex-1 rounded-full bg-action-primary text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
               >
                 Commit without them
@@ -1796,7 +1844,19 @@ export function Scan() {
         )}
       </div>
 
-      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {helpOpen && <HelpModal voice={showVoice} onClose={() => setHelpOpen(false)} />}
+
+      {voicePrimerOpen && (
+        <VoicePrimer
+          onClose={() => setVoicePrimerOpen(false)}
+          onAccept={() => {
+            setVoicePrimerOpen(false)
+            // Inside the tap, so the browser's own prompts see a user gesture.
+            voice.start()
+          }}
+        />
+      )}
+      {showVoice && <VoiceLiveRegion text={voice.announcement} />}
 
       {search.card && (
         <CardSheet

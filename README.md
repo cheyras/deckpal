@@ -45,6 +45,8 @@ self-hosters.
   card from a photo, or run **rip mode** to log a whole booster pack without
   stopping between cards. The scanner matches artwork, so it names the card and
   you say which printing -- a card and its reverse holo are the same picture.
+  An opt-in beta lets you say it out loud while you scan ("that one's a reverse
+  holo", "two of those", "remove it").
 - **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
   accurate progress tracking.
 - **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.

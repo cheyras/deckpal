@@ -34,6 +34,16 @@ const NEEDS_YOU = row('unmatched-1', null)
 const NEEDS_YOU_2 = row('unmatched-2', null)
 
 describe('committing with unresolved rows', () => {
+  it('blocks the normal Add path while a voice warning is unacknowledged', () => {
+    assert.deepEqual(commitGate([NAMED], false, true), { proceed: false, unresolved: 0, prompt: null })
+    assert.equal(commitGate([NAMED], false, false).proceed, true)
+  })
+
+  it('blocks Commit without them while a voice warning is unacknowledged', () => {
+    assert.deepEqual(commitGate([NAMED, NEEDS_YOU], true, true), { proceed: false, unresolved: 1, prompt: null })
+    assert.equal(commitGate([NAMED, NEEDS_YOU], true, false).proceed, true)
+  })
+
   it('goes straight through when every row is named', () => {
     const gate = commitGate([NAMED, NAMED_2], false)
     assert.equal(gate.proceed, true)

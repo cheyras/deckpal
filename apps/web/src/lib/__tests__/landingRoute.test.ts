@@ -26,10 +26,21 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { safeNextPath, isSafeNextPath } from '../landingRoute.ts'
+import { safeNextPath, isSafeNextPath, isDeckeSuspendedPathname, isChromelessPathname } from '../landingRoute.ts'
 
 const ORIGIN = 'https://deckpal.app'
 const safe = (v: unknown) => safeNextPath(v, ORIGIN)
+
+test('Deck-E pauses on the quad labeler without removing its app chrome', () => {
+  for (const base of ['/', '/deckpal/']) {
+    const route = (path: string) => base.replace(/\/$/, '') + path
+    assert.equal(isDeckeSuspendedPathname(route('/dev/quad-labeler'), base), true)
+    assert.equal(isDeckeSuspendedPathname(route('/dev/quad-labeler/'), base), true)
+    assert.equal(isChromelessPathname(route('/dev/quad-labeler'), base), false)
+    assert.equal(isDeckeSuspendedPathname(route('/scan'), base), false)
+    assert.equal(isDeckeSuspendedPathname(route('/dev/decke'), base), true)
+  }
+})
 
 test('the auditor\'s exact SEC-05 payload is rejected', () => {
   // Repro, run directly against the platform parser this fix relies on:

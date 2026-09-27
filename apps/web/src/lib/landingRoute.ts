@@ -1,8 +1,8 @@
 import { useRouterState } from '@tanstack/react-router'
 
 /** Strips the deploy's base path and any trailing slash. `/deckpal/auth` → `/auth`. */
-function stripBase(pathname: string): string {
-  const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+function stripBase(pathname: string, baseUrl = import.meta.env.BASE_URL): string {
+  const base = baseUrl.replace(/\/+$/, '')
   let rest = pathname
   if (base && (rest === base || rest.startsWith(`${base}/`))) rest = rest.slice(base.length)
   return rest.replace(/\/+$/, '')
@@ -26,11 +26,17 @@ const CHROMELESS_PATHS = new Set([
   '/dev/chat-ui', // every chat surface at once, for review — no app chrome, owner-only in prod
 ])
 
-export function isChromelessPathname(pathname: string): boolean {
-  const rest = stripBase(pathname)
+export function isChromelessPathname(pathname: string, baseUrl?: string): boolean {
+  const rest = stripBase(pathname, baseUrl)
   // rest === '' is the public marketing landing (the app's index route): the
   // base path is stripped first, so `/deckpal`, `/deckpal/` and `/` all count.
   return rest === '' || CHROMELESS_PATHS.has(rest)
+}
+
+// The labeler keeps the app shell, but its live camera and photo decoding
+// should not compete with Deck-E's continuously rendered WebGL canvas.
+export function isDeckeSuspendedPathname(pathname: string, baseUrl?: string): boolean {
+  return isChromelessPathname(pathname, baseUrl) || stripBase(pathname, baseUrl) === '/dev/quad-labeler'
 }
 
 // The public catalog: the shop window a logged-out visitor may browse in full.

@@ -870,6 +870,56 @@ it; with the flag ON and the index still empty, it returns the same thing again,
 so the migrate → embed → flag sequence has no step that changes answers early.
 
 
+### Card scanner — voice commands (opt-in beta)
+
+The reader can talk while the scanner runs ("that one's a reverse holo", "two
+of those", "remove it") and the list corrects itself (`apps/web/src/scan/voice/`,
+the scanner voice entries in `decisions/2026/`). It lives entirely in the
+browser, on the Web Speech API. The server sees no audio and no transcripts.
+Its only part is the `scanner_voice` feature-catalog row that gates the control
+(migration 073). The browser's own recognizer does send audio to its vendor
+(Apple for Safari, Google for Chrome). The structure is four pure modules and
+one hook:
+
+* `grammar.ts` is a closed grammar matched with a phonetic edit distance, plus
+  a coverage gate so conversation is ignored. It reserves the longest scanned
+  catalog name, including literal and spoken numeric aliases, before counts.
+  A competing shorter name plus a valid count refuses the whole command rather
+  than guessing which card was meant. It validates remaining whole numeric
+  tokens with one count reader before punctuation is removed, refusing any
+  count it cannot apply exactly within 1–99. Subject resolution is independent
+  of the operation: a second capture or an unclear second subject refuses the
+  entire count, printing or removal command.
+* `printings.ts` maps a spoken printing onto the card's real variant kind
+  slugs.
+* `actions.ts` turns a command into a pending action on a row (the row id is the
+  capture id, so a command can wait for a card that is still being identified),
+  applies it after a hold and undoes it.
+* `recognizer.ts` hides the difference between Safari's continuous sessions and
+  Chrome's session per utterance. It also runs the watchdog for the iOS
+  recognizer's silent death.
+* `useScannerVoice.ts` owns time, React state and the page lifecycle.
+
+Before Verify opens, pending speech changes settle against the current row.
+Unfinished speech and failures from proposal through timeout, unidentified landing and application are
+stored in the voice queue, independently of captions. They survive Verify,
+later commands and Undo until explicitly acknowledged. Both Add and the
+unresolved-row confirmation pass the same warning gate before a collection write.
+The bounded warning list scrolls while acknowledgement stays reachable.
+
+Targeting snapshots both named captures and “that one” at the first words.
+Structural phrases match normalized token arrays, while exact names reserve
+boundaries before fuzzy printing/name matching. Fuzzy windows also preserve
+structural tokens, including trailing objections. Distinct names tied for a match
+or recognizer alternatives that disagree on the target are refused. Identical
+names resolve by capture time, not row arrival order. Gender signs and other
+identity-bearing symbols remain distinct, with exact matches required for those
+names. The full rules and test
+matrix are in [`scan/voice/README.md`](apps/web/src/scan/voice/README.md).
+
+Nothing in the scanner may play audio, because any playback silently kills the
+iOS recognizer.
+
 
 ## 13. Frontend
 
@@ -1066,6 +1116,10 @@ or live authentication, database or payment behavior.
 `/dev/decke` review route requires `diagnostics.view`. Browser guards and
 server-side gates use current database authority; no owner UUID enters the
 bundle, and preview does not bypass permission checks.
+The shared Deck-E host is suspended on `/dev/quad-labeler`, including its
+renderer warmup and wallet query. The internal camera/photo workbench keeps the
+app shell and Queue controls, but does not compete with another WebGL canvas.
+The host resumes its normal route behavior after navigation away.
 
 Shipping it means the chunk is emitted (~1.17 MB of three.js and the runtime,
 measured 2026-08-22 and approximate on purpose — the precise figure drifts with
