@@ -21007,7 +21007,7 @@ environment variable or deployment change.
 ## 2026-09-26 — Scanner voice protects named cards and failed printings through Verify
 **Decided by:** Chey (via Claude)
 
-**Decision:** An exact card name inside a spoken command cannot be consumed by a fuzzy filler phrase; it targets that named capture or the command is refused. When a spoken printing change fails, Verify keeps its warning visible and Add waits until the reader explicitly chooses to continue without the voice change. Pending changes settle synchronously when Verify is tapped, before the step changes.
+**Decision:** Filler words match exactly, so a spoken card name inside a command cannot be consumed by a fuzzy filler phrase; it targets that named capture or the command is refused, even when the name is absent from the list. When a spoken printing change fails, Verify keeps its warning visible and Add waits until the reader explicitly chooses to continue without the voice change. Pending changes settle synchronously when Verify is tapped, before the step changes.
 
 **Why:** “Remove the Seel” could otherwise remove the latest capture, and a failed printing change could lose its warning as the camera caption disappeared, allowing the default printing to be committed without notice.
 

@@ -256,9 +256,13 @@ const phraseOf = (text: string): Phrase => {
   return { key: words.map(phonetic).join(''), words: words.length }
 }
 // Negations and hedges only ever REFUSE, so they must be what was said, not
-// something near it: "right" is one letter from "might", and "right, two of
-// those" is a command.
-const EXACT: ReadonlySet<Slot['kind']> = new Set(['negation', 'hedge'])
+// something near it: "right" is one letter from "might". Fillers also need
+// exact words, or they can swallow an unfound card name before coverage sees it.
+// Filler carries no command meaning and must not guess at one: a fuzzy match
+// of "the Seel" as a filler would hide an unresolved name and redirect a
+// removal to the latest capture. Command words and printing names still get
+// the recognizer tolerance they need.
+const EXACT: ReadonlySet<Slot['kind']> = new Set(['negation', 'hedge', 'filler'])
 const COMPILED = LEXICON.map((e) => ({ slot: e.slot, phrases: e.phrases.map(phraseOf), exact: EXACT.has(e.slot.kind) }))
 
 // ── SEGMENTATION ────────────────────────────────────────────────────────────
@@ -341,14 +345,6 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     .filter((n) => n.phrases.length)
 
   const out: Segment[] = []
-  // A fuzzy filler phrase must not eat a card name starting in its second
-  // word. "the Seel" can sound close enough to a longer filler to explain the
-  // whole phrase, leaving a destructive command aimed at the latest capture.
-  const exactNameStarts = new Set<number>()
-  for (let at = 0; at < words.length; at++) {
-    if (names.some((n) => n.phrases.some((p) =>
-      keys.slice(at, at + p.words).join('') === p.key))) exactNameStarts.add(at)
-  }
   let i = 0
   while (i < words.length) {
     const word = words[i]
@@ -375,8 +371,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     // name IS a command phrase is still reachable as "that one".
     let best: Candidate | null = null
     for (const entry of COMPILED) {
-      const nextName = entry.slot.kind === 'filler' ? [...exactNameStarts].find((at) => at > i) : undefined
-      const hit = bestWindow(nextName === undefined ? keys : keys.slice(0, nextName), i, entry.phrases, 1, entry.exact)
+      const hit = bestWindow(keys, i, entry.phrases, 1, entry.exact)
       if (hit && (!best || hit.weight > best.weight)) {
         best = { ...hit, make: (from, to) => ({ kind: 'slot', slot: entry.slot, from, to }) }
       }

@@ -214,6 +214,12 @@ describe('targeting', () => {
     const edit = parseUtterance('the Seel is a holo', rows).command
     assert.ok(edit?.kind === 'edit')
     assert.deepEqual(edit.target, { kind: 'row', rowId: 'named', name: 'Seel' })
+    for (const heard of ['remove the Seel', 'the Seel is a holo']) {
+      const absent = parseUtterance(heard, [{ id: 'last', name: 'Venonat' }])
+      assert.equal(absent.command, null, heard)
+      assert.equal(absent.unresolvedName, 'seel', heard)
+    }
+    assert.equal(parseAlternatives(['remove the Seel', 'remove it'], [{ id: 'last', name: 'Venonat' }]).command, null)
   })
 
   it('refuses a name it cannot find instead of changing the latest scan', () => {
