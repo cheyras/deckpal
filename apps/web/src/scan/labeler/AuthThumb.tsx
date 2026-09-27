@@ -66,8 +66,10 @@ export function AuthThumb({
         })
         .catch((error) => {
           if (!cancelled) {
-            if (error instanceof ApiError && error.status === 404) missingRef.current?.()
-            else setFailure('Could not load this photo. Try again later.')
+            if (error instanceof ApiError && error.status === 404 && missingRef.current) missingRef.current()
+            else setFailure(error instanceof ApiError && error.status === 404
+              ? 'This photo is no longer available.'
+              : 'Could not load this photo. Try again later.')
           }
         })
     }

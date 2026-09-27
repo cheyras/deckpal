@@ -8,7 +8,9 @@ import {
   unknownProvenance,
 } from '@deckpal/storage';
 import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
+import { withTx } from '../db.js';
 import { labelerOnlyInProduction } from '../ownerGate.js';
+import { discardQueuePhoto, repairQueuePhoto, type QueueMeta, type QueueStore } from './queueRepair.js';
 
 /**
  * The labeler's pending-photo queue — POST/GET/DELETE /dev/scan-queue.
@@ -73,27 +75,67 @@ function isHeicBytes(bytes: Buffer): boolean {
   return false;
 }
 
-interface QueueMeta {
-  name: string;
-  source: 'camera' | 'upload';
-  addedAt: string;
-}
-
-async function readMeta(objectPath: string): Promise<QueueMeta | null> {
+async function readMeta(objectPath: string, strict = false): Promise<QueueMeta | null> {
   try {
     const upstream = await fetch(publicObjectUrl(objectPath));
-    if (!upstream.ok) return null;
+    if (!upstream.ok) {
+      if (strict && upstream.status !== 404 && upstream.status !== 400) {
+        throw new ApiError(502, 'queue_storage_unavailable', 'Could not read queued photo metadata.');
+      }
+      return null;
+    }
     const data = (await upstream.json()) as Partial<QueueMeta>;
-    if (typeof data.name !== 'string') return null;
+    if (!data || typeof data !== 'object' || typeof data.name !== 'string') return null;
     return {
       name: data.name,
       source: data.source === 'camera' ? 'camera' : 'upload',
       addedAt: typeof data.addedAt === 'string' ? data.addedAt : new Date().toISOString(),
     };
-  } catch {
+  } catch (error) {
+    if (strict && (error instanceof ApiError || !(error instanceof SyntaxError))) {
+      throw error instanceof ApiError ? error : new ApiError(502, 'queue_storage_unavailable', 'Could not read queued photo metadata.');
+    }
     return null;
   }
 }
+
+async function checkedObject(objectPath: string, method: 'HEAD' | 'GET'): Promise<Response | null> {
+  const response = await fetch(publicObjectUrl(objectPath), { method, cache: 'no-store' });
+  if (response.status === 404 || response.status === 400) return null;
+  if (!response.ok) throw new ApiError(502, 'queue_storage_unavailable', 'Queued photo storage is temporarily unavailable.');
+  return response;
+}
+
+const queueStore: QueueStore = {
+  locked: (id, work) => withTx(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [String(id)]);
+    return work();
+  }),
+  exists: async (path) => !!(await checkedObject(path, 'HEAD')),
+  photo: async (path) => {
+    // Public GETs may be CDN-cached after another device discards the photo.
+    if (!(await checkedObject(path, 'HEAD'))) return null;
+    const response = await checkedObject(path, 'GET');
+    return response ? Buffer.from(await response.arrayBuffer()) : null;
+  },
+  meta: (path) => readMeta(path, true),
+  put: async (path, bytes, contentType) => {
+    await putUnmanifestedObject({
+      objectPath: path,
+      bytes,
+      provenance: unknownProvenance('quad-labeler pending photo — client camera frame or picked file, no upstream URL'),
+      tierProvenanceReason: 'work-in-progress photos under dev-queue/; their sidecars share the same provenance',
+      contentType,
+    });
+  },
+  remove: async (path) => {
+    if (await deleteObject(path)) return true;
+    if (await checkedObject(path, 'HEAD')) {
+      throw new ApiError(502, 'queue_delete_failed', 'The queued photo could not be removed. Try again.');
+    }
+    return false;
+  },
+};
 
 export const scanQueueRouter: Router = Router();
 // The labeler set, same as the corpus router beside it: whoever may write a
@@ -121,30 +163,29 @@ scanQueueRouter.post(
     // The id is the server's clock, not the client's. Two devices filling one
     // queue cannot agree on a millisecond, and the id is also the sort order —
     // "the order they were shot" only means anything if one clock stamps it.
-    let epochMs = Date.now();
-    let originalMeta: QueueMeta | null = null;
+    const epochMs = Date.now();
     if (body.repairOf !== undefined) {
       const originalId = body.repairOf;
       if (!Number.isSafeInteger(originalId) || typeof originalId !== 'number' || originalId < 1_000_000_000_000 ||
           !Number.isSafeInteger(originalId * 1000 + 1)) throw badRequest('bad repair photo id');
-      epochMs = originalId * 1000 + 1;
-      const replacement = await fetch(publicObjectUrl(`${PREFIX}${epochMs}.jpg`), { method: 'HEAD' });
-      if (replacement.ok) {
-        const meta = await readMeta(`${PREFIX}${epochMs}.json`);
-        res.json({ ok: true, id: epochMs, name: meta?.name ?? body.name, source: meta?.source ?? body.source, addedAt: meta?.addedAt ?? new Date(originalId).toISOString() });
-        return;
+      const requested = {
+        name: typeof body.name === 'string' && body.name ? body.name.slice(0, 200) : `photo-${originalId}.jpg`,
+        source: body.source === 'camera' ? 'camera' as const : 'upload' as const,
+      };
+      try {
+        const repaired = await repairQueuePhoto(originalId, bytes, requested, queueStore, isHeicBytes);
+        res.json({ ok: true, ...repaired });
+      } catch (error) {
+        if (error instanceof Error && error.message === 'no such queued photo') throw notFound(error.message);
+        if (error instanceof Error && error.message === 'repair source is not HEIC') throw badRequest(error.message);
+        throw error;
       }
-      if (replacement.status !== 404 && replacement.status !== 400) throw new ApiError(502, 'queue_storage_unavailable', 'Could not check the HEIC replacement.');
-      const original = await fetch(publicObjectUrl(`${PREFIX}${originalId}.jpg`));
-      if (original.status === 404 || original.status === 400) throw notFound('no such queued photo');
-      if (!original.ok) throw new ApiError(502, 'queue_storage_unavailable', 'Could not read the HEIC photo to repair.');
-      if (!isHeicBytes(Buffer.from(await original.arrayBuffer()))) throw badRequest('repair source is not HEIC');
-      originalMeta = await readMeta(`${PREFIX}${originalId}.json`);
+      return;
     }
     const meta: QueueMeta = {
       name: typeof body.name === 'string' && body.name ? body.name.slice(0, 200) : `photo-${epochMs}.jpg`,
       source: body.source === 'camera' ? 'camera' : 'upload',
-      addedAt: originalMeta?.addedAt ?? new Date(body.repairOf === undefined ? epochMs : body.repairOf as number).toISOString(),
+      addedAt: new Date(epochMs).toISOString(),
     };
     const reason = 'quad-labeler pending photo — client camera frame or picked file, no upstream URL';
     await putUnmanifestedObject({
@@ -215,21 +256,13 @@ scanQueueRouter.delete(
     if (!ID_RE.test(id)) throw badRequest('bad photo id');
     if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
 
-    const removed: string[] = [];
-    for (const p of [`${PREFIX}${id}.jpg`, `${PREFIX}${id}.json`]) {
-      if (await deleteObject(p)) {
-        removed.push(p.slice(PREFIX.length));
-        continue;
-      }
-      const check = await fetch(publicObjectUrl(p), { method: 'HEAD', cache: 'no-store' });
-      if (check.status !== 404 && check.status !== 400) {
-        throw new ApiError(502, 'queue_delete_failed', 'The queued photo could not be removed. Try again.');
-      }
-    }
+    const numericId = Number(id);
+    if (!Number.isSafeInteger(numericId) || numericId < 1_000_000_000_000) throw badRequest('bad photo id');
+    const removed = await discardQueuePhoto(numericId, queueStore);
     // Absent is not an error, for `dev/scanFlags.ts`'s reason: two devices can
     // finish the same photo, and the second one must report success rather than
     // 404 over work that is already done.
-    res.json({ ok: true, id: Number(id), removed });
+    res.json({ ok: true, id: numericId, removed });
   }),
 );
 

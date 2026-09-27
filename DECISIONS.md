@@ -20973,3 +20973,10 @@ environment variable or deployment change.
 **Decision:** The quad labeler lazily decodes HEIC in browsers that cannot read it, converts every upload to upright JPEG, and repairs older server HEIC objects by posting a JPEG before deleting the original. A missing server photo leaves the grid with an explanation; temporary object-store failures are not reported as missing photos.
 **Why:** Chrome stranded local HEIC photos in the outbox, while older clients could store HEIC bytes under `.jpg`. The server also translated every failed object fetch into “no such queued photo,” even for a temporary storage error. Local rows already use an IndexedDB lookup, so the reported 404 is not caused by treating a local ID as a server ID.
 **Implications:** The decoder is confined to the labeler, loaded only on HEIC fallback, and excluded from the service worker's eager precache. `heic2any` 0.0.4's wrapper is MIT; its bundled libheif and HEVC decoder carry LGPL-3.0 terms (see `apps/web/public/HEIC-DECODER-NOTICE.md`). Repairs use an original-ID-derived replacement path so two devices cannot create separate copies; failed original deletion is retained for retry. A real HEIC fixture is covered by unit and Chromium checks at desktop and phone widths.
+
+## 2026-09-26 — Serialize labeler repair and discard per photo
+
+**Decided by:** Chey (via Codex gpt-6-sol)
+**Decision:** HEIC repair and queue discard take the same database transaction lock for an original photo. A retry completes a missing or unreadable replacement sidecar before reporting success, and discard removes both the original and its deterministic replacement.
+**Why:** Two devices can otherwise race: one may delete the photo while the other writes a replacement after the deletion. An interrupted upload can also leave a JPEG without the metadata needed to list it accurately.
+**Implications:** The lock works across serverless instances and uses the existing request database connection. Repair may wait briefly for a concurrent discard; after discard succeeds, retry cannot recreate the photo. A missing harvest thumbnail now explains that the photo is unavailable.

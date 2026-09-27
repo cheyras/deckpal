@@ -79,6 +79,8 @@ import { fileURLToPath } from 'node:url'
 
 const QUEUE_SRC = fs.readFileSync(fileURLToPath(new URL('../queueDb.ts', import.meta.url)), 'utf8')
 const SERVER_SRC = fs.readFileSync(fileURLToPath(new URL('../../../../../api/src/dev/scanQueue.ts', import.meta.url)), 'utf8')
+const REPAIR_SRC = fs.readFileSync(fileURLToPath(new URL('../../../../../api/src/dev/queueRepair.ts', import.meta.url)), 'utf8')
+const THUMB_SRC = fs.readFileSync(fileURLToPath(new URL('../AuthThumb.tsx', import.meta.url)), 'utf8')
 const LABELER_SRC = fs.readFileSync(fileURLToPath(new URL('../QuadLabeler.tsx', import.meta.url)), 'utf8')
 
 test('the outbox is consulted by lookup, not by the sign of the id', () => {
@@ -151,12 +153,17 @@ test('an older server HEIC is replaced before its original is deleted', () => {
   assert.match(QUEUE_SRC, /pendingCleanups\.set\(id, added\.id\)/,
     'a failed original deletion must remain available for a later retry')
   assert.match(QUEUE_SRC, /repairOf: id/)
-  assert.match(SERVER_SRC, /epochMs = originalId \* 1000 \+ 1/,
+  assert.match(REPAIR_SRC, /id \* 1000 \+ 1/,
     'two devices repairing one original must address the same replacement')
   assert.match(QUEUE_SRC, /catch \(error\) \{\s*removedIds\.delete\(original\)/,
     'a failed discard must leave the photo openable')
-  assert.match(SERVER_SRC, /const check = await fetch\(publicObjectUrl\(p\), \{ method: 'HEAD'/,
+  assert.match(SERVER_SRC, /if \(await checkedObject\(path, 'HEAD'\)\)/,
     'a failed object deletion must be checked before cleanup is acknowledged')
+})
+
+test('a missing harvest thumbnail shows an explanation when no removal callback exists', () => {
+  assert.match(THUMB_SRC, /error\.status === 404 && missingRef\.current/)
+  assert.match(THUMB_SRC, /This photo is no longer available\./)
 })
 
 test('a temporary storage failure is not reported as a missing photo', () => {
