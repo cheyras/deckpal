@@ -384,7 +384,7 @@ export function createApp(): express.Express {
     api.use((req, res, next) => {
       // Legacy self-host handlers retain their established direct-pool shape.
       // Only the new session-derived SQL surfaces need a request transaction.
-      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$))/.test(req.path)) {
+      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$)|decks\/import\/fix$)/.test(req.path)) {
         next();
         return;
       }
@@ -394,7 +394,7 @@ export function createApp(): express.Express {
         let watchdog: ReturnType<typeof setTimeout> | null = null;
 
         const cleanup = async (mode: 'commit' | 'rollback') => {
-          if (cleaned) return;
+          if (cleaned) return false;
           cleaned = true;
           if (watchdog) { clearTimeout(watchdog); watchdog = null; }
           try {
@@ -414,8 +414,9 @@ export function createApp(): express.Express {
             // would silently query inside the wrong user's context. Destroying
             // the connection instead makes the slow handler's next query fail
             // loudly — the correct outcome, and worth the reconnect.
-            if (mode === 'commit') client.release();
-            else client.release(true);
+            if (mode === 'commit') { client.release(); return true; }
+            client.release(true);
+            return false;
           } catch {
             // The statement either failed or hung. Handing back a connection
             // that may still be inside a transaction — or still wearing the
@@ -423,6 +424,7 @@ export function createApp(): express.Express {
             // discard it instead and let the pool open a fresh one.
             // release(true) is node-postgres' documented "destroy this client".
             try { client.release(true); } catch { /* already gone */ }
+            return false;
           }
         };
 
@@ -470,7 +472,7 @@ export function createApp(): express.Express {
           // (see DECISIONS.md 2026-08-10).
           const setup = userId
             ? `BEGIN; SELECT set_config('request.jwt.claims', ${client.escapeLiteral(
-                JSON.stringify({ sub: userId, role: SUPABASE_MODE ? 'authenticated' : 'local', deckpal_auth_kind: req.authKind }),
+                JSON.stringify({ sub: userId, role: SUPABASE_MODE ? 'authenticated' : 'local', deckpal_auth_kind: req.authKind, deckpal_server_request: true }),
                )}, true); ${SUPABASE_MODE ? "SET LOCAL role = 'authenticated'" : ''}`
             : `BEGIN; ${SUPABASE_MODE ? "SET LOCAL role = 'anon'" : ''}`;
           await client.query(setup);
@@ -480,6 +482,9 @@ export function createApp(): express.Express {
 
           // Run the rest of the middleware chain inside the RLS store context
           // so q()/q1()/withTx() pick up the client transparently.
+          res.locals.commitAndReleaseRls = async () => {
+            if (!await cleanup('commit')) throw new Error('Request connection closed before Deck-E started');
+          };
           rlsStore.run(client, () => requestAccessStore.run(new Map(), () => next()));
         } catch (err) {
           void cleanup('rollback');
@@ -629,7 +634,7 @@ export function createApp(): express.Express {
         '/lists', '/lists/:id', 'POST /lists', 'PATCH /lists/:id', 'DELETE /lists/:id', 'POST /lists/:id/items', 'DELETE /lists/:id/items/:itemId',
         '/decks', 'POST /decks', '/decks/:id', 'PATCH /decks/:id', 'DELETE /decks/:id',
         'POST /decks/:id/cards', 'PATCH /decks/:id/cards/:cardId', 'DELETE /decks/:id/cards/:cardId',
-        '/decks/:id/validate', 'POST /decks/import', '/decks/:id/export', '/decks/:id/testhand', '/decks/:id/pricing', '/decks/:id/massentry',
+        '/decks/:id/validate', 'POST /decks/import', 'POST /decks/import/fix', '/decks/:id/export', '/decks/:id/testhand', '/decks/:id/pricing', '/decks/:id/massentry',
         'PUT /decks/:id/strategy', '/decks/:id/versions', '/decks/:id/versions/:v', 'POST /decks/:id/revert',
         '/decks/:id/logs', 'POST /decks/:id/logs', '/decks/:id/logs/:logId',
         'PATCH /decks/:id/logs/:logId', 'DELETE /decks/:id/logs/:logId',

@@ -1,0 +1,557 @@
+// Run: node --import tsx --test src/scan/voice/__tests__/*.test.ts
+//
+// THE VOICE GRAMMAR, against what recognizers actually hand back.
+//
+// Every transcript below is either a measured one (iOS 18.6 Safari heard
+// "reverse holo" as "reverse hollow"; recognizers give "double rear" for "double
+// rare") or the same kind of slip on another word of this grammar. The parser is
+// allowed to be wrong in one direction only: missing a command costs the reader
+// a tap, acting on conversation costs them a card.
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
+
+import { parseAlternatives, parseUtterance, phonetic, tokenize, type VoiceCommand } from '../grammar'
+
+const ROWS = [
+  { id: 'r3', name: 'Venonat' },
+  { id: 'r2', name: 'Charizard ex' },
+  { id: 'r1', name: 'Exeggcute' },
+]
+
+function command(text: string): VoiceCommand | null {
+  return parseUtterance(text, ROWS).command
+}
+function edit(text: string) {
+  const c = command(text)
+  assert.ok(c && c.kind === 'edit', `expected an edit from "${text}", got ${JSON.stringify(c)}`)
+  return c
+}
+
+describe('normalisation', () => {
+  it('drops apostrophes and accents the same way for names and speech', () => {
+    assert.deepEqual(tokenize("That one's a Poké Ball"), ['that', 'ones', 'a', 'poke', 'ball'])
+    assert.deepEqual(tokenize("Team Rocket's Mewtwo"), ['team', 'rockets', 'mewtwo'])
+    assert.deepEqual(tokenize('1st edition x3'), ['first', 'edition', 'x', '3'])
+  })
+  it('folds the sound-alikes this grammar actually meets', () => {
+    assert.equal(phonetic('hollow'), 'holo')
+    assert.equal(phonetic('hollo'), 'holo')
+    assert.equal(phonetic('whole'), 'hole')
+  })
+  it('keeps identity-bearing symbols distinct and understands spoken gender names', () => {
+    assert.deepEqual(tokenize('Nidoran♀'), ['nidoran', 'female'])
+    assert.deepEqual(tokenize('Nidoran♂'), ['nidoran', 'male'])
+    assert.deepEqual(tokenize('Unown !', true), ['unown', 'exclamation'])
+    assert.deepEqual(tokenize('Unown ?', true), ['unown', 'question'])
+    assert.deepEqual(tokenize('remove it!'), ['remove', 'it'])
+    assert.notDeepEqual(tokenize('Arceus ☆'), tokenize('Arceus ★'))
+  })
+})
+
+describe('printing', () => {
+  it('hears the owner phrasing', () => {
+    const c = edit("that one's a reverse holo")
+    assert.equal(c.printing?.finish, 'reverse')
+    assert.deepEqual(c.printing?.modifiers, [])
+    assert.equal(c.target.kind, 'anchor')
+    assert.equal(c.quantity, null)
+  })
+
+  it('survives the measured and likely mistranscriptions of "reverse holo"', () => {
+    for (const heard of ['reverse hollow', 'Reverse hollow.', 'reverse hollo', 'reverse whole o', 'reverse polo', 'reverse hole', 'reverse holofoil', 'reverse hollow foil', 'reverse halo foil', 'reverse foil', 'reverse']) {
+      assert.equal(edit(heard).printing?.finish, 'reverse', heard)
+    }
+  })
+
+  it('hears holo and its spellings, but not a greeting', () => {
+    for (const heard of ['holo', 'hollow', 'holofoil', 'hollow foil', "it's a holo", 'holo foil']) {
+      assert.equal(edit(heard).printing?.finish, 'holo', heard)
+    }
+    // Four letters is too short to guess at: "hello" and "halo" are other words.
+    assert.equal(command('hello'), null)
+    assert.equal(command('halo'), null)
+  })
+
+  it('reads "not a holo" as the normal printing, the way collectors say it', () => {
+    for (const heard of ['non holo', 'non hollow', 'not a holo', "it's not holo", 'normal', 'regular', 'nonholo']) {
+      assert.equal(edit(heard).printing?.finish, 'normal', heard)
+    }
+  })
+
+  it('refuses a negated printing instead of setting it', () => {
+    assert.equal(command("that's not a reverse holo"), null)
+    assert.equal(command('that is not first edition'), null)
+    assert.equal(command("it's not poke ball"), null)
+  })
+
+  it('takes the last printing said, because corrections come after', () => {
+    assert.equal(edit('holo no wait reverse holo').printing?.finish, 'reverse')
+  })
+
+  it('hears the modifiers that tell printings of one finish apart', () => {
+    assert.deepEqual(edit('poke ball').printing?.modifiers, ['pokeball'])
+    assert.deepEqual(edit('poke bowl reverse').printing?.modifiers, ['pokeball'])
+    assert.deepEqual(edit('master ball pattern').printing?.modifiers, ['masterball'])
+    assert.deepEqual(edit('first edition').printing?.modifiers, ['first-edition'])
+    assert.deepEqual(edit('1st edition holo').printing?.modifiers, ['first-edition'])
+    assert.deepEqual(edit('first addition').printing?.modifiers, ['first-edition'])
+    assert.deepEqual(edit('shadow less').printing?.modifiers, ['shadowless'])
+    assert.equal(edit('poke ball reverse holo').printing?.label, 'Poké Ball Reverse Holo')
+  })
+
+  it('does not know rarities, so "double rear" is not a command', () => {
+    assert.equal(command('double rear'), null)
+    assert.equal(command('double rare'), null)
+  })
+})
+
+describe('quantity', () => {
+  it('hears the frames people use', () => {
+    const cases: [string, number][] = [
+      ['two of those', 2], ['2 of them', 2], ['three copies', 3], ['times four', 4], ['x3', 3],
+      ['make it five', 5], ['I have two of those', 2], ['two', 2], ['Two.', 2], ['twelve', 12],
+      ['twenty two of those', 22], ['make it twenty two', 22], ['thirty', 30],
+    ]
+    for (const [heard, n] of cases) assert.equal(edit(heard).quantity, n, heard)
+  })
+
+  it('believes homophones of numbers only inside a frame', () => {
+    assert.equal(edit('to of those').quantity, 2)
+    assert.equal(edit('times for').quantity, 4)
+    // "to" here is a preposition, and the printing is the whole request.
+    const c = edit('change it to reverse holo')
+    assert.equal(c.quantity, null)
+    assert.equal(c.printing?.finish, 'reverse')
+    assert.equal(command('to'), null)
+  })
+
+  it('takes a quantity and a printing from one breath', () => {
+    const c = edit('two reverse holos')
+    assert.equal(c.quantity, 2)
+    assert.equal(c.printing?.finish, 'reverse')
+    const d = edit("two of those and they're reverse hollow")
+    assert.equal(d.quantity, 2)
+    assert.equal(d.printing?.finish, 'reverse')
+  })
+
+  it('keeps "that one" and "the reverse one" out of the count', () => {
+    assert.equal(edit("that one's a holo").quantity, null)
+    assert.equal(edit('the reverse one').quantity, null)
+    assert.equal(edit('just one').quantity, 1)
+    for (const heard of ["that's the one", 'this is the one', 'that one', 'the one']) {
+      assert.equal(command(heard), null, heard)
+    }
+  })
+
+  it('never takes an inherited object key for a number', () => {
+    for (const heard of ['constructor', 'toString', 'constructor of those', 'hasOwnProperty']) assert.equal(command(heard), null, heard)
+  })
+
+  it('refuses counts it cannot mean, and the whole command with them', () => {
+    assert.equal(command('zero'), null)
+    assert.equal(command('500 of those'), null)
+    assert.equal(command('0 reverse holos'), null)
+    assert.equal(command('100 reverse holos'), null)
+  })
+
+  it('keeps numeric punctuation attached to the spoken count', () => {
+    for (const heard of ['1,001 copies', '1.5 copies', '1/2 copies', 'make it -2', '1.5 reverse holos']) {
+      const parsed = parseUtterance(heard, ROWS)
+      assert.equal(parsed.command, null, heard)
+      assert.equal(parsed.refused, 'invalid-count', heard)
+      assert.equal(parseAlternatives([heard, 'one copy'], ROWS).command, null, heard)
+    }
+    for (const [heard, count] of [
+      ['two copies', 2], ['a copy', 1], ['3 copies.', 3], ['3, copies', 3],
+      ['okay, make it 3, copies please', 3],
+    ] as const) assert.equal(edit(heard).quantity, count, heard)
+  })
+})
+
+describe('remove, undo, stop', () => {
+  it('removes', () => {
+    for (const heard of ['remove it', 'no, remove it', 'delete that', 'get rid of that one', 'removed', 'discard']) {
+      assert.equal(command(heard)?.kind, 'remove', heard)
+    }
+  })
+
+  it('undoes, and undo outranks everything said with it', () => {
+    for (const heard of ['undo', 'undo that', 'cancel', 'never mind', 'nevermind', 'no undo', 'keep it', 'undue']) {
+      assert.equal(command(heard)?.kind, 'undo', heard)
+    }
+    assert.equal(command('no no undo the remove')?.kind, 'undo')
+  })
+
+  it('refuses a named Undo because Undo only acts on the latest action', () => {
+    const rows = [{ id: 'named', name: 'Charizard' }, { id: 'latest', name: 'Venonat' }]
+    for (const heard of ['undo the Charizard', 'cancel the Charizard', 'put it back Charizard']) {
+      assert.equal(parseUtterance(heard, rows).refused, 'ambiguous-target', heard)
+      assert.equal(parseAlternatives([heard, 'undo'], rows).command, null, heard)
+    }
+    assert.deepEqual(parseUtterance('undo that', rows).command, { kind: 'undo' })
+  })
+
+  it('never acts on anything said with a negation in it', () => {
+    for (const heard of [
+      'never remove that', "don't remove it", 'do not remove it', "don't undo",
+      'do not make it two', 'do not change it to holo', 'not two, three of those',
+      "I can't remove it", 'I cannot remove it', "won't be two", "didn't say remove",
+    ]) {
+      assert.equal(command(heard), null, heard)
+    }
+    // "No" starts a correction; it is not a negation.
+    assert.equal(command('no, remove it')?.kind, 'remove')
+  })
+
+  it('stops listening on request', () => {
+    assert.equal(command('stop listening')?.kind, 'stop')
+  })
+
+  it('holds undo and stop to the same bar: conversation never triggers them', () => {
+    assert.equal(command('please keep it in the binder'), null)
+    assert.equal(command('they told me to stop listening to music'), null)
+    assert.equal(command('undo that')?.kind, 'undo')
+  })
+})
+
+describe('targeting', () => {
+  it('points at the anchor unless a card is named', () => {
+    assert.deepEqual(edit('holo').target, { kind: 'anchor' })
+    assert.deepEqual(command('remove it'), { kind: 'remove', target: { kind: 'anchor' } })
+  })
+
+  it('lets an explicit card name win', () => {
+    assert.deepEqual(edit('the charizard is a holo').target, { kind: 'row', rowId: 'r2', name: 'Charizard ex' })
+    assert.deepEqual(edit('charizard ex reverse holo').target, { kind: 'row', rowId: 'r2', name: 'Charizard ex' })
+    assert.deepEqual(command('remove the exeggcute'), { kind: 'remove', target: { kind: 'row', rowId: 'r1', name: 'Exeggcute' } })
+  })
+
+  it('finds a name the recognizer spread over several words', () => {
+    assert.deepEqual(edit('the char is hard is a reverse holo').target, { kind: 'row', rowId: 'r2', name: 'Charizard ex' })
+  })
+
+  it('matches short names exactly rather than falling back to "that one"', () => {
+    const rows = [{ id: 'v', name: 'Venonat' }, { id: 'm', name: 'Mew' }]
+    const c = parseUtterance('the mew is a holo', rows).command
+    assert.ok(c?.kind === 'edit')
+    assert.deepEqual(c.target, { kind: 'row', rowId: 'm', name: 'Mew' })
+  })
+
+  it('keeps a short named card out of a fuzzy filler phrase', () => {
+    const rows = [{ id: 'last', name: 'Venonat' }, { id: 'named', name: 'Seel' }]
+    assert.deepEqual(parseUtterance('remove the Seel', rows).command,
+      { kind: 'remove', target: { kind: 'row', rowId: 'named', name: 'Seel' } })
+    const edit = parseUtterance('the Seel is a holo', rows).command
+    assert.ok(edit?.kind === 'edit')
+    assert.deepEqual(edit.target, { kind: 'row', rowId: 'named', name: 'Seel' })
+    for (const heard of ['remove the Seel', 'the Seel is a holo']) {
+      const absent = parseUtterance(heard, [{ id: 'last', name: 'Venonat' }])
+      assert.equal(absent.command, null, heard)
+      assert.equal(absent.unresolvedName, 'seel', heard)
+    }
+    assert.equal(parseAlternatives(['remove the Seel', 'remove it'], [{ id: 'last', name: 'Venonat' }]).command, null)
+  })
+
+  it('refuses a name it cannot find instead of changing the latest scan', () => {
+    for (const heard of ['the pikachu is a holo', 'pikachu is a reverse holo', 'remove the pikachu', 'please remove pikachu now', 'remove that pikachu please']) {
+      const parsed = parseUtterance(heard, ROWS)
+      assert.equal(parsed.command, null, heard)
+      assert.equal(parsed.unresolvedName, 'pikachu', heard)
+    }
+    // "the" before grammar is not a name.
+    assert.equal(edit('the reverse holo').target.kind, 'anchor')
+  })
+
+  it('never reads an absent Cosmog as the Cosmos printing of the latest capture', () => {
+    const rows = [{ id: 'latest', name: 'Metal Energy' }]
+    for (const heard of ['the Cosmog is a holo', 'Cosmog is a holo', 'Cosmog holo']) {
+      assert.equal(parseUtterance(heard, rows).command, null, heard)
+      assert.equal(parseAlternatives([heard, 'holo'], rows).command, null, heard)
+    }
+    for (const heard of ['cosmos holo', 'cosmo holo']) {
+      assert.equal(parseUtterance(heard, rows).command?.kind, 'edit', heard)
+    }
+    const named = parseUtterance('the Cosmog is a holo', [{ id: 'cosmog', name: 'Cosmog' }, ...rows]).command
+    assert.ok(named?.kind === 'edit')
+    assert.deepEqual(named.target, { kind: 'row', rowId: 'cosmog', name: 'Cosmog' })
+  })
+
+  it('reads a printing phrase as the printing even when a card is named after it', () => {
+    const rows = [{ id: 'e', name: 'Exeggcute' }, { id: 'p', name: 'Poké Ball' }, { id: 'm', name: 'Master Ball' }]
+    const c = parseUtterance('that one is a poke ball reverse holo', rows).command
+    assert.ok(c?.kind === 'edit')
+    assert.deepEqual(c.target, { kind: 'anchor' })
+    assert.deepEqual(c.printing?.modifiers, ['pokeball'])
+    assert.deepEqual(parseUtterance('master ball', rows).command?.kind, 'edit')
+  })
+
+  it('means the most recent scan when a name appears twice', () => {
+    const rows = [{ id: 'new', name: 'Venonat' }, { id: 'old', name: 'Venonat' }]
+    const c = parseUtterance('venonat is reverse', rows).command
+    assert.ok(c?.kind === 'edit')
+    assert.deepEqual(c.target, { kind: 'row', rowId: 'new', name: 'Venonat' })
+  })
+})
+
+describe('chatter', () => {
+  it('refuses conversation that happens to contain grammar words', () => {
+    for (const heard of [
+      'I still need to find a reverse holo of this',
+      'hello how are you doing today',
+      'oh man do you remember when we used to trade these',
+      'this set has so many reverse holos in it',
+      'okay next card',
+      'um',
+    ]) {
+      assert.equal(command(heard), null, heard)
+    }
+  })
+
+  it('needs every word explained before acting at all', () => {
+    // One stray word is as likely a name we could not find as it is noise, and
+    // guessing sends the change to a card nobody meant.
+    assert.equal(command('it is a reverse holo for sure'), null)
+    assert.equal(command('the charizard is a reverse holo for sure'), null)
+    assert.equal(parseUtterance('the charizard ex is a reverse holo', ROWS).coverage, 1)
+  })
+
+  it('refuses questions, wishes and speculation about a card', () => {
+    for (const heard of [
+      'is this a reverse holo', 'Is that one a holo?', 'what is that one', 'I might remove the charizard',
+      'do you have a reverse holo venonat', 'maybe two of those', 'that should be reverse holo', 'I need a reverse holo',
+      'can I remove the charizard', 'do I remove the charizard', 'could you make it two', 'remove it?',
+    ]) {
+      assert.equal(command(heard), null, heard)
+    }
+  })
+
+  it('does not mistake a near word for a hedge', () => {
+    assert.equal(edit('right, two of those').quantity, 2)
+  })
+
+  it('refuses one utterance about two cards, or two instructions', () => {
+    assert.equal(command('remove charizard ex, venonat is reverse holo'), null)
+    assert.equal(parseUtterance('the charizard ex is a holo and remove the pikachu', ROWS).command, null)
+    assert.equal(parseUtterance('remove it and make it two', ROWS).refused, 'two-commands')
+  })
+
+  it('accepts a command wrapped in the words people put around one', () => {
+    for (const heard of ['I think that is a reverse hollow', 'okay so that one was actually a holo', 'yeah just remove it please']) {
+      const parsed = parseUtterance(heard, ROWS)
+      assert.ok(parsed.command, heard)
+      assert.equal(parsed.coverage, 1, heard)
+    }
+  })
+})
+
+describe('alternatives', () => {
+  it('prefers the guess that fits the grammar', () => {
+    const best = parseAlternatives(['the verse', 'reverse hollow'], ROWS)
+    assert.equal(best.heard, 'reverse hollow')
+    assert.equal(best.command?.kind, 'edit')
+  })
+  it('never lets a lesser guess outvote an objection or an unfound name', () => {
+    const negated = parseAlternatives(['do not remove it', 'remove it'], ROWS)
+    assert.equal(negated.command, null)
+    assert.equal(negated.refused, 'negation')
+    assert.equal(parseAlternatives(['remove it', 'do not remove it'], ROWS).command, null)
+    assert.equal(parseAlternatives(['should I remove it', 'remove it'], ROWS).refused, 'question')
+    assert.equal(parseAlternatives(['do not make it 100', 'make it 1'], ROWS).command, null)
+    assert.equal(parseAlternatives(['make it 100', 'make it 1'], ROWS).refused, 'invalid-count')
+    assert.equal(parseAlternatives(['is it a holo', 'it a holo'], ROWS).command, null)
+    // A command that names its card is refused by a negation as well.
+    assert.equal(parseUtterance("I can't remove charizard ex", ROWS).command, null)
+    const missing = parseAlternatives(['remove that pikachu', 'remove that'], ROWS)
+    assert.equal(missing.command, null)
+    assert.equal(missing.unresolvedName, 'pikachu')
+  })
+
+  it('reports the first guess as heard when none parses', () => {
+    const best = parseAlternatives(['nice weather', 'nice whether'], ROWS)
+    assert.equal(best.command, null)
+    assert.equal(best.heard, 'nice weather')
+  })
+})
+
+// Cartesian cases exercise boundaries, not just the utterance that exposed a
+// bug. Adding/reordering unrelated captures must never redirect a named edit.
+describe('target invariants', () => {
+  const names = ['N', 'Seel', 'Mew', 'Muk', 'Charizard ex', 'Venonat', 'Mr. Mime', 'Team Rocket’s Mewtwo', 'Nidoran♀', 'Nidoran♂', 'Unown !', 'Arceus ☆']
+  const frames = [
+    (name: string) => `remove the ${name}`,
+    (name: string) => `remove ${name} please`,
+    (name: string) => `the ${name} is a reverse holo`,
+    (name: string) => `${name} times two`,
+  ]
+  for (const name of names) {
+    it(`reserves every token of ${name}, in every command frame`, () => {
+      const named = { id: 'named', name }
+      const unrelated = [{ id: 'latest', name: 'Exeggcute' }, { id: 'other', name: 'Pidgey' }]
+      const spokenName = name.replace('!', 'exclamation')
+      for (const frame of frames) for (const rows of [[named, ...unrelated], [...unrelated, named]]) {
+        const heard = frame(spokenName)
+        const result = parseUtterance(heard, rows)
+        assert.ok(result.command && 'target' in result.command, heard)
+        assert.deepEqual(result.command.target, { kind: 'row', rowId: 'named', name }, heard)
+        assert.equal(result.coverage, 1)
+        assert.equal(parseUtterance(heard, unrelated).command, null, `absent: ${heard}`)
+      }
+    })
+  }
+
+  it('does not flatten structural tokens, pluralize filler, or fuzzy-match verbs', () => {
+    for (const heard of ['remove the N', 'remove t he N', 'remove th en', 'remove the seal', 'remove pleas', 'de lete it', 'remove we ll']) {
+      assert.equal(parseUtterance(heard).command, null, heard)
+    }
+    assert.deepEqual(parseUtterance('then remove it').command, { kind: 'remove', target: { kind: 'anchor' } })
+  })
+
+  it('never resolves filler-only references to a sound-alike card', () => {
+    const rows = ['Shinx', 'Ditto', 'Seel', 'N', 'Lugia', 'Onix'].map((name) => ({ id: name, name }))
+    for (const heard of ['remove it', 'remove that one', 'that one is a holo', 'then remove this', 'two of those']) {
+      const c = parseUtterance(heard, rows).command
+      assert.ok(c && 'target' in c, heard)
+      assert.deepEqual(c.target, { kind: 'anchor' }, heard)
+    }
+  })
+
+  it('refuses distinct names sharing a shortened name or the same sound', () => {
+    for (const rows of [
+      [{ id: 'one', name: 'Charizard ex' }, { id: 'two', name: 'Charizard V' }],
+      [{ id: 'one', name: 'Charizard V' }, { id: 'two', name: 'Charizard ex' }],
+    ]) {
+      assert.equal(parseUtterance('remove the charizard', rows).refused, 'ambiguous-target')
+      const c = parseUtterance('remove the Charizard ex', rows).command
+      assert.ok(c && 'target' in c && c.target.kind === 'row')
+      assert.equal(c.target.name, 'Charizard ex')
+    }
+  })
+
+  it('keeps symbol-bearing names separate across row order and spoken forms', () => {
+    for (const rows of [
+      [{ id: 'female', name: 'Nidoran♀' }, { id: 'male', name: 'Nidoran♂' }],
+      [{ id: 'male', name: 'Nidoran♂' }, { id: 'female', name: 'Nidoran♀' }],
+    ]) {
+      assert.equal(parseUtterance('remove Nidoran', rows).command, null)
+      for (const [spoken, id, name] of [
+        ['Nidoran female', 'female', 'Nidoran♀'],
+        ['Nidoran male', 'male', 'Nidoran♂'],
+      ]) {
+        assert.deepEqual(parseUtterance(`remove ${spoken}`, rows).command,
+          { kind: 'remove', target: { kind: 'row', rowId: id, name } })
+      }
+    }
+    const symbols = [{ id: 'star', name: 'Arceus ☆' }, { id: 'filled', name: 'Arceus ★' }]
+    assert.equal(parseUtterance('remove Arceus', symbols).command, null)
+    assert.equal(parseUtterance('remove Unown', [{ id: 'exclamation', name: 'Unown !' }, { id: 'question', name: 'Unown ?' }]).command, null)
+    assert.equal(parseUtterance('remove Arceus ★', [symbols[0]]).command, null)
+    assert.equal(parseUtterance('remove Nidoran male', [{ id: 'female', name: 'Nidoran♀' }]).command, null)
+  })
+
+  it('never lets alternative guesses silently change or lose an explicit target', () => {
+    for (const alts of [
+      ['remove Venonat', 'remove Charizard'],
+      ['remove Charizard', 'remove it'],
+      ['remove it', 'remove Charizard'],
+      ['remove it', 'remove the N'],
+      ['remove the N', 'remove it'],
+      ['N reverse holo', 'reverse holo'],
+      ['reverse holo', 'N reverse holo'],
+    ]) assert.equal(parseAlternatives(alts, ROWS).command, null, alts.join(' / '))
+  })
+
+  it('refuses a new reference after a clause break instead of applying it to an earlier name', () => {
+    const rows = [{ id: 'named', name: 'Venonat' }, { id: 'latest', name: 'Exeggcute' }]
+    for (const separator of [' then ', ', ', '. ', '; ', ' and ']) {
+      const heard = `Venonat is normal${separator}that one is reverse holo`
+      assert.equal(parseUtterance(heard, rows).refused, 'two-cards', heard)
+      assert.equal(parseAlternatives([heard, 'reverse holo'], rows).command, null, heard)
+    }
+    assert.equal(parseUtterance('the Venonat is a reverse holo', rows).command?.kind, 'edit')
+    assert.equal(parseUtterance('holo, no, reverse', rows).command?.kind, 'edit')
+  })
+
+  it('refuses a second referenced printing clause even without a named card', () => {
+    for (const heard of [
+      "this one's a holo and that one's reverse",
+      'that one is normal, this one is reverse holo',
+      'holo then that one is reverse',
+    ]) {
+      assert.equal(parseUtterance(heard, ROWS).refused, 'two-cards', heard)
+      assert.equal(parseAlternatives([heard, 'reverse holo'], ROWS).command, null, heard)
+    }
+    assert.equal(edit('that one is holo and reverse').printing?.finish, 'reverse')
+    assert.equal(edit('two of those and theyre reverse holo').quantity, 2)
+  })
+
+  it('reserves adjacent names before a fuzzy printing can absorb either', () => {
+    const rows = [{ id: 'n', name: 'N' }, ...ROWS]
+    for (const heard of ['N reverse holo', 'reverse holo N', 'the N is a reverse hollow']) {
+      const c = parseUtterance(heard, rows).command
+      assert.ok(c && 'target' in c, heard)
+      assert.deepEqual(c.target, { kind: 'row', rowId: 'n', name: 'N' })
+    }
+    for (const heard of ['remove N Venonat', 'N reverse holo Venonat', 'remove Venonat and N']) {
+      assert.equal(parseUtterance(heard, rows).refused, 'two-cards', heard)
+    }
+  })
+})
+
+describe('structural boundaries around fuzzy vocabulary', () => {
+  it('never consumes an objection at either edge or inside a fuzzy printing window', () => {
+    const printings = ['reverse holo', 'holofoil', 'first edition', 'shadowless', 'poke ball', 'master ball']
+    const objections = ['not', 'dont', 'never', 'cannot', 'shouldnt', 'maybe', 'might']
+    for (const printing of printings) for (const objection of objections) {
+      for (const heard of [
+        `${printing} ${objection} normal`,
+        `${printing} ${objection} first edition`,
+        `${objection} ${printing}`,
+        `${printing.split(' ').join(` ${objection} `)} ${objection} normal`,
+      ]) {
+        assert.equal(parseUtterance(heard, ROWS).command, null, heard)
+        assert.equal(parseAlternatives([heard, printing], ROWS).command, null, heard)
+      }
+    }
+  })
+
+  it('retains the explicit non-holo vocabulary without generalizing away not', () => {
+    for (const heard of ['not holo', 'not a holo', 'not hollow', 'not a hollow', 'non holo']) {
+      assert.equal(edit(heard).printing?.finish, 'normal', heard)
+    }
+    for (const heard of ['reverse holo not normal', 'reverse holo not first edition', 'reverse holo do not remove it']) {
+      assert.equal(parseUtterance(heard).refused, 'negation', heard)
+    }
+  })
+
+  it('preserves quantity frames after a fuzzy printing', () => {
+    for (const count of ['two', 'three', 'four', 'five']) {
+      const c = edit(`reverse hollow ${count} copies`)
+      assert.equal(c.printing?.finish, 'reverse')
+      assert.equal(c.quantity, ['two', 'three', 'four', 'five'].indexOf(count) + 2)
+    }
+  })
+})
+
+describe('one instruction about one capture', () => {
+  it('refuses a named card plus a separately referenced capture in either order', () => {
+    for (const reference of ['that one', 'this one', 'it', 'those']) {
+      for (const heard of [`remove Venonat and ${reference}`, `remove ${reference} and Venonat`]) {
+        assert.equal(parseUtterance(heard, ROWS).refused, 'two-cards', heard)
+        assert.equal(parseAlternatives([heard, 'remove Venonat'], ROWS).command, null, heard)
+      }
+    }
+    assert.equal(edit('that Venonat is a holo').target.kind, 'row')
+    assert.equal(edit('two of those and theyre reverse holo').quantity, 2)
+  })
+
+  it('accounts for every framed count, including one, instead of treating later counts as filler', () => {
+    for (const first of [1, 2, 3, 10, 99]) for (const second of [1, 2, 3, 10, 99]) {
+      const heard = `${first} of those and ${second} reverse holos`
+      const parsed = parseUtterance(heard, ROWS)
+      if (first !== second) assert.equal(parsed.refused, 'two-commands', heard)
+      else assert.equal(edit(heard).quantity, first)
+    }
+    assert.equal(parseUtterance('two of those and one reverse holo').refused, 'two-commands')
+    assert.equal(parseUtterance('100 of those and one reverse holo').refused, 'invalid-count')
+  })
+})

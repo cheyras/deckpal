@@ -28,11 +28,11 @@
  * purpose — after a reload he boots, which is the honest thing for a character
  * who just came back.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useWallet } from '../../routes/credits/Credits'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
-import { isChromelessPathname } from '../../lib/landingRoute'
+import { isDeckeSuspendedPathname } from '../../lib/landingRoute'
 import { deckeEntitled, onDeckeEntitlementChange } from './entitlement'
 import { DeckeButton } from './DeckeButton'
 import {
@@ -41,6 +41,7 @@ import {
   DeckeChat,
   NAV_BREAKPOINT,
   PARK_LANDMARK,
+  SILHOUETTE,
   STAND_DESKTOP,
   STAND_MOBILE,
 } from './DeckeChat'
@@ -52,6 +53,7 @@ import { DeckeFarewell } from './DeckeFarewell'
 import { pickFarewell } from './deckeVoice'
 import { openerStore, readLastSaid, writeLastSaid } from './deckeChatState'
 import { useDeckeChat } from './useDeckeChat'
+import { deckeErrandActive, subscribeDeckeErrand } from './errand'
 import {
   acquireDeckE,
   loadDeckeRuntime,
@@ -128,6 +130,7 @@ function characterHeightBeside(composerH: number, w: number, h: number): number 
  * private hook. If it changes, the harness breaks loudly in the same commit.
  */
 const LAUNCHER_SELECTOR = 'button[aria-label="Chat with Deck-E"]'
+const ERRAND_SELECTOR = '[data-decke-errand]'
 
 /**
  * The longest the dismissal will wait for him to land before scaling him away
@@ -226,7 +229,7 @@ const SNAP_RATE = 2
 type Phase = 'idle' | 'loading' | 'ready' | 'failed'
 
 export function DeckeHost() {
-  // NOT ON THE CHROMELESS ROUTES, and `/dev/decke` is the one that proves the
+  // NOT ON SUSPENDED ROUTES, and `/dev/decke` is the one that proves the
   // rule: that page builds its OWN controller on its OWN canvas, so mounting
   // this host there puts two Deck-Es and two WebGL contexts on one page. It is
   // not a theoretical clash — it hung the route hard enough to time out a 30 s
@@ -234,12 +237,11 @@ export function DeckeHost() {
   //
   // The rest of the list wants him gone for ordinary reasons: `/auth`,
   // `/signed-out` and `/authorize` are signed-out surfaces, `/design` is a
-  // full-screen tool, and `/` is the marketing landing. Reusing the existing
-  // predicate rather than writing a second list is deliberate — `landingRoute.ts`
-  // says in as many words that the call sites MUST agree, and a private copy of
-  // this set is exactly how they stop agreeing.
-  const chromeless = useRouterState({
-    select: (s) => isChromelessPathname(s.location.pathname),
+  // full-screen tool, and `/` is the marketing landing. `/dev/quad-labeler`
+  // keeps its app shell, but its camera and photo queue need the browser's
+  // frame budget more than Deck-E's continuously rendered WebGL canvas.
+  const hostSuspended = useRouterState({
+    select: (s) => isDeckeSuspendedPathname(s.location.pathname),
   })
   /**
    * Has this reader asked not to have him on screen?
@@ -255,6 +257,17 @@ export function DeckeHost() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [beacon, setBeacon] = useState<Beacon | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const errandRequested = useSyncExternalStore(subscribeDeckeErrand, deckeErrandActive)
+  // A conversation takes precedence if the reader opens it during an errand.
+  const errand = errandRequested && !chatOpen && !hidden && entitled && !chromeless
+  const errandRef = useRef(errand)
+  errandRef.current = errand
+  // Keep the canvas over the dialog until the return flight lands.
+  const [errandRaised, setErrandRaised] = useState(false)
+  useEffect(() => {
+    if (errand) setErrandRaised(true)
+    else if (chatOpen) setErrandRaised(false)
+  }, [errand, chatOpen])
   /**
    * Where the launcher was when it was pressed, for the entrance to grow from.
    *
@@ -401,7 +414,7 @@ export function DeckeHost() {
    */
   const rulerRef = useRef<ComposerRuler | null>(null)
   const navigate = useNavigate()
-  const wallet = useWallet(entitled && !chromeless)
+  const wallet = useWallet(entitled && !hostSuspended)
   /** True while a journey step owns the transition. Read by the route watcher
    *  below; written by the chat's sequencer through `onStepping`. */
   const journeyStepRef = useRef(false)
@@ -594,7 +607,7 @@ export function DeckeHost() {
   // numbers it had, so the numbers are the thing to read before changing it.
   //
   //   1. ORIGINALLY: an idle-callback timer gated only on `entitled &&
-  //      !chromeless`. Every entitled visitor downloaded the whole character on
+  //      !hostSuspended`. Every entitled visitor downloaded the whole character on
   //      every page whether or not they ever spoke to him — 5,905,250 bytes of
   //      assets plus a ~1.14 MB runtime chunk. The owner's stated number-one
   //      complaint about the feature. It also put the 3D body and the launcher
@@ -634,7 +647,7 @@ export function DeckeHost() {
   // WHEN THE PAGE CHANGES UNDER HIM, HE HAS TO NOTICE.
   //
   // Until this existed, the ONLY route subscription in the whole character host
-  // was the `chromeless` selector above — a boolean deciding whether to render
+  // was the route suspension selector above — a boolean deciding whether to render
   // at all. Nothing reacted to navigation. So when the reader moved to another
   // page:
   //
@@ -811,6 +824,29 @@ function settledRect(el: HTMLElement): DOMRect {
         r.right < window.innerWidth + 8
       )
     }
+    if (errand) {
+      const bay = document.querySelector<HTMLElement>(ERRAND_SELECTOR)
+      if (!onScreen(bay)) return
+      d.flyTo(
+        opts.settled ? { rect: settledRect(bay) } : { selector: ERRAND_SELECTOR },
+        {
+          depth: 'foreground', highlight: false, centre: true,
+          rate: opts.rate, instant: opts.instant,
+          arrived: opts.settled ? (aborted) => {
+            if (aborted || !document.querySelector(ERRAND_SELECTOR)) return
+            try {
+              deckeRef.current?.flyTo(
+                { selector: ERRAND_SELECTOR },
+                { depth: 'foreground', highlight: false, centre: true, instant: true },
+              )
+            } catch {
+              /* The bay can unmount between the presence check and the flight. */
+            }
+          } : undefined,
+        },
+      )
+      return
+    }
     // The park box only exists while the phone panel is mounted AND he has
     // a measured size. `flyTo` THROWS on a selector that resolves to
     // nothing, so this asks rather than assumes — and falls back to the
@@ -924,7 +960,7 @@ function settledRect(el: HTMLElement): DOMRect {
       { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
       { depth: 'foreground', highlight: false, centre: true, rate: opts.rate, instant: opts.instant },
     )
-  }, [wide])
+  }, [wide, errand])
   const parkRef = useRef(park)
   parkRef.current = park
 
@@ -976,7 +1012,7 @@ function settledRect(el: HTMLElement): DOMRect {
     const d = deckeRef.current
     if (!live || !d) return
 
-    if (chatOpen) {
+    if (chatOpen || errand) {
       // ── THE WAY IN: grow WHILE the panel opens, travel as it settles. ────
       //
       // Measured before this existed: 1.30 s from committed tap to landed, of
@@ -1026,11 +1062,10 @@ function settledRect(el: HTMLElement): DOMRect {
                 : ''
             return `${off}${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.height)}`
           }
-          return (
-            key(document.querySelector(`[${PARK_LANDMARK}]`)) +
-            '|' +
-            key(document.querySelector(`[${COMPOSER_LANDMARK}]`))
-          )
+          return errand
+            ? key(document.querySelector(ERRAND_SELECTOR))
+            : key(document.querySelector(`[${PARK_LANDMARK}]`)) +
+              '|' + key(document.querySelector(`[${COMPOSER_LANDMARK}]`))
         }
         let waited = 0
         const launch = () => {
@@ -1173,6 +1208,7 @@ function settledRect(el: HTMLElement): DOMRect {
       if (aborted) return
       const away = deckeRef.current
       holdMeasureRef.current = false
+      setErrandRaised(false)
       if (away) {
         // BACK TO NOTHING, at a station the collapsed state can live with: a
         // `{rect}` station is a remembered box that every later resize would
@@ -1245,7 +1281,7 @@ function settledRect(el: HTMLElement): DOMRect {
     // full-size character parked over the page for the rest of the session.
     const guard = window.setTimeout(() => finish(false), EXIT_GUARD_MS)
     return () => window.clearTimeout(guard)
-  }, [chatOpen, live])
+  }, [chatOpen, errand, live])
 
   // ── RE-PARK, WITHOUT RE-ENTERING ────────────────────────────────────────
   //
@@ -1257,11 +1293,11 @@ function settledRect(el: HTMLElement): DOMRect {
   // entrance. `parkedRef` keeps this from racing the entrance's own first
   // park.
   useEffect(() => {
-    if (!live || !chatOpen || travelling) return
+    if (!live || (!chatOpen && !errand) || travelling) return
     if (!parkedRef.current) return
     measureRef.current?.()
     parkRef.current()
-  }, [live, chatOpen, wide, travelling])
+  }, [live, chatOpen, errand, wide, travelling])
 
   // ── THE ENDING A PRESENTATION NEVER HAD ─────────────────────────────────
   //
@@ -1392,9 +1428,9 @@ function settledRect(el: HTMLElement): DOMRect {
   // phone, the composer's card on desktop — and anything that moves his mark,
   // whichever element moved it, is now a move.
   useEffect(() => {
-    if (!live || !chatOpen || travelling) return
+    if (!live || (!chatOpen && !errand) || travelling) return
     const read = (): MarkBox | null => {
-      const el = document.querySelector(`[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
+      const el = document.querySelector(errand ? ERRAND_SELECTOR : `[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
       if (!el) return null
       const r = el.getBoundingClientRect()
       return { top: Math.round(r.top), left: Math.round(r.left), h: Math.round(r.height) }
@@ -1474,14 +1510,14 @@ function settledRect(el: HTMLElement): DOMRect {
     }
     // `wide` because the two platforms park him on different marks, and the
     // watcher has to be rebuilt around whichever one is current.
-  }, [live, chatOpen, travelling, wide])
+  }, [live, chatOpen, errand, travelling, wide])
 
   // ONE BOOLEAN, not `phase`, drives the setup effect.
   //
   // Keying it on `phase` directly is wrong twice over. It would re-run on the
   // loading -> ready transition this effect itself performs, tearing the
   // controller down and rebuilding it in a loop; and it would NOT re-run when a
-  // chromeless route unmounts the canvas and a later navigation mounts a new
+  // suspended route unmounts the canvas and a later navigation mounts a new
   // one, because `phase` is still 'ready' — leaving a live controller bound to a
   // canvas node that is no longer in the document, and a blank new canvas.
   // `!hidden` is here as well as at the early return. Today it is redundant —
@@ -1490,7 +1526,14 @@ function settledRect(el: HTMLElement): DOMRect {
   // decides whether a WebGL context exists. Someone who asked not to have him
   // should not get a canvas because a future effect learned to warm him.
   const active =
-    !hidden && entitled && !chromeless && (phase === 'loading' || phase === 'ready')
+    !hidden && entitled && !hostSuspended && (phase === 'loading' || phase === 'ready')
+
+  useEffect(() => {
+    if (errand) setPhase((p) => (p === 'idle' ? 'loading' : p))
+  }, [errand])
+  useEffect(() => {
+    if (!errand && !live) setErrandRaised(false)
+  }, [errand, live])
 
   // Held once and shared, because the constructor below reads it and the effect
   // after it subscribes to it — two `matchMedia` calls for one question is two
@@ -1534,7 +1577,7 @@ function settledRect(el: HTMLElement): DOMRect {
   // gap after the page is usable. `DeckeButton` still warms on pointer-enter,
   // which now only matters when someone hovers inside that gap.
   useEffect(() => {
-    if (hidden || !entitled || chromeless) return
+    if (hidden || !entitled || hostSuspended) return
     if (phase !== 'idle') return
 
     // NOT ON A CONNECTION THAT SAID NOT TO. Save-Data is an explicit request
@@ -1577,7 +1620,7 @@ function settledRect(el: HTMLElement): DOMRect {
       if (idleHandle !== undefined && cic) cic(idleHandle)
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [hidden, entitled, chromeless, phase])
+  }, [hidden, entitled, hostSuspended, phase])
 
   useEffect(() => {
     if (!active) return
@@ -1624,7 +1667,7 @@ function settledRect(el: HTMLElement): DOMRect {
       // A FRESH controller knows nothing, so neither may the choreography: a
       // reused one (StrictMode's synchronous remount, a quick canvas swap)
       // keeps his pose and his presence, but a fresh one boots at scale 0 —
-      // and if the chat was open across the teardown (a chromeless route and
+      // and if the chat was open across the teardown (a suspended route and
       // back), a stale presence of 'in' would skip the entrance and re-park a
       // character nobody can see. Reset, and the entrance effect brings him
       // in properly once `live` lands.
@@ -1682,6 +1725,10 @@ function settledRect(el: HTMLElement): DOMRect {
           rulerRef.current = ruleComposer(rulerRef.current, sample)
           const resting = rulerFor(rulerRef.current, sample)
           px = resting === null ? null : characterHeightBeside(resting, w, h)
+        } else if (errandRef.current) {
+          rulerRef.current = null
+          const bayH = document.querySelector(ERRAND_SELECTOR)?.getBoundingClientRect().height ?? 0
+          px = bayH > 0 ? Math.round(Math.min(160, bayH / SILHOUETTE)) : null
         } else {
           rulerRef.current = null
           px = characterHeightFor(w, h)
@@ -1849,7 +1896,7 @@ function settledRect(el: HTMLElement): DOMRect {
       // belonging to a canvas that no longer exists.
       appliedPxRef.current = 0
       // AND BACK TO "NOT READY". `phase` drives the canvas's own opacity, and
-      // leaving it at `ready` across a chromeless-route round trip means the
+      // leaving it at `ready` across a suspended-route round trip means the
       // NEXT mount paints a brand-new canvas at full opacity while the runtime,
       // the glb and the shader compile are all still ahead of it. Nothing is
       // drawn there yet; what shows is whatever the first frames of a cold
@@ -1869,11 +1916,11 @@ function settledRect(el: HTMLElement): DOMRect {
   // it, not about answer quality — so being good is not protection, and this
   // guard is the whole remedy. Restored from Profile.
   //
-  // Placed beside `entitled` and `chromeless` deliberately: this returns before
+  // Placed beside `entitled` and `hostSuspended` deliberately: this returns before
   // the canvas, the launcher and every effect that reaches for the runtime, so
   // hiding him also stops him costing anything.
   if (hidden) return null
-  if (!entitled || chromeless) return null
+  if (!entitled || hostSuspended) return null
 
   return (
     <>
@@ -1908,7 +1955,7 @@ function settledRect(el: HTMLElement): DOMRect {
         ref={canvasRef}
         aria-hidden
         className={
-          'pointer-events-none fixed inset-0 z-30 h-[100lvh] w-full transition-opacity duration-500 ' +
+          `pointer-events-none fixed inset-0 ${errand || errandRaised ? 'z-[101]' : 'z-30'} h-[100lvh] w-full transition-opacity duration-500 ` +
           (phase === 'ready' ? 'opacity-100' : 'opacity-0')
         }
       />

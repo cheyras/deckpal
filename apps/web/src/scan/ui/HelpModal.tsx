@@ -7,7 +7,7 @@
 import { Sheet } from '../../components/ui/Sheet'
 import { Icon } from '../../components/Icon'
 
-export function HelpModal({ onClose }: { onClose: () => void }) {
+export function HelpModal({ onClose, voice = false }: { onClose: () => void; voice?: boolean }) {
   return (
     <Sheet title="How scanning works" onClose={onClose} size="sm">
       <div className="flex flex-col gap-[16px] text-[14px] leading-[21px] text-text-body">
@@ -21,13 +21,28 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <h3 className="text-[13px] font-bold uppercase tracking-wide text-text-muted">1. Scan</h3>
           <p>
             Keep presenting cards — each capture flies into the stack at the edge of the camera while it's identified,
-            then drops into the list below. A card you've already scanned bumps its quantity instead of adding a
-            duplicate row. Not sure the match is right? Tap <b className="text-text-primary">wrong card?</b> on any
+            then drops into the list below. Every scan is its own row, so two copies of a card can be two different
+            printings. Not sure the match is right? Tap <b className="text-text-primary">wrong card?</b> on any
             row to pick from the next-closest guesses, or flag it for review with the{' '}
             <Icon name="bug" size={13} className="inline-block align-[-2px]" /> report button. You can also expand the
             list to full screen at any time to look it over without stopping the camera.
           </p>
         </section>
+
+        {voice && (
+          <section className="flex flex-col gap-[6px]">
+            <h3 className="flex items-center gap-[6px] text-[13px] font-bold uppercase tracking-wide text-text-muted">
+              <Icon name="mic" size={13} /> Voice
+            </h3>
+            <p>
+              Tap <b className="text-text-primary">Voice</b> and keep scanning. Say{' '}
+              <b className="text-text-primary">“reverse holo”</b>, <b className="text-text-primary">“two of those”</b> or{' '}
+              <b className="text-text-primary">“remove it”</b> about the card you just scanned, or name an earlier one:{' '}
+              <b className="text-text-primary">“the Charizard is a holo”</b>. Each change waits a few seconds on its card
+              — tap it away or say <b className="text-text-primary">“undo”</b>.
+            </p>
+          </section>
+        )}
 
         <section className="flex flex-col gap-[6px]">
           <h3 className="text-[13px] font-bold uppercase tracking-wide text-text-muted">2. Verify</h3>

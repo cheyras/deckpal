@@ -2,7 +2,7 @@
 // `#camera-view`). Live video, the reticle + tracked-quad overlay, the
 // incoming stack docked on the right edge, a hint pill, and the permission-
 // flow overlays (requesting/denied/error) ported from the previous Scan.tsx.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
 import { QuadOverlay } from './QuadOverlay'
 import { squareSide } from './coords'
@@ -24,6 +24,7 @@ export function CameraStage({
   onReportCamera,
   flashSignal,
   onBoxChange,
+  overlay,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>
   camState: CamState
@@ -53,6 +54,9 @@ export function CameraStage({
    *  courier on cover) and every thumbnail launched ~54 px from the quad that
    *  had been highlighted; one helper, called twice, is what stops that. */
   onBoxChange?: (box: { width: number; height: number }) => void
+  /** Drawn over the live picture, above the hint — the voice caption, which
+   *  belongs where the reader is looking while they scan. */
+  overlay?: ReactNode
 }) {
   const slotRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -147,6 +151,7 @@ export function CameraStage({
             <div className="pointer-events-none absolute bottom-[14px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/55 px-[14px] py-[6px] text-[13px] font-semibold text-white backdrop-blur">
               {hint}
             </div>
+            {overlay}
             <button
               type="button"
               onClick={onReportCamera}

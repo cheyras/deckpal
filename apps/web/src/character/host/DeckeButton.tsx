@@ -1,5 +1,6 @@
 /**
- * The entry point — a small floating button, bottom-right, on every page.
+ * The entry point — a small floating button, bottom-right, on pages where
+ * Deck-E's host is active.
  *
  * WHAT IT DOES *NOT* DO is mount the 3D runtime. The character costs 5.7 MB of
  * assets plus the three.js chunk (`runtime.ts`'s header quotes the figure — the

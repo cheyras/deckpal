@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test:insights": "node --import tsx --test src/lib/__tests__/*.test.ts",
     "test:decke": "node --import tsx --test src/character/decke/__tests__/*.test.ts src/character/host/__tests__/*.test.ts src/character/host/chat/__tests__/*.test.ts src/components/ui/__tests__/*.test.ts",
-    "test:scan": "node --import tsx --test src/scan/engine/__tests__/*.test.ts src/scan/labeler/__tests__/*.test.ts src/scan/ocr/__tests__/*.test.ts src/scan/ui/__tests__/*.test.ts",
+    "test:scan": "node --import tsx --test src/scan/engine/__tests__/*.test.ts src/scan/labeler/__tests__/*.test.ts src/scan/ocr/__tests__/*.test.ts src/scan/ui/__tests__/*.test.ts src/scan/voice/__tests__/*.test.ts",
     "test:collection": "node --import tsx --test src/components/__tests__/*.test.ts src/routes/__tests__/*.test.ts"
   },
   "dependencies": {
@@ -30,7 +30,7 @@
     "react-dom": "19.3.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "three": "0.186.0"
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@deckpal/matching": "workspace:*",
@@ -43,7 +43,7 @@
     "tailwindcss": "4.3.3",
     "tsx": "^4.23.15",
     "typescript": "7.0.2",
-    "vite": "8.3.0",
+    "vite": "8.3.1",
     "vite-plugin-pwa": "1.3.0",
     "workbox-cacheable-response": "7.4.1",
     "workbox-expiration": "7.4.1",

@@ -190,6 +190,31 @@ characters; ledgers derived from history still read all of it. `route` and each
 landmark string are clipped to 200 characters (`apps/api/src/decke/wireBounds.ts`).
 
 
+**Import fixes (`POST /api/decks/import/fix`).** This separate read-only route
+checks the same current `decke.use` permission on the server, charges the daily
+turn meter before invoking the model, and uses the dedicated Deck-E Gateway key.
+When paid credits are enabled, admission debits one whole-credit hold through
+the existing ledger. Settlement uses the provider-reported fractional cost and
+returns any unused hold in the same transaction as the usage record. Chat sees
+the held balance, so it cannot spend the same last credit. A fix admitted before
+account suspension can still settle, but suspension prevents new fixes.
+If a settlement connection fails after admission, the API retries the
+request-bound settlement. A wallet read releases an unsettled hold after a
+15-minute grace period and records the provider cost as unknown; both paths
+are idempotent.
+It does not create a deck. The model may choose only keys from
+catalogue candidates; a suggested replacement is returned only when the ordinary
+import resolver lands on that exact catalogue card. The browser asks the reader
+to confirm, then rechecks the edited list before the existing import write.
+An incomplete 400-printing candidate page produces no suggestion.
+The request's catalogue and collection reads use its RLS-scoped connection.
+Admission commits and releases that connection before the model call; settlement
+uses the same shared pool afterward, even if the browser disconnects. Narrow
+server-only database functions enforce the daily
+limit, account ownership, usage recording and idempotent fractional settlement. A direct
+browser RPC cannot invoke them without the server's request claim.
+
+
 Deck-E holds **no credential of his own**. He carries the caller's own
 Supabase JWT — the same one the browser sent — and forwards it to deckpal-api
 for every write, so Row-Level Security applies to him exactly as it does to
@@ -1120,6 +1145,19 @@ the API with no undo, and it is the only one.
 
 **Account deletion is unaffected.** Every one of these tables cascades from
 `app_user`, so removing a user still removes their soft-deleted rows.
+
+## Scanner voice: where speech goes
+
+Voice commands in the scanner (an opt-in beta, `scanner_voice`) use the browser's
+own Web Speech API. The browser vendor does the recognition. Safari sends speech
+to Apple, and iOS says so in its own permission prompt. Chrome sends it to
+Google. DeckPal's code never sends, logs or stores audio or transcripts. A
+transcript exists only in page memory, long enough to be matched against a
+fixed command grammar. It is not attached to scan telemetry, bug reports or any
+request. The explainer shown before the first browser prompt tells the reader
+the same thing. The microphone is only on while the reader has the Voice
+control on during the scan step. Hiding the page, leaving the scan step or
+leaving the route stops it.
 
 ## The mutation log
 

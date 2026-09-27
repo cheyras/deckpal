@@ -8,6 +8,7 @@ import { checkNestedRouteRecovery, checkRouteSplit } from './routeSplit.mjs'
 import { adminFixture, checkAdmin, checkInsights } from './admin.mjs'
 import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
+import { checkDeckImport } from './deckImport.mjs'
 import { checkA11y } from './a11y.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
 import { checkOffline } from './offline.mjs'
@@ -66,6 +67,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           } else if (group === 'a11y') {
             results.push(...await checkA11y(browser, server, mount, label, out))
           } else if (group === 'writes') {
+            results.push(...await checkDeckImport(browser, server, admin))
             results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
           }
           assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
