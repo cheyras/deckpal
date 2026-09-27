@@ -109,6 +109,10 @@ export function SetDetail() {
   // Fetch the whole set once per (set, goal, sort, dir, q) with own=all. The
   // ownership strip counts and the have/need/dupes filter are computed
   // client-side so switching them is instant and all four counts stay visible.
+  // `pageSize: '250'` is the API's cap, not a promise the set fits in one
+  // request — `api.setAllCards` follows `pagination.pageCount` past it for
+  // the 9 sets that don't (UXC-01), under this one query key so filters stay
+  // client-side and instant either way.
   const params = new URLSearchParams({
     own: 'all',
     goal: search.goal,
@@ -120,7 +124,7 @@ export function SetDetail() {
 
   const { data, isLoading, error, isPlaceholderData } = useQuery({
     queryKey: ['set', set, search.goal, search.sort, search.dir, search.q.trim()],
-    queryFn: ({ signal }) => api.set(set, params, signal),
+    queryFn: ({ signal }) => api.setAllCards(set, params, signal),
     placeholderData: keepPreviousData,
   })
   // Issue #49: the wrapper entrance fires while this is still a spinner.
