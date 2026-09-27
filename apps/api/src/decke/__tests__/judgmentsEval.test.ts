@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { scoreSet, type JudgmentSet } from '../eval/score.js'
 import { REFLEX_QUESTIONS } from '../reflex.js'
+import { AUDIT_QUESTIONS } from '../audit.js'
 
 const set = JSON.parse(readFileSync(new URL('../eval/judgments.json', import.meta.url), 'utf8')) as JudgmentSet
 
@@ -25,6 +26,8 @@ test('the set is well formed: unique ids, known labels, real candidates', () => 
     assert.ok(intents.includes(it.intent), `${it.id}: unknown intent ${it.intent}`)
     assert.ok(places.includes(it.destination), `${it.id}: unknown destination ${it.destination}`)
   }
+  const actions = Object.keys(AUDIT_QUESTIONS.action.criteria)
+  for (const it of set.audit) assert.ok(actions.includes(it.action), `${it.id}: unknown action ${it.action}`)
   for (const it of set.printing) {
     for (const row of it.rows) {
       assert.ok(row.candidates.length > 1, `${it.id}: a one-printing row is never asked about`)
@@ -44,8 +47,8 @@ test("today's heuristics, scored on the set — the baseline Jev is measured aga
   // reader-mention bypass, once a card has been declined.
   assert.equal(reflex.today.declinesReopenedByBypass, 7)
   assert.deepEqual(reflex.today.familyHandled, { right: 6, of: 13 })
-  // The phantom-action regexes are precise and narrow: 3 of 15, no false flag.
-  assert.deepEqual(audit.today.phantom, { tp: 3, fp: 0, fn: 12, tn: 25 })
+  // The phantom-action regexes are precise and narrow: 3 of 17, no false flag.
+  assert.deepEqual(audit.today.phantom, { tp: 3, fp: 0, fn: 14, tn: 26 })
   // The printing word list is per MESSAGE, so it files 9 of 13 unnamed rows
   // as named.
   assert.equal(printing.today.rows, 42)
