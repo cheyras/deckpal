@@ -601,13 +601,21 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
       }
       cyan.sort((a, b) => a[0] + a[1] + a[2] - (b[0] + b[1] + b[2]))
       const sat = cyan.reduce((acc, [R, G, B]) => acc + (Math.max(R, G, B) - Math.min(R, G, B)) / Math.max(R, G, B), 0) / (cyan.length || 1)
-      return { n: cyan.length, median: cyan[Math.floor(cyan.length / 2)], lit: cyan[Math.floor(cyan.length * 0.9)], sat, white: white / (n || 1) }
+      // A band's per-channel median, never one pixel at a percentile: at equal
+      // brightness a lit cyan pixel and a grey specular one sort side by side,
+      // and a single pick lands on either (ΔE 3 or 25 from the same frame).
+      const band = (lo, hi) => {
+        const s = cyan.slice(Math.floor(cyan.length * lo), Math.max(Math.floor(cyan.length * lo) + 1, Math.floor(cyan.length * hi)))
+        return [0, 1, 2].map((k) => s.map((p) => p[k]).sort((a, b) => a - b)[s.length >> 1])
+      }
+      return { n: cyan.length, median: band(0, 1), lit: band(0.75, 0.95), sat, white: white / (n || 1) }
     })
     const BRAND = [0x00, 0xd3, 0xf3]
     assert.ok(color.n > 500, engine + ': too few body pixels to judge his colour (' + color.n + ')')
-    // The LIT face is the colour he is (ΔE 22 before, a grayed teal). The
-    // median also counts his shaded side, and how much of that is in view
-    // depends on his pose, so it is reported rather than asserted.
+    // The LIT face (the 75th to 95th brightness percentiles) is the colour he
+    // reads as: ΔE 24 before, a grayed teal. The median also counts his shaded
+    // side, and how much of that is in view depends on his pose, so it is
+    // reported rather than asserted.
     const dMedian = deltaE(color.median, BRAND), dLit = deltaE(color.lit, BRAND)
     assert.ok(dLit <= 8, engine + ': his lit face renders ' + JSON.stringify(color.lit) + ', ΔE ' + dLit.toFixed(1) + ' from the brand cyan')
     assert.ok(color.sat >= 0.75, engine + ': his body is ' + Math.round(color.sat * 100) + '% saturated — grayed out')

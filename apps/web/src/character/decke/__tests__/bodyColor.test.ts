@@ -2,7 +2,7 @@
  * He is DeckPal's cyan, and that has to stay true when either side moves.
  *
  * The owner saw him "desaturated, slightly grayed out": the renderer's AgX curve
- * and an 85% metallic shell turned #22d3ee into #5ca2ad on screen. The fix
+ * and an 85% metallic shell turned #22d3ee into #4c95a1 on screen. The fix
  * (`brandBody` in materials.ts) sets the brand colour, a lacquer-grade metalness
  * and a colour-preserving tone curve on the body alone. These pin the pieces a
  * later edit could quietly undo; the rendered-pixel check lives in the browser

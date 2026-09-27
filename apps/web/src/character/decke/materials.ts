@@ -214,24 +214,29 @@ export const BODY_METALNESS = 0.3
  * ── WHAT GRAYED HIM OUT ─────────────────────────────────────────────────────
  *
  * The owner: his colour is "desaturated, slightly grayed out". Measured on a
- * render, the median body pixel was #5ca2ad against the brand's #00d3f3 — a
- * ΔE76 of 25, at 58% HSV saturation. Taking the stage's knobs one at a time:
+ * phone-width render (per-channel medians of his cyan pixels, so no single
+ * pixel decides it): the body was #4c95a1 against the brand's #00d3f3, a ΔE76
+ * of 28, and even its lit face (brightness percentiles 75-95) was #5ca3af,
+ * ΔE 24, at 63% saturation. Taking the stage's knobs one at a time:
  *
- *   1. THE TONE CURVE, by far. The stage runs a port of Blender's AgX (Look:
- *      None), which desaturates bright saturated colour toward white BY DESIGN
- *      — the file header above measured the same curve bleeding 25-65 points of
- *      saturation out of a patch chart. Swapping ONLY the body to Khronos'
- *      PBR Neutral curve — built for exactly this, product colour that must
- *      come out as authored, compressing nothing but the highlights — took the
- *      body to 88% saturation and its brightest quarter to within ΔE 2-5.
+ *   1. THE TONE CURVE. The stage runs a port of Blender's AgX (Look: None),
+ *      which desaturates bright saturated colour toward white BY DESIGN — the
+ *      file header above measured the same curve bleeding 25-65 points of
+ *      saturation out of a patch chart. Khronos' PBR Neutral curve is built for
+ *      exactly this: product colour that must come out as authored, compressing
+ *      nothing but the highlights. Alone it lifts him to 92% saturation, but
+ *      the lit face only reaches ΔE 14, because of —
  *   2. THE METAL. At metalness 0.85 the shell has almost no diffuse colour of
- *      its own: it is a cyan TINT on reflections of a grey studio, so its mid
- *      tones stay dark whatever the curve does (median ΔE 15 at 0.85). 0.3
- *      keeps a lacquered sheen and his form; 0 went flat and chalky beside it.
- *   3. THE BASE COLOUR was Tailwind's cyan-400 (#22d3ee), not the brand's.
+ *      its own: it is a cyan TINT on reflections of a grey studio, so it stays
+ *      dark whatever the curve does (body ΔE 23). Dropping the metal under AgX
+ *      instead goes chalky (43% saturation). 0.3 with the Neutral curve keeps a
+ *      lacquered sheen and his form; 0 is marginally closer (lit ΔE 2) but flat.
+ *   3. THE BASE COLOUR was Tailwind's cyan-400 (#22d3ee), not the brand's. On
+ *      its own it moves nothing visible; it matters once the other two are fixed.
  *
- * Together: median #0ec4e1, ΔE 6 (brightest quarter ΔE 2-3), 85% saturation,
- * nothing clipped to white.
+ * Together: lit face #15ccea, ΔE 3; the whole body #09b9cb, ΔE 12 with his
+ * shaded side in; 89% saturation; nothing clipped to white. iOS Safari reads
+ * the same (lit ΔE 3, 89%).
  *
  * ONLY THE BODY. Everything else on him — the eyes' symbol palette above all —
  * was chosen deeper and more saturated to come out right THROUGH AgX, and

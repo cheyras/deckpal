@@ -504,8 +504,8 @@ Each of these cost someone a debugging pass, upstream or here.
 - **His body colour deliberately departs from the `.blend`.** `brandBody()` in
   `materials.ts` sets the body to `--color-brand-primary-400`, metalness 0.3 and
   the Khronos Neutral tone curve in that one shader; everything else on him keeps
-  AgX. At 0.85 metal under AgX he rendered #5ca2ad, ΔE 25 from DeckPal's cyan
-  and visibly grey. Colour parity against the `.blend` is therefore not expected
+  AgX. At 0.85 metal under AgX his body rendered #4c95a1, ΔE 28 from DeckPal's
+  cyan and visibly grey. Colour parity against the `.blend` is therefore not expected
   on the body; `decke-body-color` samples his rendered pixels against the token
   instead, and `bodyColor.test.ts` fails if the token and he drift apart.
 
