@@ -190,11 +190,31 @@ export interface Mover {
 }
 
 /**
- * Top movers among owned variants, best-effort. Uses price_current.avg30_minor
- * as the reference (30-day average) and the current market as "now"; the mover
- * value is (market − avg30) × quantity. Only variants that carry BOTH a market
- * and an avg30 quote qualify — a sparse feed simply yields fewer movers, never a
- * wrong number. Returned biggest-absolute-move first.
+ * Top movers among owned variants, best-effort. Reference price is the 30-day
+ * average; the mover value is (market − avg30) × quantity. Returned
+ * biggest-absolute-move first.
+ *
+ * UXC-07: `price_current.avg30_minor` is a VENDOR-supplied metric, and only
+ * Cardmarket's feed carries one (`price_source_field_map`; see cardmarket.ts's
+ * `avg30`/`avg30-holo` columns) — TCGCSV/TCGplayer's raw price rows have no
+ * such field (tcgcsv.ts `tcgplayerMetrics()` maps only market/low/mid/high/
+ * direct-low). Confirmed empirically: 5/5 sampled USD variants had
+ * `avg30_minor IS NULL` on every source. That's not a rollup bug — rollup.ts
+ * only re-buckets the metrics a source already supplied, it never derives new
+ * ones — so under the old query, USD Top Movers (the default currency) could
+ * never populate, no matter how long the feed ran.
+ *
+ * Prefer the vendor's own avg30 when a source supplies one; otherwise fall
+ * back to a self-derived 30-day average of `price_observation.market_minor`
+ * for the same (variant, currency) — data we already retain for exactly this
+ * long (rollup.ts: "last ~30 days daily rows in price_observation", so the
+ * window here matches the retention tier exactly, not an arbitrary choice).
+ * Collapse overlapping live and archive observations to one best market price
+ * per UTC day before averaging; a duplicated day is still one day of history.
+ * `HAVING count(*) >= 2` keeps a single day's observations from posing as an
+ * "average". Only variants that end up with both a market and a (vendor or
+ * derived) avg30 qualify — a sparse feed still yields fewer movers, never a
+ * wrong number.
  */
 export async function topMovers(userId: string, currency = 'USD', limit = 5): Promise<Mover[]> {
   const cur = currency.trim().toUpperCase();
@@ -202,14 +222,37 @@ export async function topMovers(userId: string, currency = 'USD', limit = 5): Pr
     tcgdex_id: string; variant_kind_code: string; name: string; quantity: number;
     market_minor: number; avg30_minor: number;
   }>(
-    `SELECT c.tcgdex_id, cv.variant_kind_code, c.name, ci.quantity,
-            pc.market_minor, pc.avg30_minor
-       FROM collection_item ci
-       JOIN card_variant cv ON cv.id = ci.card_variant_id
+    `WITH owned AS (
+       SELECT ci.card_variant_id, ci.quantity
+         FROM collection_item ci
+        WHERE ci.user_id = $1 AND ci.quantity > 0
+     ),
+     daily_market AS (
+       SELECT po.card_variant_id,
+              (po.captured_at AT TIME ZONE 'UTC')::date AS observed_on,
+              max(po.market_minor) AS market_minor
+         FROM price_observation po
+         JOIN owned o ON o.card_variant_id = po.card_variant_id
+        WHERE po.currency_code = $2
+          AND po.captured_at >= now() - interval '30 days'
+          AND po.market_minor IS NOT NULL
+        GROUP BY po.card_variant_id, (po.captured_at AT TIME ZONE 'UTC')::date
+     ),
+     derived_avg30 AS (
+       SELECT card_variant_id, round(avg(market_minor))::bigint AS avg30_minor
+         FROM daily_market
+        GROUP BY card_variant_id
+       HAVING count(*) >= 2
+     )
+     SELECT c.tcgdex_id, cv.variant_kind_code, c.name, o.quantity,
+            pc.market_minor, coalesce(pc.avg30_minor, da.avg30_minor) AS avg30_minor
+       FROM owned o
+       JOIN card_variant cv ON cv.id = o.card_variant_id
        JOIN card c ON c.id = cv.card_id
        JOIN price_current pc ON pc.card_variant_id = cv.id AND pc.currency_code = $2
-      WHERE ci.user_id = $1 AND ci.quantity > 0
-        AND pc.market_minor IS NOT NULL AND pc.avg30_minor IS NOT NULL`,
+       LEFT JOIN derived_avg30 da ON da.card_variant_id = o.card_variant_id
+      WHERE pc.market_minor IS NOT NULL
+        AND coalesce(pc.avg30_minor, da.avg30_minor) IS NOT NULL`,
     [userId, cur],
   );
   return rows

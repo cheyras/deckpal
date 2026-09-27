@@ -49,7 +49,10 @@ function useOwnedCards() {
     queryKey: ['ownedCards'],
     staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
-      const grid = await api.dex(new URLSearchParams({ own: 'captured', pageSize: '1025' }), signal)
+      // api.dexAll (not api.dex): pageSize: '1025' is today's National Dex
+      // size, not a ceiling a heavy collector's captured count can't reach —
+      // see PokedexIndex.tsx's comment on the same call for the failure shape.
+      const grid = await api.dexAll(new URLSearchParams({ own: 'captured', pageSize: '1025' }), signal)
       const details = await Promise.all(grid.species.map((s) => api.species(String(s.speciesId), signal)))
       const byId = new Map<string, ShowcasePick>()
       for (const d of details) {
