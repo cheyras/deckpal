@@ -1069,7 +1069,9 @@ what matters for a fresh deploy is:
 - **The scan harness has its own policy.** Its separate iframe document
   permits JavaScript code generation for its OpenCV diagnostic engine. The
   service worker fetches that document from the network to preserve the
-  exception; the surrounding app keeps the stricter policy.
+  exception; the surrounding app keeps the stricter policy. The SPA rewrite
+  and offline navigation fallback exclude all `/assets/` paths, so missing
+  hashed files do not return the app shell under this exception.
 - **Verify it after deploying:**
   ```bash
   curl -sI https://your-domain/ | grep -i 'content-security-policy\|x-frame-options'

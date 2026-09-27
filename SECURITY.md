@@ -470,6 +470,10 @@ the surrounding app document retains the stricter policy even when reached
 through client-side navigation. The service worker fetches the iframe document
 from the network so its special header is preserved, and the browser check
 starts OpenCV through the real Dev tools link.
+Missing `/assets/` files are excluded from both Vercel's app-shell rewrite and
+the service worker's navigation fallback. A nonexistent harness-shaped URL
+therefore returns a missing-file response rather than the app under the
+harness's looser policy.
 
 **SEC-14, in the same change: private API responses are `no-store`, not
 `no-cache`.** `apps/api/src/http.ts`'s `userCache()` (used by every

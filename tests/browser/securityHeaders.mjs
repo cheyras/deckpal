@@ -348,6 +348,14 @@ async function checkServiceWorkerRegistration(browser, server, mount, admin) {
     assert.ok(harnessResponse.headers()['content-security-policy']?.includes("'unsafe-eval'"),
       'the active service worker replaced the harness iframe response and lost its OpenCV exception')
 
+    // The fixture server may serve its own fallback here, but the active
+    // worker must leave both missing built-asset navigations to the network.
+    // vercel.json's rewrite guard then makes them 404 in production.
+    for (const asset of ['scan-harness-anything.html', 'index-abc123.html']) {
+      const response = await page.goto(server.origin + mount + '/assets/' + asset, { waitUntil: 'load' })
+      assert.ok(response && !response.fromServiceWorker(), `service worker served the cached app shell for missing /assets/${asset}`)
+    }
+
     return { case: 'service-worker-registration', registered, controlled, deckeCompareUnderActiveWorker: { violations: deckeCompareViolations, panes: paneFrames.length }, scanHarnessPolicyPreserved: true }
   } finally {
     await context.close()

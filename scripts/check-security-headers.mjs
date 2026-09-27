@@ -98,6 +98,18 @@ for (const p of ['api/', 'api/health', 'api/decks/123/pdf', 'dev/decke-compare',
   assert.ok(!re.test(p), `general headers source must exclude "/${p}"`)
 }
 
+// A missing built asset must remain a 404. Otherwise Vercel can rewrite a
+// scan-harness-shaped miss to the app shell under the harness's looser CSP.
+const shellRewrite = vercelConfig.rewrites.find((rule) => rule.destination === '/index.html')
+assert.ok(shellRewrite?.source.startsWith('/:path(') && shellRewrite.source.endsWith(')'), 'missing SPA catch-all rewrite')
+const shellPath = new RegExp(`^${shellRewrite.source.slice('/:path('.length, -1)}$`)
+for (const p of ['assets/scan-harness-anything.html', 'assets/index-abc123.html']) {
+  assert.ok(!shellPath.test(p), `SPA rewrite must not serve the app shell for /${p}`)
+}
+for (const p of ['', 'lists', 'collection', 'scan', 'dev/scan-harness', 'authorize']) {
+  assert.ok(shellPath.test(p), `SPA rewrite must still serve app route /${p}`)
+}
+
 // ── Content-Security-Policy directives (general rule) ────────────────────────
 const generalCsp = cspDirectives(generalHeaders['Content-Security-Policy'])
 
