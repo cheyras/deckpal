@@ -14,12 +14,14 @@
 // revocation is the part that matters: a few hundred queued phone photos is
 // hundreds of megabytes pinned if a blob URL outlives its card.
 import { useEffect, useRef, useState } from 'react'
+import { ApiError } from '../../lib/api'
 
 export function AuthThumb({
   load,
   alt,
   cacheKey,
   className = 'h-full w-full object-contain',
+  onMissing,
 }: {
   /** Fetch the bytes. Takes the abort signal so a card scrolled past mid-flight
    *  does not finish a request nobody is waiting for. */
@@ -30,17 +32,20 @@ export function AuthThumb({
    *  every render. */
   cacheKey: string | number
   className?: string
+  onMissing?: () => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [url, setUrl] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
   // A decode failure clears the URL, so the explanation replaces the broken
   // image rather than sitting next to it.
-  const shown = failed ? null : url
+  const shown = failure ? null : url
   // `load` is read through a ref so a new closure each render never restarts a
   // fetch; `cacheKey` is the only thing that may.
   const loadRef = useRef(load)
   loadRef.current = load
+  const missingRef = useRef(onMissing)
+  missingRef.current = onMissing
 
   useEffect(() => {
     const host = hostRef.current
@@ -49,7 +54,7 @@ export function AuthThumb({
     let objectUrl: string | null = null
     const ac = new AbortController()
     setUrl(null)
-    setFailed(false)
+    setFailure(null)
 
     const fetchIt = () => {
       void loadRef.current
@@ -59,8 +64,11 @@ export function AuthThumb({
           objectUrl = URL.createObjectURL(blob)
           setUrl(objectUrl)
         })
-        .catch(() => {
-          if (!cancelled) setFailed(true)
+        .catch((error) => {
+          if (!cancelled) {
+            if (error instanceof ApiError && error.status === 404) missingRef.current?.()
+            else setFailure('Could not load this photo. Try again later.')
+          }
         })
     }
 
@@ -102,10 +110,10 @@ export function AuthThumb({
         // glyph. Thirty of those in a grid reads as "the app is broken" rather
         // than "this browser cannot open this format", which is what the owner
         // saw. Say which.
-        <img src={shown} alt={alt} className={className} onError={() => setFailed(true)} />
+        <img src={shown} alt={alt} className={className} onError={() => setFailure("this browser can't open this format")} />
       ) : (
         <div className="flex h-full w-full items-center justify-center px-[6px] text-center text-[10px] leading-[13px] text-white/35">
-          {failed ? "this browser can't open this format" : ''}
+          {failure ?? ''}
         </div>
       )}
     </div>

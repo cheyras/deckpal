@@ -20756,3 +20756,10 @@ and pinned by `wireBounds.test.ts`; `isNormalPath` is mirrored between
 `tools.ts` and `uiTools.ts` and pinned by `tools.test.ts`. A guide sub-agent
 that fails its one write cannot retry within the same approval. No schema,
 environment variable or deployment change.
+
+## 2026-09-26 — Let the labeler repair HEIC photos in place
+
+**Decided by:** Chey (via Codex gpt-6-sol)
+**Decision:** The quad labeler lazily decodes HEIC in browsers that cannot read it, converts every upload to upright JPEG, and repairs older server HEIC objects by posting a JPEG before deleting the original. A missing server photo leaves the grid with an explanation; temporary object-store failures are not reported as missing photos.
+**Why:** Chrome stranded local HEIC photos in the outbox, while older clients could store HEIC bytes under `.jpg`. The server also translated every failed object fetch into “no such queued photo,” even for a temporary storage error. Local rows already use an IndexedDB lookup, so the reported 404 is not caused by treating a local ID as a server ID.
+**Implications:** The decoder is confined to the labeler, loaded only on HEIC fallback, and excluded from the service worker's eager precache. `heic2any` 0.0.4's wrapper is MIT; its bundled libheif and HEVC decoder carry LGPL-3.0 terms (see `apps/web/public/HEIC-DECODER-NOTICE.md`). A queued object is deleted only after its JPEG replacement is accepted. A real HEIC fixture is covered by unit and Chromium checks at desktop and phone widths.

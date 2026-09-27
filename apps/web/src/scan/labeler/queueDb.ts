@@ -34,7 +34,7 @@
 // crop and no quad; the moment it acquires them it becomes a label, goes out
 // through `saveLabel.ts`, and is deleted from the queue.
 import { api } from '../../lib/api'
-import { decodeForCanvas } from '../ui/uploadNormalize'
+import { decodeQueueImage, isHeic } from './heic'
 
 /** One photo waiting to be labelled, as the queue reports it. */
 export interface QueuedPhoto {
@@ -224,21 +224,19 @@ const UPLOAD_LADDER: Array<{ edge: number; quality: number }> = [
  * EXIF-aware decode (`createImageBitmap(file, {imageOrientation: 'from-image'})`)
  * and is reused here precisely so the rotation is APPLIED before it is lost.
  *
- * Falls back to the original bytes if decoding fails: normalization is an
- * improvement, not a precondition, and a photo the reader took is worth more
- * than a tidy format.
+ * An undecodable photo stays in the local outbox. Uploading its original bytes
+ * would label them JPEG without making them readable.
  */
-async function normalizeForUpload(blob: Blob): Promise<Blob> {
+async function normalizeForUpload(blob: Blob, name = 'queued'): Promise<Blob> {
   // THROWS RATHER THAN FALLING BACK. The previous version returned the original
   // bytes when it could not decode them, which manufactured broken rows: the
   // route stores everything as `image/jpeg`, so an undecodable HEIC went up
   // labelled as a JPEG and came back just as unreadable from the server as it
-  // had been locally. If this browser cannot read the picture, no upload of it
-  // can be correct, and saying so is the only useful thing left to do.
-  const src = await decodeForCanvas(new File([blob], 'queued', { type: blob.type || 'image/jpeg' })).catch(() => {
+  // had been locally. If even the HEIC decoder cannot read the picture, no
+  // upload of it can be correct, and saying so is the useful thing to do.
+  const src = await decodeQueueImage(blob, name).catch(() => {
     throw new Error(
-      `this browser cannot decode ${blob.type || 'that file'} — Chrome cannot read HEIC at all. ` +
-        'Open the labeler in Safari, or export the photos as JPEG first.',
+      `this photo could not be decoded (${name}). Try exporting it as JPEG.`,
     )
   })
   const w = 'width' in src ? src.width : 0
@@ -322,7 +320,7 @@ export async function enqueue(
   const held: OutboxItem[] = []
   for (const it of items) {
     try {
-      const jpg = await blobToBase64(await normalizeForUpload(it.blob))
+      const jpg = await blobToBase64(await normalizeForUpload(it.blob, it.name))
       await api.scanQueueAdd({ jpg, name: jpgName(it.name), source: it.source })
       uploaded += 1
     } catch (e) {
@@ -367,7 +365,7 @@ export async function flushOutbox(): Promise<{
   // rather than retrying thirty times against a connection that is gone.
   for (const it of items) {
     try {
-      const jpg = await blobToBase64(await normalizeForUpload(it.blob))
+      const jpg = await blobToBase64(await normalizeForUpload(it.blob, it.name))
       await api.scanQueueAdd({ jpg, name: jpgName(it.name), source: it.source })
       await run('readwrite', (s) => s.delete(it.id))
       sent += 1
@@ -452,7 +450,8 @@ export async function removeQueued(id: number): Promise<void> {
     await run('readwrite', (s) => s.delete(id))
     return
   }
-  await api.scanQueueDelete(id)
+  await api.scanQueueDelete(replacementIds.get(id) ?? id)
+  replacementIds.delete(id)
 }
 
 export async function clearQueue(): Promise<void> {
@@ -487,8 +486,45 @@ export async function queueUsage(): Promise<{ bytes: number; localBytes: number;
 /** One queued photo's bytes. A local item already has them; a server one is
  *  fetched through the authenticated client — an `<img src>` cannot carry a
  *  bearer token, which is the lesson the harvest thumbnails taught. */
-export async function queuedPhotoBlob(id: number, signal?: AbortSignal): Promise<Blob> {
+const repairs = new Map<number, Promise<Blob>>()
+const replacementIds = new Map<number, number>()
+
+export async function queuedPhotoBlob(
+  id: number,
+  signal?: AbortSignal,
+  details?: Pick<QueuedPhoto, 'name' | 'source'>,
+): Promise<Blob> {
   const local = await inOutbox(id)
-  if (local) return local.blob
-  return api.scanQueueBlob(id, signal)
+  if (local) {
+    return (await isHeic(local.blob)) ? normalizeForUpload(local.blob, local.name) : local.blob
+  }
+  const repaired = repairs.get(id)
+  if (repaired) return repaired
+  const replacementId = replacementIds.get(id)
+  if (replacementId) return api.scanQueueBlob(replacementId, signal)
+  const blob = await api.scanQueueBlob(id, signal)
+  if (!(await isHeic(blob))) return blob
+  // A former client could upload HEIC bytes under a .jpg path. Keep the old
+  // object until the authenticated replacement has landed; a failed repair
+  // must never cost the reader the only copy of their photo.
+  let repair = repairs.get(id)
+  if (!repair) {
+    repair = (async () => {
+      const jpg = await normalizeForUpload(blob, details?.name)
+      const added = await api.scanQueueAdd({
+        jpg: await blobToBase64(jpg),
+        name: jpgName(details?.name ?? `photo-${id}.heic`),
+        source: details?.source ?? 'upload',
+      })
+      if (added.id !== id) {
+        replacementIds.set(id, added.id)
+        await api.scanQueueDelete(id)
+      }
+      window.dispatchEvent(new Event('deckpal:scan-queue-repaired'))
+      return jpg
+    })()
+    repairs.set(id, repair)
+    void repair.finally(() => repairs.delete(id)).catch(() => {})
+  }
+  return repair
 }

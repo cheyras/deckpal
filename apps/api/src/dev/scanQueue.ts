@@ -102,6 +102,9 @@ scanQueueRouter.post(
     if (typeof body.jpg !== 'string' || !body.jpg) throw badRequest('jpg (base64 string) is required');
     const bytes = Buffer.from(body.jpg, 'base64');
     if (bytes.length === 0) throw badRequest('jpg decoded to 0 bytes');
+    if (bytes.length < 3 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+      throw badRequest('queued photo must contain JPEG bytes');
+    }
     if (bytes.length > MAX_PHOTO_BYTES) {
       throw new ApiError(413, 'payload_too_large', `photo is over the ${MAX_PHOTO_BYTES / (1024 * 1024)} MB queue limit`);
     }
@@ -203,7 +206,10 @@ scanQueueRouter.get(
     if (!hasStorageEnv()) throw notFound('no object store configured');
 
     const upstream = await fetch(publicObjectUrl(`${PREFIX}${file}`));
-    if (!upstream.ok) throw notFound('no such queued photo');
+    if (upstream.status === 404 || upstream.status === 400) throw notFound('no such queued photo');
+    if (!upstream.ok) {
+      throw new ApiError(502, 'queue_storage_unavailable', `Queued photo storage is temporarily unavailable (HTTP ${upstream.status}).`);
+    }
     const buf = Buffer.from(await upstream.arrayBuffer());
     res.setHeader('content-type', file.endsWith('.jpg') ? 'image/jpeg' : 'application/json');
     // A queued photo is immutable for its short life — it is written once and

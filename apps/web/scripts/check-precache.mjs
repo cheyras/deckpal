@@ -85,6 +85,10 @@ for (const url of urls) {
     problems.push(`${url} — character assets must never be precached`)
     continue
   }
+  if (clean.startsWith('assets/heic2any-')) {
+    problems.push(`${url} — the labeler HEIC decoder must not be precached for every visitor`)
+    continue
+  }
   if (!clean.endsWith('.js')) continue
 
   const file = join(DIST, clean)

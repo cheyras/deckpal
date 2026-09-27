@@ -33,6 +33,7 @@ export function QueueStage({
   busy,
   error,
   onOpen,
+  onMissing,
   onRemove,
   onClear,
   onAddFiles,
@@ -44,6 +45,7 @@ export function QueueStage({
   busy: number | null
   error: string | null
   onOpen: (item: QueuedPhoto) => void
+  onMissing: (id: number) => void
   onRemove: (id: number) => void
   onClear: () => void
   onAddFiles: (files: File[]) => void
@@ -156,7 +158,8 @@ export function QueueStage({
                     <AuthThumb
                       cacheKey={it.id}
                       alt={it.name}
-                      load={(signal) => queuedPhotoBlob(it.id, signal)}
+                      load={(signal) => queuedPhotoBlob(it.id, signal, it)}
+                      onMissing={() => onMissing(it.id)}
                     />
                     <span className="pointer-events-none absolute left-[4px] top-[4px] rounded bg-black/70 px-[5px] py-[1px] font-mono text-[9px] font-bold text-white/70">
                       {i + 1}

@@ -214,7 +214,9 @@ export default defineConfig(async ({ command }) => {
           //   ship so the README (and any later light surface) has them, and
           //   are excluded here so nobody downloads a mark this build never
           //   draws. Same reasoning as above, three orders of magnitude smaller.
-          globIgnores: ['models/**', 'assets/Decke-*.js', 'dev-assets/**', 'scan-assets/**', 'logo/*-dark.svg'],
+          // The HEIC decoder belongs to the labeler alone. A route-lazy import
+          // still enters every visitor's download if the PWA precaches it.
+          globIgnores: ['models/**', 'assets/Decke-*.js', 'assets/heic2any-*.js', 'dev-assets/**', 'scan-assets/**', 'logo/*-dark.svg'],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
         // Leave this off. Turning it on would put the service worker in front of
