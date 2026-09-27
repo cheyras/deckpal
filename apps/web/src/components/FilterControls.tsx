@@ -244,7 +244,7 @@ export function ViewToggle({ view, patch }: { view: ViewMode; patch: Patch }) {
           <button
             key={it.key}
             onClick={() => patch({ view: it.key })}
-            className="flex min-h-[36px] items-center gap-[5px] text-[14px] font-medium"
+            className={`min-h-[36px] items-center gap-[5px] text-[14px] font-medium ${it.key === 'table' ? 'hidden md:flex' : 'flex'}`}
           >
             <Icon name={it.icon} size={16} className={active ? 'text-action-primary' : 'text-icon-default'} />
             <span className={active ? 'text-text-primary' : 'text-text-secondary'}>{it.label}</span>

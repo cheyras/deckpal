@@ -34,6 +34,7 @@ export function CardLink({
   setId = '',
   className,
   style,
+  onFocus,
   children,
 }: {
   card: CardRow
@@ -47,6 +48,7 @@ export function CardLink({
   className?: string
   /** The binder slot carries its aspect ratio on the anchor itself. */
   style?: CSSProperties
+  onFocus?: () => void
   children: ReactNode
 }) {
   const leafId = useRouterState({ select: (s) => s.matches[s.matches.length - 1]?.routeId })
@@ -75,7 +77,7 @@ export function CardLink({
   // this anchor opens the card sheet, and the click allowlist is a separate and
   // smaller list for exactly that kind of reason.
   const address = { 'data-decke-card': card.cardId }
-  const shared = { className, style, ...address }
+  const shared = { className, style, onFocus, ...address }
 
   // Set page: sheet, keyed by number.
   if (leafId === '/series/$series/$set') {

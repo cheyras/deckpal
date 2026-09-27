@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react'
+import { defaultRangeExtractor, observeWindowOffset, useWindowVirtualizer } from '@tanstack/react-virtual'
 import { Button } from './Button'
 import { Icon } from '../Icon'
 import { Field } from './Field'
@@ -46,6 +47,33 @@ export interface DataTableProps<T> {
   renderExpandedRow?: (row: T) => ReactNode
   getRowLabel?: (row: T) => string
   className?: string
+  tableClassName?: string
+  onRowClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void
+  onRowAuxClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void
+  /** Render only the rows near the window viewport. Use for complete local result sets. */
+  virtual?: {
+    estimateSize?: number
+    overscan?: number
+    scrollToIndexRef?: RefObject<((index: number, align?: 'start' | 'center') => void) | null>
+    keepMountedIndex?: number
+  }
+}
+
+function readPageScroll() {
+  if (typeof window === 'undefined') return 0
+  return document.body.style.position === 'fixed'
+    ? -parseFloat(document.body.style.top || '0')
+    : window.scrollY
+}
+
+const observePageScroll: typeof observeWindowOffset = (instance, callback) => {
+  const stopScroll = observeWindowOffset(instance, (_offset, scrolling) => callback(readPageScroll(), scrolling))
+  const bodyObserver = new MutationObserver(() => callback(readPageScroll(), false))
+  bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['style'] })
+  return () => {
+    stopScroll?.()
+    bodyObserver.disconnect()
+  }
 }
 
 /**
@@ -56,10 +84,14 @@ export interface DataTableProps<T> {
 export function DataTable<T>({
   label, rows, columns, getRowId, toolbar, sort, onSortChange, pagination,
   loading = false, refreshing = false, error, onRetry,
-  empty = 'No results match your filters.', renderExpandedRow, getRowLabel, className = '',
+  empty = 'No results match your filters.', renderExpandedRow, getRowLabel, className = '', tableClassName = '',
+  onRowClick, onRowAuxClick, virtual,
 }: DataTableProps<T>) {
   const id = useId()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLTableSectionElement>(null)
+  const [scrollMargin, setScrollMargin] = useState(0)
+  const [focusedRowId, setFocusedRowId] = useState<string | null>(null)
   const [overflows, setOverflows] = useState(false)
   useEffect(() => {
     const region = scrollRef.current
@@ -76,6 +108,49 @@ export function DataTable<T>({
   const page = pagination ? getDataTablePage(pagination.offset, pagination.pageSize, pagination.total, rows.length) : null
   const correctingPage = Boolean(!busy && !hasError && page?.isOutOfRange)
   const hideRows = busy || hasError || correctingPage
+  const focusedIndex = focusedRowId === null ? -1 : rows.findIndex(row => getRowId(row) === focusedRowId)
+  const keepMountedIndex = virtual?.keepMountedIndex ?? -1
+  const virtualizer = useWindowVirtualizer({
+    enabled: Boolean(virtual && !hideRows),
+    count: rows.length,
+    estimateSize: () => virtual?.estimateSize ?? 64,
+    overscan: virtual?.overscan ?? 8,
+    scrollMargin,
+    initialOffset: readPageScroll,
+    observeElementOffset: observePageScroll,
+    rangeExtractor: range => {
+      const indices = defaultRangeExtractor(range)
+      for (const index of [focusedIndex, keepMountedIndex]) {
+        if (index >= 0 && index < rows.length && !indices.includes(index)) indices.push(index)
+      }
+      return indices.sort((a, b) => a - b)
+    },
+  })
+  useLayoutEffect(() => {
+    if (!virtual) return
+    const measure = () => {
+      const body = bodyRef.current
+      if (!body) return
+      setScrollMargin(body.getBoundingClientRect().top + readPageScroll())
+    }
+    measure()
+    // A sheet pins the body while it owns focus and restores its scroll after
+    // closing. Both transitions change the coordinate used by the virtualizer.
+    const bodyObserver = new MutationObserver(measure)
+    bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['style'] })
+    window.addEventListener('resize', measure)
+    return () => {
+      bodyObserver.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [virtual, rows.length, hideRows])
+  useEffect(() => {
+    const ref = virtual?.scrollToIndexRef
+    if (!ref) return
+    ref.current = (index, align = 'start') => virtualizer.scrollToIndex(index, { align })
+    return () => { ref.current = null }
+  }, [virtual?.scrollToIndexRef, virtualizer])
+  const virtualItems = virtual ? virtualizer.getVirtualItems() : []
   const [expanded, setExpanded] = useState<{ rows: readonly T[]; ids: Set<string> }>({ rows, ids: new Set() })
   const onOffsetChange = pagination?.onOffsetChange
   const recoveredOffset = page?.offset
@@ -100,10 +175,10 @@ export function DataTable<T>({
         tabIndex={overflows ? 0 : undefined} aria-busy={busy || correctingPage || undefined}
         className="max-w-full overflow-x-auto overscroll-x-contain rounded-[12px] border border-border-default bg-surface-secondary focus-visible:outline-offset-[-2px]"
       >
-        <table className="w-full min-w-full border-collapse text-[14px] text-text-body">
+        <table aria-rowcount={virtual ? rows.length + 1 : undefined} className={`w-full min-w-full border-collapse text-[14px] text-text-body ${tableClassName}`}>
           <caption className="sr-only">{label}</caption>
           <thead className="bg-surface-tertiary text-text-secondary">
-            <tr>
+            <tr aria-rowindex={virtual ? 1 : undefined}>
               {columns.map(column => {
                 const sortable = Boolean(column.sortable && onSortChange)
                 const direction = sortable && sort?.columnId === column.id ? sort.direction : undefined
@@ -128,7 +203,7 @@ export function DataTable<T>({
               {renderExpandedRow && <th scope="col" className="px-[16px] py-[12px] text-left font-bold">Details</th>}
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={bodyRef}>
             {hideRows || rows.length === 0 ? (
               <tr><td colSpan={columnCount} className="px-[16px] py-[24px] text-text-secondary">
                 {hasError ? <div role="alert" className="space-y-[12px] text-error">
@@ -136,14 +211,27 @@ export function DataTable<T>({
                   {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>}
                 </div> : busy || correctingPage ? status : empty}
               </td></tr>
-            ) : rows.map(row => {
+            ) : (virtual ? virtualItems.map(item => ({ row: rows[item.index], index: item.index, start: item.start - scrollMargin, end: item.end - scrollMargin })) : rows.map((row, index) => ({ row, index, start: 0, end: 0 }))).map(({ row, index, start, end }, renderedIndex, renderedRows) => {
               const rowId = getRowId(row)
               const isExpanded = expanded.rows === rows && expanded.ids.has(rowId)
               const detailsId = `${id}-details-${encodeURIComponent(rowId)}`
               const rowLabel = getRowLabel?.(row) ?? rowId
+              const previousEnd = renderedIndex === 0 ? 0 : renderedRows[renderedIndex - 1].end
+              const gap = virtual ? Math.max(0, start - previousEnd) : 0
               return (
                 <Fragment key={rowId}>
-                  <tr className="border-t border-border-default align-top hover:bg-surface-tertiary-subtle focus-within:bg-surface-tertiary-subtle">
+                  {gap > 0 && <tr aria-hidden="true"><td colSpan={columnCount} style={{ height: gap, padding: 0, border: 0 }} /></tr>}
+                  <tr data-index={virtual ? index : undefined} aria-rowindex={virtual ? index + 2 : undefined}
+                    ref={virtual ? virtualizer.measureElement : undefined}
+                    onFocusCapture={virtual ? () => setFocusedRowId(rowId) : undefined}
+                    onBlurCapture={virtual ? event => {
+                      // Keep a sheet opener mounted until its dialog returns focus.
+                      if (event.relatedTarget instanceof Element && event.relatedTarget.closest('[role="dialog"]')) return
+                      setFocusedRowId(current => current === rowId ? null : current)
+                    } : undefined}
+                    onClick={onRowClick ? event => onRowClick(row, event) : undefined}
+                    onAuxClick={onRowAuxClick ? event => onRowAuxClick(row, event) : undefined}
+                    className={`border-t border-border-default align-top hover:bg-surface-tertiary-subtle focus-within:bg-surface-tertiary-subtle ${onRowClick ? 'cursor-pointer' : ''}`}>
                     {columns.map(column => <td key={column.id}
                       className={`px-[16px] py-[12px] whitespace-normal [overflow-wrap:anywhere] ${column.align === 'right' ? 'text-right tabular-nums' : 'text-left'} ${column.className ?? 'min-w-[120px] max-w-[360px]'}`}
                     >{column.cell(row)}</td>)}
@@ -166,6 +254,8 @@ export function DataTable<T>({
                       </div>
                     </td>
                   </tr>}
+                  {virtual && renderedIndex === renderedRows.length - 1 && Math.max(0, virtualizer.getTotalSize() - end) > 0 &&
+                    <tr aria-hidden="true"><td colSpan={columnCount} style={{ height: Math.max(0, virtualizer.getTotalSize() - end), padding: 0, border: 0 }} /></tr>}
                 </Fragment>
               )
             })}

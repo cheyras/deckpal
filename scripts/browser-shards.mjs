@@ -31,6 +31,7 @@ export const durations = {
   'chat': 63,
   'error-boundary': 50,
   'payment-history': 15,
+  'list-table-virtualization': 8,
   'profile-owned-cards': 30,
   // Estimated from local runs (build + Chromium 70s + WebKit 9s, drawing off).
   'decke-show': 150,
