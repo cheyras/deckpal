@@ -756,24 +756,16 @@ function headingText(h1: HTMLElement): string {
 /**
  * Write the current heading to the live region, if there is one.
  *
- * NOT deduped against the last-announced text. It was, originally, to skip a
- * redundant re-write — but that dedup was the bug an adversarial review
- * caught: `SetDetail` (and every other catalog query) uses TanStack Query's
- * `keepPreviousData`, so the moment `onRendered` fires for a NEW set, the
- * OLD set's `<h1>` is still mounted (same text as last time) while the real
- * data loads. Treating "a heading exists and matches last time" as "this
- * navigation is done" meant the observer below never got installed, so the
- * new set's heading — once it actually replaced the old one — was never
- * announced. Writing unconditionally on every call is simpler AND correct:
- * `aria-live` only fires an actual announcement when `textContent` genuinely
- * changes, so re-writing the same string is a harmless no-op to the user,
- * and the MutationObserver keeps calling this until the real swap happens.
+ * Keep the observer active when the current heading matches the live region:
+ * `keepPreviousData` can leave the previous route's heading mounted while a
+ * new catalog page loads. Only write when the text changes, because replacing
+ * an unchanged live-region text node can repeat the screen-reader announcement.
  */
 function announceHeading(): boolean {
   const h1 = document.querySelector<HTMLElement>('h1')
   const heading = h1 ? headingText(h1) : ''
   if (!heading) return false
-  routeAnnouncer.textContent = heading
+  if (routeAnnouncer.textContent !== heading) routeAnnouncer.textContent = heading
   return true
 }
 
@@ -783,14 +775,13 @@ router.subscribe('onRendered', () => {
   headingWatcher?.disconnect()
   if (headingFallback !== null) window.clearTimeout(headingFallback)
   // Announce whatever is there right now — the common case (every chromeless
-  // page, and a catalog page once its data is warm) ends here, synchronously.
+  // page, and a catalog page once its data is warm) is handled synchronously.
   let settled = announceHeading()
-  // Then keep watching for up to 4s regardless: a catalog page's `<h1>` can
+  // Then keep watching until the next navigation: a catalog page's `<h1>` can
   // still be mid-flight (nothing to announce yet), or — the case above —
   // already present but STALE (kept from the previous route while the new
   // one loads). Either way, a real mutation is what actually resolves it, and
-  // `announceHeading` re-fires the live region only when the text genuinely
-  // changes.
+  // `announceHeading` writes the live region only when the text changes.
   headingWatcher = new MutationObserver(() => {
     if (announceHeading()) settled = true
   })
@@ -799,13 +790,12 @@ router.subscribe('onRendered', () => {
   // callback — a route that fails fast (`ErrorState`, no `<h1>` at all) can
   // settle with no further DOM mutations ever, in which case the observer
   // callback simply never runs again and a check living only inside it would
-  // never fire either. This runs regardless, falls back to `document.title`
-  // if nothing was ever announced for this navigation, and always cleans up.
+  // never fire either. This runs regardless and falls back to `document.title`
+  // if nothing was ever announced for this navigation. A slow catalog request
+  // may finish after four seconds, so the observer stays active for its heading.
   headingFallback = window.setTimeout(() => {
-    headingWatcher?.disconnect()
-    headingWatcher = null
     headingFallback = null
-    if (!settled) routeAnnouncer.textContent = document.title
+    if (!settled && routeAnnouncer.textContent !== document.title) routeAnnouncer.textContent = document.title
   }, 4000)
 })
 

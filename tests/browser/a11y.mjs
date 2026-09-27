@@ -67,5 +67,32 @@ export async function checkA11y(browser, server, mount, label, out) {
       await context.close()
     }
   }
+  if (label === 'cloud') {
+    const { context, page } = await contextFor(browser, server, 390)
+    try {
+      await signIn(context)
+      await page.goto(server.origin + '/lists', { waitUntil: 'networkidle' })
+      const live = 'body > [role="status"][aria-live="polite"]'
+      await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'My Lists', live)
+      const repeatedWrites = await page.evaluate(async (selector) => {
+        const region = document.querySelector(selector)
+        let writes = 0
+        const observer = new MutationObserver((records) => { writes += records.length })
+        observer.observe(region, { childList: true, characterData: true, subtree: true })
+        const probe = document.createElement('span')
+        document.getElementById('root').appendChild(probe)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        probe.remove()
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        observer.disconnect()
+        return writes
+      }, live)
+      assert.equal(repeatedWrites, 0, 'unrelated page mutations must not rewrite the live region')
+      await page.waitForTimeout(4200)
+      await page.evaluate(() => { document.querySelector('h1').textContent = 'Late fixture heading' })
+      await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'Late fixture heading', live)
+      results.push({ case: 'a11y-route-announcer', label, repeatedWrites, lateHeading: true })
+    } finally { await context.close() }
+  }
   return results
 }
