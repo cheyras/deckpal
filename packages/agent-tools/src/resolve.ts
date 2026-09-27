@@ -46,11 +46,13 @@ export type CardResolution =
   | { status: 'ambiguous'; candidates: ResolvedCard[]; total: number }
   | { status: 'not_found'; message: string };
 
-const CARD_SELECT = `
-  SELECT c.id, c.tcgdex_id, c.name, c.local_id, c.rarity, c.category,
-         cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name, se.slug AS series_slug,
-         bp.best_minor
-    FROM card c
+// Shared column list + joins for both variants of the card select below, so
+// they can never drift apart on anything but the FROM target.
+const CARD_COLUMNS = `
+  c.id, c.tcgdex_id, c.name, c.local_id, c.rarity, c.category,
+  cs.tcgdex_id AS set_tcgdex_id, cs.name AS set_name, se.slug AS series_slug,
+  bp.best_minor`;
+const CARD_JOINS = `
     JOIN card_set cs ON cs.id = c.set_id
     JOIN series se   ON se.id = cs.series_id
     LEFT JOIN (
@@ -60,6 +62,64 @@ const CARD_SELECT = `
        WHERE pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
        GROUP BY cv.card_id
     ) bp ON bp.card_id = c.id`;
+
+// FROM browsable_card, not card: Pokémon TCG Pocket is "not browsable
+// anywhere in the product" (DECISIONS 2026-08-10), and this SELECT is the
+// resolution choke point for get_card, log_cards, add_cards and edit_list
+// alike (see the file header) — one predicate here closes the loophole for
+// all of them at once, rather than four places that could each forget it.
+const CARD_SELECT = `SELECT ${CARD_COLUMNS} FROM browsable_card c ${CARD_JOINS}`;
+
+/**
+ * The ONE exception to "not browsable anywhere": a Pocket card the caller
+ * has a collection record for at all — looked up by its EXACT id only,
+ * never by name, never fuzzy, never a candidate in an ambiguity list.
+ *
+ * Exists because `log_cards`/`edit_list` route through `resolveCard` too —
+ * a user who already has a Pocket card in their collection (added through
+ * the web UI's count boxes, or through this same agent-tools path, before
+ * this exclusion shipped) would otherwise have no way to zero it out or
+ * remove it: resolution would fail before the write logic ever ran, and the
+ * row would sit there forever. Caught in review (Astra).
+ *
+ * GATED ON THE ROW EXISTING, DELIBERATELY NOT ON `quantity > 0`. The first
+ * version used `quantity > 0`, on the theory that a write reducing it to
+ * zero should close the exception again. That broke retry safety: `log_cards`
+ * derives its idempotency key from the RESOLVED item set, so a batch that
+ * zeroes this same Pocket variant resolved one way on the first call and a
+ * DIFFERENT way — this card silently dropped — on an identical retry, which
+ * changed the key and let an unrelated item in the same batch be re-applied
+ * a second time. Reproduced and confirmed by review (Astra), calling the
+ * real tool handler twice and diffing the two outgoing idempotency keys.
+ *
+ * A row, once created, is never deleted by an ordinary write — "qty-0 rows
+ * are KEPT" (SCHEMA §9.1) — so gating on EXISTENCE rather than quantity
+ * makes this resolution stable across any number of retries, first call or
+ * hundredth. The cost: a user who has ever recorded owning a specific Pocket
+ * variant can use its exact id to set the quantity back up again later, not
+ * only down to zero. That is a narrower, closed-set gap (it only ever
+ * applies to a variant this exact user already has a row for — never a new
+ * Pocket card, never anything reachable by name or browsing) than the
+ * correctness bug the quantity-gated version had, and is the trade-off this
+ * function makes on purpose. A tighter fix would refuse an INCREASE at
+ * write time in `logging.ts`/`lists.ts` instead of at resolution time, which
+ * remains open as a follow-up rather than a same-PR change to that file's
+ * own idempotency-sensitive logic.
+ */
+async function ownedPocketCardById(ctx: Ctx, tcgdexId: string): Promise<Record<string, unknown> | undefined> {
+  const rows = await q(
+    ctx.db,
+    `SELECT ${CARD_COLUMNS} FROM card c ${CARD_JOINS}
+      WHERE c.tcgdex_id = $1 AND c.lang = 'en'
+        AND EXISTS (
+          SELECT 1 FROM card_variant cv2
+            JOIN collection_item ci2 ON ci2.card_variant_id = cv2.id
+           WHERE cv2.card_id = c.id AND ci2.user_id = $2
+        )`,
+    [tcgdexId.trim(), ctx.userId],
+  );
+  return rows[0];
+}
 
 function shape(r: Record<string, unknown>): ResolvedCard {
   return {
@@ -146,8 +206,12 @@ export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolutio
     const r = await q1(ctx.db, `${CARD_SELECT} WHERE c.tcgdex_id = $1 AND c.lang = 'en'`, [
       ref.card_id.trim(),
     ]);
-    return r
-      ? { status: 'ok', card: shape(r) }
+    if (r) return { status: 'ok', card: shape(r) };
+    // Not in the browsable catalog — try the one exception (see
+    // ownedPocketCardById) before giving up.
+    const owned = await ownedPocketCardById(ctx, ref.card_id);
+    return owned
+      ? { status: 'ok', card: shape(owned) }
       : { status: 'not_found', message: `No card with id '${ref.card_id}'` };
   }
   const name = ref.name?.trim();
@@ -294,6 +358,27 @@ export async function resolveCardsBatch(ctx: Ctx, refs: readonly CardRef[]): Pro
     const ids = [...new Set(byId.map((i) => refs[i]!.card_id!.trim()))];
     const rows = await q(ctx.db, `${CARD_SELECT} WHERE c.tcgdex_id = ANY($1::text[]) AND c.lang = 'en'`, [ids]);
     const found = new Map(rows.map((r) => [String(r.tcgdex_id), shape(r)]));
+    // The batch form of the same exception resolveCard applies per item —
+    // an id that missed the browsable catalog may still be a Pocket card
+    // this caller has a collection record for (see ownedPocketCardById,
+    // including why this is gated on the row EXISTING, not on quantity > 0
+    // — the latter broke log_cards' retry idempotency). Queried only for
+    // the misses, and only once for the whole batch.
+    const missingIds = ids.filter((id) => !found.has(id));
+    if (missingIds.length > 0) {
+      const ownedRows = await q(
+        ctx.db,
+        `SELECT ${CARD_COLUMNS} FROM card c ${CARD_JOINS}
+          WHERE c.tcgdex_id = ANY($1::text[]) AND c.lang = 'en'
+            AND EXISTS (
+              SELECT 1 FROM card_variant cv2
+                JOIN collection_item ci2 ON ci2.card_variant_id = cv2.id
+               WHERE cv2.card_id = c.id AND ci2.user_id = $2
+            )`,
+        [missingIds, ctx.userId],
+      );
+      for (const r of ownedRows) found.set(String(r.tcgdex_id), shape(r));
+    }
     for (const i of byId) {
       const hit = found.get(refs[i]!.card_id!.trim());
       if (hit) resolved.set(i, hit);

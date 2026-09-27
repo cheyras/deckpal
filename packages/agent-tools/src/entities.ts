@@ -425,9 +425,13 @@ const setCandidate = (r: SetRow): EntityCandidate => ({
   hint: `series ${r.series_slug}${r.released_on ? ` · ${r.released_on}` : ''}`,
 });
 
+// FROM browsable_set, not card_set: a resolved set is the seam every catalog
+// tool's set_id argument passes through, so a Pocket set ("Genetic Apex",
+// 'A1') must fail to resolve here for search_cards, get_card and
+// set_progress to agree that Pocket is not browsable (DECISIONS 2026-08-10).
 const SET_SELECT = `SELECT cs.id, cs.tcgdex_id, cs.name, s.slug AS series_slug,
                            cs.released_on::text AS released_on
-                      FROM card_set cs JOIN series s ON s.id = cs.series_id`;
+                      FROM browsable_set cs JOIN series s ON s.id = cs.series_id`;
 /** English first when two catalogues carry the same id — the existing tie-break. */
 const SET_ORDER = `ORDER BY (s.catalogue_code = 'en') DESC, cs.released_on DESC NULLS LAST`;
 
