@@ -49,6 +49,8 @@ interface DeckCardRow {
   quantity: number;
   owned: number;
   have: boolean;
+  pinExact?: boolean;
+  ownedAs?: { setCode: string; number: string; quantity: number }[];
   price: { market: number | null; currency: string } | null;
 }
 
@@ -138,6 +140,8 @@ function cardLines(cards: DeckCardRow[]): string[] {
       c.cardId,
       c.category,
       `own ${c.owned}/${c.quantity}${c.have ? '' : ' MISSING'}`,
+      c.pinExact ? 'exact printing pinned' : c.ownedAs?.length
+        ? `owned as ${c.ownedAs.map((p) => `${p.quantity} ${p.setCode} ${p.number}`).join(', ')}` : null,
       c.price ? usd(c.price.market) : 'unpriced',
     ),
   );

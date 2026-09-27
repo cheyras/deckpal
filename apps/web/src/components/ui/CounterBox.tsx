@@ -55,6 +55,7 @@ export function CounterBox({
     <button
       type="button"
       disabled={disabled}
+      data-empty={qty === 0 ? 'true' : undefined}
       aria-label={`${label}: ${qty} owned. Tap to add one, long-press to remove one.`}
       title={`${label} — ${qty} owned · tap +1, hold −1`}
       onPointerDown={(e) => {
@@ -78,7 +79,7 @@ export function CounterBox({
         }
         onInc()
       }}
-      className="flex h-[24px] min-w-[22px] items-center justify-center rounded-[6px] px-[5px] text-[14px] font-extrabold leading-none tabular-nums shadow-panel transition-opacity enabled:hover:opacity-90 disabled:opacity-60"
+      className="counter-box flex h-[24px] min-w-[22px] items-center justify-center rounded-[6px] px-[5px] text-[14px] font-extrabold leading-none tabular-nums shadow-panel transition-opacity enabled:hover:opacity-90 disabled:opacity-60"
       style={
         qty > 0
           ? { background: fill ?? color, color: dark ? 'var(--color-surface-primary)' : 'var(--color-text-primary)' }

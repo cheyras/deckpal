@@ -304,7 +304,18 @@ export interface AvatarState {
 // ── Personal access tokens ─────────────────────────────────────
 // Long-lived bearer credentials for non-browser clients (the /mcp endpoint,
 // scripts). The raw value is returned once by createApiToken and never again;
-// `prefix` is all the server can show afterwards.
+// `prefix` is all the server can show afterwards. An OAuth connection is a row
+// of the same list, with a `redirect` saying where its approval went.
+
+/** How the server recognised a redirect: see classifyRedirect in @deckpal/db. */
+export type RedirectTrust = 'verified' | 'local' | 'unverified'
+
+export interface RedirectIdentity {
+  host: string
+  trust: RedirectTrust
+  verifiedName: string | null
+}
+
 export interface ApiTokenRow {
   id: string
   name: string
@@ -312,6 +323,20 @@ export interface ApiTokenRow {
   createdAt: string
   lastUsedAt: string | null
   revokedAt: string | null
+  /** Absent from a server older than migration 075; null = no expiry. */
+  expiresAt?: string | null
+  scope?: 'full' | 'read'
+  /** Set only on an OAuth connection. */
+  redirect?: RedirectIdentity | null
+}
+
+/** GET /oauth/client — the consent screen's facts. Fields past redirectUri are absent from an older server. */
+export interface OAuthClientInfo {
+  clientName: string
+  redirectUri: string
+  redirectHost?: string
+  trust?: RedirectTrust
+  verifiedName?: string | null
 }
 
 // ── Money ──────────────────────────────────────────────────────
@@ -945,6 +970,8 @@ export interface DeckCard {
   quantity: number
   owned: number
   have: boolean
+  pinExact: boolean
+  ownedAs: Array<{ setCode: string; number: string; quantity: number }>
   images: { low: string; high: string }
   price: Price | null
 }
@@ -1419,6 +1446,24 @@ export interface ShowcaseSlot {
   images: { low: string; high: string }
 }
 
+/**
+ * One row of GET /me/cards — a card the caller owns at least one copy of.
+ * UXC-04: this endpoint replaced a client-side derivation that fanned out one
+ * request per captured Pokédex species (867 requests for a heavy collection)
+ * just to answer "what do I own". One query, paged, optionally searched.
+ */
+export interface OwnedCard {
+  cardId: string
+  name: string
+  images: { low: string; high: string }
+  quantity: number
+  price: Price | null
+}
+export interface OwnedCardsResponse {
+  pagination: { page: number; pageSize: number; total: number; pageCount: number }
+  cards: OwnedCard[]
+}
+
 export interface CollectionEvent {
   eventId: string
   occurredAt: string
@@ -1807,7 +1852,7 @@ export const api = {
   // on a phone, which is the workflow the queue exists for.
   /** Upload one pending photo. The server stamps the id, so two devices filling
    *  one queue still produce a single coherent order. */
-  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload' }) =>
+  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload'; repairOf?: number }) =>
     send<{ ok: true; id: number; name: string; source: string; addedAt: string }>('POST', '/dev/scan-queue', body),
   scanQueueList: (signal?: AbortSignal) =>
     get<{ photos: Array<{ id: number; name: string; source: 'camera' | 'upload'; addedAt: string; size: number }> }>(
@@ -1816,8 +1861,8 @@ export const api = {
     ),
   /** Remove one — labelled, or discarded. Absent is not an error server-side:
    *  two devices can finish the same photo. */
-  scanQueueDelete: (id: number) =>
-    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}`),
+  scanQueueDelete: (id: number, repairCleanup = false) =>
+    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}${repairCleanup ? '?repairCleanup=1' : ''}`),
   /** A queued photo's bytes, through the authenticated pipeline for
    *  `scanFlagBlob`'s reason: a browser-initiated `<img>` request carries no
    *  Authorization header and would 403 at the gate. */
@@ -1959,11 +2004,22 @@ export const api = {
   // is how the builder removes one: an absolute write is safe to retry.
   addDeckCard: (id: string, cardId: string, quantity = 1, variantId?: number, signal?: AbortSignal) =>
     send<DeckDetail>('POST', `/decks/${encodeURIComponent(id)}/cards`, { cardId, quantity, ...(variantId != null ? { variantId } : {}) }, signal),
-  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number, signal?: AbortSignal) =>
+  setDeckCardQuantity: (id: string, cardId: string, quantity: number, variantId?: number, signal?: AbortSignal, pinExact?: boolean) =>
     send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
       quantity,
       ...(variantId != null ? { variantId } : {}),
+      ...(pinExact !== undefined ? { pinExact } : {}),
     }, signal),
+  setDeckCardPin: (id: string, cardId: string, variantId: number, pinExact: boolean, signal?: AbortSignal) =>
+    send<DeckDetail>('PATCH', `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}`, {
+      variantId,
+      pinExact,
+    }, signal),
+  removeDeckCard: (id: string, cardId: string, variantId?: number) =>
+    send<DeckDetail>(
+      'DELETE',
+      `/decks/${encodeURIComponent(id)}/cards/${encodeURIComponent(cardId)}${variantId != null ? `?variant=${variantId}` : ''}`,
+    ),
   validateDeck: (id: string, format?: DeckFormat, signal?: AbortSignal) =>
     get<{ validation: ValidationResult; cardRefs: Record<string, CardRef> }>(
       `/decks/${encodeURIComponent(id)}/validate${format ? `?format=${format}` : ''}`,
@@ -2160,7 +2216,7 @@ export const api = {
 
   // OAuth "Connect" flow (/authorize consent screen). See apps/api/src/routes/oauth.ts.
   oauthClient: (clientId: string, redirectUri: string) =>
-    get<{ clientName: string; redirectUri: string }>(
+    get<OAuthClientInfo>(
       `/oauth/client?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
     ),
   oauthDecision: (body: {
@@ -2172,6 +2228,7 @@ export const api = {
     codeChallengeMethod: string
     state?: string
     resource?: string
+    scope?: 'full' | 'read'
   }) => send<{ redirectTo: string }>('POST', '/oauth/authorize/decision', body),
 
   // Profile photo. The server stores a 256×256 WebP re-encoded from whatever
@@ -2241,4 +2298,10 @@ export const api = {
     // deckpal rename swept this string and 404'd every species page ("No such
     // route"); the route is the Pokédex feature, not the product name.
     get<SpeciesDetailResponse>(`/insights/pokedex/${encodeURIComponent(id)}`, signal),
+
+  // UXC-04: a bounded, paged page of the caller's own owned cards — see
+  // OwnedCardsResponse above. Params: q (name filter), sort=value|recent,
+  // page, pageSize (max 100).
+  ownedCards: (params: URLSearchParams, signal?: AbortSignal) =>
+    get<OwnedCardsResponse>(`/me/cards?${params.toString()}`, signal),
 }

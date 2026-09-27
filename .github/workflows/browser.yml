@@ -74,6 +74,10 @@ jobs:
           name: browser-shard-${{ matrix.shard }}
           path: .cache/browser-tests/
           if-no-files-found: warn
+          # A rerun of a failed shard must REPLACE its evidence. Without this, the run keeps one artifact per attempt
+          # under the same name, the aggregate downloads both into one folder, and it can read the first attempt's
+          # failed results after the rerun passed.
+          overwrite: true
           retention-days: 14
 
   browser:

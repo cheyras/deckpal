@@ -9,7 +9,7 @@ Registered on the same app but documented elsewhere, not repeated here: OAuth
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
 the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
 itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
-`/me/showcase` sub-routes are frontend surface and documented here (§Account).
+`/me/showcase` and `/me/cards` sub-routes are frontend surface and documented here (§Account).
 
 **Deployment modes:**
 
@@ -107,6 +107,15 @@ omit the host.
   admission counter before token resolution and a 60/min-per-token budget
   after. The Stripe webhook relies on signature verification and its retry
   behavior instead of an application limiter. See `SECURITY.md` → Rate limiting.
+- **Connector tokens.** A personal access token or OAuth connection (`Bearer
+  dsk_…`, contract in `apps/mcp/SPEC.md` §3b) reaches the same routes a session
+  does, except the session-only ones: `/tokens`, `/avatar`, `/oauth`, `/admin`,
+  `/me/billing`, `/me/credits`, `/me/features`, `/me/decke-sharing` and, since
+  2026-09-26, `/decke`, `/me/showcase` and `/me/settings` (`403 forbidden`). A
+  **read-only** connection (migration 075) is refused every method but `GET`,
+  `HEAD` and `OPTIONS` on every route with **`403`**, `{ "error": { "code":
+  "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
+  except `POST /massentry`, which writes nothing (it builds cart links).
 - **Body-size limits.** Per route, most-specific first, immediately after the
   ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
   `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
@@ -426,12 +435,15 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 
 ---
 
-## Account — settings & showcase
+## Account — settings, showcase & owned cards
 
 Per-user, backed by `user_settings` (005 + 049) and `user_showcase` (005).
 These are the server-side home of what used to be device-only localStorage
 preferences; the client treats localStorage as an offline cache of them
 (`apps/web/src/lib/settingsSync.ts`).
+
+Both sub-routes need a signed-in session; a connector token gets `403`
+(2026-09-26, security audit SEC-07).
 
 ### GET /deckpal/api/me/settings
 The account's whole settings row, camel-cased. `skin`/`topbar` are `null`
@@ -467,6 +479,17 @@ one transaction. Each entry is a card id (resolved server-side to the card's
 primary variant, exactly as the list bulk-add does) or `null` for an empty
 slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
 shape.
+
+### GET /deckpal/api/me/cards
+The signed-in account's browsable owned cards, one row per card across its owned variants. Pokémon TCG Pocket cards are excluded even if the account still owns them.
+The Profile banner requests three; opening the showcase picker requests a larger
+page, can load later pages on demand, and may search by card name. Optional query parameters are `q` (name
+contains, case-insensitive), `sort=value|recent` (default `recent`), `page`
+(default 1), and `pageSize` (default 48, maximum 100). The response includes
+`pagination: { page, pageSize, total, pageCount }` and `cards`, whose rows have
+`cardId`, `name`, `images: { low, high }`, `quantity`, and `price` (a USD market
+price or `null`). Only cards with a positive owned quantity are returned. Ties
+on price and name are ordered by card ID so page boundaries are stable.
 
 ## Billing — the pay-what-you-want tier
 
@@ -997,7 +1020,14 @@ type), "source"? }`. `201` returns the full detail payload.
 
 ### GET /deckpal/api/decks/:id
 The full detail payload for one deck. `404` if the deck doesn't exist (non-UUID
-ids are also a `404`).
+ids are also a `404`). Each card row reports `owned`, `have`, `pinExact`, and
+`ownedAs` (the other printings whose copies satisfy this row, with set code,
+number and quantity). Exact copies count first; legal gameplay-identical
+ordinary printings of the same finish then count once across the deck. Basic
+Energy matches by type. Promo and stamped variants remain distinct. Allocation
+reserves pinned exact copies, then unpinned exact copies, then equivalents, with
+ascending variant ID breaking ties for both deck rows and owned candidates. The
+page and PDF share this order regardless of their display order.
 
 ### PATCH /deckpal/api/decks/:id
 Rename / edit description / format / glcType / favorite / cover render. Body
@@ -1018,10 +1048,13 @@ Additive upsert of a card (quantity clamped to 60). Body `{ "cardId"|"card"
 a version snapshot via the auto-bump rule. `201` returns the detail payload.
 
 ### PATCH /deckpal/api/decks/:id/cards/:cardId
-Set the **absolute** quantity for a card in the deck. Body
-`{ "quantity" (int 0–60, required), "source"?, "versionNote"? }`. `quantity: 0`
-removes the row. `:cardId` is a tcgdex id or numeric catalogue id. Records a
-version snapshot. Returns the detail payload.
+Set the **absolute** quantity, or pin an existing row to its exact printing.
+Body `{ "quantity"? (int 0–60), "pinExact"? (boolean), "variantId"?,
+"source"?, "versionNote"? }`; at least one of `quantity` and `pinExact` is
+required. `quantity: 0` removes the row. Pass `variantId` when the card has
+more than one row in this deck. A quantity edit records a version snapshot;
+pinning changes ownership matching without changing the card list snapshot.
+`:cardId` is a tcgdex id or numeric catalogue id. Returns the detail payload.
 
 ### DELETE /deckpal/api/decks/:id/cards/:cardId
 Remove a card from the deck. `:cardId` is a tcgdex id or numeric catalogue id.
@@ -1077,8 +1110,9 @@ extra mulligan). `mulliganChancePct` is the hypergeometric probability of a
 mulligan for this deck's basic count.
 
 ### GET /deckpal/api/decks/:id/pricing
-Per-card and roll-up pricing for the deck against the collection. Primary-variant
-tcgcsv USD market per card; `owned` is summed across all variants of the print.
+Per-card and roll-up pricing for the deck against the collection. The deck's
+selected variant sets the price; `owned` uses the same exact-first, format-legal
+equivalent-print allocation as the deck page and PDF checklist.
 Returns total / owned / missing value, a per-card `cards` array, and a `missing`
 array (cards where owned < deck quantity) with `buyUrl`, a `massEntry` line, and
 image. `massEntryText` joins the missing lines.
@@ -1824,3 +1858,27 @@ minimum one for paid work; unlimited explicitly spends zero. Historical balances
 by policy edits. Credits use USD card-only Checkout, separate from support
 subscriptions/gifts; signed webhook reconciliation, never a return URL,
 fulfills an order. See ADMINISTRATION.md for charge/refund/debt semantics.
+
+### Labeler pending-photo queue: /deckpal/api/dev/scan-queue
+
+These routes require labeler access in production. Cloud uses the `/api` prefix.
+
+- `GET /`: `{ photos: [{ id, name, source, addedAt, size }] }`, oldest first.
+  Each logical photo appears once under its original ID, including when a
+  repair has left both original and replacement objects. Sidecar-only remnants
+  do not appear as photos; missing metadata receives fallback values.
+- `GET /:id.jpg`: reads the surviving photo, preferring its JPEG replacement.
+  Either physical ID resolves the same family. Missing bytes return 404;
+  unavailable storage returns 502. Responses are not cached.
+- `POST /`: accepts `{ jpg, name, source, repairOf? }`. `jpg` is base64 JPEG,
+  capped at 3 MiB decoded. A normal upload gets an unused timestamp ID. A
+  repair uses an existing original HEIC and returns its deterministic
+  replacement ID only after both JPEG and metadata are stored. Repeating a
+  repair completes interrupted work without creating another replacement.
+- `DELETE /:id`: discards the entire family. A partial failure returns an error;
+  surviving photos remain listed and the request can be retried. An already
+  absent family succeeds.
+- `DELETE /:id?repairCleanup=1`: removes only original objects, after checking
+  that the replacement JPEG and metadata are complete. Otherwise returns 409.
+
+See [queue states and invariants](apps/api/src/dev/queue-state.md).

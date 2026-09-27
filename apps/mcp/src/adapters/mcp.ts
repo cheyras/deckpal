@@ -85,8 +85,12 @@ export function toCallToolResult(result: ToolResult): CallToolResult {
  * zod object and the same annotations record the tools have always declared —
  * so the advertised schema in `tools/list` is unchanged by the move.
  */
-export function registerAllTools(server: McpServer, ctx: Ctx): void {
+export function registerAllTools(server: McpServer, ctx: Ctx, { readOnly = false }: { readOnly?: boolean } = {}): void {
   for (const tool of allTools()) {
+    // A read-only connection (migration 075) is never shown a tool that
+    // writes, so a model cannot even try one. `readOnlyHint` is required on
+    // every definition (registry.ts), so nothing slips through by omission.
+    if (readOnly && !tool.annotations.readOnlyHint) continue;
     register(server, ctx, tool);
   }
 }

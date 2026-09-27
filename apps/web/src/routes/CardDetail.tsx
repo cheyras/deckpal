@@ -459,6 +459,33 @@ function CardDetailBody({
   const seriesSlug = data?.card.series.slug ?? backTo?.series ?? ''
   const setId = data?.card.set.setId ?? backTo?.set ?? ''
 
+  // A11Y-01: the icon-only "copy link" button next to the title had no
+  // accessible name AND no click handler at all — axe's `button-name` failed
+  // on every card page, and the button did nothing when clicked, guessed or
+  // not. Copies the standalone route's canonical URL (the same shape
+  // `CardLink.tsx` builds for every other "link to this card" case), with the
+  // same copy/feedback idiom the app already uses elsewhere (`AgentAccess.tsx`'s
+  // `CopyButton`, `DeckBuilder.tsx`'s export buttons): swap the icon to a
+  // checkmark and flip the accessible name for ~1.8s, `aria-live` so a screen
+  // reader hears the result.
+  const [linkCopied, setLinkCopied] = useState(false)
+  useEffect(() => {
+    if (!linkCopied) return
+    const t = setTimeout(() => setLinkCopied(false), 1800)
+    return () => clearTimeout(t)
+  }, [linkCopied])
+  const copyCardLink = useCallback(async () => {
+    if (!data) return
+    const path = `series/${seriesSlug}/${setId}/${data.card.number}`
+    const url = `${window.location.origin}${import.meta.env.BASE_URL}${path.replace(/^\/+/, '')}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setLinkCopied(true)
+    } catch {
+      window.prompt('Copy this link:', url)
+    }
+  }, [data, seriesSlug, setId])
+
   // Own/un-own a variant. The stepper shows the quantity asked for at once; the
   // server's answer — including the set's recomputed progress — is written back
   // into this card and every cached view of its set when it lands.
@@ -524,9 +551,15 @@ function CardDetailBody({
             {/* detail column */}
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-[16px]">
-                <h1 className="text-[40px] font-bold leading-[44px] text-text-primary">{data.card.name}</h1>
-                <button className="flex h-[36px] w-[36px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover">
-                  <Icon name="link" size={16} />
+                <h1 data-route-announcement={`${data.card.name} — ${data.card.set.name} ${fmtNumber(data.card.number)}`} className="text-[40px] font-bold leading-[44px] text-text-primary">{data.card.name}</h1>
+                <button
+                  type="button"
+                  onClick={copyCardLink}
+                  aria-label={linkCopied ? 'Link copied' : 'Copy link to this card'}
+                  aria-live="polite"
+                  className="flex h-[36px] w-[36px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover"
+                >
+                  <Icon name={linkCopied ? 'check' : 'link'} size={16} />
                 </button>
               </div>
               <div className="mt-[10px] flex items-center gap-[10px]">

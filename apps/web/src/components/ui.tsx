@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Button } from './ui/Button'
 import { Icon } from './Icon'
 import { EnergyIcon } from './EnergyIcon'
 import { useArtSrc } from '../lib/useArtSrc'
@@ -413,11 +414,25 @@ export function Spinner({
   )
 }
 
-export function ErrorState({ message, className = '' }: { message: string; className?: string }) {
+export function ErrorState({
+  message,
+  className = '',
+  onRetry,
+}: {
+  message: string
+  className?: string
+  /** Optional Retry action. Omit it and this renders exactly as before. */
+  onRetry?: () => void
+}) {
   return (
     <div className={`flex flex-col items-center justify-center gap-[8px] py-[80px] text-center ${className}`}>
       <div className="text-[24px] font-bold text-text-primary">Something went wrong</div>
       <div className="text-[14px] text-text-muted">{message}</div>
+      {onRetry && (
+        <Button variant="secondary" size="sm" className="mt-[4px]" onClick={onRetry}>
+          Retry
+        </Button>
+      )}
     </div>
   )
 }

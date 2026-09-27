@@ -298,6 +298,21 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
   // bubble and scroll-drive defects both showed up first on the phone.
   const cases = [{ width: 1280 }, { width: 390, mobile: true }]
   for (const vp of cases) {
+    if (engine === 'chromium' && !vp.mobile) {
+      const { context, page } = await contextFor(browser, server, vp.width, { reducedMotion: 'reduce' })
+      try {
+        await page.goto(server.origin + '/series/sim/sim1?view=table')
+        await page.waitForSelector('table[aria-rowcount="251"]')
+        assert.equal(await page.locator(CHARIZARD).count(), 0, 'deep Table card should start outside the virtual window')
+        const before = await page.evaluate(() => scrollY)
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent('decke:reveal', {
+          detail: { cardId: 'sim1-199', selector: '[data-decke-card="sim1-199"]' },
+        })))
+        await page.waitForSelector(CHARIZARD, { state: 'attached' })
+        assert.equal(await page.evaluate(() => scrollY), before, 'Table mounts the reveal without scrolling for Deck-E')
+        results.push({ case: 'decke-show-table-reveal', engine })
+      } finally { await context.close() }
+    }
     // ── 1. another page, far down a virtualized grid ──
     {
       const { context, page } = await contextFor(browser, server, vp.width, { reducedMotion: 'no-preference', ...(vp.mobile ? { hasTouch: true } : {}) })

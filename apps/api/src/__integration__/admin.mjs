@@ -134,6 +134,12 @@ try{
    assert.ok((await db.query("SELECT EXISTS(SELECT 1 FROM aclexplode(acldefault('f',(SELECT oid FROM pg_roles WHERE rolname=current_user))) a WHERE a.grantee=0 AND privilege_type='EXECUTE') allowed")).rows[0].allowed);
   });
   for(const name of ['026_api_token.sql','027_api_token_rls.sql','031_oauth_client.sql','032_oauth_code.sql','033_oauth_rls.sql','041_decke_credits.sql','042_decke_credits_rls.sql','053_billing.sql','054_billing_rls.sql','055_billing_ab.sql','056_billing_ab_rls.sql','057_billing_one_time.sql','058_billing_ab_amount_cap.sql','059_billing_customer_pin.sql','060_billing_release_customer.sql','061_billing_ab_dedupe.sql','062_billing_ab_event_guard.sql','063_billing_event_processed.sql','064_admin_core.sql','065_admin_security.sql']) await migration(name);
+  // 075 goes in before the governance tests below: they drive the current
+  // OAuth routes, which need it. The tokens minted just before it are the
+  // backward-compatibility fixture runOAuthIntegration checks afterwards.
+  const oauth=await import('./oauth.mjs');
+  const legacyTokens=await oauth.legacyTokensBefore075({db,id,test});
+  await migration('075_oauth_grants.sql');
   await test('missing owner is atomic and trusted bootstrap runs exactly once',async()=>{
    assert.equal((await db.query("SELECT admin_bootstrap(NULL,'{}','{}') ready")).rows[0].ready,false);
    assert.equal((await db.query('SELECT count(*)::int n FROM admin_audit')).rows[0].n,0);
@@ -390,6 +396,7 @@ try{
     assert.equal((await db.query('SELECT count(*)::int n FROM api_token WHERE user_id=$1 AND revoked_at IS NULL',[id(4)])).rows[0].n,0);
    }finally{await db.query('ROLLBACK');await new Promise(resolve=>server.close(resolve));}
   });
+  await oauth.runOAuthIntegration({db,as,id,test,legacy:legacyTokens});
   // The peer-owned economics tests use this SAME runner-owned database and
   // actual migration functions, never a URL supplied by a caller.
   for(const name of ['066_credit_economy.sql','067_credit_economy_security.sql']) await migration(name);

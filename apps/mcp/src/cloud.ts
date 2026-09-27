@@ -260,8 +260,12 @@ function originFor(req: Request): string {
  * connector URL below still works unchanged for clients that don't speak MCP
  * OAuth at all.
  */
-function unauthorized(req: Request, res: Response, message: string): void {
-  res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${originFor(req)}/.well-known/oauth-protected-resource"`);
+function unauthorized(req: Request, res: Response, message: string, { presented = false } = {}): void {
+  // `error="invalid_token"` when a credential was sent (RFC 6750 §3.1): an
+  // OAuth connection's access token lasts an hour, and this is what tells its
+  // client to renew rather than start over.
+  const error = presented ? ', error="invalid_token"' : '';
+  res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${originFor(req)}/.well-known/oauth-protected-resource"${error}`);
   res.status(401).json({ error: { code: 'unauthorized', message } });
 }
 
@@ -337,7 +341,7 @@ export function createCloudApp(): Express {
         return;
       }
       if (!resolved) {
-        unauthorized(req, res, 'Invalid or revoked token.');
+        unauthorized(req, res, 'Invalid, expired or revoked token.', { presented: true });
         return;
       }
 
@@ -363,6 +367,9 @@ export function createCloudApp(): Express {
       // fields a tool actually reads, so the placeholders are gone with it.
       const base = apiBaseFor(req);
 
+      // A read-only connection gets only the read tools, in a READ ONLY
+      // transaction; its token is refused any write at the REST API as well.
+      const readOnly = resolved.scope === 'read';
       try {
         await withUserContext(pool(), resolved.userId, async (client) => {
           const ctx: Ctx = {
@@ -370,7 +377,7 @@ export function createCloudApp(): Express {
             api: makeApi(base, raw),
             userId: resolved.userId,
           };
-          const handler = createMcpHandler(() => buildServer(ctx), {
+          const handler = createMcpHandler(() => buildServer(ctx, { readOnly }), {
             onerror: (err) => console.error(`[deckpal-mcp] mcp handler error: ${err.message}`),
           });
           try {
@@ -380,7 +387,7 @@ export function createCloudApp(): Express {
           } finally {
             await handler.close();
           }
-        });
+        }, { readOnly });
       } catch (err) {
         console.error('[deckpal-mcp] request failed:', (err as Error).message);
         if (!res.headersSent) {

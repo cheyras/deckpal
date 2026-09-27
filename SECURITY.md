@@ -109,6 +109,60 @@ enabled with zero grants (migration 033): only the server's RLS-bypassing
 pool connection or narrowly authorized SECURITY DEFINER consent functions can
 access them; browsers receive no direct table grants.
 
+**OAuth consent names the destination, and connections expire (migration 075,
+security audit SEC-07).** Dynamic client registration is open, so
+`client_name` is whatever a registrant typed: before 075 any site could
+register as "Claude", and the consent screen led with that name in bold while
+the host receiving the approval sat in a muted line below. Now:
+
+- **Who is asking is decided by the redirect, on the server**
+  (`classifyRedirect`, `packages/db/src/oauth.ts`). Only an exact, documented
+  callback is **Verified** and named by us: `https://claude.ai/api/mcp/auth_callback`
+  and its `claude.com` twin. Any other redirect is **Unverified**, headed by its
+  host, with the registered name quoted as a claim; a loopback redirect (Claude
+  Code and other local clients) is also Unverified, with the extra warning the
+  MCP spec asks for, since any local program can listen there. Exact URLs, not
+  hosts: a host match would badge a path that forwards the code elsewhere. The
+  Profile row is named after the destination too (`Claude (OAuth ·
+  evil.example)`), so a lookalike never sits in the list as plain "Claude".
+- **A connection's secrets rotate and expire.** An approval is still one
+  `api_token` row (listed, revoked and governed exactly as before), but its own
+  hash is sealed and its working secrets live in `oauth_token`: a one-hour
+  access token (`dsk_…`) and a single-use 90-day refresh token (`dsr_…`,
+  never accepted as a bearer). Each refresh returns a new pair and moves the
+  connection's `expires_at` 90 days out; unused for 90 days, it lapses. A used
+  refresh token stays for a day as a tripwire: presented again within a minute
+  it is refused (most likely the client racing its own renewal) and nothing
+  else happens; later, the whole connection is revoked (OAuth 2.1 §4.3.1 reuse
+  detection). One refresh token never yields two pairs, so the chain cannot
+  fork into two that renew independently. Every access token resolves
+  through its row, so revoke-all, suspension and Revoke end it with no race.
+- **Read-only is a real scope.** The consent screen offers it only when
+  `GET /oauth/client` includes the new server's `trust` field; an older API
+  ignores scope and therefore gets a full-access choice alone. A `read`
+  connection is served only the `readOnlyHint` tools, inside a `BEGIN READ
+  ONLY` transaction, and the REST API refuses its every non-GET request with
+  `403 insufficient_scope` before any route runs (`enforceTokenScope`). The one
+  exception is `POST /massentry`, which only builds cart links and which the
+  read tool `set_cart` uses.
+- **Tokens reach what the consent screen says.** `/decke` (Deck-E
+  conversations), `/me/showcase` and `/me/settings` now require a session, like
+  `/tokens`, `/avatar` and billing.
+- **Server-owned columns stay server-owned.** 075 takes table-level INSERT and
+  UPDATE on `api_token` from client roles and grants back only what the app
+  uses as the user (mint: `user_id, name, token_hash, prefix`; revoke and touch:
+  `name, last_used_at, revoked_at`), so nobody can PATCH a read-only connection
+  to full or push its expiry out over PostgREST. `oauth_token` has RLS and no
+  client grant at all. Composes with 072 (PR #204), which freezes a token's
+  identity and makes revocation final.
+- **Backward compatibility.** Every token that existed before 075, hand-made or
+  OAuth-minted (including live claude.ai connectors), keeps `expires_at NULL`
+  and full scope and resolves exactly as before. Nothing forces a reconnect;
+  reconnecting replaces an old connection with a renewing one. Hand-made tokens
+  still never expire, because the URL-pasting clients they exist for cannot
+  renew. Until 075 is applied, the code resolves tokens through their pre-075
+  statements and refuses only new OAuth connections (503), never existing ones.
+
 **Deck-E (the AI assistant, `POST /api/chat`).** Entitlement is decided on the
 server, not the browser. `entitlement.ts`'s browser-side gate only decides
 whether to draw a button — verified against the deployed endpoint before this
@@ -172,6 +226,11 @@ exception is `POST /api/chat`: its `log_cards` apply intent omits model-facing
 `preview_card_changes` always forces `dry_run: true`; failed or unresolved plans
 return evidence without writing. Existing human approval, replay, identity and
 idempotency protections remain in force.
+For an approved `log_cards` call, Deck-E derives the collection write's
+idempotency key from the SDK tool-call ID and signed input after approval; the
+collection endpoint scopes it to the authenticated user. Unsigned conversation
+metadata is excluded. Replaying that same approval across a 15-minute boundary therefore
+cannot apply the change twice; a new call can still record a new acquisition.
 `ARCHITECTURE.md` §15e carries the protocol.
 
 **The consent card can commit a corrected batch from the browser, and that is a
@@ -411,6 +470,88 @@ Sign out control). `deckpal.returning` exists only so `/` can send a visitor
 whose session has lapsed to the sign-in form instead of the marketing page
 (`lib/returningVisitor.ts`); it carries no email, user id or token, and no
 authorization decision anywhere consults it. Clearing site data resets both.
+
+**HTTP security headers on the SPA (2026-09-26).** The Supabase session above,
+including its refresh token, lives in `localStorage` — the ordinary place for
+a token-based SPA to keep it, but it means an XSS on `deckpal.app` would be a
+persistent account takeover, not just a stolen session. `apps/api/src/index.ts`
+puts `helmet()` in front of the Express API, but on Vercel the HTML document
+itself is served by the **static layer**, which never touches Express or
+helmet — so until this date it shipped no `Content-Security-Policy`,
+`X-Frame-Options`, `X-Content-Type-Options` or `Referrer-Policy` at all
+(DECISIONS.md 2026-09-26). `vercel.json`'s `headers` array now attaches, to
+every path except `/api/*` (helmet already covers those):
+- **`Content-Security-Policy`**, enforcing (not report-only — there is no
+  `report-uri`/`report-to` collector in this app, so report-only mode would
+  collect nothing and simply delay real protection). `default-src 'self'`,
+  with narrow, purpose-scoped exceptions: `https://js.stripe.com` and
+  `https://*.js.stripe.com` for Stripe.js scripts and payment frames,
+  `https://hooks.stripe.com` for payment challenges, and
+  `https://api.stripe.com` for payment requests. The Payment Element offers
+  Link, so `frame-src` and `connect-src` also allow `https://link.com` and
+  `https://*.link.com`, while `img-src` allows `https://*.link.com`.
+  These are the hosts in [Stripe's CSP guide](https://docs.stripe.com/security/guide#content-security-policy)
+  for the payment flow in `apps/web/src/components/billing/CardForm.tsx`.
+  `https://*.supabase.co`/`wss://*.supabase.co` cover
+  Storage/Realtime — a wildcard rather than one project's hostname, since any
+  Vercel+Supabase fork (`DEPLOYMENT.md`) has its own project ref and should
+  not have to edit this file to unblock its own images; `data:`/`blob:` for
+  the scanner's captured frames, the bug reporter's `html2canvas-pro`
+  screenshot, and card art; `'wasm-unsafe-eval'` for the scanner's
+  onnxruntime-web engine. `frame-ancestors 'none'` closes the clickjacking gap
+  (below) and `object-src 'none'`/`base-uri 'self'`/`form-action 'self'` are
+  the standard hardening trio. `script-src` carries **no** `'unsafe-inline'`:
+  the one inline script in `apps/web/index.html` (the first-paint watchdog,
+  which must stay inline — a watchdog that needs a request of its own cannot
+  cover a failure to fetch, exactly the #75 bug it exists to prevent) is
+  allow-listed by its exact `sha256-` hash instead, recomputed from the live
+  file and checked against `vercel.json` on every run by
+  `scripts/check-security-headers.mjs`.
+- **`X-Frame-Options: DENY`** and CSP's `frame-ancestors 'none'` together
+  (belt-and-suspenders for older browsers): confirmed framing was previously
+  possible — `/authorize` (the OAuth consent screen) and any page with a
+  destructive control could be embedded in a hostile iframe. Third-party
+  storage partitioning means a framed copy loads signed out, which is what
+  kept this at medium severity rather than high.
+- **`X-Content-Type-Options: nosniff`** and **`Referrer-Policy:
+  strict-origin-when-cross-origin`**.
+- **`Permissions-Policy`**: `geolocation=()` (unused, denied outright), but
+  **`camera=(self)` and `microphone=(self)` stay allowed** — the scanner needs
+  the camera today, and scanner voice annotation (shipping) needs the
+  microphone. Locking these to `()` the way a generic hardening pass would is
+  the wrong instinct here; `self` still excludes every third-party frame.
+
+`scripts/check-security-headers.mjs` (wired into `test:security-headers` and
+CI) asserts the header set exists with these properties — not by string
+equality, but by parsing the live directives, so a future edit that quietly
+drops `frame-ancestors` or lets the hash drift fails the same way
+`scripts/check-redirects.mjs` catches a redirect regression.
+
+The permission-gated `/dev/scan-harness` diagnostic route loads its HTML in a
+separate same-origin iframe. Its shipped OpenCV build creates JavaScript
+functions while loading, so only that iframe document permits `'unsafe-eval'`;
+the surrounding app document retains the stricter policy even when reached
+through client-side navigation. The service worker fetches the iframe document
+from the network so its special header is preserved, and the browser check
+starts OpenCV through the real Dev tools link.
+Missing `/assets/` files are excluded from both Vercel's app-shell rewrite and
+the service worker's navigation fallback. A nonexistent harness-shaped URL
+therefore returns a missing-file response rather than the app under the
+harness's looser policy.
+
+**SEC-14, in the same change: private API responses are `no-store`, not
+`no-cache`.** `apps/api/src/http.ts`'s `userCache()` (used by every
+collection/decks/lists/dex/insights/avatar/export route) sent `private,
+no-cache, must-revalidate`, which still permits a shared disk cache to keep a
+revalidated copy around — on a shared device, a stale copy of one account's
+collection JSON could sit on disk after that account signs out. It now sends
+`private, no-store`, matching this document's own "all private APIs are
+no-store" promise and the service worker's own
+`NetworkOnly` route (`apps/web/src/sw.ts`), which already forces
+`fetchOptions: { cache: 'no-store' }` for every non-catalog GET — this only
+tightens the HTTP contract to match what the app already assumed. The PDF
+export routes (`apps/api/src/export/router.ts`) carried the same stale
+`no-cache` literal and are fixed the same way.
 
 ### Rate limiting (REST API)
 
@@ -706,6 +847,14 @@ consolidated into this changeset. `actions/github-script` v7→v9 is an Actions
 **major** upgrade, not a minor update. Permissions/approval logic is unchanged.
 
 ### Self-host deployment
+
+**Browser content policy:** The API's Helmet policy permits same-origin and
+`blob:` workers so the quad labeler can decode HEIC photos, and permits
+same-origin, `data:`, and `blob:` images so private photo previews display.
+`script-src` remains same-origin only; the HEIC decoder's CSP build does not
+need JavaScript evaluation. A reverse proxy that replaces the API's
+`Content-Security-Policy` header must preserve these two narrowly scoped
+allowances or HEIC repair and photo previews will fail.
 
 **Authentication:** The API has no built-in authentication. It is designed to
 sit behind a reverse proxy that handles auth (e.g., nginx + an SSO gateway, Caddy

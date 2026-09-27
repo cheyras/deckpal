@@ -39,6 +39,7 @@ export async function withUserContext<T>(
   pool: pg.Pool,
   userId: string,
   fn: (client: pg.PoolClient) => Promise<T>,
+  { readOnly = false }: { readOnly?: boolean } = {},
 ): Promise<T> {
   const client = await pool.connect();
 
@@ -54,8 +55,10 @@ export async function withUserContext<T>(
 
   try {
     const claims = client.escapeLiteral(JSON.stringify({ sub: userId, role: 'authenticated', deckpal_auth_kind: 'token' }));
+    // A read-only connection's transaction is READ ONLY as well, so Postgres
+    // itself refuses a write even if a tool that makes one were ever served to it.
     await client.query(
-      `BEGIN; SELECT set_config('request.jwt.claims', ${claims}, true); SET LOCAL role = 'authenticated'`,
+      `BEGIN${readOnly ? ' READ ONLY' : ''}; SELECT set_config('request.jwt.claims', ${claims}, true); SET LOCAL role = 'authenticated'`,
     );
     const access = (await client.query<{access:{suspended:boolean}}>('SELECT public.admin_access($1) AS access',[userId])).rows[0]?.access;
     if (!access || access.suspended) throw new Error('This account is suspended or unavailable');

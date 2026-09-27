@@ -225,6 +225,7 @@ export default defineConfig(async ({ command }) => {
           //
           //   assets/DesignSystem-*.js  /design            (design.view)
           //   assets/ScanHarness-*.js   /dev/scan-harness  (diagnostics.view)
+          //   assets/scan-harness-*.html  iframe document loaded only by that route
           //   assets/QuadLabeler-*.js   /dev/quad-labeler  (scanner.label)
           //   assets/ChatUi-*.js        /dev/chat-ui       (diagnostics.view)
           //   assets/DeckeCompare-*.js  /dev/decke-compare (diagnostics.view)
@@ -262,10 +263,14 @@ export default defineConfig(async ({ command }) => {
             'logo/*-dark.svg',
             'assets/DesignSystem-*.js',
             'assets/ScanHarness-*.js',
+            'assets/scan-harness-*.html',
             'assets/QuadLabeler-*.js',
             'assets/ChatUi-*.js',
             'assets/DeckeCompare-*.js',
             'assets/QuadHarvest-*.js',
+            // The HEIC decoder belongs to the labeler alone. A route-lazy import
+            // still enters every visitor's download if the PWA precaches it.
+            'assets/heic-to-*.js',
           ],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },

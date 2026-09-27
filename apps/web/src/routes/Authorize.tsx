@@ -12,12 +12,18 @@
  * for a signed-out visitor so IT can decide where to send them next
  * (/auth?next=<this url>) rather than AuthGuard bouncing them to a bare
  * /auth that forgets every query param this page was just given.
+ *
+ * Any site can register an app called "Claude", so the screen leads with where
+ * the approval is sent and quotes the app's own name only as a claim, unless
+ * the server recognised the exact callback (lib/oauthConsent.ts, SEC-07). The
+ * person also chooses what the connection may do: read and change, or read.
  * ───────────────────────────────────────────────────────────────────────────── */
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
 import { readSession } from '../lib/authSession'
-import { api } from '../lib/api'
+import { api, type OAuthClientInfo } from '../lib/api'
+import { consentView, SCOPE_OPTIONS, supportsScopedConsent, type ConsentScope, type ConsentView } from '../lib/oauthConsent'
 import { Icon } from '../components/Icon'
 import { Spinner } from '../components/ui'
 import { AuthCard, AuthPage, CTA_GHOST, SubmitButton } from './auth/authUi'
@@ -34,13 +40,42 @@ interface AuthorizeSearch {
   resource?: string
 }
 
-/** Host shown on the consent screen — what the visitor is actually trusting. */
-function hostOf(uri: string): string {
-  try {
-    return new URL(uri).host
-  } catch {
-    return uri
-  }
+/** A verified app reads calm; anything we cannot vouch for reads as a caution. */
+const TONE = {
+  verified: {
+    card: 'border-action-ghost-border bg-surface-tertiary',
+    glyph: 'bg-halo-success text-success',
+    icon: 'shield-check',
+    badge: 'border-success/40 bg-halo-success text-success',
+  },
+  caution: {
+    card: 'border-warning/35 bg-warning/[0.07]',
+    glyph: 'bg-warning/[0.12] text-warning',
+    icon: 'alert',
+    badge: 'border-warning/40 bg-warning/[0.12] text-warning',
+  },
+} as const
+
+/** Who is asking, led by where the approval goes. */
+function ClientIdentity({ view }: { view: ConsentView }) {
+  const tone = TONE[view.trust === 'verified' ? 'verified' : 'caution']
+  return (
+    <div className={`mb-[20px] flex items-start gap-[12px] rounded-[12px] border p-[14px] ${tone.card}`}>
+      <div className={`mt-[1px] flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full ${tone.glyph}`}>
+        <Icon name={tone.icon} size={16} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[4px]">
+          <span className="break-all text-[16px] font-bold text-text-primary">{view.heading}</span>
+          <span className={`rounded-full border px-[8px] py-[2px] text-[11px] font-bold uppercase tracking-wide ${tone.badge}`}>
+            {view.badge}
+          </span>
+        </div>
+        <p className="mt-[4px] text-[14px] leading-[1.55] text-text-body">{view.detail}</p>
+        {view.caution && <p className="mt-[6px] text-[14px] leading-[1.55] text-text-secondary">{view.caution}</p>}
+      </div>
+    </div>
+  )
 }
 
 export function Authorize() {
@@ -48,7 +83,8 @@ export function Authorize() {
   const search = useSearch({ strict: false }) as AuthorizeSearch
 
   const [session, setSession] = useState<Session | null | undefined>(isCloudMode ? undefined : null)
-  const [clientName, setClientName] = useState<string | null>(null)
+  const [client, setClient] = useState<OAuthClientInfo | null>(null)
+  const [scope, setScope] = useState<ConsentScope>('full')
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'allow' | 'deny' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -89,7 +125,7 @@ export function Authorize() {
     }
     api
       .oauthClient(clientId!, redirectUri!)
-      .then((r) => setClientName(r.clientName))
+      .then(setClient)
       .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : 'Could not look up this connector.'))
   }, [malformed, session, clientId, redirectUri, navigate])
 
@@ -107,6 +143,7 @@ export function Authorize() {
         codeChallengeMethod: codeChallengeMethod!,
         state,
         resource,
+        scope: client && supportsScopedConsent(client) ? scope : 'full',
       })
       window.location.href = redirectTo
     } catch (err) {
@@ -150,7 +187,7 @@ export function Authorize() {
     )
   }
 
-  if (clientName === null) {
+  if (client === null) {
     return (
       <div className="flex h-screen items-center justify-center bg-surface-primary">
         <Spinner inline size={32} className="text-action-primary" />
@@ -158,21 +195,48 @@ export function Authorize() {
     )
   }
 
+  const view = consentView(client)
+  const scopedConsent = supportsScopedConsent(client)
+  const displayedScope = scopedConsent ? scope : 'full'
+
   return (
     <AuthPage>
-      <AuthCard title="Connect to DeckPal" subtitle={<><span className="font-semibold text-text-primary">{clientName}</span> wants to access your account.</>}>
-        <div className="mb-[20px] flex items-start gap-[12px] rounded-[12px] border border-action-ghost-border bg-surface-tertiary p-[14px]">
-          <div className="mt-[1px] flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-halo-neutral text-action-primary">
-            <Icon name="link" size={16} />
-          </div>
-          <div className="text-[14px] leading-[1.55] text-text-body">
-            It will be able to view and update your collection, decks, lists and battle logs — the same access
-            you have when signed in. It will not see your password and cannot change your account.
-          </div>
-        </div>
+      <AuthCard title="Connect to DeckPal" subtitle="Check who is asking before you approve.">
+        <ClientIdentity view={view} />
 
-        <p className="mb-[20px] text-[14px] text-text-muted">
-          After you approve, you'll be redirected to <span className="font-semibold text-text-secondary">{hostOf(redirectUri!)}</span>.
+        <fieldset className="mb-[16px]" disabled={busy !== null}>
+          <legend className="mb-[8px] text-[14px] font-bold text-text-primary">What it can do</legend>
+          <div className="flex flex-col gap-[8px]">
+            {SCOPE_OPTIONS.filter((option) => option.value === 'full' || scopedConsent).map((option) => (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer items-start gap-[10px] rounded-[12px] border p-[12px] transition-colors ${
+                  displayedScope === option.value
+                    ? 'border-action-primary bg-halo-neutral'
+                    : 'border-action-ghost-border bg-surface-tertiary hover:border-text-muted'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="scope"
+                  value={option.value}
+                  checked={displayedScope === option.value}
+                  onChange={() => setScope(option.value)}
+                  className="mt-[3px] h-[16px] w-[16px] shrink-0 accent-[var(--color-action-primary)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-bold text-text-primary">{option.label}</span>
+                  <span className="block text-[14px] leading-[1.5] text-text-body">{option.detail}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <p className="mb-[20px] text-[14px] leading-[1.55] text-text-muted">
+          {scopedConsent
+            ? 'Either way it can’t see your password, change your account settings or spend money. It stays connected while you use it, and you can disconnect it any time in Profile → Agent access.'
+            : 'This connection has full access to your DeckPal account. You can disconnect it any time in Profile → Agent access.'}
         </p>
 
         {actionError && <FormAlert kind="error">{actionError}</FormAlert>}

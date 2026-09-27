@@ -34,7 +34,7 @@
 // crop and no quad; the moment it acquires them it becomes a label, goes out
 // through `saveLabel.ts`, and is deleted from the queue.
 import { api } from '../../lib/api'
-import { decodeForCanvas } from '../ui/uploadNormalize'
+import { decodeQueueImage, isHeic } from './heic'
 
 /** One photo waiting to be labelled, as the queue reports it. */
 export interface QueuedPhoto {
@@ -224,21 +224,19 @@ const UPLOAD_LADDER: Array<{ edge: number; quality: number }> = [
  * EXIF-aware decode (`createImageBitmap(file, {imageOrientation: 'from-image'})`)
  * and is reused here precisely so the rotation is APPLIED before it is lost.
  *
- * Falls back to the original bytes if decoding fails: normalization is an
- * improvement, not a precondition, and a photo the reader took is worth more
- * than a tidy format.
+ * An undecodable photo stays in the local outbox. Uploading its original bytes
+ * would label them JPEG without making them readable.
  */
-async function normalizeForUpload(blob: Blob): Promise<Blob> {
+async function normalizeForUpload(blob: Blob, name = 'queued'): Promise<Blob> {
   // THROWS RATHER THAN FALLING BACK. The previous version returned the original
   // bytes when it could not decode them, which manufactured broken rows: the
   // route stores everything as `image/jpeg`, so an undecodable HEIC went up
   // labelled as a JPEG and came back just as unreadable from the server as it
-  // had been locally. If this browser cannot read the picture, no upload of it
-  // can be correct, and saying so is the only useful thing left to do.
-  const src = await decodeForCanvas(new File([blob], 'queued', { type: blob.type || 'image/jpeg' })).catch(() => {
+  // had been locally. If even the HEIC decoder cannot read the picture, no
+  // upload of it can be correct, and saying so is the useful thing to do.
+  const src = await decodeQueueImage(blob, name).catch(() => {
     throw new Error(
-      `this browser cannot decode ${blob.type || 'that file'} — Chrome cannot read HEIC at all. ` +
-        'Open the labeler in Safari, or export the photos as JPEG first.',
+      `this photo could not be decoded (${name}). Try exporting it as JPEG.`,
     )
   })
   const w = 'width' in src ? src.width : 0
@@ -322,7 +320,7 @@ export async function enqueue(
   const held: OutboxItem[] = []
   for (const it of items) {
     try {
-      const jpg = await blobToBase64(await normalizeForUpload(it.blob))
+      const jpg = await blobToBase64(await normalizeForUpload(it.blob, it.name))
       await api.scanQueueAdd({ jpg, name: jpgName(it.name), source: it.source })
       uploaded += 1
     } catch (e) {
@@ -367,7 +365,7 @@ export async function flushOutbox(): Promise<{
   // rather than retrying thirty times against a connection that is gone.
   for (const it of items) {
     try {
-      const jpg = await blobToBase64(await normalizeForUpload(it.blob))
+      const jpg = await blobToBase64(await normalizeForUpload(it.blob, it.name))
       await api.scanQueueAdd({ jpg, name: jpgName(it.name), source: it.source })
       await run('readwrite', (s) => s.delete(it.id))
       sent += 1
@@ -391,29 +389,29 @@ export async function flushOutbox(): Promise<{
  * Outbox items sort first because their ids are negative, which is the same
  * thing as "taken before anything that has finished uploading".
  */
+export class QueueReadError extends Error {
+  constructor(public readonly local: QueuedPhoto[], cause: unknown) {
+    super('Could not refresh the shared queue. The list may be out of date; try again.', { cause })
+  }
+}
+
 export async function listQueue(): Promise<QueuedPhoto[]> {
-  const [local, remote] = await Promise.all([
-    outbox(),
-    api
-      .scanQueueList()
-      .then((r) => r.photos)
-      .catch(() => {
-        // Offline, or the gate refused. The outbox is still real and still the
-        // reader's work; showing it beats showing an empty queue.
-        return [] as Array<{ id: number; name: string; source: 'camera' | 'upload'; addedAt: string; size: number }>
-      }),
-  ])
-  return [
-    ...local.map((it) => ({
-      id: it.id,
-      name: it.name,
-      source: it.source,
-      addedAt: new Date(it.addedAt).toISOString(),
-      size: it.blob.size,
-      pending: true,
-    })),
-    ...remote.map((p) => ({ ...p, pending: false })),
-  ]
+  const local = (await outbox()).map((it) => ({
+    id: it.id,
+    name: it.name,
+    source: it.source,
+    addedAt: new Date(it.addedAt).toISOString(),
+    size: it.blob.size,
+    pending: true,
+  }))
+  try {
+    const remote = (await api.scanQueueList()).photos
+    return [...local, ...remote.map((p) => ({ ...p, pending: false }))]
+  } catch (error) {
+    // An unavailable listing is not an empty queue. The UI can retain its
+    // last server snapshot and still show newly captured local photos.
+    throw new QueueReadError(local, error)
+  }
 }
 
 /**
@@ -452,16 +450,41 @@ export async function removeQueued(id: number): Promise<void> {
     await run('readwrite', (s) => s.delete(id))
     return
   }
-  await api.scanQueueDelete(id)
+  removedIds.add(id)
+  try {
+    await repairs.get(id)?.catch(() => {})
+    // The server owns the whole original/replacement family. One deletion is
+    // enough, including when another device performed the repair.
+    await api.scanQueueDelete(id)
+  } catch (error) {
+    removedIds.delete(id)
+    throw error
+  }
 }
 
 export async function clearQueue(): Promise<void> {
-  const items = await listQueue()
+  let items: QueuedPhoto[]
+  let sharedUnavailable = false
+  try {
+    items = await listQueue()
+  } catch (error) {
+    if (!(error instanceof QueueReadError)) throw error
+    // The shared list is unknown, but this device's outbox is known. Clear
+    // those rows while leaving the last visible shared snapshot alone.
+    items = error.local
+    sharedUnavailable = true
+  }
   // Sequential, and failures do not stop the rest: "clear" should clear as much
   // as it can rather than abandoning the job over one stubborn row.
+  let failed = 0
   for (const it of items) {
-    await removeQueued(it.id).catch(() => {})
+    try { await removeQueued(it.id) } catch { failed += 1 }
   }
+  if (sharedUnavailable) {
+    const localFailure = failed ? `${failed} local photo${failed === 1 ? '' : 's'} could not be discarded. ` : ''
+    throw new Error(`${localFailure}Could not clear the shared queue. Try again.`)
+  }
+  if (failed) throw new Error(`${failed} photo${failed === 1 ? '' : 's'} could not be discarded. Try again.`)
 }
 
 /**
@@ -470,8 +493,8 @@ export async function clearQueue(): Promise<void> {
  * device's problem — so it is reported beside the local figure rather than as
  * a limit on the whole queue.
  */
-export async function queueUsage(): Promise<{ bytes: number; localBytes: number; quota: number | null }> {
-  const items = await listQueue()
+export async function queueUsage(knownItems?: QueuedPhoto[]): Promise<{ bytes: number; localBytes: number; quota: number | null }> {
+  const items = knownItems ?? await listQueue()
   const bytes = items.reduce((n, i) => n + i.size, 0)
   const localBytes = items.filter((i) => i.pending).reduce((n, i) => n + i.size, 0)
   let quota: number | null = null
@@ -487,8 +510,61 @@ export async function queueUsage(): Promise<{ bytes: number; localBytes: number;
 /** One queued photo's bytes. A local item already has them; a server one is
  *  fetched through the authenticated client — an `<img src>` cannot carry a
  *  bearer token, which is the lesson the harvest thumbnails taught. */
-export async function queuedPhotoBlob(id: number, signal?: AbortSignal): Promise<Blob> {
+const repairs = new Map<number, Promise<Blob>>()
+const removedIds = new Set<number>()
+let repairsChanged = false
+let repairNoticeTimer: number | undefined
+// Older clients persisted cleanup hints and hid originals based on them.
+// Ignore those hints: only the server can know which copy still exists.
+
+export async function queuedPhotoBlob(
+  id: number,
+  signal?: AbortSignal,
+  details?: Pick<QueuedPhoto, 'name' | 'source'>,
+): Promise<Blob> {
   const local = await inOutbox(id)
-  if (local) return local.blob
-  return api.scanQueueBlob(id, signal)
+  if (local) {
+    return (await isHeic(local.blob)) ? normalizeForUpload(local.blob, local.name) : local.blob
+  }
+  if (removedIds.has(id)) throw new Error('that photo has already been removed')
+  const repaired = repairs.get(id)
+  if (repaired) return repaired
+  const blob = await api.scanQueueBlob(id, signal)
+  if (removedIds.has(id)) throw new Error('that photo has already been removed')
+  const alreadyRepaired = repairs.get(id)
+  if (alreadyRepaired) return alreadyRepaired
+  if (!(await isHeic(blob))) return blob
+  // A former client could upload HEIC bytes under a .jpg path. Keep the old
+  // object until the authenticated replacement has landed; a failed repair
+  // must never cost the reader the only copy of their photo.
+  let repair = repairs.get(id)
+  if (!repair) {
+    window.clearTimeout(repairNoticeTimer)
+    repair = (async () => {
+      const jpg = await normalizeForUpload(blob, details?.name)
+      if (removedIds.has(id)) throw new Error('that photo has already been removed')
+      const added = await api.scanQueueAdd({
+        jpg: await blobToBase64(jpg),
+        name: jpgName(details?.name ?? `photo-${id}.heic`),
+        source: details?.source ?? 'upload',
+        repairOf: id,
+      })
+      if (added.id !== id) await api.scanQueueDelete(id, true).catch(() => {})
+      repairsChanged = true
+      return jpg
+    })()
+    repairs.set(id, repair)
+    void repair.finally(() => {
+      repairs.delete(id)
+      // A thumbnail batch needs one new listing, not one full listing per
+      // repaired photo. Include successes even when the last repair fails.
+      if (repairs.size === 0 && repairsChanged) {
+        repairNoticeTimer = window.setTimeout(() => {
+          repairsChanged = false
+          window.dispatchEvent(new Event('deckpal:scan-queue-repaired'))
+        }, 250)
+      }
+    }).catch(() => {})
+  }
+  return repair
 }

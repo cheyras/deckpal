@@ -620,6 +620,17 @@ via `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-
 protected-resource"` so a compliant client discovers it automatically
 (DECISIONS.md 2026-08-10, "a real OAuth 2.1 authorization server for /mcp").
 
+Since migration 075 (2026-09-26, security audit SEC-07) that row is a
+*connection* whose secrets rotate beneath it in `oauth_token`: a one-hour
+access token and a single-use 90-day refresh token, resolved through the row
+so revocation, suspension and expiry are decided in one place
+(`packages/db/src/grants.ts`). The consent screen names the redirect's host
+rather than the app's self-chosen name, and a connection may be read-only,
+enforced at the MCP edge (read tools only, `BEGIN READ ONLY`) and at the REST
+API (`enforceTokenScope`). Tokens from before 075 are unchanged.
+When a newer web app reaches an older API, missing `trust` on `GET /oauth/client`
+limits the consent screen to full access because the older API ignores scope.
+
 ## 11. Correctness traps that shape the design
 
 These are verified findings that a reasonable implementation would otherwise get
@@ -1515,6 +1526,11 @@ call before it finishes awaiting `onInputAvailable`, so `needsApproval` joins
 the same in-flight promise before an approval can be issued. The HMAC still
 binds the SDK's actual exposed input (which contains no `dry_run`); normalization
 happens inside the adapter after signing and never rewrites replayed wire input.
+The approved `log_cards` call gets a server-derived idempotency key from its
+SDK tool-call ID and signed exposed input, scoped by the collection endpoint to
+the authenticated user. Unsigned conversation metadata is excluded. The key survives a
+replay across the shared tool's 15-minute key boundary; a separate call gets a
+different key. The adapter adds it after approval, leaving signed input intact.
 
 **Two calls are answered without a dialog, and both are refusals to interrupt
 somebody for nothing.** A call whose (tool, arguments) the reader has already
@@ -1944,3 +1960,19 @@ revision save; actual provider cost never silently changes a wallet charge.
 ADMINISTRATION.md documents the controls; API.md gives DTOs, SECURITY.md the
 trust boundaries, and DEPLOYMENT.md the schema-first mapping/rollout runbook.
 Local fixtures do not establish live Stripe delivery or production readiness.
+
+### Labeler pending-photo queue
+
+The labeler's object-store queue groups an original timestamp ID and its
+HEIC-to-JPEG replacement into one logical photo. Listing, reads, repair,
+cleanup, and discard take the same per-original database advisory lock;
+cloud uses a dedicated worker pool capped at three connections so a request
+disconnect cannot release the lock before storage work finishes. Queue work
+waits in a FIFO before database checkout; each listing advances at most two
+families concurrently. Self-host queue work uses one shared request-pool
+connection. Listing returns the original
+ID and reads whichever photo survives, preferring the replacement. Metadata
+alone is never evidence that a photo exists. The browser's IndexedDB outbox
+continues to hold photos that have not uploaded; it does not decide which
+server photos to hide. See [the queue state contract](apps/api/src/dev/queue-state.md)
+for partial writes, deletion failures, and two-device interleavings.
