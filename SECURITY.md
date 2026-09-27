@@ -463,6 +463,13 @@ equality, but by parsing the live directives, so a future edit that quietly
 drops `frame-ancestors` or lets the hash drift fails the same way
 `scripts/check-redirects.mjs` catches a redirect regression.
 
+The permission-gated `/dev/scan-harness` diagnostic route has one narrower
+exception: its shipped OpenCV build creates JavaScript functions while loading,
+so its own document permits `'unsafe-eval'`. Ordinary pages retain the stricter
+policy. The service worker fetches this route from the network so its special
+header is preserved, and the browser check starts OpenCV rather than merely
+opening the harness page.
+
 **SEC-14, in the same change: private API responses are `no-store`, not
 `no-cache`.** `apps/api/src/http.ts`'s `userCache()` (used by every
 collection/decks/lists/dex/insights/avatar/export route) sent `private,

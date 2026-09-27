@@ -42,7 +42,7 @@
       ]
     },
     {
-      "source": "/((?!api/|dev/decke-compare$).*)",
+      "source": "/((?!api/|dev/decke-compare$|dev/scan-harness$).*)",
       "headers": [
         {
           "key": "Content-Security-Policy",
@@ -76,6 +76,31 @@
         {
           "key": "X-Frame-Options",
           "value": "SAMEORIGIN"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(self), geolocation=(), payment=(self \"https://js.stripe.com\")"
+        }
+      ]
+    },
+    {
+      "source": "/dev/scan-harness",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'sha256-eCs2jZ+dvM2NUtquRTQK9IS2e/dfLb9mSoHRFrleNUY=' 'sha256-LJeuKH3lYwjCIPWFdzxI17Omxr/Iiv0x/eHFHL2alww=' 'wasm-unsafe-eval' 'unsafe-eval' https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self' data:; connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://api.stripe.com; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
         },
         {
           "key": "X-Content-Type-Options",

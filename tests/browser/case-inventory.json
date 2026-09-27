@@ -158,6 +158,7 @@
   "{\"case\":\"route-split-navigation\",\"label\":\"cloud\"}",
   "{\"case\":\"route-split-navigation\",\"label\":\"selfhost\"}",
   "{\"case\":\"scan-camera\"}",
+  "{\"case\":\"scan-harness-opencv\"}",
   "{\"case\":\"service-worker-registration\"}",
   "{\"case\":\"sheet-footer-not-covered\",\"width\":390}",
   "{\"case\":\"signed-out-admin-denied\",\"label\":\"cloud\"}",
