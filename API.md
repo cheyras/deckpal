@@ -9,7 +9,7 @@ Registered on the same app but documented elsewhere, not repeated here: OAuth
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
 the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
 itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
-`/me/showcase` sub-routes are frontend surface and documented here (§Account).
+`/me/showcase` and `/me/cards` sub-routes are frontend surface and documented here (§Account).
 
 **Deployment modes:**
 
@@ -425,7 +425,7 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 
 ---
 
-## Account — settings & showcase
+## Account — settings, showcase & owned cards
 
 Per-user, backed by `user_settings` (005 + 049) and `user_showcase` (005).
 These are the server-side home of what used to be device-only localStorage
@@ -466,6 +466,17 @@ one transaction. Each entry is a card id (resolved server-side to the card's
 primary variant, exactly as the list bulk-add does) or `null` for an empty
 slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
 shape.
+
+### GET /deckpal/api/me/cards
+The signed-in account's browsable owned cards, one row per card across its owned variants. Pokémon TCG Pocket cards are excluded even if the account still owns them.
+The Profile banner requests three; opening the showcase picker requests a larger
+page, can load later pages on demand, and may search by card name. Optional query parameters are `q` (name
+contains, case-insensitive), `sort=value|recent` (default `recent`), `page`
+(default 1), and `pageSize` (default 48, maximum 100). The response includes
+`pagination: { page, pageSize, total, pageCount }` and `cards`, whose rows have
+`cardId`, `name`, `images: { low, high }`, `quantity`, and `price` (a USD market
+price or `null`). Only cards with a positive owned quantity are returned. Ties
+on price and name are ordered by card ID so page boundaries are stable.
 
 ## Billing — the pay-what-you-want tier
 

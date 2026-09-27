@@ -2,8 +2,9 @@ import { Router } from 'express';
 import type pg from 'pg';
 import { appDefaults, getAccessForUser, hasPermission } from '../admin/access.js';
 import { cardImages, q, q1, withTx } from '../db.js';
-import { asyncHandler, badRequest, notFound, userCache } from '../http.js';
+import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
+import { ownedCardsPage } from '../me/ownedCards.js';
 import { ownerGateStatus } from '../ownerGate.js';
 
 /**
@@ -298,5 +299,29 @@ meRouter.put(
 
     userCache(res);
     res.json({ showcase: await showcaseRows(userId) });
+  }),
+);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /me/cards — a bounded, paged page of the caller's own owned cards
+// (UXC-04, DECISIONS.md 2026-09-26)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Replaces `Profile.tsx`'s old client-side derivation, which paged the
+// captured-species grid and then fetched every single species — 1 + N
+// requests per Profile visit, N up to the size of the Pokédex. This is one
+// query (see `../me/ownedCards.ts`), paged and optionally searched, so the
+// showcase picker (its only consumer) can load lazily and stay fast even for
+// an account with thousands of owned cards.
+meRouter.get(
+  '/cards',
+  asyncHandler(async (req, res) => {
+    userCache(res);
+    const userId = currentUserId(req);
+    const sort = oneOf(req.query.sort, ['value', 'recent'] as const, 'recent');
+    const search = str(req.query.q);
+    const pageSize = clampInt(req.query.pageSize, 48, 1, 100);
+    const page = clampInt(req.query.page, 1, 1, 100000);
+    res.json(await ownedCardsPage(userId, { q: search, sort, page, pageSize }));
   }),
 );
