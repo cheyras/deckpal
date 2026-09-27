@@ -256,6 +256,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     const asked = { text: confirmedText, formatCode }
     const source = { text, formatCode }
     const expectedUnresolved = unmatchedWithIndexes.filter(row => !fixedByLine.has(row.lineIndex)).map(row => row.line).sort()
+    const skipRequested = !stale && remaining > 0
     const revision = reviewRevision.current
     check.mutate(asked, {
       onSuccess: ({ import: summary }) => {
@@ -268,11 +269,11 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         setFixResult(null)
         setUndone(new Set())
         setChecked({ ...asked, summary })
-        // The primary action explicitly permits skipping the lines still shown
-        // here. If the dry run finds a NEW unresolved line, show it instead of
-        // silently skipping something the reader never agreed to skip.
+        // Only "Import without them" permits skipping the lines still shown.
+        // A changed list needs a fresh choice after its dry run, even when the
+        // unresolved lines happen to match the old review.
         const onlyExpectedUnresolved = JSON.stringify(summary.unresolvedLines.map(line => line.trim()).sort()) === JSON.stringify(expectedUnresolved)
-        if (summary.unresolvedLines.length === 0 || (summary.totalCards > 0 && onlyExpectedUnresolved))
+        if (summary.unresolvedLines.length === 0 || (skipRequested && summary.totalCards > 0 && onlyExpectedUnresolved))
           onSubmit({ ...asked, name: now.name.trim() || undefined })
       },
     })

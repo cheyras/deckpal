@@ -8,8 +8,8 @@ const confirmed = '2 Iono PAL 185\n2 Iono PAL 185'
 const partial = '2 Iono PAL 185\n2 Iono PAL 999'
 const originalWithWhitespace = '2 Iono PAL 999\n  2 Iono PAL 999  '
 const partialWithWhitespace = '2 Iono PAL 185\n  2 Iono PAL 999  '
-const summary = unresolvedLines => ({ import: { source: 'ptcgl', resolvedEntries: 2 - unresolvedLines.length,
-  distinctCards: 1, totalCards: (2 - unresolvedLines.length) * 2, unresolved: unresolvedLines,
+const summary = (unresolvedLines, lineCount = 2) => ({ import: { source: 'ptcgl', resolvedEntries: lineCount - unresolvedLines.length,
+  distinctCards: 1, totalCards: (lineCount - unresolvedLines.length) * 2, unresolved: unresolvedLines,
   unresolvedLines, warnings: [], variantNote: '' } })
 const fixes = [0, 1].map(lineIndex => ({ lineIndex, original: '2 Iono PAL 999', replacement: '2 Iono PAL 185',
   card: { id: 'pal-185', name: 'Iono', set: 'PAL', number: '185' },
@@ -51,6 +51,8 @@ export async function checkDeckImport(browser, server, fixture) {
             confirmedCheckStarted()
             return heldResponse.then(() => route.fulfill({ json: summary([]) }))
           }
+          if (body.text === '2 Iono PAL 999')
+            return route.fulfill({ json: summary(['2 Iono PAL 999'], 1) })
           if (body.text.includes('Arven OBF'))
             return route.fulfill({ json: summary(body.text.split('\n').filter(line => line.endsWith('999'))) })
           return route.fulfill({ json: summary(body.text === confirmed ? []
@@ -142,6 +144,27 @@ export async function checkDeckImport(browser, server, fixture) {
       await page.getByRole('button', { name: 'Import deck' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
       assert.equal(created.at(-1).text, '2 Arven OBF 186', 'the remaining fix applies to B, not the deleted line')
+      returnedFixes = fixes
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare()
+      await page.getByRole('button', { name: 'Undo' }).last().click()
+      await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Iono PAL 999')
+      assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 0,
+        'deleting one identical occurrence must not restore its rejected suggestion on the survivor')
+      await page.getByRole('button', { name: 'Import deck' }).click()
+      await group.getByText("1 line doesn't match a card").waitFor()
+      assert.equal(created.length, 3, 'ambiguous duplicate deletion must not import a guessed correction')
+      returnedFixes = twoDifferentFixes
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(2, twoDifferent)
+      await page.getByRole('button', { name: 'Undo' }).first().click()
+      await page.getByRole('textbox', { name: 'Decklist' }).fill(`Pokémon: 4\n${twoDifferent}`)
+      await page.getByRole('button', { name: 'Import deck' }).click()
+      await page.getByRole('button', { name: 'Import without them' }).waitFor()
+      assert.equal(created.length, 3, 'editing the header must not silently skip the still-unresolved Iono line')
+      await page.getByRole('button', { name: 'Import without them' }).click()
+      await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
+      assert.equal(created.at(-1).text, 'Pokémon: 4\n2 Iono PAL 999\n2 Arven OBF 186')
       returnedFixes = fixes.slice(0, 1)
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(1)
@@ -156,7 +179,7 @@ export async function checkDeckImport(browser, server, fixture) {
       await prepare(1)
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByText('2 Iono PAL 185').waitFor()
-      assert.equal(created.length, 4, 'a newly unmatched replacement must be shown, not silently skipped')
+      assert.equal(created.length, 5, 'a newly unmatched replacement must be shown, not silently skipped')
       novelUnresolved = false
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(1, originalWithWhitespace)

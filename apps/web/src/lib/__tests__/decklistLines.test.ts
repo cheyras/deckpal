@@ -39,3 +39,8 @@ test('keeps the identity of an untouched line across edits and deletion above it
   assert.notEqual(edited[0], 'line-0')
   assert.deepEqual(reconcileDecklistLineIds('A fixed\nB', 'B', edited, allocate), ['line-1'])
 })
+
+test('does not guess which identical occurrence survived a deletion', () => {
+  const [survivor] = reconcileDecklistLineIds('A\nA', 'A', ['first', 'second'], () => 'new')
+  assert.equal(survivor, 'new', 'neither a rejected nor an accepted suggestion may move to an ambiguous line')
+})
