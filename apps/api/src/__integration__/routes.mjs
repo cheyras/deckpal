@@ -304,6 +304,44 @@ try {
     variants: 3, observations: seen.size, pages, globalChatLimit: DEFAULT_MAX_TOOL_CHARS,
     requests: requests.filter((request) => request.path.includes('/prices')).length,
   });
+
+  // The default USD feed has no vendor 30-day average. Exercise the actual
+  // adapter against this disposable database, including the sparse-history
+  // boundary and the vendor-preferred EUR path.
+  await client.query(`
+    ALTER TABLE card ADD COLUMN name text;
+    UPDATE card SET name = 'Fixture Card' WHERE id = 1;
+    CREATE TABLE collection_item (user_id text, card_variant_id bigint, quantity integer);
+    CREATE TABLE price_current (
+      card_variant_id bigint, currency_code text, market_minor bigint, avg30_minor bigint
+    );
+    INSERT INTO collection_item VALUES ('mover-user', 1, 2), ('mover-user', 2, 1), ('mover-user', 3, 1);
+    INSERT INTO price_current VALUES
+      (1, 'USD', 1500, NULL), (2, 'USD', 2500, NULL),
+      (3, 'EUR', 3500, 1000);
+    DELETE FROM price_observation WHERE card_variant_id = 2 AND currency_code = 'USD';
+    INSERT INTO price_observation VALUES
+      (2, 'USD', now(), 2000),
+      (3, 'EUR', now() - interval '2 days', 3000),
+      (3, 'EUR', now() - interval '1 day', 3200);
+  `);
+  const { topMovers } = await import('../insights/collectionValue.ts');
+  const usdMovers = await topMovers('mover-user', 'USD');
+  assert.deepEqual(usdMovers.map((mover) => mover.cardId), ['base1-1']);
+  assert.equal(usdMovers[0].quantity, 2);
+  assert.equal(usdMovers[0].marketMinor, 1500);
+  assert.ok(usdMovers[0].avg30Minor > 1000 && usdMovers[0].avg30Minor < 1500);
+  assert.equal(usdMovers[0].changeMinor, (1500 - usdMovers[0].avg30Minor) * 2);
+  const eurMovers = await topMovers('mover-user', 'EUR');
+  assert.equal(eurMovers.length, 1);
+  assert.equal(eurMovers[0].avg30Minor, 1000, 'vendor average wins over derived history');
+  assert.deepEqual(await topMovers('other-user', 'USD'), []);
+  evidence.cases.push({
+    name: 'real_postgres_top_movers_derived_usd_sparse_history_vendor_eur',
+    derivedUsdAverageMinor: usdMovers[0].avg30Minor,
+    sparseUsdExcluded: true, vendorEurAverageMinor: eurMovers[0].avg30Minor,
+    otherUserRows: 0,
+  });
   evidence.status = 'passed';
   writeFileSync(process.env.DECKPAL_TEST_RESULT, JSON.stringify(evidence, null, 2) + '\n');
   console.log(JSON.stringify(evidence, null, 2));

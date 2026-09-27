@@ -20500,13 +20500,14 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 **Decided by:** Chey (via Claude)
 
 **Decision:**
-1. **QUAL-05 (LVL badge).** `ProgressCluster.tsx`, `SeriesDetail.tsx` and
-   `CardDetail.tsx`'s optimistic-update path now read the server's own
-   `setLevel`/`c.setLevel` field, falling back to a new `setLevelFromCounts()`
+1. **QUAL-05 (LVL badge).** `ProgressCluster.tsx` and `SeriesDetail.tsx`
+   now read the server's own `setLevel`/`c.setLevel` field, falling back to a new `setLevelFromCounts()`
    (truncating integer math, mirroring the DB's generated `set_level` column)
    instead of deriving a level from the already-rounded display percentage.
    `format.ts`'s `setLevelLabel()` now takes a level (0–5), matching the API's
-   own function of the same name, instead of a pct.
+   own function of the same name, instead of a pct. After merging main's shared
+   collection write lane, the old `CardDetail.tsx` optimistic progress helper
+   was removed because the live card route no longer calls it.
 2. **QUAL-07 (Insights date axis).** `insightsCaption.ts`'s `isoDate()` now
    builds the window-boundary string from the Date's own LOCAL fields
    (`getFullYear`/`getMonth`/`getDate`) instead of `toISOString()`, and
@@ -20563,26 +20564,22 @@ changed (pct → level) — its only callers were updated in the same commit.
 `insightsCaption.ts` gained `VALUE_RANGES`/`rangeLabel`, which `Insights.tsx`
 now imports instead of keeping its own copy of the range list.
 `collectionValue.ts`'s `topMovers()` query changed shape (a `WITH` CTE over
-`price_observation`); it is DB-adapter code with no existing pure-test
-coverage in this repo (only `aggregateValue()` is unit-tested), so it was
-verified by hand against a disposable local Postgres instance in this session
-(schema fragment + fixture rows for a USD variant with no vendor avg30 but 5
-daily observations, a USD variant with only 1 observation, and a EUR variant
-with a vendor avg30 that deliberately disagreed with its own derived value) —
-not by an automated test, and not against the real migrated schema. `pnpm -r
+`price_observation`). It was hand-verified against a disposable local Postgres
+instance before the pause, and now has a regression case in the Linux-only
+`test:integration` runner for derived USD, sparse USD, vendor-preferred EUR,
+and user isolation. The fixture schema is focused rather than a migration of
+the production schema. `pnpm -r
 --workspace-concurrency=1 exec tsc --noEmit` and `pnpm --filter deckpal-web
 build` are clean. New/updated unit tests: `format.ts`'s level math (7 cases,
 `setLevel.test.ts`), `insightsCaption.ts`'s date window and range label (14
 cases, updated `insightsCaption.test.ts`, TZ-pinned via `withTz`), and
 `pagePlan.ts` (6 cases). `pnpm --filter deckpal-web test:insights` passes (120
-tests). See the PR for browser-check status — in progress when this session's
-usage window closed; the delta-label and Top-Movers-population checks passed
-in a headless browser at 390/1440, but the axis-tick check needs the fixture's
-price-history fixture backed off by a couple of days from "now" to isolate it
-from `ValueChart.tsx`'s separate, pre-existing "never clip real data" union
-logic (`xMax = Math.max(domain.to, dataMax)`) — noted as a follow-up rather
-than a regression, since the underlying `rangeWindow`/`isoDate` fix is
-independently unit-tested against the exact scenario the audit reported.
+tests). A deterministic fixture and headless Chromium at 390/1440 verified
+the rightmost chart tick is 9/25 for a Denver viewer at 2026-09-26 05:30 UTC;
+with the former UTC window code restored only for the comparison build, it is
+9/26. The fixture's newest price-history point is two days earlier, so
+`ValueChart.tsx`'s separate "never clip real data" union does not control this
+boundary. The delta label and Top Movers also render at both widths.
 
 ## 2026-09-26 — Four collection/list quick fixes from the ux-collection audit (UXC-01, 03, 05, 09)
 **Decided by:** Chey (via Claude)

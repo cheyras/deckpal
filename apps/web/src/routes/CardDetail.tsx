@@ -7,7 +7,7 @@ import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
-import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney, setLevelFromCounts } from '../lib/format'
+import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { useOwnedCounts } from '../lib/collectionWrites'
 import { useCurrentPathAsNext } from '../lib/landingRoute'
@@ -19,117 +19,6 @@ import { rangeWindow } from '../lib/insightsCaption'
 import { bucketDayLabel, bucketRangeLabel, chartPoints, grainCaption } from '../lib/priceGrain'
 import { Sheet, useSheetClose } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
-
-// ── Optimistic progress maths — mirrors the server recompute (SCHEMA §5.3/§9.2)
-// so the three bars move instantly, then reconcile against the authoritative
-// server numbers on settle. Given a card's variant list, how many goal-units it
-// contributes: complete (0/1 card), master ((card,standard-variant) pairs owned),
-// grandmaster ((card,any-variant) pairs owned).
-type OwnBits = { tier: 'standard' | 'special'; isPrimary: boolean; quantity: number }
-function cardOwnedUnits(variants: OwnBits[]): { complete: number; master: number; grand: number } {
-  const anyOwned = variants.some((v) => v.quantity >= 1)
-  const hasStd = variants.some((v) => v.tier === 'standard')
-  const masterReq = hasStd ? variants.filter((v) => v.tier === 'standard') : variants.filter((v) => v.isPrimary)
-  return {
-    complete: anyOwned ? 1 : 0,
-    master: masterReq.filter((v) => v.quantity >= 1).length,
-    grand: variants.filter((v) => v.quantity >= 1).length,
-  }
-}
-
-function pct(owned: number, total: number): number {
-  if (!owned || !total) return 0
-  return Math.round((owned / total) * 1000) / 10
-}
-
-/**
- * Optimistically fold a single variant's quantity change into every cached
- * ['card', cardId] and ['set', setId, …] query, and return an undo closure.
- * total_required is never touched (catalog-fixed); only owned + totalQuantity + pct move.
- */
-function optimisticApply(
-  qc: QueryClient,
-  cardId: string,
-  setId: string,
-  variantId: number,
-  newQty: number,
-): () => void {
-  const cardKey = ['card', cardId] as const
-  const prevCard = qc.getQueryData<CardDetailResponse>(cardKey)
-  const prevSets = qc.getQueriesData<SetDetailResponse>({ queryKey: ['set', setId] })
-
-  if (!prevCard) return () => undefined
-  // Quantities are absent on an anonymous read, but this whole optimistic path
-  // only runs behind a stepper, and steppers only render when signed in.
-  const before = prevCard.variants.map<OwnBits>((v) => ({ tier: v.tier, isPrimary: v.isPrimary, quantity: v.quantity ?? 0 }))
-  const changed = prevCard.variants.find((v) => v.variantId === variantId)
-  const oldQty = changed?.quantity ?? 0
-  const clampedNew = Math.max(0, newQty)
-  const after = prevCard.variants.map<OwnBits>((v) => ({
-    tier: v.tier,
-    isPrimary: v.isPrimary,
-    quantity: v.variantId === variantId ? clampedNew : v.quantity ?? 0,
-  }))
-  const b = cardOwnedUnits(before)
-  const a = cardOwnedUnits(after)
-  const dOwned = { complete: a.complete - b.complete, master: a.master - b.master, grand: a.grand - b.grand }
-  const qtyDelta = clampedNew - oldQty
-  const wasMasterReq = (() => {
-    const hasStd = before.some((v) => v.tier === 'standard')
-    return changed ? (hasStd ? changed.tier === 'standard' : changed.isPrimary) : false
-  })()
-
-  // Card query: just the one variant's quantity.
-  qc.setQueryData<CardDetailResponse>(cardKey, (old) =>
-    old
-      ? { ...old, variants: old.variants.map((v) => (v.variantId === variantId ? { ...v, quantity: clampedNew } : v)) }
-      : old,
-  )
-
-  // Every cached set view: shift progress owned/pct/totalQuantity + the card row.
-  qc.setQueriesData<SetDetailResponse>({ queryKey: ['set', setId] }, (old) => {
-    if (!old) return old
-    // Both are absent on an anonymous read of the set page; there is then no
-    // cached progress to shift and no ownership to re-derive.
-    const p = old.progress
-    if (!p) return old
-    const nextProgress: Progress = {
-      complete: {
-        ...p.complete,
-        owned: p.complete.owned + dOwned.complete,
-        pct: pct(p.complete.owned + dOwned.complete, p.complete.total),
-        totalQuantity: (p.complete.totalQuantity ?? 0) + qtyDelta,
-        setLevel: setLevelFromCounts(p.complete.owned + dOwned.complete, p.complete.total),
-      },
-      master: {
-        ...p.master,
-        owned: p.master.owned + dOwned.master,
-        pct: pct(p.master.owned + dOwned.master, p.master.total),
-        totalQuantity: (p.master.totalQuantity ?? 0) + (wasMasterReq ? qtyDelta : 0),
-      },
-      grandmaster: {
-        ...p.grandmaster,
-        owned: p.grandmaster.owned + dOwned.grand,
-        pct: pct(p.grandmaster.owned + dOwned.grand, p.grandmaster.total),
-        totalQuantity: (p.grandmaster.totalQuantity ?? 0) + qtyDelta,
-      },
-    }
-    const cards = old.cards.map((c) => {
-      if (c.cardId !== cardId || !c.ownership) return c
-      const newTotal = c.ownership.totalQuantity + qtyDelta
-      return {
-        ...c,
-        ownership: { ...c.ownership, totalQuantity: newTotal, have: newTotal >= 1, need: newTotal === 0, dupe: newTotal >= 2 },
-      }
-    })
-    return { ...old, progress: nextProgress, cards }
-  })
-
-  return () => {
-    qc.setQueryData(cardKey, prevCard)
-    for (const [key, data] of prevSets) qc.setQueryData(key, data)
-  }
-}
 
 function QtyStepper({
   v,
