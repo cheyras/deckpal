@@ -17,6 +17,6 @@ for (const file of files) {
   assets.push(...report.assets.map(asset => asset.label))
 }
 assert.equal(new Set(suites).size, suites.length, 'A suite ran on more than one shard')
-assert.deepEqual(actual.sort(), expected, 'Browser case names or variants changed from the 161-case baseline')
+assert.deepEqual(actual.sort(), expected, 'Browser case names or variants changed from the 166-case baseline')
 assert.deepEqual(assets.sort(), ['cloud', 'selfhost'], 'Both deployment builds need asset checks')
 console.log('PASS browser inventory: ' + actual.length + ' cases in ' + suites.length + ' suites, no omissions or duplicates')

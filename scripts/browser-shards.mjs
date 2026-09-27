@@ -20,7 +20,7 @@ export const durations = {
   'cloud-feedback-lifecycle': 120,
   'cloud-writes': 60,
   'authreturn': 11,
-  'chat': 41,
+  'chat': 55,
   'payment-history': 16,
 }
 
