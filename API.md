@@ -90,46 +90,38 @@ omit the host.
   IP per process**, before token resolution and before the RLS pool is
   acquired. On Vercel the key is the validated `x-vercel-forwarded-for` (or
   `x-forwarded-for`); off Vercel it is the raw socket peer (`trust proxy` stays
-  `false`). Session budgets run **after** auth/self-host identity but
+  `false`). The Stripe raw-body webhook and bare-origin OAuth discovery,
+  `/register` and `/token` handlers sit outside this router; `/mcp` is a
+  separate function. Session budgets run **after** auth and identity but
   **before** RLS request-connection acquisition: `/tokens` 20/min, `/avatar`
   10/min, `/oauth` 30/min, `/bugs` 10/hour, all `/admin` 120/min and all
-  `/me/credits` 180/min (the first four keyed on identity without requiring a
-  browser session; `/admin` and `/me/credits` require one). Active-account/action
-  permissions and handlers follow RLS. Authentication and trusted bootstrap may
-  access their own pool earlier. Refusal is **`429`** with a **`Retry-After`**
-  header in seconds; a request is charged once per applicable budget. Budgets
-  are in-memory fixed windows, per process / per serverless instance, reset on
-  cold start — speed bumps against retry storms and casual abuse, not a
-  distributed quota.
+  `/me/credits` 180/min. The first three and the admin/credits routes require
+  a browser session; `/bugs` uses its signed-in account identity. A request
+  is charged once per applicable budget. Refusal is **`429`** with a
+  **`Retry-After`** header. Budgets are in-memory fixed windows per instance,
+  reset on cold start, and are speed bumps rather than a distributed quota.
 
-  Three flows sit outside this router entirely, each with its own limiter now:
-  the bare-origin OAuth discovery / `/register` / `/token` handlers (mounted on
-  `app` ahead of it; 30/min per source IP), the MCP transport at `/mcp` (a
-  separate function; a global 300/min-per-instance admission counter before
-  token resolution, plus a 60/min-per-token budget after — keyed on the
-  resolved token, not the IP, because hosted MCP connectors share egress IPs
-  across users), and the Stripe raw-body webhook (no application limiter;
-  Stripe's own signature and retry behavior is the control). See
-  `SECURITY.md` → Rate limiting.
-- **Body-size limits.** Per route, not one limit for the whole API, mounted
-  right after the ingress guard and ahead of authentication: `/bugs`
-  12mb (the bug-report screenshot), `/client-errors` 32kb (the crash beacon),
-  `/dev/scan-queue` and `/dev/scan-flags`
-  4200kb (labeler/harness photos — not a bare 4mb, since a max-size upload's
-  base64 form is exactly 4mb with no room for its JSON wrapper), `/decke`
-  2mb (one transcript-history turn), `/lists` 2mb (a bulk item add), `/decks`
-  512kb (the strategy-guide and
-  battle-log text), `/register`/`/token` 16kb each, and 100kb for every other
-  route. Every limit is sized in bytes on the wire, not characters, for
-  whatever a caller's OWN JSON encoder does — `/decke`, `/lists` and `/decks`
-  are reachable over the plain REST API, not only this repo's browser
-  client: a raw-UTF-8 client can cost 3 UTF-8 bytes per JS-string code unit,
-  and an ASCII-safe-escaping client (Python's `json.dumps` default) costs 6.
-  An oversize body is a proper `413 payload_too_large`. See `SECURITY.md` →
-  Body-size limits.
-- **Caching.** Pure-catalog responses (`/series` list, `/search`, the `/` index)
-  send `Cache-Control: public, max-age=…`. Anything mixing in the user's
-  collection or prices sends `private, no-cache, must-revalidate`.
+  Bare-origin OAuth discovery, `/register` and `/token` have their own 30/min
+  per-source-IP limiter. The MCP transport has a global 300/min-per-instance
+  admission counter before token resolution and a 60/min-per-token budget
+  after. The Stripe webhook relies on signature verification and its retry
+  behavior instead of an application limiter. See `SECURITY.md` → Rate limiting.
+- **Body-size limits.** Per route, most-specific first, immediately after the
+  ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
+  `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
+  `/dev/scan-flags` 4200kb (photos whose maximum base64 form is exactly 4mb
+  before the JSON wrapper), `/decke` 2mb, `/lists` 2mb, `/decks` 512kb, and
+  100kb for every other route. `/register` and `/token` keep their own 16kb
+  parsers. Limits measure bytes on the wire, not characters; the text-heavy
+  routes leave room for ASCII-escaped JSON as well as raw UTF-8. Oversized
+  bodies receive `413 payload_too_large`. See `SECURITY.md` → Body-size limits.
+- **Caching.** `/series`, `/series/:seriesSlug`, `/sets/:setId` and
+  `/cards/:cardId` embed ownership for a signed-in caller, so the same URL
+  answers differently by identity. Anonymous requests get
+  `Cache-Control: public, max-age=…, stale-while-revalidate=600` and
+  `Vary: Authorization`; signed-in requests stay private. `/search` has no
+  personalization branch, so its responses are unconditionally public and
+  do not need `Vary: Authorization`.
 
 ## Authentication
 
