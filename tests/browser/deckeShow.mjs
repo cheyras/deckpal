@@ -215,6 +215,18 @@ async function ask(page, box, question, target) {
 
 const frames = (page) => page.evaluate(() => window.__show.frames)
 
+/**
+ * Wait for the model's second leg — the request that carries his tool results —
+ * to reach the SERVER, not merely to be started in the page: the page stamps a
+ * request when `fetch` is called, and the body is what the assertions read.
+ */
+async function secondLeg(page, fixture, timeout) {
+  await page.waitForFunction(() => window.__show.chats.length >= 2, null, { timeout })
+  const until = Date.now() + 10_000
+  while (fixture.bodies.length < 2 && Date.now() < until) await new Promise((r) => setTimeout(r, 50))
+  assert.ok(fixture.bodies.length >= 2, 'the second leg never reached the server')
+}
+
 export async function checkDeckeShow(browser, server, out, engine, fixture, admin) {
   admin.state.actor = 'ordinary'
   admin.state.permissions = ['decke.use']
@@ -235,7 +247,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
           [say('There it is.')],
         ])
         await ask(page, box, 'Show me my Charizard', CHARIZARD)
-        await page.waitForFunction(() => window.__show.chats.length >= 2, null, { timeout: 90_000 })
+        await secondLeg(page, fixture, 90_000)
         const f = await frames(page)
         const m = analyse(f)
         const chats = await page.evaluate(() => window.__show.chats)
@@ -270,7 +282,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         ])
         const started = Date.now()
         await ask(page, box, 'Show me card 999', '[data-decke-card="sim1-999"]')
-        await page.waitForFunction(() => window.__show.chats.length >= 2, null, { timeout: 60_000 })
+        await secondLeg(page, fixture, 60_000)
         const waited = Date.now() - started
         const m = analyse(await frames(page))
         const [output] = fixture.toolOutputs()
@@ -296,7 +308,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         await page.waitForFunction(() => window.__show.frames.filter((x) => x.flying).length >= 20, null, { timeout: 60_000 })
         await page.mouse.move(640, 450)
         await page.mouse.wheel(0, -600)
-        await page.waitForFunction(() => window.__show.chats.length >= 2, null, { timeout: 60_000 })
+        await secondLeg(page, fixture, 60_000)
         const m = analyse(await frames(page))
         const [output] = fixture.toolOutputs()
         assert.ok(m.worstStepPx <= MAX_STEP_PX, 'taking over made him snap ' + m.worstStepPx + ' px')
@@ -321,7 +333,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
           [say('There it is.')],
         ])
         await ask(page, box, 'Show me my Charizard', CHARIZARD)
-        await page.waitForFunction(() => window.__show.chats.length >= 2, null, { timeout: 60_000 })
+        await secondLeg(page, fixture, 60_000)
         const m = analyse(await frames(page))
         assert.deepEqual(fixture.toolOutputs(), [{ ok: true }])
         assert.equal(m.glides, 0, 'reduced motion still glided the page')
@@ -341,11 +353,11 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
           [say('Here it is.')],
         ])
         await ask(page, box, 'Take me to Simulator Set 7', '[data-decke-set="sim7"]')
-        await page.waitForFunction(() => window.__show.chats.length >= 2, null, { timeout: 90_000 })
+        await secondLeg(page, fixture, 90_000)
         const [output] = fixture.toolOutputs()
         // Every series here has cards collected, so the "show the rest"
         // disclosure never renders — the case that used to fail at step 1.
-        assert.equal(output?.ok, true, 'the escort stopped: ' + JSON.stringify(output?.failure))
+        assert.equal(output?.ok, true, 'the escort stopped: ' + JSON.stringify(output?.failure ?? fixture.bodies.map((b) => (b.messages?.at(-1)?.parts ?? []).map((p) => p.type))))
         assert.equal(output.ran.length, output.planned)
         // The last step presses the set's own link; the router commits it on
         // its own schedule, so wait for the address rather than sample it.
