@@ -21232,8 +21232,18 @@ words is the owner's taste call.
 
 **Decided by:** Chey (via Codex)
 
-**Decision:** The route announcer writes its live region only when the heading text changes and keeps watching the current route after the four-second title fallback. The next navigation replaces that observer.
+**Decision:** The route announcer writes its live region only when a new heading differs from the previous route's heading and keeps watching the current route after the four-second title fallback. The next navigation replaces that observer.
 
 **Why:** Replacing an unchanged live-region text node can make screen readers repeat the same heading. A catalog request can also finish after the fallback timer, especially when the previous set's heading remains visible while new data loads. The fallback must not end observation before the real heading arrives.
 
-**Implications:** Repeated page mutations leave the announcement untouched, while a late heading can still replace a stale heading or title. The observer watches only the React root, so writing the sibling live region cannot feed back into it.
+**Implications:** Repeated page mutations leave the announcement untouched. A retained old heading cannot mark a new navigation complete or overwrite the title fallback after an error, while a late new heading can still replace that fallback. The observer watches only the React root, so writing the sibling live region cannot feed back into it.
+
+## 2026-09-26 — The topmost dialog owns keyboard focus
+
+**Decided by:** Chey (via Codex)
+
+**Decision:** The phone navigation drawer handles Escape and Tab only while it is the topmost modal dialog, matching the shared Sheet component's rule.
+
+**Why:** The header can open the bug report sheet while the drawer remains open. The drawer's capture listener otherwise intercepts backward Tab from the sheet and pulls focus behind the visible dialog.
+
+**Implications:** A dialog above the drawer owns its keyboard loop until it closes; the drawer resumes its own focus trap afterward.

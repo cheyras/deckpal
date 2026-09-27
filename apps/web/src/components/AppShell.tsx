@@ -482,6 +482,12 @@ function MobileDrawer({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
+      const panel = panelRef.current
+      if (!panel) return
+      // The header can open a Sheet above this drawer. Only the top dialog
+      // handles Escape and Tab, as Sheet.tsx does for stacked sheets.
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      if (dialogs[dialogs.length - 1] !== panel) return
       if (e.key === 'Escape') {
         onClose()
         return
@@ -490,15 +496,15 @@ function MobileDrawer({
       // `Sheet.tsx`'s trap (that component's `FOCUSABLE` is private, hence the
       // duplicate selector rather than an import — see `DeckeChat.tsx`'s
       // `prefersReducedMotion` for the same call elsewhere in this codebase).
-      if (e.key !== 'Tab' || !panelRef.current) return
+      if (e.key !== 'Tab') return
       const nodes = Array.from(
-        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
+        panel.querySelectorAll<HTMLElement>(FOCUSABLE),
       ).filter((el) => el.offsetParent !== null || el === document.activeElement)
       if (nodes.length === 0) return
       const first = nodes[0]
       const last = nodes[nodes.length - 1]
       const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !panelRef.current.contains(active))) {
+      if (e.shiftKey && (active === first || !panel.contains(active))) {
         e.preventDefault()
         last.focus()
       } else if (!e.shiftKey && active === last) {

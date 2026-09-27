@@ -92,6 +92,21 @@ export async function checkA11y(browser, server, mount, label, out) {
       await page.evaluate(() => { document.querySelector('h1').textContent = 'Late fixture heading' })
       await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'Late fixture heading', live)
       results.push({ case: 'a11y-route-announcer', label, repeatedWrites, lateHeading: true })
+      await page.getByRole('button', { name: 'Menu' }).click()
+      await page.getByRole('button', { name: 'Close navigation' }).waitFor()
+      await page.waitForTimeout(50)
+      await page.evaluate(() => {
+        const dialog = document.createElement('div')
+        dialog.setAttribute('role', 'dialog')
+        dialog.setAttribute('aria-modal', 'true')
+        dialog.innerHTML = '<button id="overlaid-back">Back</button><input id="overlaid-field">'
+        document.body.appendChild(dialog)
+        dialog.querySelector('#overlaid-field').focus()
+      })
+      await page.keyboard.press('Shift+Tab')
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'overlaid-back',
+        'the drawer must not pull focus out of a dialog opened above it')
+      results.push({ case: 'a11y-stacked-dialog', label, backwardFocusStayedInTopDialog: true })
     } finally { await context.close() }
   }
   return results

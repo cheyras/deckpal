@@ -753,20 +753,13 @@ function headingText(h1: HTMLElement): string {
   return h1.querySelector('img[alt]')?.getAttribute('alt')?.trim() ?? ''
 }
 
-/**
- * Write the current heading to the live region, if there is one.
- *
- * Keep the observer active when the current heading matches the live region:
- * `keepPreviousData` can leave the previous route's heading mounted while a
- * new catalog page loads. Only write when the text changes, because replacing
- * an unchanged live-region text node can repeat the screen-reader announcement.
- */
-function announceHeading(): boolean {
+function currentHeading(): string {
   const h1 = document.querySelector<HTMLElement>('h1')
-  const heading = h1 ? headingText(h1) : ''
-  if (!heading) return false
-  if (routeAnnouncer.textContent !== heading) routeAnnouncer.textContent = heading
-  return true
+  return h1 ? headingText(h1) : ''
+}
+
+function announce(text: string): void {
+  if (text && routeAnnouncer.textContent !== text) routeAnnouncer.textContent = text
 }
 
 let headingWatcher: MutationObserver | null = null
@@ -774,28 +767,27 @@ let headingFallback: number | null = null
 router.subscribe('onRendered', () => {
   headingWatcher?.disconnect()
   if (headingFallback !== null) window.clearTimeout(headingFallback)
-  // Announce whatever is there right now — the common case (every chromeless
-  // page, and a catalog page once its data is warm) is handled synchronously.
-  let settled = announceHeading()
-  // Then keep watching until the next navigation: a catalog page's `<h1>` can
-  // still be mid-flight (nothing to announce yet), or — the case above —
-  // already present but STALE (kept from the previous route while the new
-  // one loads). Either way, a real mutation is what actually resolves it, and
-  // `announceHeading` writes the live region only when the text changes.
-  headingWatcher = new MutationObserver(() => {
-    if (announceHeading()) settled = true
-  })
+  const previousHeading = routeAnnouncer.textContent ?? ''
+  let fallbackDue = false
+  const update = () => {
+    const heading = currentHeading()
+    // keepPreviousData can leave the old route's h1 mounted while the new
+    // query loads. Its text is already in the live region; wait for a distinct
+    // heading, or use the title if the destination fails or remains slow.
+    if (heading && heading !== previousHeading) announce(heading)
+    else if (fallbackDue) announce(document.title)
+  }
+  update()
+  // Keep watching until the next navigation. A query can finish after the
+  // fallback, and its real heading should still replace the title.
+  headingWatcher = new MutationObserver(update)
   headingWatcher.observe(appRoot, { childList: true, subtree: true, characterData: true })
-  // An INDEPENDENT timer, not a check piggybacked on the observer's own
-  // callback — a route that fails fast (`ErrorState`, no `<h1>` at all) can
-  // settle with no further DOM mutations ever, in which case the observer
-  // callback simply never runs again and a check living only inside it would
-  // never fire either. This runs regardless and falls back to `document.title`
-  // if nothing was ever announced for this navigation. A slow catalog request
-  // may finish after four seconds, so the observer stays active for its heading.
+  // The timer must run independently: an ErrorState may render once and then
+  // produce no more mutations. A later failure also runs update and falls back.
   headingFallback = window.setTimeout(() => {
     headingFallback = null
-    if (!settled && routeAnnouncer.textContent !== document.title) routeAnnouncer.textContent = document.title
+    fallbackDue = true
+    update()
   }, 4000)
 })
 
