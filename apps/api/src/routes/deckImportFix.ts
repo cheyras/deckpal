@@ -74,7 +74,7 @@ export function registerDeckImportFix(router: Router): void {
       await withUserSession(userId, req.authKind, session => session.query(
         'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data',
         [usage.requestId, usage.operationId, 'failed', null, null, null, null, null, null, 'unknown', null],
-      )).catch(() => undefined);
+      ));
       throw new ApiError(503, 'decke_unavailable', "I can't reach my brain right now. You can still edit the lines yourself.");
     }
     const measured = extractUsage(result.usage, result.providerMetadata);

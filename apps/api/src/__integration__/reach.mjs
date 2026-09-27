@@ -226,6 +226,72 @@ try {
       ));
     });
 
+    await test('a fix and chat race for the last credit without double spending', async () => {
+      const balance = (await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance;
+      assert.equal(balance, 1);
+      const chat = new pg.Client(config);
+      await chat.connect();
+      let fix;
+      try {
+        const [fixResult, chatResult] = await Promise.allSettled([
+          asServer(A, async (c) => (await c.query(
+            'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
+            [120, 'import_fix:race-chat', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
+          )).rows[0].data),
+          chat.query('SELECT public.credit_spend_create_effective($1,$2,$3,$4,$5,$6) AS data',
+            [A, 'chatTurn', 1, 0, 'chat:race-import-fix', 'b'.repeat(64)]),
+        ]);
+        if (fixResult.status === 'fulfilled') fix = fixResult.value;
+        else assert.equal(fixResult.reason.code, 'P0001');
+        assert.equal(chatResult.status, 'fulfilled');
+        const chatAllowed = chatResult.value.rows[0].data.allowed;
+        assert.equal(Number(Boolean(fix)) + Number(chatAllowed), 1);
+        assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, 0);
+        assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [A])).rows[0].debt, 0);
+      } finally {
+        await chat.end();
+      }
+      if (fix) await asServer(A, (c) => c.query(
+        'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [fix.requestId, fix.operationId, 'failed', null, null, null, null, null,
+          null, 'unknown', null],
+      ));
+    });
+
+    await test('a suspended account settles its admitted fix exactly once', async () => {
+      const balance = (await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance;
+      if (balance < 1) await db.query(
+        "SELECT public.credit_apply_delta($1,1,'grant','Fixture suspended fix','reach-suspended-grant')", [A]);
+      const started = await asServer(A, async (c) => (await c.query(
+        'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
+        [120, 'import_fix:suspended', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
+      )).rows[0].data);
+      await db.query('UPDATE public.admin_account SET suspended=true WHERE user_id=$1', [A]);
+      try {
+        await assert.rejects(asServer(A, (c) => c.query(
+          'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6)',
+          [120, 'import_fix:after-suspension', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
+        )), (error) => { assert.equal(error.code, '42501'); return true; });
+        const args = [started.requestId, started.operationId, 'completed', 1000, 100, 0, 0, 0,
+          '0.002', 'provider_reported', 'fixture-suspended'];
+        const first = await asServer(A, async (c) => (await c.query(
+          'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', args,
+        )).rows[0].data);
+        const again = await asServer(A, async (c) => (await c.query(
+          'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', args,
+        )).rows[0].data);
+        assert.equal(first.duplicate, false);
+        assert.equal(again.duplicate, true);
+        assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_import_fix_settlement WHERE request_id=$1',
+          [started.requestId])).rows[0].n, 1);
+        assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_credit_event WHERE ref=$1',
+          ['import-fix-release:' + started.requestId])).rows[0].n, 1);
+        assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [A])).rows[0].debt, 0);
+      } finally {
+        await db.query('UPDATE public.admin_account SET suspended=false WHERE user_id=$1', [A]);
+      }
+    });
+
     await test('anon reaches no per-user row in any table or view', async () => {
       assert.deepEqual(await leaks('anon'), []);
     });

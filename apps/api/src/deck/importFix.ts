@@ -133,7 +133,7 @@ async function candidateNames(db: Queryable, name: string): Promise<string[]> {
   return rows.map(row => row.name_normalized);
 }
 
-async function printRows(db: Queryable, names: string[], userId: string, format: FormatCode): Promise<CandidateRow[]> {
+async function printRows(db: Queryable, names: string[], userId: string, format: FormatCode): Promise<CandidateRow[] | null> {
   if (!names.length) return [];
   const params: unknown[] = [names, userId];
   const poolRule = formatPoolSql(format, value => { params.push(value); return `$${params.length}`; });
@@ -147,9 +147,11 @@ async function printRows(db: Queryable, names: string[], userId: string, format:
               WHERE cv.card_id=c.id AND ci.user_id=$2),0)::text AS owned
        FROM card c JOIN card_set cs ON cs.id=c.set_id JOIN series sr ON sr.id=cs.series_id
       WHERE sr.catalogue_code='en' AND c.lang='en' AND c.name_normalized = ANY($1::text[])
-      LIMIT 400`, params,
+      LIMIT 401`, params,
   );
-  return rows;
+  // A capped page cannot establish that every printing shares one gameplay
+  // identity. Leave this line for the reader when the catalogue is larger.
+  return rows.length > 400 ? null : rows;
 }
 
 /** Read-only preparation shared by the endpoint and its tests. */
@@ -176,6 +178,7 @@ export async function prepareImportFix(db: Queryable, text: string, format: Form
     const names = await candidateNames(db, line.name);
     if (!names.length) continue;
     const all = await printRows(db, names, userId, format);
+    if (!all) continue;
     const hintedSet = line.setCode ? resolveSetAlias(line.setCode)?.set : undefined;
     let slot = 0;
     for (const name of names) {

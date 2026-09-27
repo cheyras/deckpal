@@ -970,11 +970,12 @@ production. Verify the runner's applied/checksum state against this exact list:
 Import fixes additionally require `077_import_fix_fractional_credits.sql` before
 the updated API serves requests. Apply it with the same numbered migration
 runner after migrations 073–076 have landed. It creates the fractional credit
-accumulator and narrow server-only settlement functions; there is no new
+accumulator, a durable one-credit hold, and narrow server-only settlement functions; there is no new
 environment variable or infrastructure setting. An import fix still uses one
 daily Deck-E turn. With paid credits enabled, its provider-reported cost is
-converted using the request's policy; fractions accumulate until the existing
-wallet debits a whole credit.
+converted using the request's policy. Settlement retains the earned whole
+credit or returns the unused hold; fractions carry forward. A concurrent chat
+spend sees the held balance. Already admitted fixes can settle after suspension.
 
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its

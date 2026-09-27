@@ -1843,6 +1843,14 @@ unknown. It does not persist whole SDK callbacks, tool payloads, private context
 or raw errors. Full server SHA and strict preview PR ID, falling back to merge
 subject, identify the generation build. Unreported upstream work remains unknown.
 
+An import repair uses the same wallet ledger lock as chat to debit one paid
+credit at admission. The provider call runs after admission commits; settlement
+records its measured fractional charge and atomically returns unused hold
+capacity. A suspended account cannot start a repair, but its already admitted
+request can settle once. Candidate lookup fetches one row beyond its 400
+printing limit and leaves a truncated line for the reader instead of inferring
+a gameplay identity from an incomplete set.
+
 Usage reads require an active application session, tier 40 or higher and current
 `admin.access`. Custom roles lose metadata and shared-content access immediately
 when that permission is removed; the capability projection uses the same rule.

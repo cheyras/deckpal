@@ -339,7 +339,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         {checked && unmatched.length > 0 && (
           <div ref={panelRef} role="alert" className="rounded-xl border border-action-primary/45 bg-surface-secondary p-[14px] shadow-sm">
             <div className="flex items-start gap-[12px]">
-              {entitled && errandActive && !hideCharacter && <div data-decke-errand aria-hidden="true" className="h-[92px] w-[72px] shrink-0 sm:h-[112px] sm:w-[88px]" />}
+              {entitled && errandActive && !hideCharacter && <div data-decke-errand aria-hidden="true" className="h-[92px] w-[72px] shrink-0 sm:h-[52px] sm:w-[41px]" />}
               <div className="flex min-w-0 flex-1 flex-col gap-[8px]">
                 <div className="flex items-center gap-[8px] text-[14px] font-bold text-text-primary">
                   <Icon name="sparkle" size={16} className="shrink-0 text-action-primary" />

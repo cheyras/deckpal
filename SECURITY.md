@@ -138,8 +138,11 @@ landmark string are clipped to 200 characters (`apps/api/src/decke/wireBounds.ts
 **Import fixes (`POST /api/decks/import/fix`).** This separate read-only route
 checks the same current `decke.use` permission on the server, charges the daily
 turn meter before invoking the model, and uses the dedicated Deck-E Gateway key.
-When paid credits are enabled, it accrues provider-reported cost as a fraction
-of a credit and debits the existing wallet when fractions total a whole credit.
+When paid credits are enabled, admission debits one whole-credit hold through
+the existing ledger. Settlement uses the provider-reported fractional cost and
+returns any unused hold in the same transaction as the usage record. Chat sees
+the held balance, so it cannot spend the same last credit. A fix admitted before
+account suspension can still settle, but suspension prevents new fixes.
 It does not create a deck. The model may choose only keys from
 catalogue candidates; a suggested replacement is returned only when the ordinary
 import resolver lands on that exact catalogue card. The browser asks the reader
@@ -148,7 +151,7 @@ The request's catalogue and collection reads use its RLS-scoped connection.
 Admission commits and releases that connection before the model call; settlement
 uses the same shared pool afterward, even if the browser disconnects. Narrow
 server-only database functions enforce the daily
-limit, account ownership, usage recording and fractional settlement. A direct
+limit, account ownership, usage recording and idempotent fractional settlement. A direct
 browser RPC cannot invoke them without the server's request claim.
 
 

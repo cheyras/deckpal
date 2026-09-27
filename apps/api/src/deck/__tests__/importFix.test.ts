@@ -99,3 +99,27 @@ test('a stated set establishes gameplay identity before owned-print preference',
   const ambiguous = await prepareImportFix(db, '1 Charizrd ex', 'standard', 'user');
   assert.deepEqual(ambiguous.options, [], 'without a set, different game texts are left for manual review');
 });
+
+test('a truncated printing page cannot make an ambiguous identity look certain', async () => {
+  const row = {
+    id: 'sv02-185', tcgdex_id: 'sv02-185', name: 'Iono', name_normalized: 'iono',
+    category: 'Trainer', local_id: '185', set_tcgdex_id: 'sv02', serie_tcgdex_id: 'sv',
+    regulation_mark: 'G', released_on: '2023-06-09', rarity: 'Uncommon',
+    playable_fingerprint: 'first-identity', owned: '0',
+  };
+  let capped = false;
+  const db = { query: async (sql: string) => {
+    if (sql.includes('SELECT c.name_normalized, max(')) return { rows: [{ name_normalized: 'iono' }] };
+    if (sql.includes('coalesce((SELECT sum(ci.quantity)')) {
+      assert.match(sql, /LIMIT 401/);
+      return { rows: Array.from({ length: capped ? 401 : 400 }, () => row) };
+    }
+    return { rows: [] };
+  } } as unknown as Queryable;
+  const text = '4 Iono PAL 999';
+  assert.equal((await prepareImportFix(db, text, 'standard', 'user')).options.length, 1);
+  capped = true;
+  const uncertain = await prepareImportFix(db, text, 'standard', 'user');
+  assert.deepEqual(uncertain.options, []);
+  assert.deepEqual(uncertain.unfixed, [text]);
+});

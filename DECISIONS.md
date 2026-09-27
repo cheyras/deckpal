@@ -21000,4 +21000,14 @@ environment variable or deployment change.
 
 **Why:** Hiding the character is a presentation preference, not a request to lose useful repair tools. An owned card saves a swap; the pasted number is the best clue when ownership is absent. A flat one-credit fee overprices a short repair, while a free call hides real AI use.
 
-**Implications:** Migration 077 adds an account-scoped fractional accumulator and settlement record. The import route records the model call in the existing Deck-E usage tables. It commits admission and releases the request connection before calling the provider; settlement uses one later checkout from the same shared pool, even after a browser disconnect. Paid-wallet admission reserves one in-flight slot per available whole credit and honors wallet holds. The browser still requires review and a second exact import check before creating a deck. A short fix was estimated at about $0.002, or about 0.2 credit under the default $0.01-per-credit policy; the actual charge follows the provider report.
+**Implications:** Migration 077 adds an account-scoped fractional accumulator, ledger-backed hold and settlement record. The import route records the model call in the existing Deck-E usage tables. It commits admission and releases the request connection before calling the provider; settlement uses one later checkout from the same shared pool, even after a browser disconnect. Paid-wallet admission debits one credit through the shared ledger lock and honors wallet holds. The browser still requires review and a second exact import check before creating a deck. A short fix was estimated at about $0.002, or about 0.2 credit under the default $0.01-per-credit policy; the actual charge follows the provider report.
+
+## 2026-09-26 — Settle admitted import fixes under the shared wallet lock
+
+**Decided by:** Chey (via Codex)
+
+**Decision:** A paid import fix debits one whole-credit hold when admitted. Its measured fractional cost is settled exactly once with any unused hold returned in the same ledger transaction. Settlement remains available to a trusted server request after the account is suspended; suspension still bars new work. A candidate lookup truncated at 400 printings offers no suggestion for that line.
+
+**Why:** Counting pending fixes did not stop a simultaneous chat spend from consuming the last credit. Requiring an active account at settlement stranded the cost of work already performed. An incomplete printing page could hide another gameplay identity.
+
+**Implications:** Migration 077 records the hold by request and preserves the existing whole-credit wallet and fractional carry. Rare provider cost above the hold remains visible as debt through the wallet's established overrun rule. The import dialog asks the reader to resolve catalogue lines whose candidate search was truncated.
