@@ -1489,7 +1489,12 @@ export function Scan() {
     return () => window.clearTimeout(t)
   }, [celebration])
 
-  const doCommit = useCallback(async () => {
+  const doCommit = useCallback(async (acknowledgedUnresolved = false) => {
+    const gate = commitGate(feedRef.current, acknowledgedUnresolved, voice.hasVerifyWarnings())
+    if (!gate.proceed) {
+      setCommitConfirm(gate.prompt ? { prompt: gate.prompt, rowId: firstUnresolvedId(viewRef.current) } : null)
+      return
+    }
     setCommitConfirm(null)
     setCommitting(true)
     try {
@@ -1520,7 +1525,7 @@ export function Scan() {
     } finally {
       setCommitting(false)
     }
-  }, [])
+  }, [voice.hasVerifyWarnings])
 
   /**
    * Pressing Add. Between the press and the write sits `commitGate` — the
@@ -1538,16 +1543,7 @@ export function Scan() {
    * a perfectly good answer.
    */
   const handleCommit = useCallback(() => {
-    const gate = commitGate(feedRef.current, false)
-    if (!gate.proceed && gate.prompt) {
-      // The ROW THE READER WILL SEE FIRST, so it is asked of the sorted view.
-      // Since 2026-09-07 the order is theirs to choose, and "go back to them"
-      // scrolling to a row that is last on their screen would be a worse answer
-      // than not scrolling at all.
-      setCommitConfirm({ prompt: gate.prompt, rowId: firstUnresolvedId(viewRef.current) })
-      return
-    }
-    void doCommit()
+    void doCommit(false)
   }, [doCommit])
 
   const openDetail = useCallback(
@@ -1563,6 +1559,7 @@ export function Scan() {
     setStep('verify')
   }, [voice])
   const backToScan = useCallback(() => {
+    setCommitConfirm(null)
     setStep('scan')
     setBinExpanded(false)
   }, [])
@@ -1827,7 +1824,7 @@ export function Scan() {
               </button>
               <button
                 type="button"
-                onClick={() => void doCommit()}
+                onClick={() => void doCommit(true)}
                 className="h-[34px] flex-1 rounded-full bg-action-primary text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
               >
                 Commit without them

@@ -248,8 +248,9 @@ export interface CommitGate {
   prompt: string | null
 }
 
-export function commitGate(rows: readonly { cardId: string | null }[], acknowledged: boolean): CommitGate {
+export function commitGate(rows: readonly { cardId: string | null }[], acknowledged: boolean, hasVoiceWarnings = false): CommitGate {
   const unresolved = unresolvedCount(rows)
+  if (hasVoiceWarnings) return { proceed: false, unresolved, prompt: null }
   if (unresolved === 0) return { proceed: true, unresolved: 0, prompt: null }
   return {
     proceed: acknowledged,

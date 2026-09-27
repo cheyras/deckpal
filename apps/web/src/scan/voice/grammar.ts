@@ -96,12 +96,19 @@ export const MAX_QUANTITY = 99
  * Apostrophes are REMOVED rather than expanded: card names and utterances go
  * through this same function, and "Team Rocket's" has to stay one thing on both
  * sides. The contractions it produces ("thats", "ones") are simply filler words.
+ * Identity-bearing signs remain words: Nidoran♀ and Nidoran♂ cannot collapse
+ * into one name. Other symbols keep their code point so distinct names cannot
+ * silently deduplicate before ambiguity detection.
  */
-export function tokenize(text: string): string[] {
-  return text
+export function tokenize(text: string, name = false): string[] {
+  const input = name ? text.replace(/!/g, ' exclamation ').replace(/\?/g, ' question ') : text
+  return input
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .toLowerCase()
+    .replace(/♀/g, ' female ')
+    .replace(/♂/g, ' male ')
+    .replace(/\p{S}/gu, (symbol) => ` symbol${symbol.codePointAt(0)!.toString(16)} `)
     .replace(/['’‘`]/g, '')
     .replace(/\b1st\b/g, 'first')
     .replace(/(\d)([a-z])/g, '$1 $2')
@@ -359,13 +366,16 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
   // broken by list order.
   const unique = new Map<string, NamedRow>()
   for (const row of rows) {
-    const name = tokenize(row.name).join(' ')
+    const name = tokenize(row.name, true).join(' ')
     if (name && !unique.has(name)) unique.set(name, row)
   }
   const names = [...unique.values()].map((row) => {
-    const full = tokenize(row.name)
+    const full = tokenize(row.name, true)
     const core = full.filter((w, idx) => idx === 0 || !NAME_SUFFIXES.has(w))
-    return { row, phrases: [phraseOf(full.join(' ')), phraseOf(core.join(' '))] }
+    // A one-character difference between symbols is a different identity,
+    // even though its flattened phonetic key looks like a near-perfect match.
+    const fuzzy = !/[♀♂!?\p{S}]/u.test(row.name)
+    return { row, fuzzy, phrases: [phraseOf(full.join(' ')), phraseOf(core.join(' '))] }
   })
 
   // Exact names are reserved before any fuzzy window runs. A window cannot
@@ -431,7 +441,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     // unexplained start can introduce one; internal filler still permits the
     // measured "char is hard" transcription of Charizard.
     if (!best) {
-      const hits = names.flatMap((n) => {
+      const hits = names.filter((n) => n.fuzzy).flatMap((n) => {
         const hit = bestWindow(boundedKeys, i, n.phrases.filter((p) => p.key.length >= 5), 2, words, objections)
         return hit ? [{ ...hit, row: n.row }] : []
       }).sort((a, b) => b.score - a.score || b.weight - a.weight)

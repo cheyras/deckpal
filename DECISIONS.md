@@ -21094,6 +21094,12 @@ environment variable or deployment change.
 **Why:** Repeated review findings came from the same two structural problems: competing fuzzy windows could swallow a card name, and queue exit paths could discard a printing request with only a temporary caption. “The N” versus “then” and an unidentified capture landing during `tick()` are regressions in a larger class, not isolated exceptions.
 
 **Implications:** The closed grammar and opt-in beta remain. Duplicate identical names use latest capture order; ambiguous names require a full name or manual selection. Add is blocked by unresolved voice warnings; accumulated warnings scroll while acknowledgement remains reachable. Table-driven target cases and lifecycle transition tests cover the invariant boundaries; the browser proof covers the shipping hook at 1440px and 390px. Migration 073 and the physical-iPhone speech/camera check remain as previously documented. The supervisor syncs Architecture, Decision Log and Contribution Record to the wiki.
+
+## 2026-09-26 — Scanner voice preserves symbol-bearing names and gates every commit
+**Decided by:** Chey (via Codex gpt-6-sol)
+**Decision:** Keep gender signs and other identity-bearing symbols distinct during speech normalization; require exact names when those symbols are present. Check persistent voice warnings at the scanner write gate for both Add and “Commit without them,” and clear old unresolved-row confirmation when scanning resumes.
+**Why:** Nidoran♀ and Nidoran♂ previously collapsed into one target, and the retained confirmation could save a batch without acknowledging a failed spoken change.
+**Implications:** A symbol-bearing name must be spoken in full or selected manually. Every scanner commit path waits for explicit warning acknowledgement. The target matrix and both commit-path tests protect the behavior; no schema or deployment change.
 ## 2026-09-26 — Jev reads the reader before Deck-E answers
 
 **Decided by:** Chey (via Claude). Chey approved Jev on 2026-09-26 ("implement

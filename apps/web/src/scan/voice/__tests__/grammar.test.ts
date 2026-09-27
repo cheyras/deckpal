@@ -38,6 +38,14 @@ describe('normalisation', () => {
     assert.equal(phonetic('hollo'), 'holo')
     assert.equal(phonetic('whole'), 'hole')
   })
+  it('keeps identity-bearing symbols distinct and understands spoken gender names', () => {
+    assert.deepEqual(tokenize('Nidoran♀'), ['nidoran', 'female'])
+    assert.deepEqual(tokenize('Nidoran♂'), ['nidoran', 'male'])
+    assert.deepEqual(tokenize('Unown !', true), ['unown', 'exclamation'])
+    assert.deepEqual(tokenize('Unown ?', true), ['unown', 'question'])
+    assert.deepEqual(tokenize('remove it!'), ['remove', 'it'])
+    assert.notDeepEqual(tokenize('Arceus ☆'), tokenize('Arceus ★'))
+  })
 })
 
 describe('printing', () => {
@@ -332,7 +340,7 @@ describe('alternatives', () => {
 // Cartesian cases exercise boundaries, not just the utterance that exposed a
 // bug. Adding/reordering unrelated captures must never redirect a named edit.
 describe('target invariants', () => {
-  const names = ['N', 'Seel', 'Mew', 'Muk', 'Charizard ex', 'Venonat', 'Mr. Mime', 'Team Rocket’s Mewtwo']
+  const names = ['N', 'Seel', 'Mew', 'Muk', 'Charizard ex', 'Venonat', 'Mr. Mime', 'Team Rocket’s Mewtwo', 'Nidoran♀', 'Nidoran♂', 'Unown !', 'Arceus ☆']
   const frames = [
     (name: string) => `remove the ${name}`,
     (name: string) => `remove ${name} please`,
@@ -343,8 +351,9 @@ describe('target invariants', () => {
     it(`reserves every token of ${name}, in every command frame`, () => {
       const named = { id: 'named', name }
       const unrelated = [{ id: 'latest', name: 'Exeggcute' }, { id: 'other', name: 'Pidgey' }]
+      const spokenName = name.replace('!', 'exclamation')
       for (const frame of frames) for (const rows of [[named, ...unrelated], [...unrelated, named]]) {
-        const heard = frame(name)
+        const heard = frame(spokenName)
         const result = parseUtterance(heard, rows)
         assert.ok(result.command && 'target' in result.command, heard)
         assert.deepEqual(result.command.target, { kind: 'row', rowId: 'named', name }, heard)
@@ -380,6 +389,27 @@ describe('target invariants', () => {
       assert.ok(c && 'target' in c && c.target.kind === 'row')
       assert.equal(c.target.name, 'Charizard ex')
     }
+  })
+
+  it('keeps symbol-bearing names separate across row order and spoken forms', () => {
+    for (const rows of [
+      [{ id: 'female', name: 'Nidoran♀' }, { id: 'male', name: 'Nidoran♂' }],
+      [{ id: 'male', name: 'Nidoran♂' }, { id: 'female', name: 'Nidoran♀' }],
+    ]) {
+      assert.equal(parseUtterance('remove Nidoran', rows).command, null)
+      for (const [spoken, id, name] of [
+        ['Nidoran female', 'female', 'Nidoran♀'],
+        ['Nidoran male', 'male', 'Nidoran♂'],
+      ]) {
+        assert.deepEqual(parseUtterance(`remove ${spoken}`, rows).command,
+          { kind: 'remove', target: { kind: 'row', rowId: id, name } })
+      }
+    }
+    const symbols = [{ id: 'star', name: 'Arceus ☆' }, { id: 'filled', name: 'Arceus ★' }]
+    assert.equal(parseUtterance('remove Arceus', symbols).command, null)
+    assert.equal(parseUtterance('remove Unown', [{ id: 'exclamation', name: 'Unown !' }, { id: 'question', name: 'Unown ?' }]).command, null)
+    assert.equal(parseUtterance('remove Arceus ★', [symbols[0]]).command, null)
+    assert.equal(parseUtterance('remove Nidoran male', [{ id: 'female', name: 'Nidoran♀' }]).command, null)
   })
 
   it('never lets alternative guesses silently change or lose an explicit target', () => {

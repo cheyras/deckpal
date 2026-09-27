@@ -104,6 +104,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     queueRef.current = next
     setQueueState(next)
   }, [])
+  const hasVerifyWarnings = useCallback(() => queueRef.current.warnings.length > 0, [])
 
   // Speech is already visible to the reader before a final command exists.
   // Every way recognition can end must account for that unfinished work too.
@@ -428,6 +429,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     caption,
     announcement,
     verifyWarnings: queue.warnings,
+    hasVerifyWarnings,
     acknowledgeVerifyWarnings: () => commitQueue(acknowledgeWarnings(queueRef.current)),
     pendingByRow,
     settlePending,

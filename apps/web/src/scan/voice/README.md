@@ -21,7 +21,9 @@ executing one against the wrong capture can change the collection.
    `capturedAt`, not arrival order. Distinct names sharing an alias or equally
    good sound match are refused with a request for a full name. A name identical
    to a grammar phrase, such as Poké Ball, keeps its printing meaning; use
-   “that one” for that capture.
+   “that one” for that capture. Gender signs and other identity-bearing symbols
+   remain distinct tokens. Names containing them require an exact match; a
+   near-miss symbol never selects another card.
 5. The anchor and named captures are snapshotted at the first words, not final
    transcription. A later capture cannot steal a command. A corrected identity
    cannot inherit a command spoken about the previous card.
@@ -49,6 +51,9 @@ executing one against the wrong capture can change the collection.
    Missing rows fail visibly rather than disappearing from the queue.
 7. Accumulated warnings scroll inside a bounded panel; acknowledgement stays
    reachable on a phone even when many captures have failed.
+8. The write itself checks warnings before committing. The ordinary Add button
+   and the retained “Commit without them” confirmation share that check, and
+   returning to Scan invalidates an old unresolved-row confirmation.
 
 `__tests__/grammar.test.ts` enumerates name × command frame × row order and
 present/absent targets. `__tests__/actions.test.ts` enumerates queue transitions
