@@ -12,8 +12,8 @@ import { closePool, pool } from '../db.js';
  *
  *   create → card edits amend v1 in place (no logs yet) → battle log attaches to
  *   v1 → next card edit auto-bumps to v2 → versions list carries per-version W/L
- *   → revert applies the old snapshot through the same write path → strategy PUT
- *   never bumps → log CRUD → DELETE deck cascades everything away.
+ *   → revert always lands as a new version, keeping the list it replaced →
+ *   strategy PUT never bumps → log CRUD → DELETE deck cascades everything away.
  *
  * Self-cleaning: everything hangs off one throwaway deck; `after` deletes it
  * (deck_version + battle_log cascade) even when a test fails mid-run. Tests run
@@ -190,32 +190,37 @@ test('deck list rows carry version + all-versions record', async () => {
   assert.deepEqual(row.record, { wins: 1, losses: 0, ties: 0 });
 });
 
-test('revert with no logs on the current version amends v2 in place', async () => {
-  // v2 has no battle logs → the LOCKED rule says revert AMENDS v2, no bump.
+test('revert creates a new version even when the current one is unplayed, and keeps its list', async () => {
+  // v2 has no battle logs. A revert used to AMEND it, erasing the only copy of
+  // the unplayed list (DECISIONS 2026-09-26); it must now land as v3.
   const { status, json } = await api('POST', `/decks/${deckId}/revert`, { toVersion: 1, source: 'test-suite' });
   assert.equal(status, 200);
-  assert.equal(json.deck.version, 2);
-  assert.deepEqual(json.revert, { toVersion: 1, version: 2, bumped: false, skippedCards: [] });
+  assert.equal(json.deck.version, 3);
+  assert.deepEqual(json.revert, { toVersion: 1, version: 3, bumped: true, skippedCards: [] });
   assert.equal(json.counts.total, 3, 'live list is back to the v1 snapshot (3× cardA)');
 
+  const v3 = await api('GET', `/decks/${deckId}/versions/3`);
+  assert.equal(v3.json.note, 'Reverted to v1');
   const v2 = await api('GET', `/decks/${deckId}/versions/2`);
-  assert.equal(v2.json.note, 'Reverted to v1');
+  assert.equal(v2.json.cardCount, 4, 'the replaced list survives as v2');
+  assert.ok(v2.json.cards.some((c: any) => c.tcgdexId === cardB), 'including the edit the revert undid');
+  assert.equal(v2.json.note, 'added a second attacker', 'and keeps its own note');
 });
 
-test('revert bumps when the current version has logs; reverting to current is a 400', async () => {
-  // Log a battle on v2, then revert to v1 again — now it must create v3.
+test('revert also bumps when the current version has logs; reverting to current is a 400', async () => {
   const log = await api('POST', `/decks/${deckId}/logs`, {
     rawLog: 'unparseable', result: 'loss', opponent: 'Rival', source: 'test-suite',
   });
   assert.equal(log.status, 201);
-  assert.equal(log.json.attachedToVersion, 2);
+  assert.equal(log.json.attachedToVersion, 3);
 
-  const { status, json } = await api('POST', `/decks/${deckId}/revert`, { toVersion: 1, source: 'test-suite' });
+  const { status, json } = await api('POST', `/decks/${deckId}/revert`, { toVersion: 2, source: 'test-suite' });
   assert.equal(status, 200);
-  assert.equal(json.deck.version, 3);
+  assert.equal(json.deck.version, 4);
   assert.equal(json.revert.bumped, true);
+  assert.equal(json.counts.total, 4, 'back to the v2 list');
 
-  const self = await api('POST', `/decks/${deckId}/revert`, { toVersion: 3 });
+  const self = await api('POST', `/decks/${deckId}/revert`, { toVersion: 4 });
   assert.equal(self.status, 400);
 });
 
@@ -223,11 +228,11 @@ test('PUT /decks/:id/strategy never bumps and lands on the current snapshot', as
   const md = '# Hide and Sneak\n\nMulligan aggressively for the draw engine.';
   const { status, json } = await api('PUT', `/decks/${deckId}/strategy`, { strategyMd: md, source: 'deckpal-mcp' });
   assert.equal(status, 200);
-  assert.equal(json.deck.version, 3, 'strategy edits never bump');
+  assert.equal(json.deck.version, 4, 'strategy edits never bump');
   assert.equal(json.deck.strategyMd, md);
 
-  const v3 = await api('GET', `/decks/${deckId}/versions/3`);
-  assert.equal(v3.json.strategyMd, md, 'current snapshot updated in place');
+  const v4 = await api('GET', `/decks/${deckId}/versions/4`);
+  assert.equal(v4.json.strategyMd, md, 'current snapshot updated in place');
   const v1 = await api('GET', `/decks/${deckId}/versions/1`);
   assert.equal(v1.json.strategyMd, null, 'older snapshots untouched');
 

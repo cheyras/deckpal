@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { contextFor } from './support.mjs'
+import { signIn } from './admin.mjs'
 import { announcement } from './upcoming.mjs'
 
 // PERF-01: every page is its own `lazyRoute` chunk. The built app must still
@@ -10,6 +11,8 @@ import { announcement } from './upcoming.mjs'
 // surfaces after that one reload instead of reloading forever. These contexts
 // have no service worker, which is the case the uncontrolled recovery exists for.
 const SERIES_CHUNK = /\/assets\/SeriesDetail-[\w-]+\.js$/
+const ADMIN_PARENT_CHUNK = /\/assets\/Admin-[\w-]+\.js$/
+const ADMIN_CHILD_CHUNK = /\/assets\/Users-[\w-]+\.js$/
 
 export async function checkRouteSplit(browser, server, mount, label, out) {
   const results = []
@@ -76,7 +79,7 @@ export async function checkRouteSplit(browser, server, mount, label, out) {
         await seriesHeading(page).waitFor({ timeout: 15000 })
         assert.equal(documents, 2, label + ': a stale chunk must cost exactly one reload')
         assert.equal(new URL(page.url()).pathname, seriesPath, label + ': the reload must land where they were going')
-        assert.equal(await page.evaluate(() => sessionStorage.getItem('deckpal:chunk-retry')), null,
+        assert.equal(await page.evaluate(() => sessionStorage.getItem('deckpal:chunk-retry:./routes/SeriesDetail')), null,
           label + ': the retry guard must clear once the chunk loads')
         await page.screenshot({ path: path.join(out, `route-split-recovered-${label}.png`) })
       }
@@ -85,4 +88,37 @@ export async function checkRouteSplit(browser, server, mount, label, out) {
     } finally { await context.close() }
   }
   return results
+}
+
+// The admin shell and its Users page are separate chunks. On a direct load the
+// parent succeeds on both documents while the child stays missing. A shared
+// retry flag would be cleared by that parent and reload forever.
+export async function checkNestedRouteRecovery(browser, server, mount, label) {
+  const { context, page } = await contextFor(browser, server, 390)
+  await signIn(context)
+  const errorsBefore = server.unexpected.length
+  let documents = 0, parentLoaded = 0, childMisses = 0
+  page.on('request', (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documents++
+  })
+  page.on('response', (response) => {
+    if (ADMIN_PARENT_CHUNK.test(response.url()) && response.ok()) parentLoaded++
+  })
+  await page.route(ADMIN_CHILD_CHUNK, (route) => {
+    childMisses++
+    return route.fulfill({ status: 404, contentType: 'text/plain', body: 'child chunk stays gone' })
+  })
+  try {
+    await page.goto(server.origin + mount + '/admin/users', { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(4000)
+    assert.equal(documents, 2, label + ': missing child chunk must cause exactly one reload')
+    assert.ok(parentLoaded >= 1, label + ': parent chunk must have loaded successfully')
+    assert.ok(childMisses >= 2, label + ': child chunk must stay missing after reload')
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('deckpal:chunk-retry:./routes/admin/Users') !== null), true,
+      label + ': successful parent must not clear the child retry guard')
+    const surfaced = server.unexpected.splice(errorsBefore)
+    assert.ok(surfaced.every((error) => /dynamically imported module|Importing a module script failed/i.test(error)),
+      label + ': only the missing child may surface: ' + surfaced.join(' | '))
+    return { case: 'nested-route-child-gone-no-loop', label, documents, parentLoaded, childMisses }
+  } finally { await context.close() }
 }

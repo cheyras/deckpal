@@ -12,6 +12,8 @@ export default defineConfig({
   resolve: { alias: {
     react: fileURLToPath(new URL('../../apps/web/node_modules/react', import.meta.url)),
     'react-dom': fileURLToPath(new URL('../../apps/web/node_modules/react-dom', import.meta.url)),
+    // The same copy the chat hook imports, so the fixture's provider is the one it reads.
+    '@tanstack/react-query': fileURLToPath(new URL('../../apps/web/node_modules/@tanstack/react-query', import.meta.url)),
   } },
   define: {
     'import.meta.env.VITE_SUPABASE_URL': '""',

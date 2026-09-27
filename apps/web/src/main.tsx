@@ -27,7 +27,7 @@ import { lazyRoute, type LazyRoute } from './lib/lazyRoute'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { AuthGuard } from './components/AuthGuard'
-import { isPublicPathname, isSafeNextPath } from './lib/landingRoute'
+import { isPublicPathname, safeNextPath } from './lib/landingRoute'
 import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED, ACCESS_CHANGED } from './lib/access'
 import { requireVerifiedCapability } from './lib/capabilities'
 import { Content, EmptyState } from './components/ui'
@@ -61,37 +61,37 @@ import { deckeEntitled, onDeckeEntitlementChange } from './character/host/entitl
 // other three are the first page a lapsed session sees and share its `authUi`
 // kit — which is also what keeps `landing.css` in the entry CSS, where Profile's
 // `.ls-cta` buttons rely on finding it.
-const Landing = lazyRoute(() => import('./routes/Landing'), 'Landing')
-const SeriesIndex = lazyRoute(() => import('./routes/SeriesIndex'), 'SeriesIndex')
-const SeriesDetail = lazyRoute(() => import('./routes/SeriesDetail'), 'SeriesDetail')
-const SetDetail = lazyRoute(() => import('./routes/SetDetail'), 'SetDetail')
-const CardDetail = lazyRoute(() => import('./routes/CardDetail'), 'CardDetail')
-const SearchResults = lazyRoute(() => import('./routes/SearchResults'), 'SearchResults')
-const PokedexIndex = lazyRoute(() => import('./routes/PokedexIndex'), 'PokedexIndex')
-const SpeciesDetail = lazyRoute(() => import('./routes/SpeciesDetail'), 'SpeciesDetail')
-const ListsIndex = lazyRoute(() => import('./routes/ListsIndex'), 'ListsIndex')
-const ListDetail = lazyRoute(() => import('./routes/ListDetail'), 'ListDetail')
-const DecksIndex = lazyRoute(() => import('./routes/DecksIndex'), 'DecksIndex')
-const DeckBuilder = lazyRoute(() => import('./routes/DeckBuilder'), 'DeckBuilder')
-const Insights = lazyRoute(() => import('./routes/Insights'), 'Insights')
-const Profile = lazyRoute(() => import('./routes/Profile'), 'Profile')
-const Credits = lazyRoute(() => import('./routes/credits/Credits'), 'Credits')
-const Scan = lazyRoute(() => import('./routes/Scan'), 'Scan')
-const Devtools = lazyRoute(() => import('./routes/Devtools'), 'Devtools')
-const Admin = lazyRoute(() => import('./routes/admin/Admin'))
-const AdminOverview = lazyRoute(() => import('./routes/admin/Admin'), 'AdminOverview')
-const AdminUsers = lazyRoute(() => import('./routes/admin/Users'), 'AdminUsers')
-const AdminUserDetail = lazyRoute(() => import('./routes/admin/Users'), 'AdminUserDetail')
-const AdminRoles = lazyRoute(() => import('./routes/admin/Roles'), 'AdminRoles')
-const AdminSettings = lazyRoute(() => import('./routes/admin/Settings'), 'AdminSettings')
-const AdminAudit = lazyRoute(() => import('./routes/admin/Audit'), 'AdminAudit')
-const AdminFeatures = lazyRoute(() => import('./routes/admin/Features'), 'AdminFeatures')
-const AdminAiUsage = lazyRoute(() => import('./routes/admin/AiUsage'), 'AdminAiUsage')
+const Landing = lazyRoute('./routes/Landing', () => import('./routes/Landing'), 'Landing')
+const SeriesIndex = lazyRoute('./routes/SeriesIndex', () => import('./routes/SeriesIndex'), 'SeriesIndex')
+const SeriesDetail = lazyRoute('./routes/SeriesDetail', () => import('./routes/SeriesDetail'), 'SeriesDetail')
+const SetDetail = lazyRoute('./routes/SetDetail', () => import('./routes/SetDetail'), 'SetDetail')
+const CardDetail = lazyRoute('./routes/CardDetail', () => import('./routes/CardDetail'), 'CardDetail')
+const SearchResults = lazyRoute('./routes/SearchResults', () => import('./routes/SearchResults'), 'SearchResults')
+const PokedexIndex = lazyRoute('./routes/PokedexIndex', () => import('./routes/PokedexIndex'), 'PokedexIndex')
+const SpeciesDetail = lazyRoute('./routes/SpeciesDetail', () => import('./routes/SpeciesDetail'), 'SpeciesDetail')
+const ListsIndex = lazyRoute('./routes/ListsIndex', () => import('./routes/ListsIndex'), 'ListsIndex')
+const ListDetail = lazyRoute('./routes/ListDetail', () => import('./routes/ListDetail'), 'ListDetail')
+const DecksIndex = lazyRoute('./routes/DecksIndex', () => import('./routes/DecksIndex'), 'DecksIndex')
+const DeckBuilder = lazyRoute('./routes/DeckBuilder', () => import('./routes/DeckBuilder'), 'DeckBuilder')
+const Insights = lazyRoute('./routes/Insights', () => import('./routes/Insights'), 'Insights')
+const Profile = lazyRoute('./routes/Profile', () => import('./routes/Profile'), 'Profile')
+const Credits = lazyRoute('./routes/credits/Credits', () => import('./routes/credits/Credits'), 'Credits')
+const Scan = lazyRoute('./routes/Scan', () => import('./routes/Scan'), 'Scan')
+const Devtools = lazyRoute('./routes/Devtools', () => import('./routes/Devtools'), 'Devtools')
+const Admin = lazyRoute('./routes/admin/Admin', () => import('./routes/admin/Admin'))
+const AdminOverview = lazyRoute('./routes/admin/Admin', () => import('./routes/admin/Admin'), 'AdminOverview')
+const AdminUsers = lazyRoute('./routes/admin/Users', () => import('./routes/admin/Users'), 'AdminUsers')
+const AdminUserDetail = lazyRoute('./routes/admin/Users', () => import('./routes/admin/Users'), 'AdminUserDetail')
+const AdminRoles = lazyRoute('./routes/admin/Roles', () => import('./routes/admin/Roles'), 'AdminRoles')
+const AdminSettings = lazyRoute('./routes/admin/Settings', () => import('./routes/admin/Settings'), 'AdminSettings')
+const AdminAudit = lazyRoute('./routes/admin/Audit', () => import('./routes/admin/Audit'), 'AdminAudit')
+const AdminFeatures = lazyRoute('./routes/admin/Features', () => import('./routes/admin/Features'), 'AdminFeatures')
+const AdminAiUsage = lazyRoute('./routes/admin/AiUsage', () => import('./routes/admin/AiUsage'), 'AdminAiUsage')
 
 // The two things `RootComponent` mounts on every page and almost nobody sees:
 // Deck-E's host (two accounts) and the support prompt (signed in, cloud only).
-const DeckeHost = lazyRoute(() => import('./character/host/DeckeHost'), 'DeckeHost')
-const SupportPrompt = lazyRoute(() => import('./components/billing/SupportPrompt'), 'SupportPrompt')
+const DeckeHost = lazyRoute('./character/host/DeckeHost', () => import('./character/host/DeckeHost'), 'DeckeHost')
+const SupportPrompt = lazyRoute('./components/billing/SupportPrompt', () => import('./components/billing/SupportPrompt'), 'SupportPrompt')
 
 /** Run `fn` when the main thread is free. Safari has no `requestIdleCallback`. */
 function whenIdle(fn: () => void): void {
@@ -519,9 +519,10 @@ const authRoute = createRoute({
   path: '/auth',
   validateSearch: (raw: Record<string, unknown>): { mode?: 'signup' | 'forgot'; next?: string } => ({
     mode: raw.mode === 'signup' ? 'signup' : raw.mode === 'forgot' ? 'forgot' : undefined,
-    // Same-origin relative path only — /authorize is the one caller today,
-    // bouncing a signed-out visitor here and back once they sign in.
-    next: isSafeNextPath(raw.next) ? raw.next : undefined,
+    // Same-origin, path-only, and normalised to `pathname+search+hash` by
+    // `safeNextPath` (SEC-05) — every gated entry point that bounces here
+    // (the rail, AuthGuard, the card sheet, /authorize) writes this param.
+    next: safeNextPath(raw.next) ?? undefined,
   }),
   component: Auth,
 })
@@ -562,6 +563,13 @@ const authResetRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth/reset',
   beforeLoad: cloudOnly,
+  // Carried from the `/auth?next=` that sent them to "Forgot password?" in
+  // the first place (Auth.tsx sets `redirectTo` on the reset email to
+  // `/auth/reset?next=<encoded>`), so "set a new password" ends where
+  // sign-in would have. Same predicate as `/auth`'s own `next`.
+  validateSearch: (raw: Record<string, unknown>): { next?: string } => ({
+    next: safeNextPath(raw.next) ?? undefined,
+  }),
   component: ResetPassword,
 })
 
@@ -603,7 +611,7 @@ const coreRoutes = [
 // indistinguishable from a URL that does not exist. The flag's identity check
 // lives server-side (DESIGN_EDITOR_USER_ID) — nothing about who the owner is
 // appears in this bundle.
-const LazyDesignSystem = lazyRoute(() => import('./routes/design/DesignSystem'))
+const LazyDesignSystem = lazyRoute('./routes/design/DesignSystem', () => import('./routes/design/DesignSystem'))
 const DesignSystemRoute = () => (
   <Suspense
     fallback={
@@ -639,9 +647,9 @@ const designRoute = createRoute({
 // that exclusion is the only thing standing between this route and a megabyte of
 // dead weight in every session. Do not remove it without re-reading the note
 // there.
-const LazyDecke = lazyRoute(() => import('./routes/dev/Decke'))
-const LazyDeckeCompare = lazyRoute(() => import('./routes/dev/DeckeCompare'))
-const LazyChatUi = lazyRoute(() => import('./routes/dev/ChatUi'))
+const LazyDecke = lazyRoute('./routes/dev/Decke', () => import('./routes/dev/Decke'))
+const LazyDeckeCompare = lazyRoute('./routes/dev/DeckeCompare', () => import('./routes/dev/DeckeCompare'))
+const LazyChatUi = lazyRoute('./routes/dev/ChatUi', () => import('./routes/dev/ChatUi'))
 const DeckeRoute = () => (
   <Suspense
     fallback={
@@ -719,7 +727,7 @@ const deckeCompareRoute = createRoute({
  * self-contained HTML artifact carried as a raw string in this lazy chunk
  * (~72 KB pre-gzip), so only whoever opens the route pays for it.
  */
-const LazyScanHarness = lazyRoute(() => import('./routes/dev/ScanHarness'))
+const LazyScanHarness = lazyRoute('./routes/dev/ScanHarness', () => import('./routes/dev/ScanHarness'))
 const ScanHarnessRoute = () => (
   <Suspense
     fallback={
@@ -744,7 +752,7 @@ const scanHarnessRoute = createRoute({
  * other /dev route; the component (and the engine chunk it lazy-loads on
  * first use) ships only to whoever opens it.
  */
-const LazyQuadLabeler = lazyRoute(() => import('./routes/dev/QuadLabeler'))
+const LazyQuadLabeler = lazyRoute('./routes/dev/QuadLabeler', () => import('./routes/dev/QuadLabeler'))
 const QuadLabelerRoute = () => (
   <Suspense
     fallback={
@@ -773,7 +781,7 @@ const quadLabelerRoute = createRoute({
  * and a harvest view open to someone who cannot see the labeler would be a
  * listing of frames photographed in the owner's house.
  */
-const LazyQuadHarvest = lazyRoute(() => import('./routes/dev/QuadHarvest'))
+const LazyQuadHarvest = lazyRoute('./routes/dev/QuadHarvest', () => import('./routes/dev/QuadHarvest'))
 const QuadHarvestRoute = () => (
   <Suspense
     fallback={

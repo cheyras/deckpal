@@ -9,6 +9,7 @@ import { Modal, ConfirmModal } from '../../components/ListModals'
 import { Icon } from '../../components/Icon'
 import { fmtDate } from '../../lib/format'
 import { ResultBadge, SourceChip, VersionChip, RecordSpans } from './intelShared'
+import { writeFailureText } from '../../lib/writes'
 
 // ── One log row: summary line + chevron-expand to the raw log ─────────────────
 function LogRow({ deckId, log, onDelete }: { deckId: string; log: BattleLogSummary; onDelete: () => void }) {
@@ -348,7 +349,11 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
           message={`Delete this ${deleteTarget.result ?? 'unscored'} vs ${deleteTarget.opponent ?? 'unknown opponent'} (${fmtDate(deleteTarget.playedAt)})? This can't be undone.`}
           confirmLabel="Delete Log"
           busy={deleteLog.isPending}
-          onClose={() => setDeleteTarget(null)}
+          error={deleteLog.isError ? writeFailureText("Couldn't delete this battle log.", deleteLog.error) : null}
+          onClose={() => {
+            setDeleteTarget(null)
+            deleteLog.reset()
+          }}
           onConfirm={() => deleteLog.mutate(deleteTarget.id)}
         />
       )}

@@ -25,7 +25,9 @@
  * THE RECOVERY. A module that will not load is very likely a stale shell, so:
  * pull the waiting service worker forward, reload once, and let the fresh shell
  * ask for a hash that exists. Guarded by a session flag so a genuinely broken
- * chunk surfaces as an error instead of a reload loop, and never in dev — there
+ * chunk surfaces as an error instead of a reload loop. The guard belongs to
+ * that chunk: a parent route or background preload succeeding must not clear
+ * a child's failed-import guard. Recovery never runs in dev — there
  * a failed import is a real error that should be seen, not reloaded away.
  *
  * ── EVERY PRODUCT PAGE IS ONE OF THESE NOW (2026-09-26, PERF-01) ─────────────
@@ -56,24 +58,28 @@ import { activateLatest } from '../pwa'
 
 const RETRY_KEY = 'deckpal:chunk-retry'
 
-function retried(): boolean {
+function retryKey(chunkId: string): string {
+  return `${RETRY_KEY}:${chunkId}`
+}
+
+function retried(chunkId: string): boolean {
   try {
-    return sessionStorage.getItem(RETRY_KEY) !== null
+    return sessionStorage.getItem(retryKey(chunkId)) !== null
   } catch {
     return true
   }
 }
 
-function markRetried(): void {
+function markRetried(chunkId: string): void {
   try {
-    sessionStorage.setItem(RETRY_KEY, String(Date.now()))
+    sessionStorage.setItem(retryKey(chunkId), String(Date.now()))
   } catch {
   }
 }
 
-function clearRetry(): void {
+function clearRetry(chunkId: string): void {
   try {
-    sessionStorage.removeItem(RETRY_KEY)
+    sessionStorage.removeItem(retryKey(chunkId))
   } catch {
   }
 }
@@ -86,6 +92,7 @@ export type LazyRoute<C extends ComponentType<any>> = ((props: ComponentProps<C>
 }
 
 export function lazyRoute<M extends Record<string, any>, K extends keyof M = 'default'>(
+  chunkId: string,
   load: () => Promise<M>,
   exportName: K = 'default' as K,
 ): M[K] extends ComponentType<any> ? LazyRoute<M[K]> : never {
@@ -95,7 +102,7 @@ export function lazyRoute<M extends Record<string, any>, K extends keyof M = 'de
   const settle = (mod: M): ComponentType<any> => {
     const page: ComponentType<any> = mod[exportName]
     loaded = page
-    clearRetry()
+    clearRetry(chunkId)
     return page
   }
 
@@ -111,8 +118,8 @@ export function lazyRoute<M extends Record<string, any>, K extends keyof M = 'de
     try {
       return { default: settle(await load()) }
     } catch (err) {
-      if (import.meta.env.DEV || retried()) throw err
-      markRetried()
+      if (import.meta.env.DEV || retried(chunkId)) throw err
+      markRetried(chunkId)
       if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) await activateLatest()
       window.location.reload()
       return new Promise<never>(() => {})
