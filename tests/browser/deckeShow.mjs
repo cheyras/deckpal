@@ -584,9 +584,12 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
   try {
     const box = await openChat(page, server)
 
-    // ── HIS COLOUR: DeckPal's cyan, not a grayed teal ──
-    // Drawn once for real and read back in the same task (the canvas keeps no
-    // buffer between tasks). The body is the cyan-hued pixels inside his box.
+    // ── HIS COLOURS, AS AUTHORED: white eyes, brand-cyan body, true accents ──
+    // The owner: "like someone ran a desaturate filter over him entirely". It
+    // was the tone curve (Blender's AgX), over all of him. Drawn once for real
+    // and read back in the same task (the canvas keeps no buffer between
+    // tasks), then sorted into his parts by hue: the eyes' whites (bright and
+    // colourless), the cyan body, the amber bolts, the rose mouth.
     const color = await page.evaluate(() => {
       const d = window.__decke
       d.step(1 / 60)
@@ -594,39 +597,63 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
       const c = document.createElement('canvas'); c.width = src.width; c.height = src.height
       const g = c.getContext('2d'); g.drawImage(src, 0, 0)
       const px = g.getImageData(Math.max(0, Math.floor(r.left * s)), Math.max(0, Math.floor(r.top * s)), Math.ceil(r.width * s), Math.ceil(r.height * s)).data
-      const cyan = []; let white = 0, n = 0
+      const parts = { body: [], white: [], gold: [], rose: [] }
+      let blown = 0, n = 0
       for (let i = 0; i < px.length; i += 4) {
         if (px[i + 3] < 250) continue
         const [R, G, B] = [px[i], px[i + 1], px[i + 2]], mx = Math.max(R, G, B), dl = mx - Math.min(R, G, B)
         if (mx < 30) continue
         n++
-        if (R > 250 && G > 250 && B > 250) white++
+        if (R > 250 && G > 250 && B > 250) blown++
         let hue = !dl ? 0 : mx === R ? 60 * (((G - B) / dl) % 6) : mx === G ? 60 * ((B - R) / dl + 2) : 60 * ((R - G) / dl + 4)
         if (hue < 0) hue += 360
-        if (hue >= 165 && hue <= 215 && dl / mx > 0.15) cyan.push([R, G, B])
+        const sat = dl / mx
+        if (sat < 0.12 && mx > 120) parts.white.push([R, G, B])
+        else if (sat > 0.15 && hue >= 165 && hue <= 215) parts.body.push([R, G, B])
+        else if (sat > 0.3 && hue >= 25 && hue <= 60) parts.gold.push([R, G, B])
+        else if (sat > 0.2 && (hue >= 320 || hue <= 15)) parts.rose.push([R, G, B])
       }
-      cyan.sort((a, b) => a[0] + a[1] + a[2] - (b[0] + b[1] + b[2]))
-      const sat = cyan.reduce((acc, [R, G, B]) => acc + (Math.max(R, G, B) - Math.min(R, G, B)) / Math.max(R, G, B), 0) / (cyan.length || 1)
       // A band's per-channel median, never one pixel at a percentile: at equal
-      // brightness a lit cyan pixel and a grey specular one sort side by side,
-      // and a single pick lands on either (ΔE 3 or 25 from the same frame).
-      const band = (lo, hi) => {
-        const s = cyan.slice(Math.floor(cyan.length * lo), Math.max(Math.floor(cyan.length * lo) + 1, Math.floor(cyan.length * hi)))
-        return [0, 1, 2].map((k) => s.map((p) => p[k]).sort((a, b) => a - b)[s.length >> 1])
+      // brightness a lit pixel and a grey specular one sort side by side, and a
+      // single pick lands on either (ΔE 3 or 25 from the same frame).
+      const lum = (p) => p[0] * 0.2126 + p[1] * 0.7152 + p[2] * 0.0722
+      const band = (arr, lo, hi) => {
+        if (!arr.length) return null
+        const all = [...arr].sort((a, b) => lum(a) - lum(b))
+        const sl = all.slice(Math.floor(all.length * lo), Math.max(Math.floor(all.length * lo) + 1, Math.floor(all.length * hi)))
+        return [0, 1, 2].map((k) => sl.map((p) => p[k]).sort((a, b) => a - b)[sl.length >> 1])
       }
-      return { n: cyan.length, median: band(0, 1), lit: band(0.75, 0.95), sat, white: white / (n || 1) }
+      const sat = parts.body.reduce((acc, [R, G, B]) => acc + (Math.max(R, G, B) - Math.min(R, G, B)) / Math.max(R, G, B), 0) / (parts.body.length || 1)
+      return {
+        n: Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v.length])),
+        median: band(parts.body, 0, 1), lit: band(parts.body, 0.75, 0.95), sat,
+        white: band(parts.white, 0.5, 0.95), gold: band(parts.gold, 0.5, 0.95), rose: band(parts.rose, 0.5, 0.95),
+        blown: blown / (n || 1),
+      }
     })
-    const BRAND = [0x00, 0xd3, 0xf3]
-    assert.ok(color.n > 500, engine + ': too few body pixels to judge his colour (' + color.n + ')')
-    // The LIT face (the 75th to 95th brightness percentiles) is the colour he
-    // reads as: ΔE 24 before, a grayed teal. The median also counts his shaded
-    // side, and how much of that is in view depends on his pose, so it is
-    // reported rather than asserted.
+    const hex = (a) => '#' + a.map((v) => v.toString(16).padStart(2, '0')).join('')
+    const BRAND = [0x00, 0xd3, 0xf3], AMBER = [0xfa, 0xb8, 0x20], ROSE = [0xfb, 0x71, 0x85]
+    assert.ok(color.n.body > 500 && color.n.white > 200 && color.n.gold > 100, engine + ': too few pixels of each part to judge his colours ' + JSON.stringify(color.n))
+    // His EYE WHITES are white: authored #ffffff under white lights. Through
+    // AgX they came out #cacbcb, the grey that made the whole of him read dim.
+    const whiteMin = Math.min(...color.white), whiteSpread = Math.max(...color.white) - whiteMin
+    assert.ok(whiteMin >= 225, engine + ': his eye whites render ' + hex(color.white) + ', grey')
+    assert.ok(whiteSpread <= 10, engine + ': his eye whites render ' + hex(color.white) + ', tinted')
+    // His BODY's lit face (the 75th to 95th brightness percentiles) is the
+    // brand cyan. The median also counts his shaded side, and how much of that
+    // is in view depends on his pose, so it is reported rather than asserted.
     const dMedian = deltaE(color.median, BRAND), dLit = deltaE(color.lit, BRAND)
-    assert.ok(dLit <= 8, engine + ': his lit face renders ' + JSON.stringify(color.lit) + ', ΔE ' + dLit.toFixed(1) + ' from the brand cyan')
+    assert.ok(dLit <= 6, engine + ': his lit face renders ' + hex(color.lit) + ', ΔE ' + dLit.toFixed(1) + ' from the brand cyan')
     assert.ok(color.sat >= 0.75, engine + ': his body is ' + Math.round(color.sat * 100) + '% saturated — grayed out')
-    assert.ok(color.white <= 0.01, engine + ': ' + (color.white * 100).toFixed(1) + '% of him is blown to white')
-    results.push({ case: 'decke-body-color', engine, deltaE: Math.round(dMedian), deltaELit: Math.round(dLit), saturation: Math.round(color.sat * 100) })
+    // His ACCENTS are their authored colours: the amber-400 bolts, not the
+    // muted #c29f5e (ΔE 40) AgX made of them. The rose-400 mouth is reported,
+    // not asserted: it is a thin glossy line that changes shape with his pose,
+    // so at some poses its anti-aliased edge against the cyan outweighs it.
+    const dGold = deltaE(color.gold, AMBER), dRose = color.rose ? deltaE(color.rose, ROSE) : null
+    assert.ok(dGold <= 14, engine + ': his bolts render ' + hex(color.gold) + ', ΔE ' + dGold.toFixed(1) + ' from amber-400')
+    assert.ok(color.blown <= 0.01, engine + ': ' + (color.blown * 100).toFixed(1) + '% of him is blown to white')
+    results.push({ case: 'decke-body-color', engine, deltaE: Math.round(dMedian), deltaELit: Math.round(dLit), saturation: Math.round(color.sat * 100),
+      white: hex(color.white), bolts: hex(color.gold), boltsDeltaE: Math.round(dGold), mouth: color.rose && hex(color.rose), mouthDeltaE: color.rose && Math.round(dRose) })
 
     // ── A LONG PHONE CONVERSATION WITH WIDGETS, SCROLLED UP AND BACK ──
     // The recorder is what advances him (his own loop is stopped), so it runs

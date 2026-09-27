@@ -501,13 +501,21 @@ Each of these cost someone a debugging pass, upstream or here.
 - **The environment and the lights are both required.** The `.blend` has him
   metallic 0.85, where with nothing to reflect he renders near-black, and
   Blender's area lights were *trimmed* when the HDRI was added rather than removed.
-- **His body colour deliberately departs from the `.blend`.** `brandBody()` in
-  `materials.ts` sets the body to `--color-brand-primary-400`, metalness 0.3 and
-  the Khronos Neutral tone curve in that one shader; everything else on him keeps
-  AgX. At 0.85 metal under AgX his body rendered #4c95a1, ΔE 28 from DeckPal's
-  cyan and visibly grey. Colour parity against the `.blend` is therefore not expected
-  on the body; `decke-body-color` samples his rendered pixels against the token
-  instead, and `bodyColor.test.ts` fails if the token and he drift apart.
+- **The app renders through Neutral, not Blender's AgX.** AgX (Look: None)
+  greys saturated colour and pulls diffuse white down by design: in the app his
+  eye whites came out #cacbcb, his amber bolts #c29f5e, his body ΔE 25 from
+  DeckPal's cyan — "like someone ran a desaturate filter over him". The stage now
+  defaults to `NeutralToneMapping` at exposure 1 (whites #f0f3f5, bolts #e9a915).
+  AgX stays behind `look: 'blender'`, which `/dev/decke?parity=1` passes, so
+  parity is still measured like for like. Never fix a colour by giving one
+  material its own curve or a boost: that is what made his body pop against
+  grey eyes on the first attempt.
+- **His body deliberately departs from the `.blend`.** `brandBody()` in
+  `materials.ts` sets it to `--color-brand-primary-400` at metalness 0.3; at the
+  `.blend`'s 0.85 his shell is a cyan tint on a grey studio and its lit faces sit
+  ΔE 15 from the token even under Neutral. `decke-body-color` samples his
+  rendered pixels (whites, body, bolts, mouth), and `bodyColor.test.ts` fails if
+  the token and he drift apart or a per-material curve comes back.
 
 ## Wiki pages that are stale
 

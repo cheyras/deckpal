@@ -126,7 +126,10 @@ const CARD_FOIL = {
   clearcoatRoughness: 0.08,
 } as const
 
-export function fixupMaterials(root: Object3D): { cardsFixed: number; bodyFixed: boolean } {
+export function fixupMaterials(
+  root: Object3D,
+  { brand = true }: { brand?: boolean } = {},
+): { cardsFixed: number; bodyFixed: boolean } {
   let cardsFixed = 0
   let bodyFixed = false
   const seen = new Set<Material>()
@@ -147,8 +150,10 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number; bodyFixed:
       const name = std.name ?? ''
 
       if (name === BODY_MATERIAL) {
-        brandBody(std)
-        bodyFixed = true
+        if (brand) {
+          brandBody(std)
+          bodyFixed = true
+        }
         continue
       }
 
@@ -164,11 +169,9 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number; bodyFixed:
       std.emissiveMap = std.map
       std.emissiveIntensity = CARD_EMISSION_STRENGTH
 
-      // Skip the stage's AgX curve for the CARD FRONTS ONLY — see the header
-      // comment above `CARD_EMISSION_STRENGTH` for the measurement. The
-      // character himself keeps it (nothing outside this `if` block is
-      // touched), because the stage's whole calibration is against Blender's
-      // AgX render and that parity must not move.
+      // Skip the stage's tone curve for the CARD FRONTS ONLY — see the header
+      // comment above `CARD_EMISSION_STRENGTH` for the measurement (taken under
+      // AgX; the cards' art is shown as printed under either curve).
       std.toneMapped = false
 
       // `KHR_materials_specular` is on every card front, so the loader has
@@ -198,65 +201,37 @@ export const BODY_MATERIAL = 'DeckBox_Cyan400'
 /**
  * DeckPal's cyan: `--color-brand-primary-400` in theme.css. Mirrored rather than
  * read at runtime because the engine does not read the page's CSS; the
- * `materials.test.ts` pin fails if the token moves without him.
+ * `bodyColor.test.ts` pin fails if the token moves without him.
  */
 export const BRAND_CYAN = '#00d3f3'
 
 /**
  * How metallic his shell is. The glb says 0.85; see `brandBody` for why that
- * was one of the two things graying him out, and why not 0.
+ * kept his faces off the brand colour, and why not 0.
  */
 export const BODY_METALNESS = 0.3
 
 /**
- * Make him the colour he is supposed to be.
+ * His body in DeckPal's cyan, as a painted shell rather than a tinted mirror.
  *
- * ── WHAT GRAYED HIM OUT ─────────────────────────────────────────────────────
+ * The desaturation the owner saw was the renderer's tone curve, over all of him
+ * (see `toneMapping` in `stage.ts`). With that fixed pipeline-wide, two things
+ * about the body itself still kept its lit faces off the brand colour, measured
+ * at 390x844 under the Neutral curve (lit face = the 75th-95th brightness
+ * percentiles of his cyan pixels, per-channel median):
  *
- * The owner: his colour is "desaturated, slightly grayed out". Measured on a
- * phone-width render (per-channel medians of his cyan pixels, so no single
- * pixel decides it): the body was #4c95a1 against the brand's #00d3f3, a ΔE76
- * of 28, and even its lit face (brightness percentiles 75-95) was #5ca3af,
- * ΔE 24, at 63% saturation. Taking the stage's knobs one at a time:
+ *   - THE METAL. The glb says 0.85, which leaves the shell almost no diffuse
+ *     colour of its own: it is a cyan tint on reflections of a grey studio, so
+ *     its faces sit dark whatever the curve does (lit #03aac4, ΔE 15). At 0.5
+ *     it is ΔE 7; at 0.3, ΔE 3.5, keeping a lacquered sheen and his form.
+ *   - THE BASE COLOUR was Tailwind's cyan-400 (#22d3ee), a copy that had
+ *     drifted from the brand token.
  *
- *   1. THE TONE CURVE. The stage runs a port of Blender's AgX (Look: None),
- *      which desaturates bright saturated colour toward white BY DESIGN — the
- *      file header above measured the same curve bleeding 25-65 points of
- *      saturation out of a patch chart. Khronos' PBR Neutral curve is built for
- *      exactly this: product colour that must come out as authored, compressing
- *      nothing but the highlights. Alone it lifts him to 92% saturation, but
- *      the lit face only reaches ΔE 14, because of —
- *   2. THE METAL. At metalness 0.85 the shell has almost no diffuse colour of
- *      its own: it is a cyan TINT on reflections of a grey studio, so it stays
- *      dark whatever the curve does (body ΔE 23). Dropping the metal under AgX
- *      instead goes chalky (43% saturation). 0.3 with the Neutral curve keeps a
- *      lacquered sheen and his form; 0 is marginally closer (lit ΔE 2) but flat.
- *   3. THE BASE COLOUR was Tailwind's cyan-400 (#22d3ee), not the brand's. On
- *      its own it moves nothing visible; it matters once the other two are fixed.
- *
- * Together: lit face #15ccea, ΔE 3; the whole body #09b9cb, ΔE 12 with his
- * shaded side in; 89% saturation; nothing clipped to white. iOS Safari reads
- * the same (lit ΔE 3, 89%).
- *
- * ONLY THE BODY. Everything else on him — the eyes' symbol palette above all —
- * was chosen deeper and more saturated to come out right THROUGH AgX, and
- * swapping the whole stage's curve would have over-saturated every one of them
- * (`eyes/eyeMaterial.ts`). So the renderer keeps its curve and this one
- * material replaces the curve in its own shader.
+ * No brightness, saturation or emissive is added, and he is on the same curve
+ * as everything else, so his whites and accents keep their relationship to him.
  */
 function brandBody(std: MeshStandardMaterial) {
   std.color.setStyle(BRAND_CYAN)
   std.metalness = BODY_METALNESS
-  std.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <tonemapping_fragment>',
-      // `NeutralToneMapping` is declared by three's tone mapping chunk whatever
-      // the renderer's own curve is; `TONE_MAPPING` is defined whenever a curve
-      // is on at all, so "no tone mapping" stays no tone mapping.
-      '#if defined( TONE_MAPPING )\n\tgl_FragColor.rgb = NeutralToneMapping( gl_FragColor.rgb );\n#endif',
-    )
-  }
-  // A different program from every other standard material in the scene.
-  std.customProgramCacheKey = () => 'decke-body-neutral'
   std.needsUpdate = true
 }

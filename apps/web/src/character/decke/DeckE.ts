@@ -368,6 +368,13 @@ export type DeckEOptions = {
    */
   modelFile?: string
   clearColor?: readonly [number, number, number] | null
+  /**
+   * `app` (the default) renders him in his true colours: the Neutral tone curve
+   * and DeckPal's cyan body (`brandBody`). `blender` keeps the `.blend`'s AgX
+   * and its authored body, for the parity harness, which compares against a
+   * Blender render.
+   */
+  look?: 'app' | 'blender'
   onReady?: () => void
   onError?: (e: unknown) => void
   /**
@@ -846,6 +853,7 @@ export class DeckE {
     this.stage = createStage({
       canvas: opts.canvas,
       clearColor: opts.clearColor,
+      toneMapping: opts.look === 'blender' ? 'agx' : 'neutral',
       // `??` would be wrong here: an EXPLICIT null means "use Blender's exact
       // staging distance" (parity mode) and must not fall through to the
       // default. Only an absent option gets the default.
@@ -913,7 +921,7 @@ export class DeckE {
     this.model = model
     this.stage.scene.add(model)
     // Repair what glTF's fixed material model flattened, before anything binds.
-    fixupMaterials(model)
+    fixupMaterials(model, { brand: this.opts.look !== 'blender' })
     this.rig = bindRig(model)
     this.riderSystem = createRiderSystem(model)
     this.eyeSocket = createEyeSocket(model)
