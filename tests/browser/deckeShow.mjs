@@ -351,6 +351,12 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         assert.ok(m.bubbleFrames > 0, where + 'his line never appeared beside him')
         assert.ok(m.bubbleDesyncPx <= MAX_BUBBLE_DESYNC_PX, where + 'the bubble moved ' + m.bubbleDesyncPx + ' px against him in one frame')
         assert.ok(m.bubbleSideChanges <= 2, where + 'the bubble changed sides ' + m.bubbleSideChanges + ' times')
+        // OUT ON THE PAGE NOTHING CLIPS HIM. His second line arrives while the
+        // chat is minimised and re-runs the phone park pass; that must not put
+        // back the clip at a composer that is not on screen.
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+        const clip = await page.evaluate(() => window.__decke.opts.canvas.style.clipPath)
+        assert.equal(clip, '', where + 'out on the page he is clipped at the hidden composer (' + clip + ')')
         results.push({ case: 'decke-show-card', engine, width: vp.width, ...m, ringT: undefined })
       } finally { await context.close() }
     }
@@ -671,6 +677,17 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
     assert.ok(up.floor !== null && drawn(up.him, up.floor)[3] === 0, engine + ': scrolled up, he was still drawn over the conversation')
     // No thrash: at most about one layout per scrolled frame (it was 2.4 before).
     if (layouts !== null) assert.ok(layouts <= m.scrolled + 20, engine + ': ' + layouts + ' layouts for ' + m.scrolled + ' scrolled frames')
+
+    // Closed while he had ridden off, then reopened: the panel unmounts on
+    // close, so the park box comes back untransformed, and he must stand on it
+    // whole rather than clipped against where the old box had ridden to.
+    await page.evaluate(scrollTranscript, [-1400, 40])
+    await page.getByRole('dialog', { name: 'Chat with Deck-E' }).getByRole('button', { name: 'Close chat' }).click()
+    await page.getByRole('button', { name: 'Chat with Deck-E' }).click()
+    await page.evaluate(() => new Promise((resolve) => { let n = 0; const f = () => (++n > 90 ? resolve() : requestAnimationFrame(f)); requestAnimationFrame(f) }))
+    const back = await page.evaluate(() => window.__layout.frames.at(-1))
+    assert.ok(back.him && back.him[3] >= 12 && drawn(back.him, back.floor)[3] >= back.him[3] - 1,
+      engine + ': reopened at the latest reply, he is clipped out: ' + JSON.stringify(back))
     results.push({ case: 'decke-chat-phone', engine, ...m, overFrame: undefined, layouts })
   } finally { await context.close() }
   return results

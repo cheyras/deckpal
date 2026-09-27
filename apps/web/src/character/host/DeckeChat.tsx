@@ -1983,13 +1983,20 @@ export function DeckeChat({
   // the scroll handler: scroll events are dispatched before the frame's
   // animation callbacks, so the engine's frame, which re-solves his station
   // from this box, sees the box where it is this frame, not where it was.
-  const rideRef = useRef(0)
+  //
+  // ONLY WHILE HE IS PARKED IN AN OPEN CHAT. A reply streaming in while he is
+  // minimised out on the page runs this from the layout effect too, and a clip
+  // set then would cut him off at a composer that is not there when he lands.
+  //
+  // THE RIDE LIVES ON THE ELEMENT (`data-ride`), not in a ref: closing the chat
+  // unmounts the park box while this component stays mounted, and a ref would
+  // carry the old box's offset onto the new, untransformed one.
   const placePark = useCallback(() => {
     const park = parkRef.current
     const list = transcriptRef.current
-    if (!park) return
+    if (!park || !visible || shownMinimised) return
     const r = park.getBoundingClientRect()
-    const was = rideRef.current
+    const was = Number(park.dataset.ride || 0)
     const restTop = r.top - was
     const floor = restTop + r.height + PARK_ABOVE
     const anchor = list?.querySelector<HTMLElement>('[data-decke-anchor]')
@@ -1999,15 +2006,14 @@ export function DeckeChat({
       ? Math.min(Math.max(0, anchor.getBoundingClientRect().top - restTop), r.height + PARK_ABOVE + 8)
       : 0
     if (Math.abs(ride - was) > 0.5) {
-      rideRef.current = ride
       park.style.transform = ride ? `translate3d(0, ${ride}px, 0)` : ''
-      park.dataset.ride = String(Math.round(ride))
+      park.dataset.ride = String(ride)
       // A move that no scroll caused (a message arriving while the reader is
       // up the page) wakes no scroll listener in the engine, so say so.
       decke?.restation()
     }
     decke?.clipBelow(floor)
-  }, [decke])
+  }, [decke, visible, shownMinimised])
 
   // Watching the conversation's own size catches what no message change does:
   // a widget opening "Show all 8 cards", card art arriving, a font landing.
