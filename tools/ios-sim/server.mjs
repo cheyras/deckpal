@@ -105,6 +105,7 @@ export function createFixture() {
   // so a count-only fixture (itemCount alone) makes an add LOOK like it worked while the grid
   // stays empty -- caught by Astra's review; see DECISIONS.md.
   const listItems = { 'list-1': [] }
+  let showcase = []
 
   // ── 5. Fake owned Pokédex species (feeds the Profile "Pick a Showcase Card" sheet) ──
   const SPECIES = [
@@ -205,6 +206,11 @@ Signing you in…
       const id = rel.split('/').at(-1)
       const list = lists.find((l) => l.id === id)
       if (!list) return { status: 404, body: { error: { message: 'No such list' } } }
+      if (url.searchParams.get('purge') === 'true') {
+        lists = lists.filter((l) => l.id !== id)
+        delete listItems[id]
+        return ok({ purged: id, deleted: id, restorable: false })
+      }
       list.deletedAt = NOW
       list.updatedAt = NOW
       return ok({ deleted: id, restorable: true })
@@ -316,6 +322,23 @@ Signing you in…
         set: c.set, variantCount: c.variantCount, owned: true, ownedQuantity: 1, images: c.images, price: c.price,
       }))
       return ok({ species: { speciesId: id, slug: s?.slug ?? 'unknown', name: s?.name ?? 'Unknown', genus: 'Fixture Pokémon', generation: 1, types: ['normal'], evolutions: [], sprite: { pixel: '/__fixture/card.svg', pixelShiny: '/__fixture/card.svg', art: '/__fixture/card.svg', artShiny: '/__fixture/card.svg' } }, cards })
+    }
+
+    // The profile writes the whole ordered showcase and reads it again on reload.
+    if (rel === '/api/me/showcase' && method === 'GET') return ok({ showcase })
+    if (rel === '/api/me/showcase' && method === 'PUT') {
+      if (!Array.isArray(body?.cards) || body.cards.length > 8 || body.cards.some((id) => id !== null && (typeof id !== 'string' || !id.trim()))) {
+        return { status: 400, body: { error: { message: 'cards must be an array of up to 8 card ids or nulls' } } }
+      }
+      const cards = body.cards.map((id) => id === null ? null : id.trim())
+      const missing = cards.find((id) => id !== null && !CATALOG.some((card) => card.cardId === id))
+      if (missing) return { status: 404, body: { error: { message: `No card '${missing}'` } } }
+      showcase = cards.flatMap((id, index) => {
+        if (id === null) return []
+        const card = CATALOG.find((c) => c.cardId === id)
+        return [{ slot: index + 1, cardId: id, name: card.name, images: card.images }]
+      })
+      return ok({ showcase })
     }
 
     // ── Minimal public catalog (never deeply exercised by this fixture) ──

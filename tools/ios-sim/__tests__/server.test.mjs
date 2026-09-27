@@ -103,6 +103,17 @@ describe('createFixture lists routes', () => {
     assert.equal(get(respondApi, '/api/lists/does-not-exist', { method: 'DELETE' }).status, 404)
     assert.equal(get(respondApi, '/api/lists/does-not-exist/restore', { method: 'POST' }).status, 404)
   })
+  it('purge permanently removes a deleted list and its items', () => {
+    const { respondApi } = createFixture()
+    get(respondApi, '/api/lists/list-1/items', { method: 'POST', body: { cardVariantId: 9001 } })
+    get(respondApi, '/api/lists/list-1', { method: 'DELETE' })
+    const purged = get(respondApi, '/api/lists/list-1?purge=true', { method: 'DELETE' })
+    assert.deepEqual(purged.body, { purged: 'list-1', deleted: 'list-1', restorable: false })
+    assert.deepEqual(get(respondApi, '/api/lists?deleted=true').body.lists, [])
+    assert.equal(get(respondApi, '/api/lists/list-1').status, 404)
+    assert.equal(get(respondApi, '/api/lists/list-1/restore', { method: 'POST' }).status, 404)
+    assert.equal(get(respondApi, '/api/lists/list-1?purge=true', { method: 'DELETE' }).status, 404)
+  })
   it('adding then removing an item keeps itemCount in sync AND the item actually renders', () => {
     // Astra's finding: itemCount alone is not enough -- ListDetail.tsx refetches GET
     // /api/lists/:id after every mutation and renders from `items`, so a fixture that
@@ -185,6 +196,28 @@ describe('createFixture lists routes', () => {
     assert.deepEqual(reordered.map((i) => i.itemId), [c, a, b])
     assert.deepEqual(reordered.map((i) => i.position), [0, 1, 2])
     assert.equal(get(respondApi, '/api/lists/list-1').body.list.itemOrder, undefined, 'itemOrder is not a real ListSummary field')
+  })
+})
+
+describe('createFixture showcase routes', () => {
+  it('saves ordered cards and returns them on a later read, then clears them', () => {
+    const { respondApi } = createFixture()
+    assert.deepEqual(get(respondApi, '/api/me/showcase').body.showcase, [])
+    const saved = get(respondApi, '/api/me/showcase', { method: 'PUT', body: { cards: ['sim1-001', null, 'sim1-002'] } })
+    assert.deepEqual(saved.body.showcase.map(({ slot, cardId, name, images }) => ({ slot, cardId, name, images })), [
+      { slot: 1, cardId: 'sim1-001', name: 'Simuchu', images: { low: '/__fixture/card.svg', high: '/__fixture/card.svg' } },
+      { slot: 3, cardId: 'sim1-002', name: 'Fixturemon', images: { low: '/__fixture/card.svg', high: '/__fixture/card.svg' } },
+    ])
+    assert.deepEqual(get(respondApi, '/api/me/showcase').body.showcase, saved.body.showcase)
+    get(respondApi, '/api/me/showcase', { method: 'PUT', body: { cards: [] } })
+    assert.deepEqual(get(respondApi, '/api/me/showcase').body.showcase, [])
+  })
+  it('rejects invalid and unknown cards without replacing saved picks', () => {
+    const { respondApi } = createFixture()
+    get(respondApi, '/api/me/showcase', { method: 'PUT', body: { cards: ['sim1-001'] } })
+    assert.equal(get(respondApi, '/api/me/showcase', { method: 'PUT', body: { cards: 'sim1-002' } }).status, 400)
+    assert.equal(get(respondApi, '/api/me/showcase', { method: 'PUT', body: { cards: ['missing'] } }).status, 404)
+    assert.deepEqual(get(respondApi, '/api/me/showcase').body.showcase.map((card) => card.cardId), ['sim1-001'])
   })
 })
 
