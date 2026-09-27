@@ -15,6 +15,7 @@ import { Icon } from '../components/Icon'
 import { KebabMenu } from '../components/KebabMenu'
 import { fmtUsd, fmtDate } from '../lib/format'
 import { type ListSearch, type ListSortKey, LIST_SEARCH_DEFAULTS } from './listSearch'
+import { GOAL_SHORT_LABEL } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { applyAnswer, outcomeKnown, save, useLane, write, writeFailureText } from '../lib/writes'
 import { showToast } from '../lib/toast'
@@ -123,6 +124,24 @@ export function ListDetail() {
   const [editError, setEditError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  // Print checklist (UXC-01, deckpal audit ux-collection): the route only
+  // accepts a Bearer header, so a plain `<a href>` 401s for every signed-in
+  // user. `api.downloadPdf` fetches with auth and hands the browser a real
+  // download instead — see its comment in lib/api.ts for the full reasoning.
+  const [checklistBusy, setChecklistBusy] = useState(false)
+  const [checklistError, setChecklistError] = useState<string | null>(null)
+  const printChecklist = async () => {
+    setChecklistBusy(true)
+    setChecklistError(null)
+    try {
+      await api.downloadPdf(api.listPdfPath(id), `list-${id}-checklist.pdf`)
+    } catch (err) {
+      setChecklistError(err instanceof ApiError ? err.message : 'Could not prepare the checklist.')
+    } finally {
+      setChecklistBusy(false)
+    }
+  }
+
   const laneKey = `list:${id}`
   const lane = useLane(laneKey)
   const laneVersion = lane.getVersion()
@@ -139,6 +158,23 @@ export function ListDetail() {
   // A rule-backed list: membership is a saved query the server re-evaluates
   // on every read. Add/reorder don't exist for it; "remove" excludes.
   const smart = !!list?.rule
+
+  // A rule with zero items is not necessarily "collected everything": the
+  // server's `missingForGoal` also filters by price/rarity/finish, and a
+  // smart list's own `exclude` list hides cards from the rule by hand,
+  // regardless of ownership. Excluding the last remaining card, or a filter
+  // matching nothing owned yet, both land here — the celebration copy is
+  // only honest when nothing narrowed the rule below "everything the goal
+  // asks for".
+  const smartRuleNarrowed = !!(
+    list?.rule &&
+    (list.rule.exclude.length > 0 ||
+      list.rule.maxPriceUsd != null ||
+      list.rule.pricedOnly ||
+      (list.rule.rarity?.length ?? 0) > 0 ||
+      (list.rule.rarityExclude?.length ?? 0) > 0 ||
+      (list.rule.finishes?.length ?? 0) > 0)
+  )
 
   // Ownership counts (dynamic only)
   const counts = useMemo(() => {
@@ -332,7 +368,7 @@ export function ListDetail() {
                     <span>
                       Live — showing what's still missing for{' '}
                       <span className="font-semibold text-text-primary">
-                        {list.rule.setName ?? list.rule.setId} · {list.rule.goal}
+                        {list.rule.setName ?? list.rule.setId} · {GOAL_SHORT_LABEL[list.rule.goal]}
                       </span>
                       {list.rule.maxPriceUsd != null && <> under ${list.rule.maxPriceUsd}</>}
                       . Cards leave by themselves as you collect them.
@@ -340,39 +376,90 @@ export function ListDetail() {
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-[8px]">
+              <div className="flex flex-wrap items-center gap-[8px]">
                 {smart ? (
-                  <button onClick={() => setShowEdit(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                  <button onClick={() => setShowEdit(true)} className="flex h-[42px] items-center gap-[8px] whitespace-nowrap rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                     <Icon name="sliders" size={16} /> Edit Rule
                   </button>
                 ) : (
-                  <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                  <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] whitespace-nowrap rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                     <Icon name="plus" size={16} /> Add Cards
                   </button>
                 )}
-                <a href={api.listPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[16px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
-                  <Icon name="printer" size={16} /> Print checklist
-                </a>
-                <button onClick={() => setShowEdit(true)} aria-label="Edit list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-                  <Icon name="sliders" size={18} />
-                </button>
-                <KebabMenu
-                  ariaLabel="List options"
-                  size={42}
-                  items={[
-                    ...(smart
-                      ? [{
-                          key: 'pin',
-                          label: lane.busy('pin') ? 'Pinning…' : 'Pin as regular list',
-                          icon: 'lists' as const,
-                          onSelect: pinList,
-                        }]
-                      : []),
-                    { key: 'delete', label: 'Delete list', icon: 'close', danger: true, onSelect: () => setShowDelete(true) },
-                  ]}
-                />
+
+                {/* Desktop: the full action row, hidden below `gap`. Matches
+                    the pattern SetHeader already uses for its own Actions
+                    disclosure (issue #154). No standalone "Edit list" button
+                    on a smart list — Edit Rule above opens the identical
+                    modal, so a second button for it was a dead duplicate. */}
+                <div className="hidden items-center gap-[8px] gap:flex">
+                  <button
+                    onClick={printChecklist}
+                    disabled={checklistBusy}
+                    className="flex h-[42px] items-center gap-[8px] whitespace-nowrap rounded-full bg-surface-tertiary px-[16px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover disabled:opacity-60"
+                  >
+                    <Icon name="printer" size={16} /> {checklistBusy ? 'Preparing PDF…' : 'Print checklist'}
+                  </button>
+                  {!smart && (
+                    <button onClick={() => setShowEdit(true)} aria-label="Edit list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+                      <Icon name="sliders" size={18} />
+                    </button>
+                  )}
+                  <KebabMenu
+                    ariaLabel="List options"
+                    size={42}
+                    items={[
+                      ...(smart
+                        ? [{
+                            key: 'pin',
+                            label: lane.busy('pin') ? 'Pinning…' : 'Pin as regular list',
+                            icon: 'lists' as const,
+                            onSelect: pinList,
+                          }]
+                        : []),
+                      { key: 'delete', label: 'Delete list', icon: 'close' as const, danger: true, onSelect: () => setShowDelete(true) },
+                    ]}
+                  />
+                </div>
+
+                {/* Mobile: Print / Edit / Pin / Delete collapse into one menu
+                    so nothing wraps at 390px (UXC-09, deckpal audit
+                    ux-collection; owner's #154 rule: "on mobile, consolidate
+                    them all into an actions dropdown"). */}
+                <div className="gap:hidden">
+                  <KebabMenu
+                    ariaLabel="List actions"
+                    size={42}
+                    items={[
+                      {
+                        key: 'print',
+                        label: checklistBusy ? 'Preparing PDF…' : 'Print checklist',
+                        icon: 'printer' as const,
+                        onSelect: printChecklist,
+                      },
+                      ...(!smart
+                        ? [{ key: 'edit', label: 'Edit list', icon: 'sliders' as const, onSelect: () => setShowEdit(true) }]
+                        : []),
+                      ...(smart
+                        ? [{
+                            key: 'pin',
+                            label: lane.busy('pin') ? 'Pinning…' : 'Pin as regular list',
+                            icon: 'lists' as const,
+                            onSelect: pinList,
+                          }]
+                        : []),
+                      { key: 'delete', label: 'Delete list', icon: 'close' as const, danger: true, onSelect: () => setShowDelete(true) },
+                    ]}
+                  />
+                </div>
               </div>
             </div>
+
+            {checklistError && (
+              <div role="alert" className="rounded-lg bg-halo-error px-[14px] py-[10px] text-[14px] text-error">
+                {checklistError}
+              </div>
+            )}
 
             {/* info + progress */}
             <div className="flex flex-wrap items-center gap-x-[28px] gap-y-[8px] border-y border-divider-subtle py-[12px] text-[14px]">
@@ -447,11 +534,29 @@ export function ListDetail() {
             data-decke-rank="container"
           >
             {items.length === 0 ? (
-              <EmptyState icon="cards" title="This list is empty">
-                <Button onClick={() => setShowAdd(true)}>
-                  <Icon name="plus" size={16} /> Add Cards
-                </Button>
-              </EmptyState>
+              smart ? (
+                // UXC-05 (deckpal audit ux-collection): a finished smart list
+                // used to fall into the generic empty state and offer "Add
+                // Cards" — a control that 400s for every smart list, because
+                // membership is the rule's job, not a hand pick. Zero items
+                // here means the rule has nothing left to ask for right now —
+                // which is only the SAME THING as "collected everything" when
+                // nothing narrowed the rule (see `smartRuleNarrowed` above);
+                // a price/rarity/finish filter or a hand-excluded card can
+                // also empty it out with cards still genuinely missing.
+                <EmptyState
+                  icon="sparkle"
+                  title={smartRuleNarrowed ? 'No missing cards match this rule right now' : "You've collected everything in this list"}
+                  body="This list refills on its own if the rule changes."
+                  variant="plain"
+                />
+              ) : (
+                <EmptyState icon="cards" title="This list is empty">
+                  <Button onClick={() => setShowAdd(true)}>
+                    <Icon name="plus" size={16} /> Add Cards
+                  </Button>
+                </EmptyState>
+              )
             ) : reordering && list.kind === 'static' ? (
               <ReorderRows items={items} onMove={moveItem} onRemove={removeItem} />
             ) : view.length === 0 ? (
