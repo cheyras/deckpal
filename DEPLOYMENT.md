@@ -1061,11 +1061,12 @@ what matters for a fresh deploy is:
   `wss://*.supabase.co` as a wildcard, not one project's hostname, so it
   covers whatever `<project>.supabase.co` you created in step 1 without
   editing `vercel.json`.
-- **If you front Stripe with a different provider, or add another
-  first-party API host, edit the CSP.** `https://js.stripe.com` and
-  `https://hooks.stripe.com` are hardcoded (Stripe requires loading its own
-  script for PCI reasons — you cannot self-host it), and `connect-src`
-  otherwise only allows `'self'` plus Supabase.
+- **If you change payment providers or add another API host, edit the CSP.**
+  Stripe.js, its payment frames and challenges, the Stripe API, and Link's
+  frames, requests and images are allowed as listed in `SECURITY.md`.
+  Stripe requires loading its own script; you cannot self-host it. A credit
+  purchase redirects to Stripe-hosted Checkout, so it does not need Checkout
+  resource hosts in this document policy.
 - **The scan harness has its own policy.** Its separate iframe document
   permits JavaScript code generation for its OpenCV diagnostic engine. The
   service worker fetches that document from the network to preserve the

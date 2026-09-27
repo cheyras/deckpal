@@ -148,8 +148,19 @@ function writeProbePage(dist) {
     }
     window.__runProbe = async () => ({
       stripeScript: await tag('script', 'https://js.stripe.com/v3/'),
+      stripeSubdomainScript: await tag('script', 'https://b.js.stripe.com/stripe.js'),
+      stripeFrame: await tag('iframe', 'https://js.stripe.com/frame'),
+      stripeSubdomainFrame: await tag('iframe', 'https://b.js.stripe.com/frame'),
+      stripeChallengeFrame: await tag('iframe', 'https://hooks.stripe.com/frame'),
+      linkFrame: await tag('iframe', 'https://link.com/frame'),
+      linkSubdomainFrame: await tag('iframe', 'https://checkout.link.com/frame'),
+      stripeApi: await fetch('https://api.stripe.com/probe').then(() => 'load', () => 'error'),
+      linkApi: await fetch('https://link.com/probe').then(() => 'load', () => 'error'),
+      linkSubdomainApi: await fetch('https://checkout.link.com/probe').then(() => 'load', () => 'error'),
       evilScript: await tag('script', 'https://evil.example/x.js'),
       supabaseImg: await tag('img', 'https://fixture-project.supabase.co/storage/v1/object/public/card-art/x.webp'),
+      supabaseApi: await fetch('https://fixture-project.supabase.co/probe').then(() => 'load', () => 'error'),
+      linkImg: await tag('img', 'https://statics.link.com/probe.png'),
       evilImg: await tag('img', 'https://evil.example/y.webp'),
       events: window.__probe.events,
     })
@@ -161,11 +172,23 @@ async function checkAllowDenyProbe(browser, engineName, server) {
   const context = await browser.newContext()
   try {
     const page = await context.newPage()
-    // Fulfill the two ALLOWED origins locally; never hit real network.
-    await page.route('https://js.stripe.com/v3/', (route) => route.fulfill({ contentType: 'text/javascript', body: '/* stub */' }))
+    // These requests prove CSP lets the browser reach each required host. The
+    // fixture does not have a real Stripe key or mount the Payment Element.
+    const allowedRequests = new Set()
+    await page.route(/https:\/\/(?:[\w-]+\.)?(?:js\.stripe\.com|link\.com|stripe\.com)\//, (route) => {
+      const url = new URL(route.request().url())
+      allowedRequests.add(url.origin)
+      const kind = route.request().resourceType()
+      return route.fulfill({
+        contentType: kind === 'script' ? 'text/javascript' : kind === 'document' ? 'text/html' : kind === 'image' ? 'image/png' : 'application/json',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: kind === 'script' ? '/* stub */' : kind === 'document' ? '<!doctype html><title>Fixture</title>' : kind === 'image' ? Buffer.from('not-a-png') : '{}',
+      })
+    })
     await page.route('https://fixture-project.supabase.co/**', (route) => route.fulfill({
-      contentType: 'image/webp',
-      body: Buffer.from('RIFF....WEBPVP8 '), // not a valid webp; onload still fires for <img> on any image/* content-type in Chromium/WebKit's decoder-tolerant path is NOT guaranteed, so this checks the request was ALLOWED (not blocked by CSP) rather than that it decoded.
+      contentType: route.request().resourceType() === 'image' ? 'image/webp' : 'application/json',
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: route.request().resourceType() === 'image' ? Buffer.from('RIFF....WEBPVP8 ') : '{}',
     }))
     // NOT checked: whether a 'request'/'requestfailed' event fires for the
     // blocked origins. Verified empirically (both engines, via a throwaway
@@ -177,6 +200,14 @@ async function checkAllowDenyProbe(browser, engineName, server) {
     await page.goto(server.origin + '/csp-probe.html')
     const result = await page.evaluate(() => window.__runProbe())
     assert.equal(result.stripeScript, 'load', 'script-src must allow https://js.stripe.com/v3/ (Stripe.js)')
+    assert.equal(result.stripeSubdomainScript, 'load', 'script-src must allow Stripe.js subdomains')
+    for (const field of ['stripeFrame', 'stripeSubdomainFrame', 'stripeChallengeFrame', 'linkFrame', 'linkSubdomainFrame', 'stripeApi', 'linkApi', 'linkSubdomainApi', 'supabaseApi']) {
+      assert.equal(result[field], 'load', `${field} must reach its allowed origin`)
+    }
+    for (const origin of ['https://js.stripe.com', 'https://b.js.stripe.com', 'https://hooks.stripe.com', 'https://api.stripe.com', 'https://link.com', 'https://checkout.link.com', 'https://statics.link.com']) {
+      assert.ok(allowedRequests.has(origin), `${origin} was never requested; the CSP probe would prove nothing for it`)
+      assert.ok(!result.events.some((event) => event.includes(origin)), `${origin} was blocked by CSP: ${result.events}`)
+    }
     assert.equal(result.evilScript, 'error', 'script-src must block an arbitrary third-party script host')
     assert.equal(result.evilImg, 'error', 'img-src must block an arbitrary third-party image host')
     assert.ok(result.events.some((e) => e.includes('evil.example') && e.includes('x.js')), 'blocking the evil script must be visible as a securitypolicyviolation, not a silent no-op')
@@ -185,8 +216,10 @@ async function checkAllowDenyProbe(browser, engineName, server) {
     // bytes decode as an image (engine-specific); what this asserts is CSP
     // reach, so check that directly: fixture-project.supabase.co must never
     // appear in the violation list.
+    assert.equal(result.supabaseApi, 'load', 'connect-src must allow a real Supabase-shaped origin')
     assert.ok(!result.events.some((e) => e.includes('fixture-project.supabase.co')), 'img-src/connect-src must allow a real Supabase-shaped origin (https://*.supabase.co)')
-    return { case: 'csp-allow-deny-probe', engine: engineName, stripeScriptAllowed: true, supabaseOriginAllowed: true, evilScriptBlocked: true, evilImgBlocked: true }
+    assert.ok(!result.events.some((e) => e.includes('statics.link.com')), 'img-src must allow Link static assets')
+    return { case: 'csp-allow-deny-probe', engine: engineName, stripeAndLinkSourcesAllowed: true, supabaseOriginAllowed: true, evilScriptBlocked: true, evilImgBlocked: true }
   } finally { await context.close() }
 }
 

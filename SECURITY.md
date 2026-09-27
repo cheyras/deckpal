@@ -425,10 +425,15 @@ every path except `/api/*` (helmet already covers those):
 - **`Content-Security-Policy`**, enforcing (not report-only — there is no
   `report-uri`/`report-to` collector in this app, so report-only mode would
   collect nothing and simply delay real protection). `default-src 'self'`,
-  with narrow, purpose-scoped exceptions: `https://js.stripe.com` (Stripe.js,
-  loaded by `@stripe/stripe-js` per its PCI attestation — see
-  `apps/web/src/lib/billing.ts`) and `https://hooks.stripe.com` for the
-  payment iframes; `https://*.supabase.co`/`wss://*.supabase.co` for
+  with narrow, purpose-scoped exceptions: `https://js.stripe.com` and
+  `https://*.js.stripe.com` for Stripe.js scripts and payment frames,
+  `https://hooks.stripe.com` for payment challenges, and
+  `https://api.stripe.com` for payment requests. The Payment Element offers
+  Link, so `frame-src` and `connect-src` also allow `https://link.com` and
+  `https://*.link.com`, while `img-src` allows `https://*.link.com`.
+  These are the hosts in [Stripe's CSP guide](https://docs.stripe.com/security/guide#content-security-policy)
+  for the payment flow in `apps/web/src/components/billing/CardForm.tsx`.
+  `https://*.supabase.co`/`wss://*.supabase.co` cover
   Storage/Realtime — a wildcard rather than one project's hostname, since any
   Vercel+Supabase fork (`DEPLOYMENT.md`) has its own project ref and should
   not have to edit this file to unblock its own images; `data:`/`blob:` for
