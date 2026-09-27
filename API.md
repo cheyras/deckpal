@@ -106,6 +106,15 @@ omit the host.
   admission counter before token resolution and a 60/min-per-token budget
   after. The Stripe webhook relies on signature verification and its retry
   behavior instead of an application limiter. See `SECURITY.md` → Rate limiting.
+- **Connector tokens.** A personal access token or OAuth connection (`Bearer
+  dsk_…`, contract in `apps/mcp/SPEC.md` §3b) reaches the same routes a session
+  does, except the session-only ones: `/tokens`, `/avatar`, `/oauth`, `/admin`,
+  `/me/billing`, `/me/credits`, `/me/features`, `/me/decke-sharing` and, since
+  2026-09-26, `/decke`, `/me/showcase` and `/me/settings` (`403 forbidden`). A
+  **read-only** connection (migration 075) is refused every method but `GET`,
+  `HEAD` and `OPTIONS` on every route with **`403`**, `{ "error": { "code":
+  "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
+  except `POST /massentry`, which writes nothing (it builds cart links).
 - **Body-size limits.** Per route, most-specific first, immediately after the
   ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
   `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
@@ -431,6 +440,9 @@ Per-user, backed by `user_settings` (005 + 049) and `user_showcase` (005).
 These are the server-side home of what used to be device-only localStorage
 preferences; the client treats localStorage as an offline cache of them
 (`apps/web/src/lib/settingsSync.ts`).
+
+Both sub-routes need a signed-in session; a connector token gets `403`
+(2026-09-26, security audit SEC-07).
 
 ### GET /deckpal/api/me/settings
 The account's whole settings row, camel-cased. `skin`/`topbar` are `null`

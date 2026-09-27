@@ -109,6 +109,60 @@ enabled with zero grants (migration 033): only the server's RLS-bypassing
 pool connection or narrowly authorized SECURITY DEFINER consent functions can
 access them; browsers receive no direct table grants.
 
+**OAuth consent names the destination, and connections expire (migration 075,
+security audit SEC-07).** Dynamic client registration is open, so
+`client_name` is whatever a registrant typed: before 075 any site could
+register as "Claude", and the consent screen led with that name in bold while
+the host receiving the approval sat in a muted line below. Now:
+
+- **Who is asking is decided by the redirect, on the server**
+  (`classifyRedirect`, `packages/db/src/oauth.ts`). Only an exact, documented
+  callback is **Verified** and named by us: `https://claude.ai/api/mcp/auth_callback`
+  and its `claude.com` twin. Any other redirect is **Unverified**, headed by its
+  host, with the registered name quoted as a claim; a loopback redirect (Claude
+  Code and other local clients) is also Unverified, with the extra warning the
+  MCP spec asks for, since any local program can listen there. Exact URLs, not
+  hosts: a host match would badge a path that forwards the code elsewhere. The
+  Profile row is named after the destination too (`Claude (OAuth ·
+  evil.example)`), so a lookalike never sits in the list as plain "Claude".
+- **A connection's secrets rotate and expire.** An approval is still one
+  `api_token` row (listed, revoked and governed exactly as before), but its own
+  hash is sealed and its working secrets live in `oauth_token`: a one-hour
+  access token (`dsk_…`) and a single-use 90-day refresh token (`dsr_…`,
+  never accepted as a bearer). Each refresh returns a new pair and moves the
+  connection's `expires_at` 90 days out; unused for 90 days, it lapses. A used
+  refresh token stays for a day as a tripwire: presented again within a minute
+  it is refused (most likely the client racing its own renewal) and nothing
+  else happens; later, the whole connection is revoked (OAuth 2.1 §4.3.1 reuse
+  detection). One refresh token never yields two pairs, so the chain cannot
+  fork into two that renew independently. Every access token resolves
+  through its row, so revoke-all, suspension and Revoke end it with no race.
+- **Read-only is a real scope.** The consent screen offers it only when
+  `GET /oauth/client` includes the new server's `trust` field; an older API
+  ignores scope and therefore gets a full-access choice alone. A `read`
+  connection is served only the `readOnlyHint` tools, inside a `BEGIN READ
+  ONLY` transaction, and the REST API refuses its every non-GET request with
+  `403 insufficient_scope` before any route runs (`enforceTokenScope`). The one
+  exception is `POST /massentry`, which only builds cart links and which the
+  read tool `set_cart` uses.
+- **Tokens reach what the consent screen says.** `/decke` (Deck-E
+  conversations), `/me/showcase` and `/me/settings` now require a session, like
+  `/tokens`, `/avatar` and billing.
+- **Server-owned columns stay server-owned.** 075 takes table-level INSERT and
+  UPDATE on `api_token` from client roles and grants back only what the app
+  uses as the user (mint: `user_id, name, token_hash, prefix`; revoke and touch:
+  `name, last_used_at, revoked_at`), so nobody can PATCH a read-only connection
+  to full or push its expiry out over PostgREST. `oauth_token` has RLS and no
+  client grant at all. Composes with 072 (PR #204), which freezes a token's
+  identity and makes revocation final.
+- **Backward compatibility.** Every token that existed before 075, hand-made or
+  OAuth-minted (including live claude.ai connectors), keeps `expires_at NULL`
+  and full scope and resolves exactly as before. Nothing forces a reconnect;
+  reconnecting replaces an old connection with a renewing one. Hand-made tokens
+  still never expire, because the URL-pasting clients they exist for cannot
+  renew. Until 075 is applied, the code resolves tokens through their pre-075
+  statements and refuses only new OAuth connections (503), never existing ones.
+
 **Deck-E (the AI assistant, `POST /api/chat`).** Entitlement is decided on the
 server, not the browser. `entitlement.ts`'s browser-side gate only decides
 whether to draw a button — verified against the deployed endpoint before this

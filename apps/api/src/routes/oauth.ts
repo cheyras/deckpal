@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { q1, q, withTx, commitRequestTx } from '../db.js';
+import { q1, q, withTx, commitRequestTx, pool, rlsStore } from '../db.js';
 import { adminError } from '../admin/access.js';
-import { asyncHandler, badRequest, notFound } from '../http.js';
+import { ApiError, asyncHandler, badRequest, notFound } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { randomBytes } from 'node:crypto';
+import { classifyRedirect, grantSchemaReady, type TokenScope } from '@deckpal/db';
 async function getClient(id:string) {
  const row=await q1<{client:{clientId:string;clientName:string;redirectUris:string[]}|null}>('SELECT public.admin_connector_client($1) AS client',[id]);
  return row?.client;
@@ -34,6 +35,11 @@ const S256 = 'S256';
  * before the user decides anything. Re-checked for real at decision time
  * below; this lookup exists so a bad link fails with a clear message instead
  * of a live redirect to nowhere.
+ *
+ * `clientName` is self-asserted and is returned only so the screen can quote
+ * it as a claim. Who is really asking is answered by `redirectHost` and
+ * `trust`, worked out here from the redirect (see classifyRedirect), so the
+ * browser holds no list of its own to drift from this one.
  */
 oauthRouter.get(
   '/client',
@@ -47,7 +53,8 @@ oauthRouter.get(
     if (!client.redirectUris.includes(redirectUri)) {
       throw badRequest('redirect_uri does not match what this client registered.');
     }
-    res.json({ clientName: client.clientName, redirectUri });
+    const { host, trust, verifiedName } = classifyRedirect(redirectUri);
+    res.json({ clientName: client.clientName, redirectUri, redirectHost: host, trust, verifiedName });
   }),
 );
 
@@ -60,6 +67,7 @@ interface DecisionBody {
   codeChallengeMethod?: unknown;
   state?: unknown;
   resource?: unknown;
+  scope?: unknown;
 }
 
 /** Append `code`/`error` + `state` onto redirectUri without clobbering a query string it may already carry. */
@@ -95,8 +103,12 @@ oauthRouter.post(
     const codeChallengeMethod = str(body.codeChallengeMethod);
     const state = str(body.state);
     const resource = str(body.resource) || undefined;
+    // Absent means full, which is what every approval meant before the choice
+    // existed; anything else present is a mistake, not a default.
+    const scope = (str(body.scope) || 'full') as TokenScope;
 
     if (decision !== 'allow' && decision !== 'deny') throw badRequest('decision must be "allow" or "deny"');
+    if (scope !== 'full' && scope !== 'read') throw badRequest('scope must be "full" or "read"');
     if (!clientId || !redirectUri) throw badRequest('clientId and redirectUri are required');
 
     const client = await getClient(clientId);
@@ -121,9 +133,15 @@ oauthRouter.post(
     }
 
     const userId = currentUserId(req);
+    // Before migration 075 there is nowhere to record the scope, and quietly
+    // minting full access after the person chose read-only would make the
+    // consent screen a lie. Say so instead, for the minutes it lasts.
+    if (!(await grantSchemaReady(rlsStore.getStore() ?? pool))) {
+      throw new ApiError(503, 'unavailable', 'DeckPal is finishing an update. Try connecting again in a few minutes.');
+    }
     const code='dsac_'+randomBytes(32).toString('base64url');
     try {
-      await withTx(async()=>{await q('SELECT public.admin_connector_issue($1,$2,$3,$4,$5)',[code,clientId,redirectUri,codeChallenge,resource??null]);});
+      await withTx(async()=>{await q('SELECT public.admin_connector_issue($1,$2,$3,$4,$5,$6)',[code,clientId,redirectUri,codeChallenge,resource??null,scope]);});
       await commitRequestTx(userId);
     } catch(error) { throw adminError(error); }
     res.setHeader('Cache-Control','no-store');
