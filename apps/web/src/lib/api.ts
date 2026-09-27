@@ -1793,32 +1793,16 @@ export const api = {
     return res.blob()
   },
 
-  // Deck PDF path (relative to BASE): fed to `downloadPdf`, never to an
-  // `<a href>`. See its comment for why.
+  // PDF paths are relative to BASE and are fetched with auth by downloadPdf.
+  // A browser link cannot attach the Bearer header these routes require.
   deckPdfPath: (id: string) => `/decks/${encodeURIComponent(id)}/pdf`,
+  listPdfPath: (id: string) => `/lists/${encodeURIComponent(id)}/pdf`,
+  setChecklistPdfPath: (setId: string) => `/sets/${encodeURIComponent(setId)}/checklist.pdf`,
 
   /**
-   * Fetch a PDF export and hand it to the browser as a real download: a blob
-   * URL on a temporary `<a download>`, never `window.open`.
-   *
-   * ── WHY NOT `<a href={...}>` ────────────────────────────────────────────
-   *
-   * Export PDF on the deck page was a plain `<a href target="_blank">` at the
-   * deck PDF route. Cloud's PDF routes authenticate only by `Authorization:
-   * Bearer` (`apps/api/src/auth.ts`), and a browser-initiated navigation sends
-   * cookies, never that header, which is `scanFlagBlob`'s reason too. So every
-   * signed-in user who pressed it got a raw 401 JSON tab.
-   *
-   * ── WHY NOT `window.open(blobUrl)` EITHER ───────────────────────────────
-   *
-   * The fetch has to finish before there is anything to open, and iOS Safari
-   * only allows `window.open` in the same tick as the gesture that triggered
-   * it. After an `await` it is popup-blocked, silently. An `<a download>`
-   * click is a save, not a new window, so it survives the round trip on every
-   * platform this app supports.
-   *
-   * The collection quick-fixes PR (#214) adds this same function body for
-   * Print checklist on sets and lists; whichever lands second keeps one copy.
+   * Fetch a PDF with the signed-in session, then save the blob through a
+   * temporary download anchor. A link navigation sends no Bearer header;
+   * opening a blob tab after the fetch is popup-blocked by iOS Safari.
    */
   downloadPdf: async (path: string, filename: string): Promise<void> => {
     const headers = await authHeaders()
@@ -1841,10 +1825,6 @@ export const api = {
     // forever. 60s comfortably outlives the download itself.
     setTimeout(() => URL.revokeObjectURL(url), 60_000)
   },
-
-  // List / set checklist PDF URLs (streamed by the API; open in a new tab).
-  listPdfUrl: (id: string) => `${BASE}/lists/${encodeURIComponent(id)}/pdf`,
-  setChecklistPdfUrl: (setId: string) => `${BASE}/sets/${encodeURIComponent(setId)}/checklist.pdf`,
 
   // Lists
   lists: (signal?: AbortSignal) => get<{ lists: ListSummary[] }>('/lists', signal),
