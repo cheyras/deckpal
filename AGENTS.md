@@ -295,6 +295,9 @@ other users' email addresses on `/admin/users`. The reported page path is
 always stripped of its query string and fragment before storage or
 publication, and the screenshot's actual content type is sniffed from its
 bytes (`decodeScreenshot`), never taken from its declared data-URL prefix.
+Scanner voice captions, pending chips, announcements and Verify warnings carry
+`data-bug-capture-ignore`, so the screenshot renderer excludes spoken text even
+when the reporter is opened during scanning.
 
 **Where enforced:** `apps/api/src/routes/bugs.ts` handles both modes: cloud
 (DB+Storage+GitHub) and self-host (filesystem). GitHub Issues is used for

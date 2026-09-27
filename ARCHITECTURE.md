@@ -906,6 +906,9 @@ stored in the voice queue, independently of captions. They survive Verify,
 later commands and Undo until explicitly acknowledged. Both Add and the
 unresolved-row confirmation pass the same warning gate before a collection write.
 The bounded warning list scrolls while acknowledgement stays reachable.
+The caption, pending chips, screen-reader announcement and Verify warnings
+carry the bug reporter's screenshot exclusion marker. A report can show the
+scanner without saving spoken text.
 
 Targeting snapshots both named captures and “that one” at the first words.
 Structural phrases match normalized token arrays, while exact names reserve
