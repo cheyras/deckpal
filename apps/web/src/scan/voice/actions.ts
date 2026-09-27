@@ -231,13 +231,14 @@ export function tick(
  *  go. For leaving the scan step, where the reader has seen every chip and
  *  objected to none of them. A command heard a moment ago whose row exists
  *  but whose hold has not been started yet counts as having a row. */
-export function settleAll(queue: VoiceQueue, feed: readonly FeedEntry[]): { queue: VoiceQueue; due: VoiceAction[] } {
+export function settleAll(queue: VoiceQueue, feed: readonly FeedEntry[]): { queue: VoiceQueue; due: VoiceAction[]; dropped: VoiceAction[] } {
   const due = queue.pending.flatMap((a) => {
     if (a.settleAt !== null) return [a]
     const row = feed.find((e) => e.id === a.rowId)
     return row ? [{ ...a, cardId: a.cardId ?? row.cardId, baseline: a.baseline ?? baselineOf(row), settleAt: 0 }] : []
   })
-  return { queue: { ...queue, pending: [] }, due }
+  const dueIds = new Set(due.map((a) => a.id))
+  return { queue: { ...queue, pending: [] }, due, dropped: queue.pending.filter((a) => !dueIds.has(a.id)) }
 }
 
 export function cancel(queue: VoiceQueue, actionId: string): VoiceQueue {

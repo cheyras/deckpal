@@ -311,8 +311,9 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     if (!queueRef.current.pending.length) return
     const s = settleAll(queueRef.current, feedRef.current)
     commitQueue(s.queue)
+    for (const action of s.dropped) warnForVerify(action.rowId, 'That scan was not in the list yet. Its voice change was not applied.')
     if (s.due.length) applyDue(s.due)
-  }, [applyDue, commitQueue])
+  }, [applyDue, commitQueue, warnForVerify])
 
   // The scan step ends: the mic goes with the camera, and every pending change
   // the reader has already seen and not objected to applies now.

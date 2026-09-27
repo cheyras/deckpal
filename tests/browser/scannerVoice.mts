@@ -249,6 +249,22 @@ try {
     await until(async () => (await speech(page)).live, 'voice resumes after returning from Verify')
     await drive(page, 'open')
 
+    // A command for an in-flight capture cannot be allowed to disappear at
+    // Verify just because its row has not landed yet.
+    await harness(page, 'setLast', 'cap-5')
+    await harness(page, 'setInFlight', 'cap-5')
+    await say(page, 'reverse holo')
+    await page.locator('[data-voice-caption="heard"]').waitFor()
+    await harness(page, 'enterVerify')
+    await page.getByText('That scan was not in the list yet. Its voice change was not applied.').waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Add cards' }).isDisabled(), true)
+    await page.getByRole('button', { name: 'Continue without the voice change' }).click()
+    await harness(page, 'setInFlight', null)
+    await harness(page, 'setLast', 'cap-4')
+    await harness(page, 'setEnabled', true)
+    await until(async () => (await speech(page)).live, 'voice resumes after in-flight warning')
+    await drive(page, 'open')
+
     // An engine that ends every session at once is given up on, and says why.
     for (let i = 0; i < 4; i++) { await fail(page, 'network'); await page.clock.runFor(300) }
     await page.locator('[data-voice-caption="error"]').getByText('needs a network connection', { exact: false }).waitFor()

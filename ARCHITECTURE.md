@@ -835,8 +835,9 @@ Google for Chrome). The structure is four pure modules and one hook:
 * `useScannerVoice.ts` owns time, React state and the page lifecycle.
 
 Before Verify opens, pending speech changes settle against the current row.
-A failed printing change remains visible on Verify, and Add waits for the reader
-to explicitly continue without the voice change. Filler words match exactly,
+A failed printing change, or a command for a capture still being identified,
+remains visible as a warning on Verify. Add waits for the reader to explicitly
+continue without the voice change. Filler words match exactly,
 so a spoken card name cannot silently redirect an edit or removal to the latest
 capture, even when that name has not reached the list.
 

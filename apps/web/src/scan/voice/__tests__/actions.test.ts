@@ -175,7 +175,16 @@ describe('the queue', () => {
     q = tick(q, [row('r1')], 0, () => true).queue
     const s = settleAll(q, [row('r1')])
     assert.deepEqual(s.due.map((a) => a.rowId), ['r1'])
+    assert.deepEqual(s.dropped.map((a) => a.rowId), ['r2'])
     assert.equal(s.queue.pending.length, 0)
+  })
+
+  it('reports a spoken printing for a capture still identifying when Verify opens', () => {
+    const q = enqueue(EMPTY_QUEUE, propose(spec('reverse holo'), 'in-flight', [], 0, mint).actions)
+    const settled = settleAll(q, [row('other')])
+    assert.deepEqual(settled.due, [])
+    assert.equal(settled.dropped[0].kind, 'printing')
+    assert.equal(settled.dropped[0].rowId, 'in-flight')
   })
 
   it('settles a command whose row exists even if its hold never started', () => {
