@@ -5,6 +5,13 @@ Build `@deckpal/storage` and `@deckpal/matching` first on a clean checkout.
 `pnpm test:deploy-assets` runs the asset controls without starting a browser.
 The workflow uses Node 24 and a frozen pnpm lockfile.
 
+`profileOwnedCards.mts` builds the real Profile page against a local signed-in
+fixture at 390px and 1440px. It asserts one bounded owned-cards request on page
+load, one more when the showcase picker opens, one more when Load more is
+pressed, and no species-detail fan-out. It also checks the showcase search's
+keyboard focus ring on its rounded container and captures focused and unfocused
+states. The 49th card must become reachable.
+
 The runner discovers `tests/browser/*.mjs` modules. A module registers an
 independent branch by exporting `browserSuites(context)`, which returns an array
 of `{ name, run }` entries. Each name must be unique, and `run` is async. A new
