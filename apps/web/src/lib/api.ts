@@ -143,6 +143,32 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   return jsonBody<T>(res, path)
 }
 
+/**
+ * Report an uncaught render error to the maintainer (see
+ * `components/ErrorBoundary.tsx`, `apps/api/src/routes/clientErrors.ts`).
+ *
+ * Deliberately NOT `request()`/`send()`: this runs from inside an error
+ * boundary, which is exactly the wrong place for a second failure mode to
+ * appear from. No auth (the endpoint takes none — a signed-out visitor's
+ * crash on the public catalog is just as worth knowing about), no 401
+ * retry, no thrown `ApiError`, no parsed response — the server answers 204
+ * and there is nothing to do with success or failure alike. `keepalive`
+ * so the report still lands if the same click that triggered it also
+ * navigates away (e.g. the fallback's own "Go home").
+ */
+export function reportClientError(payload: { route: string; message: string; stack?: string; buildId?: string }): void {
+  void fetch(`${BASE}/client-errors`, {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {
+    // Nothing to do — see the function comment. Swallowed, not logged: a
+    // console.error for a telemetry beacon that failed to send its own
+    // console.error would be noise on top of noise.
+  })
+}
+
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const headers = await authHeaders()
   return request<T>(path, { signal, headers })
@@ -1562,7 +1588,7 @@ export interface DeckeConversation {
 
 export const api = {
   // Administration and credit wallet share the authenticated, tier-aware transport.
-  publicDefaults: (signal?: AbortSignal) => get<{ defaults?: AppDefaults }>('/public-config', signal),
+  publicDefaults: (signal?: AbortSignal) => get<{ defaults?: AppDefaults; bugReportsPublic?: boolean }>('/public-config', signal),
   adminOverview: (signal?: AbortSignal) => get<{ adminReady: boolean; counts: { users?: number; suspended?: number; roles?: number; auditEvents?: number }; status: { bootstrap: string; mode: string } }>('/admin/overview', signal),
   adminUsers: (query: string, signal?: AbortSignal) => get<PageResult & { users: AdminUser[] }>('/admin/users?' + query, signal),
   adminUser: (id: string, signal?: AbortSignal) => get<{ user: AdminUser; permissions: string[]; stats: { collectionItems: number; decks: number; connectors: number } }>('/admin/users/' + encodeURIComponent(id), signal),
@@ -2164,6 +2190,8 @@ export const api = {
     kind?: 'bug' | 'feature'
   }) =>
     send<{ id: string; saved?: string; issueUrl?: string; issueNumber?: number; note?: string }>('POST', '/bugs', body),
+  // See the standalone `reportClientError` above for why this is not `send()`.
+  reportClientError,
   cardPriceHistory: (cardId: string, range: ValueRange, currency = 'USD', signal?: AbortSignal) =>
     get<CardPriceHistoryResponse>(
       `/cards/${encodeURIComponent(cardId)}/prices?range=${range}&currency=${encodeURIComponent(currency)}`,
@@ -2177,6 +2205,37 @@ export const api = {
     get<ValueResponse>(`/insights/value?range=${range}&currency=${encodeURIComponent(currency)}`, signal),
   dex: (params: URLSearchParams, signal?: AbortSignal) =>
     get<SpeciesGridResponse>(`/insights/pokedex?${params.toString()}`, signal),
+  /**
+   * The species grid's FULL page, following `pagination.pageCount` past
+   * whatever `pageSize` the caller requested — mirroring `setAllCards`'
+   * shape for `GET /sets/:setId` (PR #205, `pagePlan.ts`'s header comment).
+   *
+   * `PokedexIndex.tsx` and `Profile.tsx` both request `pageSize: '1025'` to
+   * get the whole National Dex in one call, which is complete only because
+   * 1025 also happens to be today's species total AND `GET /insights/pokedex`'s
+   * own server-side page-size cap (`clampInt(…, 1, 1025)`,
+   * `apps/api/src/routes/insights.ts`). The day a new generation adds species
+   * #1026+, that single request silently stops being everything — the newest
+   * species, the ones a "what's new" view most wants, are exactly what falls
+   * off the end. `pagination.total`/`pageCount` are already correct on page 1
+   * regardless of species count, so this fetches it, asks `remainingPages`
+   * whether there's more, and — only then — fetches the rest in parallel
+   * before concatenating `species`. No caller needs to know the current dex
+   * size to stay correct.
+   */
+  dexAll: async (params: URLSearchParams, signal?: AbortSignal): Promise<SpeciesGridResponse> => {
+    const first = await api.dex(params, signal)
+    const rest = remainingPages(first.pagination)
+    if (rest.length === 0) return first
+    const pages = await Promise.all(
+      rest.map((page) => {
+        const p = new URLSearchParams(params)
+        p.set('page', String(page))
+        return api.dex(p, signal)
+      }),
+    )
+    return { ...first, species: [...first.species, ...pages.flatMap((r) => r.species)] }
+  },
   species: (id: string, signal?: AbortSignal) =>
     // `/insights/pokedex/:speciesId` — NOT `/insights/deckpal/…`. The pokedex→
     // deckpal rename swept this string and 404'd every species page ("No such
