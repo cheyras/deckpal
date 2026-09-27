@@ -209,6 +209,76 @@ async function checkWriteRefresh(page, server, width, out) {
   return { case: 'decke-write-refreshes-page', width, readTurnReads: 1, writeTurnReads: 2 }
 }
 
+/**
+ * ── SEC-04: A LONG CHAT STAYS UNDER THE SERVER'S BOUND, AND SAYS SO ONCE ─────
+ *
+ * The server now shows the model a window of recent history and refuses a body
+ * past a hard cap. This drives the real hook through more exchanges than the
+ * window holds and reads the bodies it actually sends: the prior history must
+ * be trimmed to the window, start on the reader's message and keep the newest
+ * exchange, and the reader is told ONCE that the start of the chat is out of
+ * his view. Then the server answers 413, and the reader must see a sentence
+ * rather than a generic failure.
+ */
+const WINDOW_MESSAGES = 24
+async function checkBounds(page, server, width, out) {
+  const bodies = []
+  let status = 200
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    if (status === 413) {
+      return route.fulfill({ status: 413, contentType: 'application/json',
+        body: JSON.stringify({ error: 'That message is too long for Deck-E to read in one go.', code: 'message_too_long' }) })
+    }
+    // The first turn's tool FAILS, so its evidence has to outlive the window:
+    // the server's failing-tool breaker counts failures across the whole
+    // conversation, and the browser now sends only the recent part of it.
+    const failed = bodies.length === 1
+      ? [{ type: 'data-decke-tool', data: { id: 'bl-1', name: 'battle_logs', title: 'Reading battle logs', phase: 'error', summary: 'Internal server error' } }]
+      : []
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' },
+      body: sse(...failed, { type: 'text-delta', delta: 'Answer ' + bodies.length + '.' }) })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  const exchanges = WINDOW_MESSAGES / 2 + 3
+  for (let i = 1; i <= exchanges; i++) {
+    await page.evaluate(t => window.meterChat.send(t), 'Question ' + i)
+    await panel.getByText('Answer ' + i + '.', { exact: true }).waitFor()
+    await page.waitForFunction(() => window.meterChat.busy === false)
+  }
+  const last = bodies[bodies.length - 1].messages
+  assert.equal(last.length, WINDOW_MESSAGES + 1, 'prior history plus the new question must fit the window exactly')
+  assert.equal(last[0].role, 'user', 'the window must start on a reader message')
+  assert.deepEqual(last[last.length - 1].parts, [{ type: 'text', text: 'Question ' + exchanges }])
+  assert.equal(last[last.length - 2].parts[0].text, 'Answer ' + (exchanges - 1) + '.', 'the newest exchange must survive')
+  assert.ok(bodies.every(b => b.messages.length <= WINDOW_MESSAGES + 1), 'no request may carry more than the window')
+  assert.ok(!last.flatMap(m => m.parts).some(p => p.type === 'tool-battle_logs'), 'the first turn must have left the window')
+  assert.deepEqual(bodies[bodies.length - 1].evidence?.flatMap(m => m.parts).filter(p => p.type === 'tool-battle_logs')
+    .map(p => [p.state, p.errorText]), [['output-error', 'Internal server error']], 'the dropped failure must ride along as evidence')
+  assert.equal(bodies[1].evidence, undefined, 'no evidence is sent while nothing has been dropped')
+  const told = panel.getByText('I can only see the recent part of this chat now — start a new one for a clean slate.', { exact: true })
+  assert.equal(await told.count(), 1, 'the reader is told once, not on every turn')
+  await told.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(out, 'bounds-trim-' + width + '.png') })
+
+  status = 413
+  await page.evaluate(() => window.meterChat.send('x'.repeat(70000)))
+  await panel.getByText("That's more than I can read in one go.", { exact: true }).waitFor()
+  // Not exact: the transcript renders a notice's detail as a bare text node
+  // beside the title, so the smallest element holding it holds both.
+  await panel.getByText('Nothing was sent. Try something shorter.').waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  await page.screenshot({ path: path.join(out, 'bounds-413-' + width + '.png') })
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'wire-bounds', width, requests: bodies.length, lastBodyMessages: last.length, droppedFailureEvidence: true, trimNotice: 1, tooLongNotice: true }
+}
+
 export async function checkChat(browser, server, out) {
   const results = []
   for (const width of [1280, 390]) {
@@ -320,6 +390,7 @@ export async function checkChat(browser, server, out) {
       results.push({ case: 'rendered-screen-keyboard', width, controlled, expandedAndCollapsed: true, focusVisible: true, reducedMotion: true })
       results.push(await checkMeterReplay(page, server, width, out))
       results.push(await checkWriteRefresh(page, server, width, out))
+      results.push(await checkBounds(page, server, width, out))
     } finally { await context.close() }
   }
   return results
