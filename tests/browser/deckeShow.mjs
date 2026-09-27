@@ -15,8 +15,9 @@
  * screen, the target's box, the ring. Then it asserts the invariants that make
  * the trip read as ONE motion — the ones each earlier bug broke:
  *
- *   - ONE scroll owner: at most one jump (the long throw) and one glide, never a
- *     reversal. Two glides was the grid scrolling itself, then his flight again.
+ *   - ONE scroll owner: at most one jump (the long throw) and one glide, with
+ *     bounded pixel settling, never a substantial reversal. Two glides was
+ *     the grid scrolling itself, then his flight again.
  *   - NO SNAPS: his drawn position never moves further in one frame than a fast
  *     flight can (the composer drag was 274 px; the stale second leg 667 px).
  *   - HE LANDS BESIDE IT: at the moment the ring appears he is within a few
@@ -37,10 +38,12 @@
  * same reason no assertion here is a wall-clock bound.
  */
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import path from 'node:path'
 import { webkit } from 'playwright'
-import { buildWeb, contextFor, serve } from './support.mjs'
+import { buildWeb, contextFor, serve, run, ROOT } from './support.mjs'
 import { adminFixture, signIn } from './admin.mjs'
+import { analyseScroll, MAX_SETTLING_PX } from './deckeShowScroll.mjs'
 
 const USER = '10000000-0000-4000-8000-000000000002'
 const NOW = '2026-09-12T18:00:00Z'
@@ -147,7 +150,7 @@ function installRecorder(target) {
     const bubbleBox = bubble && bubble.dataset.side ? bubble.getBoundingClientRect() : null
     const s = d.getState()
     R.frames.push({
-      t: performance.now(), y: Math.round(window.scrollY), path: location.pathname, flying: s.flying,
+      t: performance.now(), y: Math.round(window.scrollY), viewportHeight: window.innerHeight, path: location.pathname, flying: s.flying,
       him: him ? [Math.round(him.left + origin.left), Math.round(him.top + origin.top), Math.round(him.width), Math.round(him.height)] : null,
       target: el ? box(el.getBoundingClientRect()) : null,
       ring: ring ? box(ring.getBoundingClientRect()) : null,
@@ -165,20 +168,7 @@ const centre = (b) => [b[0] + b[2] / 2, b[1] + b[3] / 2]
 const gap = (a, b) => Math.hypot(Math.max(0, a[0] - (b[0] + b[2]), b[0] - (a[0] + a[2])), Math.max(0, a[1] - (b[1] + b[3]), b[1] - (a[1] + a[3])))
 
 export function analyse(frames) {
-  // Scroll runs: a GLIDE is three or more consecutive moving frames, a JUMP one
-  // or two. Runs are separated by four still frames.
-  let glides = 0, jumps = 0, reversals = 0, run = 0, still = 99, dir = 0
-  const close = () => { if (run >= 3) glides++; else if (run > 0) jumps++; run = 0 }
-  for (let i = 1; i < frames.length; i++) {
-    const dy = frames[i].y - frames[i - 1].y
-    if (Math.abs(dy) <= 0.5) { still++; continue }
-    if (still >= 4) close()
-    still = 0
-    run++
-    if (dir && Math.sign(dy) !== dir) reversals++
-    dir = Math.sign(dy)
-  }
-  close()
+  const scroll = analyseScroll(frames, frames[0].viewportHeight)
   // Snaps: his centre moving further in one 1/60 s step than any flight does.
   // A character under 12 px tall is tucked into the chip, where position means
   // nothing, and so is a frame where the canvas itself was re-anchored.
@@ -219,7 +209,7 @@ export function analyse(frames) {
     : null
   const flightFrames = frames.filter((f) => f.flying).length
   return {
-    glides, jumps, reversals, worstStepPx: Math.round(worst), flightMs: Math.round((flightFrames * 1000) / 60),
+    ...scroll, worstStepPx: Math.round(worst), flightMs: Math.round((flightFrames * 1000) / 60),
     bubbleFrames, bubbleDesyncPx: Math.round(bubbleWorst), bubbleSideChanges: sideChanges,
     ringT: ringAt >= 0 ? frames[ringAt].t : null,
     ringOnTarget: !!(lookAt && aligned(lookAt)),
@@ -327,12 +317,14 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         await secondLeg(page, fixture, 90_000)
         const f = await frames(page)
         const m = analyse(f)
+        fs.writeFileSync(path.join(out, 'decke-show-card-' + engine + '-' + vp.width + '.json'), JSON.stringify({ frames: f, metrics: m }, null, 2) + '\n')
         const chats = await page.evaluate(() => window.__show.chats)
         await page.screenshot({ path: path.join(out, 'decke-show-card-' + engine + '-' + vp.width + '.png') })
         const where = engine + ' ' + vp.width + ': '
         assert.deepEqual(fixture.toolOutputs(), [{ ok: true }], where + 'the goTo did not report a landing')
         assert.equal(f.at(-1).path, '/series/sim/sim1', where + 'he did not take the reader to the set')
-        assert.ok(m.jumps <= 1 && m.glides <= 1, where + 'the page scrolled more than once (' + m.jumps + ' jumps, ' + m.glides + ' glides) — two scroll owners again')
+        assert.ok(m.jumps <= 1 && m.glides <= 1, where + 'the page exceeded one throw and one glide (' + m.jumps + ' jumps, ' + m.glides + ' glides)')
+        assert.ok(m.settlingPx <= MAX_SETTLING_PX, where + 'the page drifted ' + m.settlingPx + ' px outside the planned motion')
         assert.equal(m.reversals, 0, where + 'the scroll reversed direction on its own')
         assert.ok(m.worstStepPx <= MAX_STEP_PX, where + 'he snapped ' + m.worstStepPx + ' px in one frame')
         assert.ok(m.ringT !== null && m.ringOnTarget, where + 'the card was never ringed')
@@ -464,6 +456,7 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
   return [{
     name: 'decke-show',
     async run() {
+      logs.push(await run(process.execPath, ['--test', path.join(ROOT, 'tests/browser/__tests__/deckeShowScroll.test.mjs')]))
       const dist = path.join(scratch, 'decke-show')
       const admin = adminFixture('')
       const show = showFixture('', admin)
