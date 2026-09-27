@@ -11,6 +11,7 @@ import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from '../tests/browser/chat.mjs'
 import { writesFixture, checkWrites } from '../tests/browser/writes.mjs'
 import { checkAuthReturn } from '../tests/browser/authReturn.mjs'
+import { showFixture, checkDeckeShow } from '../tests/browser/deckeShow.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
@@ -30,9 +31,10 @@ try {
     let scenario = 'active'
     const admin = adminFixture(mount)
     const writes = writesFixture(mount, admin)
-    let adminActive = false, writesActive = false
-    const server = await serve(dist, mount, (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html',
-      { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
+    const show = showFixture(mount, admin)
+    let adminActive = false, writesActive = false, showActive = false
+    const server = await serve(dist, mount, (rel, url, req) => showActive ? (show.response(rel, url, req) ?? admin.response(rel, url, req)) : writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html',
+      { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) || (showActive && show.allowMutation(pathname, method)) })
     try {
       logs.push(buildWeb(dist, label === 'cloud', server.origin))
       assets.push({ label, ...checkDeployAssets(dist) })
@@ -56,6 +58,12 @@ try {
       if (label === 'cloud') {
         writesActive = true
         results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
+        writesActive = false
+        showActive = true
+        results.push(...await checkDeckeShow(browser, server, out, 'chromium', show, admin))
+        const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
+          ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
+        try { results.push(...await checkDeckeShow(safari, server, out, 'webkit', show, admin)) } finally { await safari.close() }
       }
       assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
     } finally { await server.close() }

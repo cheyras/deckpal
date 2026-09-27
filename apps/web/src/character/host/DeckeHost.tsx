@@ -1814,14 +1814,17 @@ function settledRect(el: HTMLElement): DOMRect {
         setLive(decke)
       }
 
-      // A handle for verification harnesses, DEV ONLY — stripped from the
-      // production bundle by the constant folding on `import.meta.env.DEV`.
-      // Headless Chromium runs rAF at about 1 Hz, so a screenshot taken after a
-      // wall-clock wait captures a still frame of a frozen loop. The only way to
-      // photograph him is the recipe in `character/decke/README.md`: stop the
-      // loop and step it by hand. That needs a reference, and unlike `/dev/decke`
-      // this host has no route of its own to hang one off.
-      if (import.meta.env.DEV) {
+      // A handle for verification harnesses, DEV and TEST BUILDS ONLY — stripped
+      // from the production bundle by constant folding: `DEV` is false there,
+      // and `VITE_DECKE_TEST_HANDLE` is set by nothing but the browser suite's
+      // own build (`tests/browser/support.mjs`). Headless Chromium can run rAF
+      // far below 60 Hz, so a screenshot taken after a wall-clock wait captures
+      // a still frame of a frozen loop. The only way to photograph — or measure
+      // — him is the recipe in `character/decke/README.md`: stop the loop and
+      // step it by hand. That needs a reference, and unlike `/dev/decke` this
+      // host has no route of its own to hang one off. `tests/browser/deckeShow.mjs`
+      // is the suite that steps him.
+      if (import.meta.env.DEV || import.meta.env.VITE_DECKE_TEST_HANDLE === '1') {
         ;(window as unknown as { __decke?: DeckEInstance }).__decke = decke
       }
     })()

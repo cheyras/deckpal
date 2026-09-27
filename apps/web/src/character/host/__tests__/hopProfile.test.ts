@@ -316,6 +316,8 @@ function installFakeDom(opts: { selector: string; left: number; width: number })
     location: { pathname: '/series', href: 'https://deckpal.app/series' },
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
     clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
+    setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
+    clearInterval: (id: unknown) => clearInterval(id as ReturnType<typeof setInterval>),
     // THE FLIGHT WAITS FOR ITS TARGET'S BOX TO HOLD STILL before it launches —
     // see `whenStill`. A fake element never moves, so the wait is two ticks.
     scrollY: 0,

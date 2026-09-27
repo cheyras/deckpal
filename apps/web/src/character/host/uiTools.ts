@@ -708,13 +708,20 @@ const SETTLE_MS = 120
 const DEAD_AIR_MS = 300
 
 /**
- * How long a flight he has launched may take to land before the tool answers
- * anyway. The longest trip he flies (via the far plane, at the top of the rate
- * ramp) is well under three seconds, so this only ever fires for a flight that
- * is not going to report — and then the answer says so rather than claiming an
- * arrival nobody saw.
+ * How long the tool waits for a landing that the engine has stopped owing.
+ *
+ * The engine ALWAYS reports a flight's end — a landing, or an abort when
+ * something replaces it — so this is not a timeout on the flight. It is the
+ * grace allowed once he is no longer in the air and still nothing has been
+ * heard, which only a teardown mid-flight produces. Measuring his flight in
+ * wall-clock time instead would be wrong in exactly the places it matters: a
+ * slow phone, a busy tab, or a test stepping him frame by frame all stretch a
+ * 1.5 s flight well past any fixed cap, and the tool would then answer "not
+ * landed" for a trip that landed fine.
  */
-export const ARRIVAL_CAP_MS = 5000
+export const ARRIVAL_GRACE_MS = 1000
+/** The absolute bound, so a tool can never hang a turn whatever the engine does. */
+export const ARRIVAL_HARD_CAP_MS = 20000
 
 /**
  * How long a found destination may keep moving before he flies at it anyway.
@@ -828,16 +835,16 @@ function present(
     const far =
       !here.flying && viaBackground(himX(ctx), target.left + target.width / 2, window.innerWidth)
     let done = false
+    let watch = 0
     const finish = (result: UiToolResult) => {
       if (done) return
       done = true
-      window.clearTimeout(cap)
+      window.clearInterval(watch)
       resolve(result)
     }
-    const cap = window.setTimeout(
-      () => finish({ ok: true, reason: 'I set off toward it, but I had not landed when I answered' }),
-      ARRIVAL_CAP_MS,
-    )
+    const started = Date.now()
+    let groundedSince = 0
+    const lost = () => finish({ ok: true, reason: 'I set off toward it, but I had not landed when I answered' })
     ctx.decke.flyTo(
       { selector },
       {
@@ -856,6 +863,19 @@ function present(
           ),
       },
     )
+    if (done) return
+    watch = window.setInterval(() => {
+      let flying = false
+      try {
+        flying = ctx.decke.getState().flying
+      } catch {
+        /* an engine that has gone away is not flying */
+      }
+      const now = Date.now()
+      if (flying) groundedSince = 0
+      else if (!groundedSince) groundedSince = now
+      if ((groundedSince && now - groundedSince > ARRIVAL_GRACE_MS) || now - started > ARRIVAL_HARD_CAP_MS) lost()
+    }, 250)
   })
 }
 
