@@ -385,7 +385,7 @@ export async function main(argv = process.argv.slice(2)) {
   // the app).
   if (rebuild || !fs.existsSync(path.join(dist, 'index.html'))) {
     console.log('[sim] building web app (cloud mode) into', dist, '...')
-    console.log(buildWeb(dist, true, origin).trim().split('\n').slice(-5).join('\n'))
+    console.log((await buildWeb(dist, true, origin)).trim().split('\n').slice(-5).join('\n'))
     console.log('[sim] build complete')
   } else {
     console.log('[sim] reusing existing build at', dist, '(pass --rebuild, or delete it, to force a rebuild)')

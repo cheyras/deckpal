@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { contextFor } from './support.mjs'
+import { ROOT, WEB, run, isolatedEnv, serve, contextFor } from './support.mjs'
+
+export function browserSuites({ browser, out, scratch, results, logs }) {
+  return [{
+    name: 'error-boundary',
+    async run() {
+      const fixtureDist = path.join(scratch, 'error-boundary')
+      logs.push(await run(process.execPath, [path.join(WEB, 'node_modules/vite/bin/vite.js'), 'build',
+        '--config', path.join(ROOT, 'tests/browser/vite.config.mjs'), '--outDir', fixtureDist],
+      { env: isolatedEnv() }))
+      const server = await serve(fixtureDist, '', () => null, 'fixture.html')
+      try {
+        results.push(...await checkErrorBoundary(browser, server, out))
+        assert.deepEqual(server.unexpected, [], 'Rendered error-boundary fixture: unexpected network/error events')
+      } finally { await server.close() }
+    },
+  }]
+}
 
 /**
  * QUAL-01 (scratchpad/audits/quality.md) — the app-wide error boundaries.

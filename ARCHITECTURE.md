@@ -216,7 +216,7 @@ router) settles it per request:
 | No credential | **401** — no fallback exists | the single local user (`defaultUserId()`) |
 
 The self-host branch is gated on *any* Supabase environment being absent
-(`SUPABASE_URL`, `SUPABASE_JWT_SECRET` **or** `SUPABASE_MODE`), so a
+(`SUPABASE_URL`, legacy `SUPABASE_JWT_SECRET` **or** `SUPABASE_MODE`), so a
 half-configured cloud deployment fails closed rather than serving one tenant's
 rows to anonymous callers. Cloud identity derives from the verified JWT and
 nothing else.
