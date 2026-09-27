@@ -111,6 +111,23 @@ export async function checkA11y(browser, server, mount, label, out) {
             await page.locator('a[href="#main"]').evaluate((link) => link.click())
             assert.equal(await page.evaluate(() => document.activeElement?.id), 'main', `${engine} ${width}: clicking the link must focus main`)
             results.push({ case: 'a11y-skip-link', label, engine, width, first: true, enteredMain: true })
+            if (width === 390) {
+              await page.getByRole('button', { name: 'Menu' }).click()
+              const drawer = page.getByRole('dialog', { name: 'Navigation' })
+              await drawer.getByRole('button', { name: 'Close navigation' }).waitFor()
+              await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Close navigation')
+              for (let step = 0; step < 5; step++) {
+                await page.keyboard.press('Tab')
+                assert.equal(await page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
+                  true, `${engine}: forward Tab ${step + 1} must stay inside navigation`)
+                if (step === 0) assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'A',
+                  `${engine}: the first forward Tab must reach the profile link`)
+              }
+              await page.keyboard.press('Shift+Tab')
+              assert.equal(await page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
+                true, `${engine}: backward Tab must stay inside navigation`)
+              results.push({ case: 'a11y-drawer-tab', label, engine, width, stayedInside: true })
+            }
           } finally { await context.close() }
         }
       }

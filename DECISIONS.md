@@ -21705,3 +21705,5 @@ tests and by `log_cards`' own preflight; it has not been measured live.
 **Why:** Reusing Deck-E's `travelling` state to minimise the chat also started its presentation retirement timer. After 3.6 seconds, an otherwise idle chat could close and move focus outside the modal navigation drawer.
 
 **Implications:** Opening the menu over chat cannot end the reader's conversation or steal focus after a delay. A delayed browser check waits beyond the retirement deadline, verifies focus remains in the drawer, then checks that the same unsent draft returns when navigation closes.
+
+The drawer also advances focus explicitly through its visible controls on Tab. WebKit's default keyboard setting skips ordinary links and buttons during native Tab navigation, which let focus leave the dialog after its close button. Chromium and WebKit now check forward and backward Tab at phone width.

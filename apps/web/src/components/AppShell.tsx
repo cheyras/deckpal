@@ -503,17 +503,16 @@ function MobileDrawer({
       const nodes = Array.from(
         panel.querySelectorAll<HTMLElement>(FOCUSABLE),
       ).filter((el) => el.offsetParent !== null || el === document.activeElement)
-      if (nodes.length === 0) return
-      const first = nodes[0]
-      const last = nodes[nodes.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey && (active === first || !panel.contains(active))) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault()
-        first.focus()
-      }
+      e.preventDefault()
+      if (nodes.length === 0) { panel.focus(); return }
+      // WebKit's default keyboard setting skips ordinary links and buttons on
+      // native Tab, so waiting for focus to reach the last node leaks out of
+      // the modal. Move through the drawer's visible controls ourselves.
+      const index = nodes.indexOf(document.activeElement as HTMLElement)
+      const next = e.shiftKey
+        ? (index <= 0 ? nodes.length - 1 : index - 1)
+        : (index < 0 || index === nodes.length - 1 ? 0 : index + 1)
+      nodes[next].focus()
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
