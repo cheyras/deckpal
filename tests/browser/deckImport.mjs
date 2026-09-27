@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import { contextFor } from './support.mjs'
 import { signIn } from './admin.mjs'
 
@@ -14,6 +15,12 @@ const summary = unresolvedLines => ({ import: { source: 'ptcgl', resolvedEntries
 const fixes = [0, 1].map(lineIndex => ({ lineIndex, original: '2 Iono PAL 999', replacement: '2 Iono PAL 185',
   card: { id: 'pal-185', name: 'Iono', set: 'PAL', number: '185' },
   reason: 'PAL 185 is Iono.', confidence: 'suggested' }))
+const twoDifferent = '2 Iono PAL 999\n2 Arven OBF 999'
+const twoDifferentFixes = [fixes[0], {
+  lineIndex: 1, original: '2 Arven OBF 999', replacement: '2 Arven OBF 186',
+  card: { id: 'obf-186', name: 'Arven', set: 'OBF', number: '186' },
+  reason: 'OBF 186 is Arven.', confidence: 'suggested',
+}]
 
 /** The built cloud app, fake account and intercepted API: no deck is created
  * until the exact reviewed text passes its second dry run. */
@@ -45,6 +52,8 @@ export async function checkDeckImport(browser, server, fixture) {
             confirmedCheckStarted()
             return heldResponse.then(() => route.fulfill({ json: summary([]) }))
           }
+          if (body.text.includes('Arven OBF'))
+            return route.fulfill({ json: summary(body.text.split('\n').filter(line => line.endsWith('999'))) })
           return route.fulfill({ json: summary(body.text === confirmed ? []
             : body.text === partial ? [novelUnresolved ? '2 Iono PAL 185' : '2 Iono PAL 999']
               : body.text === partialWithWhitespace ? ['  2 Iono PAL 999  ']
@@ -68,7 +77,12 @@ export async function checkDeckImport(browser, server, fixture) {
         assert.equal(await group.locator('[data-decke-errand]').count(), 1, 'Deck-E docks beside the unmatched lines before asking')
         await group.getByRole('button', { name: 'Want me to fix these 2?' }).click()
         await page.getByText('PAL 185 is Iono.').first().waitFor()
-        assert.equal(await group.getByText('2 Iono PAL 999').count(), 2, 'both original lines remain in their own rows')
+        if (input === twoDifferent) {
+          assert.equal(await group.getByText('2 Iono PAL 999').count(), 1)
+          assert.equal(await group.getByText('2 Arven OBF 999').count(), 1)
+        } else {
+          assert.equal(await group.getByText('2 Iono PAL 999').count(), 2, 'both original lines remain in their own rows')
+        }
         assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), suggested)
         assert.equal(await group.getByText('Review Deck-E’s fixes').count(), 0, 'there is no second review card')
       }
@@ -106,6 +120,34 @@ export async function checkDeckImport(browser, server, fixture) {
         'the second dry run must check the exact accepted text on each review')
       assert.equal(created.length, 1)
       assert.equal(created[0].text, confirmed, 'import must receive only the text the reader confirmed')
+      returnedFixes = twoDifferentFixes
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(2, twoDifferent)
+      await page.getByRole('button', { name: 'Undo' }).first().click()
+      await page.getByRole('button', { name: 'Edit the line 2 Iono PAL 999' }).click()
+      await page.keyboard.insertText('2 Iono PAL 185')
+      const group = page.getByRole('group', { name: 'Unmatched decklist lines' })
+      assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 1,
+        'editing A keeps B’s suggestion and does not duplicate A’s manual fix')
+      if (process.env.DECKPAL_233_BOARD_DIR) {
+        await page.screenshot({ path: path.join(process.env.DECKPAL_233_BOARD_DIR, `${width}-edit-keeps-fix-focused.png`), fullPage: true })
+        await group.locator('p').last().click()
+        await page.screenshot({ path: path.join(process.env.DECKPAL_233_BOARD_DIR, `${width}-edit-keeps-fix.png`), fullPage: true })
+      }
+      await page.getByRole('button', { name: 'Import deck' }).click()
+      await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
+      assert.equal(created.at(-1).text, '2 Iono PAL 185\n2 Arven OBF 186',
+        'the manual edit and surviving suggestion both reach import')
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(2, twoDifferent)
+      await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Arven OBF 999')
+      assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 1,
+        'deleting A keeps B’s suggestion after its line index moves')
+      if (process.env.DECKPAL_233_BOARD_DIR)
+        await page.screenshot({ path: path.join(process.env.DECKPAL_233_BOARD_DIR, `${width}-delete-keeps-fix.png`), fullPage: true })
+      await page.getByRole('button', { name: 'Import deck' }).click()
+      await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
+      assert.equal(created.at(-1).text, '2 Arven OBF 186', 'the remaining fix applies to B, not the deleted line')
       returnedFixes = fixes.slice(0, 1)
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(1)
@@ -120,7 +162,7 @@ export async function checkDeckImport(browser, server, fixture) {
       await prepare(1)
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByText('2 Iono PAL 185').waitFor()
-      assert.equal(created.length, 2, 'a newly unmatched replacement must be shown, not silently skipped')
+      assert.equal(created.length, 4, 'a newly unmatched replacement must be shown, not silently skipped')
       novelUnresolved = false
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(1, originalWithWhitespace)

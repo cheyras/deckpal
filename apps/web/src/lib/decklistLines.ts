@@ -19,3 +19,32 @@ export function decklistLineRange(text: string, line: string, lineIndex?: number
   }
   return null
 }
+
+/** Keep the identity of unchanged lines when the reader edits or removes a
+ * neighbor. The matching middle also survives inserted lines and moves. */
+export function reconcileDecklistLineIds(
+  before: string, after: string, ids: readonly string[], nextId: () => string,
+): string[] {
+  const oldLines = before.split('\n'), newLines = after.split('\n')
+  const result: string[] = new Array(newLines.length)
+  let start = 0
+  while (start < oldLines.length && start < newLines.length && oldLines[start] === newLines[start]) {
+    result[start] = ids[start]
+    start++
+  }
+  let oldEnd = oldLines.length - 1, newEnd = newLines.length - 1
+  while (oldEnd >= start && newEnd >= start && oldLines[oldEnd] === newLines[newEnd]) {
+    result[newEnd] = ids[oldEnd]
+    oldEnd--
+    newEnd--
+  }
+  const remaining = new Map<string, string[]>()
+  for (let i = start; i <= oldEnd; i++) {
+    const matches = remaining.get(oldLines[i]) ?? []
+    matches.push(ids[i])
+    remaining.set(oldLines[i], matches)
+  }
+  for (let i = start; i <= newEnd; i++)
+    result[i] = remaining.get(newLines[i])?.shift() ?? nextId()
+  return result
+}

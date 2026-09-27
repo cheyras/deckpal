@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type CreateDeckBody, type DeckFormat, type DeckImportSummary, type DeckImportFixResult, type DeckSummary } from '../lib/api'
+import { api, type CreateDeckBody, type DeckFormat, type DeckImportSummary, type DeckImportFix, type DeckSummary } from '../lib/api'
 import { confirmedDecklistText } from '../lib/deckImportFixes'
-import { decklistLineRange } from '../lib/decklistLines'
+import { decklistLineRange, reconcileDecklistLineIds } from '../lib/decklistLines'
 import { deckeEntitled, onDeckeEntitlementChange } from '../character/host/entitlement'
 import { deckeHidden, onDeckeVisibilityChange } from '../character/deckePreference'
 import { startDeckeErrand, endDeckeErrand } from '../character/host/errand'
@@ -143,8 +143,14 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   })
   const [entitled, setEntitled] = useState(false)
   const [hideCharacter, setHideCharacter] = useState(deckeHidden)
-  const [fixResult, setFixResult] = useState<{ text: string; formatCode: DeckFormat; result: DeckImportFixResult } | null>(null)
-  const [undone, setUndone] = useState<ReadonlySet<number>>(new Set())
+  const [fixResult, setFixResult] = useState<{ formatCode: DeckFormat; fixes: { lineId: string; fix: DeckImportFix }[] } | null>(null)
+  const [undone, setUndone] = useState<ReadonlySet<string>>(new Set())
+  const lineIds = useRef<string[]>(['line-0'])
+  const nextLineId = useRef(1)
+  const changeText = (next: string) => {
+    lineIds.current = reconcileDecklistLineIds(text, next, lineIds.current, () => `line-${nextLineId.current++}`)
+    setText(next)
+  }
   const [fixError, setFixError] = useState<string | null>(null)
   const reviewRevision = useRef(0)
   const close = () => { reviewRevision.current++; endDeckeErrand(); onClose() }
@@ -171,15 +177,20 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const stale = checked !== null && (checked.text !== text || checked.formatCode !== formatCode)
   const skipping = checked !== null && !stale && unmatched.length > 0
   const matchedCards = checked?.summary.totalCards ?? 0
-  const reviewing = fixResult !== null && !stale && fixResult.text === text && fixResult.formatCode === formatCode
-  const showDock = checked !== null && unmatched.length > 0 && !stale && entitled && !hideCharacter
+  const currentFixes = fixResult?.formatCode === formatCode ? fixResult.fixes.flatMap(({ lineId, fix }) => {
+    const lineIndex = lineIds.current.indexOf(lineId)
+    return lineIndex >= 0 && text.split('\n')[lineIndex]?.trim() === fix.original.trim()
+      ? [{ lineId, fix: { ...fix, lineIndex } }] : []
+  }) : []
+  const reviewing = currentFixes.length > 0
+  const showDock = checked !== null && unmatched.length > 0 && (!stale || reviewing) && entitled && !hideCharacter
   useEffect(() => {
     if (showDock) startDeckeErrand()
     else endDeckeErrand()
     return () => endDeckeErrand()
   }, [showDock])
-  const acceptedFixes = reviewing ? fixResult.result.fixes.filter(f => !undone.has(f.lineIndex)) : []
-  const confirmedText = reviewing ? confirmedDecklistText(text, fixResult.result.fixes, undone) : null
+  const acceptedFixes = reviewing ? currentFixes.filter(f => !undone.has(f.lineId)).map(f => f.fix) : []
+  const confirmedText = reviewing ? confirmedDecklistText(text, acceptedFixes, new Set()) : null
   const fixedByLine = new Map(acceptedFixes.map(f => [f.lineIndex, f]))
   const unmatchedWithIndexes = (() => {
     const wanted = new Map<string, number>()
@@ -214,7 +225,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           setFixError('Deck-E could not find a safe match for these lines. You can edit them yourself or import the matched cards.')
           return
         }
-        setFixResult({ ...asked, result })
+        setFixResult({ formatCode, fixes: result.fixes.map(f => ({ lineId: lineIds.current[f.lineIndex], fix: f })) })
       },
       onError: e => {
         if (latest.current.text === asked.text && latest.current.formatCode === asked.formatCode)
@@ -234,7 +245,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         if (now.text !== source.text || now.formatCode !== source.formatCode || reviewRevision.current !== revision) return
         // Move the accepted text into the editor, then show any lines that still
         // need the reader. Only a clean server check may create a deck.
-        setText(asked.text)
+        changeText(asked.text)
         latest.current = { ...now, text: asked.text }
         setFixResult(null)
         setUndone(new Set())
@@ -276,7 +287,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   }
   const undoFix = (lineIndex: number) => {
     reviewRevision.current++
-    setUndone(prev => new Set([...prev, lineIndex]))
+    setUndone(prev => new Set([...prev, lineIds.current[lineIndex]]))
   }
   const them = unmatched.length === 1 ? 'it' : 'them'
   // On a phone the panel lands under a tall textarea; bring the lines into view.
@@ -336,7 +347,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           autoFocus
           aria-label="Decklist"
           value={text}
-          onChange={(e) => { setText(e.target.value); setFixResult(null) }}
+          onChange={(e) => changeText(e.target.value)}
           rows={checked ? 6 : 12}
           placeholder={'Pokémon: 6\n3 Charizard ex OBF 125\n…\n\nTrainer: …\n\nEnergy: …\n\nTotal Cards: 60'}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
@@ -348,7 +359,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                 <Icon name="sparkle" size={16} className="shrink-0 text-action-primary" />
                 <span>{reviewing ? `${unmatched.length} line${unmatched.length === 1 ? '' : 's'} to review` : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}</span>
               </div>
-              {!stale && entitled && (hideCharacter ? (
+              {(!stale || reviewing) && entitled && (hideCharacter ? (
                 !reviewing && <button type="button" onClick={askDecke} disabled={fix.isPending || check.isPending}
                   className="shrink-0 text-[13px] font-semibold text-link hover:text-link-hover disabled:opacity-50">
                   {fix.isPending ? 'Checking…' : 'Suggest fixes'}

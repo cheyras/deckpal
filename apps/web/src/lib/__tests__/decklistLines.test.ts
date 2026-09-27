@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { decklistLineRange } from '../decklistLines'
+import { decklistLineRange, reconcileDecklistLineIds } from '../decklistLines'
 
 const LIST = 'Pokémon: 2\n  2 Latias ex SSP 76  \n4 Dreepy TWM 128\r\n2 Latias ex SSP 76\n'
 
@@ -29,4 +29,13 @@ test('selects the requested physical occurrence when identical lines repeat', ()
 test('says so when the text no longer contains the line', () => {
   assert.equal(decklistLineRange(LIST, '1 Pikachu SVI 1'), null)
   assert.equal(decklistLineRange(LIST, '   '), null)
+})
+
+test('keeps the identity of an untouched line across edits and deletion above it', () => {
+  let next = 2
+  const allocate = () => `line-${next++}`
+  const edited = reconcileDecklistLineIds('A\nB', 'A fixed\nB', ['line-0', 'line-1'], allocate)
+  assert.equal(edited[1], 'line-1')
+  assert.notEqual(edited[0], 'line-0')
+  assert.deepEqual(reconcileDecklistLineIds('A fixed\nB', 'B', edited, allocate), ['line-1'])
 })
