@@ -91,30 +91,46 @@ omit the host.
   IP per process**, before token resolution and before the RLS pool is
   acquired. On Vercel the key is the validated `x-vercel-forwarded-for` (or
   `x-forwarded-for`); off Vercel it is the raw socket peer (`trust proxy` stays
-  `false`). The Stripe raw-body webhook and the bare-origin OAuth discovery /
-  `/register` / `/token` handlers are mounted separately on `app` ahead of that
-  router and are outside this guard; the MCP transport at `/mcp` is a separate
-  function. Session budgets run **after** auth/self-host identity and
-  `requireSession` but **before** RLS request-connection acquisition:
-  `/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min, all `/admin`
-  120/min and all `/me/credits` 180/min. Active-account/action permissions
-  and handlers follow RLS. Authentication and trusted bootstrap may access
-  their own pool earlier. Refusal is **`429`** with a **`Retry-After`** header in
-  seconds; a request is charged once per applicable budget (it may consume
-  both ingress and a per-user session budget, with no duplicate route-level
-  charge). Budgets are in-memory fixed windows, per process / per serverless
-  instance, reset on cold start — speed bumps against retry storms and casual
-  abuse, not a distributed quota. See `SECURITY.md` → Rate limiting.
-- **Caching.** Pure-catalog responses (`/series` list, `/search`, the `/` index)
-  send `Cache-Control: public, max-age=…`. Anything mixing in the user's
-  collection or prices sends `private, no-cache, must-revalidate`.
+  `false`). The Stripe raw-body webhook and bare-origin OAuth discovery,
+  `/register` and `/token` handlers sit outside this router; `/mcp` is a
+  separate function. Session budgets run **after** auth and identity but
+  **before** RLS request-connection acquisition: `/tokens` 20/min, `/avatar`
+  10/min, `/oauth` 30/min, `/bugs` 10/hour, all `/admin` 120/min and all
+  `/me/credits` 180/min. The first three and the admin/credits routes require
+  a browser session; `/bugs` uses its signed-in account identity. A request
+  is charged once per applicable budget. Refusal is **`429`** with a
+  **`Retry-After`** header. Budgets are in-memory fixed windows per instance,
+  reset on cold start, and are speed bumps rather than a distributed quota.
+
+  Bare-origin OAuth discovery, `/register` and `/token` have their own 30/min
+  per-source-IP limiter. The MCP transport has a global 300/min-per-instance
+  admission counter before token resolution and a 60/min-per-token budget
+  after. The Stripe webhook relies on signature verification and its retry
+  behavior instead of an application limiter. See `SECURITY.md` → Rate limiting.
+- **Body-size limits.** Per route, most-specific first, immediately after the
+  ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
+  `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
+  `/dev/scan-flags` 4200kb (photos whose maximum base64 form is exactly 4mb
+  before the JSON wrapper), `/decke` 2mb, `/lists` 2mb, `/decks` 512kb, and
+  100kb for every other route. `/register` and `/token` keep their own 16kb
+  parsers. Limits measure bytes on the wire, not characters; the text-heavy
+  routes leave room for ASCII-escaped JSON as well as raw UTF-8. Oversized
+  bodies receive `413 payload_too_large`. See `SECURITY.md` → Body-size limits.
+- **Caching.** `/series`, `/series/:seriesSlug`, `/sets/:setId` and
+  `/cards/:cardId` embed ownership for a signed-in caller, so the same URL
+  answers differently by identity. Anonymous requests get
+  `Cache-Control: public, max-age=…, stale-while-revalidate=600` and
+  `Vary: Authorization`; signed-in requests stay private. `/search` has no
+  personalization branch, so its responses are unconditionally public and
+  do not need `Vary: Authorization`.
 
 ## Authentication
 
-In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs:
+In **cloud mode** (`SUPABASE_URL` is set), the API verifies Supabase user JWTs:
 
-- All requests pass through `authMiddleware` which decodes the `Authorization:
-  Bearer <token>` header (HS256) and attaches `req.user` with the user's UUID.
+- All requests pass through `authMiddleware`, which verifies the `Authorization:
+  Bearer <token>` header using Supabase's public JWKS for ES256, or
+  `SUPABASE_JWT_SECRET` for legacy HS256, and attaches the user's UUID.
 - **Public routes** (no auth required): `GET /health`, `GET /`, `GET /search`.
 - **Protected routes** (require a valid JWT): everything else (series with
   progress, sets, cards, collection mutations, lists, decks, insights, scan,
@@ -123,7 +139,7 @@ In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs
 - The user UUID comes from the JWT `sub` claim. All SQL queries use this UUID
   as `user_id`.
 
-In **self-host mode** (no `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
+In **self-host mode** (neither `SUPABASE_URL` nor `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
 The reverse proxy is the auth boundary. All requests pass through.
 
 ---
@@ -1493,27 +1509,44 @@ or a missing `vector` extension is one log line and the pre-vector ladder, not a
 The top-nav "Report a bug" button posts here. Body (JSON, 12 MB limit for the
 screenshot data URL):
 `{ "text" (required, ≤20000), "page"? (current route), "userAgent"?, "viewport"?,
-"screenshot"? (a `data:image/(png|jpeg|webp);base64,…` URL, ≤8 MB decoded) }`.
+"screenshot"? (a `data:image/(png|jpeg|webp);base64,…` URL, ≤8 MB decoded),
+"kind"? ("bug" or "feature") }`.
 `400` when `text` is missing/empty, the screenshot is not a valid image data URL,
-or the decoded screenshot exceeds 8 MB.
+its bytes are not a PNG, JPEG, or WebP image, or it exceeds 8 MB. The server
+strips the page's query string and fragment before saving or publishing it. It
+ignores any screenshot sent for an admin, profile, or credits page, including
+mixed-case or encoded spellings of those routes.
 
 **Cloud mode** (GITHUB_TOKEN + GITHUB_REPO set): inserts a `bug_report` row
 (user id and email from the JWT, stored privately — never in the public issue),
 then creates a GitHub issue labelled `in-app-report`. If Supabase Storage is
-configured, the screenshot is uploaded and a signed URL is included in the issue
-body. The returned issue number is stored on the DB row. If GitHub is unreachable
+configured, the screenshot is uploaded privately under the Report-ID. The public
+issue says whether a screenshot was saved but never includes a screenshot URL.
+The returned issue number is stored on the DB row. If GitHub is unreachable
 the row still persists and the response is `202` with a `note`.
 ```json
 201 { "id": "<uuid>", "issueUrl": "https://github.com/…/issues/42", "issueNumber": 42 }
 202 { "id": "<uuid>", "note": "Report saved but GitHub issue creation failed." }
 ```
 
-**Self-host mode** (no GITHUB_TOKEN): persists each report as a folder under the
+**Filesystem mode** (either GitHub setting absent): persists each report as a folder under the
 repo's `issues/` dir (a developer artefact, not user data — the `fix-issues`
 skill walks that dir). No DB.
 ```json
 201 { "id": "2026-07-30T12-34-56_abc123", "saved": "issues/2026-07-30T12-34-56_abc123/" }
 ```
+
+### POST /deckpal/api/client-errors
+The web app's React error boundaries (`apps/web/src/components/ErrorBoundary.tsx`)
+post here automatically when they catch an uncaught render exception — no user
+action, and never a substitute for `/bugs` (which is only ever human-initiated).
+Unauthenticated: a crash on a signed-out page is just as worth knowing about.
+Body (JSON, all fields optional strings):
+`{ "route"?, "message"?, "stack"?, "buildId"? }`, truncated server-side to 300 /
+500 / 4000 / 100 chars respectively. Rate-limited at 20/min per source IP. The
+handler only `console.error`s a single structured line — no DB row, no
+screenshot, no GitHub issue, no user identity — and always answers `204` with
+an empty body, regardless of what it was sent.
 
 ---
 

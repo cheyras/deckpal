@@ -220,6 +220,51 @@ directory; the object tier proves it by listing the bucket:
 pnpm --filter deckpal-images manifest:check -- --object-store
 ```
 
+### Rotating leaked legacy Supabase keys on deckpal.app
+
+This is an operator action. The code accepts both key formats so the cutover can
+be staged, but **deploying the code alone does not close the incident**. Use the
+current [Supabase API-key migration](https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys)
+and [JWT signing-key guide](https://supabase.com/docs/guides/auth/signing-keys)
+alongside these DeckPal-specific steps. Never paste key values into an issue,
+PR, terminal output, or chat.
+
+1. In Supabase **Settings > API Keys > Publishable and secret API keys**, select
+   **Create new API keys** if offered. Create a new secret key and use the
+   publishable key. Legacy keys remain active for the transition.
+2. In Vercel **Production and Preview**, set `SUPABASE_SERVICE_ROLE_KEY` to the
+   `sb_secret_…` value; set `NEXT_PUBLIC_SUPABASE_ANON_KEY` and
+   `VITE_SUPABASE_ANON_KEY` (where present) to the `sb_publishable_…` value.
+   Confirm `SUPABASE_URL` is set to this project's URL in both environments:
+   without it DeckPal cannot verify ES256 tokens after the old secret is removed.
+   Update local and job environments that hold these keys too. Redeploy both
+   environments; changing a variable does not change a running deployment.
+3. Check `GET /api/health` and `GET /api/public-config`, sign in, and exercise
+   an image write and a bug-report screenshot in the new deployment. Confirm
+   build jobs that download the scanner model still succeed. The public config
+   endpoint should serve the publishable key; do not print its value while
+   checking. Check any third-party callers or webhooks before retiring old keys.
+4. In Supabase **JWT signing keys**, select **Migrate JWT secret**. This imports
+   the legacy secret and creates an asymmetric standby key. Then select
+   **Rotate keys** so new user tokens use the asymmetric key. Verify a fresh
+   sign-in and an authenticated API request. The API verifies ES256 user tokens
+   through Supabase's JWKS using `SUPABASE_URL`.
+5. Remove `SUPABASE_JWT_SECRET` from Vercel Production and Preview and redeploy
+   both. This stops DeckPal's API and chat function from trusting any HS256
+   token signed with the leaked secret. Billing history uses
+   `STRIPE_SECRET_KEY` for its cursor and requires that key whenever billing is
+   available; an in-flight history cursor may need a page refresh once.
+6. In Supabase **Settings > API Keys**, deactivate the legacy `anon` and
+   `service_role` keys. Verify sign-in, authenticated API requests, Storage,
+   screenshots, and the scanner model download again. Only after the old keys
+   are disabled, return to **JWT signing keys** and **Revoke** the legacy JWT
+   secret under **Previously used**. Because this secret leaked, revoke it
+   promptly; users holding old access tokens may need to sign in again.
+
+The leak is not contained until steps 5 and 6 are complete. Supabase's signing
+key migration does not itself revoke the legacy JWT secret, and deactivating
+legacy API keys does not remove DeckPal's own HS256 verifier.
+
 ### 4. Create a Vercel project
 
 1. Import the repo on [vercel.com](https://vercel.com).
@@ -237,8 +282,10 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | Variable | Value | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project>.supabase.co` | |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | Server-side only |
+| `SUPABASE_URL` | `https://<project>.supabase.co` | Server-side JWKS verification, Storage, and manifest requests. Required before removing `SUPABASE_JWT_SECRET`. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_...` | Public browser key; the existing variable name is retained for compatibility. Also set `VITE_SUPABASE_ANON_KEY` to this value where the web build needs it. |
+| `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` | Server-side only; the existing variable name is retained for compatibility. Never place it in a `VITE_` or `NEXT_PUBLIC_` variable. |
+| `SUPABASE_JWT_SECRET` | **unset after signing-key migration** | Only needed while accepting legacy HS256 user tokens. ES256 tokens are verified using `SUPABASE_URL` and Supabase's public JWKS. |
 | `PGHOST` | `aws-0-us-east-1.pooler.supabase.com` | Pooled connection (API) — the runtime reads `PG*`, not a URL |
 | `PGPORT` | `6543` | |
 | `PGDATABASE` | `postgres` | |
@@ -277,20 +324,44 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 The API's abuse budgets need **no new env variable to deploy**. The pre-auth
 ingress guard (600 requests/min per source IP per process) and the per-user
 session limits (`/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min,
-all `/admin` 120/min, all `/me/credits` 180/min) are wired unconditionally
-in `createApp` on the ordinary base-path API router (`/api` on Vercel,
-`/deckpal/api` self-host). A single parent admin limiter includes credit
-administration once; the wallet budget is separate. These use the existing
-bounded per-instance store. Ingress, admin and wallet middleware use the pinned
-`express-rate-limit` 8.7.0 dependency installed by the normal frozen workspace
-install. Ingress runs before authentication; admin/wallet session gates and
-limits run after verified/local identity but before RLS request-connection
-acquisition. Active-account/action permissions still precede handlers. The
-database checkout limits of 60 requests and 10 new order attempts per user/hour
-are unchanged. The Stripe raw-body webhook and the
-bare-origin OAuth discovery / `/register` / `/token` handlers are mounted
-separately on `app` ahead of that router and are outside this guard; the MCP
-transport at `/mcp` is a separate function. Client-identity resolution keys on
+`/bugs` 10/hour, all `/admin` 120/min, all `/me/credits` 180/min) are wired
+unconditionally in `createApp` on the ordinary base-path API router (`/api`
+on Vercel, `/deckpal/api` self-host). A single parent admin limiter includes
+credit administration once; the wallet budget is separate. These use the
+existing bounded per-instance store. Ingress, admin and wallet middleware use
+the pinned `express-rate-limit` 8.7.0 dependency installed by the normal
+frozen workspace install. Ingress runs before authentication; admin/wallet
+session gates and limits run after verified/local identity but before RLS
+request-connection acquisition. `/bugs` runs after identity too, but with no
+`requireSession` — a personal access token, or self-host's resolved local
+identity, may still file a report. Active-account/action permissions still
+precede handlers. The database checkout limits of 60 requests and 10 new
+order attempts per user/hour are unchanged.
+
+**The Stripe raw-body webhook** is still mounted separately on `app` ahead of
+that router and is outside this guard (unchanged). **The bare-origin OAuth
+discovery / `/register` / `/token` handlers** are also still mounted
+separately on `app` ahead of that router, but each of the four now carries its
+own limiter — `oauthPublicRateLimit`, 30 requests/min per source IP, checked
+first, before the host allowlist or any body parsing. **The MCP transport at
+`/mcp`** is still a separate function, but it too now carries two limiters:
+a global 300 requests/min-per-instance admission counter, checked before
+`resolveToken`'s database lookup, and a 60 requests/min-per-token budget,
+checked only after `resolveToken` succeeds and keyed on the resolved,
+database-verified `tokenId` rather than the caller's IP — because claude.ai
+and other hosted MCP connectors share egress IPs across all of their users,
+an IP-keyed limit there would let one heavy connector user exhaust the budget
+for every other user behind the same IP. (The admission counter is
+deliberately NOT keyed on the credential either: an unauthenticated caller
+can mint unlimited distinct credential strings for free, and an earlier
+version of this fix that keyed the pre-resolution check on the credential
+let exactly that flood exhaust the bounded map and lock out brand-new,
+legitimate credentials too — caught in review before it shipped.) All new
+limiters are honest about the same limitation as everything else in this
+section — per-process, not global (see the warning below) — and none needs a
+new env variable either.
+
+Client-identity resolution keys on
 the existing **`VERCEL`** runtime variable — platform-provided on Vercel
 (`'1'`), absent elsewhere — to decide whether to trust
 `x-vercel-forwarded-for` / `x-forwarded-for` (Vercel overwrites both at
@@ -305,6 +376,42 @@ per process / per serverless function instance and reset on restart or cold
 start. They stop retry storms and casual abuse; they are not a durable
 distributed quota and do not protect from distributed or network flooding —
 reverse-proxy / platform controls remain the deployment boundary.
+
+#### Body-size limits — also no new environment variable
+
+Every REST route's JSON body limit is now sized per route rather than one
+12 MB parser for the whole API (see `SECURITY.md`'s "Body-size limits" section
+for the full table and the reasoning), mounted immediately after the pre-auth
+ingress guard — ahead of authentication, since bounding a body's size needs
+none. Nothing here is configurable and nothing needs to be: `/bugs` (12 MB,
+the screenshot), `/client-errors` (32 KB, the crash beacon),
+`/dev/scan-queue` and `/dev/scan-flags` (4200 KB,
+labeler/harness photos, owner-only in production), `/decke` (2 MB, one
+transcript-history turn), `/lists` (2 MB, a bulk item add), `/decks` (512 KB,
+the strategy-guide and battle-log text), and 100 KB for everything else.
+`/register` and `/token` keep their existing 16 KB parsers in
+`oauthServer.ts`, now actually effective. Deck-E's live chat (`api/chat.mjs`)
+is a separate Vercel function with its own body handling and is untouched by
+any of this.
+
+Every one of the numbers above is sized in **bytes on the wire**, not
+characters, and `/decke`, `/lists` and `/decks` are reachable over the plain
+REST API (a personal access token, an MCP client, a script) — not only this
+repo's own browser client — so the limit has to hold for whatever a caller's
+own JSON encoder does. A character-count cap elsewhere in this codebase (e.g.
+`STRATEGY_MAX`, `RAW_LOG_MAX`) counts JS string length (UTF-16 code units); a
+raw-UTF-8 client costs up to 3 bytes per non-Latin code unit (CJK, Hangul,
+Cyrillic), and an ASCII-safe-escaping client — Python's `json.dumps` defaults
+to `ensure_ascii=True` — costs 6 (`\uXXXX` is 6 ASCII bytes for 1 code unit).
+`/decke`, `/lists` and `/decks` are all sized at that ×6 worst case: two
+review passes each caught a version of this undersizing — the first pass
+assumed 1 byte per character and missed `/decks` entirely; a second pass
+found the first fix's ×3 estimate itself insufficient once measured against
+an actual ASCII-escaped body. `/dev/scan-queue` and `/dev/scan-flags` have
+the inverse problem: their decoded caps (3 MB) divide evenly by 3, so base64
+encoding (pure ASCII, no further escaping possible) produces EXACTLY 4 MB on
+the wire with nothing left for the JSON wrapper around it — a bare 4 MB
+parser 413'd a real max-size upload, so both get 4200 KB instead.
 
 #### `pgvector` is a prerequisite of migration 051
 
@@ -1165,7 +1272,10 @@ input after successful preflight; no separate secret or deployment step exists.
    reporter's identity is stored privately in the `bug_report` DB table and
    never appears in the public issue. If Supabase Storage is configured
    (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`), screenshots are uploaded to
-   a `bug-reports` storage bucket and linked in the issue body.
+   a `bug-reports` storage bucket. The public issue notes that a screenshot
+   exists but never links to it. The owner can find it by Report-ID in Storage.
+   The reporter's disclosure reflects the server's `GITHUB_TOKEN` and
+   `GITHUB_REPO` setting through `/api/public-config`.
 
 5. Deploy. The `vercel.json` in the repo carries the real build command and the
    rewrites, in this order (order matters — the SPA fallback must stay last, or
