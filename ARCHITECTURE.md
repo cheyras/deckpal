@@ -1387,9 +1387,16 @@ asks the chat-tier model to select their keys. A server membership check and a
 second pass through the normal resolver guard every replacement. The UI reserves
 a bay in the import dialog for Deck-E, shows each old and proposed line with
 Undo, and sends the confirmed text through the no-write check again before any
-deck is created. Switching formats runs that check against the current text;
-accepted corrections stay visible and undoable, while a correction illegal in
-the selected format returns to an editable review row with its reason. The
+deck is created. The import review is a projection of current text, format,
+stable line IDs, accepted correction provenance, and the exact revision's
+read-only check. Edits, Undo, and format changes invalidate that check and
+refresh it; no summary is incrementally relabelled as current. Only the explicit
+“Import without them” action authorizes skipping the displayed unresolved line
+IDs, and any source change revokes that permission. Both the button and the
+final check use the same write gate. Accepted corrections remain undoable while
+their physical lines survive. Their card provenance lasts for the dialog so
+blank lines, whitespace, or duplicate deletion cannot erase a format guard;
+ordinary raw-deck imports retain their existing legality behavior. The
 errand store only moves the character; it does not grant
 permission or save cards. The route shares Deck-E's entitlement, Gateway key,
 daily meter, and usage ledger. When paid credits are enabled, it converts the
