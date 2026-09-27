@@ -23,6 +23,7 @@ export function seriesFixture(scenario) {
     sets: [...rows, ...placeholders].sort(compareSetOrder) }
 }
 export function appResponses(scenario, rel) {
+  if (rel === '/api/client-errors') return { status: 204, raw: '' }
   if (rel === '/api/public-config') return { body: { defaults: { skin: 'premium', topbar: 'flat' } } }
   const detail = seriesFixture(scenario)
   if (rel === '/api/series/' + announcement.seriesSlug) return { body: detail }

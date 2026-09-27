@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { browserSuites } from './core-suites.mjs'
+import { browserSuites as errorBoundarySuites } from './errorBoundary.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [
@@ -8,9 +9,9 @@ const names = [
   'selfhost-feedback-primary-1280', 'selfhost-feedback-primary-390', 'selfhost-feedback-primary-428', 'selfhost-feedback-lifecycle',
   'cloud-catalog', 'cloud-admin-journey', 'cloud-admin-tables-1280', 'cloud-admin-tables-390', 'cloud-admin-access',
   'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-writes',
-  'authreturn', 'chat', 'payment-history',
+  'authreturn', 'chat', 'payment-history', 'error-boundary',
 ]
-const suites = browserSuites({})
+const suites = [...browserSuites({}), ...errorBoundarySuites({})]
 
 test('all existing journeys remain named suites', () => {
   assert.deepEqual(suites.map(suite => suite.name), names)

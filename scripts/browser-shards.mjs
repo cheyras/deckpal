@@ -27,6 +27,7 @@ export const durations = {
   'cloud-writes': 85,
   'authreturn': 14,
   'chat': 63,
+  'error-boundary': 50,
   'payment-history': 15,
 }
 
