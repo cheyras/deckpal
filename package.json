@@ -15,6 +15,10 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:local": "node scripts/dev.mjs --local",
+    "decisions": "node scripts/decisions.mjs",
+    "decisions:check": "node scripts/check-decisions.mjs",
+    "decisions:test": "node --test scripts/__tests__/decisions.test.mjs",
+    "decisions:wiki": "node scripts/regenerate-decision-wiki.mjs",
     "migrate": "pnpm --filter @deckpal/db migrate",
     "migrate:status": "pnpm --filter @deckpal/db migrate:status",
     "build": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-images build && pnpm --filter deckpal-sync build",

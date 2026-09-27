@@ -2,7 +2,7 @@
 
 **Status:** Target architecture for the cloud pivot, drafted 2026-08-09. This
 document supersedes the prior self-hosted architecture. Historical design
-decisions are preserved in `DECISIONS.md`.
+decisions are preserved in `decisions/`; `DECISIONS.md` explains the archive.
 
 This document is the synthesis. It states *what we are building and why*, and
 points at the research documents that justify each choice. It deliberately does
@@ -19,7 +19,7 @@ where it was measured.
 | [UI Spec (wiki)](https://github.com/cheyras/deckpal/wiki/UI-Spec) | Design tokens, components, layout |
 | [Frontend Research (wiki)](https://github.com/cheyras/deckpal/wiki/Frontend-Research) | Frontend stack + performance plan |
 | [Prior Art (wiki)](https://github.com/cheyras/deckpal/wiki/Prior-Art) | What to borrow, what to avoid, license posture |
-| `DECISIONS.md` | Locked decisions + corrections to the original brief |
+| `decisions/` | Locked decisions + corrections to the original brief; `DECISIONS.md` is the guide |
 
 ---
 
