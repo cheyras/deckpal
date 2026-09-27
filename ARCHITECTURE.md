@@ -854,6 +854,30 @@ backstop for the failures nobody has diagnosed yet, not for this one.
 `scripts/visual-harness/probe-first-paint.mjs` asserts the property against a
 real browser with the token endpoint held open.
 
+**Every page is its own chunk, and what loads before first paint has a budget
+(PERF-01, 2026-09-26).** `main.tsx` registers each product page with
+`lazyRoute()` (`lib/lazyRoute.ts`) instead of importing it, so the entry carries
+React, the router and the shell, and a page arrives as its own chunk. The router
+preloads it on hover and touchstart (`defaultPreload: 'intent'`) and awaits it
+before committing a navigation, so there is no flash; the likely next pages are
+warmed once the first has loaded; and the service worker precaches every page
+chunk with the rest of Tier 0, so offline is unchanged. The auth pages stay
+static: ResetPassword must read the recovery link's URL at module scope, before
+auth-js rewrites it. React's first commit waits for `router.load()`, so the
+inline boot card stays up until the whole first page can paint, and the
+first-paint watchdog covers a page chunk that never arrives as well as an entry
+that never does. The two always-mounted features load only for whoever can see
+them — Deck-E's host for an entitled account, the support prompt (and Stripe's
+payment UI) for a signed-in cloud visitor, at idle — and `lib/billing.ts`
+imports `@stripe/stripe-js/pure`, because the package's main entry fetches
+Stripe.js as a side effect of being imported. A page chunk that vanished in a
+deploy costs one reload, under a service worker or not. The retry guard is
+scoped to that chunk, so a parent page loading cannot clear a missing child's
+guard and start a reload loop.
+`scripts/check-critical-path.mjs` fails the build if the scripts `index.html`
+loads up front exceed 230 kB gzipped (about 200 kB now, against 364 kB when
+every page was in the entry).
+
 **Writes go through a lane, and end visibly (2026-09-26).** Every collection,
 list and deck write is sent by `lib/writeLane.ts`: one request in flight per
 document (`collection:<setId>`, `list:<id>`, `deck:<id>`), so answers — which
