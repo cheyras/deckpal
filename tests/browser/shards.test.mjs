@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { browserSuites } from './core-suites.mjs'
+import { browserSuites as deckeShowSuites } from './deckeShow.mjs'
 import { browserSuites as errorBoundarySuites } from './errorBoundary.mjs'
 import { browserSuites as standaloneProofSuites } from './standaloneProofs.mjs'
+import { browserSuites as bugReportSuites } from './bugReport.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [
@@ -10,9 +12,10 @@ const names = [
   'selfhost-feedback-primary-1280', 'selfhost-feedback-primary-390', 'selfhost-feedback-primary-428', 'selfhost-feedback-lifecycle',
   'cloud-catalog', 'cloud-admin-journey', 'cloud-admin-tables-1280', 'cloud-admin-tables-390', 'cloud-admin-access',
   'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-writes',
-  'authreturn', 'chat', 'payment-history', 'error-boundary', 'payment-history-proof', 'scanner-voice-proof',
+  'authreturn', 'chat', 'payment-history', 'decke-show', 'error-boundary', 'bug-report-selfhost', 'bug-report-cloud',
+  'payment-history-proof', 'scanner-voice-proof',
 ]
-const suites = [...browserSuites({}), ...errorBoundarySuites({}), ...standaloneProofSuites({})]
+const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...bugReportSuites({}), ...standaloneProofSuites({})]
 
 test('all existing journeys remain named suites', () => {
   assert.deepEqual(suites.map(suite => suite.name), names)
@@ -28,6 +31,12 @@ test('eight shards cover every suite once, regardless of discovery order', () =>
 
 test('one shard can run the entire suite despite the isolated visual case', () => {
   assert.deepEqual(shardSuites(suites, 1)[0].map(suite => suite.name), [...names].sort())
+})
+
+test('two shards keep every suite when both visual reservations cannot fit', () => {
+  const assignment = shardSuites(suites, 2).map(shard => shard.map(suite => suite.name))
+  assert.ok(assignment.every(shard => shard.length))
+  assert.deepEqual(assignment.flat().sort(), [...names].sort())
 })
 
 test('shard argument rejects missing and out-of-range indexes', () => {

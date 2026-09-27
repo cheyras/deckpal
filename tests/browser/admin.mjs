@@ -51,7 +51,7 @@ export function adminFixture(mount) {
     // fictional requests local without allowing arbitrary assets or API routes.
     if (/^\/(?:storage\/v1\/object\/public\/card-art|(?:deckpal\/)?images)\/sets\/(?:swsh1\/(?:symbol|logo)|swshp\/symbol|sv1\/logo|xy1\/logo)\.webp$/.test(rel)) return { raw: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"><rect width="100" height="40" fill="#64748b"/></svg>', type: 'image/svg+xml' }
     if (/^\/api\/cards\/base1-[1-5]$/.test(rel)) return { status: 404, body: { error: { message: 'Fictional gallery card has no live detail.' } } }
-    if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud' } }
+    if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud', bugReportsPublic: !mount } }
     if (rel === '/api/me') return state.signedOut ? { status: 401, body: { error: { message: 'Signed out' } } } : ok({ id: state.actor === 'owner' ? OWNER : USER, username: state.actor, permissions: state.permissions, roles: state.actor === 'owner' ? [{ id: 'super-role', name: 'Super administrator' }] : [], adminReady: true, owner: state.actor === 'owner', decke: state.permissions.includes('decke.use') })
     if (rel === '/api/me/settings') return ok({ settings: { defaultGoal: 'complete', displayCurrency: 'USD', pricingEnabled: true, showCollectionValue: true, binderPocketSize: 9, binderStackVariants: true, binderAdditionalVariants: 'hide', deckeHidden: false, skin: null, topbar: null, seriesSortKey: 'recency', seriesSortDir: 'desc', seriesGroupOwned: false }, defaults: state.defaults.settings })
     // Shape pinned to apps/api/src/routes/insights.ts's actual response (mirrored client-side as
@@ -59,7 +59,16 @@ export function adminFixture(mount) {
     // is easy to eyeball-match while the fields drift. `collection`/`tcg`/`completion`/`value` were
     // never real keys of this route; deleted rather than left as fictitious dead weight.
     if (rel === '/api/insights/overview') return ok({ trainer: { level: 1, totalCards: 0, uniqueCards: 0, uniquePairs: 0, uniqueMode: 'cards', intoLevel: 0, toNext: 10, nextLevelAt: 10, fraction: 0 }, collectionValue: [], pokedex: { captured: 0, total: 1, pct: 0 } })
-    if (rel === '/api/insights/value') { const currency = url.searchParams.get('currency') ?? 'USD', range = url.searchParams.get('range') ?? '30d'; const current = { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 }; return ok({ currency, range, current, series: { currency, range, points: [], delta: null }, movers: [] }) }
+    if (rel === '/api/insights/value') {
+      const currency = url.searchParams.get('currency') ?? 'USD', range = url.searchParams.get('range') ?? '30d'
+      const current = { currency, totalMinor: 0, total: 0, pricedVariants: 0, quantity: 0 }
+      const result = ok({ currency, range, current, series: { currency, range, points: [], delta: state.insightsTransition ? { value: range === '30d' ? 12 : 34, valueMinor: range === '30d' ? 1200 : 3400, pct: null } : null }, movers: [] })
+      if (state.heldInsights && range === '1y') return new Promise(resolve => {
+        state.heldInsights.finish = () => resolve(result)
+        state.heldInsights.onStart()
+      })
+      return result
+    }
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/me/billing/history') {
@@ -331,7 +340,7 @@ export async function checkAdmin(browser, server, mount, label, out, fixture, pa
 // current.total, series.points) must be present, or this hangs on the heading or throws.
 export async function checkInsights(browser, server, mount, label, out, fixture) {
   const results = [], { state } = fixture
-  for (const width of [1280, 390]) {
+  for (const width of [1440, 390]) {
     state.actor = 'ordinary'; state.permissions = []
     const { context, page } = await contextFor(browser, server, width); await signIn(context)
     try {
@@ -344,7 +353,23 @@ export async function checkInsights(browser, server, mount, label, out, fixture)
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
       await page.screenshot({ path: path.join(out, label + '-insights-' + width + '.png'), fullPage: true })
       results.push({ case: 'insights-renders-on-fixture-stubs', label, width })
-    } finally { await context.close() }
+      state.insightsTransition = true
+      await page.reload({ waitUntil: 'networkidle' })
+      await page.getByText('30 Days Change').waitFor()
+      await page.getByText('$12.00', { exact: false }).waitFor()
+      let requestStarted
+      const started = new Promise(resolve => { requestStarted = resolve })
+      state.heldInsights = { onStart: requestStarted }
+      await page.getByRole('button', { name: '1 Year' }).click()
+      await started
+      await page.getByText('Loading 1 Year change…').waitFor()
+      assert.equal(await page.getByText('$12.00', { exact: false }).count(), 0, 'old delta must disappear while the new range is pending')
+      await page.screenshot({ path: path.join(out, label + '-insights-pending-' + width + '.png'), fullPage: true })
+      state.heldInsights.finish()
+      await page.getByText('1 Year Change').waitFor()
+      await page.getByText('$34.00', { exact: false }).waitFor()
+      results.push({ case: 'insights-range-change-hides-old-delta-until-new-value', label, width })
+    } finally { state.heldInsights?.finish?.(); state.heldInsights = null; state.insightsTransition = false; await context.close() }
   }
   return results
 }

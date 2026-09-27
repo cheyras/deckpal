@@ -407,13 +407,39 @@ export async function checkChat(browser, server, out) {
       const transcript = panel.locator('.decke-transcript-fade')
       const emptyPad = await panel.locator('[data-decke-composer]').evaluate(el => parseFloat(getComputedStyle(el.parentElement).paddingBottom))
       assert.equal(emptyPad, width === 390 ? 20 : 12)
+      let releaseMarkdown
+      let markdownRequested
+      const markdownPending = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Markdown chunk was not requested')), 10_000)
+        markdownRequested = () => { clearTimeout(timeout); resolve() }
+      })
+      await page.route(/ChatMarkdownBody.*\.js/, route => {
+        releaseMarkdown = () => route.continue()
+        markdownRequested()
+      }, { times: 1 })
       await set(page, { busy: true, messages: assistant('A streaming fragment') })
+      await markdownPending
       await panel.getByText('A streaming fragment', { exact: true }).waitFor()
       assert.equal(await panel.getByText('A streaming fragment', { exact: true }).evaluate(el => !!el.closest('[aria-live]')), false,
         'Streaming text must not be inside a live region')
       assert.equal(await live.innerText(), '', 'No fragment announcements while busy')
       await set(page, { busy: false, messages: assistant('A completed answer for the reader.') })
       await page.waitForFunction(() => document.querySelector('[role="dialog"] [role="status"].sr-only')?.textContent === 'Deck-E replied.')
+      const pendingAnswer = panel.getByText('A completed answer for the reader.', { exact: true })
+      assert.equal(await pendingAnswer.evaluate(el => el.matches('span.whitespace-pre-wrap')), true,
+        'Answer must still use the selectable Markdown fallback')
+      await pendingAnswer.evaluate(el => {
+        const range = document.createRange(); range.selectNodeContents(el)
+        const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range)
+      })
+      assert.equal(await page.evaluate(() => getSelection().toString()), 'A completed answer for the reader.')
+      await releaseMarkdown()
+      await panel.locator('p').filter({ hasText: 'A completed answer for the reader.' }).waitFor()
+      await transcript.dispatchEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true })
+      await transcript.dispatchEvent('click', { clientX: 10, clientY: 10, bubbles: true })
+      assert.equal(await page.evaluate(() => window.fixture.events.closes), 0,
+        'Replacing selected fallback text with Markdown must not dismiss')
+      await page.evaluate(() => getSelection().removeAllRanges())
       const transcriptPad = await panel.locator('[data-decke-composer]').evaluate(el => parseFloat(getComputedStyle(el.parentElement).paddingBottom))
       assert.equal(transcriptPad, 40, 'Transcript composer has its larger bottom clearance')
       // Click a real child, drag the real background, and release a selection.
@@ -427,9 +453,10 @@ export async function checkChat(browser, server, out) {
         const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range)
       })
       await transcript.dispatchEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true })
+      // A real pointerdown may collapse the selection before the click handler.
+      await page.evaluate(() => getSelection().removeAllRanges())
       await transcript.dispatchEvent('click', { clientX: 10, clientY: 10, bubbles: true })
       assert.equal(await page.evaluate(() => window.fixture.events.closes), 0, 'Text selection must not dismiss')
-      await page.evaluate(() => getSelection().removeAllRanges())
       await transcript.dispatchEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true })
       await transcript.dispatchEvent('click', { clientX: 10, clientY: 10, bubbles: true })
       assert.equal(await page.evaluate(() => window.fixture.events.closes), 1, 'A plain background click must dismiss')
@@ -543,11 +570,16 @@ async function assertClear(page, width, targets, label) {
     // is the one a reader sees him land on.
     const key = () => page.evaluate(() => [document.querySelector('[data-decke-park]'), document.querySelector('[data-decke-approval]')]
       .map(el => el ? Math.round(el.getBoundingClientRect().top) + ':' + Math.round(el.getBoundingClientRect().bottom) : '-').join('|'))
-    let last = await key(), still = 0
-    for (let i = 0; i < 60 && still < 5; i++) {
+    // AND for half a second. Frames alone are not enough: on a busy runner the
+    // frames come quickly while a debounced re-solve is still waiting on its
+    // timer, so five identical frames were once measured just before the box
+    // moved (a flake on main at 5313fdb). Stillness has to hold in both clocks.
+    let last = await key(), still = 0, since = Date.now()
+    for (let i = 0; i < 240 && (still < 5 || Date.now() - since < 500); i++) {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())))
       const next = await key()
-      still = next === last ? still + 1 : 0
+      if (next === last) still++
+      else { still = 0; since = Date.now() }
       last = next
     }
     const him = await rect(park)

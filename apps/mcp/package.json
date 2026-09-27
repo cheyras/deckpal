@@ -9,22 +9,23 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
-    "test:adapter": "node --import tsx --test src/adapters/__tests__/*.test.ts"
+    "test:adapter": "node --import tsx --test src/adapters/__tests__/*.test.ts",
+    "test:cloud": "node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2",
     "@modelcontextprotocol/node": "^2",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.1.0",
     "@deckpal/db": "workspace:*",
     "@deckpal/agent-tools": "workspace:*",
     "express": "^5.0.0",
-    "hono": "^4.13.5"
+    "hono": "^4.13.9"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }

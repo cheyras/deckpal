@@ -31,6 +31,8 @@ export const durations = {
   'payment-history': 15,
   'payment-history-proof': 20,
   'scanner-voice-proof': 20,
+  // Estimated from local runs (build + Chromium 70s + WebKit 9s, drawing off).
+  'decke-show': 150,
 }
 
 export function shardSuites(suites, count) {

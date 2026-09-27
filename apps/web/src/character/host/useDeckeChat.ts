@@ -299,7 +299,7 @@ type LegOutcome = {
 
 export function useDeckeChat(
   decke: DeckEInstance | null,
-  navigate: (to: string) => void,
+  navigate: (to: string, opts?: { keepScroll?: boolean }) => void,
   onTravel?: () => void,
   /** True while a journey step owns the transition; see `onSteppingRef`. */
   onStepping?: (on: boolean) => void,
@@ -1407,6 +1407,7 @@ export function useDeckeChat(
                     {
                       decke,
                       navigate: navigateRef.current,
+                      signal: ac.signal,
                       say: (text) => appendText(text),
                       setStepping: (on) => onSteppingRef.current?.(on),
                     },
@@ -1414,7 +1415,7 @@ export function useDeckeChat(
                     ac.signal,
                   )
                 : await runUiTool(
-                    { decke, navigate: navigateRef.current },
+                    { decke, navigate: navigateRef.current, signal: ac.signal },
                     call.name,
                     call.input,
                   )
