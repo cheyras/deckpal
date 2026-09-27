@@ -44,7 +44,9 @@ async function pool(concurrency, suites) {
   async function worker() {
     while (next < suites.length) {
       const suite = suites[next++]
+      const started = performance.now()
       try { await suite.run() } catch (error) { errors.push(suite.name + ':\n' + (error.stack ?? String(error))) }
+      finally { console.log('TIMING suite ' + suite.name + ' ' + ((performance.now() - started) / 1000).toFixed(1) + 's') }
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, suites.length) }, worker))
