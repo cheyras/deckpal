@@ -3,7 +3,7 @@ import type pg from 'pg';
 import { cardImages, dbHandle, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { recordDeckChange, recordStrategyChange, type SnapshotEntry } from '../deck/versions.js';
+import { recordDeckChange, recordStrategyChange, restoreSnapshot, type SnapshotEntry } from '../deck/versions.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import { mergeLogFields, parseBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
@@ -888,6 +888,9 @@ decksRouter.get(
 );
 
 // ── POST /decks/import — PTCGL or Mass Entry text → new deck ───────────────────
+// `dryRun: true` resolves the text and writes NOTHING: the import dialog asks
+// first, so a line that matches no card is shown to the reader, who fixes or
+// skips it, instead of being left out of a deck they then have to audit.
 decksRouter.post(
   '/import',
   asyncHandler(async (req, res) => {
@@ -904,6 +907,7 @@ decksRouter.post(
     let glcType = parseGlcType(body.glcType);
     if (format === 'glc' && !glcType) glcType = glcTypes()[0] ?? null;
     const name = parseName(body.name, false) || 'Imported Deck';
+    const dryRun = body.dryRun === true;
     const userId = currentUserId(req);
 
     // Parse to a ParsedDeck the resolver understands. Mass Entry's set codes are a
@@ -928,6 +932,24 @@ decksRouter.post(
       byCard.set(e.card.id, Math.min(60, (byCard.get(e.card.id) ?? 0) + e.quantity));
     }
     const unresolved = (resolved.importWarnings ?? []).filter((w) => w.code === 'UNRESOLVED_CARD');
+    const summary = {
+      source,
+      resolvedEntries: resolved.entries.length,
+      distinctCards: byCard.size,
+      totalCards: [...byCard.values()].reduce((n, q) => n + q, 0),
+      unresolved: unresolved.map((w) => w.message),
+      // The same lines, verbatim, for the dialog to list and find in the text.
+      unresolvedLines: unresolved.map((w) => w.line ?? w.message),
+      warnings: (resolved.importWarnings ?? []).filter((w) => w.code !== 'UNRESOLVED_CARD'),
+      // Decklist text carries no printing info; every line is stored as the
+      // card's primary variant (migration 051).
+      variantNote: 'Imported lines have no printing information — each card was added as its primary printing.',
+    };
+    if (dryRun) {
+      userCache(res);
+      res.json({ import: summary });
+      return;
+    }
 
     const deckId = await withTx(async (client) => {
       const row = await client.query<{ id: string }>(
@@ -965,16 +987,7 @@ decksRouter.post(
     userCache(res);
     res.status(201).json({
       ...payload,
-      import: {
-        source,
-        resolvedEntries: resolved.entries.length,
-        distinctCards: byCard.size,
-        unresolved: unresolved.map((w) => w.message),
-        warnings: (resolved.importWarnings ?? []).filter((w) => w.code !== 'UNRESOLVED_CARD'),
-        // Decklist text carries no printing info; every line was stored as
-        // the card's primary variant (migration 051).
-        variantNote: 'Imported lines have no printing information — each card was added as its primary printing.',
-      },
+      import: summary,
     });
   }),
 );
@@ -1478,11 +1491,9 @@ decksRouter.get(
 );
 
 // ── POST /decks/:id/revert { toVersion, includeStrategy?=true, note?, source? }
-// Non-destructive: applies the old snapshot through the SAME write path (so the
-// auto-bump rule decides whether it lands as a new version or amends the current
-// logless one). History is never deleted. Cards hard-deleted from the catalog
-// since the snapshot (near-impossible under ON DELETE RESTRICT) are reported
-// and skipped, never silently dropped.
+// Non-destructive: the old snapshot always lands as a NEW version, so the list
+// it replaces keeps its own, even when that list was never played (see
+// restoreSnapshot and deck/versions.ts). History is never deleted.
 decksRouter.post(
   '/:id/revert',
   asyncHandler(async (req, res) => {
@@ -1507,71 +1518,12 @@ decksRouter.post(
       const target = snap.rows[0];
       if (!target) throw notFound(`No version ${toVersion} for deck '${deckId}'`);
 
-      // Resolve snapshot entries against the live catalog by card id.
-      const wantIds = target.cards.map((c) => c.cardId);
-      const live = wantIds.length
-        ? await client.query<{ id: string }>(`SELECT id FROM card WHERE id = ANY($1)`, [wantIds])
-        : { rows: [] as { id: string }[] };
-      const liveIds = new Set(live.rows.map((r) => Number(r.id)));
-      const apply = target.cards.filter((c) => liveIds.has(c.cardId));
-      const skipped = target.cards.filter((c) => !liveIds.has(c.cardId))
-        .map((c) => ({ cardId: c.cardId, tcgdexId: c.tcgdexId, name: c.name }));
-
-      // Resolve each entry to a PRINTING (migration 051). A post-051 snapshot
-      // names its variant; use it if it is still a printing of that card.
-      // A pre-051 snapshot (or a since-retired variant id) falls back to the
-      // card's primary variant — "primary, never a change" is the documented
-      // reading of a variant-less snapshot.
-      const namedVariants = [...new Set(apply.map((c) => c.variantId).filter((v): v is number => typeof v === 'number'))];
-      const validVariant = new Map<number, number>(); // variantId -> cardId
-      if (namedVariants.length) {
-        const rows = await client.query<{ id: string; card_id: string }>(
-          `SELECT id, card_id FROM card_variant WHERE id = ANY($1::bigint[])`,
-          [namedVariants],
-        );
-        for (const r of rows.rows) validVariant.set(Number(r.id), Number(r.card_id));
-      }
-      const primaries = apply.length
-        ? await client.query<{ card_id: string; id: string }>(
-            `SELECT DISTINCT ON (card_id) card_id, id FROM card_variant
-              WHERE card_id = ANY($1::bigint[])
-              ORDER BY card_id, is_primary DESC, sort_order`,
-            [apply.map((c) => c.cardId)],
-          )
-        : { rows: [] as { card_id: string; id: string }[] };
-      const primaryOf = new Map(primaries.rows.map((r) => [Number(r.card_id), Number(r.id)]));
-
-      // One target quantity per printing (two old entries can land on one
-      // primary only in theory, but a sum beats a silent overwrite).
-      const byVariant = new Map<number, { cardId: number; quantity: number }>();
-      for (const c of apply) {
-        const vid =
-          typeof c.variantId === 'number' && validVariant.get(c.variantId) === c.cardId
-            ? c.variantId
-            : primaryOf.get(c.cardId);
-        if (vid === undefined) continue;
-        const cur = byVariant.get(vid);
-        byVariant.set(vid, { cardId: c.cardId, quantity: Math.min(60, (cur?.quantity ?? 0) + Math.max(1, c.quantity)) });
-      }
-
-      // Reconcile deck_card to the snapshot in one pass, keyed by printing.
-      await client.query(
-        `DELETE FROM deck_card WHERE deck_id = $1 AND card_variant_id <> ALL($2::bigint[])`,
-        [deckId, [...byVariant.keys()]],
+      const restored = await restoreSnapshot(
+        client, deckId, userId,
+        { cards: target.cards, strategyMd: target.strategy_md },
+        { includeStrategy, source, note },
       );
-      for (const [vid, t] of byVariant) {
-        await client.query(
-          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (deck_id, card_variant_id) DO UPDATE SET quantity = $5`,
-          [deckId, t.cardId, vid, userId, t.quantity],
-        );
-      }
-      if (includeStrategy) {
-        await client.query(`UPDATE deck SET strategy_md = $2 WHERE id = $1`, [deckId, target.strategy_md]);
-      }
-      await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1`, [deckId]);
-      const change = await recordDeckChange(client, deckId, { source, note });
-      return { toVersion, version: change.version, bumped: change.bumped, skippedCards: skipped };
+      return { toVersion, ...restored };
     });
 
     const meta = (await loadMeta(deckId, userId))!;
