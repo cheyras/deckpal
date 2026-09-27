@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useWindowVirtualizer } from '@tanstack/react-virtual'
+import { defaultRangeExtractor, useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { CardRow } from '../lib/api'
 import { CardTile } from './CardTile'
-import { prefersReducedMotion } from '../lib/reducedMotion'
 import { CARD_ASPECT_RATIO_INVERSE } from '../lib/cardGeometry'
 
 // Fluid grid + window virtualization (wiki: Frontend-Research §B.2). ONE ResizeObserver is
@@ -32,17 +31,10 @@ function colsFor(width: number): { cols: number; small: boolean } {
 }
 
 /**
- * A card the page has been asked to bring into view, and when it was asked.
- *
- * `at` is the identity, not decoration: the effect below fires on a CHANGE of
- * this object, so a page that keeps handing back the same one is a page saying
- * "still the same request, you are already acting on it". See `SetDetail`,
- * which mints these from `decke:reveal`.
+ * A card the page has been asked to have ready for Deck-E, and when it was
+ * asked. See `SetDetail`, which mints these from `decke:reveal`.
  */
 export type GridReveal = { cardId: string; at: number }
-
-/** How near the middle of the screen counts as "already shown". */
-const CENTRED_BAND = 0.2
 
 export function GridView({
   cards,
@@ -58,7 +50,7 @@ export function GridView({
   onRemove?: (card: CardRow) => void
   // When true, tiles render owned/dimmed state from card.ownership (species detail).
   ownership?: boolean
-  // A card to scroll to, when the page that owns this grid has been asked for one.
+  // A card whose row must stay mounted, when the page that owns this grid has been asked for one.
   reveal?: GridReveal | null
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
@@ -85,70 +77,46 @@ export function GridView({
     if (gridRef.current) setOffsetTop(gridRef.current.offsetTop)
   }, [width, cols])
 
-  const virtualizer = useWindowVirtualizer({
-    count: rowCount,
-    estimateSize: () => rowH,
-    overscan: 3,
-    scrollMargin: offsetTop,
-  })
-
-  // ── BRINGING ONE CARD INTO VIEW ────────────────────────────────────────────
+  // ── BRINGING ONE CARD INTO VIEW: MOUNT IT, DO NOT SCROLL TO IT ──────────────
   //
   // The owner's spec, verbatim: *"bring up the set page … then scrolled down
   // the page for me to the specific card … so it looks like he's flying down
   // the page to the card."*
   //
-  // This is the half of that only the grid can do. A card id says nothing about
-  // where a card IS — position is a function of the filter, the sort and the
-  // column count, all three of which live here — and the tile itself does not
-  // exist until the window has scrolled to its row, which is the whole reason
-  // Deck-E could not address a tile before. So he asks (`decke:reveal`, see
-  // `character/host/uiTools.ts`), the page routes the ask to the grid that owns
-  // the card, and the grid answers in the only currency it has: a row index.
+  // A card id says nothing about where a card IS — position is a function of
+  // the filter, the sort and the column count, all three of which live here —
+  // and the tile does not exist until the window reaches its row, which is why
+  // Deck-E asks (`decke:reveal`, see `character/host/uiTools.ts`).
   //
-  // The virtualizer's own `scrollToIndex` rather than an element scroll,
-  // because there is no element — that is the point. `align: 'center'` clamps
-  // to the document's real range on its own, so a card in the first or last row
-  // simply gets as centred as the page allows, and native `behavior: 'smooth'`
-  // is what `DeckE.scrollIntoView` already uses for the same reason the
-  // engine's own `driveScroll` gives up the moment `scrollY` disagrees with it:
-  // a browser's smooth scroll is abandoned by the reader's next wheel tick, and
-  // a scroll that fights the reader is worse than no scroll at all.
+  // This used to answer by SCROLLING there itself, with the virtualizer's own
+  // smooth `scrollToIndex`, and that was half of what made "show me" feel
+  // broken: the page raced 18,500 px down on its own while he sat still, then
+  // his flight scrolled it a second time to centre the card — two scrolls, two
+  // owners, and the character arriving late to a page that had already moved.
+  // The answer now is the one thing only the grid can give: the row, MOUNTED
+  // at its true offset even though it is off screen. The tile is then a real,
+  // measurable element, and his flight drives the one scroll that brings it in,
+  // on the flight's own clock (`DeckE.flyTo` with `scrollWith`).
   //
-  // Two guards, because the ask REPEATS while he waits (the page may not have
-  // been mounted for the first one):
-  //
-  //   - a request that has not changed identity does not re-run the effect at
-  //     all, which is the dedupe for the retries during a scroll already in
-  //     flight;
-  //   - a tile already sitting near the middle of the screen is left alone, so
-  //     a repeat that outlives the dedupe window — or a card that was on screen
-  //     the whole time — costs nothing and jerks nothing.
-  //
-  // `width` gates the whole thing: at width 0 the column count is a guess and
-  // the row would be the wrong one. A reveal that arrives that early is not
-  // lost, because the ask repeats.
-  useEffect(() => {
-    if (!reveal || !width) return
-    const index = cards.findIndex((c) => c.cardId === reveal.cardId)
-    if (index < 0) return
-    let already: Element | null = null
-    try {
-      already = document.querySelector(`[data-decke-card="${CSS.escape(reveal.cardId)}"]`)
-    } catch {
-      already = null
-    }
-    if (already) {
-      const box = already.getBoundingClientRect()
-      const centre = box.top + box.height / 2
-      const h = window.innerHeight
-      if (centre > h * (0.5 - CENTRED_BAND) && centre < h * (0.5 + CENTRED_BAND)) return
-    }
-    virtualizer.scrollToIndex(Math.floor(index / cols), {
-      align: 'center',
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    })
-  }, [reveal, cards, cols, width, virtualizer])
+  // The rows are fixed-height (`estimateSize` is exact here and nothing is
+  // measured), so a row mounted out of the window sits exactly where it will be
+  // when the window arrives — there is no correction later for him to chase.
+  const revealIndex = reveal ? cards.findIndex((c) => c.cardId === reveal.cardId) : -1
+  // `width` gates it: at width 0 the column count is a guess and the row would
+  // be the wrong one. The ask repeats while he waits, so nothing is lost.
+  const revealRow = revealIndex >= 0 && width ? Math.floor(revealIndex / cols) : -1
+
+  const virtualizer = useWindowVirtualizer({
+    count: rowCount,
+    estimateSize: () => rowH,
+    overscan: 3,
+    scrollMargin: offsetTop,
+    rangeExtractor: (range) => {
+      const rows = defaultRangeExtractor(range)
+      if (revealRow < 0 || revealRow >= rowCount || rows.includes(revealRow)) return rows
+      return [...rows, revealRow].sort((a, b) => a - b)
+    },
+  })
 
   return (
     <div ref={gridRef}>

@@ -23,6 +23,8 @@ import { CENTRE_OFFSET, makeFraming, solveFraming, type Framing } from './framin
 import { ENTRY_MS, bodySpan, clampEntryScale, entryScaleAt } from './entry'
 import {
   canvasHeight,
+  canvasOriginX,
+  canvasOriginY,
   documentHeight,
   elasticOffset,
   setCanvasOrigin,
@@ -32,6 +34,7 @@ import {
 } from '../viewport'
 import {
   BEACON,
+  MAX_GLIDE_SCREENS,
   beaconRect,
   scrollableAncestor,
   scrollToCentre,
@@ -450,8 +453,15 @@ type Station =
        *  bug with a long fuse. */
       anchor?: 'centre' | 'bottom' | 'optical'
     }
+  /**
+   * Where he already is ON SCREEN, held while the layout around him changes.
+   * A viewport point rather than a world position, so a dolly (his size is a
+   * camera move) re-solves him onto the current plane at the same spot instead
+   * of leaving him at a stale distance to swell or shrink. See `hold`.
+   */
+  | { kind: 'still'; x: number; y: number; depth: Depth }
 
-type Transition = { from: Pose; started: number; durationMs: number } | null
+type Transition ={ from: Pose; started: number; durationMs: number } | null
 
 /** Where a state is in its own life. See `sustain.ts`. */
 export type Phase = 'intro' | 'sustain' | 'outro'
@@ -490,6 +500,9 @@ export type SetStateOptions = {
  * the remount, which is worse. Adopting the previous instance and disposing it
  * before building a new one is the honest fix.
  */
+/** Scratch for `screenRect`'s in-flight position; never escapes the call. */
+const _shifted = new Vector3()
+
 const INSTANCES = new WeakMap<HTMLCanvasElement, DeckE>()
 
 /** Scratch for the beacon's silhouette probe. Module scope, not per instance:
@@ -1084,7 +1097,16 @@ export class DeckE {
   screenRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } | null {
     if (!this.rig) return null
     const cam = this.stage.camera
-    const base = this.track ? this.flightSample.pos : this.anchor
+    // IN FLIGHT, WHERE HE IS DRAWN — the solved sample PLUS the share of the
+    // page's movement ramped in so far, exactly as `update` composes it. The
+    // sample alone is where he would be if the page had held still, which for a
+    // `scrollWith` trip is a screen and a half away from him: the bubble chased
+    // that ghost for the whole glide.
+    let base = this.anchor
+    if (this.track) {
+      const u = Math.min(1, Math.max(0, ((this.elapsed - this.trackStart) * 1000) / this.track.durationMs))
+      base = _shifted.copy(this.flightSample.pos).addScaledVector(this.trackShift, u)
+    }
     // ── THE FRAME, WHICH THIS GOT WRONG FOR ITS WHOLE LIFE ──────────────────
     //
     // `base` is a BLENDER-frame vector — `anchor` comes from `solvePark`'s
@@ -1150,7 +1172,7 @@ export class DeckE {
        * him down. The chat-exit contract says in as many words that he "never
        * grows during the trip", and that is the number that broke it.
        */
-      depth: this.station.kind === 'element' ? this.station.depth : ('foreground' as const),
+      depth: this.station.kind === 'home' ? ('foreground' as const) : this.station.depth,
     }
   }
 
@@ -1527,6 +1549,36 @@ export class DeckE {
     this.stationDirty = true
   }
 
+  /**
+   * Stay exactly where he is drawn, whatever the layout around him does next.
+   *
+   * ── WHY "SHOW ME" NEEDS THIS ─────────────────────────────────────────────────
+   *
+   * While he is talking in the chat his station is the COMPOSER, and a station
+   * is re-solved without a flight: that is what keeps him glued to it as the
+   * page scrolls. But the moment he sets off to show something the chat
+   * minimises, the composer drops to the bottom bar, and the re-solve dragged
+   * him with it — a 274 px jump in one frame (measured at 1440x900, and on every
+   * "show me" trip), before the trip had even started.
+   *
+   * Holding swaps that station for the spot he already occupies, so the panel
+   * can do whatever it does underneath him; the trip's own flight is then the
+   * only thing that moves him. A flight in the air keeps its own destination.
+   */
+  hold() {
+    if (this.track) return
+    this.unpin()
+    const r = this.screenRect()
+    if (!r) return
+    this.station = {
+      kind: 'still',
+      x: r.left + r.width / 2 + canvasOriginX(),
+      y: r.top + r.height / 2 + canvasOriginY(),
+      depth: this.station.kind === 'home' ? 'foreground' : this.station.depth,
+    }
+    this.stationDirty = true
+  }
+
   /** The live entrance scale on the rig root. 1 unless a `playEntry` is running
    *  or a caller has pinned it. See `entry.ts`. */
   get entryScale(): number {
@@ -1684,31 +1736,66 @@ export class DeckE {
     this.unpin()
     const depth = opts.depth ?? 'foreground'
     const side = opts.side ?? 'auto'
-    const rect = resolveRect(target)
+    let rect = resolveRect(target)
     if (!rect) throw new Error('decke: flyTo target did not resolve to an element')
 
-    const camera = this.stage.camera
-    const baseDistance = camera.position.length()
-    const park = solvePark(camera, rect, {
-      depth,
-      side,
-      baseDistance,
-      centre: opts.centre,
-      anchor: opts.anchor,
-    })
-
-    // SCROLL INTENT, computed before the launch that consumes it.
+    // SCROLL INTENT, computed before the launch that consumes it — and before
+    // the park is solved, because a long throw moves the page first.
     //
     // Only when the destination is actually out of comfortable view: a target
     // already on screen needs no scroll, and driving one anyway makes a short
     // hop lurch. `scrollToCentre` clamps to the document's own range, so a
     // target near the top or bottom simply gets as centred as it can.
     if (opts.scrollWith) {
-      const cy = rect.top + rect.height / 2
       const h = window.innerHeight
+      const scroller = scrollableAncestor(document.body)
+      let cy = rect.top + rect.height / 2
       const offscreen = cy < h * 0.2 || cy > h * 0.8
-      this.pendingScroll = offscreen ? scrollToCentre(cy, scrollableAncestor(document.body)) : null
+      let to = offscreen ? scrollToCentre(cy, scroller) : null
+      // ── THE LONG THROW ────────────────────────────────────────────────────
+      //
+      // The drive eases the page on the flight's own clock, which is right for
+      // a screen or two and wrong for "card 199 of 250": 18,500 px inside one
+      // flight is a smear no one can read, and a virtualized grid mounting and
+      // dropping forty rows a frame to render it. So the page JUMPS to within
+      // `MAX_GLIDE_SCREENS` of the target, in the same frame he sets off, and
+      // the last stretch is flown with him — what the owner asked for, "so it
+      // looks like he's flying down the page to the card", without the blur.
+      // The jump reads as the page arriving, because it happens as he leaves.
+      // Reduced motion never glides at all (`cut` jumps the rest), so this is
+      // only ever the shorter half of an animation, never an extra one.
+      const from = window.scrollY
+      if (to !== null && !scroller && Math.abs(to - from) > h * MAX_GLIDE_SCREENS) {
+        window.scrollTo(0, to - Math.sign(to - from) * h * MAX_GLIDE_SCREENS)
+        rect = resolveRect(target) ?? rect
+        cy = rect.top + rect.height / 2
+        to = scrollToCentre(cy, scroller)
+      }
+      this.pendingScroll = to
     }
+
+    // AIM AT THE END STATE. With the page about to be driven, the rect read
+    // now is where the target IS, not where it will be when he lands — so both
+    // the park and the far-plane waypoint are solved against the box moved by
+    // the scroll still to come. The flight and the page then converge on the
+    // same spot at the same moment, instead of him chasing a target the drive
+    // is carrying away (a 2.3 s first leg, measured, re-aimed the whole way).
+    this.aimAhead = false
+    if (this.pendingScroll !== null && 'selector' in target) {
+      const el = document.querySelector(target.selector)
+      this.aimAhead = !!el && ridesThePage(el)
+    }
+    const aim = this.planned(rect, true)
+
+    const camera = this.stage.camera
+    const baseDistance = camera.position.length()
+    const park = solvePark(camera, aim, {
+      depth,
+      side,
+      baseDistance,
+      centre: opts.centre,
+      anchor: opts.anchor,
+    })
 
     // THE SCALE RIDES THE FLIGHT. Decided before the launch so an instant
     // flight can arrive already at the asked-for scale, and cleared of any
@@ -1730,17 +1817,26 @@ export class DeckE {
     // VIA THE BACKGROUND: queue the destination, fly the waypoint first. The
     // waypoint is directly above the destination's column on the far plane, so
     // the second leg comes straight in rather than crossing twice.
-    if (opts.via === 'background') {
+    //
+    // NOT WHEN THE DESTINATION IS ALREADY ON THE FAR PLANE. The waypoint exists
+    // to put the far plane between here and a near destination. A presentation
+    // rests at `background` itself, so the "second leg" was a sideways shuffle
+    // from the middle of the card he was showing to the gutter beside it — he
+    // landed ON the card, then stepped off it. One leg to the far plane IS the
+    // trip to the background.
+    if (opts.via === 'background' && depth !== 'background') {
       const waypoint = parkOn(
         camera,
-        rect.left + rect.width / 2,
-        rect.top + rect.height / 2,
+        aim.left + aim.width / 2,
+        aim.top + aim.height / 2,
         { depth: 'background', baseDistance },
       )
       this.legQueue = [park.position.clone()]
+      this.viaLeg = !instant
       this.launch(waypoint, instant)
     } else {
       this.legQueue.length = 0
+      this.viaLeg = false
       this.launch(park.position, instant)
     }
     // Hold facing steady for the duration of a presentation; turning mid-flight
@@ -1854,6 +1950,12 @@ export class DeckE {
     // still in place when it runs, however early `launch` unpins.
     this.unpin()
     this.station = { kind: 'home' }
+    // A via-background trip still in its first leg owns a queued destination.
+    // Left in place, the home leg would land and then launch him straight back
+    // out to it — and an instant return would `cut` to it instead of home,
+    // because a cut honours the last queued leg.
+    this.legQueue.length = 0
+    this.viaLeg = false
     // The trip home replaces whatever flight was pending, and its caller is
     // TOLD — an abort, not a silence. See `fireOnArrive`.
     this.fireOnArrive(true)
@@ -1867,6 +1969,48 @@ export class DeckE {
     // Nothing to fire — the trip home rings nothing and enters nothing — but the
     // flag still has to be cleared, or the next flight would inherit it.
     this.settleCut()
+  }
+
+  /**
+   * True while the flight in the air is driving the page toward a target that
+   * rides it, so stations are solved against where the target WILL be. See the
+   * end-state note in `flyTo`, and `planned`.
+   */
+  private aimAhead = false
+
+  /**
+   * A target's box as it will be once the scroll this flight is driving lands.
+   *
+   * Only while that is actually true: a flight in the air (`launching` covers
+   * the solve in `flyTo`, one line before the flight exists), a drive still
+   * armed — the reader's own scroll disarms it, and from then on the live box
+   * is the truth — and a target that moves with the page. Parked, this is the
+   * identity, so following a scroll works exactly as it always has.
+   */
+  private planned(rect: RectLike, launching = false): RectLike {
+    if (!this.aimAhead || (!this.track && !launching)) return rect
+    // Launching, the drive about to start is `pendingScroll`; any `scrollDrive`
+    // still set belongs to the flight being replaced.
+    const to = launching ? this.pendingScroll : (this.scrollDrive?.to ?? null)
+    if (to === null) return rect
+    const dy = window.scrollY - to
+    return { left: rect.left, top: rect.top + dy, right: rect.right, width: rect.width, height: rect.height }
+  }
+
+  /**
+   * Where the far-plane waypoint of a via-background trip is NOW: above the
+   * target's live centre, exactly as `flyTo` placed it from the rect it had
+   * then. Null when there is no element station to measure this frame.
+   */
+  private solveWaypoint(): Vector3 | null {
+    if (this.station.kind !== 'element') return null
+    const live = resolveRect(this.station.target)
+    if (!live) return null
+    const rect = this.planned(live)
+    return parkOn(this.stage.camera, rect.left + rect.width / 2, rect.top + rect.height / 2, {
+      depth: 'background',
+      baseDistance: this.stage.camera.position.length(),
+    })
   }
 
   /**
@@ -1884,10 +2028,15 @@ export class DeckE {
       // at home he is page chrome rather than an annotation on the content.
       return { position: homeCorner(camera, baseDistance) }
     }
+    if (this.station.kind === 'still') {
+      const { x, y, depth } = this.station
+      return { position: parkOn(camera, x, y, { depth, baseDistance, clamp: false }) }
+    }
     // `known` is a rect the caller already has, which while pinned is a rect
     // nobody had to force a layout to get. See `syncPinned`.
-    const rect = known ?? resolveRect(this.station.target)
-    if (!rect) return null
+    const live = known ?? resolveRect(this.station.target)
+    if (!live) return null
+    const rect = known ? live : this.planned(live)
     // THE SAME SOLVE `flyTo` USED TO GET HERE — literally the same function, so
     // a re-solve reproduces the launch rather than quietly replacing it with a
     // different intent. See `solvePark`.
@@ -2282,6 +2431,16 @@ export class DeckE {
    */
   private syncStation() {
     if (!this.stationDirty) return
+    // The first leg of a via-background trip is flying to a WAYPOINT, so it is
+    // the waypoint the moving page re-aims — steering it at the final park
+    // instead would fold the second leg into the first. See `viaLeg`.
+    if (this.viaLeg && this.track) {
+      const wp = this.solveWaypoint()
+      if (!wp) return
+      this.stationDirty = false
+      this.trackShift.copy(wp).sub(this.trackDest)
+      return
+    }
     const park = this.solveStation()
     if (!park) return
     this.stationDirty = false
@@ -2305,6 +2464,27 @@ export class DeckE {
    * rather than once per leg.
    */
   private legQueue: Vector3[] = []
+
+  /**
+   * True while the FIRST leg of a via-background trip is in the air.
+   *
+   * ── WHY THE QUEUE CANNOT BE TRUSTED ONCE THE PAGE MOVES ─────────────────────
+   *
+   * Both legs used to be solved once, at `flyTo`, against the target's rect at
+   * that instant — and a trip that drives the page (`scrollWith`) moves that
+   * rect by the whole scroll before the second leg ever launches. So the second
+   * leg started from the UNSHIFTED waypoint and flew to where the card USED to
+   * be. Measured on "show me my Charizard" at 1440x900: a 667 px jump at the
+   * leg boundary, then a glide AWAY from the card to park 460 px below it,
+   * pointing at nothing while the ring lit the card. The same on WebKit.
+   *
+   * So a queued leg is a promise to re-solve, not a stored answer: while this
+   * is set, `syncStation` steers the waypoint (not the final park) as the page
+   * moves, and the arrival branch launches the last leg from where he is DRAWN
+   * to the station solved NOW. The stored vector stays only as the fallback for
+   * a station that cannot be measured that frame, and for `cut`.
+   */
+  private viaLeg = false
 
   /**
    * The page scroll being driven by the current flight, if any.
@@ -2408,6 +2588,7 @@ export class DeckE {
   private cut(to: Vector3) {
     const dest = this.legQueue.length ? this.legQueue[this.legQueue.length - 1] : to
     this.legQueue.length = 0
+    this.viaLeg = false
     // Cutting ON TOP of a flight already in the air still has to hand the hover
     // back, exactly as a landing does. `TRAVEL_MOD` damps `float_amp` to 0.5
     // while he is under power, and dropping the track without the ramp steps it
@@ -3059,7 +3240,16 @@ export class DeckE {
         // would have him pointing at nothing from halfway across the page.
         const next = this.legQueue.shift()
         if (next) {
-          this.launch(next)
+          // FROM WHERE HE IS DRAWN, TO WHERE THE TARGET IS NOW. The sample just
+          // drawn was `trackDest + trackShift` (the shift fully ramped at
+          // u = 1), and `launch` starts a parked leg from `anchor` — so anchor
+          // has to say the same thing or the new leg opens with a jump. The
+          // destination is solved against the live station for the reason on
+          // `viaLeg`; `next` only answers when the station cannot be measured.
+          this.anchor.copy(this.trackDest).add(this.trackShift)
+          this.viaLeg = false
+          this.stationDirty = false
+          this.launch(this.solveStation()?.position ?? next)
         } else {
           // The exact asked-for scale, not the last sampled one — landing and
           // "at scale" are the same frame by contract.
@@ -3210,7 +3400,7 @@ export class DeckE {
       // viewport, so after a resize it is simply somewhere else and flying to it
       // would be a journey to the same place. A presentation has genuinely moved
       // relative to the content, and the flight is what makes that legible.
-      if (this.station.kind === 'home') {
+      if (this.station.kind !== 'element') {
         this.anchor.copy(park.position)
         this.trackDest.copy(this.anchor)
         return

@@ -316,11 +316,8 @@ function installFakeDom(opts: { selector: string; left: number; width: number })
     location: { pathname: '/series', href: 'https://deckpal.app/series' },
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
     clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
-    // THE FLIGHT WAITS FOR THE PAGE TO STOP SCROLLING before it launches — see
-    // `whenScrollQuiet`, which exists because `GridView` answers a reveal with
-    // the browser's own smooth scroll and the flight's scroll drive disarms
-    // itself the moment it sees an offset it did not write. A fake page never
-    // scrolls, so this reads the same twice and the wait is two ticks long.
+    // THE FLIGHT WAITS FOR ITS TARGET'S BOX TO HOLD STILL before it launches —
+    // see `whenStill`. A fake element never moves, so the wait is two ticks.
     scrollY: 0,
   }
   g.MutationObserver = class {
@@ -350,22 +347,37 @@ after(() => {
   delete g.MutationObserver
 })
 
-/** A Deck-E that records what it was asked to do and nothing else. */
-function fakeDecke(himScreenX: number | null) {
-  const calls: { via: unknown; highlight: unknown }[] = []
+/**
+ * A Deck-E that records what it was asked to do, and LANDS 10 ms after every
+ * flight — `landing: 'never'` or `'aborted'` to test the other two endings.
+ */
+function fakeDecke(himScreenX: number | null, landing: 'lands' | 'never' | 'aborted' = 'lands') {
+  const calls: { via: unknown; highlight: unknown; then: unknown }[] = []
+  let pending: ((aborted: boolean) => void) | undefined
   return {
     calls,
+    /** Land the flight a `'never'` fake is holding, so nothing outlives the test. */
+    land: () => pending?.(false),
     decke: {
       getState: () => ({ flying: false }),
+      hold: () => {},
       screenRect: () =>
         himScreenX === null ? null : { left: himScreenX - 40, width: 80, top: 0, right: himScreenX + 40, bottom: 0, height: 0 },
-      flyTo: (_t: unknown, o: { via?: unknown; highlight?: unknown }) =>
-        calls.push({ via: o.via, highlight: o.highlight }),
+      flyTo: (
+        _t: unknown,
+        o: { via?: unknown; highlight?: unknown; then?: unknown; arrived?: (aborted: boolean) => void },
+      ) => {
+        calls.push({ via: o.via, highlight: o.highlight, then: o.then })
+        pending = o.arrived
+        if (landing !== 'never') setTimeout(() => o.arrived?.(landing === 'aborted'), 10)
+      },
     } as unknown as UiToolContext['decke'],
   }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+/** Well under the 120 ms mutation settle, and well over two still-check ticks. */
+const SETTLE_FREE_MS = 100
 
 test('he does not set off on the first mutation — the page gets to settle', async () => {
   const dom = installFakeDom({ selector: '#grid', left: 600, width: 160 })
@@ -438,21 +450,52 @@ test('already on the page, he goes at once — there is nothing to settle', asyn
   const navigated: string[] = []
   // `window.location.pathname` is '/series', so this is the "we are already
   // there" branch. Nothing was replaced, so a settle would only make him slow.
+  const started = Date.now()
   const result = await runUiTool({ decke, navigate: (to) => navigated.push(to) }, 'goTo', {
     route: '/series',
     selector: '#grid',
   })
   assert.deepEqual(result, { ok: true })
   assert.deepEqual(navigated, [], 'he must not re-navigate to the page he is on')
-  // THE ANSWER COMES BACK BEFORE THE FLIGHT LAUNCHES, and that is not a
-  // regression from "immediately". `runUiTool` has always resolved when he was
-  // COMMITTED to the trip rather than when he arrived — `flyTo` is a
-  // multi-second journey and nothing ever waited for it. What is new is that
-  // the launch waits for the page's scroll to settle first, because the reveal
-  // this same call asks for is answered with the grid's own smooth scroll and
-  // solving a destination against a rect mid-scroll is how he "dives off the
-  // page downward" while the reader is still at the top. See `whenScrollQuiet`.
-  assert.equal(calls.length, 0, 'the flight waits for the page to stop moving')
-  await sleep(80)
-  assert.equal(calls.length, 1, 'and then the same-page branch flies, with no settle wait')
+  assert.equal(calls.length, 1, 'the same-page branch flies')
+  // No 120 ms settle: only the two-tick still check and the fake's 10 ms landing.
+  assert.ok(Date.now() - started < SETTLE_FREE_MS, 'the same-page branch waited out a settle')
+})
+
+// ── the answer is a REPORT of the landing, not a promise of one ──────────────
+
+test('flyTo answers when he LANDS, not when he is sent', async () => {
+  const dom = installFakeDom({ selector: '#grid', left: 600, width: 160 })
+  dom.appear()
+  const { calls, decke, land } = fakeDecke(400, 'never')
+  let answered = false
+  const pending = runUiTool({ decke, navigate: () => {} }, 'flyTo', { selector: '#grid', point: true }).then((r) => {
+    answered = true
+    return r
+  })
+  await sleep(60)
+  assert.equal(calls.length, 1, 'he was never sent')
+  assert.equal(calls[0]!.then, 'point', '`point: true` must reach the flight as a point')
+  assert.equal(answered, false, 'the tool answered while he was still in the air')
+  land()
+  assert.deepEqual(await pending, { ok: true }, 'the landing is the answer')
+})
+
+test('a flight replaced mid-air goes back to the model as NOT arrived', async () => {
+  const dom = installFakeDom({ selector: '#grid', left: 600, width: 160 })
+  dom.appear()
+  const { decke } = fakeDecke(400, 'aborted')
+  const r = await runUiTool({ decke, navigate: () => {} }, 'flyTo', { selector: '#grid' })
+  assert.equal(r.ok, false, 'an aborted flight was reported as an arrival')
+  assert.match(r.reason ?? '', /before I got there/)
+})
+
+test('a journey step spelling it `then: point` still points', async () => {
+  // `journey.ts` sent `{ then: 'point' }` for its whole life and `flyTo` only
+  // read `point`, so every escort flew to the set row without pointing at it.
+  const dom = installFakeDom({ selector: '#grid', left: 600, width: 160 })
+  dom.appear()
+  const { calls, decke } = fakeDecke(400)
+  await runUiTool({ decke, navigate: () => {} }, 'flyTo', { selector: '#grid', then: 'point' })
+  assert.equal(calls[0]!.then, 'point')
 })

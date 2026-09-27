@@ -22,12 +22,16 @@
  * least, because some of the words visible beats none of them.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { highlighted } from '../../components/ui/elementHighlight'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 
 export type Rect = { left: number; top: number; right: number; bottom: number; width: number; height: number }
 
 const GAP = 14
 const MARGIN = 8
+/** Clear of the app header, and of the minimised chat bar, for the docked slots. */
+const DOCK_TOP = 72
+const DOCK_BOTTOM = 88
 
 function overlap(a: Rect, b: Rect): number {
   const w = Math.min(a.right, b.right) - Math.max(a.left, b.left)
@@ -50,6 +54,13 @@ export function place(
     { left: cx - bubble.width / 2, top: him.bottom + GAP },
     { left: him.left - bubble.width - GAP, top: him.top + him.height / 2 - bubble.height / 2 },
     { left: him.right + GAP, top: him.top + him.height / 2 - bubble.height / 2 },
+    // LAST RESORTS, docked to the screen rather than to him. Presenting, he is
+    // a third of his size and standing in the gutter between cards, so on a
+    // phone all four slots above can land on the very card he is showing; a
+    // line captioned at the top or bottom edge beats a line over the answer.
+    // Only ever chosen when they are strictly clearer than every slot by him.
+    { left: vw / 2 - bubble.width / 2, top: vh - bubble.height - DOCK_BOTTOM },
+    { left: vw / 2 - bubble.width / 2, top: DOCK_TOP },
   ]
 
   let best: { left: number; top: number } | null = null
@@ -97,15 +108,12 @@ const LEAVE_MS = 240
 export function DeckeBubble({
   text,
   himRect,
-  avoidSelector,
   leaving,
 }: {
   /** What he is saying. Empty hides the bubble entirely. */
   text: string
   /** Where he is on screen, in viewport pixels. */
   himRect: Rect | null
-  /** The element he is presenting, which must stay visible. */
-  avoidSelector: string | null
   /** True for the beat between "he's done talking" and "he leaves" — the
    *  bubble animates away instead of vanishing under him. Undefined behaves
    *  like `false`; there is no third state. */
@@ -130,7 +138,12 @@ export function DeckeBubble({
     const el = ref.current
     if (!el || !himRect || !text) return
     const b = el.getBoundingClientRect()
-    const avoidEl = avoidSelector ? document.querySelector(avoidSelector) : null
+    // The element he is presenting, which must stay visible: whatever is ringed
+    // right now, read from the ring itself. This was handed in as a selector
+    // built from the ringed element's `id` — which card tiles do not have, and
+    // which was never prefixed with `#` when they did — so it was null on every
+    // presentation and the bubble sat on the card he was showing.
+    const avoidEl = highlighted()
     const avoid = avoidEl ? (avoidEl.getBoundingClientRect() as unknown as Rect) : null
     const next = place({ width: b.width, height: b.height }, himRect, avoid, window.innerWidth, window.innerHeight)
     setPos(next)
@@ -141,7 +154,7 @@ export function DeckeBubble({
     const dx = himCx - bubbleCx
     const dy = himCy - bubbleCy
     setDir(Math.abs(dy) >= Math.abs(dx) ? { x: 0, y: dy > 0 ? 1 : -1 } : { x: dx > 0 ? 1 : -1, y: 0 })
-  }, [text, himRect, avoidSelector])
+  }, [text, himRect])
 
   // Re-place on scroll and resize. He is pinned to the page while presenting, so
   // both move him and the element he is beside.
@@ -196,6 +209,7 @@ export function DeckeBubble({
 
   return (
     <div
+      data-decke-ui
       ref={ref}
       role="status"
       aria-live="polite"

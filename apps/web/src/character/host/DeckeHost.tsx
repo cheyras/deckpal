@@ -449,7 +449,19 @@ export function DeckeHost() {
       toolNavRef.current = to.split('?')[0].split('#')[0]
       navigate({ to, replace: !first })
     },
-    () => setTravelling(true),
+    // HOLD HIM, THEN MINIMISE. Travelling collapses the panel to its bar, and
+    // the composer he stands beside goes with it; a station re-solve would drag
+    // him the whole way in one frame (274 px at 1440x900, on every trip). Held,
+    // he stays where he is drawn and the trip's own flight is the only thing
+    // that moves him. See `DeckE.hold`.
+    () => {
+      try {
+        deckeRef.current?.hold()
+      } catch {
+        /* an engine mid-teardown must not stop the panel getting out of the way */
+      }
+      setTravelling(true)
+    },
     // THE EXEMPTION THE ROUTE WATCHER WAS WAITING FOR. Between a journey's own
     // hops the tidy-up is wrong: it would clear the ring he had just drawn and
     // pull him back to the composer before the next step could point at
@@ -1989,7 +2001,6 @@ function settledRect(el: HTMLElement): DOMRect {
         <DeckeBubble
           text={bubbleText}
           himRect={himRect}
-          avoidSelector={live?.getState().highlighted ?? null}
           leaving={bubbleLeaving}
         />
       ) : null}

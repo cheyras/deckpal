@@ -2267,6 +2267,7 @@ export function DeckeChat({
         // below — is returning focus where it came from on close, which is
         // ordinary courtesy and is missing either way.
         aria-label="Chat with Deck-E"
+        data-decke-ui
         // ── STILL IN THE DOM WHILE HE IS OUT, AND THAT NEEDS SAYING ────────
         //
         // The panel no longer unmounts when it minimises (see the docked bar
