@@ -1254,7 +1254,9 @@ the leg carrying that message it can pin step one to
 `log_cards` — which only ever raises the signed consent card — hide `escort`,
 and add a spoken refusal to the declined ledger; after the reply, `audit.ts`
 runs one corrective step (pinned to the consent card's tool) when he claimed a
-collection, list, deck or battle-log change that no tool made. Every answer acts only above a
+collection, list, deck or battle-log change that no tool made. Claims that a
+list, deck or battle log was deleted get an admission instead: the available
+corrective edit tools cannot delete them. Every answer acts only above a
 threshold chosen on `eval/judgments.json`; a timeout, an error or a low answer
 is today's harness exactly. Jev never approves a write and is not a security
 control.

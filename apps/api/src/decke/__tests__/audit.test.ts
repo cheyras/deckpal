@@ -29,6 +29,9 @@ test('no answer is null, and null is today', () => {
 test('a claimed change with no acting tool is a phantom of that kind', () => {
   assert.deepEqual(auditFrom(claims(0.95, 'list'), ['collection_value']), { phantom: 'list' })
   assert.deepEqual(auditFrom(claims(0.9, 'collection'), ['search_cards']), { phantom: 'collection' })
+  for (const kind of ['list_deleted', 'deck_deleted', 'battle_log_deleted']) {
+    assert.deepEqual(auditFrom(claims(0.95, kind), ['decks']), { phantom: kind })
+  }
 })
 
 test('any acting tool in the turn means the flow worked, whatever the reply says', () => {
@@ -53,6 +56,9 @@ test('only writes that hold for a signed card are corrected; the rest are admitt
   }
   assert.equal(CORRECTIVE_TOOLS.guide, undefined, 'a guide is a paid deep call; never forced')
   assert.equal(CORRECTIVE_TOOLS.navigation, undefined, 'a walk has no card, and a forced goTo would invent a route')
+  for (const kind of ['list_deleted', 'deck_deleted', 'battle_log_deleted']) {
+    assert.equal(CORRECTIVE_TOOLS[kind], undefined, `${kind} must get the admission, never an edit tool`)
+  }
   assert.match(correctiveInstruction('log_cards'), /Call log_cards now[\s\S]*do not describe it as done/)
 })
 

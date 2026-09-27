@@ -9,7 +9,7 @@
  * Charizard ex" after a search and nothing else. The angriest quotes in the
  * owner's history are this shape, and the guard that exists for it
  * (`phantomClaims` in `turnGuards.ts`) is a set of regexes tuned for precision
- * on purpose — on the eval set it catches 3 of 15. And when it does fire it
+ * on purpose — on the original eval set it catches 3 of 15. And when it does fire it
  * APOLOGISES; the reader still has to ask again for the thing they asked for.
  *
  * Jev reads the reply against the reader's message once the stream ends. A
@@ -54,9 +54,12 @@ export const AUDIT_QUESTIONS = {
     instructions: 'Which kind of action does the reply say happened or is happening?',
     criteria: {
       collection: 'cards added to, removed from, or changed in their collection',
-      list: 'a list or wishlist created, renamed, filled, emptied or deleted',
-      deck: 'a deck created, edited, saved or deleted',
+      list: 'a list or wishlist created, renamed, filled, emptied or edited, but not deleted',
+      list_deleted: 'a list or wishlist itself deleted, removed or sent to the bin',
+      deck: 'a deck created, edited or saved, but not deleted',
+      deck_deleted: 'a deck itself deleted, removed or sent to the bin',
       battle_log: 'a game or battle logged',
+      battle_log_deleted: 'a saved game or battle log deleted or removed',
       guide: 'a strategy guide written or saved',
       navigation: 'the reader taken or walked to a page',
       none: 'no such action',
@@ -77,8 +80,11 @@ export function auditState(o: { message: string; reply: string }) {
 export const ACTION_TOOLS: Record<string, readonly string[]> = {
   collection: ['log_cards'],
   list: ['edit_list', 'delete_list'],
+  list_deleted: ['delete_list'],
   deck: ['save_deck', 'delete_deck', 'deck_history', 'revert'],
+  deck_deleted: ['delete_deck'],
   battle_log: ['add_battle_log', 'edit_battle_log', 'delete_battle_log'],
+  battle_log_deleted: ['delete_battle_log'],
   guide: ['deck_strategy', 'write_strategy_guide'],
   navigation: ['goTo', 'flyTo', 'escort', 'journey', 'click', 'highlight', 'scrollToMe'],
 }
@@ -90,7 +96,9 @@ export const ACTION_TOOLS: Record<string, readonly string[]> = {
  * Not a guide: `write_strategy_guide` is a paid deep call that asks first on
  * its own terms, and `deck_strategy` would need him to write a whole guide in
  * one forced step. Not a walk: a navigation has no card to ask with, and a
- * forced `goTo` would have to invent a route. Both get the admission.
+ * forced `goTo` would have to invent a route. Deletions also get the
+ * admission: the edit tools below cannot delete, and a deletion needs its own
+ * identified target and consent card. None of those claims may force an edit.
  */
 export const CORRECTIVE_TOOLS: Readonly<Record<string, string>> = {
   collection: 'log_cards',
@@ -100,9 +108,9 @@ export const CORRECTIVE_TOOLS: Readonly<Record<string, string>> = {
 }
 
 /**
- * Chosen on `eval/judgments.json` (40 items, three paid passes): every claimed
- * phantom caught, no clean turn flagged. The kind threshold is loose because
- * the kind was right in every flagged case, and a wrong kind still only asks.
+ * Chosen on the original `eval/judgments.json` (40 items, three paid passes):
+ * every claimed phantom caught, no clean turn flagged. Deletion kinds are
+ * separated so a claimed deletion never forces an edit tool.
  */
 export const AUDIT_THRESHOLDS = { claim: 0.6, action: { p: 0.7, confidence: 0.5 } } as const
 

@@ -290,7 +290,8 @@ ZDR to enterprise customers only. Jev never approves anything and is not a
 control: its vendor documents that text in its state can move its answers, so
 its judgments only ever raise a consent card, hide a tool the reader cannot use,
 add a refusal, or run one corrective step that can itself only raise a consent
-card — each fails safe, and every failure is today's behaviour. Off
+card. A claimed list, deck or battle-log deletion gets an admission rather than
+forcing an edit tool that cannot delete. Each failure is today's behaviour. Off
 by default; `GET /health` reports `deckeJev`.
 
 **Server-side request forgery — where the server is allowed to fetch from.**
