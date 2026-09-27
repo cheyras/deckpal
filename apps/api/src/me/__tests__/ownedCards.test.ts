@@ -73,3 +73,8 @@ test('quantity is filtered to owned rows only (quantity > 0), so a zeroed-out ca
   const { sql } = buildOwnedCardsQuery('user-a', { sort: 'recent', limit: 10, offset: 0 });
   assert.match(sql, /ci\.quantity > 0/);
 });
+
+test('owned cards use the browsable catalog, excluding Pocket cards retained in a collection', () => {
+  const { sql } = buildOwnedCardsQuery('user-a', { sort: 'recent', limit: 10, offset: 0 });
+  assert.match(sql, /JOIN browsable_card c ON c\.id = cv\.card_id/);
+});

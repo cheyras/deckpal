@@ -59,7 +59,7 @@ fixture gained stubs for `/api/me/cards` and `/api/me/showcase` (Profile's
 banner query now fires on every fixture-driven `/profile` visit across the
 existing browser suite, not just this feature's own test).
 `tests/browser/profileOwnedCards.mts` is a new, self-contained browser check
-(registered in `test:browser` by `tests/browser/profileOwnedCards.mjs`) asserting the request-count
+(registered in `test:browser` by `tests/browser/profileOwnedCardsSuite.mjs`) asserting the request-count
 contract directly: no `/insights/pokedex/:id` calls ever, at most one
 `/me/cards` request on a bare visit, and at most one more from opening the
 picker. `apps/api/src/me/__tests__/ownedCards.test.ts` is a pure unit test
@@ -69,3 +69,7 @@ search term, or paging into the SQL text. No other surface in `apps/web`
 shared this hook or this fan-out pattern (`api.dex`/`api.species` are each
 called exactly once elsewhere, for the Pokédex grid and a single species page
 respectively) — nothing else needed the same fix.
+
+After migration 074 introduced the `browsable_card` view, the owned-cards
+query joined that view so an already-owned Pocket card remains excluded from
+Profile browsing. The disposable Pocket fixture checks the real query.

@@ -4,7 +4,7 @@ import { browserSuites } from './core-suites.mjs'
 import { browserSuites as deckeShowSuites } from './deckeShow.mjs'
 import { browserSuites as errorBoundarySuites } from './errorBoundary.mjs'
 import { browserSuites as bugReportSuites } from './bugReport.mjs'
-import { browserSuites as profileOwnedCardsSuites } from './profileOwnedCards.mjs'
+import { browserSuites as profileOwnedCardsSuites } from './profileOwnedCardsSuite.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [

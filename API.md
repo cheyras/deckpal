@@ -468,7 +468,7 @@ slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
 shape.
 
 ### GET /deckpal/api/me/cards
-The signed-in account's owned cards, one row per card across its owned variants.
+The signed-in account's browsable owned cards, one row per card across its owned variants. Pokémon TCG Pocket cards are excluded even if the account still owns them.
 The Profile banner requests three; opening the showcase picker requests a larger
 page, can load later pages on demand, and may search by card name. Optional query parameters are `q` (name
 contains, case-insensitive), `sort=value|recent` (default `recent`), `page`

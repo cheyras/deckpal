@@ -15,7 +15,7 @@ import { cardImages, q, toMajor } from '../db.js';
  * don't own any cards yet." Trainers and Energy — which have no species — could
  * never be showcased either, since the derivation walked the dex.
  *
- * This is one SQL statement instead: aggregate `collection_item` by card,
+ * This is one SQL statement instead: aggregate `collection_item` by browsable card,
  * carry the best-known USD market price for the "value" sort, and page it.
  * `packages/agent-tools/src/tools/collection.ts`'s `collection_summary` proves
  * the same join (collection_item → card_variant → card, plus the
@@ -75,7 +75,7 @@ export function buildOwnedCardsQuery(userId: string, opts: OwnedCardsQueryOpts):
            count(*) OVER() AS total_rows
       FROM collection_item ci
       JOIN card_variant cv ON cv.id = ci.card_variant_id
-      JOIN card c          ON c.id = cv.card_id
+      JOIN browsable_card c ON c.id = cv.card_id
       JOIN card_set cs     ON cs.id = c.set_id
       JOIN series ser      ON ser.id = cs.series_id
  LEFT JOIN best b          ON b.card_variant_id = cv.id
