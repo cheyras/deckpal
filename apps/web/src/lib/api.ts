@@ -51,8 +51,12 @@ async function handle401(path: string, init: RequestInit): Promise<Response | nu
     // three can never disagree about which pages are safe to sit on.
     if (!isPublicPathname(window.location.pathname)) {
       // Literal '/auth': the !isCloudMode early return above means the
-      // self-host arm of a mode ternary could never be taken here.
-      window.location.assign('/auth')
+      // self-host arm of a mode ternary could never be taken here. `next`
+      // carries the page that just 401'd (UXC-06 — the same "drop the
+      // destination on the way to /auth" bug as AuthGuard's redirect, just
+      // reached from a stale session instead of never having had one).
+      const next = encodeURIComponent(`${window.location.pathname}${window.location.search}`)
+      window.location.assign(`/auth?next=${next}`)
     }
     throw new Error('Session expired')
   }
