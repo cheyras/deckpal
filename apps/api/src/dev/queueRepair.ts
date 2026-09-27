@@ -68,3 +68,20 @@ export async function discardQueuePhoto(id: number, store: QueueStore): Promise<
     return removed;
   });
 }
+
+export async function cleanupRepairedOriginal(id: number, store: QueueStore): Promise<string[]> {
+  return store.locked(id, async () => {
+    const originalPath = path(id, 'jpg');
+    if (!(await store.exists(originalPath))) return [];
+    const replacement = replacementId(id);
+    if (!(await store.exists(path(replacement, 'jpg'))) || !(await store.meta(path(replacement, 'json')))) {
+      throw new Error('replacement is incomplete');
+    }
+    const removed: string[] = [];
+    for (const ext of ['jpg', 'json'] as const) {
+      const objectPath = path(id, ext);
+      if (await store.remove(objectPath)) removed.push(objectPath.slice('dev-queue/'.length));
+    }
+    return removed;
+  });
+}

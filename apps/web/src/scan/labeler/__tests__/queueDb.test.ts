@@ -152,6 +152,8 @@ test('an older server HEIC is replaced before its original is deleted', () => {
     'discard must wait for an in-flight repair')
   assert.match(QUEUE_SRC, /pendingCleanups\.set\(id, added\.id\)/,
     'a failed original deletion must remain available for a later retry')
+  assert.match(QUEUE_SRC, /await api\.scanQueueDelete\(id, true\)/,
+    'repair cleanup must use the original-only endpoint mode')
   assert.match(QUEUE_SRC, /repairOf: id/)
   assert.match(REPAIR_SRC, /id \* 1000 \+ 1/,
     'two devices repairing one original must address the same replacement')

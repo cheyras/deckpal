@@ -523,7 +523,7 @@ function savePendingCleanups(): void {
 }
 
 async function cleanupOriginal(id: number): Promise<void> {
-  await api.scanQueueDelete(id)
+  await api.scanQueueDelete(id, true)
   pendingCleanups.delete(id)
   savePendingCleanups()
 }

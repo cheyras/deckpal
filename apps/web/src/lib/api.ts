@@ -1732,8 +1732,8 @@ export const api = {
     ),
   /** Remove one — labelled, or discarded. Absent is not an error server-side:
    *  two devices can finish the same photo. */
-  scanQueueDelete: (id: number) =>
-    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}`),
+  scanQueueDelete: (id: number, repairCleanup = false) =>
+    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}${repairCleanup ? '?repairCleanup=1' : ''}`),
   /** A queued photo's bytes, through the authenticated pipeline for
    *  `scanFlagBlob`'s reason: a browser-initiated `<img>` request carries no
    *  Authorization header and would 403 at the gate. */

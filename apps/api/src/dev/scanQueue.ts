@@ -10,7 +10,7 @@ import {
 import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
 import { withTx } from '../db.js';
 import { labelerOnlyInProduction } from '../ownerGate.js';
-import { discardQueuePhoto, repairQueuePhoto, type QueueMeta, type QueueStore } from './queueRepair.js';
+import { cleanupRepairedOriginal, discardQueuePhoto, repairQueuePhoto, type QueueMeta, type QueueStore } from './queueRepair.js';
 
 /**
  * The labeler's pending-photo queue — POST/GET/DELETE /dev/scan-queue.
@@ -258,7 +258,20 @@ scanQueueRouter.delete(
 
     const numericId = Number(id);
     if (!Number.isSafeInteger(numericId) || numericId < 1_000_000_000_000) throw badRequest('bad photo id');
-    const removed = await discardQueuePhoto(numericId, queueStore);
+    let removed: string[];
+    if (req.query.repairCleanup === '1') {
+      if (numericId >= 1_000_000_000_000_000) throw badRequest('bad repair photo id');
+      try {
+        removed = await cleanupRepairedOriginal(numericId, queueStore);
+      } catch (error) {
+        if (error instanceof Error && error.message === 'replacement is incomplete') {
+          throw new ApiError(409, 'queue_repair_incomplete', 'The JPEG replacement is not complete yet. Try again.');
+        }
+        throw error;
+      }
+    } else {
+      removed = await discardQueuePhoto(numericId, queueStore);
+    }
     // Absent is not an error, for `dev/scanFlags.ts`'s reason: two devices can
     // finish the same photo, and the second one must report success rather than
     // 404 over work that is already done.

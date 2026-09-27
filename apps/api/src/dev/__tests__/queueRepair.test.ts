@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { discardQueuePhoto, repairQueuePhoto, replacementId, type QueueMeta, type QueueStore } from '../queueRepair.js';
+import { cleanupRepairedOriginal, discardQueuePhoto, repairQueuePhoto, replacementId, type QueueMeta, type QueueStore } from '../queueRepair.js';
 
 const ID = 1_700_000_000_000;
 const jpg = Buffer.from('jpeg');
@@ -59,6 +59,26 @@ test('a corrupt replacement sidecar is repaired from the request before success'
   const result = await repairQueuePhoto(ID, jpg, requested, store, isHeic);
   assert.equal(result.name, requested.name);
   assert.deepEqual(JSON.parse(files.get(sidecar)!.toString()).name, requested.name);
+});
+
+test('repair cleanup removes only the HEIC; the JPEG remains until the user discards it', async () => {
+  const { files, store } = fakeStore();
+  await repairQueuePhoto(ID, jpg, requested, store, isHeic);
+  await cleanupRepairedOriginal(ID, store);
+  assert.ok(!files.has(original));
+  assert.deepEqual(files.get(next), jpg);
+  assert.ok(files.has(sidecar));
+  const retry = await repairQueuePhoto(ID, jpg, requested, store, isHeic);
+  assert.equal(retry.id, replacementId(ID));
+  await discardQueuePhoto(retry.id, store);
+  assert.equal(files.size, 0);
+});
+
+test('repair cleanup refuses to remove the only copy when the replacement sidecar is missing', async () => {
+  const { files, store } = fakeStore();
+  files.set(next, jpg);
+  await assert.rejects(cleanupRepairedOriginal(ID, store), /replacement is incomplete/);
+  assert.ok(files.has(original));
 });
 
 test('discard waits for repair and removes both copies; a later retry cannot resurrect either', async () => {
