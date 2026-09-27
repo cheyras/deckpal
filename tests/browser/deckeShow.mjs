@@ -516,6 +516,9 @@ function installLayoutRecorder() {
       widgets: [...dialog.querySelectorAll('.decke-figure, li > ul')].map((el) => box(el.getBoundingClientRect())),
       texts: [...dialog.querySelectorAll('.decke-beside.decke-bubble')].map((el) => box(el.getBoundingClientRect())),
       anchor: (() => { const a = dialog.querySelector('[data-decke-anchor]'); return a ? box(a.getBoundingClientRect()) : null })(),
+      // For a failure message: what he is standing on, and where the park box is.
+      park: (() => { const p = document.querySelector('[data-decke-park]'); return p ? [Math.round(p.getBoundingClientRect().top), p.dataset.ride ?? null] : null })(),
+      stn: (() => { const t = d.station; if (!t) return null; const g = t.target; return t.kind + (g ? ':' + (g.selector ?? (g.rect ? 'rect' : typeof g)) : '') })(),
     })
     requestAnimationFrame(tick)
   }
@@ -741,7 +744,7 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
     assert.ok(left.him && left.floor !== null && drawn(left.him, left.floor)[3] === 0,
       engine + ': back from a saved conversation, he stopped following the scroll: ' + JSON.stringify(left))
     await page.unroute(history)
-    results.push({ case: 'decke-chat-phone', engine, ...m, overFrame: undefined, layouts })
+    results.push({ case: 'decke-chat-phone', engine, ...m, overFrame: undefined, layouts, station: f.at(-1).stn })
   } finally { await context.close() }
   return results
 }
