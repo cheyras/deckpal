@@ -146,13 +146,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const [fixResult, setFixResult] = useState<{ text: string; formatCode: DeckFormat; result: DeckImportFixResult } | null>(null)
   const [undone, setUndone] = useState<ReadonlySet<number>>(new Set())
   const [fixError, setFixError] = useState<string | null>(null)
-  const [errandActive, setErrandActive] = useState(false)
   const reviewRevision = useRef(0)
-  const close = () => { reviewRevision.current++; onClose() }
-  useEffect(() => {
-    if (errandActive) startDeckeErrand()
-    else endDeckeErrand()
-  }, [errandActive])
+  const close = () => { reviewRevision.current++; endDeckeErrand(); onClose() }
   useEffect(() => onDeckeVisibilityChange(() => setHideCharacter(deckeHidden())), [])
   useEffect(() => {
     let active = true
@@ -177,7 +172,12 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const skipping = checked !== null && !stale && unmatched.length > 0
   const matchedCards = checked?.summary.totalCards ?? 0
   const reviewing = fixResult !== null && !stale && fixResult.text === text && fixResult.formatCode === formatCode
-  useEffect(() => { if (fixResult && !reviewing) setErrandActive(false) }, [fixResult, reviewing])
+  const showDock = checked !== null && unmatched.length > 0 && !stale && entitled && !hideCharacter
+  useEffect(() => {
+    if (showDock) startDeckeErrand()
+    else endDeckeErrand()
+    return () => endDeckeErrand()
+  }, [showDock])
   const acceptedFixes = reviewing ? fixResult.result.fixes.filter(f => !undone.has(f.lineIndex)) : []
   const confirmedText = reviewing ? confirmedDecklistText(text, fixResult.result.fixes, undone) : null
   const fixedByLine = new Map(acceptedFixes.map(f => [f.lineIndex, f]))
@@ -198,29 +198,25 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     setFixError(null)
     setFixResult(null)
     setUndone(new Set())
-    setErrandActive(true)
     fix.mutate(asked, {
       onSuccess: result => {
         const now = latest.current
-        if (now.text !== asked.text || now.formatCode !== asked.formatCode) { setErrandActive(false); return }
+        if (now.text !== asked.text || now.formatCode !== asked.formatCode) return
         // The server may abstain, but it may never rewrite a line outside the
         // checked unmatched set or reuse a physical occurrence.
         const allowed = new Map(unmatchedWithIndexes.map(row => [row.lineIndex, row.line]))
         if (result.fixes.some(f => allowed.get(f.lineIndex) !== f.original.trim()) ||
           confirmedDecklistText(asked.text, result.fixes, new Set()) === null) {
-          setErrandActive(false)
           setFixError('Deck-E returned a fix for a different line. Please check the list again.')
           return
         }
         if (result.fixes.length === 0) {
-          setErrandActive(false)
           setFixError('Deck-E could not find a safe match for these lines. You can edit them yourself or import the matched cards.')
           return
         }
         setFixResult({ ...asked, result })
       },
       onError: e => {
-        setErrandActive(false)
         if (latest.current.text === asked.text && latest.current.formatCode === asked.formatCode)
           setFixError((e as Error).message || 'Deck-E could not check this list. You can edit the lines yourself.')
       },
@@ -228,9 +224,9 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   }
   const confirmFixes = () => {
     if (!confirmedText || !reviewing || check.isPending) return
-    setErrandActive(false)
     const asked = { text: confirmedText, formatCode }
     const source = { text, formatCode }
+    const expectedUnresolved = unmatchedWithIndexes.filter(row => !fixedByLine.has(row.lineIndex)).map(row => row.line).sort()
     const revision = reviewRevision.current
     check.mutate(asked, {
       onSuccess: ({ import: summary }) => {
@@ -243,7 +239,12 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         setFixResult(null)
         setUndone(new Set())
         setChecked({ ...asked, summary })
-        if (summary.unresolvedLines.length === 0) onSubmit({ ...asked, name: now.name.trim() || undefined })
+        // The primary action explicitly permits skipping the lines still shown
+        // here. If the dry run finds a NEW unresolved line, show it instead of
+        // silently skipping something the reader never agreed to skip.
+        const onlyExpectedUnresolved = JSON.stringify([...summary.unresolvedLines].sort()) === JSON.stringify(expectedUnresolved)
+        if (summary.unresolvedLines.length === 0 || (summary.totalCards > 0 && onlyExpectedUnresolved))
+          onSubmit({ ...asked, name: now.name.trim() || undefined })
       },
     })
   }
@@ -297,8 +298,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
       footer={
         <div className="flex justify-end gap-[10px]">
           <Button variant="secondary" onClick={close}>Cancel</Button>
-          <Button type="submit" form={formId} disabled={!text.trim() || (reviewing ? !confirmedText : skipping && matchedCards === 0) || fix.isPending} loading={busy || check.isPending}>
-            {check.isPending ? 'Checking…' : busy ? 'Importing…' : reviewing ? (remaining ? 'Confirm fixes' : 'Confirm and import') : skipping ? `Import without ${them}` : 'Import Deck'}
+          <Button type="submit" form={formId} disabled={!text.trim() || (reviewing ? !confirmedText || (remaining > 0 && matchedCards === 0 && acceptedFixes.length === 0) : skipping && matchedCards === 0) || fix.isPending} loading={busy || check.isPending}>
+            {check.isPending ? 'Checking…' : busy ? 'Importing…' : skipping && remaining > 0 ? 'Import without them' : 'Import deck'}
           </Button>
         </div>
       }
@@ -324,7 +325,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           </label>
           <label className="flex flex-col gap-[6px]">
             <span className="text-[14px] font-semibold text-text-secondary">Format</span>
-            <select value={formatCode} onChange={(e) => { setFormatCode(e.target.value as DeckFormat); setFixResult(null); setErrandActive(false) }}
+            <select value={formatCode} onChange={(e) => { setFormatCode(e.target.value as DeckFormat); setFixResult(null) }}
               className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[12px] text-[14px] text-text-primary">
               {FORMATS.map((f) => <option key={f} value={f}>{FORMAT_META[f].label}</option>)}
             </select>
@@ -335,36 +336,43 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           autoFocus
           aria-label="Decklist"
           value={text}
-          onChange={(e) => { setText(e.target.value); setFixResult(null); setErrandActive(false) }}
+          onChange={(e) => { setText(e.target.value); setFixResult(null) }}
           rows={checked ? 6 : 12}
           placeholder={'Pokémon: 6\n3 Charizard ex OBF 125\n…\n\nTrainer: …\n\nEnergy: …\n\nTotal Cards: 60'}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
         />
         {checked && unmatched.length > 0 && (
-          <div ref={panelRef} role="alert" className="rounded-xl border border-action-primary/45 bg-surface-secondary p-[14px] shadow-sm">
-            <div className="flex items-start gap-[12px]">
-              {entitled && errandActive && !hideCharacter && <div data-decke-errand aria-hidden="true" className="h-[92px] w-[72px] shrink-0 sm:h-[52px] sm:w-[41px]" />}
-              <div className="flex min-w-0 flex-1 flex-col gap-[8px]">
-                <div className="flex items-center gap-[8px] text-[14px] font-bold text-text-primary">
-                  <Icon name="sparkle" size={16} className="shrink-0 text-action-primary" />
-                  {reviewing ? 'Review Deck-E’s fixes' : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}
-                </div>
-                {!stale && entitled && !reviewing && (
-                  <button type="button" onClick={askDecke} disabled={fix.isPending || check.isPending}
-                    className="self-start rounded-full bg-action-primary px-[14px] py-[8px] text-[14px] font-bold text-white disabled:opacity-50">
-                    {fix.isPending ? 'Deck-E is checking…' : 'Ask Deck-E'}
-                  </button>
-                )}
-                {fix.isPending && !stale && <p role="status" className="text-[14px] text-text-muted">Deck-E is checking {unmatched.length} line{unmatched.length === 1 ? '' : 's'}…</p>}
-                {reviewing && <p aria-live="polite" className="text-[14px] text-text-secondary">
-                  Does this look correct? {acceptedFixes.length === 0
-                    ? 'No fixes are selected.'
-                    : unmatched.length === 1
-                      ? 'Deck-E suggested a fix for this line.'
-                      : `Deck-E suggested fixes for ${acceptedFixes.length} of ${unmatched.length} lines.`}
-                  {remaining > 0 && ` ${remaining} line${remaining === 1 ? '' : 's'} still need${remaining === 1 ? 's' : ''} your help.`}
-                </p>}
+          <div ref={panelRef} role="group" aria-label="Unmatched decklist lines" className="rounded-xl border border-action-primary/45 bg-surface-secondary p-[14px] shadow-sm">
+            <div className="flex min-w-0 items-start justify-between gap-[10px]">
+              <div role="alert" className="flex min-w-0 items-center gap-[8px] pt-[4px] text-[14px] font-bold text-text-primary">
+                <Icon name="sparkle" size={16} className="shrink-0 text-action-primary" />
+                <span>{reviewing ? `${unmatched.length} line${unmatched.length === 1 ? '' : 's'} to review` : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}</span>
               </div>
+              {!stale && entitled && (hideCharacter ? (
+                !reviewing && <button type="button" onClick={askDecke} disabled={fix.isPending || check.isPending}
+                  className="shrink-0 text-[13px] font-semibold text-link hover:text-link-hover disabled:opacity-50">
+                  {fix.isPending ? 'Checking…' : 'Suggest fixes'}
+                </button>
+              ) : (
+                <div className="flex shrink-0 items-start gap-[6px] sm:gap-[10px]">
+                  {reviewing || fix.isPending ? (
+                    <span role="status" className="flex max-w-[156px] items-center gap-[7px] rounded-xl border border-border-default bg-surface-primary px-[10px] py-[7px] text-[12px] leading-[16px] text-text-secondary sm:max-w-none sm:text-[13px]">
+                      {fix.isPending && <Spinner inline size={13} className="text-action-primary motion-reduce:animate-none" />}
+                      <span>{fix.isPending ? 'Checking…' : `Fixed ${acceptedFixes.length} of ${unmatched.length}, check them`}</span>
+                    </span>
+                  ) : (
+                    <button type="button" onClick={askDecke} disabled={check.isPending}
+                      className="max-w-[156px] rounded-xl border border-action-primary/45 bg-surface-primary px-[10px] py-[7px] text-left text-[12px] leading-[16px] text-text-primary hover:border-action-primary disabled:opacity-50 sm:max-w-none sm:text-[13px]">
+                      Want me to fix {unmatched.length === 1 ? 'this' : `these ${unmatched.length}`}?
+                    </button>
+                  )}
+                  <button type="button" onClick={askDecke} disabled={reviewing || fix.isPending || check.isPending}
+                    aria-label={reviewing ? 'Deck-E finished suggesting fixes' : fix.isPending ? 'Deck-E is checking the lines' : 'Ask Deck-E to suggest fixes'}
+                    className="relative h-[54px] w-[42px] shrink-0 rounded-lg border border-transparent hover:border-action-primary disabled:cursor-default disabled:hover:border-transparent sm:h-[72px] sm:w-[56px]">
+                    <span data-decke-errand aria-hidden="true" className="absolute inset-0" />
+                  </button>
+                </div>
+              ))}
             </div>
             <ul className="mt-[10px] flex flex-col gap-[8px]">
               {unmatchedWithIndexes.map(({ line, lineIndex }) => {
@@ -391,11 +399,11 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                 )
               })}
             </ul>
-            <p className="mt-[10px] text-[14px] text-text-muted">
+            <p className="mt-[10px] text-[13px] text-text-muted">
               {stale
                 ? 'You changed the list, so importing checks it again.'
                 : reviewing
-                  ? remaining ? 'Confirm these fixes to recheck the list. You can then edit or skip any remaining lines.' : 'Undo any line Deck-E got wrong before confirming.'
+                  ? remaining ? 'Check each fix. Edit or skip the lines still unmatched.' : 'Check each fix. Undo any line Deck-E got wrong.'
                 : matchedCards > 0
                   ? `Fix ${them} above and import again, or import the other ${matchedCards} card${matchedCards === 1 ? '' : 's'} without ${them}.`
                   : 'Nothing in this list matched a card yet. Fix the lines above to import it.'}
