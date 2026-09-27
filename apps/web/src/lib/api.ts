@@ -1825,7 +1825,7 @@ export const api = {
   // on a phone, which is the workflow the queue exists for.
   /** Upload one pending photo. The server stamps the id, so two devices filling
    *  one queue still produce a single coherent order. */
-  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload' }) =>
+  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload'; repairOf?: number }) =>
     send<{ ok: true; id: number; name: string; source: string; addedAt: string }>('POST', '/dev/scan-queue', body),
   scanQueueList: (signal?: AbortSignal) =>
     get<{ photos: Array<{ id: number; name: string; source: 'camera' | 'upload'; addedAt: string; size: number }> }>(
@@ -1834,8 +1834,8 @@ export const api = {
     ),
   /** Remove one — labelled, or discarded. Absent is not an error server-side:
    *  two devices can finish the same photo. */
-  scanQueueDelete: (id: number) =>
-    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}`),
+  scanQueueDelete: (id: number, repairCleanup = false) =>
+    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}${repairCleanup ? '?repairCleanup=1' : ''}`),
   /** A queued photo's bytes, through the authenticated pipeline for
    *  `scanFlagBlob`'s reason: a browser-initiated `<img>` request carries no
    *  Authorization header and would 403 at the gate. */

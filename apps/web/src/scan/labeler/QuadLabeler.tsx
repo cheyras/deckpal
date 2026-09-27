@@ -32,7 +32,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import type { Quad } from '../engine/contract'
-import { decodeForCanvas } from '../ui/uploadNormalize'
+import { ApiError } from '../../lib/api'
+import { decodeQueueImage } from './heic'
 import { CaptureStage } from './CaptureStage'
 import { CropStage } from './CropStage'
 import { QueueStage } from './QueueStage'
@@ -41,6 +42,7 @@ import {
   enqueue,
   flushOutbox,
   listQueue,
+  QueueReadError,
   queueSupported,
   queueUsage,
   queuedPhotoBlob,
@@ -266,17 +268,32 @@ export function QuadLabeler() {
   const refreshQueue = useCallback(async () => {
     if (!queueSupported()) return
     try {
-      const [items, usage] = await Promise.all([listQueue(), queueUsage()])
+      const items = await listQueue()
+      const usage = await queueUsage(items)
       setQueueItems(items)
       setQueueUsageInfo(usage)
       setQueueError(null)
     } catch (e) {
+      if (e instanceof QueueReadError) {
+        setQueueItems((previous) => [...e.local, ...previous.filter((photo) => !photo.pending)])
+        const localBytes = e.local.reduce((bytes, photo) => bytes + photo.size, 0)
+        setQueueUsageInfo((previous) => ({
+          bytes: (previous ? previous.bytes - previous.localBytes : 0) + localBytes,
+          localBytes,
+          quota: previous?.quota ?? null,
+        }))
+      }
       setQueueError(e instanceof Error ? e.message : 'the photo queue could not be read')
     }
   }, [])
 
   useEffect(() => {
     void refreshQueue()
+  }, [refreshQueue])
+
+  useEffect(() => {
+    window.addEventListener('deckpal:scan-queue-repaired', refreshQueue)
+    return () => window.removeEventListener('deckpal:scan-queue-repaired', refreshQueue)
   }, [refreshQueue])
 
   // THE OUTBOX DRAINS ON ARRIVAL AND ON RECONNECT. A photo taken with no signal
@@ -350,12 +367,17 @@ export function QuadLabeler() {
         // The bytes are FETCHED now — a queued row is the server's listing and
         // carries no blob (see queueDb.ts). A local outbox item short-circuits
         // inside `queuedPhotoBlob`, so this one call covers both.
-        const blob = await queuedPhotoBlob(item.id)
-        const src = await decodeForCanvas(new File([blob], item.name, { type: blob.type || 'image/jpeg' }))
+        const blob = await queuedPhotoBlob(item.id, undefined, item)
+        const src = await decodeQueueImage(blob, item.name)
         workingId.current = item.id
         setPendingCrop({ image: src, width: src.width, height: src.height, source: item.source })
       } catch (e) {
-        setDecodeError(e instanceof Error ? e.message : 'that image could not be read')
+        if (e instanceof ApiError && e.status === 404) {
+          setQueueItems((items) => items.filter((photo) => photo.id !== item.id))
+          setDecodeError('That photo is gone. It may have been labeled on another device.')
+        } else {
+          setDecodeError(e instanceof Error ? e.message : 'that image could not be read')
+        }
         setEditing(false)
       } finally {
         setOpeningId(null)
@@ -370,6 +392,7 @@ export function QuadLabeler() {
         await removeQueued(id)
         await refreshQueue()
       } catch (e) {
+        await refreshQueue()
         setQueueError(e instanceof Error ? e.message : 'that photo could not be discarded')
       }
     },
@@ -381,6 +404,7 @@ export function QuadLabeler() {
       await clearQueue()
       await refreshQueue()
     } catch (e) {
+      await refreshQueue()
       setQueueError(e instanceof Error ? e.message : 'the queue could not be cleared')
     }
   }, [refreshQueue])
@@ -413,9 +437,17 @@ export function QuadLabeler() {
     if (id !== null) {
       void (async () => {
         await removeQueued(id).catch(() => {})
-        const items = await listQueue().catch(() => [] as QueuedPhoto[])
+        let items: QueuedPhoto[]
+        try {
+          items = await listQueue()
+        } catch {
+          reset()
+          setEntryMode('queue')
+          await refreshQueue()
+          return
+        }
         setQueueItems(items)
-        void queueUsage().then(setQueueUsageInfo).catch(() => {})
+        void queueUsage(items).then(setQueueUsageInfo).catch(() => {})
         reset()
         // Straight on to the next one: the whole point of a worked queue is
         // that finishing a photo puts the following photo in front of you.
@@ -426,7 +458,7 @@ export function QuadLabeler() {
       return
     }
     reset()
-  }, [reset, openQueued])
+  }, [reset, openQueued, refreshQueue])
 
   // ── flushing the retry queue ──────────────────────────────────────────────
   const flushQueue = useCallback(async () => {
@@ -796,6 +828,10 @@ export function QuadLabeler() {
           busy={openingId}
           error={queueError ?? decodeError}
           onOpen={(item) => void openQueued(item)}
+          onMissing={(id) => {
+            setQueueItems((items) => items.filter((photo) => photo.id !== id))
+            setDecodeError('That photo is gone. It may have been labeled on another device.')
+          }}
           onRemove={(id) => void discardQueued(id)}
           onClear={() => void discardAll()}
           onAddFiles={acceptFiles}

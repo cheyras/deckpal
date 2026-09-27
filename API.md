@@ -1834,3 +1834,27 @@ minimum one for paid work; unlimited explicitly spends zero. Historical balances
 by policy edits. Credits use USD card-only Checkout, separate from support
 subscriptions/gifts; signed webhook reconciliation, never a return URL,
 fulfills an order. See ADMINISTRATION.md for charge/refund/debt semantics.
+
+### Labeler pending-photo queue: /deckpal/api/dev/scan-queue
+
+These routes require labeler access in production. Cloud uses the `/api` prefix.
+
+- `GET /`: `{ photos: [{ id, name, source, addedAt, size }] }`, oldest first.
+  Each logical photo appears once under its original ID, including when a
+  repair has left both original and replacement objects. Sidecar-only remnants
+  do not appear as photos; missing metadata receives fallback values.
+- `GET /:id.jpg`: reads the surviving photo, preferring its JPEG replacement.
+  Either physical ID resolves the same family. Missing bytes return 404;
+  unavailable storage returns 502. Responses are not cached.
+- `POST /`: accepts `{ jpg, name, source, repairOf? }`. `jpg` is base64 JPEG,
+  capped at 3 MiB decoded. A normal upload gets an unused timestamp ID. A
+  repair uses an existing original HEIC and returns its deterministic
+  replacement ID only after both JPEG and metadata are stored. Repeating a
+  repair completes interrupted work without creating another replacement.
+- `DELETE /:id`: discards the entire family. A partial failure returns an error;
+  surviving photos remain listed and the request can be retried. An already
+  absent family succeeds.
+- `DELETE /:id?repairCleanup=1`: removes only original objects, after checking
+  that the replacement JPEG and metadata are complete. Otherwise returns 409.
+
+See [queue states and invariants](apps/api/src/dev/queue-state.md).
