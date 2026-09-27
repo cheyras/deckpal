@@ -145,6 +145,240 @@ async function checkMeterReplay(page, server, width, out) {
     proof: JSON.parse(fs.readFileSync(proofPath, 'utf8')) }
 }
 
+/**
+ * ── A WRITE REACHES THE PAGE BEHIND HIM ─────────────────────────────────────
+ *
+ * UXD-01, measured: Deck-E said "Done — Counter Catcher is out and you are on
+ * four Iono" and the deck page kept listing Counter Catcher and three Iono for
+ * five minutes, because every query is fresh that long and nothing told the
+ * cache. The real hook runs over a real fetch here, beside a deck query set up
+ * the way the app sets up its own. A read-only turn must NOT re-read the deck;
+ * a finished `save_deck` chip must, within the turn, with no reload.
+ */
+const DECK_V1 = { cards: [{ name: 'Iono', quantity: 3 }, { name: 'Counter Catcher', quantity: 1 }] }
+const DECK_V2 = { cards: [{ name: 'Iono', quantity: 4 }] }
+const REFRESH_LEGS = [
+  sse(
+    { type: 'data-decke-tool', data: { id: 'read-1', name: 'decks', title: 'Reading your deck', phase: 'start' } },
+    { type: 'data-decke-tool', data: { id: 'read-1', name: 'decks', title: 'Reading your deck', phase: 'ok', summary: '1 deck' } },
+    { type: 'text-delta', delta: 'You are on three Iono and a Counter Catcher.' },
+  ),
+  sse(
+    { type: 'data-decke-tool', data: { id: 'save-1', name: 'save_deck', title: 'Saving your deck', phase: 'start' } },
+    { type: 'data-decke-tool', data: { id: 'save-1', name: 'save_deck', title: 'Saving your deck', phase: 'ok',
+      summary: "Updated deck 'Dragapult'" } },
+    { type: 'text-delta', delta: 'Done — Counter Catcher is out and you are on four Iono.' },
+  ),
+]
+async function checkWriteRefresh(page, server, width, out) {
+  let legs = 0
+  let deckReads = 0
+  let deck = DECK_V1
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/decks/deck-browser', route => {
+    deckReads++
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(deck) })
+  })
+  await page.route('**/api/chat', route => {
+    const body = REFRESH_LEGS[legs++]
+    assert.ok(body, 'the hook made more legs than the scenario has: ' + legs)
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body })
+  })
+  await page.goto(server.origin + '/fixture.html?refresh', { waitUntil: 'networkidle' })
+  const list = page.getByRole('list', { name: 'Deck behind the chat' })
+  await list.getByText('3 Iono', { exact: true }).waitFor()
+  assert.equal(deckReads, 1)
+
+  await page.evaluate(() => window.refreshChat.send('What is in my deck?'))
+  await page.getByText('You are on three Iono and a Counter Catcher.').waitFor()
+  await page.waitForFunction(() => window.refreshChat.busy === false)
+  assert.equal(deckReads, 1, 'a read-only turn must not re-read the deck')
+
+  deck = DECK_V2
+  await page.evaluate(() => window.refreshChat.send('Swap the Counter Catcher for a fourth Iono.'))
+  await list.getByText('4 Iono', { exact: true }).waitFor()
+  assert.equal(await list.getByText('Counter Catcher').count(), 0, 'the removed card must leave the page')
+  await page.waitForFunction(() => window.refreshChat.busy === false)
+  assert.equal(deckReads, 2, 'one finished write, one re-read')
+  await page.screenshot({ path: path.join(out, 'write-refresh-' + width + '.png'), fullPage: true })
+  await page.unroute('**/api/chat')
+  await page.unroute('**/api/decks/deck-browser')
+  await page.unroute('**/decke/history')
+  return { case: 'decke-write-refreshes-page', width, readTurnReads: 1, writeTurnReads: 2 }
+}
+
+/**
+ * ── SEC-04: A LONG CHAT STAYS UNDER THE SERVER'S BOUND, AND SAYS SO ONCE ─────
+ *
+ * The server now shows the model a window of recent history and refuses a body
+ * past a hard cap. This drives the real hook through more exchanges than the
+ * window holds and reads the bodies it actually sends: the prior history must
+ * be trimmed to the window, start on the reader's message and keep the newest
+ * exchange, and the reader is told ONCE that the start of the chat is out of
+ * his view. Then the server answers 413, and the reader must see a sentence
+ * rather than a generic failure.
+ */
+const WINDOW_MESSAGES = 24
+async function checkBounds(page, server, width, out) {
+  const bodies = []
+  let status = 200
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    if (status === 413) {
+      return route.fulfill({ status: 413, contentType: 'application/json',
+        body: JSON.stringify({ error: 'That message is too long for Deck-E to read in one go.', code: 'message_too_long' }) })
+    }
+    // The first turn's tool FAILS, so its evidence has to outlive the window:
+    // the server's failing-tool breaker counts failures across the whole
+    // conversation, and the browser now sends only the recent part of it.
+    const failed = bodies.length === 1
+      ? [{ type: 'data-decke-tool', data: { id: 'bl-1', name: 'battle_logs', title: 'Reading battle logs', phase: 'error', summary: 'Internal server error' } }]
+      : []
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' },
+      body: sse(...failed, { type: 'text-delta', delta: 'Answer ' + bodies.length + '.' }) })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  const exchanges = WINDOW_MESSAGES / 2 + 3
+  for (let i = 1; i <= exchanges; i++) {
+    await page.evaluate(t => window.meterChat.send(t), 'Question ' + i)
+    await panel.getByText('Answer ' + i + '.', { exact: true }).waitFor()
+    await page.waitForFunction(() => window.meterChat.busy === false)
+  }
+  const last = bodies[bodies.length - 1].messages
+  assert.equal(last.length, WINDOW_MESSAGES + 1, 'prior history plus the new question must fit the window exactly')
+  assert.equal(last[0].role, 'user', 'the window must start on a reader message')
+  assert.deepEqual(last[last.length - 1].parts, [{ type: 'text', text: 'Question ' + exchanges }])
+  assert.equal(last[last.length - 2].parts[0].text, 'Answer ' + (exchanges - 1) + '.', 'the newest exchange must survive')
+  assert.ok(bodies.every(b => b.messages.length <= WINDOW_MESSAGES + 1), 'no request may carry more than the window')
+  assert.ok(!last.flatMap(m => m.parts).some(p => p.type === 'tool-battle_logs'), 'the first turn must have left the window')
+  assert.deepEqual(bodies[bodies.length - 1].evidence?.flatMap(m => m.parts).filter(p => p.type === 'tool-battle_logs')
+    .map(p => [p.state, p.errorText]), [['output-error', 'Internal server error']], 'the dropped failure must ride along as evidence')
+  assert.equal(bodies[1].evidence, undefined, 'no evidence is sent while nothing has been dropped')
+  const told = panel.getByText('I can only see the recent part of this chat now — start a new one for a clean slate.', { exact: true })
+  assert.equal(await told.count(), 1, 'the reader is told once, not on every turn')
+  await told.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(out, 'bounds-trim-' + width + '.png') })
+
+  status = 413
+  await page.evaluate(() => window.meterChat.send('x'.repeat(70000)))
+  await panel.getByText("That's more than I can read in one go.", { exact: true }).waitFor()
+  // Not exact: the transcript renders a notice's detail as a bare text node
+  // beside the title, so the smallest element holding it holds both.
+  await panel.getByText('Nothing was sent. Try something shorter.').waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  await page.screenshot({ path: path.join(out, 'bounds-413-' + width + '.png') })
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'wire-bounds', width, requests: bodies.length, lastBodyMessages: last.length, droppedFailureEvidence: true, trimNotice: 1, tooLongNotice: true }
+}
+
+/**
+ * ── THE REFLEX READ: THE CARD COMES FIRST ────────────────────────────────────
+ *
+ * With Jev on, a plain "add one Charizard ex" pins the server's first step to
+ * `log_cards`, so the first leg carries the consent request and NO prose — the
+ * "Sound good?" sentence that used to stand in for the card never exists. The
+ * server half is pinned by `reflex.test.ts` and `conversationalLogging.test.ts`
+ * (Jev mocked, real SDK). This is the browser half, over the real hook: a leg
+ * that opens with the card must show the card, say nothing it did not say, and
+ * carry the signed answer back as the last part of the next request.
+ */
+async function checkForcedCard(page, server, width, out) {
+  const bodies = []
+  const legs = [
+    sse(
+      { type: 'tool-input-available', toolCallId: 'forced-1', toolName: 'log_cards',
+        input: { items: [{ card_id: 'sv3-125', delta: 1 }] } },
+      { type: 'tool-approval-request', approvalId: 'ap-forced', toolCallId: 'forced-1', signature: 'sig-forced' },
+    ),
+    sse({ type: 'text-delta', delta: 'Done: 1 → 2. Undo is on the card if you want it.' }),
+  ]
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body: legs[bodies.length - 1] })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  await page.evaluate(() => window.meterChat.send('add one Charizard ex from Obsidian Flames'))
+  const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
+  await card.waitFor()
+  assert.equal(await panel.getByText(/sound good/i).count(), 0, 'no prose stands in for the card')
+  await page.screenshot({ path: path.join(out, 'reflex-card-' + width + '.png') })
+  await card.getByRole('button', { name: 'Go ahead' }).click()
+  await panel.getByText('Done: 1 → 2.', { exact: false }).waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  assert.equal(bodies.length, 2)
+  const last = bodies[1].messages[bodies[1].messages.length - 1].parts
+  assert.equal(last[last.length - 1].state, 'approval-responded')
+  assert.equal(last[last.length - 1].approval.approved, true)
+  assert.equal(last[last.length - 1].approval.signature, 'sig-forced', 'the signature must survive')
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'reflex-forced-card', width, cardBeforeProse: true, signedAnswerLast: true }
+}
+
+/**
+ * ── THE AUDIT'S CORRECTION: HIS WORDS, THEN THE REAL CARD ───────────────────
+ *
+ * With Jev on, a reply that claims a change no tool made ("Done! I've added
+ * it") is followed in the same response by one corrective step pinned to the
+ * tool that raises the consent card (`audit.ts`, pinned server-side by
+ * `conversationalLogging.test.ts` over the real SDK). This is the browser half:
+ * the phantom sentence, the correction line, then the card — in that order,
+ * over the real hook — and the signed answer rides last on the next request.
+ */
+async function checkCorrection(page, server, width, out) {
+  const bodies = []
+  const legs = [
+    sse(
+      { type: 'text-delta', delta: "Done! I've added the Charizard ex to your collection." },
+      { type: 'text-delta', id: 'turn-guard', delta: "\n\nOne correction: I said that as if it were done, but I hadn't actually run it. Here it is for you to confirm." },
+      { type: 'tool-input-available', toolCallId: 'corrective-1', toolName: 'log_cards',
+        input: { items: [{ card_id: 'sv3-125', delta: 1 }] } },
+      { type: 'tool-approval-request', approvalId: 'ap-corrective', toolCallId: 'corrective-1', signature: 'sig-corrective' },
+    ),
+    sse({ type: 'text-delta', delta: 'Added for real this time: 1 → 2.' }),
+  ]
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body: legs[bodies.length - 1] })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  await page.evaluate(() => window.meterChat.send('add one Charizard ex'))
+  const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
+  await card.waitFor()
+  const text = await panel.innerText()
+  const claim = text.indexOf("Done! I've added")
+  const fix = text.indexOf('One correction:')
+  assert.ok(claim >= 0 && fix > claim, 'the correction must follow the claim it corrects')
+  await page.screenshot({ path: path.join(out, 'audit-correction-' + width + '.png') })
+  await card.getByRole('button', { name: 'Go ahead' }).click()
+  await panel.getByText('Added for real this time', { exact: false }).waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  const last = bodies[1].messages[bodies[1].messages.length - 1].parts
+  assert.equal(last[last.length - 1].state, 'approval-responded')
+  assert.equal(last[last.length - 1].approval.signature, 'sig-corrective', 'the signature must survive')
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'audit-correction', width, claimThenCorrectionThenCard: true, signedAnswerLast: true }
+}
+
 export async function checkChat(browser, server, out) {
   const results = []
   for (const width of [1280, 390]) {
@@ -255,6 +489,10 @@ export async function checkChat(browser, server, out) {
       await page.screenshot({ path: path.join(out, 'screen-' + width + '.png'), fullPage: true })
       results.push({ case: 'rendered-screen-keyboard', width, controlled, expandedAndCollapsed: true, focusVisible: true, reducedMotion: true })
       results.push(await checkMeterReplay(page, server, width, out))
+      results.push(await checkWriteRefresh(page, server, width, out))
+      results.push(await checkBounds(page, server, width, out))
+      results.push(await checkForcedCard(page, server, width, out))
+      results.push(await checkCorrection(page, server, width, out))
     } finally { await context.close() }
   }
   return results

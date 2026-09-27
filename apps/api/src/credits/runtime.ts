@@ -14,12 +14,17 @@ export function payloadHash(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 /** A replay is rejected, never treated as another free provider invocation. Changed
- * payloads produce another paid request. No browser-provided balance/price is used. */
-export function chatChargeReference(conversationId: unknown, messages: unknown, route: unknown, landmarks: unknown) {
+ * payloads produce another paid request. No browser-provided balance/price is used.
+ * `exchange` (the browser's exchangeId and seq) is part of the identity because the
+ * browser now sends a bounded WINDOW of history (SEC-04): two genuinely new
+ * exchanges can carry byte-identical windows, and without it the second was
+ * refused as a replay of the first. A retried leg of the SAME exchange still
+ * hashes the same and is still refused. */
+export function chatChargeReference(conversationId: unknown, messages: unknown, route: unknown, landmarks: unknown, exchange?: { exchangeId?: unknown; seq?: unknown }) {
   if (typeof conversationId !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(conversationId)) {
     throw new ApiError(400, 'invalid_conversation', 'A conversation identifier is required.');
   }
-  const hash = payloadHash({ messages, route, landmarks });
+  const hash = payloadHash({ messages, route, landmarks, ...(exchange ? { exchange } : {}) });
   return { key: `chat:${conversationId}:${hash}`, hash };
 }
 export async function assertDeckeAccess(userId: string): Promise<void> {

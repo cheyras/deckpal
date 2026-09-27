@@ -20495,6 +20495,575 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 
 **Evidence and status:** The observed live result was 9/10 signed approvals, with one residual prose-confirmation miss after `get_card`; the finite sample does not prove causation or universal liveness. This is a metadata-only correction with zero writes. Existing preview descriptor, schemas, normalization, preflight, approval eligibility/HMAC/replay, system prompt, tool routing, API transport and MCP behavior remain unchanged. Live follow-up remains pending.
 
+## 2026-09-26 — Every page is its own chunk; first paint carries only the shell (PERF-01)
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** `main.tsx` registers every product page with `lazyRoute()` instead
+of importing it statically, and the two features `RootComponent` mounts on every
+page load only for whoever can see them: Deck-E's host for an entitled account
+(fetched alongside the first page on a device that has had him before), the
+support prompt and its Stripe UI for a signed-in cloud visitor, at idle.
+`lazyRoute` grows a `preload()` the router awaits (so a navigation never flashes
+a fallback), renders a loaded page directly, and now recovers a missing chunk
+with one reload in any production build, not only under a service worker. The
+auth pages stay static. React's first commit waits for `router.load()`, so the
+inline boot card stays up until the first page can paint. `lib/billing.ts`
+imports `@stripe/stripe-js/pure`. A new build gate,
+`scripts/check-critical-path.mjs`, fails the build when the scripts
+`index.html` loads before first paint exceed 230 kB gzipped.
+
+**Why:** Measured from real builds (cloud mode, Vite's figures), the entry chunk
+was 1,042.7 kB raw / 296.0 kB gzip and, with `app-lib`, every visitor parsed
+376 kB gzip of JavaScript before the first card — the admin panel, the scanner,
+Stripe's checkout UI and Deck-E's 50 kB chat host among it. Now the entry is
+350.8 kB / 107.8 kB gzip and the whole critical path is 207 kB gzip across six
+files; a catalog page adds its own chunk (series 2.8–4.3 kB, card 10.8 kB, set
+35.9 kB gzip, landing 12.8 kB). Lighthouse mobile, simulated throttling, median
+of 3 against a local production build over HTTP/2 with production's own catalog
+responses replayed from disk, before and after back to back under the shared
+heavy-work lock (load average 3.6 at start, 6.2 at end): landing LCP 5.6 → 3.1 s,
+series 3.5 → 2.9 s, set 6.8 → 3.7 s (bimodal in both builds: one run in three
+lands near 7 s), card 6.2 → 4.0 s; TTI 5.6–6.8 → 2.9–3.7 s; TBT 28–44 → 0 ms;
+bytes transferred per load down 350 kB. A third of that transfer was not the
+bundle at all: `@stripe/stripe-js`'s main entry injects Stripe.js as a side
+effect of being IMPORTED, and `lib/billing.ts` sits in `app-lib`, which every
+page evaluates — so every visitor to every page fetched ~250 kB of Stripe.js and
+opened its `m.stripe.network` fraud frame, while the file's own comment said it
+loaded lazily.
+
+Three findings shaped the details:
+
+- **The first-paint hold.** Without it React commits the shell while the page's
+  chunk is in flight, replacing the boot card with a half-empty page. Held, the
+  card stays up, and the watchdog, which reads `#boot` as unpainted, now covers a
+  page chunk that never arrives.
+- **A latent access race.** Starting the router's load before first render made
+  every gated page (`/admin`, `/scan`, `/devtools`) fail "Cannot verify account
+  access" on a direct load: an in-flight `getAccess()` superseded by auth's
+  INITIAL_SESSION reset returned the blank, unready snapshot. It now answers for
+  the current generation. It was reachable before; only timing hid it.
+- **Navigation.** A set tapped the instant its series page appeared took 1.3 s
+  longer than before while likely-next pages waited for `load`; each page now
+  warms its likely next page as soon as it renders. Throttled (150 ms RTT,
+  1.6 Mbps, 4x CPU), HTTP/2, median of 5: instant tap 833 → 1,212 ms, a tap one
+  second in 789 → 710 ms, a warm tap 251 → 254 ms. The Deck-E launcher: 2,279 →
+  1,934 ms on a device that has had him, 2,279 → 2,580 ms on the first visit from
+  a new device, which is the one round trip the hint cannot know about.
+
+**Rejected:** keeping the catalog pages in the entry (every catalog visitor would
+still parse the other catalog pages); an inline script that modulepreloads the
+current URL's chunk (a per-build inline script defeats the hash-based CSP the
+security-headers work is adding); splitting inside `DeckeHost.tsx` (touches a
+component other branches are editing, for bytes the entitlement gate already
+keeps from 99.9% of visitors).
+
+**Implications:**
+
+- A new page goes in `main.tsx` as a `lazyRoute`. A static import from anything
+  the shell reaches puts it back on every visitor's critical path; the budget gate
+  is what notices, and raising `BUDGET_KB` is a decision to log here.
+- `lazyRoute().preload()` never rejects and never reloads; recovery happens only
+  when a page RENDERS unloaded. Background features mount through `WhenLoaded`,
+  which renders only a loaded chunk, so they can never reload a page someone is
+  reading. The one-reload guard is keyed by the imported module path and cleared
+  only when that same module loads; a successful parent route or background
+  preload cannot erase the missing child's guard and cause a reload loop.
+- `ResetPassword` must stay static (module-scope URL read). The auth kit also
+  keeps `landing.css` in the entry CSS, which Profile's `.ls-cta` buttons use.
+- Verified: all 33 routes render identically before and after for a signed-in
+  owner; offline reloads of never-visited pages render from the precache (every
+  page chunk is in it); a stale chunk costs exactly one reload with or without a
+  service worker (against a real deploy-shaped rebuild for the controlled case);
+  a chunk that stays gone surfaces after one reload rather than looping
+  (`tests/browser/routeSplit.mjs`, both builds).
+- Not measured: a real phone or production. The numbers are a local build under
+  simulated throttling; the proof after deploy is
+  `curl -s https://deckpal.app/ | grep modulepreload` naming six small scripts
+  and no route chunk.
+- Follow-ups left out: `BugReport` imports `Modal` from `ListModals`, pulling ~7 kB
+  gzip of list UI into the entry; `SupportFlow` could load only when the prompt
+  opens; `app-lib` carries all of `supabase-js` (~60 kB gzip of realtime, storage
+  and PostgREST clients) though the app only uses its auth client.
+## 2026-09-26 — A scripted iOS Simulator test kit, permanent under `tools/ios-sim/`
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** `tools/ios-sim/` is a reusable kit for testing DeckPal in real Mobile
+Safari on the iOS Simulator: `wir.py` (a from-scratch, Python-3-stdlib-only Safari
+Web Inspector client over the simulator's local `webinspectord_sim` socket --
+`list`/`eval`/`eval @file`), `server.mjs` (a fixture server -- fake signed-in
+session, fake API, built on the existing `tests/browser/support.mjs` +
+`admin.mjs` harness rather than duplicating it), `keyboard_probe.js` +
+`measure_keyboard.py` (on-screen-keyboard layout measurement), and `shot.sh`
+(a `simctl io screenshot` fallback). `pnpm sim:serve` runs the fixture server;
+`pnpm test:ios-sim` runs the kit's own pure tests.
+
+**Why:** On 2026-09-23 an ad hoc investigation session did this same thing by
+hand -- boot, attach, seed a fake session, drive the UI, read layout state --
+and found a real bug (the Bug Report modal's keyboard-scroll issue, reproduced
+again below as this kit's worked example). That session's own record noted no
+scripted recipe existed, so the method had to be reinvented from scratch next
+time. The prototype files that investigation described (a `wir.py`, a keyboard
+probe, a screenshot helper) did not exist on disk when this kit was built --
+the sandbox they were written in did not persist between sessions -- so this
+kit is written fresh from the technical spec that investigation left behind
+(the plist RPC framing, the `Target.sendMessageToTarget` multiplexing, the
+`awaitPromise` unreliability), cross-checked against `pymobiledevice3` and
+`ios-webkit-debug-proxy`'s published implementations of the same protocol, and
+independently verified end-to-end against a real booted simulator (iPhone 16
+Pro, iOS 18.6) rather than assumed correct from the spec alone.
+
+**What it found, verified today:** the Bug Report modal's keyboard bug still
+reproduces on `main` -- tapping its textarea for real raises the keyboard, and
+`document.scrollY` goes from `0` to `137` with the dialog's own title and the
+app header scrolled to negative `y` (off-screen above the fold), while the
+focused field itself stays visible. See `tools/ios-sim/README.md`'s worked
+example for the full probe output. Also verified: the Home Screen (standalone)
+install flow works end-to-end (`window.navigator.standalone === true` reads
+back through `wir.py --app standalone`), and `webinspectord_sim` has an
+undocumented connection-rate limit (a third fresh connection within roughly
+ten seconds gets no reply at all) -- `wir.py` retries through this itself
+rather than surfacing it as "nothing is open."
+
+**A mistake made and corrected during this work:** the simulator MCP tool's
+`text` action was used once by accident while re-verifying the Home Screen
+flow, despite the task's explicit instruction never to use it. Per the
+documented trap, this switches iOS into hardware-keyboard mode and hides the
+on-screen keyboard; the device was rebooted (`simctl shutdown` + `boot`)
+immediately to clear it before any further keyboard verification continued.
+Recorded here, not just fixed silently, because the same trap is now the
+kit's own README's first line under "Traps" -- it should not recur.
+
+**Implications:** `tools/ios-sim/dist/` (the built SPA) is gitignored (caught
+by the existing repo-wide `dist/` rule) and rebuilds are decoupled from
+`--port` (the auth storage key only depends on the `127.0.0.1` host, not the
+port, so one cached build serves any port). The deckpal-simfixture prototype's
+`hdiutil` case-sensitive-volume workaround was dropped entirely -- PR #201
+already fixed the underlying case-insensitive build collision on `main`, and
+building straight from a normal checkout was reverified clean before removing
+the workaround. Fixed alongside this kit (found by an independent a11y pass
+while this PR was in flight): `tests/browser/admin.mjs`'s
+`/api/insights/overview` fixture stub had drifted from the real
+`apps/api/src/routes/insights.ts` response shape (missing `trainer.intoLevel`/
+`toNext`/`fraction`, four fictitious keys -- `collection`, `tcg`, `completion`,
+`value` -- that were never real fields of that endpoint) and
+`/api/insights/value` had no stub at all; both are now pinned to the real
+shape, and a new `checkInsights` browser check (wired into `test:browser`)
+proves `/insights` actually renders on the fixture rather than trusting the
+stub by inspection. Unrelated and pre-existing: `pnpm test:browser`'s
+`checkAdminTables` "ArrowRight must actually scroll overflowing columns"
+assertion fails deterministically in this sandbox's headless Chromium, on a
+clean `origin/main` checkout with none of this PR's changes applied -- not a
+regression introduced here; left for a separate investigation.
+## 2026-09-26 — Four collection/list quick fixes from the ux-collection audit (UXC-01, 03, 05, 09)
+**Decided by:** Chey (via Claude)
+
+**Decision:** Fixed four findings from `audits/ux-collection.md`, scoped to the set/list/profile surfaces, all behind `fix/collection-quick-fixes`:
+
+- **UXC-01 (Print checklist 401s).** `<a href={api.listPdfUrl}/setChecklistPdfUrl}>` sent no `Authorization` header — cloud's PDF routes 401 every signed-in user who clicked Print Checklist. Added `api.downloadPdf(path, filename)` (`lib/api.ts`), which fetches with the same auth pipeline as `scanFlagBlob`, then downloads via a temporary `<a download>` on a `blob:` URL — never `window.open`, which iOS Safari popup-blocks once a request has crossed an `await`. `SetHeader.tsx` and `ListDetail.tsx` now call it from buttons instead of link `href`s. PR #216 independently fixed the deck export through the same `downloadPdf` helper; the merge keeps one function and all three authenticated PDF paths.
+- **UXC-03 (hover-only destructive controls).** The list-tile and showcase remove buttons were `opacity-0 group-hover:opacity-100` — invisible on any device with no `:hover`, while still live to a tap. Both are now always visible and gated behind the existing `ConfirmModal` primitive; the underlying removal uses #219's per-list write lane and failure feedback. Verification surfaced a SEPARATE, pre-existing bug this fix would otherwise have shipped silently broken: the premium skin (the app's **default** skin, `lib/skin.ts`) lifts `.px-card-art` to `z-index: 1` on hover/focus (`premium.css`, "Card art"), and the remove button had no matching `z-index`, so once visible it was still unclickable by an actual desktop mouse hovering the tile. Given the `px-card-badge` class (`z-index: 2` under premium) already exists for exactly this — the owned-qty badge and the variant counters carry it — the remove button now carries it too.
+- **UXC-05 (completed smart list dead-ends into a failing "Add Cards").** `ListDetail`'s empty state didn't check `smart`, so a finished smart list said "This list is empty" and offered an add that always 400s ("cards cannot be added by hand"), with the error swallowed (`onError: () => setAddingId(null)`). Smart + zero items now renders a completion state only when the rule is not narrowed by price, rarity, finish, or manual exclusion; a narrowed rule gets neutral copy. The merged per-list write lane from #219 reports any failed add once, while successful cards stay marked in the picker.
+- **UXC-09 (quick polish).** List header buttons wrapped to two lines at 390px, against issue #154's rule ("on mobile, consolidate them all into an actions dropdown") — the set page already followed it, the list page didn't. Mirrored `SetHeader`'s pattern: full row hidden below the `gap` breakpoint, collapsed into a single "List actions" kebab; also dropped a genuine duplicate — a smart list rendered BOTH "Edit Rule" and a separate "Edit list" icon button that opened the exact same modal. "Delete '<name>'? This can't be undone" was false (migration 038 soft-deletes both lists and decks; the row is restorable from Recently deleted) — fixed in both `ListDetail.tsx` and `DeckBuilder.tsx`, since it's the same copy bug in both places. Smaller: a smart list's rule caption printed the raw goal enum (`· complete`) instead of the shared `GOAL_SHORT_LABEL` map every other surface uses; card detail's price-freshness note described "self-hosted feed" on the cloud product every visitor is on. Left alone on purpose: the dead link button on card detail (another PR covers it).
+
+**Why:** Each is documented in `audits/ux-collection.md` with production/fixture evidence. The premium-skin z-index gap was not in the audit — it only surfaced because verification drove the fix with a real (non-force) Playwright click at desktop width, which is exactly the gap a `force: true` click or a manual hover-then-inspect check would have hidden.
+
+**Implications:** `api.ts`'s `listPdfUrl`/`setChecklistPdfUrl` are gone (replaced by `listPdfPath`/`setChecklistPdfPath` + `downloadPdf`); nothing else referenced them. A source-guard suite (`apps/web/src/components/__tests__/{pdfDownload,destructiveControls}.test.ts`, `apps/web/src/routes/__tests__/{listDetailSmart,listDetailPolish}.test.ts`, wired as `deckpal-web`'s `test:collection` and into `ci.yml`) pins the collection behaviors; #219's write-lane suite verifies queued writes and visible failures. Any future overlay control added inside a card tile (`CardTile.tsx`) needs the `px-card-badge`/`px-card-counters` marker class to stay clickable under the premium skin's hover-lift — that contract isn't enforced by a test, only by this note and the comment at the call site.
+
+## 2026-09-26 — Keep list card removal confirmation above virtual rows
+**Decided by:** Chey (via Codex)
+**Decision:** The list grid owns the selected card and removal confirmation; a tile only requests removal. The confirmation renders outside the virtual rows and outside the tile's `CardLink`.
+**Why:** Locking scroll for the confirmation can unmount a tile far down a long list. A dialog owned by that tile disappears before the reader can confirm.
+**Implications:** The list write still runs through #219's per-list lane after confirmation. Browser coverage opens removal near the bottom of an 80-card list and checks the dialog remains visible.
+
+## 2026-09-26 — Issue #24 reopened: MEP's 49-card gap is real, unfixable from either approved source today, and the process gap that let it grow is fixed
+
+**Decided by:** Claude Sonnet 5 on behalf of @cheyras, investigating the
+2026-09-26 reopen of issue #24 (`/series/mega-evolution/mep`).
+
+**Root cause, measured.** 49 of 89 `mep` cards answer the placeholder today —
+`#032–#036` (5) and `#046–#088` plus `Museum` (44) — all `X-Image-Reason:
+upstream 404: HTTP 404`. This is NOT the 2026-08-10 fix regressing by itself:
+that fix closed a 29-card gap (`046–063, 072, 073, 081–088, Museum`) by warming
+from `assets.pkmn.gg`. Two things happened after it:
+
+1. **pkmn.gg was ruled out on 2026-08-26** because it is an app much like
+   DeckPal, and Chey wants no friction with a competitor (Chey's stated reason,
+   2026-09-26; earlier entries called it a legal call). Its warmer
+   (`apps/images/src/warmFromPkmn.ts`) was retired. The SSRF-hardening allow-list
+   added the same day (`packages/storage/src/upstream.ts`) correctly does not
+   list it — that is the ruling enforced in code, not a regression. The 58
+   `image_asset` rows it had written were then **deleted** in the 2026-08-31
+   provenance cleanup ("Card-art re-sourcing executed") because they carried no
+   approved-source attribution. Confirmed today: the raw Supabase object for
+   `mep-087/low.webp` answers `400 NoSuchKey` — the bytes are gone, not merely
+   unreachable through the proxy.
+2. **`mep` grew from 60 to 89 cards** (`catalog-refresh.yml`'s own header cites
+   exactly this set as its motivating example) and **nothing re-warmed the new
+   cards against an approved source.** `warm:cloud` has existed since
+   2026-08-26 with its own header saying to run it "after a set releases and
+   after any catalog import" — nobody automated that, so it never ran for
+   MEP's growth.
+
+**Checked, read-only, whether either currently-approved source has caught up:
+neither has.** `assets.tcgdex.net` (primary) still 404s all 49 — confirmed
+directly against TCGdex, not just through our proxy. `images.pokemontcg.io`
+(the approved fallback, `DECISIONS.md` 2026-08-31) does not carry this promo
+pool at all: `GET /v2/sets/mep` → 404, and its "Mega Evolution" series lists
+only the eight main sets (`me1`…`me5`, `me55`, `me55c`), no promo id. Name
+searches for several `mep` cards returned nothing. **0 of 49 are fillable from
+an approved source today.** Full write-up: `research/CARD-ART-SOURCES.md` §9.
+
+**Also checked: is this systemic?** Sampled every other growing "Black Star
+Promos" pool (the same shape as MEP — a promo set that keeps gaining cards
+after release) plus a spot check of recent non-promo sets. `svp` (SVP Black
+Star Promos, 226 cards) has the same failure mode at smaller scale: **14
+placeholders, clustered at its newest numbers (`208–223`) plus three scattered
+older ones (`102`, `175`, `176`)** — verified none of those 14 exist at
+`images.pokemontcg.io` either. `bwp`, `hgssp` and `miscp` each carry one or two
+placeholders matching residue already documented in `CARD-ART-SOURCES.md` §1
+(numbering gaps, not new). `xyp`, `smp`, `dpp`, `basep`, `swshp` sampled clean.
+Separately, and NOT part of this fix: `30th-c` (30th Classic Collection) is
+100% placeholder, but that is the **already-flagged, pending-Scrydex-permission**
+gap from the 2026-09-21 entries — a different, already-tracked decision, left
+untouched here.
+
+**Decision — do not re-open the pkmn.gg question, and do not force a code fix
+where no source exists.** With 0 of 49 fillable, the right PR is not a
+sourcing fix (there is nothing to point at) — it is (a) writing the gap down
+properly, since a prior citation to this exact figure (a 2026-09-04
+`DECISIONS.md` entry, the CLIP-embedding bakeoff) pointed at
+`research/CARD-ART-SOURCES.md` describing it and the file never actually said
+so, and (b) closing the process gap that let it grow unnoticed for three weeks,
+which is generalizable and already caught a second instance (`svp`).
+
+**Fix — `.github/workflows/image-warm.yml`.** Runs `warm:cloud` automatically
+after every successful `Catalog refresh` run, plus `workflow_dispatch` (with an
+optional `set` input) for on demand. Needs no secrets — `warm:cloud` only talks
+to public endpoints. Reports the residue via a new companion,
+`apps/images/src/cloudWarmSummary.ts` (`warm:cloud:summary`), which diffs the
+current sweep against the previous run's residue (cached across runs with
+`actions/cache`, keyed so a scoped `--set` dispatch never overwrites the
+full-catalog baseline) and calls out NEW gaps by set in the job summary,
+separately from the residue that is already known and documented. This is the
+piece that would have surfaced MEP's growth as a number in Actions the week it
+happened, instead of as a reopened bug report three weeks later.
+
+**Implications.**
+- The 49-card mep gap and the 14-card svp gap remain open — this PR makes them
+  visible and reproducible on demand, it does not source them. `mep`'s 49 join
+  the residue documented in `CARD-ART-SOURCES.md`; `svp`'s 14 are noted here as
+  evidence for the systemic check and are not separately added to that file
+  (same shape, smaller set, not re-litigated card-by-card).
+- Nothing in `packages/storage/src/upstream.ts` changed. pkmn.gg is not
+  reconsidered here; if the owner wants to revisit that specific tradeoff
+  (the only historical source for these 49), that is a decision for a future
+  dated entry, not something inferred from an allow-list PR.
+- `research/CARD-ART-SOURCES.md` §9 corrects a stale citation: the 2026-09-04
+  entry above described work from a since-retired scratch workspace
+  (`p2-work/art-sweep/`, part of the Project Holo line `#185` retired) that
+  never actually landed in this file. It has now landed.
+- Going forward, a set that grows past what an approved source covers shows up
+  in the `Image warm` workflow's job summary within the week (or immediately,
+  via `workflow_dispatch`), not only when a customer reports it.
+## 2026-09-26 — Disclosure: every user's collection was readable with the anon key, from migration 020 until 072
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Treat `collection_dupe_predicate` as a data disclosure, not a
+cleanup. Migration 072 drops the view, makes every remaining view
+`security_invoker`, and closes two neighbouring holes of the same kind found by
+the same audit (SEC-02 and SEC-10). The fastest mitigation, one
+`DROP VIEW IF EXISTS public.collection_dupe_predicate;` in the Supabase SQL
+editor, goes first, before the PR is merged, because the leak is live until
+something removes the view.
+
+**What leaked, to whom, since when.**
+- *What:* for every account that owned a card, one row per card: `user_id`,
+  `card_id`, and whether they owned two or more copies. No quantities beyond
+  that, no variants, no emails. `user_id` joins to the world-readable
+  `user_profile`, so a row maps to a display name and avatar.
+- *To whom:* anyone holding the anon key. That key is public by design (the
+  SPA bundle and `GET /api/public-config`), so in practice: anyone on the
+  internet who looked at `/rest/v1/collection_dupe_predicate`.
+- *Since when:* migration 020 (commit `3f4bb1fc`, 2026-08-09) recreated the
+  view as a plain, owner-rights view over `collection_item`, and 021 put the
+  project on Supabase with RLS and PostgREST in the same commit. The exposure
+  starts when 020/021 were applied to production:
+  `SELECT applied_at FROM schema_migrations WHERE version = '020_multi_user_uuid'`.
+  It ends when the view is dropped.
+- *Measured:* a count-only `HEAD` with the anon key, which returns a row count
+  and never rows, on 2026-09-26 at 19:06 UTC: `collection_item` answered
+  `*/0` (RLS working), `collection_dupe_predicate` answered `206` with
+  `content-range: 0-999/1549`. That is 1,549 (user, card) rows across the 10
+  accounts `user_profile` counted at the same moment.
+- *Not known:* whether anyone read it. The Supabase API logs are the only
+  record: Logs Explorer, the API/edge logs, filtered on a path containing
+  `collection_dupe_predicate`, over the longest retention the plan keeps. A
+  window shorter than the exposure can show that someone read it, never that
+  nobody did.
+
+**Why it happened.** A Postgres view runs with its owner's rights unless it
+says `security_invoker = true`. The owner is the migration role, which owns
+`collection_item` and is never subject to its RLS, and Supabase's default
+privileges granted SELECT on the new view to `anon`. The view dated from the
+single-user schema (009), where that did not matter. Nothing read it, and
+ARCHITECTURE.md stated the opposite of the truth ("reads through the RLS'd
+`collection_item` table and works correctly"), so it went unexamined for seven
+weeks.
+
+**The same question, answered badly twice more** (what can a user do directly
+over PostgREST, around the API):
+- **SEC-02.** `user_profile`'s own-row UPDATE policy had no column list, so a
+  user could point their `avatar_path` at another user's object key and call
+  `DELETE /api/avatar`, which deletes whatever the caller's row names with the
+  service key. Fixed in the database: a partial unique index (a key belongs to
+  one profile), and `authenticated` may write only the four avatar columns the
+  API writes. The API needs no change, and the same grants stop a user
+  rewriting their public stats or display name.
+- **SEC-10.** A user could PATCH `api_token.revoked_at` back to NULL, undoing
+  an administrator's revoke; a trigger now makes revocation final and a token's
+  identity columns immutable for every writer. The independent review found
+  the same result reachable by deleting the revoked row and inserting its hash
+  again, so client roles also lose DELETE on `api_token` (nothing in the app
+  deletes a token as the user; account deletion still cascades as the owner).
+  And `deck_card`, `deck_version`,
+  `battle_log` and `binder_placement` referenced their parent by id alone, and a
+  foreign-key check ignores RLS, so a user who knew another user's deck or list
+  item id could plant rows under it that the owner could neither see nor get
+  past. They now reference `(id, user_id)`, the shape `list_item` has had since
+  020. `binder_placement` was not in the audit; the new reach suite's
+  enumeration found it.
+
+**Why one migration, and not `@supabase-only`.** The runner skips
+`@supabase-only` files when `SUPABASE_MODE` is unset and says only `SKIPPED`,
+which is easy to read past on a production run. 072 is plain SQL plus
+`pg_roles`-guarded grants (the 064/068 shape), so it applies everywhere and
+cannot be passed over. It opens with a preflight that refuses, changing
+nothing, if any row already violates the new constraints: such a row can only
+come from someone using SEC-02 or SEC-10, so it is evidence to keep rather than
+something a migration should clean away.
+
+**How this class stays closed.**
+- `packages/db/src/__tests__/migrationLint.test.ts` (CI, pure): any view created
+  from 072 on must say `security_invoker = true`, no materialized views in
+  `public`, and replaying every migration must leave no owner-rights view.
+- `apps/api/src/__integration__/reach.mjs` (the disposable-cluster database
+  job, B7): applies every migration with the real runner under Supabase's
+  default grants, seeds one row for a user in every per-user table a client
+  role can read (and fails if a new table is missing from the seed), then
+  asserts that `anon` and a second user reach none of those rows in any table
+  or view. A canary definer view proves the enumeration catches the SEC-01
+  shape. It also runs the SEC-02/SEC-10 negative cases and the API's own
+  avatar and token statements, and applies the whole chain on plain Postgres to
+  prove 072 is safe for self-host.
+
+**Implications:**
+- A new view must be created `WITH (security_invoker = true)`; a
+  `CREATE OR REPLACE VIEW` without the option silently resets it, and the lint
+  catches that too.
+- A new per-user table that a client role can read must get a row in
+  `apps/api/src/__integration__/reach-fixture.sql`, or the database job fails.
+- A new write the API makes to `user_profile` as the user needs its column
+  added to 072's grant, in a new migration.
+- Left as they are, deliberately: `mutation_event`, `collection_event` and
+  `mutation_batch` also reference a parent by id alone, but no unique key there
+  can be squatted and every reader filters on the caller's own rows, so a
+  planted row can only point, not block. Price partitions have no RLS (catalog
+  data, and PostgREST does not expose partitions).
+## 2026-09-26 — Deck builder data: revert always versions, imports check first, Deck-E writes refresh the page, the legal filter runs in SQL
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Four fixes from the ux-decks audit (UXD-05, 06, 01, 13), plus the deck page's Export PDF button.
+
+- **A revert always creates a new version.** `restoreSnapshot` (`apps/api/src/deck/versions.ts`) calls `recordDeckChange(..., { forceBump: true })`. This is the one exception to the auto-bump rule of 2026-07-30. Card edits to an unplayed version still amend it in place.
+- **Import checks before it creates.** `POST /decks/import` accepts `dryRun: true`, which resolves the list and writes nothing, and it now returns `unresolvedLines` (verbatim) and `totalCards`. The web dialog runs the check first. A clean list imports at once. Otherwise every unmatched line is listed with an Edit button that selects it in the pasted text, and the reader fixes the list or imports "without it/them".
+- **Deck-E writes invalidate page data.** `chat/writeRefresh.ts` maps every tool that can ask approval to the query roots it leaves stale. `useDeckeChat` invalidates them when that tool's chip finishes (`ok`, `partial` or `error`; never `declined`). A test fails when a write tool has no entry or an entry names a root no query uses.
+- **The add-cards "legal only" filter runs on the server.** `GET /search?legal=<format>` applies `formatPoolSql`: the validator's pool rule, built from formats.json and the reprint oracle's fingerprint query. The response echoes the rule sentence (`poolRule`, which the validator now uses too). The modal lost its hard-coded `MARK_POOL`, shows "Showing N of M" and pages with "Show N more".
+- **Export PDF downloads the PDF.** It was a plain link to a Bearer-only route, so every signed-in user got a raw 401 (a public GET of the route answers 401). It now goes through `api.downloadPdf`: fetch with the session's header, save the blob through a temporary `<a download>`, never `window.open`, which iOS Safari blocks after an await. PR #214 adds the same helper for set and list checklists.
+
+**Why:** The amend-in-place revert erased the only copy of an unplayed working list, and the confirm dialog said "nothing is lost". The 2026-07-30 rationale (stepper calls shouldn't spray versions) doesn't apply to one deliberate action, and the 2026-08-10 entry that confirmed the amend as "documented semantics" had missed that it destroyed data. Reproduced on real Postgres against origin/main: v2 held "2x Pikachu, 2x Zamazenta", and after "Reverted to v1" no version held Zamazenta. The import dialog promised unresolved lines were "reported, never dropped", then navigated to a deck that silently lacked them. After Deck-E's "Done", the deck page kept the old list for up to five minutes (`staleTime`), and its absolute-quantity steppers could write that old list back. The legal filter's root cause was a paging bug, not a regulation-mark data mismatch: it ran in the browser over the first 30 name-sorted results. The live catalog has 243 Pikachu, none of the first 30 carries H/I/J, and 50 do.
+
+**Implications:** Repeated reverts now add a version each time, which is the intended trade. Production lists could already have been lost this way from 2026-07-30 until this ships. The database no longer holds them; only a backup or point-in-time restore from before the revert does. Candidates are `deck_version` rows whose note matches `^Reverted to v[0-9]+$` and whose `updated_at` is well after `created_at` (a revert that bumped inserted its row, so its two timestamps match). Deck-E-driven cases are recorded exactly in `decke_turn.tools`: a `deck_history` summary containing "amended v… in place". The legal filter answers the pool question (NOT_IN_FORMAT) only. Expanded bans and GLC's rule-box, ACE SPEC and Classic Collection rules stay with the legality panel. A card with no stored fingerprint qualifies for the filter only by its own mark or set. `POST /decks/import` and `GET /search` gained optional parameters; existing callers are unaffected. A new disposable-Postgres child (`apps/api/src/__integration__/decks.mjs`) proves the revert and checks that the filter matches `validateDeck` card for card.
+## 2026-09-26 — Every gated entry point carries a return path; `next` is validated by one strict parse
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Fix UXC-06 (sign-in walls lose the user's intent) and SEC-05 (the
+`?next=` open redirect) together, since both live in the same handful of call
+sites.
+
+- `apps/web/src/lib/landingRoute.ts`'s `isSafeNextPath` (a hand-written
+  blocklist — `startsWith('/')`, not `//`, not `/\`) is replaced by
+  `safeNextPath`, which parses with `new URL(value, origin)` and compares
+  origins — the same algorithm the eventual navigation runs, so the check and
+  the navigation can never disagree. A pre-parse reject-list closes every
+  control and whitespace character (tab, newline, CR, NUL, …) and `\`, which
+  is what let `/\t/evil.example/phish` become `//evil.example/phish` once the
+  WHATWG parser's own tab-stripping ran. It returns the parsed
+  `pathname + search + hash`, never the raw string, and accepts an optional
+  `origin` parameter (defaulting to `window.location.origin`) purely so the
+  bypass-corpus unit tests can run under Node's plain `--test` runner with no
+  DOM. `isSafeNextPath` is now a thin type-guard wrapper over it, so there is
+  exactly one predicate.
+- Every place that used to bounce to `/auth` without a destination now sets
+  `next`: `AuthGuard.tsx`'s redirect for a page that required sign-in,
+  `api.ts`'s `handle401` (a session that expired mid-page), the rail's locked
+  nav rows (`AppShell.tsx`), the header's `SignInChip` and the mobile drawer's
+  "Sign up free", `SignInPrompt.tsx`, and the card sheet's per-variant "Sign in
+  to track" link. `Auth.tsx`'s `goTo()` (the sign-in/sign-up tab toggle) now
+  preserves `next` across the switch, where it used to drop it.
+- The rail's locked rows and the card sheet's "Sign in to track" link were
+  both labelled "Sign in" but linked to `?mode=signup` — the visible tab and
+  the actual destination disagreed. Both now open sign in, with the toggle at
+  the top of `/auth` as the one-tap switch to sign up.
+- The `/auth` heading names the destination when it's one of a short known
+  list (lists, decks, insights, profile) — "Sign in to see your lists" instead
+  of a generic "Welcome back" — the same courtesy `/authorize` already paid
+  for OAuth.
+- Sign-up confirmation and password reset also return to `next`.
+  `signUpBounded`'s `emailRedirectTo` now points at `next` (or `/series`)
+  directly, so confirming the email — which GoTrue treats as a sign-in, minting
+  a session and redirecting here with it — lands on the same page sign-in
+  would have; a dead or already-used link degrades to `AuthGuard`'s own
+  `next`-preserving bounce back to `/auth`, never a silent drop. Password
+  reset carries `next` as `/auth/reset`'s own search param (added a
+  `validateSearch` for it, mirroring `/auth`'s), and its "Password updated"
+  panel's primary action becomes a real navigation to `next` when one is
+  present. Both ride on Supabase's existing redirect allow-list —
+  `uri_allow_list = https://deckpal.app/**` (read via the Management API and
+  logged 2026-08-10) — which already covers an appended query string, so no
+  Supabase setting changed (AGENTS.md B9). If that allow-list is ever narrowed
+  to exact-match URLs instead of a wildcard, both redirects need revisiting;
+  flagging it here rather than guessing at infrastructure I did not touch.
+- `tests/browser/authReturn.mjs` is a new browser-suite check. Every existing
+  check in this suite signs a context in with a `localStorage` shortcut
+  (`admin.mjs`'s `signIn()`), which cannot exercise this fix: the redirect to
+  `next` lives in `Auth.tsx`'s submit handler, which only runs after a real
+  `supabase.auth.signInWithPassword()` call resolves. The new check's fixture
+  server answers `POST /auth/v1/token?grant_type=password` with a fake session
+  shaped from the installed `@supabase/auth-js` 2.116.0 package's own
+  `hasSession`/`_sessionResponsePassword` contract (read from the installed
+  source, not assumed), still with no real account and no network egress
+  (`VITE_SUPABASE_URL` points at the same loopback fixture). It drives the
+  rail's locked "My Lists" row from signed out, at 1440 and 390px, and asserts
+  the row opens the Sign In tab and lands on `/lists` after signing in. Wired
+  into `scripts/test-browser.mjs`; `tests/browser/README.md` documents it.
+
+**Why:** A visitor who tapped "My Lists" or a deep list link, signed out, was
+shown the create-account form (the pill said "Sign in") and, after signing in,
+was dropped on `/series` regardless of what they were trying to reach —
+UXC-06's own evidence measured this exact path on production. Separately, the
+`next` validator's blocklist and the eventual `window.location.assign(next)`
+navigation used two different parsers, which is exactly the shape of bug a
+blocklist produces: SEC-05 found the gap a tab character opens, and
+`DECISIONS 2026-08-10` had already had to close the same family once for a
+backslash. Fixing the validator without also wiring `next` through the actual
+gated entry points would have left the open-redirect fixed but the UX bug
+(and the audit's now-passing `next` never reaching `/auth` in most real
+requests) exactly where it was.
+
+**Implications:** `safeNextPath`/`isSafeNextPath` is the one place a `next=`
+value may be judged safe; a new gated entry point should call it (or, for a
+value read from the current address bar rather than user input,
+`currentPathAsNext()`) rather than re-deriving a check. Deliberately left out
+of this pass: consolidating the card sheet's repeated "Sign in to track" rows
+into one `SignInPrompt` above the variant table (UXC-06's fuller design
+proposal — a UI consolidation, not a return-path bug, and out of this PR's
+scope), and threading `next` through `/signed-out`'s "Sign back in" link
+(that page serves both a deliberate sign-out and an expired session, and
+carrying a stale destination through a confirmation screen felt like a
+separate design call rather than a mechanical fix). Landing.tsx's sign-in/
+sign-up links are unchanged: a first-time marketing visitor has no specific
+page they were trying to reach, so the existing default (`/series`) is
+already correct there.
+## 2026-09-26 — Collection, list and deck writes go through per-document lanes and always end visibly
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Collection counters, list edits and deck edits stop using one
+`useMutation` per write. They go through `lib/writeLane.ts`: one request in
+flight per document (`collection:<setId>`, `list:<id>`, `deck:<id>`); a write
+still waiting its turn is replaced by a newer write for the same item (the last
+intent wins); and the control shows the pending intent until the item's last
+write settles. Every such write states an absolute target — the counters use
+`PATCH /collection/variants/:id` instead of `…/increment`, and a deck row's ×
+is `PATCH …/cards/:cardId {quantity: 0}` — which is what makes coalescing and
+Retry safe. Outcomes are reported one way (`lib/writes.ts`): a final failure
+rolls back and raises a `Toast` naming what did not save ("Couldn't remove
+Pikachu from “Trade binder”."), adds why only when it is actionable (offline,
+timed out, deleted, a 4xx's own message), and offers Retry when repeating the
+request is harmless. A form that stays open (Edit list, the delete
+confirmations) reports inline through `FormAlert` instead. Deleting a list or a
+deck, and removing a card from a deck, offer Undo through the existing restore
+and absolute-set endpoints. The server's answer to a collection write is folded
+into the cached card and set responses (after cancelling any older read still in
+flight, which would otherwise land last and undo it on screen); the set itself is
+re-read once, two seconds after the taps stop, for the goal-specific have/need
+flags the answer cannot supply, and the grid is no longer dimmed for a
+background read. `Toast` is a new `components/ui` primitive: one at a time, in
+PwaUi's bottom-right stack with the offline banner, errors announced
+assertively.
+
+**Why:** Quality audit QUAL-02: fifteen collection/list/deck mutations failed
+with no message (restore, edit, delete, pin, add card, update deck among them);
+Restore in Recently deleted — the undo for every delete — did nothing visible
+on a 500. QUAL-06: the deck stepper fired unordered requests, and a stale
+answer landing last replaced the whole deck with an older count. UX audit
+UXC-02: the grid counters disabled themselves during a write, so the 2nd and
+3rd tap of a three-copy pull were dropped, and each tap re-downloaded the whole
+set (0.8–6.5 s on production) while dimming the grid. UXC-08: no undo in the UI,
+although the server has one. TanStack Query does not order concurrent
+`mutate()` calls, and its `scope` option serialises without coalescing or
+saying which answer is an item's last word; those three properties are the
+whole fix, so they live in one small module unit-tested on its own
+(`lib/__tests__/writeLane.test.ts`) and in a browser check that injects 500s,
+reordered latency and offline (`tests/browser/writes.mjs`).
+
+**Implications:**
+- Offline is unchanged where it was defined: the service worker still never
+  queues a write, and the collection counters stay disabled offline. Other
+  writes are attempted and fail with "You're offline." — they are no longer
+  held by TanStack's paused-mutation queue and replayed later.
+- A write that has not answered in 20 s is aborted and reported, so one stalled
+  request cannot freeze the document's other writes. Aborting a fetch does not
+  stop the server, though, so when a write got no answer (the deadline, a
+  dropped connection) its outcome is UNKNOWN: the newer write already queued
+  for that item fails with it (reported once, as the item's final word, so
+  Retry targets the latest intent), and nothing more is sent for that item
+  until 75 s after the unanswered one left — longer than the API function's
+  60 s `maxDuration`, so it can no longer land after its replacement. A unit
+  test holds that margin against `vercel.json`. Failures the server answered
+  (a 500), and requests that never left an offline device, fence nothing.
+  After an unanswered failure the surface re-reads what the write touched,
+  at once and again when the window closes, in case the change landed late.
+- Offline, a write is refused when it is asked for, not queued: one waiting
+  behind another would otherwise go out by itself on reconnecting.
+- `applyAnswer` cancels every read of the data a write touched that is in
+  flight when its answer arrives, applies the answer, then asks those reads
+  again, so a slow GET can neither undo the edit on screen nor be lost (an
+  add's list refresh, a first load).
+- The write-feedback toast sits outside every sheet, so the topmost `Sheet`'s
+  Tab loop now runs through it: a keyboard can reach Retry for a save that
+  failed inside a sheet. Only the topmost dialog handles Tab.
+- Writes belong to the account that asked for them. On IDENTITY_CHANGED every
+  lane is cancelled (queue dropped, in-flight request aborted, its answer
+  ignored) and any Retry/Undo toast is dismissed; each write also re-checks the
+  session just before it is sent, because another tab signing in changes
+  storage before this tab hears about it.
+- The set progress bars move when the server confirms (one round trip) rather
+  than instantly from CardDetail's client-side copy of the progress maths,
+  which is removed. Have/Need/Dupes counts and the "Need" filter catch up with
+  the one re-read after the taps stop, so a card no longer vanishes from under
+  the finger logging it.
+- Additive writes — adding N copies from the deck search picker, adding to a
+  static list — get no Retry, and their tile stays disabled while saving.
+- Not done here: an exact Undo for removing a card from a list needs the list
+  item DELETE to return its mutation `batchId` for `POST /mutations/revert`.
+  Scanner and Deck-E batch commits have their own flows and are unchanged.
+- New writes to these documents should use `save()` / `laneFor()` from
+  `lib/writes.ts`, not a bare `useMutation`.
 ## 2026-09-26 — Deck-E stands clear of what the reader has to press, and every card and notice says what it will do
 
 **Decided by:** Chey (via Claude)
@@ -20516,6 +21085,189 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 - `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
 - `CardArt.name` is now rendered, by the dry-run rows only.
 - Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
+
+## 2026-09-26 — Deck-E hardening: a bounded conversation, a normalised route, a guide write bound to its deck
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Three findings from the 2026-09-26 security audit are closed in
+code. **SEC-04:** `/api/chat` reads at most 256 KB, streamed, and validates the
+conversation with zod before any ledger, credit accounting or model call: at
+most 200 messages of 80 parts, `user`/`assistant` roles only, text and
+`tool-<name>` parts only (so no `file`, `reasoning`, `source-*` or `system`
+message from the browser), and no single part over 60,000 characters (a pasted
+battle log plus words). A request past a size limit is a 413 the reader sees as
+"That's more than I can read in one go"; a wrong shape is a 400. The model is
+shown the reader's current turn whole, approvals included, plus the newest
+prior history that fits 24 messages and 64,000 characters, cut at a message
+boundary and started on a reader message. Every ledger derived from history
+(declines, failing tools, what he already said, the paste, research
+provenance, the charge hash) still reads the whole validated array. The
+browser trims to the same window before sending (`chat/wireWindow.ts`), drops
+a message the server already refused, and tells the reader once per
+conversation when the start of the chat falls out of the window. Replies that
+leave the window still send what the two conversation-wide ledgers need (the
+failing-tool breaker and the already-told record) in a separate `evidence`
+field the server never shows the model: the breaker's STATE compacted into at
+most 4 messages, one per turn depth, each carrying every tool still failing at
+that depth since it last worked — plus the newest lookup records in the
+remaining room, at most 24 messages. So a tool that failed in two turns stays
+switched off however long the chat gets and however many tools are failing
+(found by Astra across three review passes: trimming dropped the evidence, a
+last-24 slice evicted old failures, and one message per failure could still
+cut a tool). A question queued while Deck-E loads is set aside as the current
+turn before the window is applied, so an oversized one still reaches the
+server and comes back as the 413 it is. And because a bounded window can be
+byte-identical across two genuinely new exchanges, the replay-protection key
+(`chatChargeReference`) now includes the browser's `exchangeId` and `seq`; a
+retried leg of the same exchange still collides and is still refused. `route` is
+clipped to 200 characters and each landmark string to 200. **SEC-12:** both
+route allowlists (`isAllowedRoute`, `routeAllowed`) accept a path only if URL
+resolution leaves it unchanged, and refuse `%2e`/`%2f`/`%5c`/`%00` and control
+characters, so `/decks/../profile` no longer reaches `/profile`. **SEC-13:**
+`write_strategy_guide`'s sub-agent holds `deck_strategy` through
+`bindGuideWrite`: a write must resolve to the same deck as the approved `deck`
+argument, and one write is all an approval buys. Reads are unchanged.
+
+**Why:** The charge is flat per request while each of up to twelve steps
+re-bills the whole context, so an unbounded client-built history let any
+`decke.use` account buy large turns on the owner's key (the audit's proof
+carried a 4 MB text part and a PDF `file` URL through the pinned SDK). The
+window is 64,000 characters rather than smaller because the paste channel's
+ordinary shape is "paste, then say yes on the next turn", and the paste must
+still be in the prior window on that turn. The route and guide fixes each turn
+a prompt-text promise into a check in code.
+
+**Implications:** A very long conversation now loses its oldest turns from
+the model's view; the reader is told, and a new chat is the remedy. Declines
+and the other ledgers are unaffected by trimming. `WINDOW_MESSAGES`,
+`WINDOW_PRIOR_CHARS`, `PART_MAX_CHARS` and `EVIDENCE_MAX` are mirrored between
+`apps/api/src/decke/wireBounds.ts` and `apps/web/src/character/host/chat/wireWindow.ts`
+and pinned by `wireBounds.test.ts`; `isNormalPath` is mirrored between
+`tools.ts` and `uiTools.ts` and pinned by `tools.test.ts`. A guide sub-agent
+that fails its one write cannot retry within the same approval. No schema,
+environment variable or deployment change.
+
+## 2026-09-26 — Jev reads the reader before Deck-E answers
+
+**Decided by:** Chey (via Claude). Chey approved Jev on 2026-09-26 ("implement
+Jev, yes. Use it wherever it would improve a user's experience with Deck-E") and
+confirmed that TypeSafe AI is a US company, so `typesafe-ai` joins the "US
+frontier labs only" list in `models.ts` rather than being an exception to it.
+
+**Decision:** Behind `DECKE_JEV` (default off), each `/api/chat` request gets
+one typed evaluation by `typesafe-ai/jev` of the reader's latest message before
+the model runs (`reflex.ts`, `jev.ts`); a turn with browser or approval legs
+repeats it per leg, because the server keeps nothing between requests, and only
+the leg carrying the reader's message may force (found by Astra in review). Three answers act, each only above a threshold chosen on a labelled
+eval set: a plain collection change pins step one's `toolChoice` to `log_cards`,
+which raises the signed consent card and cannot write without it; a walk to a
+list, deck or other non-set page takes `escort` out of view; and a refusal said
+in words ("stop researching the meta, you already did") is added to the declined
+ledger and outranks the reader-mention bypass. Jev never approves a write. On a
+timeout (`DECKE_JEV_TIMEOUT_MS`, default 800 ms), an HTTP error, a malformed or
+low-confidence answer, or the switch off, the turn runs exactly as before. Every
+call asks the Gateway for zero data retention and pins the provider to
+TypeSafe. The call is plain HTTP to `/v1/evaluate`: `experimental_evaluate`
+needs `ai` 7.0.105 and this repo pins 7.0.94, the version the signed approval
+replay was verified against.
+
+**Why, and why this is not the classifier `api/chat.mjs` rejected:** that
+comment rejects "a classifier turn in front of every message" because it "taxes
+the 90% that do not need one" and "a misroute is INVISIBLE". Both were true of an
+LLM turn and are measured false here. The tax: a reflex read is ~854 input
+tokens, $0.000036 (≈0.3% of a ~$0.0115 chat turn), no output tokens, p50 279 ms
+and p95 418 ms over 198 calls through the Gateway (from a residential
+connection), under a hard deadline. The misroute: every answer carries a
+probability, and an action fires only above its threshold; below it the turn is
+today's. On `apps/api/src/decke/eval/judgments.json` (66 synthetic reader
+messages, three paid passes, identical results each time):
+
+| Judgment | Today | With Jev |
+|---|---|---|
+| Force the consent card for a collection change (20 of 66) | 0 / 20 (nothing forces it) | 20 / 20, 0 false forces |
+| Hide `escort` for a page it cannot reach (8) | 0 / 8 | 8 / 8, 0 false hides |
+| Hear a spoken refusal (8) | 0 / 8, and the bypass re-opens 7 of them | 8 / 8, 0 false refusals |
+| A declined family handled right afterwards (13) | 6 / 13 | 13 / 13 |
+
+Thresholds: force at p ≥ 0.5 (the weakest true positive was 0.56, the strongest
+negative 0.30), destination p ≥ 0.85 / confidence ≥ 0.7, decline p ≥ 0.8.
+
+**Implications:** TypeSafe AI is a new data processor for the reader's latest
+message, Deck-E's previous reply and the page path. No separate collection or
+account records are attached, but those fields are not redacted and may contain
+ownership counts, card IDs, account details or deck/list IDs. Its retention is
+unconfirmed: the Gateway lists `zdr: "none"`, Vercel's guide offers ZDR per
+request, and TypeSafe offers ZDR to enterprise customers only; measured, the
+Gateway honours the per-request flag by skipping a non-ZDR host (SECURITY.md).
+Jev's model id is unpinned on the Gateway, so the thresholds must be re-measured
+with `scripts/decke-jev-eval.mjs` when it changes (`--replay` re-scores saved
+answers for free). The eval set is synthetic and small, written and labelled by
+one author; it is the first persisted offline eval corpus for Deck-E and is
+scored for today's heuristics in CI (`judgmentsEval.test.ts`). Jev's cost rides
+inside the flat chat-turn charge (no new charge, no token settlement) and is
+logged per call as tokens and Gateway-reported cost, never with reader text; it
+is not written as a usage operation, because recording a provider start would
+stop an aborted turn's credit being refunded. The research report's code map was
+corrected against the code: `ai` is 7.0.94 (not 7.0.66), `research_meta` is
+already in the name-level decline set, and `escort`'s description already
+routes lists and decks to `goTo`/`journey`. Body reflexes (the report's #4) were
+not built: no in-code heuristic exists to beat, it would restructure `express`
+and the client state machine, and whether his body should react before his
+words is the owner's taste call.
+
+## 2026-09-26 — Jev checks his reply against what he did, and he corrects himself with the real card
+
+**Decided by:** Chey (via Claude), under the 2026-09-26 approval to use Jev
+wherever it improves the reader's experience of Deck-E.
+
+**Decision:** With `DECKE_JEV=on`, once a leg's stream ends, Jev reads the
+reader's message and Deck-E's reply (`audit.ts`): did the reply claim a change
+or a move, and of which kind? If it claimed a collection, list, deck or
+battle-log change and no tool that performs one ran this turn, the same response
+continues with ONE corrective step — the same model, tools and prompt prefix,
+`toolChoice` pinned to `log_cards` / `edit_list` / `save_deck` /
+`add_battle_log`, the same approval secret — under a line in his voice ("One
+correction: I said that as if it were done, but I hadn't actually run it. Here
+it is for you to confirm."). Every one of those tools holds its change for the
+signed card, so the correction can only ask. A claimed guide or walk gets the
+existing first-person admission instead (a guide is a paid deep call; a walk has
+no card and a forced `goTo` would invent a route). "Performed" is every tool the
+turn touched — the leg's calls, every chip its handlers emitted, and the tool
+parts replayed after the reader's message — because a write approved on the
+previous leg executes before this request's first step. A navigation handoff is
+never audited. Jev off, slow, unsure or failing: the guard chain is exactly as
+before.
+
+**Why:** Phantom actions are the angriest quotes in the owner's history, and the
+guard for them (`phantomClaims`) is regex tuned for precision: on the 40-item
+audit set it catches 3 of 15 phantoms and fixes none. With Jev, over three paid
+passes: 15 of 15 caught, 0 of 25 clean turns flagged, the kind right in all 15;
+12 of the 15 are correctable kinds and get the card, the other 3 get the
+admission. The regexes stay: Jev's recall sits under their precision (a regex
+hit still produces a note when the audit is off or unsure).
+
+**Implications:** The audit adds one Jev call after each leg that spoke
+(~570 input tokens, ~$0.000024, p50 269 ms / p95 371 ms measured), bounded by
+`DECKE_JEV_TIMEOUT_MS`, before the response closes. A corrective step is a real
+model step: it is metered like every other (`observeUsageModel`), rides inside
+the flat chat-turn charge, and only runs while the turn is under `MAX_STEPS`.
+The reader sees the false sentence before the correction: Jev cannot stop a
+stream mid-word, so the fix is fast and honest rather than invisible. Whether
+the chat model, once pinned, fills the arguments well is covered by mocked
+tests and by `log_cards`' own preflight; it has not been measured live.
+
+## 2026-09-26 — A claimed deletion gets an admission, never a forced edit
+**Decided by:** Chey (via Codex)
+**Decision:** Separate claimed deletion of a list, deck or battle log from other changes in Deck-E's after-turn audit. When Jev detects an unperformed deletion, Deck-E admits that nothing changed; it does not force `edit_list`, `save_deck` or `add_battle_log`, because those tools cannot delete. Collection card removals still use `log_cards`, which can change quantities and raises the signed approval card.
+**Why:** The original action labels grouped deletion with creation and edits. A phantom "your deck is gone" could therefore pin `save_deck` and ask for an unrelated change. The revised 43-item synthetic eval includes unperformed deletion of each object and one completed deck deletion. In one paid Jev pass, it caught 17/17 phantom claims, flagged 0/26 clean turns, identified all 17 kinds correctly, and chose the deletion labels for all three new/relabeled phantom examples. The pass cost $0.00353; it does not establish live accuracy.
+**Implications:** Only collection, non-deletion list, deck and battle-log claims may start a corrective step. Deleted-object claims follow the existing first-person admission. Jev remains off by default, and any slow or uncertain judgment still falls back to the previous guard chain.
+
+## 2026-09-26 — Corrective approval cards sign apply intent
+**Decided by:** Chey (via Codex)
+**Decision:** A corrective `edit_list`, `save_deck` or `add_battle_log` call uses a correction-only schema whose `dry_run` defaults to `false` and rejects `true`. The parsed `false` is part of the SDK's signed approval input. The ordinary tool schemas retain their safe `dry_run: true` defaults.
+**Why:** Astra found that forcing a tool name alone could produce only a dry run: those three tools default to preview, so the one-step correction would stop without a card. A real-SDK test for each tool now proves that an omitted `dry_run` becomes a signed apply request, raises the card with zero writes, and applies only after signed approval is replayed under the ordinary tool set.
+**Implications:** Corrective tool choice can no longer silently become a preview because the model omitted `dry_run`. Invalid or declined calls still fail closed, and the existing approval gate remains the only route to a write.
 
 ## 2026-09-26 — Print exports use DeckPal's type, mark, and a pen-friendly checklist rhythm
 
