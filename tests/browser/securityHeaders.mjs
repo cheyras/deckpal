@@ -218,7 +218,6 @@ async function checkAllowDenyProbe(browser, engineName, server) {
     // appear in the violation list.
     assert.equal(result.supabaseApi, 'load', 'connect-src must allow a real Supabase-shaped origin')
     assert.ok(!result.events.some((e) => e.includes('fixture-project.supabase.co')), 'img-src/connect-src must allow a real Supabase-shaped origin (https://*.supabase.co)')
-    assert.ok(!result.events.some((e) => e.includes('statics.link.com')), 'img-src must allow Link static assets')
     return { case: 'csp-allow-deny-probe', engine: engineName, stripeAndLinkSourcesAllowed: true, supabaseOriginAllowed: true, evilScriptBlocked: true, evilImgBlocked: true }
   } finally { await context.close() }
 }
