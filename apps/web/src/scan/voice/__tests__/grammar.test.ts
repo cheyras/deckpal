@@ -153,6 +153,19 @@ describe('quantity', () => {
     assert.equal(command('0 reverse holos'), null)
     assert.equal(command('100 reverse holos'), null)
   })
+
+  it('keeps numeric punctuation attached to the spoken count', () => {
+    for (const heard of ['1,001 copies', '1.5 copies', '1/2 copies', 'make it -2', '1.5 reverse holos']) {
+      const parsed = parseUtterance(heard, ROWS)
+      assert.equal(parsed.command, null, heard)
+      assert.equal(parsed.refused, 'invalid-count', heard)
+      assert.equal(parseAlternatives([heard, 'one copy'], ROWS).command, null, heard)
+    }
+    for (const [heard, count] of [
+      ['two copies', 2], ['a copy', 1], ['3 copies.', 3], ['3, copies', 3],
+      ['okay, make it 3, copies please', 3],
+    ] as const) assert.equal(edit(heard).quantity, count, heard)
+  })
 })
 
 describe('remove, undo, stop', () => {

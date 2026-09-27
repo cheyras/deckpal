@@ -252,6 +252,10 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         show('refused', 'Which card did you mean? Say its full name or tap it in the list')
         return
       }
+      if (parsed.refused === 'invalid-count') {
+        show('refused', 'I didn’t catch the count. Say 1 to 99')
+        return
+      }
       if (parsed.unresolvedName) {
         show('refused', `Couldn’t find “${parsed.unresolvedName}” in the list`)
         return

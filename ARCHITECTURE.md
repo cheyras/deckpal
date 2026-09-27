@@ -871,7 +871,9 @@ Its only part is the `scanner_voice` feature-catalog row that gates the control
 one hook:
 
 * `grammar.ts` is a closed grammar matched with a phonetic edit distance, plus
-  a coverage gate so conversation is ignored.
+  a coverage gate so conversation is ignored. It validates whole numeric
+  expressions before punctuation is removed, refusing any count it cannot
+  apply exactly within 1–99.
 * `printings.ts` maps a spoken printing onto the card's real variant kind
   slugs.
 * `actions.ts` turns a command into a pending action on a row (the row id is the

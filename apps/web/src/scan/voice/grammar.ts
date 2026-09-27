@@ -101,7 +101,8 @@ export const MAX_QUANTITY = 99
  * silently deduplicate before ambiguity detection.
  */
 export function tokenize(text: string, name = false): string[] {
-  const input = name ? text.replace(/!/g, ' exclamation ').replace(/\?/g, ' question ') : text
+  const input = (name ? text.replace(/!/g, ' exclamation ').replace(/\?/g, ' question ') : text)
+    .replace(/\b\d{1,3}(?:,\d{3})+\b/g, (grouped) => grouped.replace(/,/g, ''))
   return input
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
@@ -416,7 +417,8 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     const boundedWords = words.slice(0, end)
     const boundedKeys = keys.slice(0, end)
     const word = words[i]
-    const literal = /^\d{1,3}$/.test(word) ? Number(word) : NUMBER_WORDS.get(word)
+    const literal = /^\d+$/.test(word) ? Number(word)
+      : word === 'a' && boundedWords[i + 1] === 'copy' ? 1 : NUMBER_WORDS.get(word)
     if (literal !== undefined) {
       const unit = literal >= 20 && literal % 10 === 0 ? NUMBER_WORDS.get(boundedWords[i + 1] ?? '') : undefined
       const compound = unit !== undefined && unit < 10
@@ -500,6 +502,13 @@ export function printingLabel(spec: Pick<PrintingSpec, 'finish' | 'modifiers'>):
  * that" said over a pending removal has to mean undo, not remove.
  */
 export function parseUtterance(transcript: string, rows: readonly NamedRow[] = []): ParseResult {
+  // Inspect numeric punctuation before tokenization can turn a decimal,
+  // fraction, or negative into a different whole number. Grouped thousands
+  // stay together and reach the normal 1–99 range check below.
+  const withoutGrouping = transcript.replace(/\b\d{1,3}(?:,\d{3})+\b/g, (grouped) => grouped.replace(/,/g, ''))
+  if (/\d\s*[.,/]\s*\d|[-−]\s*\d/.test(withoutGrouping)) {
+    return { command: null, coverage: 0, refused: 'invalid-count' }
+  }
   const words = tokenize(transcript)
   if (!words.length) return { command: null, coverage: 0 }
   const segs = segment(words, rows)

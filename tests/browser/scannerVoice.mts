@@ -155,6 +155,11 @@ try {
     await page.locator('[data-voice-caption="refused"]').getByText('Couldn’t find “seel” in the list').waitFor()
     assert.equal(await page.locator('[data-voice-pending]').count(), 0)
 
+    await say(page, '1.5 copies', true, ['one copy'])
+    await page.locator('[data-voice-caption="refused"]').getByText('I didn’t catch the count. Say 1 to 99').waitFor()
+    assert.equal(await page.locator('[data-voice-pending]').count(), 0)
+    await page.screenshot({ path: path.join(outputDir, `${name}-invalid-count.png`) })
+
     // Named targets are pinned when the utterance starts. A newer duplicate
     // arriving before the final result cannot steal the command.
     await say(page, 'Venonat reverse holo', false)
