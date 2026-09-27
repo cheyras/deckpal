@@ -237,12 +237,16 @@ class GuideDeclinedSet extends Set<string> {
   /** Same, for the research_meta family. */
   private readonly researchReopened: boolean
 
-  constructor(entries: Iterable<string>, latestUserText?: string) {
+  constructor(entries: Iterable<string>, latestUserText?: string, spoken: SpokenDeclines = NONE_SPOKEN) {
     super(entries)
-    this.guideDeclined = [...this].some(isGuideWrite)
-    this.researchDeclined = [...this].some(isResearchMeta)
-    this.guideReopened = readerMentions(latestUserText, GUIDE_NEEDLES)
-    this.researchReopened = readerMentions(latestUserText, RESEARCH_NEEDLES)
+    this.guideDeclined = [...this].some(isGuideWrite) || spoken.guide
+    this.researchDeclined = [...this].some(isResearchMeta) || spoken.research
+    // A "no" said in words OUTRANKS the reader-mention bypass. The bypass keys
+    // on words like "meta" and "strategy", which a sentence refusing research
+    // or a guide almost always contains — so without this, "stop researching
+    // the meta" re-opened the very family it refused.
+    this.guideReopened = !spoken.guide && readerMentions(latestUserText, GUIDE_NEEDLES)
+    this.researchReopened = !spoken.research && readerMentions(latestUserText, RESEARCH_NEEDLES)
   }
 
   override has(key: string): boolean {
@@ -275,9 +279,36 @@ class GuideDeclinedSet extends Set<string> {
  * see the bypass section above. Absent or unmatching, the name-level
  * suppression stands for the conversation.
  */
-export function declinedCalls(messages: unknown, latestUserText?: string): Set<string> {
+/**
+ * Refusals the reader said in WORDS in their latest message, rather than by
+ * pressing Deny on a card: "stop researching the meta, you already did".
+ *
+ * Judged by Jev (`reflex.ts`) — a word list cannot tell "no more research"
+ * from "do the research", which is the bypass's own failure below — and only
+ * ever added, never subtracted: with no judgment the set is exactly what the
+ * replayed approvals say, which is today's behaviour. Scoped like the bypass,
+ * to the turn the reader said it in.
+ */
+export interface SpokenDeclines {
+  research: boolean
+  guide: boolean
+}
+
+const NONE_SPOKEN: SpokenDeclines = { research: false, guide: false }
+
+/**
+ * An entry standing for a spoken refusal. Its arguments are no real call's,
+ * so the exact-match path can never fire on it; it exists because callers
+ * short-circuit on `declined.size > 0`, and a refusal that left the set empty
+ * would never be consulted.
+ */
+const SPOKEN_ARGS = { declined_in_words: true }
+
+export function declinedCalls(messages: unknown, latestUserText?: string, spoken: SpokenDeclines = NONE_SPOKEN): Set<string> {
   const out: string[] = []
-  if (!Array.isArray(messages)) return new GuideDeclinedSet(out, latestUserText)
+  if (spoken.research) out.push(callKey(RESEARCH_TOOL, SPOKEN_ARGS))
+  if (spoken.guide) out.push(callKey('write_strategy_guide', SPOKEN_ARGS))
+  if (!Array.isArray(messages)) return new GuideDeclinedSet(out, latestUserText, spoken)
   for (const m of messages) {
     const parts = m?.parts
     if (!Array.isArray(parts)) continue
@@ -290,7 +321,7 @@ export function declinedCalls(messages: unknown, latestUserText?: string): Set<s
       out.push(callKey(p.type.slice('tool-'.length), p.input ?? {}))
     }
   }
-  return new GuideDeclinedSet(out, latestUserText)
+  return new GuideDeclinedSet(out, latestUserText, spoken)
 }
 
 /**
