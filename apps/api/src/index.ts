@@ -58,8 +58,8 @@ import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, ad
  *   - Self-host (default): /deckpal/api (behind nginx sub-path)
  *   - Cloud (Vercel):      /api
  *
- * Auth is layered: in cloud mode SUPABASE_JWT_SECRET enables JWT verification
- * and user-scoped routes require a valid Bearer token. In self-host mode the
+ * Auth is layered: in cloud mode SUPABASE_URL enables ES256 verification
+ * through JWKS and user-scoped routes require a valid Bearer token. In self-host mode the
  * reverse proxy is the auth boundary; the API passes all
  * requests through.
  */

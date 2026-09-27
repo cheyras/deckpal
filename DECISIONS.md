@@ -21085,6 +21085,65 @@ reordered latency and offline (`tests/browser/writes.mjs`).
 - `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
 - `CardArt.name` is now rendered, by the dry-run rows only.
 - Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
+## 2026-09-26 — Browser CI job: cache Playwright browsers, run its build+check branches concurrently
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** `browser.yml`'s single job was close to timing out (11-13 min against a 15 min
+cap, several open PRs already raising the cap). Two changes, aimed at the two real costs:
+1. Cache `~/.cache/ms-playwright`, keyed on `runner.os` + the pinned Playwright version read
+   from `package.json` at run time. On a cache hit, run `playwright install-deps` (system
+   libraries only) instead of the full `install --with-deps` (which re-downloads the browser
+   binaries every run).
+2. `scripts/test-browser.mjs` ran its three independent build+check branches (self-host,
+   cloud, the rendered-chat fixture) and a standalone typecheck sequentially in a single
+   `for` loop, sharing one process. They do not share mutable state with one another (each
+   builds its own dist into its own scratch dir and drives its own fixture server; only the
+   self-host/cloud admin-fixture state is shared *within* a label, not across labels), so
+   they were only sequential because `support.mjs`'s `run()` used `child_process.spawnSync`
+   for the `vite build`/`tsc` subprocess calls, which blocks Node's single thread for the
+   whole build. Switched `run()` to async `spawn`, and the orchestrator now runs all four
+   branches through a small bounded-concurrency pool (limit 4, matching a GitHub-hosted
+   runner's 4 cores) instead of the sequential loop.
+
+**Why:** Confirmed the three `vite build` invocations are genuinely different builds (distinct
+`VITE_SUPABASE_URL`/base path per self-host vs cloud, a wholly separate Vite config for the
+chat fixture), so there was no redundant "same build twice" to collapse — QUAL-08 already
+flagged this correctly. The actual lever is wall-clock concurrency of otherwise-independent
+work. Verified two concurrent `vite build` invocations against the same `apps/web` root (same
+Rollup/PWA plugin config, different `--outDir` and env) do not collide or corrupt each other's
+output before relying on this for the real fix.
+
+**Implications:**
+- A suite's own try/finally (browser context close, fixture-server close, failure screenshot)
+  is unchanged; only the orchestration around the four branches changed from fail-fast (a
+  failing label stops before the next one starts) to fail-together (every branch runs to
+  completion and every failure is reported in one combined error). No assertion in any test
+  file changed.
+- Follow-up completion below replaces the maintained suite list with module discovery.
+- CI timing before/after and Astra's review are recorded in the PR.
+
+## 2026-09-26 — Browser suites register from their own files
+
+**Decided by:** Chey (via Codex)
+
+**Decision:** The browser runner discovers every `tests/browser/*.mjs` module and runs suites
+returned by its optional `browserSuites(context)` export. The existing build and check
+branches live in `core-suites.mjs`; future branches can register from a new file without
+editing the runner. The deployment asset gate also awaits the shared asynchronous process
+helper, including its standalone invocation.
+
+**Why:** Every parallel feature PR that added a browser suite conflicted on the runner's
+maintained list. The first CI run of this PR exposed a missed synchronous call to the process
+helper; it failed before reaching the browser checks.
+
+**Implications:** Suite names must be unique, and each suite must own its temporary build,
+server and browser contexts. The runner checks this registration contract before executing
+the bounded pool. The main-branch write, insights and sign-in-return checks remain in the run. The
+table keyboard-scroll check waits for the observed scroll instead of assuming it completes
+within 120 ms under concurrent CI load.
+The iOS fixture server merged from main also awaits the shared build helper before
+processing its output; otherwise its `--rebuild` path would read a Promise as a string.
 
 ## 2026-09-26 — Deck-E suggests catalogue-verified fixes during deck import
 **Decided by:** Chey (via Codex)
@@ -21172,6 +21231,14 @@ environment variable or deployment change.
 **Why:** Counting pending fixes did not stop a simultaneous chat spend from consuming the last credit. Requiring an active account at settlement stranded the cost of work already performed. An incomplete printing page could hide another gameplay identity.
 
 **Implications:** Migration 077 records the hold by request and preserves the existing whole-credit wallet and fractional carry. The API retries idempotent settlement; a wallet read releases an unsettled hold after 15 minutes and records unknown provider cost. Rare provider cost above the hold remains visible as debt through the wallet's established overrun rule. The import dialog asks the reader to resolve catalogue lines whose candidate search was truncated, and refreshes the cached wallet when a fix finishes. Repair cost remains visible in usage history but does not enter planning price estimates.
+## 2026-09-26 — Decouple Supabase API keys from the leaked JWT secret
+**Decided by:** Chey (via Codex)
+
+**Decision:** Keep the existing DeckPal environment variable names during the cutover, but accept Supabase publishable and secret API keys in them. Send opaque `sb_` keys only as `apikey`; retain the legacy `Authorization` header only for JWT-format keys. Sign billing-history cursors with the Stripe secret instead of the Supabase JWT secret.
+
+**Why:** The legacy service-role key and JWT secret leaked. New API keys are not JWTs, and sending them as Bearer tokens breaks Storage and manifest requests. A cursor secret tied to the compromised JWT secret would keep the API dependent on that secret after rotation.
+
+**Implications:** Deploying this code prepares the migration but does not close the incident. The operator must set and verify new keys, rotate signing to an asymmetric key, remove `SUPABASE_JWT_SECRET` from Vercel, deactivate legacy API keys, and revoke the legacy JWT secret. Existing billing-history cursors may need one page refresh after deployment.
 ## 2026-09-26 — Jev reads the reader before Deck-E answers
 
 **Decided by:** Chey (via Claude). Chey approved Jev on 2026-09-26 ("implement

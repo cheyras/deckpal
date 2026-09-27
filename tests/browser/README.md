@@ -5,6 +5,14 @@ Build `@deckpal/storage` and `@deckpal/matching` first on a clean checkout.
 `pnpm test:deploy-assets` runs the asset controls without starting a browser.
 The workflow uses Node 24 and a frozen pnpm lockfile.
 
+The runner discovers `tests/browser/*.mjs` modules. A module registers an
+independent branch by exporting `browserSuites(context)`, which returns an array
+of `{ name, run }` entries. Each name must be unique, and `run` is async. A new
+browser branch belongs in its own file; no runner registration edit is needed.
+Helper modules without that export are imported but do not register a branch.
+Each branch must own its build output, fixture server and browser contexts so
+the runner can execute up to four branches concurrently.
+
 Reports and screenshots go to `TEST_ARTIFACT_DIR` (default `.cache/browser-tests`).
 A local installation can set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` and
 `PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH`; CI installs the Chromium and WebKit
