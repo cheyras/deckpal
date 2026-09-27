@@ -43,6 +43,7 @@
  * only composes an outbound URL; `deck_history` sounds like a read and can roll
  * a deck back.
  */
+import { createHash } from 'node:crypto';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
@@ -325,8 +326,7 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
   priorSummaries?: ReadonlySet<string>;
   /**
    * This conversation's id, for the one structured log line a tripped breaker
-   * writes. Never used for anything else, and its absence must never suppress
-   * the line.
+   * writes. Never used for a write key: it is not part of the signed approval.
    */
   conversationId?: string;
   /** Receives the lifecycle events above. Optional; the chips are a UI concern. */
@@ -1413,7 +1413,20 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             opts.onEvent?.({ phase: 'error', ...chip, summary: 'no pasted log found this conversation' });
             return sub.message;
           }
-          const runEffective = sub.value;
+          // An approved call can be replayed in a later HTTP request. Bind its
+          // write key to the signed SDK call, not the tool's 15-minute clock
+          // bucket, so an approval at the boundary cannot apply twice.
+          const runEffective = def.name === 'log_cards' && requiresApproval(def, args)
+            && sub.value && typeof sub.value === 'object' && !Array.isArray(sub.value)
+            && !(sub.value as Record<string, unknown>).idempotency_key
+            ? {
+                ...sub.value,
+                idempotency_key: `decke:${createHash('sha256').update(callKey('log_cards', {
+                  toolCallId,
+                  input: exposedLogInput(args),
+                })).digest('hex')}`,
+              }
+            : sub.value;
 
           // ── ASKED ALREADY? ───────────────────────────────────────────────
           //

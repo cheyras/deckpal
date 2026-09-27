@@ -42,7 +42,7 @@ const iconDataUri: string | null = (() => {
  * `ctx` and never from module state, which is what makes the same tool set
  * safe to serve to one user or to thousands.
  */
-export function buildServer(ctx: Ctx): McpServer {
+export function buildServer(ctx: Ctx, options: { readOnly?: boolean } = {}): McpServer {
   const server = new McpServer({
     name: 'deckpal-mcp',
     version,
@@ -57,7 +57,7 @@ export function buildServer(ctx: Ctx): McpServer {
   // @deckpal/agent-tools and the adapter walks allTools() in registration
   // order, which is the order tools/list reports and therefore the order a
   // model reads them in. Adding a tool no longer means editing this file.
-  registerAllTools(server, ctx);
+  registerAllTools(server, ctx, options);
 
   // SPEC §5 resource: same payload as collection_summary, so clients can pull
   // collection context without a tool round-trip. summaryText is exported by

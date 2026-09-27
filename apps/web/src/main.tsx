@@ -725,8 +725,8 @@ const deckeCompareRoute = createRoute({
  * detector on-device.
  *
  * Same owner gate as the other /dev routes. The harness itself is a
- * self-contained HTML artifact carried as a raw string in this lazy chunk
- * (~72 KB pre-gzip), so only whoever opens the route pays for it.
+ * self-contained HTML artifact loaded into a same-origin iframe by this
+ * lazy route, so only whoever opens the route pays for it.
  */
 const LazyScanHarness = lazyRoute('./routes/dev/ScanHarness', () => import('./routes/dev/ScanHarness'))
 const ScanHarnessRoute = () => (
@@ -883,6 +883,98 @@ router.subscribe('onRendered', () => {
   if (window.scrollY === 0) {
     window.scrollTo({ top: 1, left: 0 })
   }
+})
+
+// A11Y-11: SPA route changes were never announced to screen readers — paired
+// with A11Y-02's missing skip link, a keyboard/SR user who followed an in-app
+// link got no signal anything had happened beyond whatever they noticed by
+// exploring. This visually-hidden `aria-live="polite"` region announces the
+// new page's `<h1>` on every route render, via the SAME `onRendered`
+// subscription the scroll fix above already hooks (registered second, so it
+// always runs after the router's own listener and this one, in the order
+// this file establishes) — the app sets no per-route `document.title` to
+// announce instead, so the heading is the one string that is already true.
+const routeAnnouncer = document.createElement('div')
+routeAnnouncer.setAttribute('role', 'status')
+routeAnnouncer.setAttribute('aria-live', 'polite')
+routeAnnouncer.className = 'sr-only'
+document.body.appendChild(routeAnnouncer)
+// The React app's own mount point — grabbed by id rather than waiting for
+// `createRoot` below, since nothing here depends on anything having rendered
+// into it yet. `routeAnnouncer` is deliberately a SIBLING of this, not a
+// descendant: the `MutationObserver` further down watches this element, not
+// `document.body`, specifically so that `announceHeading()` writing
+// `routeAnnouncer.textContent` is not itself an observed mutation. Watching
+// `document.body` (which `routeAnnouncer` is also a child of) fed the write
+// back into the observer as a fresh mutation, which called `announceHeading`
+// again, which wrote again — an infinite chain of `MutationObserver`
+// microtasks that never let the event loop advance, hanging the tab solid.
+// Caught by CI's `browser` job timing out mid-screenshot on a page that had
+// gone completely unresponsive, on every load, not by anything in this
+// diff's own review.
+const appRoot = document.getElementById('root')!
+
+/**
+ * The heading's announceable text. A route can give a shared visual heading
+ * a more specific live-region message (for example, Administration — Users).
+ *
+ * SetHeader's `<h1>` (A11Y-04) wraps an `<img alt={set.name}>` on every set
+ * that has a logo, which is the common case — `textContent` of an element
+ * whose only child is an image is empty, even though the image's `alt` gives
+ * the heading a real accessible name. Reading only `textContent` would leave
+ * this announcer silent on exactly the busiest page in the catalog.
+ */
+function headingText(h1: HTMLElement): string {
+  const label = h1.dataset.routeAnnouncement?.trim()
+  if (label) return label
+  const text = h1.textContent?.trim()
+  if (text) return text
+  return h1.querySelector('img[alt]')?.getAttribute('alt')?.trim() ?? ''
+}
+
+function currentHeading(): string {
+  const h1 = document.querySelector<HTMLElement>('h1')
+  return h1 ? headingText(h1) : ''
+}
+
+function announce(text: string): void {
+  if (text && routeAnnouncer.textContent !== text) routeAnnouncer.textContent = text
+}
+
+let headingWatcher: MutationObserver | null = null
+let headingFallback: number | null = null
+let announcedPathname: string | null = null
+router.subscribe('onRendered', () => {
+  const pathname = router.state.location.pathname
+  // Search filters, sort, pagination and card sheets can change the URL while
+  // staying on the same page. Keep the existing heading watcher and timer;
+  // restarting them would turn an unchanged h1 into the generic site title.
+  if (pathname === announcedPathname) return
+  announcedPathname = pathname
+  headingWatcher?.disconnect()
+  if (headingFallback !== null) window.clearTimeout(headingFallback)
+  const previousHeading = routeAnnouncer.textContent ?? ''
+  let fallbackDue = false
+  const update = () => {
+    const heading = currentHeading()
+    // keepPreviousData can leave the old route's h1 mounted while the new
+    // query loads. Its text is already in the live region; wait for a distinct
+    // heading, or use the title if the destination fails or remains slow.
+    if (heading && heading !== previousHeading) announce(heading)
+    else if (fallbackDue) announce(document.title)
+  }
+  update()
+  // Keep watching until the next navigation. A query can finish after the
+  // fallback, and its real heading should still replace the title.
+  headingWatcher = new MutationObserver(update)
+  headingWatcher.observe(appRoot, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['data-route-announcement'] })
+  // The timer must run independently: an ErrorState may render once and then
+  // produce no more mutations. A later failure also runs update and falls back.
+  headingFallback = window.setTimeout(() => {
+    headingFallback = null
+    fallbackDue = true
+    update()
+  }, 4000)
 })
 
 // Before first paint, so the skin never flashes from classic to premium.

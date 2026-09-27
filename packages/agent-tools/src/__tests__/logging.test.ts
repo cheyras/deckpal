@@ -134,9 +134,14 @@ interface VariantQuery {
 function makeDb(variantQueries?: VariantQuery[]) {
   return {
     query: async (sql: string, params: unknown[]) => {
-      if (/FROM card c/.test(sql) && /tcgdex_id = ANY\(\$1::text\[\]\)/.test(sql)) {
+      if (/FROM browsable_card c/.test(sql) && /tcgdex_id = ANY\(\$1::text\[\]\)/.test(sql)) {
         const ids = (params[0] as string[]).map((s) => s.trim());
         return { rows: CARDS.filter((c) => ids.includes(c.tcgdexId)).map(cardRow) };
+      }
+      if (/FROM card c/.test(sql) && /EXISTS \(/.test(sql)) {
+        // The resolver checks this only for ids absent from browsable_card.
+        // This fixture has no previously owned Pocket cards.
+        return { rows: [] };
       }
       if (/FROM card_variant cv/.test(sql)) {
         const cardIds = params[0] as number[];

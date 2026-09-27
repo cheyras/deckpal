@@ -5,8 +5,10 @@ export { makePool } from './pool.js';
 export { loadEnv } from './env.js';
 export {
   TOKEN_PREFIX,
+  countActiveTokens,
   createToken,
   generateToken,
+  grantSchemaReady,
   hashToken,
   listTokens,
   looksLikeApiToken,
@@ -15,12 +17,23 @@ export {
   tokenPrefix,
   touchToken,
 } from './tokens.js';
-export type { ApiTokenRow, Queryable } from './tokens.js';
+export type { ApiTokenRow, Queryable, ResolvedToken, TokenScope } from './tokens.js';
 export {
   OAuthValidationError,
+  classifyRedirect,
+  connectionName,
   consumeAuthCode,
   createAuthCode,
   getClient,
   registerClient,
   verifyPkceS256,
 } from './oauth.js';
+export type { RedirectIdentity, RedirectTrust } from './oauth.js';
+export {
+  ACCESS_TOKEN_TTL_SECONDS,
+  REFRESH_TOKEN_PREFIX,
+  REFRESH_TOKEN_TTL_DAYS,
+  openConnection,
+  refreshConnection,
+} from './grants.js';
+export type { IssuedTokens, RefreshOutcome } from './grants.js';

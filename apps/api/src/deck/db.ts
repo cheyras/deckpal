@@ -99,6 +99,13 @@ async function factsFromRows(pool: Queryable, rows: CardRow[]): Promise<CardFact
   return rows.map((r) => toFacts(r, typeMap.get(Number(r.id)) ?? []));
 }
 
+/** Batch-load catalogue facts for ownership legality checks. */
+export async function loadFactsByIds(pool: Queryable, ids: number[]): Promise<CardFacts[]> {
+  if (ids.length === 0) return [];
+  const { rows } = await pool.query<CardRow>(`${CARD_SELECT} WHERE c.id = ANY($1)`, [ids]);
+  return factsFromRows(pool, rows);
+}
+
 /** Load one card by (tcgdex set id, numeric collector number). */
 export async function loadBySetNumber(
   pool: Queryable, setTcgdexId: string, number: string, offset = 0,
