@@ -5,7 +5,7 @@ import path from 'node:path'
 import { chromium, webkit } from 'playwright'
 import { ROOT, WEB, run, buildWeb, isolatedEnv, serve, contextFor } from '../tests/browser/support.mjs'
 import { appResponses, announcement, checkUpcoming } from '../tests/browser/upcoming.mjs'
-import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
+import { adminFixture, checkAdmin, checkInsights } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { checkBugReport } from '../tests/browser/bugReport.mjs'
@@ -50,6 +50,7 @@ try {
       }
       adminActive = true
       results.push(...await checkAdmin(browser, server, mount, label, out, admin))
+      results.push(...await checkInsights(browser, server, mount, label, out, admin))
       results.push(...await checkFeedback(browser, server, mount, label, out, admin))
       results.push(...await checkBugReport(browser, server, mount, label, out, admin))
       results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
