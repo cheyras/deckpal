@@ -119,3 +119,42 @@ test('long descriptions stop on the metadata line before the checklist or deck t
     assert.ok(!pages[0]!.includes('TAILMARKER'));
   }
 });
+
+test('fallback symbols share the row baseline with card names', async () => {
+  const bytes = await renderToBuffer((s) => renderSetChecklistPdf(s, set));
+  const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: false });
+  const pdf = await task.promise;
+  const items = (await (await pdf.getPage(1)).getTextContent()).items.filter((item): item is typeof item & { str: string; transform: number[] } =>
+    'str' in item && 'transform' in item);
+  const symbol = items.find((item) => item.str === '♀');
+  const nidoran = items.find((item) => item.str === 'N' && symbol && Math.abs(item.transform[5]! - symbol.transform[5]!) < 5);
+  assert.ok(nidoran && symbol);
+  assert.ok(Math.abs(nidoran.transform[5]! - symbol.transform[5]!) < 0.1);
+  await task.destroy();
+});
+
+test('long continuation labels fit beside the logo on later pages', async () => {
+  const longName = 'The very long collection of every special printing and favorite card '.repeat(3);
+  const cards = Array.from({ length: 230 }, (_, i) => ({ ...set.cards[0]!, number: String(i + 1), name: `Card ${i + 1}` }));
+  const listItems = Array.from({ length: 80 }, (_, i) => ({ ...list.items[0]!, name: `Card ${i + 1}` }));
+  const trainer = Array.from({ length: 80 }, (_, i) => ({ ...deck.trainer[0]!, name: `Trainer ${i + 1}` }));
+  for (const render of [
+    (s: Writable) => renderSetChecklistPdf(s, { ...set, setName: longName, cards, printedCount: cards.length }),
+    (s: Writable) => renderListPdf(s, { ...list, name: longName, items: listItems, itemCount: listItems.length }),
+    (s: Writable) => renderDeckPdf(s, { ...deck, name: longName, trainer, counts: { ...deck.counts, trainer: 80, total: 82 } }),
+  ]) {
+    const bytes = await renderToBuffer(render);
+    const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: false });
+    const pdf = await task.promise;
+    assert.ok(pdf.numPages > 1);
+    for (let pageNumber = 2; pageNumber <= pdf.numPages; pageNumber++) {
+      const items = (await (await pdf.getPage(pageNumber)).getTextContent()).items.filter((item): item is typeof item & { str: string; transform: number[] } =>
+        'str' in item && 'transform' in item);
+      const header = items.filter((item) => item.str.includes('T H E V E R Y L O N G'));
+      assert.ok(header.length > 0);
+      assert.ok(header.every((item) => item.transform[4]! >= 204 && item.transform[5]! > 792 - 66),
+        `wrapped continuation on page ${pageNumber}`);
+    }
+    await task.destroy();
+  }
+});

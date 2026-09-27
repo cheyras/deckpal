@@ -42,6 +42,10 @@ const specialFace = (char: string, normal: Face): Face =>
 
 /** PDFKit does not fall back per glyph. Split only the five catalog symbols its brand fonts lack. */
 function fitted(doc: Doc, value: string, x: number, y: number, max: number, size: number, face: Face = 'regular', color = C.ink): void {
+  // PDFKit places each font's ascender at y. A shared alphabetic baseline keeps
+  // fallback symbols level with the surrounding brand text.
+  const primary = font(doc, face).fontSize(size) as Doc & { _font: { ascender: number } };
+  const baselineY = y + primary._font.ascender * size / 1000;
   const parts = [...value].map((char) => ({ char, face: specialFace(char, face) }));
   const glyphWidth = (char: string, f: Face): number => font(doc, f).fontSize(size).widthOfString(char);
   let used = 0;
@@ -60,7 +64,7 @@ function fitted(doc: Doc, value: string, x: number, y: number, max: number, size
   }
   let cursor = x;
   for (const part of shown) {
-    font(doc, part.face).fontSize(size).fillColor(color).text(part.char, cursor, y, { lineBreak: false });
+    font(doc, part.face).fontSize(size).fillColor(color).text(part.char, cursor, baselineY, { lineBreak: false, baseline: 0 });
     cursor += glyphWidth(part.char, part.face);
   }
 }
@@ -99,8 +103,14 @@ function chrome(doc: Doc, label: string, title: string, meta: string, summary?: 
 
 function continuation(doc: Doc, label: string): number {
   wordmark(doc, MARGIN, 35, 83);
-  font(doc, 'semibold').fontSize(8).fillColor(C.muted).text(label.toUpperCase(), MARGIN + 160, 43,
-    { width: width(doc) - 160, align: 'right', lineBreak: false, characterSpacing: 1 });
+  const text = label.toUpperCase();
+  const available = width(doc) - 160;
+  const labelFont = font(doc, 'semibold').fontSize(8);
+  const measure = (value: string): number => labelFont.widthOfString(value) + Math.max(0, value.length - 1);
+  let shown = text;
+  while (shown.length && measure(shown) > available) shown = `${shown.slice(0, -2)}…`;
+  labelFont.fillColor(C.muted).text(shown, MARGIN + 160, 43,
+    { width: available, align: 'right', lineBreak: false, characterSpacing: 1 });
   rule(doc, MARGIN, 66, width(doc));
   return 83;
 }
