@@ -7,10 +7,14 @@ import { describe, it } from 'node:test'
 
 import type { FeedEntry, FeedVariant } from '../../ui/types'
 import {
+  acceptProposal,
+  acknowledgeWarnings,
   applyAction,
   cancel,
+  complete,
   EMPTY_QUEUE,
   enqueue,
+  fail,
   HOLD_MS,
   namedRows,
   propose,
@@ -18,6 +22,7 @@ import {
   revert,
   revertible,
   settleAll,
+  targetIdentityChanged,
   tick,
   undoLatest,
   WAIT_FOR_ROW_MS,
@@ -329,5 +334,148 @@ describe('naming', () => {
     // Two Charizards identified out of order: the later scan landed first.
     const feed = [row('late', { name: 'Charizard', capturedAt: 2_000 }), row('early', { name: 'Charizard', capturedAt: 1_000 })]
     assert.deepEqual(namedRows(feed).map((r) => r.id), ['late', 'early'])
+  })
+})
+
+describe('accepted action lifecycle and Verify warnings', () => {
+  const warningFor = (q: VoiceQueue, id: string) => q.warnings.find((w) => w.rowId === id)?.message
+
+  it('covers every action kind × row state × settlement path without losing actions or unrelated warnings', () => {
+    const kinds = [spec('reverse holo'), spec('three'), { kind: 'remove' } as const]
+    const states = ['in-air', 'missing', 'unidentified', 'identified', 'no-variants', 'corrected'] as const
+    const modes = ['timer', 'verify'] as const
+    for (const command of kinds) for (const state of states) for (const mode of modes) {
+      const kind = command.kind === 'remove' ? 'remove' : command.printing ? 'printing' : 'quantity'
+      const label = `${kind} / ${state} / ${mode}`
+      const spokenFeed = state === 'corrected' ? [row('r1')] : []
+      const landed = state === 'in-air' || state === 'missing' ? [] : [row('r1', {
+        ...(state === 'unidentified' ? { cardId: null, matched: false } : {}),
+        ...(state === 'no-variants' ? { variants: [] } : {}),
+        ...(state === 'corrected' ? { cardId: 'other-card' } : {}),
+      })]
+      let q = fail(EMPTY_QUEUE, 'other', 'An earlier change needs review')
+      q = acceptProposal(q, 'r1', propose(command, 'r1', spokenFeed, 0, mint))
+      assert.equal(q.pending.length, 1, label)
+      let due: VoiceAction[]
+      if (mode === 'verify') {
+        const settled = settleAll(q, landed)
+        q = settled.queue
+        due = settled.due
+      } else {
+        const attached = tick(q, landed, 1, () => state === 'in-air')
+        q = attached.queue
+        const advanced = tick(q, landed, state === 'in-air' ? 1_000 : 60_000, () => state === 'in-air')
+        q = advanced.queue
+        due = advanced.due
+      }
+      for (const action of due) q = complete(q, action, applyAction(landed, action))
+      const stillWaiting = state === 'in-air' && mode === 'timer'
+      const applies = state === 'identified' || state === 'no-variants' && kind !== 'printing' || state === 'unidentified' && kind === 'remove'
+      assert.equal(q.pending.length, stillWaiting ? 1 : 0, label)
+      assert.equal(q.history.length, applies ? 1 : 0, label)
+      assert.equal(!!warningFor(q, 'r1'), !stillWaiting && !applies, label)
+      assert.equal(warningFor(q, 'other'), 'An earlier change needs review', label)
+    }
+  })
+
+  it('records each refused proposal at entry, including unidentified and unavailable printings', () => {
+    for (const [label, command, feed] of [
+      ['unidentified', spec('reverse holo'), [row('r1', { cardId: null, matched: false })]],
+      ['unavailable', spec('reverse holo'), [row('r1', { name: 'Charizard ex', variants: CHARIZARD_EX })]],
+    ] as const) {
+      const proposal = propose(command, 'r1', feed, 0, mint)
+      const q = acceptProposal(EMPTY_QUEUE, 'r1', proposal)
+      assert.equal(q.pending.length, 0, label)
+      assert.equal(warningFor(q, 'r1'), proposal.outcome.message, label)
+    }
+  })
+
+  it('records every tick drop, including a held row removed by hand', () => {
+    const cases = [
+      { label: 'unidentified on landing', command: spec('reverse holo'), initial: [] as FeedEntry[], onTick: [row('r1', { cardId: null, matched: false })], now: 10, inFlight: false },
+      { label: 'discarded capture', command: spec('two of those'), initial: [] as FeedEntry[], onTick: [] as FeedEntry[], now: 10, inFlight: false },
+      { label: 'expired capture', command: spec('two of those'), initial: [] as FeedEntry[], onTick: [] as FeedEntry[], now: WAIT_FOR_ROW_MS + 1, inFlight: true },
+    ]
+    for (const c of cases) {
+      const q = acceptProposal(EMPTY_QUEUE, 'r1', propose(c.command, 'r1', c.initial, 0, mint))
+      const t = tick(q, c.onTick, c.now, () => c.inFlight)
+      assert.equal(t.queue.pending.length, 0, c.label)
+      assert.equal(warningFor(t.queue, 'r1'), t.dropped[0].message, c.label)
+    }
+    const held = tick(acceptProposal(EMPTY_QUEUE, 'r1', propose(spec('three'), 'r1', [row('r1')], 0, mint)), [row('r1')], 0, () => false)
+    const removed = tick(held.queue, [], 1, () => false)
+    assert.equal(removed.queue.pending.length, 0)
+    assert.equal(warningFor(removed.queue, 'r1'), 'That card is no longer in the list')
+  })
+
+  it('keeps a landing failure after manual identification and Verify', () => {
+    const q = acceptProposal(EMPTY_QUEUE, 'r1', propose(spec('reverse holo'), 'r1', [], 0, mint))
+    const landed = tick(q, [row('r1', { cardId: null, matched: false })], 10, () => false)
+    const identified = [row('r1')]
+    const verify = settleAll(landed.queue, identified)
+    assert.equal(verify.due.length, 0)
+    assert.equal(warningFor(verify.queue, 'r1'), 'Identify that scan first — tap it in the list')
+    assert.equal(identified[0].printingPicked, false)
+  })
+
+  it('records a missing row when Verify settles pending actions', () => {
+    const q = acceptProposal(EMPTY_QUEUE, 'r1', propose(spec('reverse holo'), 'r1', [], 0, mint))
+    const settled = settleAll(q, [])
+    assert.equal(settled.due.length, 0)
+    assert.equal(settled.dropped.length, 1)
+    assert.match(warningFor(settled.queue, 'r1')!, /not in the list yet/)
+  })
+
+  it('records every apply failure while preserving deliberate manual edits', () => {
+    const original = [row('r1')]
+    const action = (command: ReturnType<typeof spec>) => {
+      const q = tick(acceptProposal(EMPTY_QUEUE, 'r1', propose(command, 'r1', original, 0, mint)), original, 0, () => false)
+      return tick(q.queue, original, 60_000, () => false).due[0]
+    }
+    const printing = action(spec('reverse holo'))
+    const cases = [
+      ['missing row', printing, []],
+      ['lost identity', printing, [row('r1', { cardId: null })]],
+      ['corrected card', printing, [row('r1', { cardId: 'other-card' })]],
+      ['missing variants', printing, [row('r1', { variants: [] })]],
+      ['invalid printing', printing, [row('r1', { variants: CHARIZARD_EX })]],
+    ] as const
+    for (const [label, due, feed] of cases) {
+      const result = applyAction([...feed], due)
+      const q = complete(EMPTY_QUEUE, due, result)
+      assert.equal(result.record, null, label)
+      assert.equal(warningFor(q, 'r1'), result.outcome.message, label)
+      assert.equal(q.history.length, 0, label)
+    }
+    const quantity = action(spec('three'))
+    const manuallyEdited = applyAction([row('r1', { quantity: 4 })], quantity)
+    assert.equal(manuallyEdited.cancelled, true)
+    assert.equal(complete(EMPTY_QUEUE, quantity, manuallyEdited).warnings.length, 0)
+  })
+
+  it('never clears an unresolved warning through success, queues, timers or undo; acknowledgement clears it', () => {
+    const initial = acceptProposal(EMPTY_QUEUE, 'r1', propose(spec('reverse holo'), 'r1', [row('r1', { cardId: null })], 0, mint))
+    const warning = warningFor(initial, 'r1')
+    const identified = [row('r1')]
+    const accepted = acceptProposal(initial, 'r1', propose(spec('three'), 'r1', identified, 0, mint))
+    const attached = tick(accepted, identified, 0, () => false)
+    const due = tick(attached.queue, identified, 60_000, () => false)
+    const result = applyAction(identified, due.due[0])
+    const completed = complete(due.queue, due.due[0], result)
+    assert.equal(completed.history.length, 1)
+    assert.equal(warningFor(completed, 'r1'), warning)
+    const undone = undoLatest(completed)
+    assert.equal(warningFor(undone.queue, 'r1'), warning)
+    assert.equal(warningFor(withdraw(completed, [due.due[0].id]).queue, 'r1'), warning)
+    assert.equal(acknowledgeWarnings(completed).warnings.length, 0)
+    assert.equal(acknowledgeWarnings(EMPTY_QUEUE), EMPTY_QUEUE)
+  })
+
+  it('pins an existing target card identity from first words through final words', () => {
+    const start = new Map([['r1', 'card-r1']])
+    assert.equal(targetIdentityChanged(start, 'r1', [row('r1', { cardId: 'corrected' })]), true)
+    assert.equal(targetIdentityChanged(start, 'r1', [row('r1')]), false)
+    assert.equal(targetIdentityChanged(start, 'in-air', [row('in-air')]), false)
+    assert.equal(targetIdentityChanged(new Map([['r1', null]]), 'r1', [row('r1')]), false)
   })
 })

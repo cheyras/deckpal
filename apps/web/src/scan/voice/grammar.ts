@@ -72,7 +72,7 @@ export interface ParseResult {
    *  objection ("don't remove it"), a question or a wish ("should I remove
    *  it?"), or two cards at once. A refusal is never outvoted by another of the
    *  recognizer's guesses (`parseAlternatives`). */
-  refused?: 'negation' | 'question' | 'two-cards' | 'two-commands' | 'invalid-count'
+  refused?: 'negation' | 'question' | 'two-cards' | 'two-commands' | 'invalid-count' | 'ambiguous-target'
 }
 
 /** A row the reader might name, MOST RECENT FIRST, so a name that appears twice
@@ -188,7 +188,7 @@ const LEXICON: readonly { slot: Slot; phrases: readonly string[] }[] = [
   { slot: { kind: 'modifier', value: 'stamp' }, phrases: ['stamped', 'stamp'] },
   { slot: { kind: 'modifier', value: 'league' }, phrases: ['league'] },
   { slot: { kind: 'modifier', value: 'cosmos' }, phrases: ['cosmos', 'cosmo'] },
-  { slot: { kind: 'remove' }, phrases: ['remove', 'delete', 'discard', 'get rid of', 'take it out', 'take that out', 'toss it', 'toss that', 'throw it out'] },
+  { slot: { kind: 'remove' }, phrases: ['remove', 'removed', 'delete', 'discard', 'get rid of', 'take it out', 'take that out', 'toss it', 'toss that', 'throw it out'] },
   { slot: { kind: 'undo' }, phrases: ['undo', 'un do', 'undue', 'cancel', 'never mind', 'nevermind', 'keep it', 'put it back'] },
   { slot: { kind: 'stop' }, phrases: ['stop listening', 'stop voice', 'mic off', 'microphone off'] },
   {
@@ -248,22 +248,21 @@ const BARE_COUNT_FILLER = new Set([...DISCOURSE, 'just', 'please', 'now'])
 const NAME_SUFFIXES = new Set(['ex', 'v', 'vmax', 'vstar', 'gx', 'break', 'lv', 'x', 'prime', 'legend', 'star', 'delta'])
 
 interface Phrase {
+  tokens: readonly string[]
   key: string
   words: number
 }
 const phraseOf = (text: string): Phrase => {
   const words = tokenize(text)
-  return { key: words.map(phonetic).join(''), words: words.length }
+  return { tokens: words, key: words.map(phonetic).join(''), words: words.length }
 }
-// Negations and hedges only ever REFUSE, so they must be what was said, not
-// something near it: "right" is one letter from "might". Fillers also need
-// exact words, or they can swallow an unfound card name before coverage sees it.
-// Filler carries no command meaning and must not guess at one: a fuzzy match
-// of "the Seel" as a filler would hide an unresolved name and redirect a
-// removal to the latest capture. Command words and printing names still get
-// the recognizer tolerance they need.
-const EXACT: ReadonlySet<Slot['kind']> = new Set(['negation', 'hedge', 'filler'])
-const COMPILED = LEXICON.map((e) => ({ slot: e.slot, phrases: e.phrases.map(phraseOf), exact: EXACT.has(e.slot.kind) }))
+// Only printing vocabulary is fuzzy. Structural words carry intent and target
+// boundaries: neither phonetic folding nor joining tokens may turn a name into
+// filler ("the N" into "then") or into a verb ("remove N" into "removed").
+const COMPILED = LEXICON.map((e) => ({
+  slot: e.slot, phrases: e.phrases.map(phraseOf),
+  exact: e.slot.kind !== 'finish' && e.slot.kind !== 'modifier',
+}))
 
 // ── SEGMENTATION ────────────────────────────────────────────────────────────
 
@@ -271,6 +270,7 @@ type Segment =
   | { kind: 'slot'; slot: Slot; from: number; to: number }
   | { kind: 'name'; rowId: string; name: string; from: number; to: number }
   | { kind: 'number'; value: number; frameOnly: boolean; from: number; to: number }
+  | { kind: 'ambiguous'; from: number; to: number }
   | { kind: 'unknown'; from: number; to: number }
 
 interface Match {
@@ -298,7 +298,7 @@ interface Candidate extends Match {
  * Across phrases the reading that explains the most is kept (`weight`), so
  * "reverse whole o" is one reverse holo rather than "reverse" followed by a holo.
  */
-function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase[], slack: number, exact = false): Match | null {
+function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase[], slack: number): Match | null {
   let best: Match | null = null
   for (const phrase of phrases) {
     const lo = Math.max(1, phrase.words - 1)
@@ -318,7 +318,7 @@ function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase
       const forms = heard.endsWith('s') && !phrase.key.endsWith('s') ? [heard, heard.slice(0, -1)] : [heard]
       for (const h of forms) {
         const score = similarity(h, phrase.key)
-        if (score < (exact ? 1 : minSimilarity(Math.max(h.length, phrase.key.length)))) continue
+        if (score < minSimilarity(Math.max(h.length, phrase.key.length))) continue
         if (!own || score > own.score) own = { score, size, weight: score * heard.length }
       }
     }
@@ -327,32 +327,67 @@ function bestWindow(keys: readonly string[], i: number, phrases: readonly Phrase
   return best
 }
 
+/** Structural phrases match normalized TOKENS, never flattened sound keys. */
+function exactWindow(words: readonly string[], i: number, phrases: readonly Phrase[]): Match | null {
+  const hits = phrases.filter((p) => p.tokens.every((w, k) => words[i + k] === w))
+  const phrase = hits.sort((a, b) => b.words - a.words)[0]
+  return phrase ? { score: 1, size: phrase.words, weight: phrase.key.length } : null
+}
+
 function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[] {
   const keys = words.map(phonetic)
-  const names = rows
-    .filter((r) => r.name.trim())
-    .map((r) => {
-      const full = tokenize(r.name)
-      const core = full.filter((w, idx) => idx === 0 || !NAME_SUFFIXES.has(w))
-      const forms = [full, core].filter((f, idx, all) => f.length && (idx === 0 || f.join(' ') !== all[0].join(' ')))
-      return { row: r, phrases: forms.map((f) => ({ key: f.map(phonetic).join(''), words: f.length })) }
-    })
-    // A name is kept down to three sound-letters ("Mew", "Muk"). Short ones are
-    // safe because `minSimilarity` demands an exact match below five letters,
-    // and dropping them was worse: "the Mew is a holo" would otherwise fall
-    // through to "that one" and change a different card.
-    .map((n) => ({ ...n, phrases: n.phrases.filter((p) => p.key.length >= 3) }))
-    .filter((n) => n.phrases.length)
+  // Duplicate captures of the SAME full name use the caller's newest-first
+  // order. Distinct names sharing an alias or sound are ambiguity, not a tie
+  // broken by list order.
+  const unique = new Map<string, NamedRow>()
+  for (const row of rows) {
+    const name = tokenize(row.name).join(' ')
+    if (name && !unique.has(name)) unique.set(name, row)
+  }
+  const names = [...unique.values()].map((row) => {
+    const full = tokenize(row.name)
+    const core = full.filter((w, idx) => idx === 0 || !NAME_SUFFIXES.has(w))
+    return { row, phrases: [phraseOf(full.join(' ')), phraseOf(core.join(' '))] }
+  })
+
+  // Exact names are reserved before any fuzzy window runs. A window cannot
+  // consume a neighbouring name, even a one-letter trainer such as N. Names
+  // identical to grammar (Poké Ball, for example) retain their documented
+  // printing meaning; the reader can address that capture as "that one".
+  const reserved = new Map<number, Segment>()
+  for (let i = 0; i < words.length; i++) {
+    const hits = names.flatMap((n) => {
+      const hit = exactWindow(words, i, n.phrases)
+      return hit ? [{ ...hit, row: n.row }] : []
+    }).sort((a, b) => b.size - a.size)
+    const best = hits[0]
+    if (!best) continue
+    const grammar = COMPILED.some((e) => e.phrases.some((p) => p.words === best.size && exactWindow(words, i, [p])))
+    if (grammar) continue
+    const tied = hits.filter((h) => h.size === best.size)
+    reserved.set(i, tied.length > 1
+      ? { kind: 'ambiguous', from: i, to: i + best.size }
+      : { kind: 'name', rowId: best.row.id, name: best.row.name, from: i, to: i + best.size })
+    i += best.size - 1
+  }
 
   const out: Segment[] = []
   let i = 0
   while (i < words.length) {
+    const named = reserved.get(i)
+    if (named) {
+      out.push(named)
+      i = named.to
+      continue
+    }
+    // Every matcher sees only the interval before the next reserved name.
+    const end = [...reserved.keys()].find((at) => at > i) ?? words.length
+    const boundedWords = words.slice(0, end)
+    const boundedKeys = keys.slice(0, end)
     const word = words[i]
-    // Numbers first and literally — "two" and "to" are not a fuzzy question.
-    // "Twenty two" is one number, not a twenty and a two.
     const literal = /^\d{1,3}$/.test(word) ? Number(word) : NUMBER_WORDS.get(word)
     if (literal !== undefined) {
-      const unit = literal >= 20 && literal % 10 === 0 ? NUMBER_WORDS.get(words[i + 1] ?? '') : undefined
+      const unit = literal >= 20 && literal % 10 === 0 ? NUMBER_WORDS.get(boundedWords[i + 1] ?? '') : undefined
       const compound = unit !== undefined && unit < 10
       out.push({ kind: 'number', value: compound ? literal + unit : literal, frameOnly: false, from: i, to: i + (compound ? 2 : 1) })
       i += compound ? 2 : 1
@@ -365,23 +400,29 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
       continue
     }
 
-    // Ties go to whichever was considered first, and the GRAMMAR is tried
-    // first: a trainer card called "Poké Ball" must not turn "that one is a
-    // poke ball reverse holo" into a change to that trainer card. A card whose
-    // name IS a command phrase is still reachable as "that one".
     let best: Candidate | null = null
     for (const entry of COMPILED) {
-      const hit = bestWindow(keys, i, entry.phrases, 1, entry.exact)
+      const hit = entry.exact
+        ? exactWindow(boundedWords, i, entry.phrases)
+        : bestWindow(boundedKeys, i, entry.phrases, 1)
       if (hit && (!best || hit.weight > best.weight)) {
         best = { ...hit, make: (from, to) => ({ kind: 'slot', slot: entry.slot, from, to }) }
       }
     }
-    // Card names get two extra words of slack: a recognizer that does not know
-    // "Charizard" spreads it over "char is hard".
-    for (const n of names) {
-      const hit = bestWindow(keys, i, n.phrases, 2)
-      if (hit && (!best || hit.weight > best.weight)) {
-        best = { ...hit, make: (from, to) => ({ kind: 'name', rowId: n.row.id, name: n.row.name, from, to }) }
+    // Filler and command words never become a fuzzy card name. Only an
+    // unexplained start can introduce one; internal filler still permits the
+    // measured "char is hard" transcription of Charizard.
+    if (!best) {
+      const hits = names.flatMap((n) => {
+        const hit = bestWindow(boundedKeys, i, n.phrases.filter((p) => p.key.length >= 5), 2)
+        return hit ? [{ ...hit, row: n.row }] : []
+      }).sort((a, b) => b.score - a.score || b.weight - a.weight)
+      const hit = hits[0]
+      if (hit) {
+        const ambiguous = hits.some((h) => h.row.id !== hit.row.id && h.score === hit.score && h.weight === hit.weight)
+        best = { ...hit, make: (from, to) => ambiguous
+          ? { kind: 'ambiguous', from, to }
+          : { kind: 'name', rowId: hit.row.id, name: hit.row.name, from, to } }
       }
     }
     if (best) {
@@ -470,7 +511,7 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   let explained = 0
   for (let k = 0; k < segs.length; k++) {
     const s = segs[k]
-    if (s.kind === 'unknown') continue
+    if (s.kind === 'unknown' || s.kind === 'ambiguous') continue
     if (!used.has(k)) {
       if (s.kind === 'number' && (s.frameOnly ? !isPrinting(neighbour(segs, k, 1)) : s.value !== 1)) continue
       if (slotKind(s) === 'of') continue
@@ -478,6 +519,8 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     explained += s.to - s.from
   }
   const coverage = explained / words.length
+
+  if (segs.some((s) => s.kind === 'ambiguous')) return { command: null, coverage, refused: 'ambiguous-target' }
 
   const has = (kind: Slot['kind']) => segs.some((s) => slotKind(s) === kind)
   // One utterance, one card. Two different names ("remove Charizard, Venonat is
@@ -532,16 +575,13 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // to stop listening to music" does not turn the microphone off.
   if (command && coverage < 1) {
     if (command.kind === 'undo' || command.kind === 'stop') return { command: null, coverage }
-    // Say which word looked like a card we could not find — one right after
-    // "the/that/this" or "remove", or right before "is" — so the reader can
-    // try again, instead of the change going to some other card.
-    const said = (s: Segment | undefined) => (s ? words.slice(s.from, s.to).join(' ') : '')
-    const missing = segs.find(
-      (s, k) =>
-        s.kind === 'unknown' &&
-        (['the', 'that', 'this'].includes(said(segs[k - 1])) || slotKind(segs[k - 1]) === 'remove' || ['is', 'was', 'are'].includes(said(segs[k + 1]))),
-    )
-    return coverage >= 0.5 && missing ? { command: null, coverage, unresolvedName: said(missing) } : { command: null, coverage }
+    // Any unexplained word might be the target. Preserve that refusal across
+    // recognizer alternatives too: "N reverse holo" must not lose N simply
+    // because a lesser guess heard only "reverse holo".
+    const missing = segs.find((s) => s.kind === 'unknown')
+    return missing
+      ? { command: null, coverage, unresolvedName: words.slice(missing.from, missing.to).join(' ') }
+      : { command: null, coverage }
   }
   return { command, coverage }
 }
@@ -566,7 +606,13 @@ export function parseAlternatives(alternatives: readonly string[], rows: readonl
   // Shown as what was heard: the best guess, whichever guess raised the refusal.
   const objection = parsed.find((p) => p.refused)
   if (objection) return { ...objection, heard: first.heard }
-  if (first.unresolvedName) return first
+  const unresolved = parsed.find((p) => p.unresolvedName)
+  if (unresolved) return { ...unresolved, heard: first.heard }
+  const targets = new Set(parsed.flatMap((p) => {
+    const c = p.command
+    return c && (c.kind === 'edit' || c.kind === 'remove') ? [c.target.kind === 'anchor' ? 'anchor' : c.target.rowId] : []
+  }))
+  if (targets.size > 1) return { command: null, coverage: first.coverage, heard: first.heard, refused: 'ambiguous-target' }
   let best = first
   for (const p of parsed) if (p.command && (!best.command || p.coverage > best.coverage)) best = p
   return best

@@ -16,6 +16,10 @@ declare global {
       setLast: (captureId: string | null) => void
       setInFlight: (captureId: string | null) => void
       land: (id: string, name: string) => void
+      landUnidentified: (id: string) => void
+      identify: (id: string, name: string) => void
+      editRow: (id: string, quantity: number, variantId: number) => void
+      removeRow: (id: string) => void
       setEnabled: (on: boolean) => void
       setVariantsLoaded: (id: string, loaded: boolean) => void
       enterVerify: () => void
@@ -66,6 +70,16 @@ function Scanner() {
     setLast: (id: string | null) => (last.current = id),
     setInFlight: (id: string | null) => (inFlight.current = id),
     land: (id: string, name: string) => setFeed((f) => [...f, row(id, name, VENONAT, 200)]),
+    landUnidentified: (id: string) => setFeed((f) => [...f, {
+      ...row(id, 'Unidentified scan', VENONAT, 200), cardId: null, matched: false, variants: [], variantId: null,
+    }]),
+    identify: (id: string, name: string) => setFeed((f) => f.map((e) => e.id === id
+      ? { ...e, cardId: `card-${id}-identified`, matched: true, name, variants: VENONAT, variantId: VENONAT[0].variantId }
+      : e)),
+    editRow: (id: string, quantity: number, variantId: number) => setFeed((f) => f.map((e) => e.id === id
+      ? { ...e, quantity, variantId, printingPicked: true }
+      : e)),
+    removeRow: (id: string) => setFeed((f) => f.filter((e) => e.id !== id)),
     setEnabled,
     setVariantsLoaded: (id: string, loaded: boolean) => setFeed((f) => f.map((e) => e.id === id ? { ...e, variants: loaded ? VENONAT : [] } : e)),
     enterVerify: () => { voice.settlePending(); setEnabled(false) },

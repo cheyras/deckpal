@@ -21012,3 +21012,14 @@ environment variable or deployment change.
 **Why:** “Remove the Seel” could otherwise remove the latest capture. A failed printing change or a command whose capture was still identifying could lose its warning as the camera caption disappeared, allowing the default printing to be committed without notice.
 
 **Implications:** A reader may need to repeat an ambiguous command or acknowledge a failed printing before adding the batch. The scanner tests cover both paths, and the focused browser test checks the Verify warning at desktop and phone widths. No schema, permission or deployment change.
+
+
+## 2026-09-26 — Scanner voice target and lifecycle invariants
+
+**Decided by:** Chey (via Codex gpt-6-astra)
+
+**Decision:** Separate literal structural tokens from fuzzy printing/name recognition, reserve exact name boundaries, snapshot target context at first speech, and refuse ambiguous targets. Store unfinished speech and every failed voice action in persistent queue warnings through Verify, cleared only by explicit acknowledgement; deliberate cancellation and supersession remain supported.
+
+**Why:** Repeated review findings came from the same two structural problems: competing fuzzy windows could swallow a card name, and queue exit paths could discard a printing request with only a temporary caption. “The N” versus “then” and an unidentified capture landing during `tick()` are regressions in a larger class, not isolated exceptions.
+
+**Implications:** The closed grammar and opt-in beta remain. Duplicate identical names use latest capture order; ambiguous names require a full name or manual selection. Add is blocked by unresolved voice warnings. Table-driven target cases and lifecycle transition tests cover the invariant boundaries; the browser proof covers the shipping hook at 1440px and 390px. Migration 073 and the physical-iPhone speech/camera check remain as previously documented. The supervisor syncs Architecture, Decision Log and Contribution Record to the wiki.

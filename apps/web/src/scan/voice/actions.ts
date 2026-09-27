@@ -92,9 +92,23 @@ export interface VoiceQueue {
   pending: readonly VoiceAction[]
   /** Applied changes, most recent first. */
   history: readonly UndoRecord[]
+  /** Failures stay visible at Verify until the reader acknowledges them. */
+  warnings: readonly VoiceWarning[]
 }
 
-export const EMPTY_QUEUE: VoiceQueue = { pending: [], history: [] }
+export interface VoiceWarning { rowId: string; message: string }
+
+export const EMPTY_QUEUE: VoiceQueue = { pending: [], history: [], warnings: [] }
+
+/** One current warning per row, retained across later queue operations and
+ * successful actions. Only explicit acknowledgement clears it. */
+export function fail(queue: VoiceQueue, rowId: string, message: string): VoiceQueue {
+  return { ...queue, warnings: [...queue.warnings.filter((w) => w.rowId !== rowId), { rowId, message }] }
+}
+
+export function acknowledgeWarnings(queue: VoiceQueue): VoiceQueue {
+  return queue.warnings.length ? { ...queue, warnings: [] } : queue
+}
 
 /** Something the reader should be told happened, or did not. */
 export interface Outcome {
@@ -112,6 +126,18 @@ export function namedRows(feed: readonly FeedEntry[]): NamedRow[] {
     .map((e, order) => ({ e, order }))
     .sort((a, b) => b.e.capturedAt - a.e.capturedAt || b.order - a.order)
     .map(({ e }) => ({ id: e.id, name: e.name }))
+}
+
+/** A row already present when speech began must still identify the same card
+ * when its final words arrive. In-air captures are absent from this snapshot. */
+export function targetIdentityChanged(
+  atStart: ReadonlyMap<string, string | null>, rowId: string, feed: readonly FeedEntry[],
+): boolean {
+  if (!atStart.has(rowId)) return false
+  const current = feed.find((e) => e.id === rowId)
+  const original = atStart.get(rowId)
+  // Resolving an unidentified capture is not a correction of a known card.
+  return !!current && original !== null && current.cardId !== original
 }
 
 const rowName = (row: FeedEntry | undefined) => (row?.cardId ? row.name : 'That scan')
@@ -180,6 +206,16 @@ export function enqueue(queue: VoiceQueue, actions: readonly VoiceAction[]): Voi
   return { ...queue, pending }
 }
 
+/** Enter a proposal through one gate so a refused precheck cannot disappear as
+ * a transient caption. */
+export function acceptProposal(
+  queue: VoiceQueue,
+  rowId: string,
+  proposal: ReturnType<typeof propose>,
+): VoiceQueue {
+  return proposal.actions.length ? enqueue(queue, proposal.actions) : fail(queue, rowId, proposal.outcome.message)
+}
+
 /**
  * Advance the clock: start the hold for actions whose row has landed, give up
  * on ones whose row never will, and hand back the ones that are due.
@@ -197,12 +233,15 @@ export function tick(
   const dropped: Outcome[] = []
   const attached: string[] = []
   const pending: VoiceAction[] = []
+  let next = queue
   for (const a of queue.pending) {
     const row = feed.find((e) => e.id === a.rowId)
     if (a.settleAt === null) {
       if (row) {
         if (a.kind !== 'remove' && !row.cardId) {
-          dropped.push({ ok: false, message: 'Identify that scan first — tap it in the list' })
+          const outcome = { ok: false, message: 'Identify that scan first — tap it in the list' }
+          dropped.push(outcome)
+          next = fail(next, a.rowId, outcome.message)
           continue
         }
         // The card the command was SPOKEN about, when its row already existed
@@ -211,20 +250,27 @@ export function tick(
         pending.push({ ...a, cardId: a.cardId ?? row.cardId, baseline: a.baseline ?? baselineOf(row), settleAt: now + HOLD_MS[a.kind] })
         attached.push(a.rowId)
       } else if (now > a.expiresAt || !inFlight(a.rowId)) {
-        dropped.push({ ok: false, message: 'That scan didn’t make it to the list' })
+        const outcome = { ok: false, message: 'That scan didn’t make it to the list' }
+        dropped.push(outcome)
+        next = fail(next, a.rowId, outcome.message)
       } else {
         pending.push(a)
       }
       continue
     }
-    if (!row) continue // removed by hand while pending — nothing left to change
+    if (!row) {
+      const outcome = { ok: false, message: 'That card is no longer in the list' }
+      dropped.push(outcome)
+      next = fail(next, a.rowId, outcome.message)
+      continue
+    }
     if (a.settleAt <= now) due.push(a)
     else pending.push(a)
   }
   // The same object back when nothing moved, so a caller ticking several times
   // a second does not re-render a list that has not changed.
-  const unchanged = !attached.length && pending.length === queue.pending.length
-  return { queue: unchanged ? queue : { ...queue, pending }, due, dropped, attached }
+  const unchanged = next === queue && !attached.length && pending.length === queue.pending.length
+  return { queue: unchanged ? queue : { ...next, pending }, due, dropped, attached }
 }
 
 /** Everything with a row applies now; everything still waiting for one is let
@@ -238,7 +284,9 @@ export function settleAll(queue: VoiceQueue, feed: readonly FeedEntry[]): { queu
     return row ? [{ ...a, cardId: a.cardId ?? row.cardId, baseline: a.baseline ?? baselineOf(row), settleAt: 0 }] : []
   })
   const dueIds = new Set(due.map((a) => a.id))
-  return { queue: { ...queue, pending: [] }, due, dropped: queue.pending.filter((a) => !dueIds.has(a.id)) }
+  const dropped = queue.pending.filter((a) => !dueIds.has(a.id))
+  const next = dropped.reduce((q, a) => fail(q, a.rowId, 'That scan was not in the list yet. Its voice change was not applied.'), queue)
+  return { queue: { ...next, pending: [] }, due, dropped }
 }
 
 export function cancel(queue: VoiceQueue, actionId: string): VoiceQueue {
@@ -249,22 +297,24 @@ export function cancel(queue: VoiceQueue, actionId: string): VoiceQueue {
  * Apply one due action to the list. Rechecked here, against the row as it is
  * NOW, because the reader may have changed it by hand during the hold.
  */
-export function applyAction(feed: FeedEntry[], action: VoiceAction): { feed: FeedEntry[]; record: UndoRecord | null; outcome: Outcome } {
+export interface ApplyResult { feed: FeedEntry[]; record: UndoRecord | null; outcome: Outcome; cancelled?: true }
+
+export function applyAction(feed: FeedEntry[], action: VoiceAction): ApplyResult {
   const index = feed.findIndex((e) => e.id === action.rowId)
   const row = feed[index]
   if (!row) return { feed, record: null, outcome: { ok: false, message: 'That card is no longer in the list' } }
+  if (action.cardId && row.cardId !== action.cardId) {
+    return { feed, record: null, outcome: { ok: false, message: `${row.name} changed since you spoke — say it again` } }
+  }
 
   if (action.kind === 'remove') {
     const label = `Removed ${rowName(row)}`
     return { feed: feed.filter((e) => e.id !== row.id), record: { actionId: action.id, kind: 'remove', rowId: row.id, label, row, index }, outcome: { ok: true, message: label } }
   }
   if (!row.cardId) return { feed, record: null, outcome: { ok: false, message: 'Identify that scan first — tap it in the list' } }
-  if (action.cardId && row.cardId !== action.cardId) {
-    return { feed, record: null, outcome: { ok: false, message: `${row.name} changed since you spoke — say it again` } }
-  }
 
   if (editedByHand(action, row)) {
-    return { feed, record: null, outcome: { ok: false, message: `Kept the change you made to ${row.name}` } }
+    return { feed, record: null, cancelled: true, outcome: { ok: false, message: `Kept the change you made to ${row.name}` } }
   }
 
   if (action.kind === 'quantity') {
@@ -291,6 +341,14 @@ export function applyAction(feed: FeedEntry[], action: VoiceAction): { feed: Fee
 
 export function remember(queue: VoiceQueue, record: UndoRecord): VoiceQueue {
   return { ...queue, history: [record, ...queue.history].slice(0, HISTORY_LIMIT) }
+}
+
+/** Finish a due action in one place. A manual edit deliberately cancels voice;
+ * every other non-application becomes a persistent Verify warning. */
+export function complete(queue: VoiceQueue, action: VoiceAction, result: ApplyResult): VoiceQueue {
+  const next = queue.pending.some((a) => a.id === action.id) ? cancel(queue, action.id) : queue
+  if (result.record) return remember(next, result.record)
+  return result.cancelled ? next : fail(next, action.rowId, result.outcome.message)
 }
 
 /** Can `record` still be put back? Not onto a row that is gone, not a removal
@@ -336,7 +394,7 @@ export function undoLatest(queue: VoiceQueue): { queue: VoiceQueue; cancelled: V
 export function withdraw(queue: VoiceQueue, actionIds: readonly string[]): { queue: VoiceQueue; cancelled: VoiceAction[]; reverted: UndoRecord[] } {
   const ids = new Set(actionIds)
   return {
-    queue: { pending: queue.pending.filter((a) => !ids.has(a.id)), history: queue.history.filter((r) => !ids.has(r.actionId)) },
+    queue: { ...queue, pending: queue.pending.filter((a) => !ids.has(a.id)), history: queue.history.filter((r) => !ids.has(r.actionId)) },
     cancelled: queue.pending.filter((a) => ids.has(a.id)),
     reverted: queue.history.filter((r) => ids.has(r.actionId)),
   }

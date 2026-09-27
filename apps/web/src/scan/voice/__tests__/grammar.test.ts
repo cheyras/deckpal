@@ -328,3 +328,81 @@ describe('alternatives', () => {
     assert.equal(best.heard, 'nice weather')
   })
 })
+
+// Cartesian cases exercise boundaries, not just the utterance that exposed a
+// bug. Adding/reordering unrelated captures must never redirect a named edit.
+describe('target invariants', () => {
+  const names = ['N', 'Seel', 'Mew', 'Muk', 'Charizard ex', 'Venonat', 'Mr. Mime', 'Team Rocket’s Mewtwo']
+  const frames = [
+    (name: string) => `remove the ${name}`,
+    (name: string) => `remove ${name} please`,
+    (name: string) => `the ${name} is a reverse holo`,
+    (name: string) => `${name} times two`,
+  ]
+  for (const name of names) {
+    it(`reserves every token of ${name}, in every command frame`, () => {
+      const named = { id: 'named', name }
+      const unrelated = [{ id: 'latest', name: 'Exeggcute' }, { id: 'other', name: 'Pidgey' }]
+      for (const frame of frames) for (const rows of [[named, ...unrelated], [...unrelated, named]]) {
+        const heard = frame(name)
+        const result = parseUtterance(heard, rows)
+        assert.ok(result.command && 'target' in result.command, heard)
+        assert.deepEqual(result.command.target, { kind: 'row', rowId: 'named', name }, heard)
+        assert.equal(result.coverage, 1)
+        assert.equal(parseUtterance(heard, unrelated).command, null, `absent: ${heard}`)
+      }
+    })
+  }
+
+  it('does not flatten structural tokens, pluralize filler, or fuzzy-match verbs', () => {
+    for (const heard of ['remove the N', 'remove t he N', 'remove th en', 'remove the seal', 'remove pleas', 'de lete it', 'remove we ll']) {
+      assert.equal(parseUtterance(heard).command, null, heard)
+    }
+    assert.deepEqual(parseUtterance('then remove it').command, { kind: 'remove', target: { kind: 'anchor' } })
+  })
+
+  it('never resolves filler-only references to a sound-alike card', () => {
+    const rows = ['Shinx', 'Ditto', 'Seel', 'N', 'Lugia', 'Onix'].map((name) => ({ id: name, name }))
+    for (const heard of ['remove it', 'remove that one', 'that one is a holo', 'then remove this', 'two of those']) {
+      const c = parseUtterance(heard, rows).command
+      assert.ok(c && 'target' in c, heard)
+      assert.deepEqual(c.target, { kind: 'anchor' }, heard)
+    }
+  })
+
+  it('refuses distinct names sharing a shortened name or the same sound', () => {
+    for (const rows of [
+      [{ id: 'one', name: 'Charizard ex' }, { id: 'two', name: 'Charizard V' }],
+      [{ id: 'one', name: 'Charizard V' }, { id: 'two', name: 'Charizard ex' }],
+    ]) {
+      assert.equal(parseUtterance('remove the charizard', rows).refused, 'ambiguous-target')
+      const c = parseUtterance('remove the Charizard ex', rows).command
+      assert.ok(c && 'target' in c && c.target.kind === 'row')
+      assert.equal(c.target.name, 'Charizard ex')
+    }
+  })
+
+  it('never lets alternative guesses silently change or lose an explicit target', () => {
+    for (const alts of [
+      ['remove Venonat', 'remove Charizard'],
+      ['remove Charizard', 'remove it'],
+      ['remove it', 'remove Charizard'],
+      ['remove it', 'remove the N'],
+      ['remove the N', 'remove it'],
+      ['N reverse holo', 'reverse holo'],
+      ['reverse holo', 'N reverse holo'],
+    ]) assert.equal(parseAlternatives(alts, ROWS).command, null, alts.join(' / '))
+  })
+
+  it('reserves adjacent names before a fuzzy printing can absorb either', () => {
+    const rows = [{ id: 'n', name: 'N' }, ...ROWS]
+    for (const heard of ['N reverse holo', 'reverse holo N', 'the N is a reverse hollow']) {
+      const c = parseUtterance(heard, rows).command
+      assert.ok(c && 'target' in c, heard)
+      assert.deepEqual(c.target, { kind: 'row', rowId: 'n', name: 'N' })
+    }
+    for (const heard of ['remove N Venonat', 'N reverse holo Venonat', 'remove Venonat and N']) {
+      assert.equal(parseUtterance(heard, rows).refused, 'two-cards', heard)
+    }
+  })
+})

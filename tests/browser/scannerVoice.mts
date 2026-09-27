@@ -138,6 +138,36 @@ try {
     await row(1).locator('[data-voice-pending]').first().waitFor({ state: 'detached' })
     assert.equal((await row(1).locator('.tabular-nums').textContent())?.trim(), '2')
 
+    // A known one-letter card name reaches back instead of falling through to
+    // the most recent scan; absent names are refused outright.
+    await harness(page, 'land', 'cap-n', 'N')
+    await until(async () => (await rows.count()) === 4, 'the N row lands')
+    await say(page, 'N reverse holo')
+    await row(3).locator('[data-voice-pending="printing"]').waitFor()
+    assert.equal(await row(2).locator('[data-voice-pending]').count(), 0)
+    await row(3).getByRole('button', { name: 'Cancel voice change: Reverse Holofoil' }).click()
+    await harness(page, 'removeRow', 'cap-n')
+    await until(async () => (await rows.count()) === 3, 'the N row is removed')
+    await say(page, 'N reverse holo')
+    await page.locator('[data-voice-caption="refused"]').getByText('Couldn’t find “n” in the list').waitFor()
+    assert.equal(await page.locator('[data-voice-pending]').count(), 0)
+    await say(page, 'the Seel is a holo')
+    await page.locator('[data-voice-caption="refused"]').getByText('Couldn’t find “seel” in the list').waitFor()
+    assert.equal(await page.locator('[data-voice-pending]').count(), 0)
+
+    // Named targets are pinned when the utterance starts. A newer duplicate
+    // arriving before the final result cannot steal the command.
+    await say(page, 'Venonat reverse holo', false)
+    await page.locator('[data-voice-interim]').waitFor()
+    await harness(page, 'land', 'cap-newer-venonat', 'Venonat')
+    await until(async () => (await rows.count()) === 4, 'the newer Venonat row lands during speech')
+    await say(page, 'Venonat reverse holo', true)
+    await row(2).locator('[data-voice-pending="printing"]').waitFor()
+    assert.equal(await row(3).locator('[data-voice-pending]').count(), 0)
+    await row(2).getByRole('button', { name: 'Cancel voice change: Reverse Holofoil' }).click()
+    await harness(page, 'removeRow', 'cap-newer-venonat')
+    await until(async () => (await rows.count()) === 3, 'the temporary duplicate row is removed')
+
     // Tap a pending chip away: nothing happens to the row.
     await say(page, 'normal')
     await row(2).locator('[data-voice-pending="printing"]').waitFor()
@@ -229,9 +259,44 @@ try {
     await until(async () => (await speech(page)).live, 'shown again on the scan step, listening resumes')
     await drive(page, 'open')
 
+    // If a printing command's row lands unidentified, it is dropped and kept
+    // as a Verify warning even after manual identification/editing, a later
+    // successful voice change, and undo. The caption can expire independently.
+    await harness(page, 'setLast', 'cap-unidentified')
+    await harness(page, 'setInFlight', 'cap-unidentified')
+    await say(page, 'reverse holo')
+    await harness(page, 'landUnidentified', 'cap-unidentified')
+    await until(async () => (await rows.count()) === 5, 'the unidentified scan row lands')
+    await harness(page, 'setInFlight', null)
+    await page.clock.runFor(200)
+    await page.locator('[data-voice-caption="refused"]').waitFor()
+    await page.getByText('Identify that scan first — tap it in the list').waitFor()
+    await harness(page, 'identify', 'cap-unidentified', 'Venonat')
+    await harness(page, 'editRow', 'cap-unidentified', 2, 21)
+    await page.clock.runFor(4_600)
+    await page.locator('[data-voice-caption="refused"]').waitFor({ state: 'detached' })
+    await say(page, 'reverse holo')
+    await row(4).locator('[data-voice-pending="printing"]').waitFor()
+    await page.clock.runFor(4_200)
+    assert.equal((await row(4).locator('[data-printing="resolved"]').textContent())?.trim(), 'Reverse Holofoil')
+    await say(page, 'undo')
+    await page.clock.runFor(100)
+    assert.equal((await row(4).locator('[data-printing="resolved"]').textContent())?.trim(), 'Normal')
+    await harness(page, 'enterVerify')
+    const unidentifiedWarning = page.getByRole('alert').getByText('Voice change not applied')
+    await unidentifiedWarning.waitFor()
+    await page.getByText('Identify that scan first — tap it in the list').waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Add cards' }).isDisabled(), true)
+    await page.getByRole('button', { name: 'Continue without the voice change' }).click()
+    assert.equal(await page.getByRole('button', { name: 'Add cards' }).isEnabled(), true)
+    await harness(page, 'setEnabled', true)
+    await until(async () => (await speech(page)).live, 'voice resumes after acknowledging the unidentified scan')
+    await drive(page, 'open')
+
     // A printing whose options have not loaded must remain visible on Verify.
     // The default may still be present, so Add stays blocked until the reader
     // explicitly chooses to continue with the printings shown.
+    await harness(page, 'setLast', 'cap-4')
     await harness(page, 'setVariantsLoaded', 'cap-4', false)
     await say(page, 'normal')
     await row(3).locator('[data-voice-pending="printing"]').waitFor()
@@ -249,6 +314,31 @@ try {
     await until(async () => (await speech(page)).live, 'voice resumes after returning from Verify')
     await drive(page, 'open')
 
+    // Words still arriving when Verify opens are not a completed command.
+    // Preserve a warning after clearing the camera caption and block Add until
+    // the reader acknowledges it. Exercise both the explicit Verify callback
+    // and the state-change path that leaves the scan step directly.
+    await say(page, 'reverse holo', false)
+    await page.locator('[data-voice-interim]').waitFor()
+    await harness(page, 'enterVerify')
+    await page.getByText('Speech ended before the voice command was finished. Check your cards before adding.').waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Add cards' }).isDisabled(), true)
+    await page.getByRole('button', { name: 'Continue without the voice change' }).click()
+    await harness(page, 'setEnabled', true)
+    await until(async () => (await speech(page)).live, 'voice resumes after acknowledging unfinished speech')
+    await drive(page, 'open')
+
+    await say(page, 'reverse holo', false)
+    await page.locator('[data-voice-interim]').waitFor()
+    await harness(page, 'setEnabled', false)
+    await page.getByText('Speech ended before the voice command was finished. Check your cards before adding.').waitFor()
+    assert.equal(await page.getByRole('button', { name: 'Add cards' }).isDisabled(), true)
+    await page.getByRole('button', { name: 'Continue without the voice change' }).click()
+    await harness(page, 'setEnabled', true)
+    await until(async () => (await speech(page)).live, 'voice resumes after direct scan-step exit acknowledgement')
+    await drive(page, 'open')
+    await harness(page, 'setLast', 'cap-4')
+
     // A command for an in-flight capture cannot be allowed to disappear at
     // Verify just because its row has not landed yet.
     await harness(page, 'setLast', 'cap-5')
@@ -256,7 +346,7 @@ try {
     await say(page, 'reverse holo')
     await page.locator('[data-voice-caption="heard"]').waitFor()
     await harness(page, 'enterVerify')
-    await page.getByText('That scan was not in the list yet. Its voice change was not applied.').waitFor()
+    await page.getByRole('alert').getByText('That scan was not in the list yet. Its voice change was not applied.').waitFor()
     assert.equal(await page.getByRole('button', { name: 'Add cards' }).isDisabled(), true)
     await page.getByRole('button', { name: 'Continue without the voice change' }).click()
     await harness(page, 'setInFlight', null)

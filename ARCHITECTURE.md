@@ -835,11 +835,16 @@ Google for Chrome). The structure is four pure modules and one hook:
 * `useScannerVoice.ts` owns time, React state and the page lifecycle.
 
 Before Verify opens, pending speech changes settle against the current row.
-A failed printing change, or a command for a capture still being identified,
-remains visible as a warning on Verify. Add waits for the reader to explicitly
-continue without the voice change. Filler words match exactly,
-so a spoken card name cannot silently redirect an edit or removal to the latest
-capture, even when that name has not reached the list.
+Unfinished speech and failures from proposal through timeout, unidentified landing and application are
+stored in the voice queue, independently of captions. They survive Verify,
+later commands and Undo until explicitly acknowledged; Add remains disabled.
+
+Targeting snapshots both named captures and “that one” at the first words.
+Structural phrases match normalized token arrays, while exact names reserve
+boundaries before fuzzy printing/name matching. Distinct names tied for a match
+or recognizer alternatives that disagree on the target are refused. Identical
+names resolve by capture time, not row arrival order. The full rules and test
+matrix are in [`scan/voice/README.md`](apps/web/src/scan/voice/README.md).
 
 Nothing in the scanner may play audio, because any playback silently kills the
 iOS recognizer.

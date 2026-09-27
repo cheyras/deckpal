@@ -15,16 +15,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { FeedEntry } from '../ui/types'
 import {
+  acceptProposal,
+  acknowledgeWarnings,
   applyAction,
   cancel as cancelAction,
+  complete,
   EMPTY_QUEUE,
-  enqueue,
+  fail,
   namedRows,
   propose,
-  remember,
   revert,
   revertible,
   settleAll,
+  targetIdentityChanged,
   tick,
   undoLatest,
   withdraw,
@@ -32,7 +35,7 @@ import {
   type VoiceAction,
   type VoiceQueue,
 } from './actions'
-import { parseAlternatives } from './grammar'
+import { parseAlternatives, type NamedRow } from './grammar'
 import { createVoiceRecognizer, recognitionLang, speechRecognitionCtor, type HeardResult, type VoiceRecognizer, type VoiceStatus } from './recognizer'
 
 export interface VoiceCaption {
@@ -75,7 +78,6 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
   const [interim, setInterim] = useState('')
   const [caption, setCaption] = useState<VoiceCaption | null>(null)
   const [announcement, setAnnouncement] = useState('')
-  const [verifyWarnings, setVerifyWarnings] = useState<{ rowId: string; message: string }[]>([])
   const [queue, setQueueState] = useState<VoiceQueue>(EMPTY_QUEUE)
 
   const queueRef = useRef<VoiceQueue>(EMPTY_QUEUE)
@@ -83,7 +85,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
   const recRef = useRef<VoiceRecognizer | null>(null)
   const resumeRef = useRef(false)
   const enabledRef = useRef(enabled)
-  const anchorsRef = useRef(new Map<string, string | null>())
+  const utterancesRef = useRef(new Map<string, { anchor: string | null; rows: NamedRow[]; cardIds: Map<string, string | null>; hasWords: boolean }>())
   const finalsRef = useRef(new Set<string>())
   const captionSeq = useRef(0)
   const actionSeq = useRef(0)
@@ -103,6 +105,17 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     setQueueState(next)
   }, [])
 
+  // Speech is already visible to the reader before a final command exists.
+  // Every way recognition can end must account for that unfinished work too.
+  const settleUtterances = useCallback(() => {
+    let next = queueRef.current
+    for (const utterance of utterancesRef.current.values()) {
+      if (utterance.hasWords) next = fail(next, 'unfinished-speech', 'Speech ended before the voice command was finished. Check your cards before adding.')
+    }
+    utterancesRef.current.clear()
+    commitQueue(next)
+  }, [commitQueue])
+
   /** Say it to a screen reader. Cleared first so the same sentence twice is
    *  still announced twice. */
   const announce = useCallback((text: string) => {
@@ -119,10 +132,6 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     [announce],
   )
 
-  const warnForVerify = useCallback((rowId: string, message: string) => {
-    setVerifyWarnings((prev) => [...prev.filter((warning) => warning.rowId !== rowId), { rowId, message }])
-  }, [])
-
   useEffect(() => {
     if (!caption) return
     const t = window.setTimeout(() => setCaption((c) => (c?.id === caption.id ? null : c)), CAPTION_MS[caption.tone])
@@ -137,15 +146,13 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       let q = queueRef.current
       for (const action of due) {
         const r = applyAction(feedRef.current, action)
+        q = complete(q, action, r)
         if (!r.record) {
-          show('refused', r.outcome.message)
-          if (action.kind === 'printing') warnForVerify(action.rowId, r.outcome.message)
+          show(r.cancelled ? 'info' : 'refused', r.outcome.message)
           continue
         }
-        if (action.kind === 'printing') setVerifyWarnings((prev) => prev.filter((warning) => warning.rowId !== action.rowId))
         feedRef.current = r.feed
         cbRef.current.setFeed((prev) => applyAction(prev, action).feed)
-        q = remember(q, r.record)
         // A printing or a count changes in place on a row the reader can see
         // and edit; a removal takes the row away, so its Undo has to live here.
         if (action.kind === 'remove') show('done', r.outcome.message, [action.id])
@@ -153,7 +160,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       }
       commitQueue(q)
     },
-    [announce, commitQueue, show, warnForVerify],
+    [announce, commitQueue, show],
   )
 
   const runTick = useCallback(() => {
@@ -218,20 +225,32 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
 
   const onResult = useCallback(
     (r: HeardResult) => {
-      // Pin "that one" on the utterance's FIRST words, not its last.
-      if (!anchorsRef.current.has(r.key)) anchorsRef.current.set(r.key, cbRef.current.lastCaptureId())
+      if (finalsRef.current.has(r.key)) return
+      // Pin both "that one" and the nameable rows on the FIRST words. A
+      // later capture cannot change which same-name card the reader meant.
+      if (!utterancesRef.current.has(r.key)) utterancesRef.current.set(r.key, {
+        anchor: cbRef.current.lastCaptureId(),
+        rows: namedRows(feedRef.current),
+        cardIds: new Map(feedRef.current.map((e) => [e.id, e.cardId])),
+        hasWords: false,
+      })
+      utterancesRef.current.get(r.key)!.hasWords ||= r.alternatives.some((text) => text.trim().length > 0)
       if (!r.isFinal) {
         setInterim(r.alternatives[0] ?? '')
         return
       }
-      if (finalsRef.current.has(r.key)) return
       finalsRef.current.add(r.key)
-      const anchor = anchorsRef.current.get(r.key) ?? null
-      anchorsRef.current.delete(r.key)
+      const snapshot = utterancesRef.current.get(r.key)!
+      const anchor = snapshot.anchor
+      utterancesRef.current.delete(r.key)
       setInterim('')
 
-      const parsed = parseAlternatives(r.alternatives, namedRows(feedRef.current))
+      const parsed = parseAlternatives(r.alternatives, snapshot.rows)
       const command = parsed.command
+      if (parsed.refused === 'ambiguous-target') {
+        show('refused', 'Which card did you mean? Say its full name or tap it in the list')
+        return
+      }
       if (parsed.unresolvedName) {
         show('refused', `Couldn’t find “${parsed.unresolvedName}” in the list`)
         return
@@ -251,18 +270,24 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         show('refused', 'Scan a card first, then tell me about it')
         return
       }
+      if (targetIdentityChanged(snapshot.cardIds, rowId, feedRef.current)) {
+        const message = 'That scan changed since you spoke — say it again'
+        commitQueue(fail(queueRef.current, rowId, message))
+        show('refused', message)
+        return
+      }
       // "That one" can be a scan the reader already removed.
       if (!feedRef.current.some((e) => e.id === rowId) && !cbRef.current.inFlight(rowId)) {
         show('refused', 'That scan isn’t in the list any more')
         return
       }
-      const { actions, outcome } = propose(command, rowId, feedRef.current, Date.now(), () => `va-${++actionSeq.current}`)
+      const proposal = propose(command, rowId, feedRef.current, Date.now(), () => `va-${++actionSeq.current}`)
+      const { actions, outcome } = proposal
+      commitQueue(acceptProposal(queueRef.current, rowId, proposal))
       if (!actions.length) {
         show('refused', outcome.message)
-        if (command.kind === 'edit' && command.printing) warnForVerify(rowId, outcome.message)
         return
       }
-      commitQueue(enqueue(queueRef.current, actions))
       // Start the hold now if the row is already there, rather than on the
       // next tick: nothing heard should sit un-started, even for 200 ms.
       runTick()
@@ -276,7 +301,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       if ('vibrate' in navigator) navigator.vibrate(12)
       if (feedRef.current.some((e) => e.id === rowId)) cbRef.current.onTarget?.(rowId)
     },
-    [commitQueue, runTick, show, stop, undo, warnForVerify],
+    [commitQueue, runTick, show, stop, undo],
   )
 
   const onStatus = useCallback((next: VoiceStatus, why: string | null) => {
@@ -295,7 +320,7 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
         onResult,
         onSessionEnd: () => {
           setInterim('')
-          anchorsRef.current.clear()
+          settleUtterances()
           finalsRef.current.clear()
         },
       }, { ctor, lang: recognitionLang(navigator.language) })
@@ -305,15 +330,16 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
       show('info', VOICE_EXAMPLES)
     }
     recRef.current.start()
-  }, [onResult, onStatus, show, supported])
+  }, [onResult, onStatus, settleUtterances, show, supported])
 
   const settlePending = useCallback(() => {
+    settleUtterances()
     if (!queueRef.current.pending.length) return
     const s = settleAll(queueRef.current, feedRef.current)
     commitQueue(s.queue)
-    for (const action of s.dropped) warnForVerify(action.rowId, 'That scan was not in the list yet. Its voice change was not applied.')
+    for (const action of s.dropped) show('refused', `That scan was not in the list yet. Its voice change was not applied.`)
     if (s.due.length) applyDue(s.due)
-  }, [applyDue, commitQueue, warnForVerify])
+  }, [applyDue, commitQueue, settleUtterances, show])
 
   // The scan step ends: the mic goes with the camera, and every pending change
   // the reader has already seen and not objected to applies now.
@@ -401,8 +427,8 @@ export function useScannerVoice({ enabled, feed, setFeed, lastCaptureId, inFligh
     interim,
     caption,
     announcement,
-    verifyWarnings,
-    acknowledgeVerifyWarnings: () => setVerifyWarnings([]),
+    verifyWarnings: queue.warnings,
+    acknowledgeVerifyWarnings: () => commitQueue(acknowledgeWarnings(queueRef.current)),
     pendingByRow,
     settlePending,
     start,
