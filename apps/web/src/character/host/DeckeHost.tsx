@@ -259,7 +259,7 @@ export function DeckeHost() {
   const [chatOpen, setChatOpen] = useState(false)
   const errandRequested = useSyncExternalStore(subscribeDeckeErrand, deckeErrandActive)
   // A conversation takes precedence if the reader opens it during an errand.
-  const errand = errandRequested && !chatOpen && !hidden && entitled && !chromeless
+  const errand = errandRequested && !chatOpen && !hidden && entitled && !hostSuspended
   const errandRef = useRef(errand)
   errandRef.current = errand
   // Keep the canvas over the dialog until the return flight lands.
