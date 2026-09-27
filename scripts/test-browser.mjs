@@ -8,6 +8,7 @@ import { appResponses, announcement, checkUpcoming } from '../tests/browser/upco
 import { adminFixture, checkAdmin } from '../tests/browser/admin.mjs'
 import { checkServiceWorkerPrivacy } from '../tests/browser/admin-worker.mjs'
 import { checkFeedback } from '../tests/browser/feedback.mjs'
+import { checkDeckImport } from '../tests/browser/deckImport.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from '../tests/browser/chat.mjs'
 import { writesFixture, checkWrites } from '../tests/browser/writes.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
@@ -53,6 +54,7 @@ try {
       // Signed-in write paths are one code path in both builds; the cloud build
       // (real auth headers, synthetic Supabase origin) is the one exercised.
       if (label === 'cloud') {
+        results.push(...await checkDeckImport(browser, server, admin))
         writesActive = true
         results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
       }

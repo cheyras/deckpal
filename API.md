@@ -1037,6 +1037,19 @@ resolves the text and writes nothing: `200` with only `{ "import": { … } }`. T
 web import dialog checks first, lists every unmatched line, and lets the reader
 fix the text or import without those lines.
 
+### POST /deckpal/api/decks/import/fix
+Ask Deck-E to suggest repairs for unmatched PTCG Live lines. Authenticated
+accounts need `decke.use`; this route makes no deck write. Body:
+`{ "text": "…" (required, ≤20000 characters), "formatCode": "standard" }`.
+It charges one daily Deck-E turn, with no credit charge. The response has
+`{ "fixes": [{ "lineIndex", "original", "replacement", "card": { "id", "name", "set", "number", "image" }, "reason", "confidence": "suggested" }], "unfixed": ["…"] }`.
+`lineIndex` is the zero-based physical line, so identical lines stay distinct.
+Deck-E selects only from catalogue candidates; the server discards a proposed
+replacement unless the regular importer resolves it to that exact card. The
+reader reviews every suggestion and the web app checks the confirmed text again
+before creating a deck. Uncertain lines remain unresolved. A daily-limit refusal
+is `429`; loss of entitlement is `403`; model failure is `503`.
+
 ### GET /deckpal/api/decks/:id/export
 Serialize the deck to interchange text. Query `?format=ptcgl|massentry` (default
 `ptcgl`). Returns `{ "format", "text", "warnings" }`. PTCGL output uses real

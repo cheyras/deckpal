@@ -7,9 +7,9 @@
 import type { ValidationWarning } from './types.js';
 
 /** §1.2: setcode = UPPER {UPPER|DIGIT} optional "-XX(X)" | literal "Energy". */
-const SETCODE = /^([A-Z][A-Z0-9]{0,7}(-[A-Z]{2,3})?|Energy)$/;
+const SETCODE = /^([A-Z][A-Z0-9]{0,7}(-[A-Z]{2,3})?|Energy)$/i;
 /** header/trailer shape: "<label> : <digits>" (§1.6 positional, label-agnostic). */
-const HEADER = /^(.+?)\s*:\s*(\d+)\s*$/;
+const HEADER = /^#{0,2}\s*(.+?)\s*(?::|\s+-\s+)\s*(\d+)\s*$/;
 
 export type Section = 'pokemon' | 'trainer' | 'energy';
 
@@ -46,7 +46,7 @@ function splitLines(text: string): string[] {
 
 /** Right-to-left card-line parser (§1.2). */
 function parseCardLine(line: string, section: Section): ParsedLine {
-  const tokens = line.trim().split(/\s+/);
+  const tokens = line.trim().replace(/\(([A-Z][A-Z0-9-]+)\s+#?([A-Z0-9]+)\)$/i, '$1 $2').split(/\s+/);
   const quantity = parseInt(tokens[0]!, 10);
   let rest = tokens.slice(1);
 
@@ -59,13 +59,22 @@ function parseCardLine(line: string, section: Section): ParsedLine {
   let setCode: string | null = null;
   let number: string | null = null;
   // need >=3 remaining so bare Trainer lines ("2 Air Balloon") aren't mis-split (§1.2 guard)
-  if (rest.length >= 3) {
+  if (rest.length >= 2) {
     const last = rest[rest.length - 1]!;
     const secondLast = rest[rest.length - 2]!;
-    if (/^\d+$/.test(last) && SETCODE.test(secondLast)) {
-      number = last;
-      setCode = secondLast;
+    if (rest.length >= 3 && /^(?:[A-Z]{0,5})?\d+[A-Z0-9]*$/i.test(last) && SETCODE.test(secondLast)) {
+      number = last.toUpperCase();
+      setCode = secondLast.toLowerCase() === 'energy' ? 'Energy' : secondLast.toUpperCase();
+      if (/^GG\d/i.test(number) && setCode === 'CRZ') setCode = 'CRZ-GG';
+      if (/^TG\d/i.test(number) && ['BRS', 'ASR', 'LOR', 'SIT'].includes(setCode)) setCode += '-TG';
       rest = rest.slice(0, -2);
+    } else {
+      const glued = /^([A-Z]{2,5})(\d+[A-Z]?)$/i.exec(last);
+      if (glued && SETCODE.test(glued[1]!) && rest.length >= 2) {
+        setCode = glued[1]!.toUpperCase();
+        number = glued[2]!.toUpperCase();
+        rest = rest.slice(0, -1);
+      }
     }
   }
 
@@ -87,11 +96,18 @@ export function parsePtcgl(text: string): ParsedDeck {
 
   for (const raw of lines) {
     const line = raw.trim();
-    if (line === '') continue;
+    if (line === '' || /^\*{3,}$/.test(line)) continue;
+    // Legacy PTCGO and handwritten quantity forms keep their original `raw`
+    // for the import dialog while the parser reads a canonical card line.
+    const cardLine = line.replace(/^[*•-]\s*(?=\d|x\d)/i, '')
+      .replace(/^x(\d+)\s+/i, '$1 ')
+      .replace(/^(\d+)\s+x\s+/i, '$1 ')
+      .replace(/^(.+?)\s+x(\d+)$/i, '$2 $1');
 
     // card lines always start with a digit; headers/trailer start with a label word
-    if (/^\d/.test(line)) {
-      const parsed = parseCardLine(line, currentSection);
+    if (/^\d/.test(cardLine)) {
+      const parsed = parseCardLine(cardLine, currentSection);
+      parsed.raw = raw;
       if (Number.isNaN(parsed.quantity) || parsed.name === '') {
         warnings.push({ code: 'UNRESOLVED_CARD', message: `Could not parse line: "${line}"`, line });
         continue;

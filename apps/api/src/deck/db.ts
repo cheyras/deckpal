@@ -134,12 +134,22 @@ export async function loadByTcgdexId(pool: Queryable, tcgdexId: string): Promise
 export async function loadByName(pool: Queryable, rawName: string): Promise<CardFacts[]> {
   const nn = normalizeName(rawName);
   const { rows } = await pool.query<CardRow>(
-    `${CARD_SELECT} WHERE c.name_normalized LIKE $1 AND c.lang='en'
+    `${CARD_SELECT} JOIN series sr ON sr.id=s.series_id WHERE c.name_normalized LIKE $1 AND c.lang='en' AND sr.catalogue_code='en'
      ORDER BY c.released_on DESC NULLS LAST, c.id`,
     [`${nn.replace(/[%_]/g, '')}%`],
   );
   const facts = await factsFromRows(pool, rows);
-  return facts.filter((f) => f.normalizedName === nn);
+  const exact = facts.filter((f) => f.normalizedName === nn);
+  if (exact.length) return exact;
+  // Importers often omit accents or punctuation; only equal folded names count.
+  const folded = (s: string) => normalizeName(s).normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  const nearby = await pool.query<CardRow>(
+    `${CARD_SELECT} JOIN series sr ON sr.id=s.series_id
+      WHERE sr.catalogue_code='en' AND c.lang='en' AND c.name_normalized % $1::text
+      ORDER BY similarity(c.name_normalized,$1::text) DESC LIMIT 120`, [nn],
+  );
+  return (await factsFromRows(pool, nearby.rows)).filter((f) => folded(f.name) === folded(rawName));
 }
 
 /** Basic Energy of a given type (for {brace}/`Energy` pseudo-set, §1.5 case 2/3). */

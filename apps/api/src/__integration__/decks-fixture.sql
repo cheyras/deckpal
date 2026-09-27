@@ -4,23 +4,26 @@
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-CREATE TABLE series (id bigint PRIMARY KEY, tcgdex_id text NOT NULL, slug text NOT NULL, name text NOT NULL);
+CREATE TABLE series (id bigint PRIMARY KEY, tcgdex_id text NOT NULL, slug text NOT NULL, name text NOT NULL, catalogue_code text NOT NULL DEFAULT 'en');
 CREATE TABLE card_set (
   id bigint PRIMARY KEY, tcgdex_id text NOT NULL, name text NOT NULL, series_id bigint NOT NULL REFERENCES series(id)
 );
 CREATE TABLE card (
-  id bigint PRIMARY KEY, tcgdex_id text NOT NULL, local_id text NOT NULL, name text NOT NULL,
+  id bigint PRIMARY KEY, tcgdex_id text NOT NULL, local_id text NOT NULL, local_id_numeric integer, name text NOT NULL, name_normalized text,
   lang text NOT NULL DEFAULT 'en', set_id bigint NOT NULL REFERENCES card_set(id),
-  category text NOT NULL, energy_type text, regulation_mark text, playable_fingerprint char(64),
+  category text NOT NULL, stage text, suffix text, trainer_type text, evolve_from text, retreat integer, energy_type text, regulation_mark text, playable_fingerprint char(64),
   rarity text, illustrator text, hp integer, released_on date, number_sort text NOT NULL
 );
+CREATE TABLE card_type (card_id bigint NOT NULL REFERENCES card(id), type text NOT NULL, slot integer NOT NULL);
 CREATE TABLE variant_kind (code text PRIMARY KEY, display_name text NOT NULL);
 CREATE TABLE card_variant (
   id bigint PRIMARY KEY, card_id bigint NOT NULL REFERENCES card(id),
   variant_kind_code text NOT NULL REFERENCES variant_kind(code), display_name text,
   is_primary boolean NOT NULL, sort_order integer NOT NULL
 );
+CREATE TABLE collection_item (user_id uuid NOT NULL, card_variant_id bigint NOT NULL REFERENCES card_variant(id), quantity integer NOT NULL);
 CREATE TABLE price_current (
   card_variant_id bigint, source_code text, currency_code text, market_minor bigint
 );
@@ -81,3 +84,6 @@ INSERT INTO card (id, tcgdex_id, local_id, name, lang, set_id, category, energy_
   (12, 'sv08-057',   '057',   'Pikachu',                 'en', 6, 'Pokemon', NULL,      'J',  lpad('12', 64, '0'), '000000057');
 INSERT INTO variant_kind VALUES ('normal', 'Normal');
 INSERT INTO card_variant SELECT 100 + id, id, 'normal', NULL, true, 0 FROM card;
+
+-- Name lookup and PTCGL print selection for the import-fix integration case.
+UPDATE card SET name_normalized = lower(name), local_id_numeric = CASE WHEN local_id ~ '^[0-9]+$' THEN local_id::integer END;

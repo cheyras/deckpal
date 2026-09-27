@@ -124,6 +124,20 @@ try {
     versions: (await versions()).map((v) => ({ version: v.version, cards: v.cards.length, note: v.note })),
   });
 
+  // ── Import fix: fuzzy SQL candidates must resolve to the exact print ──────
+  const { prepareImportFix, finishImportFix } = await import('../deck/importFix.ts');
+  await client.query('INSERT INTO collection_item (user_id, card_variant_id, quantity) VALUES ($1, $2, $3)',
+    [userId, 101, 2]);
+  const misspelled = '4 Pikachoo';
+  const prepared = await prepareImportFix(client, misspelled, 'standard', userId);
+  const owned = prepared.options.find(option => option.card.id === 'sv05-051');
+  assert.ok(owned, 'real PostgreSQL finds the owned English printing and re-resolves its PTCGL line');
+  const fixed = finishImportFix(misspelled, prepared, JSON.stringify({ choices: [{ key: owned.key }] }));
+  assert.deepEqual(fixed.fixes.map(fix => [fix.lineIndex, fix.card.id, fix.replacement]),
+    [[0, 'sv05-051', '4 Pikachu TEF 051']]);
+  assert.deepEqual(fixed.unfixed, []);
+  evidence.cases.push({ name: 'import_fix_candidates_are_real_prints', printing: owned.card.id });
+
   // ── 2. The pool filter and the validator agree, row for row ───────────────
   const { rows: catalog } = await client.query(
     `SELECT c.id::int, c.tcgdex_id, c.local_id, c.name, c.category, c.energy_type, c.regulation_mark,

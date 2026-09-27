@@ -867,7 +867,7 @@ function prefersReducedMotion() {
  * `flyTo(..., centre: true)` aims his BODY centre at the mark's centre, so the
  * fit is good to a few pixels rather than exact.
  */
-const SILHOUETTE = 1.28
+export const SILHOUETTE = 1.28
 const SILHOUETTE_ASPECT = 0.76
 
 /*

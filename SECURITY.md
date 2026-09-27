@@ -84,6 +84,18 @@ than granting free repeated work. The public health response reports
 `administration` and `deckeEntitlement` readiness/status without account IDs.
 
 
+**Import fixes (`POST /api/decks/import/fix`).** This separate read-only route
+checks the same current `decke.use` permission on the server, charges the daily
+turn meter before invoking the model, and uses the dedicated Deck-E Gateway key.
+It does not debit credits or create a deck. The model may choose only keys from
+catalogue candidates; a suggested replacement is returned only when the ordinary
+import resolver lands on that exact catalogue card. The browser asks the reader
+to confirm, then rechecks the edited list before the existing import write.
+The request's catalogue and collection reads use its RLS-scoped database handle;
+meter and usage accounting use a separate small server pool because the request
+already holds one RLS connection.
+
+
 Deck-E holds **no credential of his own**. He carries the caller's own
 Supabase JWT — the same one the browser sent — and forwards it to deckpal-api
 for every write, so Row-Level Security applies to him exactly as it does to

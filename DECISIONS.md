@@ -20617,3 +20617,9 @@ reordered latency and offline (`tests/browser/writes.mjs`).
 - `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
 - `CardArt.name` is now rendered, by the dry-run rows only.
 - Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
+
+## 2026-09-26 — Deck-E suggests catalogue-verified fixes during deck import
+**Decided by:** Chey (via Codex)
+**Decision:** The import dialog can ask Deck-E to suggest replacements for lines the normal importer could not match. The server offers only real catalogue candidates, accepts model-selected keys only, and re-resolves every replacement to the chosen card. The reader can undo each suggestion; confirmed text is checked again before a deck is created. Common legacy and handwritten decklist forms are parsed directly, without a model call. The fix request uses one daily Deck-E turn and no credits.
+**Why:** An import should never silently lose cards, and editing every unmatched line by hand requires knowing set codes. A model is useful for ambiguous names but cannot be trusted to invent a card or choose a printing without verification.
+**Implications:** The route requires `decke.use`, the dedicated Deck-E Gateway key, and daily accounting. It writes no deck; Confirm remains the reader's write action. Uncertain suggestions abstain and leave the existing Edit/skip flow. The product preferences for hidden Deck-E and owned versus regular printings remain subject to Chey's review.

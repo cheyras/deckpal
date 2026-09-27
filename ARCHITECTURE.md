@@ -1221,6 +1221,16 @@ daily allowance. Lifecycle policy derives product permission; retired entitlemen
 allowlists do not grant it. The credits-enable flag initializes policy once. See ADMINISTRATION.md and
 SECURITY.md for limits, refunds and suspension.
 
+**The import errand is separate from chat.** When an import check finds
+unmatched lines, `POST /api/decks/import/fix` builds catalogue candidates and
+asks the chat-tier model to select their keys. A server membership check and a
+second pass through the normal resolver guard every replacement. The UI reserves
+a bay in the import dialog for Deck-E, shows each old and proposed line with
+Undo, and sends the confirmed text through the no-write check again before any
+deck is created. The errand store only moves the character; it does not grant
+permission or save cards. The route shares Deck-E's entitlement, Gateway key,
+daily meter, and usage ledger, but does not consume credits.
+
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly
 one place computes his height, because two writers fought over it and the

@@ -1,7 +1,6 @@
 # "Ask Deck-E" in the decklist import: design memo
 
-*Status: design only, paused 2026-09-26 before any code. Stacked on #216 (fix/deck-builder-data), which added the
-import check (`POST /decks/import` with `dryRun`, unmatched lines listed with Edit / "Import without it" / Cancel).*
+*Status: implemented in #233 on 2026-09-26, stacked on #216. The catalogue-grounded chat-model path, parser fixes, review dialog, and Deck-E errand are built. The Jev comparison and a live-provider accuracy run remain unverified because this worktree has no Gateway key and #225 is outside this stack. The original proposal below remains as the design record; the shipped choices are logged in `DECISIONS.md`.*
 
 ## The request
 

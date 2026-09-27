@@ -63,3 +63,20 @@ test('Mass Entry is a different grammar: 1 Goldeen [ME05] 13', () => {
   // round-trip
   assert.equal(serializeMassEntry(lines).trim().split('\n')[0], '1 Goldeen [ME05] 13');
 });
+
+test('legacy and handwritten quantities, glued sets, and subset numbers parse without losing raw text', () => {
+  const parsed = parsePtcgl([
+    '******', '##Pokémon - 3', '* 4 Pikachu SSH 65', '- 4 Iono pal 185',
+    'Iono x4', 'x4 Iono', '4 x Iono', '• 4 Iono',
+    '1 Pikachu VMAX CRZ GG30', '1 Pikachu VMAX BRS TG05', '1 Iono PAL185',
+    '1 Iono (PAL 185)', 'Total Cards - 24',
+  ].join('\n'));
+  assert.equal(parsed.warnings.filter(w => w.code === 'UNRESOLVED_CARD').length, 0);
+  assert.equal(parsed.lines[0]!.raw, '* 4 Pikachu SSH 65');
+  assert.equal(parsed.lines[1]!.setCode, 'PAL');
+  assert.equal(parsed.lines[2]!.quantity, 4);
+  assert.equal(parsed.lines[6]!.setCode, 'CRZ-GG');
+  assert.equal(parsed.lines[7]!.setCode, 'BRS-TG');
+  assert.equal(parsed.lines[8]!.number, '185');
+  assert.equal(parsed.lines[9]!.setCode, 'PAL');
+});

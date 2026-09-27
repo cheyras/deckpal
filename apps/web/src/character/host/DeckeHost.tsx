@@ -26,7 +26,7 @@
  * purpose — after a reload he boots, which is the honest thing for a character
  * who just came back.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useWallet } from '../../routes/credits/Credits'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { DeckeBeacon } from '../../components/ui/DeckeBeacon'
@@ -39,6 +39,7 @@ import {
   messageText,
   NAV_BREAKPOINT,
   PARK_LANDMARK,
+  SILHOUETTE,
   STAND_DESKTOP,
   STAND_MOBILE,
 } from './DeckeChat'
@@ -50,6 +51,7 @@ import { DeckeFarewell } from './DeckeFarewell'
 import { pickFarewell } from './deckeVoice'
 import { openerStore, readLastSaid, writeLastSaid } from './deckeChatState'
 import { useDeckeChat } from './useDeckeChat'
+import { deckeErrandActive, subscribeDeckeErrand } from './errand'
 import {
   acquireDeckE,
   loadDeckeRuntime,
@@ -126,6 +128,7 @@ function characterHeightBeside(composerH: number, w: number, h: number): number 
  * private hook. If it changes, the harness breaks loudly in the same commit.
  */
 const LAUNCHER_SELECTOR = 'button[aria-label="Chat with Deck-E"]'
+const ERRAND_SELECTOR = '[data-decke-errand]'
 
 /**
  * The longest the dismissal will wait for him to land before scaling him away
@@ -253,6 +256,17 @@ export function DeckeHost() {
   const [phase, setPhase] = useState<Phase>('idle')
   const [beacon, setBeacon] = useState<Beacon | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
+  const errandRequested = useSyncExternalStore(subscribeDeckeErrand, deckeErrandActive)
+  // A conversation takes precedence if the reader opens it during an errand.
+  const errand = errandRequested && !chatOpen && !hidden && entitled && !chromeless
+  const errandRef = useRef(errand)
+  errandRef.current = errand
+  // Keep the canvas over the dialog until the return flight lands.
+  const [errandRaised, setErrandRaised] = useState(false)
+  useEffect(() => {
+    if (errand) setErrandRaised(true)
+    else if (chatOpen) setErrandRaised(false)
+  }, [errand, chatOpen])
   /**
    * Where the launcher was when it was pressed, for the entrance to grow from.
    *
@@ -803,6 +817,29 @@ function settledRect(el: HTMLElement): DOMRect {
         r.right < window.innerWidth + 8
       )
     }
+    if (errand) {
+      const bay = document.querySelector<HTMLElement>(ERRAND_SELECTOR)
+      if (!onScreen(bay)) return
+      d.flyTo(
+        opts.settled ? { rect: settledRect(bay) } : { selector: ERRAND_SELECTOR },
+        {
+          depth: 'foreground', highlight: false, centre: true,
+          rate: opts.rate, instant: opts.instant,
+          arrived: opts.settled ? (aborted) => {
+            if (aborted || !document.querySelector(ERRAND_SELECTOR)) return
+            try {
+              deckeRef.current?.flyTo(
+                { selector: ERRAND_SELECTOR },
+                { depth: 'foreground', highlight: false, centre: true, instant: true },
+              )
+            } catch {
+              /* The bay can unmount between the presence check and the flight. */
+            }
+          } : undefined,
+        },
+      )
+      return
+    }
     // The park box only exists while the phone panel is mounted AND he has
     // a measured size. `flyTo` THROWS on a selector that resolves to
     // nothing, so this asks rather than assumes — and falls back to the
@@ -916,7 +953,7 @@ function settledRect(el: HTMLElement): DOMRect {
       { x: window.innerWidth * at.x, y: window.innerHeight * at.y },
       { depth: 'foreground', highlight: false, centre: true, rate: opts.rate, instant: opts.instant },
     )
-  }, [wide])
+  }, [wide, errand])
   const parkRef = useRef(park)
   parkRef.current = park
 
@@ -968,7 +1005,7 @@ function settledRect(el: HTMLElement): DOMRect {
     const d = deckeRef.current
     if (!live || !d) return
 
-    if (chatOpen) {
+    if (chatOpen || errand) {
       // ── THE WAY IN: grow WHILE the panel opens, travel as it settles. ────
       //
       // Measured before this existed: 1.30 s from committed tap to landed, of
@@ -1018,11 +1055,10 @@ function settledRect(el: HTMLElement): DOMRect {
                 : ''
             return `${off}${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.height)}`
           }
-          return (
-            key(document.querySelector(`[${PARK_LANDMARK}]`)) +
-            '|' +
-            key(document.querySelector(`[${COMPOSER_LANDMARK}]`))
-          )
+          return errand
+            ? key(document.querySelector(ERRAND_SELECTOR))
+            : key(document.querySelector(`[${PARK_LANDMARK}]`)) +
+              '|' + key(document.querySelector(`[${COMPOSER_LANDMARK}]`))
         }
         let waited = 0
         const launch = () => {
@@ -1165,6 +1201,7 @@ function settledRect(el: HTMLElement): DOMRect {
       if (aborted) return
       const away = deckeRef.current
       holdMeasureRef.current = false
+      setErrandRaised(false)
       if (away) {
         // BACK TO NOTHING, at a station the collapsed state can live with: a
         // `{rect}` station is a remembered box that every later resize would
@@ -1237,7 +1274,7 @@ function settledRect(el: HTMLElement): DOMRect {
     // full-size character parked over the page for the rest of the session.
     const guard = window.setTimeout(() => finish(false), EXIT_GUARD_MS)
     return () => window.clearTimeout(guard)
-  }, [chatOpen, live])
+  }, [chatOpen, errand, live])
 
   // ── RE-PARK, WITHOUT RE-ENTERING ────────────────────────────────────────
   //
@@ -1249,11 +1286,11 @@ function settledRect(el: HTMLElement): DOMRect {
   // entrance. `parkedRef` keeps this from racing the entrance's own first
   // park.
   useEffect(() => {
-    if (!live || !chatOpen || travelling) return
+    if (!live || (!chatOpen && !errand) || travelling) return
     if (!parkedRef.current) return
     measureRef.current?.()
     parkRef.current()
-  }, [live, chatOpen, wide, travelling])
+  }, [live, chatOpen, errand, wide, travelling])
 
   // ── THE ENDING A PRESENTATION NEVER HAD ─────────────────────────────────
   //
@@ -1376,9 +1413,9 @@ function settledRect(el: HTMLElement): DOMRect {
   // phone, the composer's card on desktop — and anything that moves his mark,
   // whichever element moved it, is now a move.
   useEffect(() => {
-    if (!live || !chatOpen || travelling) return
+    if (!live || (!chatOpen && !errand) || travelling) return
     const read = (): MarkBox | null => {
-      const el = document.querySelector(`[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
+      const el = document.querySelector(errand ? ERRAND_SELECTOR : `[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
       if (!el) return null
       const r = el.getBoundingClientRect()
       return { top: Math.round(r.top), left: Math.round(r.left), h: Math.round(r.height) }
@@ -1458,7 +1495,7 @@ function settledRect(el: HTMLElement): DOMRect {
     }
     // `wide` because the two platforms park him on different marks, and the
     // watcher has to be rebuilt around whichever one is current.
-  }, [live, chatOpen, travelling, wide])
+  }, [live, chatOpen, errand, travelling, wide])
 
   // ONE BOOLEAN, not `phase`, drives the setup effect.
   //
@@ -1475,6 +1512,13 @@ function settledRect(el: HTMLElement): DOMRect {
   // should not get a canvas because a future effect learned to warm him.
   const active =
     !hidden && entitled && !chromeless && (phase === 'loading' || phase === 'ready')
+
+  useEffect(() => {
+    if (errand) setPhase((p) => (p === 'idle' ? 'loading' : p))
+  }, [errand])
+  useEffect(() => {
+    if (!errand && !live) setErrandRaised(false)
+  }, [errand, live])
 
   // Held once and shared, because the constructor below reads it and the effect
   // after it subscribes to it — two `matchMedia` calls for one question is two
@@ -1666,6 +1710,10 @@ function settledRect(el: HTMLElement): DOMRect {
           rulerRef.current = ruleComposer(rulerRef.current, sample)
           const resting = rulerFor(rulerRef.current, sample)
           px = resting === null ? null : characterHeightBeside(resting, w, h)
+        } else if (errandRef.current) {
+          rulerRef.current = null
+          const bayH = document.querySelector(ERRAND_SELECTOR)?.getBoundingClientRect().height ?? 0
+          px = bayH > 0 ? Math.round(Math.min(160, bayH / SILHOUETTE)) : null
         } else {
           rulerRef.current = null
           px = characterHeightFor(w, h)
@@ -1889,7 +1937,7 @@ function settledRect(el: HTMLElement): DOMRect {
         ref={canvasRef}
         aria-hidden
         className={
-          'pointer-events-none fixed inset-0 z-30 h-[100lvh] w-full transition-opacity duration-500 ' +
+          `pointer-events-none fixed inset-0 ${errand || errandRaised ? 'z-[101]' : 'z-30'} h-[100lvh] w-full transition-opacity duration-500 ` +
           (phase === 'ready' ? 'opacity-100' : 'opacity-0')
         }
       />
