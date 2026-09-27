@@ -21226,10 +21226,12 @@ environment variable or deployment change.
 ## 2026-09-26 — Keep virtualized Table rows visible and focusable across card sheets
 **Decided by:** Chey (via Codex)
 
-**Decision:** Table view clears cached row heights and recomputes its document offset on
-window resize, including when a card sheet has pinned the body. When a keyboard-opened
-card sheet closes, Table view scrolls the opening row back into its virtual window and
-focuses its newly mounted link.
+**Decision:** Table view recomputes its document offset on resize, including when a
+card sheet has pinned the body. It clears cached row heights only when the table's
+width changes, then keeps the first visible row at its prior screen position. When a
+keyboard-opened card sheet closes, Table view scrolls the opening row back into its
+virtual window and focuses its newly mounted link. Set pages pass the full card ID
+for that return path, although their sheet URL contains only the card number.
 
 **Why:** Changing width across 768px changes the row layout. Cached dimensions and an
 offset measured while body scroll is locked can make the list appear blank after the

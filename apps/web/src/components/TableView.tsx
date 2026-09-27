@@ -111,6 +111,9 @@ export function TableView({
   const containerRef = useRef<HTMLDivElement>(null)
   const focusedRowRef = useRef<number | null>(null)
   const previousActiveCardRef = useRef<string | undefined>(activeCard)
+  const measuredWidthRef = useRef<number | null>(null)
+  const restoreFrameRef = useRef<number | null>(null)
+  const visibleAnchorRef = useRef<{ index: number; top: number } | null>(null)
   const [offsetTop, setOffsetTop] = useState(0)
 
   // `getBoundingClientRect().top + scrollY`, NOT `.offsetTop` (Astra caught
@@ -135,22 +138,60 @@ export function TableView({
   })
 
   useLayoutEffect(() => {
+    const visibleAnchor = () => {
+      const row = [...(containerRef.current?.querySelectorAll<HTMLElement>('[role="listitem"]') ?? [])]
+        .find((item) => item.getBoundingClientRect().bottom > 0 && item.getBoundingClientRect().top < window.innerHeight)
+      return row ? { index: Number(row.dataset.index), top: row.getBoundingClientRect().top } : null
+    }
+    const rememberVisible = () => {
+      if (!activeCard) visibleAnchorRef.current = visibleAnchor()
+    }
     const measure = () => {
       const container = containerRef.current
       if (!container) return
+      const width = container.getBoundingClientRect().width
+      const widthChanged = measuredWidthRef.current !== null && measuredWidthRef.current !== width
+      measuredWidthRef.current = width
+      const anchor = !activeCard && widthChanged ? visibleAnchorRef.current ?? visibleAnchor() : null
+      const anchorIndex = anchor?.index ?? null
+      const anchorTop = anchor?.top ?? 0
       // Sheet pins the body and makes scrollY read zero. Its negative top is
       // the page position until it releases the lock.
       const scrollY = document.body.style.position === 'fixed'
         ? -parseFloat(document.body.style.top || '0')
         : window.scrollY
       setOffsetTop(container.getBoundingClientRect().top + scrollY)
-      // Width changes also change row heights; discard their cached sizes.
-      virtualizer.measure()
+      // Height-only resizes leave row sizes intact. A width change can reflow
+      // every row, so discard sizes, then put the first visible row back at
+      // its previous screen position instead of jumping to a different card.
+      if (widthChanged) {
+        if (restoreFrameRef.current !== null) cancelAnimationFrame(restoreFrameRef.current)
+        virtualizer.measure()
+        if (anchorIndex !== null) {
+          virtualizer.scrollToIndex(anchorIndex, { align: 'start', behavior: 'auto' })
+          const restoreAnchor = (attempts: number) => {
+            const row = container.querySelector<HTMLElement>(`[data-index="${anchorIndex}"]`)
+            if (row) window.scrollBy(0, row.getBoundingClientRect().top - anchorTop)
+            if (attempts > 0) restoreFrameRef.current = requestAnimationFrame(() => restoreAnchor(attempts - 1))
+            else {
+              restoreFrameRef.current = null
+              rememberVisible()
+            }
+          }
+          restoreFrameRef.current = requestAnimationFrame(() => restoreAnchor(5))
+        }
+      }
     }
     measure()
+    if (!visibleAnchorRef.current) restoreFrameRef.current = requestAnimationFrame(rememberVisible)
+    window.addEventListener('scroll', rememberVisible, { passive: true })
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [virtualizer])
+    return () => {
+      window.removeEventListener('scroll', rememberVisible)
+      window.removeEventListener('resize', measure)
+      if (restoreFrameRef.current !== null) cancelAnimationFrame(restoreFrameRef.current)
+    }
+  }, [activeCard, virtualizer])
 
   useEffect(() => {
     const wasOpen = previousActiveCardRef.current

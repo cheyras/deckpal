@@ -234,7 +234,7 @@ export function SetDetail() {
             ) : search.view === 'binder' ? (
               <BinderView cards={cards} />
             ) : (
-              <TableView cards={cards} seriesSlug={series} setId={set} reveal={reveal} activeCard={search.card} />
+              <TableView cards={cards} seriesSlug={series} setId={set} reveal={reveal} activeCard={search.card ? `${set}-${search.card}` : undefined} />
             )}
           </div>
         </>

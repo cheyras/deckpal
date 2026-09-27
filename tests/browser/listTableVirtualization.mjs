@@ -220,6 +220,20 @@ async function checkViewport(browser, origin, width, height) {
   const visibleRows = await page.evaluate(() => [...document.querySelectorAll('[role="listitem"]')]
     .filter((row) => row.getBoundingClientRect().bottom > 0 && row.getBoundingClientRect().top < innerHeight).length)
   assert.ok(visibleRows > 0, `${width}x${height}: table went blank after resize and sheet close`)
+  await page.waitForTimeout(200) // let measured row heights settle before comparing resize positions
+  const anchorBefore = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('[role="listitem"]')]
+      .find((el) => el.getBoundingClientRect().bottom > 0 && el.getBoundingClientRect().top < innerHeight)
+    return { index: row?.getAttribute('data-index'), top: row?.getBoundingClientRect().top }
+  })
+  await page.setViewportSize({ width, height })
+  await page.waitForTimeout(500)
+  const anchorAfter = await page.evaluate((index) => {
+    const row = document.querySelector(`[role="listitem"][data-index="${index}"]`)
+    return row?.getBoundingClientRect().top
+  }, anchorBefore.index)
+  assert.ok(anchorAfter !== undefined && Math.abs(anchorAfter - anchorBefore.top) < 4,
+    `${width}x${height}: resizing an open table moved the visible row from ${anchorBefore.top} to ${anchorAfter}`)
 
   assert.deepEqual(pageErrors, [], `${width}x${height}: unexpected page errors: ${pageErrors.join('; ')}`)
   await context.close()
