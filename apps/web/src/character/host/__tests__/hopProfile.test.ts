@@ -518,3 +518,19 @@ test('Stop mid-flight answers at once, and not as an arrival', async () => {
   assert.match(r.reason ?? '', /stopped/)
   land() // the late landing must be ignored, not answer twice
 })
+
+test('Stop while he is still waiting for the page answers at once', async () => {
+  // Every stage of a trip has to hear Stop, not only the flight: the wait for
+  // the page to render the target used to run out its own 6 s regardless.
+  installFakeDom({ selector: '#grid', left: 600, width: 160 })
+  const { decke } = fakeDecke(400)
+  const ac = new AbortController()
+  const started = Date.now()
+  const pending = runUiTool({ decke, navigate: () => {}, signal: ac.signal }, 'goTo', { route: '/decks', selector: '#grid' })
+  await sleep(40)
+  ac.abort()
+  const r = await pending
+  assert.equal(r.ok, false)
+  assert.match(r.reason ?? '', /stopped/)
+  assert.ok(Date.now() - started < 1000, 'Stop waited out the page')
+})
