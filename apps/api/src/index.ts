@@ -14,6 +14,7 @@ import { ownerGateStatus } from './routes/me.js';
 import { labelerEntitlementStatus } from './ownerGate.js';
 import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
 import { checkModels, modelCheckStatus, modelCheckWarning, type ModelCheck } from './decke/modelCheck.js';
+import { jevHealth, jevWarning } from './decke/jev.js';
 import {
   deckeEntitlementStatus,
   deckeEntitlementWarning,
@@ -57,8 +58,8 @@ import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, ad
  *   - Self-host (default): /deckpal/api (behind nginx sub-path)
  *   - Cloud (Vercel):      /api
  *
- * Auth is layered: in cloud mode SUPABASE_JWT_SECRET enables JWT verification
- * and user-scoped routes require a valid Bearer token. In self-host mode the
+ * Auth is layered: in cloud mode SUPABASE_URL enables ES256 verification
+ * through JWKS and user-scoped routes require a valid Bearer token. In self-host mode the
  * reverse proxy is the auth boundary; the API passes all
  * requests through.
  */
@@ -87,6 +88,11 @@ export function createApp(): express.Express {
   // separately so the louder message cannot hide the quieter one.
   const approvalWarning = deckeApprovalWarning();
   if (approvalWarning) console.warn(approvalWarning);
+
+  // Jev's switch, only when it holds a value nobody meant. Unset is off and
+  // off is a normal state (Deck-E is exactly as he was); `/health` reports it.
+  const jevWarn = jevWarning();
+  if (jevWarn) console.warn(jevWarn);
 
   // And the inverse case: a feature that has just been switched ON, whose other
   // half (migration 051 applied, the catalogue embedded) lives outside this
@@ -423,6 +429,11 @@ export function createApp(): express.Express {
         // rather than a report. B11: the configuration defect that was
         // invisible from outside for months is now the first thing visible.
         deckeModels: modelCheckStatus(modelCheck),
+        // Whether Deck-E's Jev judgments are on, and their deadline. `off` is
+        // the default and means he behaves exactly as he did before Jev; the
+        // model id is a public product name. B11: a switch that is set wrong
+        // must be visible from outside, and `invalid` is that.
+        deckeJev: jevHealth(),
         // The CONFIGURED caps, and the configured size of a pool this process
         // cannot see. `api/chat.mjs` is a separate serverless function with a
         // separate process, so the live census above covers the Express app's
