@@ -73,10 +73,10 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
     { id: 'name', header: 'Name', className: 'min-w-[160px]',
       cell: card => <CardLink card={card} seriesSlug={card.seriesSlug ?? seriesSlug} setId={card.setId ?? setId}
         onFocus={() => { focusedRowRef.current = cards.indexOf(card) }}
-        className="font-display block rounded-[4px] font-medium text-text-primary underline-offset-[3px] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-action-primary">
+        className="font-display inline-block max-w-full rounded-[4px] font-medium text-text-primary underline-offset-[3px] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-action-primary">
         {card.name}
       </CardLink> },
-    { id: 'variant', header: 'Variant', headerClassName: 'w-[110px] lg:w-[170px]', className: 'w-[110px] lg:w-[170px]',
+    { id: 'variant', header: 'Variant', headerClassName: 'w-[150px] lg:w-[240px]', className: 'w-[150px] lg:w-[240px]',
       cell: card => card.variant
         ? <VariantChip variant={card.variant} className="max-w-full text-text-body" />
         : card.variantCount > 1 ? <span className="text-text-muted">{card.variantCount} variants</span>

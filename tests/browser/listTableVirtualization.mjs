@@ -157,7 +157,7 @@ async function checkViewport(browser, origin, width, height) {
     await page.setViewportSize({ width: 800, height })
     await page.waitForSelector('[data-decke-list-items] table[aria-rowcount="3201"]')
     assert.equal(new URL(page.url()).searchParams.get('view'), 'table', 'desktop restores the selected Table view')
-    for (const desktopWidth of [768, 800, 900]) {
+    for (const desktopWidth of [768, 800, 900, 1024, 1440]) {
       await page.setViewportSize({ width: desktopWidth, height })
       const tableWidth = await page.locator('[data-decke-list-items] table').evaluate(table => ({
         table: table.getBoundingClientRect().width,
@@ -172,6 +172,13 @@ async function checkViewport(browser, origin, width, height) {
       }))
       assert.ok(variantFit.chipRight <= variantFit.cellRight + 1 && variantFit.chipRight <= variantFit.priceLeft,
         `${desktopWidth}px long variant overlaps Price: ${JSON.stringify(variantFit)}`)
+      if (desktopWidth === 768) {
+        const nameFit = await page.locator('tbody tr[data-index] [data-decke-card]').evaluateAll(links => links.map(link => ({
+          name: link.textContent?.trim(), visible: link.clientWidth, needed: link.scrollWidth,
+        })))
+        assert.ok(nameFit.every(link => link.needed <= link.visible + 1),
+          `768px card name truncates: ${JSON.stringify(nameFit.filter(link => link.needed > link.visible + 1))}`)
+      }
     }
     await context.close()
     return { fallback: 'grid', savedView: 'table' }
