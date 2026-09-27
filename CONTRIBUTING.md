@@ -162,9 +162,11 @@ Before marking a PR ready for review:
 - [ ] Relevant pure tests and the three CI workflows pass
 - [ ] All apps build successfully
 - [ ] UI changes: verified in a real browser at desktop **and** 390px viewport;
-      screenshots attached
+      screenshots attached. iOS-specific behavior (on-screen keyboard, Home
+      Screen install, `visualViewport`) needs a real iOS Simulator, not a
+      desktop browser's device emulation -- see `tools/ios-sim/README.md`.
 - [ ] Migrations: new file only, never edited a shipped `.sql` file
-- [ ] `DECISIONS.md` entry added if the change involves a non-trivial decision
+- [ ] A `decisions/YYYY/` file added if the change involves a non-trivial decision (`pnpm decisions new "Title"`)
 - [ ] `ARCHITECTURE.md` updated if the schema changed (the schema of record is
       `packages/db/src/migrations/`)
 

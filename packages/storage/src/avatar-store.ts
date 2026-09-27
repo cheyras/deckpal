@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { hasStorageEnv, storageEnv } from './config.js';
 import { sniffContentType } from './sniff.js';
+import { supabaseKeyHeaders } from './supabase-key-headers.mjs';
 
 /**
  * avatar-store.ts — the choke point for USER-UPLOADED profile photos.
@@ -135,7 +136,7 @@ export function avatarPublicUrl(key: string): string {
 
 function authHeaders(): Record<string, string> {
   const { serviceKey } = storageEnv();
-  return { apikey: serviceKey, authorization: `Bearer ${serviceKey}` };
+  return supabaseKeyHeaders(serviceKey);
 }
 
 /**
@@ -253,7 +254,7 @@ export async function listAvatarObjectKeys(timeoutMs = 20_000): Promise<string[]
   for (let offset = 0; ; offset += PAGE) {
     const res = await fetch(`${supabaseUrl}/storage/v1/object/list/${avatarBucket()}`, {
       method: 'POST',
-      headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, 'content-type': 'application/json' },
+      headers: { ...supabaseKeyHeaders(serviceKey), 'content-type': 'application/json' },
       body: JSON.stringify({ prefix: '', limit: PAGE, offset, sortBy: { column: 'name', order: 'asc' } }),
       signal: AbortSignal.timeout(timeoutMs),
     });

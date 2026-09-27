@@ -116,10 +116,11 @@ omit the host.
 
 ## Authentication
 
-In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs:
+In **cloud mode** (`SUPABASE_URL` is set), the API verifies Supabase user JWTs:
 
-- All requests pass through `authMiddleware` which decodes the `Authorization:
-  Bearer <token>` header (HS256) and attaches `req.user` with the user's UUID.
+- All requests pass through `authMiddleware`, which verifies the `Authorization:
+  Bearer <token>` header using Supabase's public JWKS for ES256, or
+  `SUPABASE_JWT_SECRET` for legacy HS256, and attaches the user's UUID.
 - **Public routes** (no auth required): `GET /health`, `GET /`, `GET /search`.
 - **Protected routes** (require a valid JWT): everything else (series with
   progress, sets, cards, collection mutations, lists, decks, insights, scan,
@@ -128,7 +129,7 @@ In **cloud mode** (`SUPABASE_JWT_SECRET` is set), the API verifies Supabase JWTs
 - The user UUID comes from the JWT `sub` claim. All SQL queries use this UUID
   as `user_id`.
 
-In **self-host mode** (no `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
+In **self-host mode** (neither `SUPABASE_URL` nor `SUPABASE_JWT_SECRET`), the auth middleware is a no-op.
 The reverse proxy is the auth boundary. All requests pass through.
 
 ---
@@ -357,6 +358,7 @@ The 12-filter advanced search. AND across fields, OR within a multi-value field.
 | `ability` | free text | matches ability name/effect |
 | `artist` | repeatable | 413 values |
 | `q` | free text | card name or number (accent-insensitive) |
+| `legal` | `standard`\|`expanded`\|`glc`\|`unlimited` | only cards in that format's card pool: the deck validator's pool rule (legal mark, set allowance, basic Energy, or a fingerprint-identical legal reprint) run in SQL from `formats.json`. Bans and GLC's rule-box/ACE SPEC/carve-out rules are not applied. The response adds `"legal": { "format", "rule" }`, `rule` being the validator's sentence (null for `unlimited`). Anything else is `400`. |
 | `sort` | `name`\|`number`\|`price`\|`rarity`\|`released` | default `name` |
 | `dir`, `page`, `pageSize` | | `asc`, 1, 60 (max 250) |
 | `facets` | `1` | also return the available filter vocabularies |
@@ -1025,16 +1027,22 @@ the deck's `format_code`).
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),
 "source"? = "ptcgl"\|"massentry" (the decklist syntax — defaults `ptcgl`),
 "writeSource"? (writer attribution, since `source` is taken), "formatCode"|
-"format"?, "glcType"?, "name"? (default "Imported Deck") }`. Mass Entry set codes
+"format"?, "glcType"?, "name"? (default "Imported Deck"), "dryRun"? }`. Mass Entry set codes
 (a third namespace — TCGplayer abbrevs) are resolved by name only. Same print on
 two lines is summed (clamped to 60). Unresolved lines are reported, not dropped.
 `201` returns the detail payload plus an `import` summary:
 ```json
 { …detail payload…,
-  "import": { "source": "ptcgl", "resolvedEntries": 59, "distinctCards": 24,
-              "unresolved": [ "Could not resolve 'Old Mysterious Card'" ],
-              "warnings": [ { …non-UNRESOLVED import warnings… } ] } }
+  "import": { "source": "ptcgl", "resolvedEntries": 59, "distinctCards": 24, "totalCards": 58,
+              "unresolved": [ "\"2 Latias ex SSP 76\" — could not resolve to a catalogue card." ],
+              "unresolvedLines": [ "2 Latias ex SSP 76" ],
+              "warnings": [ { …non-UNRESOLVED import warnings… } ],
+              "variantNote": "…" } }
 ```
+`unresolvedLines` are the same lines verbatim, as pasted. `"dryRun": true`
+resolves the text and writes nothing: `200` with only `{ "import": { … } }`. The
+web import dialog checks first, lists every unmatched line, and lets the reader
+fix the text or import without those lines.
 
 ### GET /deckpal/api/decks/:id/export
 Serialize the deck to interchange text. Query `?format=ptcgl|massentry` (default
@@ -1107,8 +1115,9 @@ One snapshot plus the diff vs `v-1` (`diff` is `null` for v1).
 
 ### POST /deckpal/api/decks/:id/revert
 Body `{ "toVersion": 1, "includeStrategy"?: true, "note"?, "source"? }`.
-Non-destructive: reconciles `deck_card` to the old snapshot **through the same
-auto-bump path** (bumps if the current version has logs, else amends), note
+Non-destructive: reconciles `deck_card` to the old snapshot and **always creates
+a new version**, so the version it replaces keeps its list even when it has no
+battle logs (a revert never amends in place — DECISIONS 2026-09-26). Note
 auto-set to `Reverted to v<k>`. `400` when `toVersion` is already current.
 Returns the deck detail payload plus
 `"revert": { "toVersion", "version", "bumped", "skippedCards": [ { "cardId", "tcgdexId", "name" } ] }`
@@ -1511,6 +1520,18 @@ skill walks that dir). No DB.
 ```json
 201 { "id": "2026-07-30T12-34-56_abc123", "saved": "issues/2026-07-30T12-34-56_abc123/" }
 ```
+
+### POST /deckpal/api/client-errors
+The web app's React error boundaries (`apps/web/src/components/ErrorBoundary.tsx`)
+post here automatically when they catch an uncaught render exception — no user
+action, and never a substitute for `/bugs` (which is only ever human-initiated).
+Unauthenticated: a crash on a signed-out page is just as worth knowing about.
+Body (JSON, all fields optional strings):
+`{ "route"?, "message"?, "stack"?, "buildId"? }`, truncated server-side to 300 /
+500 / 4000 / 100 chars respectively. Rate-limited at 20/min per source IP. The
+handler only `console.error`s a single structured line — no DB row, no
+screenshot, no GitHub issue, no user identity — and always answers `204` with
+an empty body, regardless of what it was sent.
 
 ---
 

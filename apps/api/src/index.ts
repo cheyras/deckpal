@@ -14,6 +14,7 @@ import { ownerGateStatus } from './routes/me.js';
 import { labelerEntitlementStatus } from './ownerGate.js';
 import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
 import { checkModels, modelCheckStatus, modelCheckWarning, type ModelCheck } from './decke/modelCheck.js';
+import { jevHealth, jevWarning } from './decke/jev.js';
 import {
   deckeEntitlementStatus,
   deckeEntitlementWarning,
@@ -41,6 +42,7 @@ import { scanEmbedGate, scanEmbedWarning } from './scan/embedGate.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
 import { scanQueueRouter } from './dev/scanQueue.js';
 import { bugsRouter } from './routes/bugs.js';
+import { clientErrorsRouter } from './routes/clientErrors.js';
 import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
 import { oauthRouter } from './routes/oauth.js';
@@ -48,7 +50,7 @@ import { mountOAuthServer } from './oauthServer.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
-import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit } from './rateLimit.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit, clientErrorRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -57,8 +59,8 @@ import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, ad
  *   - Self-host (default): /deckpal/api (behind nginx sub-path)
  *   - Cloud (Vercel):      /api
  *
- * Auth is layered: in cloud mode SUPABASE_JWT_SECRET enables JWT verification
- * and user-scoped routes require a valid Bearer token. In self-host mode the
+ * Auth is layered: in cloud mode SUPABASE_URL enables ES256 verification
+ * through JWKS and user-scoped routes require a valid Bearer token. In self-host mode the
  * reverse proxy is the auth boundary; the API passes all
  * requests through.
  */
@@ -87,6 +89,11 @@ export function createApp(): express.Express {
   // separately so the louder message cannot hide the quieter one.
   const approvalWarning = deckeApprovalWarning();
   if (approvalWarning) console.warn(approvalWarning);
+
+  // Jev's switch, only when it holds a value nobody meant. Unset is off and
+  // off is a normal state (Deck-E is exactly as he was); `/health` reports it.
+  const jevWarn = jevWarning();
+  if (jevWarn) console.warn(jevWarn);
 
   // And the inverse case: a feature that has just been switched ON, whose other
   // half (migration 051 applied, the catalogue embedded) lives outside this
@@ -206,6 +213,24 @@ export function createApp(): express.Express {
   // on self-host, raw socket peer (Express trust proxy is FALSE by default,
   // not loopback — see expressjs.com/en/guide/behind-proxies.html).
   api.use(preAuthFloodGuard);
+
+  // Client-side crash reports (clientErrors.ts): mounted here, before
+  // authMiddleware/ensureAdminBootstrap and — the point of being THIS early —
+  // before the RLS middleware below that acquires a pooled DB connection and
+  // opens a transaction for every cloud request. This route does no database
+  // work at all; making it wait behind that acquisition would mean an
+  // exhausted or unavailable pool silently drops crash reports, exactly when
+  // observability matters most (Astra review, PR #209; B2 documents the
+  // pooled-connection budget these routes would otherwise spend for nothing).
+  // Also unauthenticated on purpose, unlike /bugs (mounted below
+  // resolveIdentity — its only caller, the nav's BugButton, is gated on
+  // signedIn === true): an error boundary can fire on ANY page, including a
+  // signed-out visitor's crash on the public catalog, and reportClientError()
+  // sends no Authorization header, so a hard 401 there would silently
+  // swallow every signed-out report. clientErrorRateLimit (20/min/IP) bounds
+  // log volume from a repeating crash loop; preAuthFloodGuard above already
+  // applies too.
+  api.use('/client-errors', clientErrorRateLimit, clientErrorsRouter);
 
   // JWT verification runs on every request (extracts req.user from Bearer token).
   // It never rejects — user-scoped routers are gated by resolveIdentity below,
@@ -432,6 +457,11 @@ export function createApp(): express.Express {
         // rather than a report. B11: the configuration defect that was
         // invisible from outside for months is now the first thing visible.
         deckeModels: modelCheckStatus(modelCheck),
+        // Whether Deck-E's Jev judgments are on, and their deadline. `off` is
+        // the default and means he behaves exactly as he did before Jev; the
+        // model id is a public product name. B11: a switch that is set wrong
+        // must be visible from outside, and `invalid` is that.
+        deckeJev: jevHealth(),
         // The CONFIGURED caps, and the configured size of a pool this process
         // cannot see. `api/chat.mjs` is a separate serverless function with a
         // separate process, so the live census above covers the Express app's
