@@ -77,14 +77,15 @@ applies every migration with Supabase's default grants and asserts that the
 anon role and a second signed-in user reach none of a user's rows in any table
 or view in `public`.
 
-**Service role key:** The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is used
-only server-side (sync jobs, catalog writes, storage uploads). It is set as a
-Vercel environment variable and is never exposed to the client.
+**Server secret key:** `SUPABASE_SERVICE_ROLE_KEY` holds a Supabase `sb_secret_…`
+key after rotation. It bypasses RLS and is used only server-side for Storage
+and manifest access. Server requests send it on `apikey`, never as a Bearer
+token. The old service-role JWT remains supported only during migration.
 
 **Key handling rules:**
-- The anon key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`) is safe to expose -- it is
-  rate-limited and subject to RLS.
-- The service role key must never appear in client-side code, browser
+- The publishable key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, also
+  `VITE_SUPABASE_ANON_KEY`) is safe to expose; RLS still governs data access.
+- The server secret key must never appear in client-side code, browser
   `localStorage`, or git history.
 - Vercel environment variables marked as server-side are not bundled into the
   SPA.
@@ -585,6 +586,12 @@ brand, last four digits, expiry month and year — and nothing else.
 That is what keeps this deployment within PCI SAQ-A. It is a property of the
 code rather than a promise: self-hosting Stripe.js would break the iframe origin
 and is therefore forbidden, not merely discouraged.
+
+Stripe.js is fetched only when a payment surface calls `loadStripe`:
+`lib/billing.ts` imports `@stripe/stripe-js/pure`. Until 2026-09-26 it imported
+the package's main entry, which injects the script as a side effect of being
+imported, so every page load, signed out or not, fetched Stripe.js and opened
+Stripe's `m.stripe.network` fraud-signals frame (PERF-01).
 
 ### The webhook's signature is its only authentication, and there is no fallback
 

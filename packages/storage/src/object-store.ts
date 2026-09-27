@@ -1,5 +1,6 @@
 import { storageEnv } from './config.js';
 import { assertSafeObjectPath, encodeObjectPath, storageUrl } from './object-path.js';
+import { supabaseKeyHeaders } from './supabase-key-headers.mjs';
 
 /**
  * Supabase Storage access over its REST API — no SDK, no extra dependency, and
@@ -31,7 +32,7 @@ export function publicObjectUrl(objectPath: string): string {
 
 function authHeaders(): Record<string, string> {
   const { serviceKey } = storageEnv();
-  return { apikey: serviceKey, authorization: `Bearer ${serviceKey}` };
+  return supabaseKeyHeaders(serviceKey);
 }
 
 /**
@@ -245,11 +246,7 @@ async function listObjectLevel(
   for (let offset = 0; ; offset += LIST_PAGE) {
     const res = await fetch(storageUrl(supabaseUrl, `storage/v1/object/list/${bucket}`).href, {
       method: 'POST',
-      headers: {
-        apikey: serviceKey,
-        authorization: `Bearer ${serviceKey}`,
-        'content-type': 'application/json',
-      },
+      headers: { ...supabaseKeyHeaders(serviceKey), 'content-type': 'application/json' },
       body: JSON.stringify({
         prefix,
         limit: LIST_PAGE,

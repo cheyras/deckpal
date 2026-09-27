@@ -2,15 +2,27 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import http from 'node:http'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 export const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 export const WEB = path.join(ROOT, 'apps/web')
+// Async on purpose: several callers (the selfhost/cloud/chat build+check
+// branches in scripts/test-browser.mjs) run concurrently, and a blocking
+// spawnSync here would freeze the whole event loop for one branch's build
+// while the others sit idle -- defeating the concurrency entirely.
 export function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { cwd: ROOT, encoding: 'utf8', timeout: 180_000, ...options })
-  assert.equal(result.status, 0, command + ' ' + args.join(' ') + '\n' + result.stdout + result.stderr + (result.error ?? ''))
-  return result.stdout
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd: ROOT, timeout: 180_000, ...options })
+    let stdout = '', stderr = ''
+    child.stdout?.setEncoding('utf8').on('data', (chunk) => { stdout += chunk })
+    child.stderr?.setEncoding('utf8').on('data', (chunk) => { stderr += chunk })
+    child.on('error', reject)
+    child.on('close', (code, signal) => {
+      if (code === 0) return resolve(stdout)
+      reject(new Error(command + ' ' + args.join(' ') + (signal ? ' (killed by ' + signal + ')' : '') + '\n' + stdout + stderr))
+    })
+  })
 }
 export function isolatedEnv(extra = {}) {
   // Do not inherit VITE_*, DATABASE_URL, PG*, Supabase or model credentials.
@@ -82,7 +94,9 @@ export async function contextFor(browser, server, width, options = {}) {
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
     if (url.origin === server.origin && (['GET', 'HEAD'].includes(route.request().method()) || server.allowMutation?.(url.pathname, route.request().method()))) return route.continue()
-    // Stripe's installed loader eagerly inserts this script on public pages.
+    // Stripe's loader inserts this script when a payment surface calls
+    // `loadStripe` (it did so on every page until lib/billing.ts moved to
+    // `/pure`; routeSplit.mjs asserts it no longer does on catalog pages).
     // Fulfill this one known SDK locally; never permit third-party network.
     if (url.href === 'https://js.stripe.com/dahlia/stripe.js' && route.request().resourceType() === 'script') {
       server.stubbedThirdParty.push(url.href)

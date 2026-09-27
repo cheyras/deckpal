@@ -37,8 +37,9 @@
  */
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { contextFor } from './support.mjs'
-import { signIn } from './admin.mjs'
+import { webkit } from 'playwright'
+import { buildWeb, contextFor, serve } from './support.mjs'
+import { adminFixture, signIn } from './admin.mjs'
 
 const USER = '10000000-0000-4000-8000-000000000002'
 const NOW = '2026-09-12T18:00:00Z'
@@ -411,4 +412,29 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
     }
   }
   return results
+}
+
+/**
+ * Self-registration for `scripts/test-browser.mjs`: this suite owns its own
+ * cloud build (the engine handle is on in every test build) and fixture server.
+ */
+export function browserSuites({ browser, out, scratch, results, logs }) {
+  return [{
+    name: 'decke-show',
+    async run() {
+      const dist = path.join(scratch, 'decke-show')
+      const admin = adminFixture('')
+      const show = showFixture('', admin)
+      const server = await serve(dist, '', (rel, url, req) => show.response(rel, url, req) ?? admin.response(rel, url, req), 'index.html',
+        { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || show.allowMutation(pathname, method) })
+      try {
+        logs.push(await buildWeb(dist, true, server.origin))
+        results.push(...await checkDeckeShow(browser, server, out, 'chromium', show, admin))
+        const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
+          ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
+        try { results.push(...await checkDeckeShow(safari, server, out, 'webkit', show, admin)) } finally { await safari.close() }
+        assert.deepEqual(server.unexpected, [], 'decke-show: unexpected network/error events')
+      } finally { await server.close() }
+    },
+  }]
 }

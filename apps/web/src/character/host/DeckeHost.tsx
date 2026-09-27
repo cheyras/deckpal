@@ -20,9 +20,11 @@
  * component rather than something a route owns.
  *
  * The one case that still destroys him is a full document load, and there is
- * exactly one: `lazyRoute`'s stale-chunk recovery, which reloads only when the
- * import throws AND a service worker is controlling AND it is the first failure
- * this session. Conversation state is persisted for that; his POSE is not, on
+ * exactly one: `lazyRoute`'s stale-chunk recovery, which reloads only when a
+ * PAGE's import throws in a production build AND it is the first failure this
+ * session. (This host is a lazy chunk too since PERF-01, but `main.tsx` mounts
+ * it only once that chunk has loaded, so it never triggers the reload itself.)
+ * Conversation state is persisted for that; his POSE is not, on
  * purpose — after a reload he boots, which is the honest thing for a character
  * who just came back.
  */

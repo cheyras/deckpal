@@ -1,4 +1,5 @@
 import { storageEnv } from './config.js';
+import { supabaseKeyHeaders } from './supabase-key-headers.mjs';
 
 /**
  * `image_asset` access for the cloud tier, over PostgREST.
@@ -35,7 +36,7 @@ export type ImageAssetKind =
 
 function restHeaders(extra: Record<string, string> = {}): Record<string, string> {
   const { serviceKey } = storageEnv();
-  return { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, ...extra };
+  return { ...supabaseKeyHeaders(serviceKey), ...extra };
 }
 
 function restUrl(path: string): string {
