@@ -167,10 +167,14 @@ function PrintedSetCode({ code }: { code: string | null }) {
 }
 
 function OwnedAs({ sources }: { sources: DeckCard['ownedAs'] }) {
-  if (sources.length === 0) return null
+  if (!sources?.length) return null
   return (
-    <span className="whitespace-nowrap text-change-positive" title="Equivalent printing in your collection">
-      Owned as {sources.map((source) => `${source.setCode} ${source.number}${source.quantity > 1 ? ` ×${source.quantity}` : ''}`).join(', ')}
+    <span className="min-w-0 max-w-full text-change-positive" title="Equivalent printing in your collection">
+      Owned as {sources.map((source, index) => (
+        <span key={`${source.setCode}-${source.number}-${index}`} className="mr-1 inline-block whitespace-nowrap">
+          {source.setCode} {source.number}{source.quantity > 1 ? ` ×${source.quantity}` : ''}{index < sources.length - 1 ? ',' : ''}
+        </span>
+      ))}
     </span>
   )
 }

@@ -73,7 +73,8 @@ export function writesFixture(mount, admin) {
   })
   const deckDetail = () => {
     const cards = state.deck.map(({ i, quantity }) => ({ ...row(i), variantId: 100 + i * 2, variant: { kind: 'normal', displayName: 'Normal', tier: 'standard', isPrimary: true },
-      section: 'pokemon', stage: null, regulationMark: 'H', setId: SET, setCode: 'FXS', setName: 'Fixture Set', seriesSlug: 'fx', quantity, owned: 0, have: false }))
+      section: 'pokemon', stage: null, regulationMark: 'H', setId: SET, setCode: 'FXS', setName: 'Fixture Set', seriesSlug: 'fx', quantity, owned: 0, have: false,
+      ownedAs: [], pinExact: false }))
     const total = cards.reduce((n, c) => n + c.quantity, 0)
     return {
       deck: { id: DECK, name: 'Fixture Deck', description: null, formatCode: 'standard', formatName: 'Standard', glcType: null, isFavorite: false, coverRender: '',
