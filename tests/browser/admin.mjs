@@ -7,6 +7,7 @@ import { appResponses, announcement } from './upcoming.mjs'
 export const PERMISSIONS = ['devtools.access','admin.access','users.read','users.manage','roles.read','roles.manage','settings.read','settings.write','credits.read','credits.manage','audit.read','scanner.use','scanner.label','design.view','diagnostics.view','decke.use']
 const OWNER = '10000000-0000-4000-8000-000000000001', USER = '10000000-0000-4000-8000-000000000002'
 const now = '2026-09-12T18:00:00Z'
+const DELAYED_SEARCH_MS = 1500
 export function adminFixture(mount) {
   const state = {
     actor: 'owner', permissions: [...PERMISSIONS], conflicts: false, requests: [], signedOut: false, usersFailOnce: false, rolesFail: false, delayedSearch: '',
@@ -81,7 +82,7 @@ export function adminFixture(mount) {
       const users = state.users.filter(u => (!search || u.id === search || u.username.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase())) && (status === 'all' || u.suspended === (status === 'suspended')) && (!role || u.roles.some(r => r.id === role)))
       const limit = Number(url.searchParams.get('limit') ?? 25), offset = Number(url.searchParams.get('offset') ?? 0)
       const result = ok({ users: users.slice(offset, offset + limit), total: users.length, limit, offset })
-      return state.delayedSearch && search === state.delayedSearch ? new Promise(resolve => setTimeout(() => resolve(result), 400)) : result
+      return state.delayedSearch && search === state.delayedSearch ? new Promise(resolve => setTimeout(() => resolve(result), DELAYED_SEARCH_MS)) : result
     }
     if (rel === '/api/admin/users/' + USER) return ok({ user: state.users[0], permissions: state.users[0].roles.flatMap(r => state.roles.find(role => role.id === r.id)?.permissions ?? []), stats: { collectionItems: 3, decks: 1, connectors: 2 } })
     if (rel === '/api/admin/users/' + USER + '/role') {
@@ -139,9 +140,9 @@ export async function signIn(context, id = OWNER) {
     localStorage.setItem('deckpal.settings.pushed.v1','1')
   }, { id })
 }
-export async function checkAdmin(browser, server, mount, label, out, fixture) {
+export async function checkAdmin(browser, server, mount, label, out, fixture, part = 'all') {
   const results = [], {state} = fixture
-  for (const width of [1280,390]) {
+  for (const width of part === 'all' || part === 'journey' ? [1280,390] : []) {
     state.actor='owner';state.permissions=[...PERMISSIONS]
     const {context,page}=await contextFor(browser,server,width);await signIn(context)
     try {
@@ -249,7 +250,15 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
       results.push({case:'admin-role-economy-wallet-journey',label,width,hostedCheckoutAsserted:true})
     }catch(error){await page.screenshot({path:path.join(out,label+'-admin-failure.png'),fullPage:true});error.message+='\nPage: '+(await page.locator('body').innerText()).slice(0,1800)+'\nUnexpected: '+JSON.stringify(server.unexpected);throw error}finally{await context.close()}
   }
-  results.push(...await checkAdminTables(browser,server,mount,label,out,fixture))
+  if(part==='journey') return results
+  if(part==='all' || part.startsWith('tables-')) {
+    // The former combined suite created this row through the wallet journey.
+    // Keep the table's descending-sort proof when tables run independently.
+    if(part!=='all') state.packs.push({id:'pack-table-seed',name:'Value 1280',credits:1200,priceCents:950,currency:'usd',active:true,revision:1})
+    const widths = part==='all' ? [1280,390] : [Number(part.slice('tables-'.length))]
+    results.push(...await checkAdminTables(browser,server,mount,label,out,fixture,widths))
+  }
+  if(part.startsWith('tables-')) return results
   for(const [actor,permissions] of [['readonly',['admin.access','users.read','devtools.access','design.view']],['labeler',['devtools.access','scanner.label']],['ordinary',[]]]){
     state.actor=actor;state.permissions=permissions
     const {context,page}=await contextFor(browser,server,390);await signIn(context,USER)
@@ -339,7 +348,7 @@ export async function checkInsights(browser, server, mount, label, out, fixture)
   }
   return results
 }
-async function checkAdminTables(browser, server, mount, label, out, fixture) {
+async function checkAdminTables(browser, server, mount, label, out, fixture, widths = [1280,390]) {
   const results = [], {state} = fixture
   const go = (page, route) => page.goto(server.origin + mount + route, {waitUntil:'networkidle'})
   const waitRange = (surface, text) => surface.getByRole('status').filter({hasText:text}).waitFor()
@@ -380,7 +389,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
     await region.evaluate(node=>window.scrollTo(0,window.scrollY+node.getBoundingClientRect().top-180))
     await page.screenshot({path:path.join(out,label+'-'+snapshot+'-'+width+'-viewport.jpg'),type:'jpeg',quality:75,fullPage:false})
   }
-  for(const width of [1280,390]){
+  for(const width of widths){
     state.actor='owner';state.permissions=[...PERMISSIONS];state.rolesFail=false
     const {context,page}=await contextFor(browser,server,width);await signIn(context)
     try{
@@ -416,7 +425,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
       await users.getByRole('status').filter({hasText:'Loading results'}).waitFor()
       assert.equal(await userTable.getByRole('link').count(),0,'New request hides the previous-filter accounts')
       await users.getByLabel('Search users',{exact:true}).fill('Member 058');await users.getByRole('button',{name:'Search',exact:true}).click()
-      await userTable.getByRole('link',{name:'Member 058',exact:true}).waitFor();await page.waitForTimeout(500)
+      await userTable.getByRole('link',{name:'Member 058',exact:true}).waitFor();await page.waitForTimeout(DELAYED_SEARCH_MS + 100)
       assert.equal(await userTable.getByRole('link',{name:'Member 059',exact:true}).count(),0,'Late cancelled response must not replace newer results')
       state.delayedSearch='';state.usersFailOnce=true
       await users.getByLabel('Search users',{exact:true}).fill('Member 057');await users.getByRole('button',{name:'Search',exact:true}).click()
