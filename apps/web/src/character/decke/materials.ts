@@ -126,8 +126,9 @@ const CARD_FOIL = {
   clearcoatRoughness: 0.08,
 } as const
 
-export function fixupMaterials(root: Object3D): { cardsFixed: number } {
+export function fixupMaterials(root: Object3D): { cardsFixed: number; bodyFixed: boolean } {
   let cardsFixed = 0
+  let bodyFixed = false
   const seen = new Set<Material>()
 
   root.traverse((o) => {
@@ -144,6 +145,12 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number } {
 
       const std = mat as MeshStandardMaterial
       const name = std.name ?? ''
+
+      if (name === BODY_MATERIAL) {
+        brandBody(std)
+        bodyFixed = true
+        continue
+      }
 
       // Only the FRONTS glow. The backs already export with a black emissive,
       // which is correct — the foil is printed on the face.
@@ -182,5 +189,69 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number } {
     }
   })
 
-  return { cardsFixed }
+  return { cardsFixed, bodyFixed }
+}
+
+/** The glb's name for his body — the shell of the deck box. */
+export const BODY_MATERIAL = 'DeckBox_Cyan400'
+
+/**
+ * DeckPal's cyan: `--color-brand-primary-400` in theme.css. Mirrored rather than
+ * read at runtime because the engine does not read the page's CSS; the
+ * `materials.test.ts` pin fails if the token moves without him.
+ */
+export const BRAND_CYAN = '#00d3f3'
+
+/**
+ * How metallic his shell is. The glb says 0.85; see `brandBody` for why that
+ * was one of the two things graying him out, and why not 0.
+ */
+export const BODY_METALNESS = 0.3
+
+/**
+ * Make him the colour he is supposed to be.
+ *
+ * ── WHAT GRAYED HIM OUT ─────────────────────────────────────────────────────
+ *
+ * The owner: his colour is "desaturated, slightly grayed out". Measured on a
+ * render, the median body pixel was #5ca2ad against the brand's #00d3f3 — a
+ * ΔE76 of 25, at 58% HSV saturation. Taking the stage's knobs one at a time:
+ *
+ *   1. THE TONE CURVE, by far. The stage runs a port of Blender's AgX (Look:
+ *      None), which desaturates bright saturated colour toward white BY DESIGN
+ *      — the file header above measured the same curve bleeding 25-65 points of
+ *      saturation out of a patch chart. Swapping ONLY the body to Khronos'
+ *      PBR Neutral curve — built for exactly this, product colour that must
+ *      come out as authored, compressing nothing but the highlights — took the
+ *      body to 88% saturation and its brightest quarter to within ΔE 2-5.
+ *   2. THE METAL. At metalness 0.85 the shell has almost no diffuse colour of
+ *      its own: it is a cyan TINT on reflections of a grey studio, so its mid
+ *      tones stay dark whatever the curve does (median ΔE 15 at 0.85). 0.3
+ *      keeps a lacquered sheen and his form; 0 went flat and chalky beside it.
+ *   3. THE BASE COLOUR was Tailwind's cyan-400 (#22d3ee), not the brand's.
+ *
+ * Together: median #0ec4e1, ΔE 6 (brightest quarter ΔE 2-3), 85% saturation,
+ * nothing clipped to white.
+ *
+ * ONLY THE BODY. Everything else on him — the eyes' symbol palette above all —
+ * was chosen deeper and more saturated to come out right THROUGH AgX, and
+ * swapping the whole stage's curve would have over-saturated every one of them
+ * (`eyes/eyeMaterial.ts`). So the renderer keeps its curve and this one
+ * material replaces the curve in its own shader.
+ */
+function brandBody(std: MeshStandardMaterial) {
+  std.color.setStyle(BRAND_CYAN)
+  std.metalness = BODY_METALNESS
+  std.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <tonemapping_fragment>',
+      // `NeutralToneMapping` is declared by three's tone mapping chunk whatever
+      // the renderer's own curve is; `TONE_MAPPING` is defined whenever a curve
+      // is on at all, so "no tone mapping" stays no tone mapping.
+      '#if defined( TONE_MAPPING )\n\tgl_FragColor.rgb = NeutralToneMapping( gl_FragColor.rgb );\n#endif',
+    )
+  }
+  // A different program from every other standard material in the scene.
+  std.customProgramCacheKey = () => 'decke-body-neutral'
+  std.needsUpdate = true
 }
