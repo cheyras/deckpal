@@ -182,3 +182,19 @@ test('promo checklists without a printed denominator do not label every card sec
   assert.ok(!pages[0]!.includes('SECRET CARDS'));
   assert.ok(!pages[0]!.includes('PRINTED CARDS'));
 });
+
+test('split collector numbers keep the printed and secret boundary at the printed total', async () => {
+  const cards = ['50a', '50b', '200', '201a'].map((number) => ({
+    ...set.cards[0]!, number, name: `Card ${number}`,
+  }));
+  const { pages } = await inspect(await renderToBuffer((s) => renderSetChecklistPdf(s, {
+    ...set, printedCount: 200, total: cards.length, cards,
+    progress: { owned: 0, total: cards.length, pct: 0 },
+  })));
+  const text = pages.join('');
+  assert.ok(text.indexOf('PRINTED CARDS') < text.indexOf('Card 50a'));
+  assert.ok(text.indexOf('Card 50a') < text.indexOf('Card 50b'));
+  assert.ok(text.indexOf('Card 50b') < text.indexOf('Card 200'));
+  assert.ok(text.indexOf('Card 200') < text.indexOf('SECRET CARDS'));
+  assert.ok(text.indexOf('SECRET CARDS') < text.indexOf('Card 201a'));
+});

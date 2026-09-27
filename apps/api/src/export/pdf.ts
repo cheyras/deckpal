@@ -235,9 +235,11 @@ export function renderSetChecklistPdf(stream: Writable, d: SetChecklistData): vo
     const flow = new Columns(doc, 3, top, `${d.setName} · set checklist`,
       (x, y, w) => columnHead(doc, x, y, w, 'NO.'), d.cards.length, 17);
     let band = '';
-    for (let i = 0; i < d.cards.length; i++) {
-      const card = d.cards[i]!;
-      const next = d.printedCount > 0 ? i < d.printedCount ? 'Printed cards' : 'Secret cards' : '';
+    for (const card of d.cards) {
+      const collectorNumber = card.number?.trim().match(/^\d+/)?.[0];
+      const next = d.printedCount > 0 && collectorNumber
+        ? Number(collectorNumber) <= d.printedCount ? 'Printed cards' : 'Secret cards'
+        : '';
       if (next && next !== band) { flow.section(next); band = next; }
       cardRow(doc, flow.row(17), card.name ?? '—', card.number, card.owned);
     }
