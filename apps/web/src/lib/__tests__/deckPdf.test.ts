@@ -41,7 +41,7 @@ test('no element loads the deck PDF route by URL', () => {
 
 test('Export PDF fetches with auth and saves, never opens a window', () => {
   assert.match(BUILDER, /api\.downloadPdf\(api\.deckPdfPath\(id\)/)
-  const helper = API.slice(API.indexOf('downloadPdf: async'), API.indexOf('listPdfUrl:'))
+  const helper = API.slice(API.indexOf('downloadPdf: async'), API.indexOf('\n  // Lists'))
   assert.match(helper, /await authHeaders\(\)/, 'the request must carry the session')
   assert.match(helper, /\.download = filename/, 'the blob is saved through a download anchor')
   assert.doesNotMatch(helper, /window\.open\(/, 'iOS Safari blocks window.open after an await')

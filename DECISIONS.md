@@ -20495,6 +20495,97 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 
 **Evidence and status:** The observed live result was 9/10 signed approvals, with one residual prose-confirmation miss after `get_card`; the finite sample does not prove causation or universal liveness. This is a metadata-only correction with zero writes. Existing preview descriptor, schemas, normalization, preflight, approval eligibility/HMAC/replay, system prompt, tool routing, API transport and MCP behavior remain unchanged. Live follow-up remains pending.
 
+## 2026-09-26 — A scripted iOS Simulator test kit, permanent under `tools/ios-sim/`
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** `tools/ios-sim/` is a reusable kit for testing DeckPal in real Mobile
+Safari on the iOS Simulator: `wir.py` (a from-scratch, Python-3-stdlib-only Safari
+Web Inspector client over the simulator's local `webinspectord_sim` socket --
+`list`/`eval`/`eval @file`), `server.mjs` (a fixture server -- fake signed-in
+session, fake API, built on the existing `tests/browser/support.mjs` +
+`admin.mjs` harness rather than duplicating it), `keyboard_probe.js` +
+`measure_keyboard.py` (on-screen-keyboard layout measurement), and `shot.sh`
+(a `simctl io screenshot` fallback). `pnpm sim:serve` runs the fixture server;
+`pnpm test:ios-sim` runs the kit's own pure tests.
+
+**Why:** On 2026-09-23 an ad hoc investigation session did this same thing by
+hand -- boot, attach, seed a fake session, drive the UI, read layout state --
+and found a real bug (the Bug Report modal's keyboard-scroll issue, reproduced
+again below as this kit's worked example). That session's own record noted no
+scripted recipe existed, so the method had to be reinvented from scratch next
+time. The prototype files that investigation described (a `wir.py`, a keyboard
+probe, a screenshot helper) did not exist on disk when this kit was built --
+the sandbox they were written in did not persist between sessions -- so this
+kit is written fresh from the technical spec that investigation left behind
+(the plist RPC framing, the `Target.sendMessageToTarget` multiplexing, the
+`awaitPromise` unreliability), cross-checked against `pymobiledevice3` and
+`ios-webkit-debug-proxy`'s published implementations of the same protocol, and
+independently verified end-to-end against a real booted simulator (iPhone 16
+Pro, iOS 18.6) rather than assumed correct from the spec alone.
+
+**What it found, verified today:** the Bug Report modal's keyboard bug still
+reproduces on `main` -- tapping its textarea for real raises the keyboard, and
+`document.scrollY` goes from `0` to `137` with the dialog's own title and the
+app header scrolled to negative `y` (off-screen above the fold), while the
+focused field itself stays visible. See `tools/ios-sim/README.md`'s worked
+example for the full probe output. Also verified: the Home Screen (standalone)
+install flow works end-to-end (`window.navigator.standalone === true` reads
+back through `wir.py --app standalone`), and `webinspectord_sim` has an
+undocumented connection-rate limit (a third fresh connection within roughly
+ten seconds gets no reply at all) -- `wir.py` retries through this itself
+rather than surfacing it as "nothing is open."
+
+**A mistake made and corrected during this work:** the simulator MCP tool's
+`text` action was used once by accident while re-verifying the Home Screen
+flow, despite the task's explicit instruction never to use it. Per the
+documented trap, this switches iOS into hardware-keyboard mode and hides the
+on-screen keyboard; the device was rebooted (`simctl shutdown` + `boot`)
+immediately to clear it before any further keyboard verification continued.
+Recorded here, not just fixed silently, because the same trap is now the
+kit's own README's first line under "Traps" -- it should not recur.
+
+**Implications:** `tools/ios-sim/dist/` (the built SPA) is gitignored (caught
+by the existing repo-wide `dist/` rule) and rebuilds are decoupled from
+`--port` (the auth storage key only depends on the `127.0.0.1` host, not the
+port, so one cached build serves any port). The deckpal-simfixture prototype's
+`hdiutil` case-sensitive-volume workaround was dropped entirely -- PR #201
+already fixed the underlying case-insensitive build collision on `main`, and
+building straight from a normal checkout was reverified clean before removing
+the workaround. Fixed alongside this kit (found by an independent a11y pass
+while this PR was in flight): `tests/browser/admin.mjs`'s
+`/api/insights/overview` fixture stub had drifted from the real
+`apps/api/src/routes/insights.ts` response shape (missing `trainer.intoLevel`/
+`toNext`/`fraction`, four fictitious keys -- `collection`, `tcg`, `completion`,
+`value` -- that were never real fields of that endpoint) and
+`/api/insights/value` had no stub at all; both are now pinned to the real
+shape, and a new `checkInsights` browser check (wired into `test:browser`)
+proves `/insights` actually renders on the fixture rather than trusting the
+stub by inspection. Unrelated and pre-existing: `pnpm test:browser`'s
+`checkAdminTables` "ArrowRight must actually scroll overflowing columns"
+assertion fails deterministically in this sandbox's headless Chromium, on a
+clean `origin/main` checkout with none of this PR's changes applied -- not a
+regression introduced here; left for a separate investigation.
+## 2026-09-26 — Four collection/list quick fixes from the ux-collection audit (UXC-01, 03, 05, 09)
+**Decided by:** Chey (via Claude)
+
+**Decision:** Fixed four findings from `audits/ux-collection.md`, scoped to the set/list/profile surfaces, all behind `fix/collection-quick-fixes`:
+
+- **UXC-01 (Print checklist 401s).** `<a href={api.listPdfUrl}/setChecklistPdfUrl}>` sent no `Authorization` header — cloud's PDF routes 401 every signed-in user who clicked Print Checklist. Added `api.downloadPdf(path, filename)` (`lib/api.ts`), which fetches with the same auth pipeline as `scanFlagBlob`, then downloads via a temporary `<a download>` on a `blob:` URL — never `window.open`, which iOS Safari popup-blocks once a request has crossed an `await`. `SetHeader.tsx` and `ListDetail.tsx` now call it from buttons instead of link `href`s. PR #216 independently fixed the deck export through the same `downloadPdf` helper; the merge keeps one function and all three authenticated PDF paths.
+- **UXC-03 (hover-only destructive controls).** The list-tile and showcase remove buttons were `opacity-0 group-hover:opacity-100` — invisible on any device with no `:hover`, while still live to a tap. Both are now always visible and gated behind the existing `ConfirmModal` primitive; the underlying removal uses #219's per-list write lane and failure feedback. Verification surfaced a SEPARATE, pre-existing bug this fix would otherwise have shipped silently broken: the premium skin (the app's **default** skin, `lib/skin.ts`) lifts `.px-card-art` to `z-index: 1` on hover/focus (`premium.css`, "Card art"), and the remove button had no matching `z-index`, so once visible it was still unclickable by an actual desktop mouse hovering the tile. Given the `px-card-badge` class (`z-index: 2` under premium) already exists for exactly this — the owned-qty badge and the variant counters carry it — the remove button now carries it too.
+- **UXC-05 (completed smart list dead-ends into a failing "Add Cards").** `ListDetail`'s empty state didn't check `smart`, so a finished smart list said "This list is empty" and offered an add that always 400s ("cards cannot be added by hand"), with the error swallowed (`onError: () => setAddingId(null)`). Smart + zero items now renders a completion state only when the rule is not narrowed by price, rarity, finish, or manual exclusion; a narrowed rule gets neutral copy. The merged per-list write lane from #219 reports any failed add once, while successful cards stay marked in the picker.
+- **UXC-09 (quick polish).** List header buttons wrapped to two lines at 390px, against issue #154's rule ("on mobile, consolidate them all into an actions dropdown") — the set page already followed it, the list page didn't. Mirrored `SetHeader`'s pattern: full row hidden below the `gap` breakpoint, collapsed into a single "List actions" kebab; also dropped a genuine duplicate — a smart list rendered BOTH "Edit Rule" and a separate "Edit list" icon button that opened the exact same modal. "Delete '<name>'? This can't be undone" was false (migration 038 soft-deletes both lists and decks; the row is restorable from Recently deleted) — fixed in both `ListDetail.tsx` and `DeckBuilder.tsx`, since it's the same copy bug in both places. Smaller: a smart list's rule caption printed the raw goal enum (`· complete`) instead of the shared `GOAL_SHORT_LABEL` map every other surface uses; card detail's price-freshness note described "self-hosted feed" on the cloud product every visitor is on. Left alone on purpose: the dead link button on card detail (another PR covers it).
+
+**Why:** Each is documented in `audits/ux-collection.md` with production/fixture evidence. The premium-skin z-index gap was not in the audit — it only surfaced because verification drove the fix with a real (non-force) Playwright click at desktop width, which is exactly the gap a `force: true` click or a manual hover-then-inspect check would have hidden.
+
+**Implications:** `api.ts`'s `listPdfUrl`/`setChecklistPdfUrl` are gone (replaced by `listPdfPath`/`setChecklistPdfPath` + `downloadPdf`); nothing else referenced them. A source-guard suite (`apps/web/src/components/__tests__/{pdfDownload,destructiveControls}.test.ts`, `apps/web/src/routes/__tests__/{listDetailSmart,listDetailPolish}.test.ts`, wired as `deckpal-web`'s `test:collection` and into `ci.yml`) pins the collection behaviors; #219's write-lane suite verifies queued writes and visible failures. Any future overlay control added inside a card tile (`CardTile.tsx`) needs the `px-card-badge`/`px-card-counters` marker class to stay clickable under the premium skin's hover-lift — that contract isn't enforced by a test, only by this note and the comment at the call site.
+
+## 2026-09-26 — Keep list card removal confirmation above virtual rows
+**Decided by:** Chey (via Codex)
+**Decision:** The list grid owns the selected card and removal confirmation; a tile only requests removal. The confirmation renders outside the virtual rows and outside the tile's `CardLink`.
+**Why:** Locking scroll for the confirmation can unmount a tile far down a long list. A dialog owned by that tile disappears before the reader can confirm.
+**Implications:** The list write still runs through #219's per-list lane after confirmation. Browser coverage opens removal near the bottom of an 80-card list and checks the dialog remains visible.
+
 ## 2026-09-26 — Issue #24 reopened: MEP's 49-card gap is real, unfixable from either approved source today, and the process gap that let it grow is fixed
 
 **Decided by:** Claude Sonnet 5 on behalf of @cheyras, investigating the

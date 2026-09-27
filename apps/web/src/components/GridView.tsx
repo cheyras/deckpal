@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { defaultRangeExtractor, useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { CardRow } from '../lib/api'
 import { CardTile } from './CardTile'
+import { ConfirmModal } from './ListModals'
 import { CARD_ASPECT_RATIO_INVERSE } from '../lib/cardGeometry'
 
 // Fluid grid + window virtualization (wiki: Frontend-Research §B.2). ONE ResizeObserver is
@@ -55,6 +56,9 @@ export function GridView({
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
+  // Keep the selected card above the virtual rows: opening Sheet locks body
+  // scroll, which can unmount a tile far down the list.
+  const [confirmRemove, setConfirmRemove] = useState<CardRow | null>(null)
 
   useLayoutEffect(() => {
     const el = gridRef.current
@@ -178,7 +182,7 @@ export function GridView({
                   seriesSlug={seriesSlug}
                   setId={setId}
                   eager={vRow.index === 0 && i < cols}
-                  onRemove={onRemove ? () => onRemove(card) : undefined}
+                  onRemove={onRemove ? () => setConfirmRemove(card) : undefined}
                   ownership={ownership}
                 />
               ))}
@@ -186,6 +190,19 @@ export function GridView({
           )
         })}
       </div>
+      {confirmRemove && onRemove && (
+        <ConfirmModal
+          title="Remove card"
+          message={`Remove ${confirmRemove.name} from this list?`}
+          confirmLabel="Remove"
+          onClose={() => setConfirmRemove(null)}
+          onConfirm={() => {
+            const card = confirmRemove
+            setConfirmRemove(null)
+            onRemove(card)
+          }}
+        />
+      )}
     </div>
   )
 }
