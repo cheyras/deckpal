@@ -21057,3 +21057,124 @@ and pinned by `wireBounds.test.ts`; `isNormalPath` is mirrored between
 `tools.ts` and `uiTools.ts` and pinned by `tools.test.ts`. A guide sub-agent
 that fails its one write cannot retry within the same approval. No schema,
 environment variable or deployment change.
+
+## 2026-09-26 — Jev reads the reader before Deck-E answers
+
+**Decided by:** Chey (via Claude). Chey approved Jev on 2026-09-26 ("implement
+Jev, yes. Use it wherever it would improve a user's experience with Deck-E") and
+confirmed that TypeSafe AI is a US company, so `typesafe-ai` joins the "US
+frontier labs only" list in `models.ts` rather than being an exception to it.
+
+**Decision:** Behind `DECKE_JEV` (default off), each `/api/chat` request gets
+one typed evaluation by `typesafe-ai/jev` of the reader's latest message before
+the model runs (`reflex.ts`, `jev.ts`); a turn with browser or approval legs
+repeats it per leg, because the server keeps nothing between requests, and only
+the leg carrying the reader's message may force (found by Astra in review). Three answers act, each only above a threshold chosen on a labelled
+eval set: a plain collection change pins step one's `toolChoice` to `log_cards`,
+which raises the signed consent card and cannot write without it; a walk to a
+list, deck or other non-set page takes `escort` out of view; and a refusal said
+in words ("stop researching the meta, you already did") is added to the declined
+ledger and outranks the reader-mention bypass. Jev never approves a write. On a
+timeout (`DECKE_JEV_TIMEOUT_MS`, default 800 ms), an HTTP error, a malformed or
+low-confidence answer, or the switch off, the turn runs exactly as before. Every
+call asks the Gateway for zero data retention and pins the provider to
+TypeSafe. The call is plain HTTP to `/v1/evaluate`: `experimental_evaluate`
+needs `ai` 7.0.105 and this repo pins 7.0.94, the version the signed approval
+replay was verified against.
+
+**Why, and why this is not the classifier `api/chat.mjs` rejected:** that
+comment rejects "a classifier turn in front of every message" because it "taxes
+the 90% that do not need one" and "a misroute is INVISIBLE". Both were true of an
+LLM turn and are measured false here. The tax: a reflex read is ~854 input
+tokens, $0.000036 (≈0.3% of a ~$0.0115 chat turn), no output tokens, p50 279 ms
+and p95 418 ms over 198 calls through the Gateway (from a residential
+connection), under a hard deadline. The misroute: every answer carries a
+probability, and an action fires only above its threshold; below it the turn is
+today's. On `apps/api/src/decke/eval/judgments.json` (66 synthetic reader
+messages, three paid passes, identical results each time):
+
+| Judgment | Today | With Jev |
+|---|---|---|
+| Force the consent card for a collection change (20 of 66) | 0 / 20 (nothing forces it) | 20 / 20, 0 false forces |
+| Hide `escort` for a page it cannot reach (8) | 0 / 8 | 8 / 8, 0 false hides |
+| Hear a spoken refusal (8) | 0 / 8, and the bypass re-opens 7 of them | 8 / 8, 0 false refusals |
+| A declined family handled right afterwards (13) | 6 / 13 | 13 / 13 |
+
+Thresholds: force at p ≥ 0.5 (the weakest true positive was 0.56, the strongest
+negative 0.30), destination p ≥ 0.85 / confidence ≥ 0.7, decline p ≥ 0.8.
+
+**Implications:** TypeSafe AI is a new data processor for the reader's latest
+message, Deck-E's previous reply and the page path. No separate collection or
+account records are attached, but those fields are not redacted and may contain
+ownership counts, card IDs, account details or deck/list IDs. Its retention is
+unconfirmed: the Gateway lists `zdr: "none"`, Vercel's guide offers ZDR per
+request, and TypeSafe offers ZDR to enterprise customers only; measured, the
+Gateway honours the per-request flag by skipping a non-ZDR host (SECURITY.md).
+Jev's model id is unpinned on the Gateway, so the thresholds must be re-measured
+with `scripts/decke-jev-eval.mjs` when it changes (`--replay` re-scores saved
+answers for free). The eval set is synthetic and small, written and labelled by
+one author; it is the first persisted offline eval corpus for Deck-E and is
+scored for today's heuristics in CI (`judgmentsEval.test.ts`). Jev's cost rides
+inside the flat chat-turn charge (no new charge, no token settlement) and is
+logged per call as tokens and Gateway-reported cost, never with reader text; it
+is not written as a usage operation, because recording a provider start would
+stop an aborted turn's credit being refunded. The research report's code map was
+corrected against the code: `ai` is 7.0.94 (not 7.0.66), `research_meta` is
+already in the name-level decline set, and `escort`'s description already
+routes lists and decks to `goTo`/`journey`. Body reflexes (the report's #4) were
+not built: no in-code heuristic exists to beat, it would restructure `express`
+and the client state machine, and whether his body should react before his
+words is the owner's taste call.
+
+## 2026-09-26 — Jev checks his reply against what he did, and he corrects himself with the real card
+
+**Decided by:** Chey (via Claude), under the 2026-09-26 approval to use Jev
+wherever it improves the reader's experience of Deck-E.
+
+**Decision:** With `DECKE_JEV=on`, once a leg's stream ends, Jev reads the
+reader's message and Deck-E's reply (`audit.ts`): did the reply claim a change
+or a move, and of which kind? If it claimed a collection, list, deck or
+battle-log change and no tool that performs one ran this turn, the same response
+continues with ONE corrective step — the same model, tools and prompt prefix,
+`toolChoice` pinned to `log_cards` / `edit_list` / `save_deck` /
+`add_battle_log`, the same approval secret — under a line in his voice ("One
+correction: I said that as if it were done, but I hadn't actually run it. Here
+it is for you to confirm."). Every one of those tools holds its change for the
+signed card, so the correction can only ask. A claimed guide or walk gets the
+existing first-person admission instead (a guide is a paid deep call; a walk has
+no card and a forced `goTo` would invent a route). "Performed" is every tool the
+turn touched — the leg's calls, every chip its handlers emitted, and the tool
+parts replayed after the reader's message — because a write approved on the
+previous leg executes before this request's first step. A navigation handoff is
+never audited. Jev off, slow, unsure or failing: the guard chain is exactly as
+before.
+
+**Why:** Phantom actions are the angriest quotes in the owner's history, and the
+guard for them (`phantomClaims`) is regex tuned for precision: on the 40-item
+audit set it catches 3 of 15 phantoms and fixes none. With Jev, over three paid
+passes: 15 of 15 caught, 0 of 25 clean turns flagged, the kind right in all 15;
+12 of the 15 are correctable kinds and get the card, the other 3 get the
+admission. The regexes stay: Jev's recall sits under their precision (a regex
+hit still produces a note when the audit is off or unsure).
+
+**Implications:** The audit adds one Jev call after each leg that spoke
+(~570 input tokens, ~$0.000024, p50 269 ms / p95 371 ms measured), bounded by
+`DECKE_JEV_TIMEOUT_MS`, before the response closes. A corrective step is a real
+model step: it is metered like every other (`observeUsageModel`), rides inside
+the flat chat-turn charge, and only runs while the turn is under `MAX_STEPS`.
+The reader sees the false sentence before the correction: Jev cannot stop a
+stream mid-word, so the fix is fast and honest rather than invisible. Whether
+the chat model, once pinned, fills the arguments well is covered by mocked
+tests and by `log_cards`' own preflight; it has not been measured live.
+
+## 2026-09-26 — A claimed deletion gets an admission, never a forced edit
+**Decided by:** Chey (via Codex)
+**Decision:** Separate claimed deletion of a list, deck or battle log from other changes in Deck-E's after-turn audit. When Jev detects an unperformed deletion, Deck-E admits that nothing changed; it does not force `edit_list`, `save_deck` or `add_battle_log`, because those tools cannot delete. Collection card removals still use `log_cards`, which can change quantities and raises the signed approval card.
+**Why:** The original action labels grouped deletion with creation and edits. A phantom "your deck is gone" could therefore pin `save_deck` and ask for an unrelated change. The revised 43-item synthetic eval includes unperformed deletion of each object and one completed deck deletion. In one paid Jev pass, it caught 17/17 phantom claims, flagged 0/26 clean turns, identified all 17 kinds correctly, and chose the deletion labels for all three new/relabeled phantom examples. The pass cost $0.00353; it does not establish live accuracy.
+**Implications:** Only collection, non-deletion list, deck and battle-log claims may start a corrective step. Deleted-object claims follow the existing first-person admission. Jev remains off by default, and any slow or uncertain judgment still falls back to the previous guard chain.
+
+## 2026-09-26 — Corrective approval cards sign apply intent
+**Decided by:** Chey (via Codex)
+**Decision:** A corrective `edit_list`, `save_deck` or `add_battle_log` call uses a correction-only schema whose `dry_run` defaults to `false` and rejects `true`. The parsed `false` is part of the SDK's signed approval input. The ordinary tool schemas retain their safe `dry_run: true` defaults.
+**Why:** Astra found that forcing a tool name alone could produce only a dry run: those three tools default to preview, so the one-step correction would stop without a card. A real-SDK test for each tool now proves that an omitted `dry_run` becomes a signed apply request, raises the card with zero writes, and applies only after signed approval is replayed under the ordinary tool set.
+**Implications:** Corrective tool choice can no longer silently become a preview because the model omitted `dry_run`. Invalid or declined calls still fail closed, and the existing approval gate remains the only route to a write.

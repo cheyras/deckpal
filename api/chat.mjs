@@ -104,7 +104,7 @@ import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls, researchRanInConversation } from '../apps/api/dist/decke/declined.js'
 import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
 import { outOfCreditsText } from '../apps/api/dist/decke/credits.js'
-import { buildDataTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
+import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
@@ -126,6 +126,15 @@ import {
 } from '../apps/api/dist/decke/turnGuards.js'
 import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
 import { priorSummaries } from '../apps/api/dist/decke/toldAlready.js'
+import { readReflex } from '../apps/api/dist/decke/reflex.js'
+import {
+  auditTurn,
+  turnToolNames,
+  CORRECTIVE_TOOLS,
+  correctiveInstruction,
+  CORRECTION_LINE,
+  CORRECTION_FAILED_LINE,
+} from '../apps/api/dist/decke/audit.js'
 import {
   validateWire,
   windowForModel,
@@ -437,19 +446,6 @@ async function serve(request) {
   // never shown to the model. See `boundedEvidence`.
   const evidence = boundedEvidence(body?.evidence)
 
-  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
-  //
-  // Derived from the replayed conversation, before anything else uses it. The
-  // reader watched the same `deck_strategy` dialog on three consecutive turns
-  // having declined it every time, and wrote in the chat that this was the
-  // problem. A matching call is now refused without a dialog. See
-  // `decke/declined.ts` for why the tool is not simply taken away instead.
-  //
-  // `latestUserText` is the reader's OWN latest message — the one fact the model
-  // cannot fake, and what re-opens a name-level family (guide / research) the
-  // reader raises again. See `declined.ts`'s bypass section.
-  const declined = declinedCalls(messages, latestUserText(messages))
-
   // ── AND WHAT THE METER ALREADY REFUSED IN THIS TURN ───────────────────────
   //
   // The other half of `declined`, and a different fact: a decline is the reader
@@ -470,7 +466,7 @@ async function serve(request) {
 
   // ── AND WHAT HAS BEEN FAILING ALL CONVERSATION ────────────────────────────
   //
-  // Same source, same lifetime, same reason as `declined` above: rebuilt from
+  // Same source, same lifetime, same reason as `declined` below: rebuilt from
   // the replayed history because the server keeps nothing between requests.
   // `battle_logs` 500ed on four turns of one conversation and was re-called on
   // every one of them — the error chips were erased at the turn boundary, so
@@ -539,6 +535,38 @@ async function serve(request) {
   }
 
   try {
+  // ── THE REFLEX READ ───────────────────────────────────────────────────────
+  //
+  // What the reader is asking for, judged by Jev before the model runs: a
+  // collection change forces the first step to raise the real consent card, a
+  // walk to a list or deck takes `escort` out of view, and a "no" said in words
+  // counts as a decline. On every leg, from the reader's latest words — the
+  // server keeps nothing between requests, and a refusal must still hold after
+  // a browser result comes back — but only the leg carrying those words may
+  // force. AFTER the meter — this is a Gateway call, and nothing reaches the
+  // Gateway unpaid — and under a hard deadline. On a timeout, an error, a low-confidence answer or `DECKE_JEV`
+  // off, it is `NO_REFLEX`, which is this function exactly as it was.
+  //
+  // Not the classifier turn the deep tier's comment below rejects: that was an
+  // LLM turn in front of every message. This is a typed evaluation — no
+  // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
+  // above a threshold chosen on a labelled set. See `decke/jev.ts`.
+  const reflex = await readReflex(messages, route, { key, signal: request.signal })
+
+  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
+  //
+  // Derived from the replayed conversation, before anything else uses it. The
+  // reader watched the same `deck_strategy` dialog on three consecutive turns
+  // having declined it every time, and wrote in the chat that this was the
+  // problem. A matching call is now refused without a dialog. See
+  // `decke/declined.ts` for why the tool is not simply taken away instead.
+  //
+  // `latestUserText` is the reader's OWN latest message — the one fact the model
+  // cannot fake, and what re-opens a name-level family (guide / research) the
+  // reader raises again. See `declined.ts`'s bypass section. A refusal SAID in
+  // that message (the reflex read above) counts too, and outranks the bypass.
+  const declined = declinedCalls(messages, latestUserText(messages), reflex.declines)
+
   // Where this instance is reachable, for the API hop a tool makes. Derived
   // from the request rather than hardcoded, so a preview deployment talks to
   // ITSELF instead of to production — which matters most when the thing being
@@ -844,26 +872,29 @@ async function serve(request) {
       // to re-read and nothing about how he behaves. The reader's current turn,
       // approvals included, is never cut. See `decke/wireBounds.ts`.
       const preparedMessages = await convertToModelMessages(stripPriorCommands(windowForModel(messages).messages))
+      // Named rather than inlined because a corrective leg (the after-turn
+      // audit, below) reuses it byte for byte: same prefix, same cache.
+      const systemPrompt = buildSystemPrompt({
+        route,
+        signedIn: true,
+        // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
+        // which explains why the cap exists (prompt size, re-billed per leg)
+        // and what it costs. Bounded again here — count AND each string —
+        // because the browser chooses what to send and this is the side that
+        // pays for it. Change one, change both (`LANDMARKS_MAX`).
+        landmarks,
+        // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING (`allDeckeTools`).
+        // Hand-writing this list is how the previous prompt came to spend
+        // every turn offering to look things up with no tool that could look.
+        dataTools: dataToolSummary({ include: () => true, conversationalLogging: true }),
+      })
       const result = streamText({
         model: observeUsageModel(gateway(choice.id), meter),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
         // `instructions` is the field that accepts a SystemModelMessage, which
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
         // whole animation vocabulary on every turn, so caching is load-bearing.
-        instructions: buildSystemPrompt({
-          route,
-          signedIn: true,
-          // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
-          // which explains why the cap exists (prompt size, re-billed per leg)
-          // and what it costs. Bounded again here — count AND each string —
-          // because the browser chooses what to send and this is the side that
-          // pays for it. Change one, change both (`LANDMARKS_MAX`).
-          landmarks,
-          // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING, three lines below.
-          // Hand-writing this list is how the previous prompt came to spend
-          // every turn offering to look things up with no tool that could look.
-          dataTools: dataToolSummary({ include: () => true, conversationalLogging: true }),
-        }),
+        instructions: systemPrompt,
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
         // `standardizePrompt` as "messages.some is not a function" — which
@@ -1006,8 +1037,15 @@ async function serve(request) {
         // `activeTools`, "a prompt begging the model to call it produced no
         // call". A decline is never removed this way (the reader can change
         // their mind mid-turn); a spent cap cannot be talked around.
+        //
+        // AND WHAT THE REFLEX READ SETTLED. `escort` leaves view when the reader
+        // is going somewhere it cannot reach. And when they plainly asked to
+        // change their collection, step one MUST call `log_cards` — the call
+        // that raises the signed consent card, and cannot write without it.
+        // Forcing it forces the question, never the answer.
         prepareStep: ({ stepNumber }) => ({
-          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n)),
+          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
+          ...(stepNumber === 0 && reflex.force ? { toolChoice: { type: 'tool', toolName: reflex.force } } : {}),
         }),
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
@@ -1136,6 +1174,13 @@ async function serve(request) {
         },
       })
 
+      // Shared by the turn's stream and a corrective leg's; see the comment at
+      // the first use below.
+      const surfaceError = (error) => {
+        console.warn('[deck-e] stream/tool error surfaced to the client:', safeUsageCode(error))
+        return 'The model request could not finish. Please try again.'
+      }
+
       // STANDALONE `toUIMessageStream({ stream })`, not `result.toUIMessageStream()`.
       //
       // The method form is deprecated in ai@7 and does not produce a valid UI
@@ -1166,11 +1211,7 @@ async function serve(request) {
             // stack trace and not anything about the account, so returning it
             // is safe. It goes to the reader's browser, where the transcript
             // now renders it as a failed row rather than as silence.
-            onError: (error) => {
-              const message = error instanceof Error ? error.message : String(error)
-              console.warn('[deck-e] stream/tool error surfaced to the client:', safeUsageCode(error))
-              return 'The model request could not finish. Please try again.'
-            },
+            onError: surfaceError,
           }),
         ),
       )
@@ -1334,6 +1375,7 @@ async function serve(request) {
           // (Orchestrator correction 2026-08-29: the first cut of these strings
           // was written TO the model and would have rendered as gibberish.)
           let note = null
+          let corrective = null
           if (needsContinuation(String(finishReason ?? ''))) {
             // (b) TRUNCATION — cut off mid-sentence.
             note = ' …I got cut off mid-sentence there. Say "keep going" and I\'ll finish the thought.'
@@ -1371,7 +1413,26 @@ async function serve(request) {
             // the whole reader-visible turn rather than one detail in it.
             const promised = promisedWithoutActing(turnSteps, CLIENT_SET, completedToolNames)
             const ungrounded = ungroundedCardIds(answerText, observedIds)
-            if (phantoms.length > 0) {
+            // (d0) THE AFTER-TURN AUDIT. Jev reads the reply against the
+            // reader's message; a claimed change no tool made gets ONE
+            // corrective leg that raises the real consent card, and any other
+            // claimed action the admission below. "Performed" is every tool
+            // this TURN touched — an approved write runs at the start of this
+            // request, before any step. Null (off, slow, unsure) is exactly the
+            // chain below. See `decke/audit.ts`.
+            const audit = calledToolNames.some((n) => CLIENT_SET.has(n))
+              ? null
+              : await auditTurn({
+                  message: latestUserText(messages),
+                  reply: answerText,
+                  toolsRun: [...calledToolNames, ...guardEvents.map((e) => e.name), ...turnToolNames(messages)],
+                  key,
+                  signal: abortSignal,
+                })
+            const fixable = audit?.phantom ? CORRECTIVE_TOOLS[audit.phantom] : undefined
+            if (fixable && steps.length < MAX_STEPS) {
+              corrective = fixable
+            } else if (phantoms.length > 0 || audit?.phantom) {
               note =
                 '\n\nOne correction: I talked about doing that just now, but I never actually ran it — ' +
                 'nothing has changed. Say the word and I\'ll actually do it.'
@@ -1389,6 +1450,40 @@ async function serve(request) {
           if (note) {
             guardFired = true
             writer.write({ type: 'text-delta', id: 'turn-guard', delta: note })
+          }
+
+          // ── THE CORRECTIVE LEG ────────────────────────────────────────────
+          //
+          // One more model step, the same tools and the same prompt prefix,
+          // its choice pinned to the tool that raises the consent card for
+          // what he claimed. Nothing is written until the reader confirms: the
+          // pinned tool holds its change for the signed card exactly as it
+          // would have on step one. It rides inside this request's flat charge
+          // and within MAX_STEPS (checked above), like any step of the turn.
+          if (corrective) {
+            guardFired = true
+            writer.write({ type: 'text-delta', id: 'turn-guard', delta: CORRECTION_LINE })
+            const leg = streamText({
+              model: observeUsageModel(gateway(choice.id), meter),
+              instructions: `${systemPrompt}\n\n${correctiveInstruction(corrective)}`,
+              messages: [...preparedMessages, ...(await result.response).messages],
+              tools: correctiveApplyTools(allDeckeTools, corrective),
+              toolChoice: { type: 'tool', toolName: corrective },
+              stopWhen: stepCountIs(1),
+              ...(process.env.DECKE_APPROVAL_SECRET
+                ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
+                : {}),
+              maxOutputTokens: budgetFor(choice),
+              abortSignal,
+              onError: ({ error }) => {
+                console.error('[deck-e] corrective leg error', safeUsageCode(error))
+              },
+            })
+            writer.merge(stripToolSyntax(toUIMessageStream({ stream: leg.fullStream, sendReasoning: false, onError: surfaceError })))
+            const asked = (await leg.steps.catch(() => [])).some((st) =>
+              (st.content ?? []).some((c) => c.type === 'tool-approval-request'),
+            )
+            if (!asked) writer.write({ type: 'text-delta', id: 'turn-guard', delta: CORRECTION_FAILED_LINE })
           }
         }
       } catch {
