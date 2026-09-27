@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inflateSync } from 'node:zlib';
 import { PassThrough } from 'node:stream';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type pg from 'pg';
 import type { Request, Response } from 'express';
 import { rlsStore } from '../../db.js';
@@ -91,42 +91,41 @@ async function pdfBytes(client: pg.PoolClient): Promise<Buffer> {
     res.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
     res.once('finish', () => resolve(Buffer.concat(chunks)));
     res.once('error', reject);
-    const req = { params: { id: deckId }, user: { id: userId } } as unknown as Request;
+    const req = { params: { id: deckId }, query: {}, user: { id: userId } } as unknown as Request;
     handler(exportRouter, '/decks/:id/pdf')(req, res, reject);
   }));
 }
 
-// PDFKit compresses text into TJ arrays. Decode what the PDF actually drew,
-// so this checks the exported artifact rather than a renderer argument.
-function drawnText(pdf: Buffer): string[] {
-  let content = '';
-  for (let i = 0; ; ) {
-    const start = pdf.indexOf('stream', i);
-    if (start < 0) break;
-    let begin = start + 6;
-    if (pdf[begin] === 13) begin++;
-    if (pdf[begin] === 10) begin++;
-    const end = pdf.indexOf('endstream', begin);
-    if (end < 0) break;
-    try { content += inflateSync(pdf.subarray(begin, end)).toString('latin1'); } catch { /* non-Flate stream */ }
-    i = end + 9;
+// Read the rendered PDF, including its embedded font encodings, then compare
+// the set and have count printed on the same row.
+async function drawnRows(bytes: Buffer): Promise<string[]> {
+  const task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: false });
+  const pdf = await task.promise;
+  const rows: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const content = await (await pdf.getPage(pageNumber)).getTextContent();
+    const items = content.items.filter((item): item is typeof item & { str: string; transform: number[] } =>
+      'str' in item && 'transform' in item);
+    for (const item of items) {
+      const y = item.transform[5]!;
+      rows.push(items.filter((other) => Math.abs(other.transform[5]! - y) < 3)
+        .sort((a, b) => a.transform[4]! - b.transform[4]!).map((part) => part.str).join(''));
+    }
   }
-  return [...content.matchAll(/\[([^\]]*)\]\s*TJ/g)].map((match) =>
-    [...(match[1] ?? '').matchAll(/<([0-9a-fA-F]*)>/g)]
-      .map((run) => Buffer.from(run[1] ?? '', 'hex').toString('latin1')).join(''));
+  await task.destroy();
+  return [...new Set(rows)];
 }
 
 test('deck page and PDF assign the scarce equivalent copy to the same card', async () => {
   const client = fakeDb();
   const page = await pageCards(client);
-  const text = drawnText(await pdfBytes(client));
+  const text = await drawnRows(await pdfBytes(client));
   const pdfOwned = (set: string) => {
-    const label = text.find((line) => line.includes(`${set.toUpperCase()} 1`));
-    assert.ok(label, `PDF row for ${set} was rendered: ${JSON.stringify(text)}`);
-    const missing = label.includes('have 0/1');
-    const owned = label.includes('owned');
-    assert.notEqual(missing, owned, `PDF row needs one clear ownership label: ${label}`);
-    return Number(owned);
+    const label = text.find((line) => line.toLowerCase().replaceAll(' ', '').includes(`${set}1`));
+    assert.ok(label, `PDF row for ${set} was rendered`);
+    const count = label.match(/([01])\/1/);
+    assert.ok(count, `PDF row needs a have count: ${label}`);
+    return Number(count[1]);
   };
   assert.equal(page.length, 2);
   assert.equal(page.reduce((sum, row) => sum + row.owned, 0), 1);
