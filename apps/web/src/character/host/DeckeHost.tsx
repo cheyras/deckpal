@@ -342,6 +342,19 @@ export function DeckeHost() {
    */
   const travellingRef = useRef(false)
   travellingRef.current = travelling
+  const [navigationSuspended, setNavigationSuspended] = useState(false)
+  useEffect(() => {
+    // The menu needs the transcript inert, but opening navigation is not a
+    // presentation: travelling would start the automatic chat retirement.
+    const onNavigationOpening = () => setNavigationSuspended(true)
+    const onNavigationClosed = () => setNavigationSuspended(false)
+    window.addEventListener('deckpal:navigation-opening', onNavigationOpening)
+    window.addEventListener('deckpal:navigation-closed', onNavigationClosed)
+    return () => {
+      window.removeEventListener('deckpal:navigation-opening', onNavigationOpening)
+      window.removeEventListener('deckpal:navigation-closed', onNavigationClosed)
+    }
+  }, [])
   /** The bubble is animating away — the beat between "read" and "he leaves".
    *  See the retire effect below. */
   const [bubbleLeaving, setBubbleLeaving] = useState(false)
@@ -1282,7 +1295,7 @@ function settledRect(el: HTMLElement): DOMRect {
   const bubbleWaiting = chatOpen && travelling && !bubbleText.trim() && chat.busy && !!lastAssistant?.parts.some((p) => p.kind === 'tool')
   useEffect(() => {
     setBubbleLeaving(false)
-    if (!chatOpen || !travelling || chat.busy || chat.asking) return
+    if (!chatOpen || !travelling || navigationSuspended || chat.busy || chat.asking) return
     // A WORDLESS presentation retires too — on a shorter clock, because there
     // is nothing to read, only a ring to glance at. Keying the timer on the
     // bubble having text was how a highlight-and-say-nothing turn left him
@@ -1313,7 +1326,7 @@ function settledRect(el: HTMLElement): DOMRect {
       window.clearTimeout(read)
       window.clearTimeout(out)
     }
-  }, [chatOpen, travelling, chat.busy, chat.asking, bubbleText, seeYouOut])
+  }, [chatOpen, travelling, navigationSuspended, chat.busy, chat.asking, bubbleText, seeYouOut])
 
   // ── HIS MARK CAN MOVE WITHOUT ANYTHING TELLING HIM ──────────────────────────
   //
@@ -1920,7 +1933,9 @@ function settledRect(el: HTMLElement): DOMRect {
         loading={phase === 'loading'}
         failed={phase === 'failed'}
         overChat={chatOpen}
+        chatOpen={chatOpen}
         onOpen={(rect) => {
+          window.dispatchEvent(new Event('deckpal:decke-opening'))
           launchRectRef.current = rect
           setChatOpen(true)
         }}
@@ -1930,8 +1945,11 @@ function settledRect(el: HTMLElement): DOMRect {
 
       <DeckeChat
         open={chatOpen}
-        minimised={travelling}
-        onExpand={() => setTravelling(false)}
+        minimised={travelling || navigationSuspended}
+        onExpand={() => {
+          window.dispatchEvent(new Event('deckpal:decke-opening'))
+          setTravelling(false)
+        }}
         onClose={() => {
           // ENDS THE TURN, and settles anything he was waiting on. Closing used
           // to do neither, so closing while he was asking permission parked the
@@ -1991,7 +2009,7 @@ function settledRect(el: HTMLElement): DOMRect {
           solved against the highlight AND his own silhouette so it can cover
           neither — see DeckeBubble. `leaving` is the retire effect's
           animate-away beat, played before he flies. */}
-      {chatOpen && travelling ? (
+      {chatOpen && travelling && !navigationSuspended ? (
         <DeckeBubble
           text={bubbleText}
           waiting={bubbleWaiting}

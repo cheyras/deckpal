@@ -103,3 +103,11 @@ test('every card_list / deck statement filters deleted_at or declares an exempti
       'statement genuinely wants deleted rows (recycle bin, purge, or a read already behind a checked lock).',
   );
 });
+
+test('deck-card summaries include deleted rows only for the recycle-bin listing', () => {
+  const route = readFileSync(join(SRC, 'routes/decks.ts'), 'utf8');
+  assert.match(route, /dc\.user_id = \$2 AND \(d\.deleted_at IS NULL OR \$3::boolean\)/);
+  assert.match(route, /function loadRows\(deckId: string, userId: string, includeDeleted = false\)/);
+  assert.match(route, /DECK_CARD_SELECT, \[deckId, userId, includeDeleted\]/);
+  assert.match(route, /loadRows\(meta\.id, userId, deleted\)/);
+});

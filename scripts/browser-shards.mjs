@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 export const durations = {
   'typecheck': 2,
   'selfhost-catalog': 33,
+  'selfhost-a11y': 15,
   'selfhost-admin-journey': 55,
   'selfhost-admin-tables-1280': 35,
   'selfhost-admin-tables-390': 35,
@@ -16,6 +17,7 @@ export const durations = {
   'selfhost-feedback-primary-428': 70,
   'selfhost-feedback-lifecycle': 67,
   'cloud-catalog': 27,
+  'cloud-a11y': 35,
   'cloud-admin-journey': 60,
   'cloud-admin-tables-1280': 55,
   'cloud-admin-tables-390': 55,
@@ -25,10 +27,14 @@ export const durations = {
   'cloud-feedback-primary-428': 146,
   'cloud-feedback-lifecycle': 129,
   'cloud-writes': 85,
+  // Labeler queue groups (#240): estimates until they have their own CI timings.
+  'selfhost-queue': 45,
+  'cloud-queue': 50,
   'authreturn': 14,
   'chat': 63,
   'error-boundary': 50,
   'payment-history': 15,
+  'list-table-virtualization': 8,
   'profile-owned-cards': 30,
   // Estimated from local runs (build + Chromium 70s + WebKit 9s, drawing off).
   'decke-show': 150,

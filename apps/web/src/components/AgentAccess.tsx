@@ -14,6 +14,7 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { api, type ApiTokenRow } from '../lib/api'
+import { lifetimeText, redirectBadge, tokenState } from '../lib/oauthConsent'
 import { isCloudMode } from '../lib/supabase'
 import { Field, FormAlert } from './ui'
 import { Button } from './ui/Button'
@@ -117,6 +118,62 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
   )
 }
 
+const BADGE = 'rounded-full px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide'
+
+/**
+ * One token or connection. A connection's name already says where its
+ * approval went; beside it go the badge the consent screen showed, whether it
+ * is read-only, and when it lapses. A hand-made token shows its prefix and
+ * "No expiry".
+ */
+function TokenRow({ token: t, revoking, onRevoke }: { token: ApiTokenRow; revoking: boolean; onRevoke: () => void }) {
+  const state = tokenState(t)
+  const badge = redirectBadge(t)
+  const live = state === 'active'
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-[10px] rounded-[10px] bg-surface-tertiary px-[14px] py-[11px]">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-[8px]">
+          <span className={`text-[14px] font-bold ${live ? 'text-text-primary' : 'text-text-muted line-through'}`}>{t.name}</span>
+          {/* A connection's own prefix names no secret its app holds (those
+              rotate beneath it), so only a hand-made token shows one. */}
+          {!t.redirect && <code className="font-mono text-[14px] text-text-muted">{t.prefix}…</code>}
+          {live && badge && (
+            <span
+              className={`${BADGE} border ${
+                badge === 'Verified' ? 'border-success/40 bg-halo-success text-success' : 'border-warning/40 bg-warning/[0.12] text-warning'
+              }`}
+            >
+              {badge}
+            </span>
+          )}
+          {live && t.scope === 'read' && (
+            <span className={`${BADGE} border border-action-ghost-border text-text-secondary`}>Read only</span>
+          )}
+          {!live && <span className={`${BADGE} bg-halo-error text-error`}>{state === 'revoked' ? 'Revoked' : 'Expired'}</span>}
+        </div>
+        <div className="mt-[2px] break-words text-[14px] text-text-muted">
+          {/* The name carries the host, but shortens a long one, and a local
+              app's says "this computer": then the full host is spelled out here. */}
+          {t.redirect && !t.name.includes(t.redirect.host) ? `Sends to ${t.redirect.host} · ` : ''}
+          {t.redirect ? 'Connected' : 'Created'} {fmtDate(t.createdAt)} · Last used {fmtDate(t.lastUsedAt)}
+        </div>
+        <div className="text-[14px] text-text-muted">{lifetimeText(t)}</div>
+      </div>
+      {live && (
+        <button
+          type="button"
+          disabled={revoking}
+          onClick={onRevoke}
+          className="shrink-0 rounded-full border border-action-ghost-border px-[12px] py-[6px] text-[14px] font-semibold text-text-muted hover:border-action-danger hover:text-action-danger disabled:opacity-50"
+        >
+          {revoking ? 'Revoking…' : 'Revoke'}
+        </button>
+      )}
+    </li>
+  )
+}
+
 export function AgentAccess() {
   const [tokens, setTokens] = useState<ApiTokenRow[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -184,8 +241,9 @@ export function AgentAccess() {
     }
   }
 
-  const active = (tokens ?? []).filter((t) => !t.revokedAt)
-  const revoked = (tokens ?? []).filter((t) => t.revokedAt)
+  // Expired connections sit with the revoked ones: neither works any more.
+  const active = (tokens ?? []).filter((t) => tokenState(t) === 'active')
+  const ended = (tokens ?? []).filter((t) => tokenState(t) !== 'active')
 
   return (
     <section id="agent-access" className="scroll-mt-[90px] rounded-2xl bg-surface-secondary p-[20px]">
@@ -294,38 +352,8 @@ export function AgentAccess() {
 
       {tokens && tokens.length > 0 && (
         <ul className="mt-[16px] flex flex-col gap-[8px]">
-          {[...active, ...revoked].map((t) => (
-            <li
-              key={t.id}
-              className="flex flex-wrap items-center justify-between gap-[10px] rounded-[10px] bg-surface-tertiary px-[14px] py-[11px]"
-            >
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-[8px]">
-                  <span className={`text-[14px] font-bold ${t.revokedAt ? 'text-text-muted line-through' : 'text-text-primary'}`}>
-                    {t.name}
-                  </span>
-                  <code className="font-mono text-[14px] text-text-muted">{t.prefix}…</code>
-                  {t.revokedAt && (
-                    <span className="rounded-full bg-halo-error px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-error">
-                      Revoked
-                    </span>
-                  )}
-                </div>
-                <div className="mt-[2px] text-[14px] text-text-muted">
-                  Created {fmtDate(t.createdAt)} · Last used {fmtDate(t.lastUsedAt)}
-                </div>
-              </div>
-              {!t.revokedAt && (
-                <button
-                  type="button"
-                  disabled={revoking === t.id}
-                  onClick={() => void handleRevoke(t)}
-                  className="shrink-0 rounded-full border border-action-ghost-border px-[12px] py-[6px] text-[14px] font-semibold text-text-muted hover:border-action-danger hover:text-action-danger disabled:opacity-50"
-                >
-                  {revoking === t.id ? 'Revoking…' : 'Revoke'}
-                </button>
-              )}
-            </li>
+          {[...active, ...ended].map((t) => (
+            <TokenRow key={t.id} token={t} revoking={revoking === t.id} onRevoke={() => void handleRevoke(t)} />
           ))}
         </ul>
       )}
@@ -460,8 +488,11 @@ export function AgentAccess() {
           <p className="text-[12px] leading-[1.6] text-text-muted">
             <strong className="text-text-body">What the token grants.</strong> Anyone holding it can read your
             collection, lists, decks and battle logs, and can change them — the same things you can do when signed
-            in. It cannot change your password, and it cannot create or revoke tokens. Treat it like a password:
-            paste it only into clients you trust, and revoke it here the moment you are done with it.
+            in. It cannot change your password or account settings, read your Deck-E conversations, spend money, or
+            create or revoke tokens. A token you make here never expires, so treat it like a password: paste it only
+            into clients you trust, and revoke it here the moment you are done with it. Apps you connect with
+            OAuth appear here too; they can be read-only if you chose that when approving, and they end by
+            themselves after 90 days without use.
           </p>
         </div>
       )}

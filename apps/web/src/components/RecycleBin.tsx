@@ -122,7 +122,7 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
                   <button
                     onClick={() => doPurge(e)}
                     disabled={lane.busy(`purge:${e.id}`)}
-                    className="h-[34px] rounded-full bg-action-danger px-[14px] text-[13px] font-bold text-action-danger-text hover:bg-action-danger-hover disabled:opacity-60"
+                    className="h-[34px] rounded-full bg-action-danger-fill px-[14px] text-[13px] font-bold text-action-danger-text hover:bg-action-danger-fill-hover disabled:opacity-60"
                   >
                     {lane.busy(`purge:${e.id}`) ? 'Deleting…' : 'Yes, delete'}
                   </button>

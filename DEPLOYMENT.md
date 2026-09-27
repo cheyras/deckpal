@@ -91,9 +91,10 @@ pnpm --filter @deckpal/db migrate:status
 
 # Fill the card-identity index (migration 047 onward). Idempotent; ~6s.
 pnpm --filter deckpal-api fingerprint:index
+pnpm --filter deckpal-api identical-prints:index
 ```
 
-> **On `fingerprint:index`.** `card.playable_fingerprint` says which catalogue
+> **On the fingerprint indexes.** `card.playable_fingerprint` says which catalogue
 > rows are the SAME CARD rather than merely the same name — 218 of 1,409
 > Standard-legal names are more than one card, and two agent tools tell the
 > model to pick "the cheapest printing", which is only safe when something
@@ -103,7 +104,21 @@ pnpm --filter deckpal-api fingerprint:index
 > this line is only needed on a fresh database or a manual migrate. It exits
 > non-zero if nothing hashes or if no name resolves to several cards — the two
 > shapes that mean the hash is broken rather than the catalogue being small.
-> After changing `fingerprint.ts` itself, run it once with `--all`.
+> The following `identical-prints:index` pass writes the safe ordinary-print
+> groups used by deck ownership; promo sets are excluded, and stamped variants
+> are filtered when ownership is resolved. `scripts/refresh-catalog.sh` runs
+> both passes after every import. After changing `fingerprint.ts` itself, run
+> `fingerprint:index --all` and then rerun `identical-prints:index`.
+
+> **On 075 (OAuth connections) and the deploy window.** Apply it before, or
+> right after, the deploy that ships it. Until it is applied, every existing
+> token and connector keeps resolving (the code falls back to its pre-075
+> statements and logs `migration 075_oauth_grants is not applied` once per
+> instance), but a *new* OAuth connection is refused with a 503 asking the
+> person to try again in a few minutes, because there is nowhere yet to record
+> a read-only choice honestly. If the web app reaches an older API during the
+> deploy, it shows full access alone because that API ignores read-only scope.
+> Nothing about 075 needs a reconnect.
 
 > **On `PGSSLMODE`.** Supabase serves a certificate chain that is not in the
 > system trust store, so a *verifying* mode fails with `self-signed certificate
@@ -1667,6 +1682,11 @@ The API has no built-in authentication in self-host mode. Place a reverse proxy
 (e.g., nginx with an SSO gateway, Caddy with SSO, or any auth-capable proxy) in front
 of the API. See [`SECURITY.md`](SECURITY.md) for details.
 
+Preserve the API's `Content-Security-Policy` header if the proxy sets headers of
+its own. The quad labeler uses a `blob:` worker for HEIC repair and `blob:`
+images for private photo previews; the API allows those only in `worker-src`
+and `img-src`. No extra environment variable or proxy rewrite is required.
+
 ### 6. Set up sync jobs
 
 `deckpal-sync` runs the price and collection-snapshot jobs on its own node-cron
@@ -1711,14 +1731,25 @@ the MCP Authorization spec (OAuth 2.1 + PKCE + dynamic client registration —
    option).
 2. Your client registers itself, then opens `https://deckpal.app/authorize`
    in a browser tab. Sign in to DeckPal if you aren't already.
-3. Approve the consent screen — it names the client asking and exactly what
-   it can do (read/write your collection, decks, lists, battle logs; not your
-   password, not your account settings).
-4. You're bounced back to the client, already connected. No token to copy.
+3. Check who is asking, then approve. The consent screen leads with where your
+   approval will be sent. Claude's own callback (`claude.ai`, `claude.com`) is
+   marked **Verified** and named "Claude"; any other site is marked
+   **Unverified**, shown by its host, and its self-chosen name is quoted as a
+   claim ("It calls itself “Claude”"), because any site can register under any
+   name. An app on your own computer (Claude Code) is marked **Unverified**
+   with a note to approve only what you just started.
+4. Choose **Read and change** (the default) or **Read only**. Either way the
+   app cannot see your password, change account settings, read your Deck-E
+   conversations or spend money.
+5. You're bounced back to the client, already connected. No token to copy.
 
-Under the hood, approving mints an ordinary personal access token (below) named
-after the client — it shows up in **Profile → Agent access** exactly like one
-you created by hand, with the same **Revoke** button.
+Under the hood, approving opens a *connection*: a row in **Profile → Agent
+access** named after where it went (`Claude (OAuth · claude.ai)`), with the
+same **Revoke** button as a hand-made token (migration 075, SECURITY.md). The
+client receives a one-hour access token and a single-use refresh token and
+renews them itself; a connection lapses only after 90 days with no use.
+Connections made before 075 keep working exactly as before and show
+**No expiry**; reconnecting one replaces it with a renewing connection.
 
 ### 2. If your client doesn't support MCP OAuth — a personal access token
 
@@ -1736,7 +1767,9 @@ Some clients (or older versions) only take a static URL or header. For those:
 
 Tokens are listed afterwards by their `dsk_…` prefix with their creation and
 last-used dates, and can be revoked from the same panel at any time — same as
-an OAuth-connected client, because it's the same underlying credential.
+an OAuth-connected client, because it's the same underlying credential. A token
+made here never expires, because the clients that need one (a URL pasted into
+a connector dialog) have no way to renew it; revoke it when you are done.
 
 **A · If the dialog has a "Request headers" section**
 
@@ -1825,9 +1858,12 @@ The token acts as **you**, limited to your own data. Whoever holds it can read
 and change your collection, lists, decks and battle logs — the same things you
 can do while signed in — and nothing else: every query it makes runs inside your
 row-level-security context, so it cannot see another user's rows. It cannot
-change your password, and it cannot create or revoke tokens (that needs a real
-browser session). Treat it like a password, and revoke it the moment a client no
-longer needs it.
+change your password, preferences or public showcase, read your Deck-E
+conversations, spend money, or create or revoke tokens (all of that needs a real
+browser session). A **Read only** connection is served only the 13 read tools,
+inside a read-only database transaction, and the REST API refuses its every
+write with `403 insufficient_scope`. Treat any token like a password, and revoke
+it the moment a client no longer needs it.
 
 ### Tools
 

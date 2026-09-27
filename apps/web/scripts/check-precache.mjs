@@ -112,6 +112,10 @@ for (const url of urls) {
     problems.push(`${url} — the permission-gated scan harness document must not be precached`)
     continue
   }
+  if (clean.startsWith('assets/heic-to-')) {
+    problems.push(`${url} — the labeler HEIC decoder must not be precached for every visitor`)
+    continue
+  }
   if (!clean.endsWith('.js')) continue
 
   const file = join(DIST, clean)

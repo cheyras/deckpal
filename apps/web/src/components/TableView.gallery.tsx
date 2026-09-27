@@ -1,5 +1,5 @@
 /**
- * Gallery for TableView — flex-row "table" view for card lists.
+ * Gallery for TableView — semantic desktop table view for card lists.
  *
  * TableView uses hooks (useSignedIn, useQuery, useMutation, useOnline)
  * via its RowCounters subcomponent. Renders inside an error boundary
@@ -29,7 +29,7 @@ export default {
   name: 'TableView',
   source: 'apps/web/src/components/TableView.tsx',
   section: 'component',
-  description: 'Flex-row "table" view for card lists with row counters. Counter interactions require a live session.',
+  description: 'Desktop card table with aligned columns and row counters. Counter interactions require a live session.',
   component: TableView,
   defaults: { cards: mockCards, seriesSlug: 'base', setId: 'base1' },
   variants: [
