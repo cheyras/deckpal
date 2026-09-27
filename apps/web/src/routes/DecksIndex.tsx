@@ -196,7 +196,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const matchedCards = checked?.summary.totalCards ?? 0
   const currentFixes = fixResult?.formatCode === formatCode ? fixResult.fixes.flatMap(({ lineId, fix }) => {
     const lineIndex = lineIds.current.indexOf(lineId)
-    return lineIndex >= 0 && text.split('\n')[lineIndex]?.trim() === fix.original.trim()
+    const expected = undone.has(lineId) ? fix.original : fix.replacement
+    return lineIndex >= 0 && text.split('\n')[lineIndex]?.trim() === expected.trim()
       ? [{ lineId, fix: { ...fix, lineIndex } }] : []
   }) : []
   const reviewing = currentFixes.length > 0
@@ -207,7 +208,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     return () => endDeckeErrand()
   }, [showDock])
   const acceptedFixes = reviewing ? currentFixes.filter(f => !undone.has(f.lineId)).map(f => f.fix) : []
-  const confirmedText = reviewing ? confirmedDecklistText(text, acceptedFixes, new Set()) : null
+  const confirmedText = reviewing ? text : null
   const fixedByLine = new Map(acceptedFixes.map(f => [f.lineIndex, f]))
   const unmatchedWithIndexes = (() => {
     const wanted = new Map<string, number>()
@@ -217,7 +218,13 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
       const key = raw.trim(), left = wanted.get(key) ?? 0
       if (left > 0) { rows.push({ line: key, lineIndex }); wanted.set(key, left - 1) }
     })
-    return rows
+    // A new duplicate can consume the old text count before the retained fix.
+    // Its physical line still needs its own review row and Undo control.
+    for (const { fix } of currentFixes) {
+      if (!rows.some(row => row.lineIndex === fix.lineIndex))
+        rows.push({ line: fix.original.trim(), lineIndex: fix.lineIndex })
+    }
+    return rows.sort((a, b) => a.lineIndex - b.lineIndex)
   })()
   const reviewCount = unmatchedWithIndexes.length
   const remaining = unmatchedWithIndexes.filter(row => !fixedByLine.has(row.lineIndex)).length
@@ -243,7 +250,14 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           setFixError('Deck-E could not find a safe match for these lines. You can edit them yourself or import the matched cards.')
           return
         }
-        setFixResult({ formatCode, fixes: result.fixes.map(f => ({ lineId: lineIds.current[f.lineIndex], fix: f })) })
+        const corrected = confirmedDecklistText(asked.text, result.fixes, new Set())!
+        const fixes = result.fixes.map(f => ({ lineId: lineIds.current[f.lineIndex], fix: f }))
+        // These are the same physical lines; preserve their IDs while showing
+        // the accepted text in the editor immediately.
+        setText(corrected)
+        latest.current = { ...now, text: corrected }
+        setChecked(prev => prev?.text === asked.text ? { ...prev, text: corrected } : prev)
+        setFixResult({ formatCode, fixes })
       },
       onError: e => {
         if (latest.current.text === asked.text && latest.current.formatCode === asked.formatCode)
@@ -306,7 +320,19 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   }
   const undoFix = (lineIndex: number) => {
     reviewRevision.current++
-    setUndone(prev => new Set([...prev, lineIds.current[lineIndex]]))
+    const lineId = lineIds.current[lineIndex]
+    const original = currentFixes.find(entry => entry.lineId === lineId)?.fix.original
+    if (!original) return
+    const lines = text.split('\n')
+    const raw = lines[lineIndex]
+    const leading = raw.length - raw.trimStart().length
+    const trailing = raw.length - raw.trimEnd().length
+    lines[lineIndex] = raw.slice(0, leading) + original.trim() + (trailing ? raw.slice(-trailing) : '')
+    const restored = lines.join('\n')
+    setText(restored)
+    latest.current = { ...latest.current, text: restored }
+    setChecked(prev => prev?.text === text ? { ...prev, text: restored } : prev)
+    setUndone(prev => new Set([...prev, lineId]))
   }
   const them = unmatched.length === 1 ? 'it' : 'them'
   // On a phone the panel lands under a tall textarea; bring the lines into view.

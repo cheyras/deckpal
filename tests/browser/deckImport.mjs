@@ -88,8 +88,12 @@ export async function checkDeckImport(browser, server, fixture) {
         assert.equal(await group.getByText('Review Deck-E’s fixes').count(), 0, 'there is no second review card')
       }
       await prepare()
+      assert.equal(await page.getByRole('textbox', { name: 'Decklist' }).inputValue(), confirmed,
+        'accepted suggestions update the pasted decklist before import')
       assert.equal(created.length, 0, 'fix endpoint must not create a deck')
       await page.getByRole('button', { name: 'Undo' }).first().click()
+      assert.equal(await page.getByRole('textbox', { name: 'Decklist' }).inputValue(), '2 Iono PAL 999\n2 Iono PAL 185',
+        'Undo restores only its original line in the pasted decklist')
       await page.getByText('Fixed 1 of 2, check them').waitFor()
       await page.getByRole('button', { name: 'Import without them' }).waitFor()
       assert.equal(created.length, 0, 'Undo must remain read-only')
@@ -127,6 +131,8 @@ export async function checkDeckImport(browser, server, fixture) {
       await page.getByRole('button', { name: 'Undo' }).first().click()
       await page.getByRole('button', { name: 'Edit the line 2 Iono PAL 999' }).click()
       await page.keyboard.insertText('2 Iono PAL 185')
+      assert.equal(await page.getByRole('textbox', { name: 'Decklist' }).inputValue(), '2 Iono PAL 185\n2 Arven OBF 186',
+        'a manual edit elsewhere keeps the accepted correction in the paste box')
       const group = page.getByRole('group', { name: 'Unmatched decklist lines' })
       assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 1,
         'editing A keeps B’s suggestion and does not duplicate A’s manual fix')
@@ -137,16 +143,41 @@ export async function checkDeckImport(browser, server, fixture) {
         'the manual edit and surviving suggestion both reach import')
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(2, twoDifferent)
-      await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Arven OBF 999')
+      await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Arven OBF 186')
       assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 1,
         'deleting A keeps B’s suggestion after its line index moves')
       await group.getByText('1 line to review').waitFor()
       await page.getByRole('button', { name: 'Import deck' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
       assert.equal(created.at(-1).text, '2 Arven OBF 186', 'the remaining fix applies to B, not the deleted line')
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(2, twoDifferent)
+      await page.getByRole('button', { name: 'Undo' }).first().click()
+      await page.getByRole('button', { name: 'Edit the line 2 Iono PAL 999' }).click()
+      await page.keyboard.insertText('2 Arven OBF 999')
+      await group.getByText('2 lines to review').waitFor()
+      assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 1,
+        'a new duplicate above a retained fix keeps its Undo visible')
+      assert.equal(await group.getByRole('button', { name: 'Edit the line 2 Arven OBF 999' }).count(), 1,
+        'the new duplicate remains a separate unresolved row')
+      await group.getByRole('button', { name: 'Undo' }).click()
+      assert.equal(await page.getByRole('textbox', { name: 'Decklist' }).inputValue(), '2 Arven OBF 999\n2 Arven OBF 999',
+        'Undo on the retained row restores that exact physical line')
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(2, twoDifferent)
+      await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Iono PAL 185\n2 Arven OBF 999\n2 Arven OBF 186')
+      await group.getByText('3 lines to review').waitFor()
+      assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 2,
+        'inserting a duplicate above a retained correction keeps both corrections undoable')
+      assert.equal(await group.getByRole('button', { name: 'Edit the line 2 Arven OBF 999' }).count(), 1,
+        'the inserted duplicate has its own unresolved row')
+      await group.getByRole('button', { name: 'Undo' }).last().click()
+      assert.equal(await page.getByRole('textbox', { name: 'Decklist' }).inputValue(), '2 Iono PAL 185\n2 Arven OBF 999\n2 Arven OBF 999',
+        'Undo restores the corrected line below the inserted duplicate')
       returnedFixes = fixes
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare()
+      await page.getByRole('button', { name: 'Undo' }).first().click()
       await page.getByRole('button', { name: 'Undo' }).last().click()
       await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Iono PAL 999\n')
       assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 0,
@@ -158,7 +189,7 @@ export async function checkDeckImport(browser, server, fixture) {
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(2, twoDifferent)
       await page.getByRole('button', { name: 'Undo' }).first().click()
-      await page.getByRole('textbox', { name: 'Decklist' }).fill(`Pokémon: 4\n${twoDifferent}`)
+      await page.getByRole('textbox', { name: 'Decklist' }).fill('Pokémon: 4\n2 Iono PAL 999\n2 Arven OBF 186')
       await page.getByRole('button', { name: 'Import deck' }).click()
       await page.getByRole('button', { name: 'Import without them' }).waitFor()
       assert.equal(created.length, 3, 'editing the header must not silently skip the still-unresolved Iono line')
