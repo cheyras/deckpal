@@ -2056,9 +2056,30 @@ export function DeckeChat({
    * each guard is protecting. `DISMISS_SLOP` is generous enough to survive a
    * trackpad twitch and far short of a scroll.
    */
-  const downRef = useRef<{ x: number; y: number } | null>(null)
+  const lastSelectedNodeRef = useRef<Node | null>(null)
+  useEffect(() => {
+    if (!open) {
+      lastSelectedNodeRef.current = null
+      return
+    }
+    const onSelectionChange = () => {
+      const selection = window.getSelection()
+      if (!selection?.toString()) return
+      const anchor = selection.anchorNode
+      lastSelectedNodeRef.current = anchor && transcriptRef.current?.contains(anchor) ? anchor : null
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [open])
+  const downRef = useRef<{ x: number; y: number; hadSelection: boolean } | null>(null)
   const onSurfaceDown = useCallback((e: React.PointerEvent) => {
-    downRef.current = { x: e.clientX, y: e.clientY }
+    const selected = !!window.getSelection()?.toString()
+    // The lazy Markdown renderer can replace the selected fallback node before
+    // this pointerdown. A detached anchor means the reader's selection was
+    // lost to that render, rather than cleared by a deliberate click.
+    const replacedSelection = !!lastSelectedNodeRef.current && !lastSelectedNodeRef.current.isConnected
+    downRef.current = { x: e.clientX, y: e.clientY, hadSelection: selected || replacedSelection }
+    lastSelectedNodeRef.current = null
   }, [])
   const onSurfaceClick = useCallback(
     (e: React.MouseEvent) => {
@@ -2069,7 +2090,7 @@ export function DeckeChat({
       if (down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > DISMISS_SLOP) return
       // A release that finishes a text selection is not a dismissal. `toString()`
       // is empty for a collapsed caret, which is what an ordinary click leaves.
-      if ((window.getSelection()?.toString() ?? '').length > 0) return
+      if (down?.hadSelection || (window.getSelection()?.toString() ?? '').length > 0) return
       onClose()
     },
     [onClose],

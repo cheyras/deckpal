@@ -327,10 +327,13 @@ test('set_progress all_sets lists every set newest-first with card and owned cou
   const db = stubDb((sql: string): Row[] => {
     // The count query returns a total; the page query returns the set rows.
     // Both now join series and filter `se.catalogue_code = 'en'` (the enabled
-    // catalogue — mirrors entities.ts's English-first tie-break).
+    // catalogue — mirrors entities.ts's English-first tie-break), and both
+    // read FROM browsable_set rather than card_set, so Pokémon TCG Pocket's
+    // 15 "sets" (also catalogue_code 'en' — see migration 072) never appear
+    // in "every set in the catalog" (DECISIONS 2026-08-10).
     if (sql.includes("catalogue_code = 'en'")) sawCatalogueFilter = true;
     if (sql.includes('count(*) AS total')) return [{ total: String(sets.length) }];
-    if (sql.includes('card_set') && sql.includes('series se')) return sets;
+    if (sql.includes('browsable_set') && sql.includes('series se')) return sets;
     return [];
   });
   // `goal` is supplied so defaultGoal (a user_settings lookup) is never called.
