@@ -68,7 +68,9 @@ try {
   fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({
     status: failure ? 'failed' : 'passed', results, assets, fixedTime: '2026-09-12T18:00:00Z',
     network: 'loopback-only; unexpected requests fail', fixtureScope:
-      'Real built SPA and production presentation/mapping helpers; local JSON fixtures, not database or live authentication.',
+      'Real built SPA and production presentation/mapping helpers; local JSON fixtures, not a real database. ' +
+      'One check (auth-return) drives a real supabase-js sign-in against a fake, in-process Auth REST responder ' +
+      '— still no real account and no network egress; every other check uses a localStorage session shortcut.',
     ...(failure ? { error: failure.message } : {}),
   }, null, 2) + '\n')
   fs.writeFileSync(path.join(out, 'browser-build.log'), logs.join('\n'))

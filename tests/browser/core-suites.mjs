@@ -7,6 +7,8 @@ import { adminFixture, checkAdmin } from './admin.mjs'
 import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
+import { writesFixture, checkWrites } from './writes.mjs'
+import { checkAuthReturn } from './authReturn.mjs'
 import { checkDeployAssets } from '../../scripts/check-deploy-assets.mjs'
 
 // Each returned suite owns its dist, fixture server, and browser contexts.
@@ -19,8 +21,11 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
         const dist = path.join(scratch, label)
         let scenario = 'active'
         const admin = adminFixture(mount)
-        let adminActive = false
-        const server = await serve(dist, mount, (rel, url, req) => adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html', { allowMutation: admin.allowMutation })
+        const writes = writesFixture(mount, admin)
+        let adminActive = false, writesActive = false
+        const server = await serve(dist, mount,
+          (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel),
+          'index.html', { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
         try {
           logs.push(await buildWeb(dist, label === 'cloud', server.origin))
           assets.push({ label, ...await checkDeployAssets(dist) })
@@ -39,6 +44,10 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           results.push(...await checkAdmin(browser, server, mount, label, out, admin))
           results.push(...await checkFeedback(browser, server, mount, label, out, admin))
           results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+          if (label === 'cloud') {
+            writesActive = true
+            results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
+          }
           assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
         } finally { await server.close() }
       },
@@ -56,6 +65,12 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
     },
     labelSuite('selfhost', '/deckpal'),
     labelSuite('cloud', ''),
+    {
+      name: 'authreturn',
+      async run() {
+        results.push(...await checkAuthReturn(browser, path.join(scratch, 'authreturn'), out))
+      },
+    },
     {
       name: 'chat',
       async run() {

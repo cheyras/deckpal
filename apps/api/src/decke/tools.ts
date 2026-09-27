@@ -72,7 +72,35 @@ export function isAllowedRoute(path: string): boolean {
   // be waved through. Same predicate shape as `isSafeNextPath` in the web app.
   if (path.startsWith('//') || path.startsWith('/\\')) return false
   const clean = path.split('?')[0]!.split('#')[0]!
-  return ROUTE_ALLOWLIST.some((r) => clean === r || clean.startsWith(`${r}/`))
+  return isNormalPath(clean) && ROUTE_ALLOWLIST.some((r) => clean === r || clean.startsWith(`${r}/`))
+}
+
+/**
+ * The path the router will actually land on is the path that was checked.
+ *
+ * The prefix match above used to run on the raw string, so `/decks/../profile`
+ * passed as "under /decks" and the router resolved it to `/profile` — the page
+ * this allowlist exists to keep him off, because it mints API tokens (SEC-12,
+ * security audit 2026-09-26). `/admin` and `/devtools` were reachable the same
+ * way.
+ *
+ * So a path is allowed only if resolving it changes nothing: the URL parser
+ * collapses `.` and `..` segments, including their `%2e` spellings, and any
+ * difference between what it returns and what came in is a refusal rather
+ * than something to correct. Encoded separators and control characters are
+ * refused outright — no route he is shown ever contains one, and each is a way
+ * for the string that was checked to differ from the place he goes.
+ *
+ * MIRRORED in `apps/web/src/character/host/uiTools.ts` (`routeAllowed`), the
+ * check nearest the navigation. Change one, change both.
+ */
+function isNormalPath(clean: string): boolean {
+  if (/[\u0000-\u001f\u007f\\]|%(2e|2f|5c|00)/i.test(clean)) return false
+  try {
+    return new URL(clean, 'https://deckpal.invalid').pathname === clean
+  } catch {
+    return false
+  }
 }
 
 /** A CSS selector is a selector, not a script. Bound so a pathological one
