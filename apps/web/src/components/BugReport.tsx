@@ -7,10 +7,21 @@ import { api } from '../lib/api'
 // In-app bug / feature-request reporter. Clicking the top-nav button opens the
 // comment form *immediately* and captures a screenshot of the current view in
 // the background, attaching it to the preview when ready. Submit POSTs the
-// comment + kind ('bug' | 'feature') + page URL + screenshot to
+// comment + kind ('bug' | 'feature') + page path + screenshot to
 // /deckpal/api/bugs, which — in self-host mode — persists them under the
 // repo's issues/ dir for the `fix-issues` skill to work through (cloud mode
 // files a labeled GitHub issue instead; see apps/api/src/routes/bugs.ts).
+//
+// PRIVACY: the description and page can be posted to a public GitHub issue,
+// while any screenshot is saved separately and never linked there. The modal
+// reflects the API's actual issue setting before Submit, and a screenshot can be excluded with the checkbox below its
+// preview. On a page that could show account details — the reporter's own
+// (Profile, billing) or another signed-in user's (any /admin page) — no
+// screenshot is even attempted; see `isSensitiveBugPage` below, mirrored
+// server-side in apps/api/src/routes/bugs.ts as the enforcement backstop.
+// The reported page path never carries a query string: an admin's
+// `?search=someone@example.com` filter, or any other search param, must
+// never reach a public issue (stripped here and again on the server).
 //
 // Why open-first-capture-after: html2canvas walks and re-renders the whole
 // document, which on heavy/virtualized layouts (table view, big grids) can reflow
@@ -153,16 +164,51 @@ type ReportKind = 'bug' | 'feature'
 const KIND_COPY: Record<ReportKind, { title: string; helper: string; placeholder: string }> = {
   bug: {
     title: 'Report a bug',
-    helper:
-      "Describe what looks wrong or isn't working. A screenshot of this page and the URL are attached automatically.",
+    helper: "Describe what looks wrong or isn't working.",
     placeholder: 'What happened, and what did you expect instead?',
   },
   feature: {
     title: 'Request a feature',
-    helper:
-      "Describe what you'd like to see and why. A screenshot of this page and the URL are attached automatically for context.",
+    helper: "Describe what you'd like to see and why.",
     placeholder: 'What would you like to see, and why?',
   },
+}
+
+// ── Sensitive pages — no screenshot is even attempted here ──────────────────
+//
+// A screenshot of these pages can show account details that aren't the
+// reporter's to publish: their own (Profile, billing) or, worse, another
+// signed-in user's (any /admin page — the Users list and detail view render
+// other users' emails in plain text; see routes/admin/Users.tsx). MIRRORS
+// the prefix list in apps/api/src/routes/bugs.ts (`SENSITIVE_PAGE_PREFIXES`
+// / `isSensitiveBugPage`), which is the server-side backstop for this same
+// check — same shape as the isAllowedRoute/routeAllowed pair in
+// decke/tools.ts and character/host/uiTools.ts. Keep both lists in step.
+const SENSITIVE_PAGE_PREFIXES = ['/admin', '/profile', '/credits']
+
+// The self-host build's router uses this basepath (see main.tsx:
+// `basepath: import.meta.env.VITE_SUPABASE_URL ? '' : '/deckpal'`), so
+// `window.location.pathname` there is `/deckpal/admin/...`, never bare
+// `/admin/...`. Strip it before matching — it is a fixed, reserved value
+// (there is no real route named `/deckpal`), so this is safe regardless of
+// which build produced the page.
+const SELF_HOST_MOUNT = '/deckpal'
+
+function isSensitiveBugPage(pathname: string): boolean {
+  // The router decodes escaped path characters and ignores case. If decoding
+  // fails, skip capture rather than guessing that the page is safe.
+  let lowerPath: string
+  try {
+    lowerPath = decodeURIComponent(pathname).toLowerCase().replace(/\/+/g, '/')
+  } catch {
+    return true
+  }
+  if (lowerPath.includes('%')) return true
+  const clean =
+    lowerPath === SELF_HOST_MOUNT || lowerPath.startsWith(`${SELF_HOST_MOUNT}/`)
+      ? lowerPath.slice(SELF_HOST_MOUNT.length) || '/'
+      : lowerPath
+  return SENSITIVE_PAGE_PREFIXES.some((p) => clean === p || clean.startsWith(`${p}/`))
 }
 
 export interface BugButtonProps {
@@ -186,6 +232,9 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
   const [open, setOpen] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [shot, setShot] = useState<string | undefined>(undefined)
+  const [includeShot, setIncludeShot] = useState(true)
+  const [sensitivePage, setSensitivePage] = useState(false)
+  const [reportPublic, setReportPublic] = useState<boolean | null>(null)
   const [kind, setKind] = useState<ReportKind>('bug')
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -193,17 +242,30 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
   const [issueUrl, setIssueUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Open the modal right away, then kick off the screenshot in the background.
+  // Open the modal right away, then kick off the screenshot in the
+  // background — unless this page is sensitive, in which case no capture is
+  // attempted at all (see SENSITIVE_PAGE_PREFIXES above).
   function begin() {
     setShot(undefined)
+    setIncludeShot(true)
     setKind('bug')
     setText(initialText ?? '')
     setSavedId(null)
     setIssueUrl(null)
     setError(null)
-    setCapturing(true)
+    setReportPublic(null)
+    void api.publicDefaults().then((config) => {
+      setReportPublic(typeof config.bugReportsPublic === 'boolean' ? config.bugReportsPublic : null)
+    }).catch(() => setReportPublic(null))
+    const sensitive = isSensitiveBugPage(window.location.pathname)
+    setSensitivePage(sensitive)
     setOpen(true)
-    void capture()
+    if (sensitive) {
+      setCapturing(false)
+    } else {
+      setCapturing(true)
+      void capture()
+    }
   }
 
   async function capture() {
@@ -282,8 +344,11 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
     try {
       const r = await api.submitBug({
         text: body,
-        page: window.location.pathname + window.location.search,
-        screenshot: shot,
+        // Path only — no query string. See the PRIVACY note at the top of
+        // this file; the server strips it again regardless (defense in
+        // depth), but it should never leave the browser in the first place.
+        page: window.location.pathname,
+        screenshot: !sensitivePage && includeShot ? shot : undefined,
         viewport: `${window.innerWidth}x${window.innerHeight}`,
         userAgent: navigator.userAgent,
         kind,
@@ -380,6 +445,15 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
                 ))}
               </div>
               <p className="text-[14px] leading-[19px] text-text-muted">{KIND_COPY[kind].helper}</p>
+              {/* The API reports the actual GitHub issue setting. If config is
+                  unavailable, warn conservatively instead of promising privacy. */}
+              <p className="text-[13px] leading-[18px] text-text-muted">
+                {reportPublic === true
+                  ? "Your description and page path will be posted publicly on DeckPal's GitHub issue tracker. An included screenshot is saved separately for the project owner and is never linked in the public issue."
+                  : reportPublic === false
+                    ? 'Your report is saved to this server’s issue folder and is not posted to GitHub.'
+                    : 'Your description and page path may be posted publicly on GitHub. An included screenshot is never linked in the public issue.'}
+              </p>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -388,7 +462,12 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
                 placeholder={KIND_COPY[kind].placeholder}
                 className="w-full resize-y rounded-lg border border-border-default bg-surface-primary p-[12px] text-[15px] leading-[22px] text-text-primary placeholder:text-text-muted"
               />
-              {capturing ? (
+              {sensitivePage ? (
+                <p className="text-[14px] text-text-muted">
+                  Screenshots are turned off on this page — it can show account details (yours or another
+                  member's). Your description and the page path will still be included.
+                </p>
+              ) : capturing ? (
                 <div className="flex items-center gap-[8px] rounded-lg border border-dashed border-border-default bg-surface-primary px-[12px] py-[16px] text-[14px] text-text-muted">
                   <Icon name="bug" size={16} className="animate-pulse" />
                   Capturing a screenshot of this page…
@@ -397,11 +476,19 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
                 <figure className="overflow-hidden rounded-lg border border-border-default">
                   <img
                     src={shot}
-                    alt="Screenshot of the current page that will be attached"
+                    alt="Screenshot of the current page that will be saved separately"
                     className="block max-h-[220px] w-full object-cover object-top"
                   />
-                  <figcaption className="bg-surface-tertiary px-[10px] py-[6px] text-[14px] text-text-muted">
-                    Attached screenshot · {window.location.pathname}
+                  <figcaption className="flex items-center justify-between gap-[8px] bg-surface-tertiary px-[10px] py-[6px] text-[14px] text-text-muted">
+                    <span>Screenshot to save · {window.location.pathname}</span>
+                    <label className="flex items-center gap-[6px] whitespace-nowrap font-medium text-text-body">
+                      <input
+                        type="checkbox"
+                        checked={includeShot}
+                        onChange={(e) => setIncludeShot(e.target.checked)}
+                      />
+                      Include screenshot
+                    </label>
                   </figcaption>
                 </figure>
               ) : (

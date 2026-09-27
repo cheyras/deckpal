@@ -57,7 +57,7 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
  */
 export async function checkErrorBoundary(browser, server, out) {
   const results = []
-  for (const width of [1280, 390]) {
+  for (const width of [1280, 1440, 390]) {
     const { context, page } = await contextFor(browser, server, width)
     const reports = []
     // Page-level route: takes precedence over `contextFor`'s own catch-all
@@ -103,6 +103,23 @@ export async function checkErrorBoundary(browser, server, out) {
       // already relies on today.
       await fallback.getByRole('button', { name: 'Report this', exact: true }).waitFor()
       await page.screenshot({ path: path.join(out, 'errorboundary-route-crash-' + width + '.png'), fullPage: true })
+      // The crash shortcut must open the same report form. Keep the public
+      // destination explicit here so the disclosure cannot pass on a fallback
+      // warning that appears only while configuration is loading.
+      await page.route('**/api/public-config', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ bugReportsPublic: true }),
+      }))
+      await fallback.getByRole('button', { name: 'Report this', exact: true }).click()
+      const reportDialog = page.getByRole('dialog', { name: 'Report a bug', exact: true })
+      await reportDialog.getByText(/description and page path will be posted publicly on DeckPal's GitHub issue tracker/).waitFor()
+      assert.match(await reportDialog.getByRole('textbox').inputValue(), /Crash on \/crash:/)
+      assert.match(await reportDialog.getByRole('textbox').inputValue(), /deliberate render-time throw/)
+      assert.equal(reports.length, 1, 'opening Report this must not send another crash beacon')
+      await page.screenshot({ path: path.join(out, 'errorboundary-report-disclosure-' + width + '.png'), fullPage: true, animations: 'disabled' })
+      await reportDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await reportDialog.waitFor({ state: 'hidden' })
+      results.push({ case: 'errorboundary-report-this-discloses-public-destination', width })
       results.push({ case: 'errorboundary-route-crash-shell-survives', width })
 
       // ── 2. Retry re-runs the crashed component: still broken, still broken ──
