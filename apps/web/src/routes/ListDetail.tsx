@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
-import { api, type ListDetailResponse, type ListItem } from '../lib/api'
+import { api, ApiError, type ListDetailResponse, type ListItem } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
@@ -15,7 +15,10 @@ import { Icon } from '../components/Icon'
 import { KebabMenu } from '../components/KebabMenu'
 import { fmtUsd, fmtDate } from '../lib/format'
 import { type ListSearch, type ListSortKey, LIST_SEARCH_DEFAULTS } from './listSearch'
+import { GOAL_SHORT_LABEL } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { applyAnswer, outcomeKnown, save, useLane, write, writeFailureText } from '../lib/writes'
+import { showToast } from '../lib/toast'
 
 const KIND_LABEL = { dynamic: 'Dynamic List', static: 'Static List', pokedex_binder: 'Pokédex Binder' } as const
 const SORTS: { key: ListSortKey; label: string }[] = [
@@ -116,13 +119,62 @@ export function ListDetail() {
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [reordering, setReordering] = useState(false)
-  const [addingId, setAddingId] = useState<string | null>(null)
+  // Cards added since the picker opened, so a finished add says so on its tile.
+  const [added, setAdded] = useState<ReadonlySet<string>>(new Set())
+  const [editError, setEditError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  // Print checklist (UXC-01, deckpal audit ux-collection): the route only
+  // accepts a Bearer header, so a plain `<a href>` 401s for every signed-in
+  // user. `api.downloadPdf` fetches with auth and hands the browser a real
+  // download instead — see its comment in lib/api.ts for the full reasoning.
+  const [checklistBusy, setChecklistBusy] = useState(false)
+  const [checklistError, setChecklistError] = useState<string | null>(null)
+  const printChecklist = async () => {
+    setChecklistBusy(true)
+    setChecklistError(null)
+    try {
+      await api.downloadPdf(api.listPdfPath(id), `list-${id}-checklist.pdf`)
+    } catch (err) {
+      setChecklistError(err instanceof ApiError ? err.message : 'Could not prepare the checklist.')
+    } finally {
+      setChecklistBusy(false)
+    }
+  }
+
+  const laneKey = `list:${id}`
+  const lane = useLane(laneKey)
+  const laneVersion = lane.getVersion()
   const list = data?.list
-  const items = useMemo(() => data?.items ?? [], [data])
+  // What the server has, as the person is about to see it: a removal that is
+  // still saving is already gone, and a reorder that is still saving already
+  // applies. A write that fails simply stops being pending, and the row is back.
+  const items = useMemo(() => {
+    const kept = (data?.items ?? []).filter((i) => !lane.intent(`remove:${i.itemId}`))
+    const order = lane.intent<string[]>('order')
+    return order ? inOrder(kept, order) : kept
+    // laneVersion stands in for `lane`: one stable object whose intents change underneath.
+  }, [data, lane, laneVersion])
   // A rule-backed list: membership is a saved query the server re-evaluates
   // on every read. Add/reorder don't exist for it; "remove" excludes.
   const smart = !!list?.rule
+
+  // A rule with zero items is not necessarily "collected everything": the
+  // server's `missingForGoal` also filters by price/rarity/finish, and a
+  // smart list's own `exclude` list hides cards from the rule by hand,
+  // regardless of ownership. Excluding the last remaining card, or a filter
+  // matching nothing owned yet, both land here — the celebration copy is
+  // only honest when nothing narrowed the rule below "everything the goal
+  // asks for".
+  const smartRuleNarrowed = !!(
+    list?.rule &&
+    (list.rule.exclude.length > 0 ||
+      list.rule.maxPriceUsd != null ||
+      list.rule.pricedOnly ||
+      (list.rule.rarity?.length ?? 0) > 0 ||
+      (list.rule.rarityExclude?.length ?? 0) > 0 ||
+      (list.rule.finishes?.length ?? 0) > 0)
+  )
 
   // Ownership counts (dynamic only)
   const counts = useMemo(() => {
@@ -156,88 +208,122 @@ export function ListDetail() {
     return out
   }, [items, search.own, search.q, search.sort, search.dir, list?.kind])
 
-  // ── Mutations ───────────────────────────────────────────────────────────────
-  const addItem = useMutation({
-    mutationFn: async (vars: { cardId: string; quantity: number }) => {
-      // Resolve the card's primary variant, then add it.
-      const detail = await api.card(vars.cardId)
-      const primary = detail.variants.find((v) => v.isPrimary) ?? detail.variants[0]
-      if (!primary) throw new Error('Card has no variant to add')
-      return api.addListItem(id, { cardVariantId: primary.variantId, ...(list?.kind === 'static' ? { staticQuantity: vars.quantity } : {}) })
-    },
-    onSuccess: () => {
-      setAddingId(null)
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-    onError: () => setAddingId(null),
-  })
+  // ── Writes ──────────────────────────────────────────────────────────────────
+  // All of them queue on this list's lane (lib/writes.ts): one request at a
+  // time, so the list summary each one answers with lands in order, and each
+  // ends visibly — saved, or rolled back with a message saying what did not.
+  const named = list ? `“${list.name}”` : 'this list'
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: key })
+    void qc.invalidateQueries({ queryKey: ['lists'] })
+  }
 
-  const removeItem = useMutation({
-    mutationFn: (itemId: string) => api.removeListItem(id, itemId),
-    onMutate: async (itemId: string) => {
-      await qc.cancelQueries({ queryKey: key })
-      const prev = qc.getQueryData<ListDetailResponse>(key)
-      if (prev) qc.setQueryData<ListDetailResponse>(key, { ...prev, items: prev.items.filter((i) => i.itemId !== itemId) })
-      return { prev }
-    },
-    onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const addItem = (card: { cardId: string; name: string }, quantity: number) => {
+    const staticList = list?.kind === 'static'
+    void save(laneKey, {
+      item: `add:${card.cardId}`,
+      send: async (signal) => {
+        // Resolve the card's primary variant, then add it.
+        const detail = await api.card(card.cardId, signal)
+        const primary = detail.variants.find((v) => v.isPrimary) ?? detail.variants[0]
+        if (!primary) throw new Error('Card has no variant to add')
+        return api.addListItem(id, { cardVariantId: primary.variantId, ...(staticList ? { staticQuantity: quantity } : {}) }, signal)
+      },
+      onSaved: () => {
+        setAdded((prev) => new Set(prev).add(card.cardId))
+        refresh()
+      },
+      failure: `Couldn't add ${card.name} to ${named}.`,
+      refresh,
+      // The server ignores a card a list already holds — except a static list,
+      // which may hold it twice on purpose, so there a repeat is a second copy.
+      retry: staticList ? undefined : () => addItem(card, quantity),
+    })
+  }
 
-  const reorder = useMutation({
-    mutationFn: (order: string[]) => api.updateList(id, { itemOrder: order }),
-    onMutate: async (order: string[]) => {
-      await qc.cancelQueries({ queryKey: key })
-      const prev = qc.getQueryData<ListDetailResponse>(key)
-      if (prev) {
-        const byId = new Map(prev.items.map((i) => [i.itemId, i]))
-        const reordered = order.map((oid, idx) => ({ ...byId.get(oid)!, position: idx }))
-        qc.setQueryData<ListDetailResponse>(key, { ...prev, items: reordered })
-      }
-      return { prev }
-    },
-    onError: (_e, _v, ctx) => ctx?.prev && qc.setQueryData(key, ctx.prev),
-    onSettled: () => qc.invalidateQueries({ queryKey: key }),
-  })
+  const removeItem = (item: ListItem) =>
+    void save(laneKey, {
+      item: `remove:${item.itemId}`,
+      intent: true,
+      send: (signal) =>
+        api.removeListItem(id, item.itemId, signal).catch((error: unknown) => {
+          // Already gone is what was asked for: a Retry after a removal whose
+          // answer was lost would otherwise 404 forever.
+          if (error instanceof ApiError && error.status === 404) return null
+          throw error
+        }),
+      onSaved: async () => {
+        await applyAnswer(qc, [key], () =>
+          qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: old.items.filter((i) => i.itemId !== item.itemId) }),
+        )
+        refresh()
+      },
+      failure: `Couldn't remove ${item.name} from ${named}.`,
+      refresh,
+      retry: () => removeItem(item),
+    })
 
-  const editList = useMutation({
-    mutationFn: (body: Parameters<typeof api.updateList>[1]) => api.updateList(id, body),
-    onSuccess: () => {
-      setShowEdit(false)
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const reorder = (order: string[]) =>
+    void save(laneKey, {
+      item: 'order',
+      intent: order,
+      send: (signal) => api.updateList(id, { itemOrder: order }, signal),
+      onSaved: () =>
+        applyAnswer(qc, [key], () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, items: inOrder(old.items, order) })),
+      failure: `Couldn't save the new order of ${named}.`,
+      refresh,
+      retry: () => reorder(order),
+    })
 
-  const deleteList = useMutation({
-    mutationFn: () => api.deleteList(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['lists'] })
+  // A form that stays open reports in place: the person is looking at it.
+  const editList = (body: Parameters<typeof api.updateList>[1]) => {
+    setEditError(null)
+    void write(laneKey, {
+      item: 'edit',
+      send: (signal) => api.updateList(id, body, signal),
+      onSaved: async (res) => {
+        await applyAnswer(qc, [key], () => qc.setQueryData<ListDetailResponse>(key, (old) => old && { ...old, list: res.list }))
+        refresh()
+      },
+    }).then((o) => {
+      if (o.status === 'saved') return setShowEdit(false)
+      if (o.status !== 'failed') return
+      if (!outcomeKnown(o.error)) refresh()
+      setEditError(writeFailureText(`Couldn't save your changes to ${named}.`, o.error))
+    })
+  }
+
+  const deleteList = () => {
+    setDeleteError(null)
+    const name = named
+    void write(laneKey, { item: 'delete', send: (signal) => api.deleteList(id, signal) }).then((o) => {
+      if (o.status === 'failed') return setDeleteError(writeFailureText(`Couldn't delete ${name}.`, o.error))
+      if (o.status !== 'saved') return
+      void qc.invalidateQueries({ queryKey: ['lists'] })
       navigate({ to: '/lists' })
-    },
-  })
+      showToast({ tone: 'info', message: `Moved ${name} to Recently deleted.`, action: { label: 'Undo', run: () => restoreList(qc, id, name) } })
+    })
+  }
 
   // Pin a smart list: the server materialises the current evaluation into
   // stored rows and detaches the rule — the list keeps today's cards and
   // stops changing on its own. Undoable via the mutation log.
-  const pinList = useMutation({
-    mutationFn: () => api.updateList(id, { rule: null }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: key })
-      qc.invalidateQueries({ queryKey: ['lists'] })
-    },
-  })
+  const pinList = () =>
+    void save(laneKey, {
+      item: 'pin',
+      send: (signal) => api.updateList(id, { rule: null }, signal),
+      onSaved: refresh,
+      failure: `Couldn't pin ${named} as a regular list.`,
+      refresh,
+      retry: pinList,
+    })
 
   const moveItem = (from: number, to: number) => {
     if (to < 0 || to >= items.length) return
     const order = items.map((i) => i.itemId)
     const [m] = order.splice(from, 1)
     order.splice(to, 0, m)
-    reorder.mutate(order)
+    reorder(order)
   }
 
   const forceBinder = list?.kind === 'pokedex_binder'
@@ -282,7 +368,7 @@ export function ListDetail() {
                     <span>
                       Live — showing what's still missing for{' '}
                       <span className="font-semibold text-text-primary">
-                        {list.rule.setName ?? list.rule.setId} · {list.rule.goal}
+                        {list.rule.setName ?? list.rule.setId} · {GOAL_SHORT_LABEL[list.rule.goal]}
                       </span>
                       {list.rule.maxPriceUsd != null && <> under ${list.rule.maxPriceUsd}</>}
                       . Cards leave by themselves as you collect them.
@@ -290,39 +376,90 @@ export function ListDetail() {
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-[8px]">
+              <div className="flex flex-wrap items-center gap-[8px]">
                 {smart ? (
-                  <button onClick={() => setShowEdit(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                  <button onClick={() => setShowEdit(true)} className="flex h-[42px] items-center gap-[8px] whitespace-nowrap rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                     <Icon name="sliders" size={16} /> Edit Rule
                   </button>
                 ) : (
-                  <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                  <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] whitespace-nowrap rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                     <Icon name="plus" size={16} /> Add Cards
                   </button>
                 )}
-                <a href={api.listPdfUrl(id)} target="_blank" rel="noreferrer" className="flex h-[42px] items-center gap-[8px] rounded-full bg-surface-tertiary px-[16px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover">
-                  <Icon name="printer" size={16} /> Print checklist
-                </a>
-                <button onClick={() => setShowEdit(true)} aria-label="Edit list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
-                  <Icon name="sliders" size={18} />
-                </button>
-                <KebabMenu
-                  ariaLabel="List options"
-                  size={42}
-                  items={[
-                    ...(smart
-                      ? [{
-                          key: 'pin',
-                          label: pinList.isPending ? 'Pinning…' : 'Pin as regular list',
-                          icon: 'lists' as const,
-                          onSelect: () => pinList.mutate(),
-                        }]
-                      : []),
-                    { key: 'delete', label: 'Delete list', icon: 'close', danger: true, onSelect: () => setShowDelete(true) },
-                  ]}
-                />
+
+                {/* Desktop: the full action row, hidden below `gap`. Matches
+                    the pattern SetHeader already uses for its own Actions
+                    disclosure (issue #154). No standalone "Edit list" button
+                    on a smart list — Edit Rule above opens the identical
+                    modal, so a second button for it was a dead duplicate. */}
+                <div className="hidden items-center gap-[8px] gap:flex">
+                  <button
+                    onClick={printChecklist}
+                    disabled={checklistBusy}
+                    className="flex h-[42px] items-center gap-[8px] whitespace-nowrap rounded-full bg-surface-tertiary px-[16px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover disabled:opacity-60"
+                  >
+                    <Icon name="printer" size={16} /> {checklistBusy ? 'Preparing PDF…' : 'Print checklist'}
+                  </button>
+                  {!smart && (
+                    <button onClick={() => setShowEdit(true)} aria-label="Edit list" className="flex h-[42px] w-[42px] items-center justify-center rounded-full bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+                      <Icon name="sliders" size={18} />
+                    </button>
+                  )}
+                  <KebabMenu
+                    ariaLabel="List options"
+                    size={42}
+                    items={[
+                      ...(smart
+                        ? [{
+                            key: 'pin',
+                            label: lane.busy('pin') ? 'Pinning…' : 'Pin as regular list',
+                            icon: 'lists' as const,
+                            onSelect: pinList,
+                          }]
+                        : []),
+                      { key: 'delete', label: 'Delete list', icon: 'close' as const, danger: true, onSelect: () => setShowDelete(true) },
+                    ]}
+                  />
+                </div>
+
+                {/* Mobile: Print / Edit / Pin / Delete collapse into one menu
+                    so nothing wraps at 390px (UXC-09, deckpal audit
+                    ux-collection; owner's #154 rule: "on mobile, consolidate
+                    them all into an actions dropdown"). */}
+                <div className="gap:hidden">
+                  <KebabMenu
+                    ariaLabel="List actions"
+                    size={42}
+                    items={[
+                      {
+                        key: 'print',
+                        label: checklistBusy ? 'Preparing PDF…' : 'Print checklist',
+                        icon: 'printer' as const,
+                        onSelect: printChecklist,
+                      },
+                      ...(!smart
+                        ? [{ key: 'edit', label: 'Edit list', icon: 'sliders' as const, onSelect: () => setShowEdit(true) }]
+                        : []),
+                      ...(smart
+                        ? [{
+                            key: 'pin',
+                            label: lane.busy('pin') ? 'Pinning…' : 'Pin as regular list',
+                            icon: 'lists' as const,
+                            onSelect: pinList,
+                          }]
+                        : []),
+                      { key: 'delete', label: 'Delete list', icon: 'close' as const, danger: true, onSelect: () => setShowDelete(true) },
+                    ]}
+                  />
+                </div>
               </div>
             </div>
+
+            {checklistError && (
+              <div role="alert" className="rounded-lg bg-halo-error px-[14px] py-[10px] text-[14px] text-error">
+                {checklistError}
+              </div>
+            )}
 
             {/* info + progress */}
             <div className="flex flex-wrap items-center gap-x-[28px] gap-y-[8px] border-y border-divider-subtle py-[12px] text-[14px]">
@@ -397,13 +534,31 @@ export function ListDetail() {
             data-decke-rank="container"
           >
             {items.length === 0 ? (
-              <EmptyState icon="cards" title="This list is empty">
-                <Button onClick={() => setShowAdd(true)}>
-                  <Icon name="plus" size={16} /> Add Cards
-                </Button>
-              </EmptyState>
+              smart ? (
+                // UXC-05 (deckpal audit ux-collection): a finished smart list
+                // used to fall into the generic empty state and offer "Add
+                // Cards" — a control that 400s for every smart list, because
+                // membership is the rule's job, not a hand pick. Zero items
+                // here means the rule has nothing left to ask for right now —
+                // which is only the SAME THING as "collected everything" when
+                // nothing narrowed the rule (see `smartRuleNarrowed` above);
+                // a price/rarity/finish filter or a hand-excluded card can
+                // also empty it out with cards still genuinely missing.
+                <EmptyState
+                  icon="sparkle"
+                  title={smartRuleNarrowed ? 'No missing cards match this rule right now' : "You've collected everything in this list"}
+                  body="This list refills on its own if the rule changes."
+                  variant="plain"
+                />
+              ) : (
+                <EmptyState icon="cards" title="This list is empty">
+                  <Button onClick={() => setShowAdd(true)}>
+                    <Icon name="plus" size={16} /> Add Cards
+                  </Button>
+                </EmptyState>
+              )
             ) : reordering && list.kind === 'static' ? (
-              <ReorderRows items={items} onMove={moveItem} onRemove={(it) => removeItem.mutate(it.itemId)} />
+              <ReorderRows items={items} onMove={moveItem} onRemove={removeItem} />
             ) : view.length === 0 ? (
               <div className="py-[60px] text-center text-[14px] text-text-muted">No cards match this filter.</div>
             ) : effectiveView === 'binder' ? (
@@ -411,7 +566,7 @@ export function ListDetail() {
             ) : effectiveView === 'table' ? (
               <TableView cards={view} seriesSlug="" setId="" />
             ) : (
-              <GridView cards={view} seriesSlug="" setId="" onRemove={(c) => removeItem.mutate((c as ListItem).itemId)} />
+              <GridView cards={view} seriesSlug="" setId="" onRemove={(c) => removeItem(c as ListItem)} />
             )}
           </div>
         </>
@@ -436,12 +591,13 @@ export function ListDetail() {
       {showAdd && list && (
         <AddCardModal
           listKind={list.kind}
-          addingId={addingId}
-          onClose={() => setShowAdd(false)}
-          onAdd={(card, quantity) => {
-            setAddingId(card.cardId)
-            addItem.mutate({ cardId: card.cardId, quantity })
+          isAdding={(cardId) => lane.busy(`add:${cardId}`)}
+          wasAdded={(cardId) => added.has(cardId)}
+          onClose={() => {
+            setShowAdd(false)
+            setAdded(new Set())
           }}
+          onAdd={addItem}
         />
       )}
       {showEdit && list && (
@@ -449,10 +605,14 @@ export function ListDetail() {
           mode="edit"
           initial={list}
           excluded={data?.excluded}
-          busy={editList.isPending}
-          onClose={() => setShowEdit(false)}
+          busy={lane.busy('edit')}
+          error={editError}
+          onClose={() => {
+            setShowEdit(false)
+            setEditError(null)
+          }}
           onSubmit={(body) =>
-            editList.mutate({
+            editList({
               name: body.name,
               description: body.description ?? null,
               visibility: body.visibility ?? 'private',
@@ -465,15 +625,38 @@ export function ListDetail() {
       {showDelete && list && (
         <ConfirmModal
           title="Delete list"
-          message={`Delete “${list.name}”? This can't be undone.`}
+          message={`Delete “${list.name}”? It moves to Recently deleted, where you can restore it.`}
           confirmLabel="Delete List"
-          busy={deleteList.isPending}
-          onClose={() => setShowDelete(false)}
-          onConfirm={() => deleteList.mutate()}
+          busy={lane.busy('delete')}
+          error={deleteError}
+          onClose={() => {
+            setShowDelete(false)
+            setDeleteError(null)
+          }}
+          onConfirm={deleteList}
         />
       )}
     </Content>
   )
+}
+
+/** `items` in the order given, positions renumbered to match. */
+function inOrder(items: ListItem[], order: string[]): ListItem[] {
+  const rank = new Map(order.map((itemId, i) => [itemId, i]))
+  const at = (i: ListItem) => rank.get(i.itemId) ?? Number.MAX_SAFE_INTEGER
+  return [...items].sort((a, b) => at(a) - at(b)).map((it, position) => ({ ...it, position }))
+}
+
+/** Undo a delete: the list comes back out of Recently deleted. */
+function restoreList(qc: QueryClient, id: string, name: string): void {
+  void save(`list:${id}`, {
+    item: 'restore',
+    send: (signal) => api.restoreList(id, signal),
+    onSaved: () => void qc.invalidateQueries({ queryKey: ['lists'] }),
+    refresh: () => void qc.invalidateQueries({ queryKey: ['lists'] }),
+    failure: `Couldn't restore ${name}. It's still in Recently deleted.`,
+    retry: () => restoreList(qc, id, name),
+  })
 }
 
 export { LIST_SEARCH_DEFAULTS }

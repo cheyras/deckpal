@@ -102,7 +102,9 @@ test('the promise detector is wired into the one-guard chain', () => {
 test('the failing-tool ledger is rebuilt per request and handed to the data tools', () => {
   // The server keeps nothing between requests, so this can only come from the
   // replayed history — the same source, lifetime and argument as `declined`.
-  assert.match(CODE, /const failing = failingTools\(messages\)/);
+  // Plus the evidence of replies the browser's window dropped (SEC-04), so the
+  // breaker stays conversation-wide after trimming.
+  assert.match(CODE, /const failing = failingTools\(\[\.\.\.evidence, \.\.\.messages\]\)/);
   assert.match(CODE, /const retryRequested = readerAsksRetry\(latestUserText\(messages\)\)/);
   // Threaded in. A ledger that is built and not passed is this repository's
   // most repeated defect, and is exactly what happened to the two guards above.
@@ -115,7 +117,7 @@ test('the already-told ledger is rebuilt per request and handed to the data tool
   // Same source, lifetime and argument as `failing` above — and the same
   // defect class if unthreaded: `toldAlready.ts` with no caller is a green
   // suite annotating nothing.
-  assert.match(CODE, /const told = priorSummaries\(messages\)/);
+  assert.match(CODE, /const told = priorSummaries\(\[\.\.\.evidence, \.\.\.messages\]\)/);
   assert.match(CODE, /priorSummaries: told,/);
 });
 
@@ -151,9 +153,51 @@ test('the deep tier is given the turn\'s meter refusals, seeded from the replaye
 test('the same ledger narrows activeTools, so a spent tier leaves the model\'s view', () => {
   assert.match(
     SRC,
-    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\)\)/,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
     'prepareStep no longer removes a spent deep tier from activeTools',
   );
+});
+
+// ── SEC-04: THE CONVERSATION IS BOUNDED BEFORE ANYTHING PAYS FOR IT ─────────
+//
+// `wireBounds.ts` can be perfect and bound nothing: the body is read, parsed,
+// metered and converted here, and each of those is one line.
+
+test('the body is read through the capped reader, and the uncapped one is gone', () => {
+  assert.match(CODE, /await readBodyCapped\(req\)/, 'the handler no longer caps the body');
+  assert.match(CODE, /if \(body === null\) \{\s*res\.statusCode = 413/, 'an oversized body no longer answers 413');
+  assert.doesNotMatch(CODE, /for await \(const chunk of req\) chunks\.push\(chunk\)/, 'the uncapped reader came back');
+});
+
+test('the conversation is validated before any ledger, the meter or the model reads it', () => {
+  const at = (s: string) => CODE.indexOf(s);
+  const validate = at('const wire = validateWire(body?.messages)');
+  assert.ok(validate > 0, 'validateWire is no longer called on the body');
+  assert.match(CODE, /if \(!wire\.ok\) return json\(\{ error: wire\.error, code: wire\.code \}, wire\.status\)/);
+  assert.match(CODE, /const messages = wire\.messages/, 'later code no longer reads the VALIDATED messages');
+  for (const later of ['declinedCalls(messages', 'quote = await readPolicy(', 'usage = await beginAiRequest(', 'meter = await meterTurn(']) {
+    assert.ok(validate < at(later), `${later} runs before the conversation is validated`);
+  }
+});
+
+test('the model is shown the window, and the prompt the bounded page context', () => {
+  assert.match(CODE, /convertToModelMessages\(stripPriorCommands\(windowForModel\(messages\)\.messages\)\)/);
+  assert.match(CODE, /const route = boundedRoute\(body\?\.route\)/);
+  assert.match(CODE, /const landmarks = boundedLandmarks\(body\?\.landmarks\)/);
+  assert.doesNotMatch(CODE, /landmarks\.slice\(0, 40\)/, 'the old count-only slice is back');
+});
+
+test('the charge reference carries the exchange, so two new exchanges with the same window differ (Astra)', () => {
+  assert.match(CODE, /chatChargeReference\(conversationId, messages, route, landmarks, \{ exchangeId, seq \}\)/);
+});
+
+test('dropped replies\' evidence reaches the two ledgers and never the model', () => {
+  assert.match(CODE, /const evidence = boundedEvidence\(body\?\.evidence\)/);
+  // Read by the two ledgers and nothing else — in particular never spread into
+  // what the model is shown.
+  const reads = CODE.match(/\.\.\.evidence\b/g) ?? [];
+  assert.equal(reads.length, 2, `evidence is read ${reads.length} times; it belongs to the two ledgers only`);
+  assert.doesNotMatch(CODE, /windowForModel\([^)]*evidence/);
 });
 
 test('a credit refusal says whether the wallet is HELD, as a flag rather than prose', () => {
@@ -165,5 +209,32 @@ test('a credit refusal says whether the wallet is HELD, as a flag rather than pr
     SRC,
     /credits: \{ balance: meter\.balance, needed: meter\.needed, held: meter\.held === true \}/,
     'the 429 body no longer carries `held` — a held wallet will be told to top up',
+  );
+});
+
+// ── THE REFLEX READ ─────────────────────────────────────────────────────────
+//
+// `reflex.ts` can decide perfectly and change nothing: its three effects are
+// three expressions in this file, each one easy to drop in an edit.
+
+test('the reflex read runs after the meter, from the built module, with the turn\'s abort', () => {
+  assert.match(SRC, /import \{ readReflex \} from '\.\.\/apps\/api\/dist\/decke\/reflex\.js'/);
+  const read = CODE.indexOf('const reflex = await readReflex(messages, route, { key, signal: request.signal })');
+  assert.ok(read > 0, 'readReflex is no longer called with the validated messages, the key and the signal');
+  // A Gateway call: nothing reaches the Gateway unpaid.
+  assert.ok(CODE.indexOf('meter = await meterTurn(') < read, 'the reflex read runs before the meter');
+  assert.ok(CODE.indexOf('if (!meter.allowed)') < read, 'the reflex read runs for a refused turn');
+  assert.ok(read < CODE.indexOf('model: observeUsageModel('), 'the reflex read runs after the model starts');
+});
+
+test('a spoken refusal reaches the declined ledger', () => {
+  assert.match(CODE, /const declined = declinedCalls\(messages, latestUserText\(messages\), reflex\.declines\)/);
+});
+
+test('a read collection change forces the first step, and only the first step', () => {
+  assert.match(
+    CODE,
+    /\.\.\.\(stepNumber === 0 && reflex\.force \? \{ toolChoice: \{ type: 'tool', toolName: reflex\.force \} \} : \{\}\)/,
+    'prepareStep no longer forces the reflex tool on step one',
   );
 });

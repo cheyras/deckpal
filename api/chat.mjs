@@ -126,6 +126,15 @@ import {
 } from '../apps/api/dist/decke/turnGuards.js'
 import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
 import { priorSummaries } from '../apps/api/dist/decke/toldAlready.js'
+import { readReflex } from '../apps/api/dist/decke/reflex.js'
+import {
+  validateWire,
+  windowForModel,
+  boundedRoute,
+  boundedLandmarks,
+  boundedEvidence,
+  readBodyCapped,
+} from '../apps/api/dist/decke/wireBounds.js'
 import { makePool } from '@deckpal/db'
 
 /**
@@ -408,23 +417,26 @@ async function serve(request) {
   // apart as one outage or two. Nothing reads it for a decision, and an older
   // browser that does not send it logs `conversation=unknown` rather than
   // suppressing the line. See `decke/failing.ts`.
-  const { messages, route = '/', landmarks = [], conversationId, exchangeId, seq } = body ?? {}
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return json({ error: 'messages must be a non-empty array' }, 400)
-  }
+  const { conversationId, exchangeId, seq } = body ?? {}
 
-  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
+  // ── HOW MUCH CONVERSATION ONE REQUEST MAY CARRY (SEC-04) ──────────────────
   //
-  // Derived from the replayed conversation, before anything else uses it. The
-  // reader watched the same `deck_strategy` dialog on three consecutive turns
-  // having declined it every time, and wrote in the chat that this was the
-  // problem. A matching call is now refused without a dialog. See
-  // `decke/declined.ts` for why the tool is not simply taken away instead.
-  //
-  // `latestUserText` is the reader's OWN latest message — the one fact the model
-  // cannot fake, and what re-opens a name-level family (guide / research) the
-  // reader raises again. See `declined.ts`'s bypass section.
-  const declined = declinedCalls(messages, latestUserText(messages))
+  // BEFORE anything reads the history and before the meter, so a request this
+  // endpoint will not serve costs the caller nothing and the owner nothing.
+  // The shape is the browser's own — text and `tool-*` parts, `user` and
+  // `assistant` roles — and a part larger than a pasted battle log is a 413
+  // with a sentence the reader can act on. `route` and `landmarks` are page
+  // context for the prompt, so they are clipped rather than refused. See
+  // `decke/wireBounds.ts`.
+  const wire = validateWire(body?.messages)
+  if (!wire.ok) return json({ error: wire.error, code: wire.code }, wire.status)
+  const messages = wire.messages
+  const route = boundedRoute(body?.route)
+  const landmarks = boundedLandmarks(body?.landmarks)
+  // What replies the browser's window dropped still owe the two
+  // conversation-wide ledgers below — failures and lookup records only, and
+  // never shown to the model. See `boundedEvidence`.
+  const evidence = boundedEvidence(body?.evidence)
 
   // ── AND WHAT THE METER ALREADY REFUSED IN THIS TURN ───────────────────────
   //
@@ -446,7 +458,7 @@ async function serve(request) {
 
   // ── AND WHAT HAS BEEN FAILING ALL CONVERSATION ────────────────────────────
   //
-  // Same source, same lifetime, same reason as `declined` above: rebuilt from
+  // Same source, same lifetime, same reason as `declined` below: rebuilt from
   // the replayed history because the server keeps nothing between requests.
   // `battle_logs` 500ed on four turns of one conversation and was re-called on
   // every one of them — the error chips were erased at the turn boundary, so
@@ -456,11 +468,11 @@ async function serve(request) {
   // The reader's own latest message is the ONLY thing that re-opens a tripped
   // breaker — the same "one fact the model cannot fake" argument `declined.ts`
   // makes for its own bypass. See `decke/failing.ts`.
-  const failing = failingTools(messages)
+  const failing = failingTools([...evidence, ...messages])
   const retryRequested = readerAsksRetry(latestUserText(messages))
   // What the reader has already been shown, tool by tool — same reconstruct-
   // from-the-wire shape as `failing` above. See `decke/toldAlready.ts`.
-  const told = priorSummaries(messages)
+  const told = priorSummaries([...evidence, ...messages])
 
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
@@ -488,7 +500,7 @@ async function serve(request) {
   }
   try {
     quote = await readPolicy(chatPool(), user.id)
-    reference = chatChargeReference(conversationId, messages, route, landmarks)
+    reference = chatChargeReference(conversationId, messages, route, landmarks, { exchangeId, seq })
     usage = await beginAiRequest(chatPool(), { userId: user.id, conversationId, exchangeId, seq, requestKey: reference.key, payloadHash: reference.hash, quote, messages, signal: request.signal })
     meter = await meterTurn(user.id, { tier: 'chat_turns', reason: 'chat_turn' })
   } catch (error) {
@@ -515,6 +527,38 @@ async function serve(request) {
   }
 
   try {
+  // ── THE REFLEX READ ───────────────────────────────────────────────────────
+  //
+  // What the reader is asking for, judged by Jev before the model runs: a
+  // collection change forces the first step to raise the real consent card, a
+  // walk to a list or deck takes `escort` out of view, and a "no" said in words
+  // counts as a decline. On every leg, from the reader's latest words — the
+  // server keeps nothing between requests, and a refusal must still hold after
+  // a browser result comes back — but only the leg carrying those words may
+  // force. AFTER the meter — this is a Gateway call, and nothing reaches the
+  // Gateway unpaid — and under a hard deadline. On a timeout, an error, a low-confidence answer or `DECKE_JEV`
+  // off, it is `NO_REFLEX`, which is this function exactly as it was.
+  //
+  // Not the classifier turn the deep tier's comment below rejects: that was an
+  // LLM turn in front of every message. This is a typed evaluation — no
+  // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
+  // above a threshold chosen on a labelled set. See `decke/jev.ts`.
+  const reflex = await readReflex(messages, route, { key, signal: request.signal })
+
+  // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
+  //
+  // Derived from the replayed conversation, before anything else uses it. The
+  // reader watched the same `deck_strategy` dialog on three consecutive turns
+  // having declined it every time, and wrote in the chat that this was the
+  // problem. A matching call is now refused without a dialog. See
+  // `decke/declined.ts` for why the tool is not simply taken away instead.
+  //
+  // `latestUserText` is the reader's OWN latest message — the one fact the model
+  // cannot fake, and what re-opens a name-level family (guide / research) the
+  // reader raises again. See `declined.ts`'s bypass section. A refusal SAID in
+  // that message (the reflex read above) counts too, and outranks the bypass.
+  const declined = declinedCalls(messages, latestUserText(messages), reflex.declines)
+
   // Where this instance is reachable, for the API hop a tool makes. Derived
   // from the request rather than hardcoded, so a preview deployment talks to
   // ITSELF instead of to production — which matters most when the thing being
@@ -814,7 +858,12 @@ async function serve(request) {
         }),
       }
 
-      const preparedMessages = await convertToModelMessages(stripPriorCommands(messages))
+      // THE MODEL SEES A WINDOW; EVERYTHING ELSE SEES THE WHOLE. Declines,
+      // failures, what he already said, the paste and the charge hash above all
+      // read the full validated history, so trimming changes what he is billed
+      // to re-read and nothing about how he behaves. The reader's current turn,
+      // approvals included, is never cut. See `decke/wireBounds.ts`.
+      const preparedMessages = await convertToModelMessages(stripPriorCommands(windowForModel(messages).messages))
       const result = streamText({
         model: observeUsageModel(gateway(choice.id), meter),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
@@ -822,14 +871,14 @@ async function serve(request) {
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
         // whole animation vocabulary on every turn, so caching is load-bearing.
         instructions: buildSystemPrompt({
-          route: typeof route === 'string' ? route : '/',
+          route,
           signedIn: true,
           // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
           // which explains why the cap exists (prompt size, re-billed per leg)
-          // and what it costs. Sliced again here because the browser chooses
-          // what to send and this is the side that pays for it. Change one,
-          // change both.
-          landmarks: Array.isArray(landmarks) ? landmarks.slice(0, 40) : [],
+          // and what it costs. Bounded again here — count AND each string —
+          // because the browser chooses what to send and this is the side that
+          // pays for it. Change one, change both (`LANDMARKS_MAX`).
+          landmarks,
           // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING, three lines below.
           // Hand-writing this list is how the previous prompt came to spend
           // every turn offering to look things up with no tool that could look.
@@ -977,8 +1026,15 @@ async function serve(request) {
         // `activeTools`, "a prompt begging the model to call it produced no
         // call". A decline is never removed this way (the reader can change
         // their mind mid-turn); a spent cap cannot be talked around.
+        //
+        // AND WHAT THE REFLEX READ SETTLED. `escort` leaves view when the reader
+        // is going somewhere it cannot reach. And when they plainly asked to
+        // change their collection, step one MUST call `log_cards` — the call
+        // that raises the signed consent card, and cannot write without it.
+        // Forcing it forces the question, never the answer.
         prepareStep: ({ stepNumber }) => ({
-          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n)),
+          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
+          ...(stepNumber === 0 && reflex.force ? { toolChoice: { type: 'tool', toolName: reflex.force } } : {}),
         }),
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
@@ -1513,13 +1569,6 @@ function stripToolSyntax(stream) {
   })
 }
 
-/** Collect a Node request body into a buffer. */
-async function readBody(req) {
-  const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
-  return Buffer.concat(chunks)
-}
-
 /**
  * THE RUNTIME HANDS US NODE'S `(req, res)`, NOT A WEB `Request`.
  *
@@ -1545,7 +1594,17 @@ export default async function handler(req, res) {
     const host = req.headers.host ?? 'localhost'
     const url = `https://${host}${req.url ?? '/'}`
     const method = req.method ?? 'GET'
-    const body = method === 'GET' || method === 'HEAD' ? undefined : await readBody(req)
+    // CAPPED WHILE IT ARRIVES (SEC-04). This buffered the whole body with no
+    // limit, which was the first half of the unbounded-conversation finding.
+    // Refused here, before auth, because nothing about a body this size is
+    // worth verifying a token for.
+    const body = method === 'GET' || method === 'HEAD' ? undefined : await readBodyCapped(req)
+    if (body === null) {
+      res.statusCode = 413
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ error: 'That message is too long for Deck-E to read in one go.', code: 'body_too_large' }))
+      return
+    }
     // ONE CONTROLLER PER REQUEST, aborted when the socket dies.
     //
     // Node tells us the client went away; the AI SDK and the tool layer both

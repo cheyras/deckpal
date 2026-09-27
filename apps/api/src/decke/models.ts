@@ -8,10 +8,16 @@
  * changing their mind rather than rediscovering it.
  *
  * HARD CONSTRAINT: US frontier labs only (openai, google, anthropic, xai,
- * amazon, meta, mistral). The owner's call, and it is the defensible answer for
- * a paid product streaming a user's camera and collection to a third party. The
- * Gateway offers cheaper non-US options; they are not eligible, and a future
- * cost squeeze must not quietly reach for them.
+ * amazon, meta, mistral, typesafe-ai). The owner's call, and it is the
+ * defensible answer for a paid product streaming a user's camera and
+ * collection to a third party. The Gateway offers cheaper non-US options; they
+ * are not eligible, and a future cost squeeze must not quietly reach for them.
+ *
+ * `typesafe-ai` joined on 2026-09-26, by the owner's decision: TypeSafe AI is a
+ * US (San Francisco) lab, so Jev fits the rule rather than being an exception
+ * to it. Its data retention is NOT confirmed — see `EVALUATION` below and
+ * SECURITY.md — which is why every Jev request asks the Gateway for zero data
+ * retention and pins the provider.
  */
 
 /** A job Deck-E needs a model for. */
@@ -370,6 +376,32 @@ export const MODELS: Record<Job, ModelChoice> = {
     maxOutputTokens: 2500,
   },
 }
+
+/**
+ * The judgment model: typed answers about a small state, never prose.
+ *
+ * Not a `Job` and not a `ModelChoice`, because it has none of their shape — no
+ * output tokens to budget, no reasoning to provision, and no fallback lab,
+ * since it is the only `evaluation` model on the Gateway. Its fallback is the
+ * harness Deck-E had before it: every caller treats "no answer" as "do what
+ * you did before" (`jev.ts`).
+ *
+ * UNPINNED because the Gateway lists only the moving `typesafe-ai/jev` id; the
+ * thresholds in `reflex.ts` were chosen on the labelled set in
+ * `decke/eval/` against the version it served on 2026-09-26, and should be
+ * re-measured with `scripts/decke-jev-eval.mjs` when TypeSafe ships a new one.
+ *
+ * DATA: the reader's latest message and the few lines around it go to TypeSafe
+ * AI through the Gateway, with `zeroDataRetention` requested per call. The
+ * Gateway's model list reports `zdr: "none"` for this model while honouring the
+ * per-request flag, and TypeSafe's own documentation offers ZDR to enterprise
+ * customers only — so retention is unconfirmed, and SECURITY.md says so.
+ */
+export const EVALUATION = {
+  id: 'typesafe-ai/jev',
+  /** $ per million input tokens, from the Gateway's model list. Output is free. */
+  inputPerMillionUsd: 0.042,
+} as const
 
 /**
  * Multiplier applied to `maxOutputTokens` when a model reasons.
