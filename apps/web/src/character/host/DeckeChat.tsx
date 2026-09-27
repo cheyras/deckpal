@@ -2775,6 +2775,7 @@ export function DeckeChat({
         ) : (
         <div
           ref={transcriptRef}
+          data-decke-transcript
           onPointerDown={onSurfaceDown}
           onClick={onSurfaceClick}
           className={[

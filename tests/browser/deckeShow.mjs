@@ -48,6 +48,8 @@ import { analyseScroll, MAX_SETTLING_PX } from './deckeShowScroll.mjs'
 const USER = '10000000-0000-4000-8000-000000000002'
 const NOW = '2026-09-12T18:00:00Z'
 const CHARIZARD = '[data-decke-card="sim1-199"]'
+/** Four cards in one row of Simulator Set 7, below the fold at 1280. */
+const WALK_CARDS = ['sim7-029', 'sim7-030', 'sim7-031', 'sim7-032']
 
 // ── the catalog: one set big enough that the card is far down a virtual grid ──
 
@@ -89,6 +91,12 @@ export function showFixture(mount, admin) {
       // catalog has none, and saying so is what the real tiers do too.
       if (/^\/(storage\/v1\/object\/public\/card-art|deckpal\/images)\/sets\/[^/]+\/(logo|symbol)\.webp$/.test(rel)) {
         return { status: 404, raw: '', type: 'text/plain' }
+      }
+      // A widget's card grid asks for each card's art by id.
+      const one = rel.match(/^\/api\/cards\/((sim\d+)-(\d+))$/)
+      if (one) {
+        const c = card(one[2], Number(one[3]))
+        return { body: { card: { ...c, set: { setId: one[2], name: 'Simulator Set', slug: one[2], logoUrl: null, symbolUrl: null }, series: { slug: 'sim', name: SERIES.name, tcgdexId: 'sim' } }, variants: [] } }
       }
       if (rel === '/api/series') return { body: { series: [SERIES] } }
       if (rel === '/api/series/sim') return { body: { series: { slug: 'sim', tcgdexId: 'sim', name: SERIES.name, firstReleaseOn: NOW }, sets: SETS.map(setSummary) } }
@@ -421,17 +429,22 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         results.push({ case: 'decke-show-reduced', engine, ...m, ringT: undefined })
       } finally { await context.close() }
     }
-    // ── 5. the escort walk completes, pointing on the way ──
+    // ── 5. the escort walk completes, pointing on the way, and ENDS ON THE CARDS ──
+    //
+    // "Show me the pikachu ones in the app" walked to the set and stopped, and
+    // he told the reader the cards were "in the grid" over a page that showed
+    // none of them. Given the cards, the walk ends on them: the page brought to
+    // the first, every one on screen ringed.
     {
       const { context, page } = await contextFor(browser, server, vp.width, { reducedMotion: 'no-preference' })
       await signIn(context, USER)
       try {
         const box = await openChat(page, server)
         fixture.script([
-          [say('Follow me. '), call('esc-1', 'escort', { seriesSlug: 'sim', setId: 'sim7' })],
-          [say('Here it is.')],
+          [say('Follow me. '), call('esc-1', 'escort', { seriesSlug: 'sim', setId: 'sim7', cardIds: WALK_CARDS })],
+          [say('There they are.')],
         ])
-        await ask(page, box, 'Take me to Simulator Set 7', '[data-decke-set="sim7"]')
+        await ask(page, box, 'Show me the Venusaur ones in Simulator Set 7', '[data-decke-card="' + WALK_CARDS[0] + '"]')
         await secondLeg(page, fixture, 90_000)
         const [output] = fixture.toolOutputs()
         // Every series here has cards collected, so the "show the rest"
@@ -441,10 +454,217 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         // The last step presses the set's own link; the router commits it on
         // its own schedule, so wait for the address rather than sample it.
         await page.waitForURL(/\/series\/sim\/sim7$/, { timeout: 10_000 })
-        results.push({ case: 'decke-show-escort', engine, steps: output.ran.length })
+        const last = output.ran.at(-1)
+        assert.equal(last.verb, 'flyTo', 'the walk ended before the cards')
+        assert.equal(last.target, '[data-decke-card="' + WALK_CARDS[0] + '"]')
+        const ringed = await page.evaluate((ids) => ids.filter((id) => {
+          const el = document.querySelector('[data-decke-card="' + id + '"]')
+          if (!el) return false
+          const r = el.getBoundingClientRect()
+          const onScreen = r.bottom > 0 && r.top < innerHeight
+          return onScreen && [...document.querySelectorAll('.decke-ring:not([data-leaving])')].some((ring) => {
+            const q = ring.getBoundingClientRect()
+            return Math.abs(q.left + q.width / 2 - (r.left + r.width / 2)) < 12 && Math.abs(q.top + q.height / 2 - (r.top + r.height / 2)) < 12
+          })
+        }), WALK_CARDS)
+        assert.deepEqual(ringed, WALK_CARDS, 'not every card he walked to is ringed on screen')
+        results.push({ case: 'decke-show-escort', engine, steps: output.ran.length, ringed: ringed.length })
       } finally { await context.close() }
     }
   }
+  return results
+}
+
+// ── the phone chat: widgets keep their width, he keeps to his latest words ──
+
+const LONG = 'There are more V-UNION sets (Greninja, Zacian, Morpeko, etc.) — these are just two examples. Also had some promo trios in the First Partner Illustration Collection line that form regional panoramas. '
+const widget = (title, ids) => ({ type: 'data-decke-screen', data: { screen: { title, blocks: [
+  { kind: 'text', text: 'Four-card sets, one per quarter of a big scene. Assembled, they make one panoramic artwork.' },
+  { kind: 'cardGrid', cards: ids },
+] } } })
+const ids = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => 'sim1-' + String(a + i).padStart(3, '0'))
+
+/**
+ * Advances him 1/60 s per frame without drawing (as `installRecorder` does) and
+ * records the conversation's geometry: every widget, every one of his text
+ * bubbles, his drawn box, and the clip under him.
+ */
+function installLayoutRecorder() {
+  const d = window.__decke
+  d.stop()
+  const L = (window.__layout = { frames: [] })
+  const box = (r) => [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]
+  const dialog = document.querySelector('[role="dialog"]')
+  const tick = () => {
+    d.simulate(1 / 60)
+    const sc = document.querySelector('[data-decke-transcript]')
+    const him = d.viewportRect()
+    const canvas = d.opts.canvas
+    const inset = /inset\(([^)]*)\)/.exec(canvas.style.clipPath || '')
+    const cr = canvas.getBoundingClientRect()
+    let floor = null
+    if (inset) { const v = inset[1].split(/\s+/).map(parseFloat); floor = cr.bottom - (v.length >= 3 ? v[2] : v[0]) }
+    L.frames.push({
+      st: sc ? Math.round(sc.scrollTop) : null,
+      him: him ? box(him) : null, floor,
+      widgets: [...dialog.querySelectorAll('.decke-figure, li > ul')].map((el) => box(el.getBoundingClientRect())),
+      texts: [...dialog.querySelectorAll('.decke-beside.decke-bubble')].map((el) => box(el.getBoundingClientRect())),
+      anchor: (() => { const a = dialog.querySelector('[data-decke-anchor]'); return a ? box(a.getBoundingClientRect()) : null })(),
+    })
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+/** Scroll the transcript by `dy` over `n` frames, one step per frame. */
+function scrollTranscript([dy, n]) {
+  return new Promise((resolve) => {
+    const sc = document.querySelector('[data-decke-transcript]')
+    let i = 0
+    const step = () => {
+      sc.scrollTop += dy / n
+      if (++i < n) requestAnimationFrame(step)
+      else requestAnimationFrame(() => requestAnimationFrame(resolve))
+    }
+    requestAnimationFrame(step)
+  })
+}
+
+const overlapArea = (p, q) => Math.max(0, Math.min(p[0] + p[2], q[0] + q[2]) - Math.max(p[0], q[0])) *
+  Math.max(0, Math.min(p[1] + p[3], q[1] + q[3]) - Math.max(p[1], q[1]))
+
+/** His drawn part: what is above the clip line, if there is one. */
+const drawn = (him, floor) => floor === null ? him : [him[0], him[1], him[2], Math.max(0, Math.min(him[3], floor - him[1]))]
+
+export function analyseLayout(frames) {
+  let widgetResizes = 0, textResizes = 0, scrolled = 0, overWidget = 0
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1], b = frames[i]
+    if (a.st !== b.st) scrolled++
+    if (a.widgets.length === b.widgets.length && a.widgets.some((w, k) => w[2] !== b.widgets[k][2] || w[0] !== b.widgets[k][0])) widgetResizes++
+    if (a.texts.length === b.texts.length && a.texts.some((w, k) => w[2] !== b.texts[k][2] || w[0] !== b.texts[k][0])) textResizes++
+  }
+  let overFrame = null
+  for (const f of frames) {
+    if (!f.him || f.him[3] < 12) continue
+    const him = drawn(f.him, f.floor)
+    const worst = Math.max(0, ...f.widgets.map((w) => overlapArea(him, w)))
+    if (worst > overWidget) { overWidget = worst; overFrame = f }
+  }
+  return { frames: frames.length, scrolled, widgetResizes, textResizes, overWidgetPx2: Math.round(overWidget), overFrame }
+}
+
+/** CIE76 distance between two sRGB colours, for "is he the brand's cyan". */
+function deltaE(a, b) {
+  const lab = ([r, g, bb]) => {
+    const lin = [r, g, bb].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 })
+    const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116)
+    const X = (lin[0] * 0.4124 + lin[1] * 0.3576 + lin[2] * 0.1805) / 0.95047
+    const Y = lin[0] * 0.2126 + lin[1] * 0.7152 + lin[2] * 0.0722
+    const Z = (lin[0] * 0.0193 + lin[1] * 0.1192 + lin[2] * 0.9505) / 1.08883
+    return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))]
+  }
+  const p = lab(a), q = lab(b)
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
+}
+
+export async function checkDeckeChatPhone(browser, server, out, engine, fixture, admin) {
+  admin.state.actor = 'ordinary'
+  admin.state.permissions = ['decke.use']
+  admin.state.balance = 500
+  const results = []
+  const { context, page } = await contextFor(browser, server, 390, { reducedMotion: 'no-preference', hasTouch: true })
+  await signIn(context, USER)
+  try {
+    const box = await openChat(page, server)
+
+    // ── HIS COLOUR: DeckPal's cyan, not a grayed teal ──
+    // Drawn once for real and read back in the same task (the canvas keeps no
+    // buffer between tasks). The body is the cyan-hued pixels inside his box.
+    const color = await page.evaluate(() => {
+      const d = window.__decke
+      d.step(1 / 60)
+      const src = d.opts.canvas, r = d.screenRect(), s = src.width / src.getBoundingClientRect().width
+      const c = document.createElement('canvas'); c.width = src.width; c.height = src.height
+      const g = c.getContext('2d'); g.drawImage(src, 0, 0)
+      const px = g.getImageData(Math.max(0, Math.floor(r.left * s)), Math.max(0, Math.floor(r.top * s)), Math.ceil(r.width * s), Math.ceil(r.height * s)).data
+      const cyan = []; let white = 0, n = 0
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i + 3] < 250) continue
+        const [R, G, B] = [px[i], px[i + 1], px[i + 2]], mx = Math.max(R, G, B), dl = mx - Math.min(R, G, B)
+        if (mx < 30) continue
+        n++
+        if (R > 250 && G > 250 && B > 250) white++
+        let hue = !dl ? 0 : mx === R ? 60 * (((G - B) / dl) % 6) : mx === G ? 60 * ((B - R) / dl + 2) : 60 * ((R - G) / dl + 4)
+        if (hue < 0) hue += 360
+        if (hue >= 165 && hue <= 215 && dl / mx > 0.15) cyan.push([R, G, B])
+      }
+      cyan.sort((a, b) => a[0] + a[1] + a[2] - (b[0] + b[1] + b[2]))
+      const sat = cyan.reduce((acc, [R, G, B]) => acc + (Math.max(R, G, B) - Math.min(R, G, B)) / Math.max(R, G, B), 0) / (cyan.length || 1)
+      return { n: cyan.length, median: cyan[Math.floor(cyan.length / 2)], lit: cyan[Math.floor(cyan.length * 0.9)], sat, white: white / (n || 1) }
+    })
+    const BRAND = [0x00, 0xd3, 0xf3]
+    assert.ok(color.n > 500, engine + ': too few body pixels to judge his colour (' + color.n + ')')
+    // The LIT face is the colour he is (ΔE 22 before, a grayed teal). The
+    // median also counts his shaded side, and how much of that is in view
+    // depends on his pose, so it is reported rather than asserted.
+    const dMedian = deltaE(color.median, BRAND), dLit = deltaE(color.lit, BRAND)
+    assert.ok(dLit <= 8, engine + ': his lit face renders ' + JSON.stringify(color.lit) + ', ΔE ' + dLit.toFixed(1) + ' from the brand cyan')
+    assert.ok(color.sat >= 0.75, engine + ': his body is ' + Math.round(color.sat * 100) + '% saturated — grayed out')
+    assert.ok(color.white <= 0.01, engine + ': ' + (color.white * 100).toFixed(1) + '% of him is blown to white')
+    results.push({ case: 'decke-body-color', engine, deltaE: Math.round(dMedian), deltaELit: Math.round(dLit), saturation: Math.round(color.sat * 100) })
+
+    // ── A LONG PHONE CONVERSATION WITH WIDGETS, SCROLLED UP AND BACK ──
+    // The recorder is what advances him (his own loop is stopped), so it runs
+    // from here on: through both answers, so he parks as he would for a reader.
+    await page.evaluate(installLayoutRecorder)
+    fixture.script([
+      [say('Cards with art that spans multiple cards. '), widget('Cards with art that spans multiple cards', ids(139, 144)), say(LONG), say('Those are the ones collectors chase for display.')],
+      [say('Here are more of them. '), widget('V-UNION cards', ids(147, 152)), say(LONG), say('Want the full list, or where the starter trios live in your collection?')],
+    ])
+    for (const q of ['What cards have art that spans multiple cards?', 'Show me more of those']) {
+      await box.fill(q)
+      await box.press('Enter')
+      await page.waitForFunction(() => !document.querySelector('[data-decke-thinking]') && document.querySelectorAll('.decke-figure').length > 0, null, { timeout: 60_000 })
+      // Let the art land and the widget settle before the next question.
+      await page.waitForFunction(() => [...document.querySelectorAll('.decke-figure img')].every((i) => i.complete), null, { timeout: 30_000 })
+    }
+    // Settled: a second of his time at rest before the reader scrolls.
+    await page.evaluate(() => new Promise((resolve) => { let n = 0; const f = () => (++n > 60 ? resolve() : requestAnimationFrame(f)); requestAnimationFrame(f) }))
+    await page.evaluate(() => { window.__layout.frames = [] })
+    let cdp = null, m0 = null
+    if (engine === 'chromium') {
+      cdp = await context.newCDPSession(page)
+      await cdp.send('Performance.enable')
+      m0 = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value]))
+    }
+    await page.evaluate(scrollTranscript, [-1400, 70])
+    await page.evaluate(scrollTranscript, [1400, 70])
+    let layouts = null
+    if (cdp) {
+      const m1 = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value]))
+      layouts = m1.LayoutCount - m0.LayoutCount
+    }
+    const f = await page.evaluate(() => window.__layout.frames)
+    const m = analyseLayout(f)
+    await page.screenshot({ path: path.join(out, 'decke-chat-phone-' + engine + '.png') })
+    assert.ok(m.scrolled >= 60, engine + ': the transcript barely scrolled (' + m.scrolled + ' frames)')
+    assert.equal(m.widgetResizes, 0, engine + ': a widget changed size or position against the column while scrolling (' + m.widgetResizes + ' frames)')
+    assert.equal(m.textResizes, 0, engine + ': his words re-wrapped while scrolling (' + m.textResizes + ' frames)')
+    assert.equal(m.overWidgetPx2, 0, engine + ': he was drawn over a widget (' + m.overWidgetPx2 + ' px²): ' + JSON.stringify(m.overFrame))
+    // Widgets take the whole column on a phone: 390 less the panel's 16 px sides.
+    const widest = Math.max(...f.at(-1).widgets.map((w) => w[2]))
+    assert.ok(widest >= 390 - 32 - 2, engine + ': a widget is narrower than the column (' + widest + ' px)')
+    // Back at the bottom he stands beside his latest words, not above them.
+    const end = f.at(-1)
+    assert.ok(end.him && end.anchor && end.him[1] >= end.anchor[1] - 2, engine + ': at rest he stands above his latest words')
+    // Up the page he left with those words: drawn nowhere above the composer.
+    const up = f.reduce((best, x) => (x.st !== null && (best === null || x.st < best.st) ? x : best), null)
+    assert.ok(up.floor !== null && drawn(up.him, up.floor)[3] === 0, engine + ': scrolled up, he was still drawn over the conversation')
+    // No thrash: at most about one layout per scrolled frame (it was 2.4 before).
+    if (layouts !== null) assert.ok(layouts <= m.scrolled + 20, engine + ': ' + layouts + ' layouts for ' + m.scrolled + ' scrolled frames')
+    results.push({ case: 'decke-chat-phone', engine, ...m, overFrame: undefined, layouts })
+  } finally { await context.close() }
   return results
 }
 
@@ -469,6 +689,23 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
           ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
         try { results.push(...await checkDeckeShow(safari, server, out, 'webkit', show, admin)) } finally { await safari.close() }
         assert.deepEqual(server.unexpected, [], 'decke-show: unexpected network/error events')
+      } finally { await server.close() }
+    },
+  }, {
+    name: 'decke-chat-phone',
+    async run() {
+      const dist = path.join(scratch, 'decke-chat-phone')
+      const admin = adminFixture('')
+      const show = showFixture('', admin)
+      const server = await serve(dist, '', (rel, url, req) => show.response(rel, url, req) ?? admin.response(rel, url, req), 'index.html',
+        { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || show.allowMutation(pathname, method) })
+      try {
+        logs.push(await buildWeb(dist, true, server.origin))
+        results.push(...await checkDeckeChatPhone(browser, server, out, 'chromium', show, admin))
+        const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
+          ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
+        try { results.push(...await checkDeckeChatPhone(safari, server, out, 'webkit', show, admin)) } finally { await safari.close() }
+        assert.deepEqual(server.unexpected, [], 'decke-chat-phone: unexpected network/error events')
       } finally { await server.close() }
     },
   }]
