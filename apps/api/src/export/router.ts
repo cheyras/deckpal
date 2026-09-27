@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { dbHandle, q, q1 } from '../db.js';
-import { loadOwnedPrints } from '../deck/ownedPrints.js';
+import { basicEnergyType, loadOwnedPrints } from '../deck/ownedPrints.js';
 import { asyncHandler, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import {
@@ -111,7 +111,9 @@ exportRouter.get(
 
     const allocation = await loadOwnedPrints(dbHandle(), userId, meta.format_code, rows.map((r) => ({
       cardId: Number(r.card_id), variantId: Number(r.card_variant_id), variantKind: r.variant_kind_code,
-      quantity: r.quantity, group: r.identical_print_group, basicEnergyType: r.basic_energy_type,
+      quantity: r.quantity, group: r.identical_print_group,
+      basicEnergyType: r.category === 'Energy' && r.energy_type === 'Normal'
+        ? basicEnergyType(r.name, r.basic_energy_type) : null,
       isPromo: r.is_promo, isStamped: r.is_stamped, pinExact: r.pin_exact,
     })));
     for (const row of rows) row.owned_qty = String(allocation.get(Number(row.card_variant_id))?.owned ?? 0);

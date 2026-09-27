@@ -731,7 +731,7 @@ export function DeckBuilder() {
   const laneVersion = lane.getVersion()
   const named = `“${data?.deck.name ?? 'this deck'}”`
 
-  const setCopies = (c: DeckCard, quantity: number, before = c.quantity) => {
+  const setCopies = (c: DeckCard, quantity: number, before = c.quantity, restorePin?: boolean) => {
     const target = Math.max(0, Math.min(60, quantity))
     const deckName = named
     void save(laneKey, {
@@ -739,12 +739,12 @@ export function DeckBuilder() {
       intent: target,
       // PATCH is an absolute upsert (0 removes the printing), which makes every
       // count change — the × included — safe to retry and to undo.
-      send: (signal) => api.setDeckCardQuantity(id, c.cardId, target, c.variantId, signal),
+      send: (signal) => api.setDeckCardQuantity(id, c.cardId, target, c.variantId, signal, restorePin),
       onSaved: adopt,
       failure: target === 0 ? `Couldn't remove ${c.name} from ${deckName}.` : `Couldn't change ${c.name} to ${target} in ${deckName}.`,
       refresh: refreshDeck,
-      retry: () => setCopies(c, target, before),
-      success: target === 0 && before > 0 ? { message: `Removed ${c.name} from ${deckName}.`, undo: () => setCopies(c, before, 0) } : undefined,
+      retry: () => setCopies(c, target, before, restorePin),
+      success: target === 0 && before > 0 ? { message: `Removed ${c.name} from ${deckName}.`, undo: () => setCopies(c, before, 0, c.pinExact) } : undefined,
     })
   }
 

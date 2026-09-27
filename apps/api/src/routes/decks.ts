@@ -4,7 +4,7 @@ import { cardImages, dbHandle, q, q1, toMajor, tcgplayerUrl, withTx } from '../d
 import { asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { recordDeckChange, recordStrategyChange, restoreSnapshot, type SnapshotEntry } from '../deck/versions.js';
-import { loadOwnedPrints, type OwnedSource } from '../deck/ownedPrints.js';
+import { basicEnergyType, loadOwnedPrints, type OwnedSource } from '../deck/ownedPrints.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import { mergeLogFields, parseBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
@@ -257,7 +257,7 @@ const DECK_CARD_SELECT = `
               AND pc.source_code = 'tcgcsv' AND pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
             LIMIT 1
          ) price ON true
-   WHERE dc.deck_id = $1 AND dc.user_id = $2
+   WHERE dc.deck_id = $1 AND dc.user_id = $2 AND d.deleted_at IS NULL
    ORDER BY CASE c.category WHEN 'Pokemon' THEN 0 WHEN 'Trainer' THEN 1 ELSE 2 END,
             c.name, c.number_sort, cvd.sort_order`;
 
@@ -297,7 +297,8 @@ async function loadRows(deckId: string, userId: string): Promise<{ rows: DeckRow
   const allocations = await loadOwnedPrints(dbHandle(), userId, rows[0]?.format_code ?? 'standard', rows.map((r) => ({
     cardId: Number(r.card_id), variantId: Number(r.card_variant_id), variantKind: r.variant_kind_code,
     quantity: r.quantity, group: r.identical_print_group,
-    basicEnergyType: r.category === 'Energy' && r.energy_type === 'Normal' ? (types.get(Number(r.card_id))?.[0] ?? null) : null,
+    basicEnergyType: r.category === 'Energy' && r.energy_type === 'Normal'
+      ? basicEnergyType(r.name, types.get(Number(r.card_id))?.[0] ?? null) : null,
     isPromo: r.is_promo, isStamped: r.is_stamped, pinExact: r.pin_exact,
   })));
   for (const row of rows) {

@@ -30,7 +30,7 @@ export function writesFixture(mount, admin) {
     owned: {},                                   // variantId → quantity
     list: [0, 1].map(i => ({ itemId: 'item-' + i, i })),
     listName: 'Trade binder',
-    deck: [{ i: 0, quantity: 1 }, { i: 1, quantity: 2 }],
+    deck: [{ i: 0, quantity: 1, pinExact: false }, { i: 1, quantity: 2, pinExact: false }],
     fail: false,
     latency: () => 0,                            // ms for the next write, by call
     writes: [], inflight: 0, maxInflight: 0, setReads: 0,
@@ -72,9 +72,9 @@ export function writesFixture(mount, admin) {
       staticQuantity: null, ownedQuantity: 0 })),
   })
   const deckDetail = () => {
-    const cards = state.deck.map(({ i, quantity }) => ({ ...row(i), variantId: 100 + i * 2, variant: { kind: 'normal', displayName: 'Normal', tier: 'standard', isPrimary: true },
+    const cards = state.deck.map(({ i, quantity, pinExact }) => ({ ...row(i), variantId: 100 + i * 2, variant: { kind: 'normal', displayName: 'Normal', tier: 'standard', isPrimary: true },
       section: 'pokemon', stage: null, regulationMark: 'H', setId: SET, setCode: 'FXS', setName: 'Fixture Set', seriesSlug: 'fx', quantity, owned: 0, have: false,
-      ownedAs: [], pinExact: false }))
+      ownedAs: [], pinExact }))
     const total = cards.reduce((n, c) => n + c.quantity, 0)
     return {
       deck: { id: DECK, name: 'Fixture Deck', description: null, formatCode: 'standard', formatName: 'Standard', glcType: null, isFavorite: false, coverRender: '',
@@ -146,9 +146,14 @@ export function writesFixture(mount, admin) {
     if (deckCard && method === 'PATCH') {
       const i = Number(deckCard[1]) - 1
       return write(rel, method, () => {
-        state.deck = state.deck.filter(r => r.i !== i || body.quantity > 0).map(r => r.i === i ? { ...r, quantity: body.quantity } : r)
+        if (body.quantity === 0) state.deck = state.deck.filter(r => r.i !== i)
+        else {
+          const row = state.deck.find(r => r.i === i)
+          if (row) Object.assign(row, { quantity: body.quantity ?? row.quantity, pinExact: body.pinExact ?? row.pinExact })
+          else state.deck.push({ i, quantity: body.quantity, pinExact: body.pinExact ?? false })
+        }
         return deckDetail()
-      })
+      }, body)
     }
     return admin.response(rel, url, req)
   }
@@ -337,6 +342,19 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await settle()
       assert.equal(await copies(), 6)
       assert.equal(state.deck.find(r => r.i === 0).quantity, 6)
+
+      // Undo recreates the removed row with the exact-print pin it had before removal.
+      await page.getByRole('button', { name: 'Pin Fixturemon to this exact printing' }).click()
+      await settle()
+      assert.equal(state.deck.find(r => r.i === 0).pinExact, true)
+      await page.getByRole('button', { name: 'Remove Fixturemon' }).click()
+      await settle()
+      assert.equal(state.deck.some(r => r.i === 0), false)
+      await page.getByRole('button', { name: 'Undo' }).click()
+      await settle()
+      assert.equal(state.deck.find(r => r.i === 0)?.pinExact, true)
+      assert.equal(await page.getByRole('button', { name: 'Unpin Fixturemon printing' }).getAttribute('aria-pressed'), 'true')
+      await shot('deck-pinned-undo')
 
       // Offline, a deck edit is attempted and explained rather than silently lost.
       await context.setOffline(true)

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allocateOwnedPrints, type OwnedCandidate, type OwnedSlot } from '../ownedPrints.js';
+import { allocateOwnedPrints, basicEnergyType, loadOwnedCandidates, type OwnedCandidate, type OwnedSlot } from '../ownedPrints.js';
+import type { Queryable } from '@deckpal/db';
 import { cardLegality } from '../cardLegality.js';
 import type { CardFacts } from '../types.js';
 
@@ -42,6 +43,24 @@ test('basic Energy uses its type across set and art, but never another type', ()
     owned({ variant_id: '33', card_id: '3', energy_type: 'Fire' })], new Set([2, 3])).get(11)!;
   assert.equal(result.owned, 2);
   assert.equal(result.ownedAs.length, 1);
+});
+
+test('Basic Energy names supply the type when card_type is absent', async () => {
+  assert.equal(basicEnergyType('Basic Fire Energy', null), 'Fire');
+  assert.equal(basicEnergyType('Fire Energy', null), 'Fire');
+  assert.equal(basicEnergyType('Special Fire Energy', null), null);
+  let query = '';
+  let params: unknown[] | undefined;
+  const db = { query: async (sql: string, values: unknown[]) => {
+    query = sql;
+    params = values;
+    return { rows: [{ ...owned({ identical_print_group: null }), basic_energy_name: 'Basic Fire Energy' }] };
+  } } as unknown as Queryable;
+  const candidates = await loadOwnedCandidates(db, 'user', [slot({ group: null, basicEnergyType: 'Fire' })]);
+  assert.equal(candidates[0]?.energy_type, 'Fire');
+  assert.match(query, /c\.name = ANY\(\$5::text\[\]\)/, 'candidate lookup includes Basic Energy without card_type');
+  assert.deepEqual(params?.[4], ['Fire Energy', 'Basic Fire Energy']);
+  assert.equal(count([slot({ group: null, basicEnergyType: 'Fire' })], candidates).get(11)?.owned, 2);
 });
 
 test('pin exact requires the selected printing, including when an equivalent is owned', () => {
