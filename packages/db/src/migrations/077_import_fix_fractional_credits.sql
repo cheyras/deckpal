@@ -19,6 +19,7 @@ ALTER TABLE public.decke_import_fix_settlement ENABLE ROW LEVEL SECURITY;
 CREATE FUNCTION public.decke_import_fix_begin(p_cap integer,p_key text,p_hash text,p_model text,p_build_sha text,p_build_pr integer)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE actor text; policy jsonb; mode text; r jsonb; op uuid=gen_random_uuid(); used integer;
+  balance_now integer; pending integer; debt_now integer;
 BEGIN
   actor=public.credit_server_actor();
   IF coalesce((nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'deckpal_server_request')::boolean,false) IS NOT TRUE THEN
@@ -31,14 +32,22 @@ BEGIN
   IF policy IS NULL THEN RAISE EXCEPTION 'Credit accounting is unavailable' USING ERRCODE='P0002'; END IF;
   mode=CASE WHEN (policy->>'unlimited')::boolean THEN 'unlimited'
             WHEN (policy->'policy'->>'enabled')::boolean THEN 'paid' ELSE 'daily' END;
-  IF mode='paid' THEN
-    IF NOT EXISTS (SELECT 1 FROM public.decke_credit_balance WHERE user_id::text=actor AND balance>0)
-      THEN RAISE EXCEPTION 'Deck-E credits are empty' USING ERRCODE='P0001'; END IF;
-    IF EXISTS(SELECT 1 FROM public.credit_wallet_control WHERE user_id=actor AND debt>0) OR
-       EXISTS(SELECT 1 FROM public.credit_order WHERE user_id=actor AND
+  IF mode IN ('paid','unlimited') THEN
+    INSERT INTO public.credit_wallet_control(user_id) VALUES(actor) ON CONFLICT DO NOTHING;
+    SELECT debt INTO debt_now FROM public.credit_wallet_control WHERE user_id=actor FOR UPDATE;
+    INSERT INTO public.decke_credit_balance(user_id,balance)
+      SELECT id,0 FROM public.app_user WHERE id::text=actor ON CONFLICT DO NOTHING;
+    SELECT balance INTO balance_now FROM public.decke_credit_balance WHERE user_id::text=actor FOR UPDATE;
+    IF debt_now>0 OR EXISTS(SELECT 1 FROM public.credit_order WHERE user_id=actor AND
          (pending_refund_cents>0 OR dispute_status IN
           ('needs_response','under_review','warning_needs_response','warning_under_review','lost')))
       THEN RAISE EXCEPTION 'Deck-E credits are on hold' USING ERRCODE='P0002'; END IF;
+    IF mode='paid' THEN
+      SELECT count(*)::integer INTO pending FROM public.decke_ai_request
+        WHERE user_id=actor AND request_key LIKE 'import_fix:%' AND status='started'
+          AND started_at>now()-interval '15 minutes';
+      IF balance_now<=pending THEN RAISE EXCEPTION 'Deck-E credits are empty' USING ERRCODE='P0001'; END IF;
+    END IF;
   END IF;
   INSERT INTO public.decke_usage AS u(user_id,day,chat_turns)
     VALUES(actor::uuid,(now() AT TIME ZONE 'utc')::date,1)
@@ -85,6 +94,9 @@ BEGIN
     WHERE id=p_operation AND request_id=p_request AND tool_key='import_fix' AND status='started';
   IF NOT FOUND THEN RAISE EXCEPTION 'Import fix operation unavailable' USING ERRCODE='42501'; END IF;
   IF r.charge_mode='paid' AND p_usd IS NOT NULL THEN
+    INSERT INTO public.credit_wallet_control(user_id) VALUES(actor) ON CONFLICT DO NOTHING;
+    PERFORM 1 FROM public.credit_wallet_control WHERE user_id=actor FOR UPDATE;
+    PERFORM 1 FROM public.decke_credit_balance WHERE user_id::text=actor FOR UPDATE;
     price_policy=public.credit_effective_policy(actor,r.pricing_revision,r.override_revision)->'policy';
     amount=round(p_usd*1000000*(10000+(price_policy->>'markupBps')::numeric)
       /((price_policy->>'microUsdPerCredit')::numeric*10000),12);

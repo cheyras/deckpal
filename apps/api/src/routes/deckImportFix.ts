@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Router } from 'express';
 import { createGateway } from '@ai-sdk/gateway';
 import { generateText } from 'ai';
-import { dbHandle } from '../db.js';
+import { dbHandle, withUserSession } from '../db.js';
 import { currentUserId } from '../identity.js';
 import { ApiError, asyncHandler, badRequest, oneOf, userCache } from '../http.js';
 import { assertDeckeAccess, payloadHash } from '../credits/runtime.js';
@@ -59,6 +59,9 @@ export function registerDeckImportFix(router: Router): void {
     }
     const usage = started.rows[0]?.data;
     if (!usage) throw new ApiError(503, 'decke_unavailable', 'Deck-E accounting is unavailable.');
+    // Admission must survive a browser leaving during the provider call. Free
+    // the request's one pool client; settlement checks out that same pool later.
+    await res.locals.commitAndReleaseRls();
     let result: Awaited<ReturnType<typeof generateText>>;
     try {
       const gateway = createGateway({ apiKey: key });
@@ -68,19 +71,25 @@ export function registerDeckImportFix(router: Router): void {
         maxOutputTokens: 400, maxRetries: 0, abortSignal: AbortSignal.timeout(6000),
       });
     } catch {
-      await db.query('SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', [
-        usage.requestId, usage.operationId, 'failed', null, null, null, null, null, null, 'unknown', null,
-      ]).catch(() => undefined);
+      await withUserSession(userId, req.authKind, session => session.query(
+        'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data',
+        [usage.requestId, usage.operationId, 'failed', null, null, null, null, null, null, 'unknown', null],
+      )).catch(() => undefined);
       throw new ApiError(503, 'decke_unavailable', "I can't reach my brain right now. You can still edit the lines yourself.");
     }
     const measured = extractUsage(result.usage, result.providerMetadata);
-    await db.query('SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', [
-      usage.requestId, usage.operationId, 'completed',
-      measured.tokens.inputTokens, measured.tokens.outputTokens,
-      measured.tokens.cacheReadTokens, measured.tokens.cacheWriteTokens, measured.tokens.reasoningTokens,
-      measured.cost.usd, measured.cost.source, measured.generationId,
-    ]);
+    const verified = await withUserSession(userId, req.authKind, async session => {
+      await session.query('SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) AS data', [
+        usage.requestId, usage.operationId, 'completed',
+        measured.tokens.inputTokens, measured.tokens.outputTokens,
+        measured.tokens.cacheReadTokens, measured.tokens.cacheWriteTokens, measured.tokens.reasoningTokens,
+        measured.cost.usd, measured.cost.source, measured.generationId,
+      ]);
+      try { return { value: await verifiedImportFix(session, format, text, prepared, result.text) }; }
+      catch (error) { return { error }; } // Commit measured usage even if verification fails.
+    });
+    if ('error' in verified) throw verified.error;
     userCache(res);
-    res.json(await verifiedImportFix(db, format, text, prepared, result.text));
+    if (!res.destroyed) res.json(verified.value);
   }));
 }

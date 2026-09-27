@@ -144,8 +144,10 @@ It does not create a deck. The model may choose only keys from
 catalogue candidates; a suggested replacement is returned only when the ordinary
 import resolver lands on that exact catalogue card. The browser asks the reader
 to confirm, then rechecks the edited list before the existing import write.
-The request's catalogue, collection and accounting work share its RLS-scoped
-database connection. Narrow server-only database functions enforce the daily
+The request's catalogue and collection reads use its RLS-scoped connection.
+Admission commits and releases that connection before the model call; settlement
+uses the same shared pool afterward, even if the browser disconnects. Narrow
+server-only database functions enforce the daily
 limit, account ownership, usage recording and fractional settlement. A direct
 browser RPC cannot invoke them without the server's request claim.
 

@@ -70,6 +70,28 @@ export function dbHandle(): Queryable {
   return rlsStore.getStore() ?? pool;
 }
 
+/** Resume server-authored user work after an import fix releases its request
+ * connection for the provider call. The same request pool supplies this client;
+ * one request never holds two connections at once. */
+export async function withUserSession<T>(userId: string, authKind: string | undefined,
+  work: (db: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  let discard = false;
+  try {
+    const claims = client.escapeLiteral(JSON.stringify({
+      sub: userId, role: SUPABASE_MODE ? 'authenticated' : 'local',
+      deckpal_auth_kind: authKind, deckpal_server_request: true,
+    }));
+    await client.query(`BEGIN; SELECT set_config('request.jwt.claims', ${claims}, true); ${SUPABASE_MODE ? "SET LOCAL role = 'authenticated'" : ''}`);
+    const result = await work(client);
+    await client.query('COMMIT; RESET ROLE');
+    return result;
+  } catch (error) {
+    try { await client.query('ROLLBACK; RESET ROLE'); } catch { discard = true; }
+    throw error;
+  } finally { client.release(discard); }
+}
+
 /**
  * Commit the per-request RLS transaction NOW, before the response is written.
  *

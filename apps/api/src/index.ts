@@ -255,7 +255,7 @@ export function createApp(): express.Express {
         let watchdog: ReturnType<typeof setTimeout> | null = null;
 
         const cleanup = async (mode: 'commit' | 'rollback') => {
-          if (cleaned) return;
+          if (cleaned) return false;
           cleaned = true;
           if (watchdog) { clearTimeout(watchdog); watchdog = null; }
           try {
@@ -275,8 +275,9 @@ export function createApp(): express.Express {
             // would silently query inside the wrong user's context. Destroying
             // the connection instead makes the slow handler's next query fail
             // loudly — the correct outcome, and worth the reconnect.
-            if (mode === 'commit') client.release();
-            else client.release(true);
+            if (mode === 'commit') { client.release(); return true; }
+            client.release(true);
+            return false;
           } catch {
             // The statement either failed or hung. Handing back a connection
             // that may still be inside a transaction — or still wearing the
@@ -284,6 +285,7 @@ export function createApp(): express.Express {
             // discard it instead and let the pool open a fresh one.
             // release(true) is node-postgres' documented "destroy this client".
             try { client.release(true); } catch { /* already gone */ }
+            return false;
           }
         };
 
@@ -341,6 +343,9 @@ export function createApp(): express.Express {
 
           // Run the rest of the middleware chain inside the RLS store context
           // so q()/q1()/withTx() pick up the client transparently.
+          res.locals.commitAndReleaseRls = async () => {
+            if (!await cleanup('commit')) throw new Error('Request connection closed before Deck-E started');
+          };
           rlsStore.run(client, () => requestAccessStore.run(new Map(), () => next()));
         } catch (err) {
           void cleanup('rollback');

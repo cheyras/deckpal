@@ -1256,7 +1256,10 @@ permission or save cards. The route shares Deck-E's entitlement, Gateway key,
 daily meter, and usage ledger. When paid credits are enabled, it converts the
 provider-reported cost using the request's credit policy and accumulates the
 fraction. Whole credits are debited through the existing wallet ledger as the
-fractions add up. Accounting uses the request's existing database connection.
+fractions add up. Admission commits on the request's database connection before
+the model call, which releases that connection. Settlement later checks out one
+connection from the same shared pool, so a disconnected browser cannot erase
+the daily charge or consume a second pool.
 
 **One controller, one writer.** `runtime.ts` holds a single WebGL context with
 deferred disposal so React StrictMode's double-mount does not build two. Exactly
