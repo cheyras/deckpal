@@ -454,12 +454,13 @@ shape.
 ### GET /deckpal/api/me/cards
 The signed-in account's owned cards, one row per card across its owned variants.
 The Profile banner requests three; opening the showcase picker requests a larger
-page and may search by card name. Optional query parameters are `q` (name
+page, can load later pages on demand, and may search by card name. Optional query parameters are `q` (name
 contains, case-insensitive), `sort=value|recent` (default `recent`), `page`
 (default 1), and `pageSize` (default 48, maximum 100). The response includes
 `pagination: { page, pageSize, total, pageCount }` and `cards`, whose rows have
 `cardId`, `name`, `images: { low, high }`, `quantity`, and `price` (a USD market
-price or `null`). Only cards with a positive owned quantity are returned.
+price or `null`). Only cards with a positive owned quantity are returned. Ties
+on price and name are ordered by card ID so page boundaries are stable.
 
 ## Billing — the pay-what-you-want tier
 

@@ -55,10 +55,10 @@ export function buildOwnedCardsQuery(userId: string, opts: OwnedCardsQueryOpts):
   };
   const search = opts.q?.trim();
   const searchClause = search ? `AND c.name ILIKE ${bind(`%${search}%`)}` : '';
-  // Both branches order by name as a stable tiebreaker, so paging never
-  // reshuffles rows a caller has already seen.
+  // Distinct printings can share both name and price/update time. The unique
+  // card id makes page boundaries stable even for those tied rows.
   const orderBy =
-    opts.sort === 'value' ? 'max(b.best_minor) DESC NULLS LAST, c.name ASC' : 'max(ci.updated_at) DESC, c.name ASC';
+    opts.sort === 'value' ? 'max(b.best_minor) DESC NULLS LAST, c.name ASC, c.tcgdex_id ASC' : 'max(ci.updated_at) DESC, c.name ASC, c.tcgdex_id ASC';
   const limitIdx = bind(opts.limit);
   const offsetIdx = bind(opts.offset);
   const sql = `

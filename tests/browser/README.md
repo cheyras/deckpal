@@ -7,7 +7,8 @@ The workflow uses Node 24 and a frozen pnpm lockfile.
 
 `profileOwnedCards.mts` builds the real Profile page against a local signed-in
 fixture at 390px and 1440px. It asserts one bounded owned-cards request on page
-load, one more when the showcase picker opens, and no species-detail fan-out.
+load, one more when the showcase picker opens, one more when Load more is
+pressed, and no species-detail fan-out. The 49th card must become reachable.
 
 Reports and screenshots go to `TEST_ARTIFACT_DIR` (default `.cache/browser-tests`).
 A local installation can set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` and

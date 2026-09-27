@@ -49,10 +49,10 @@ test('a search term is bound, not interpolated, and only added when non-empty', 
 
 test('sort=value orders by best USD price; sort=recent orders by last update', () => {
   const byValue = buildOwnedCardsQuery('user-a', { sort: 'value', limit: 10, offset: 0 });
-  assert.match(byValue.sql, /ORDER BY max\(b\.best_minor\) DESC NULLS LAST, c\.name ASC/);
+  assert.match(byValue.sql, /ORDER BY max\(b\.best_minor\) DESC NULLS LAST, c\.name ASC, c\.tcgdex_id ASC/);
 
   const byRecent = buildOwnedCardsQuery('user-a', { sort: 'recent', limit: 10, offset: 0 });
-  assert.match(byRecent.sql, /ORDER BY max\(ci\.updated_at\) DESC, c\.name ASC/);
+  assert.match(byRecent.sql, /ORDER BY max\(ci\.updated_at\) DESC, c\.name ASC, c\.tcgdex_id ASC/);
 });
 
 test('limit and offset are bound parameters, not string-concatenated', () => {

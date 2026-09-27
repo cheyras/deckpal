@@ -57,9 +57,10 @@ function fixture(rel: string, url: URL) {
   if (rel === '/api/tokens') return { body: { tokens: [] } }
   if (rel === '/api/me/cards') {
     const q = (url.searchParams.get('q') ?? '').toLowerCase()
+    const page = Number(url.searchParams.get('page') ?? 1)
     const pageSize = Number(url.searchParams.get('pageSize') ?? 48)
     const rows = q ? OWNED_CARDS.filter((c) => c.name.toLowerCase().includes(q)) : OWNED_CARDS
-    return { body: { pagination: { page: 1, pageSize, total: rows.length, pageCount: Math.ceil(rows.length / pageSize) }, cards: rows.slice(0, pageSize) } }
+    return { body: { pagination: { page, pageSize, total: rows.length, pageCount: Math.ceil(rows.length / pageSize) }, cards: rows.slice((page - 1) * pageSize, page * pageSize) } }
   }
   // Every other /api/* call Profile.tsx's other, unrelated sections make
   // (tokens, features, decke sharing, credits, …) — a quiet empty 200 so
@@ -116,7 +117,15 @@ try {
 
         const totalForTheWholeFlow = ownedOnLoad.length + ownedFromPicker.length
         assert.ok(totalForTheWholeFlow <= 2, `${width}px: visiting Profile and opening the picker should be "a couple" of /me/cards requests, got ${totalForTheWholeFlow}`)
-        results[width] = { ownedOnLoad: ownedOnLoad.length, ownedFromPicker: ownedFromPicker.length, pokedexOnLoad: pokedexOnLoad.length }
+        assert.equal(await page.getByText('Fixture Card 48', { exact: true }).count(), 0, `${width}px: the second page must wait for the collector`)
+        const startedAtMore = server.requests.length
+        await page.getByRole('button', { name: 'Load more cards' }).click()
+        await page.getByText('Fixture Card 48', { exact: true }).waitFor()
+        const afterLoadingMore = server.requests.slice(startedAtMore)
+        assert.equal(afterLoadingMore.filter(isOwnedCardsPath).length, 1, `${width}px: Load more should fetch one next page`)
+        assert.equal(afterLoadingMore.filter(isPokedexDetailPath).length, 0, `${width}px: Load more must not fetch species details`)
+        assert.deepEqual(server.unexpected, [], `${width}px: unexpected browser requests or page errors after Load more`)
+        results[width] = { ownedOnLoad: ownedOnLoad.length, ownedFromPicker: ownedFromPicker.length, ownedFromLoadMore: 1, pokedexOnLoad: pokedexOnLoad.length }
       } finally {
         await context.close()
       }

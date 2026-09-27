@@ -3,12 +3,12 @@ import { useAccess } from '../lib/access'
 import { FeaturePreferences } from '../components/FeaturePreferences'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CreditProfileCard } from './credits/Credits'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { api } from '../lib/api'
 import { supabase, isCloudMode } from '../lib/supabase'
 import { forgetReturningVisitor } from '../lib/returningVisitor'
-import { Content, Spinner, ErrorState, Tabs, StatTile } from '../components/ui'
+import { Button, Content, Spinner, ErrorState, Tabs, StatTile } from '../components/ui'
 import { LevelRing } from '../components/LevelRing'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -50,18 +50,14 @@ interface ShowcasePick {
 // do I own" directly from `collection_item` in one query, paged and
 // optionally searched — see DECISIONS.md 2026-09-26.
 //
-// `pageSize` doubles as the query key: the small banner fetch and the picker's
-// larger, searchable fetch stay independent caches, and the banner's is cheap
-// enough (one bounded query, not a fan-out) to run unconditionally.
-function useOwnedCards(opts: { pageSize: number; q?: string; enabled?: boolean }) {
-  const q = opts.q?.trim() ?? ''
+// The banner's small query is cheap enough to run on every visit; the picker
+// has its own paged query below and only starts when the sheet opens.
+function useOwnedCards(pageSize: number) {
   return useQuery({
-    queryKey: ['ownedCards', opts.pageSize, q],
-    enabled: opts.enabled ?? true,
+    queryKey: ['ownedCards', pageSize],
     staleTime: 60_000,
     queryFn: async ({ signal }) => {
-      const params = new URLSearchParams({ sort: 'value', pageSize: String(opts.pageSize) })
-      if (q) params.set('q', q)
+      const params = new URLSearchParams({ sort: 'value', pageSize: String(pageSize) })
       const res = await api.ownedCards(params, signal)
       return res.cards.map((c): ShowcasePick => ({ cardId: c.cardId, name: c.name, low: c.images.low, high: c.images.high }))
     },
@@ -96,7 +92,7 @@ export function Profile() {
   // The banner's 3 card-art panels. Bounded (pageSize 3) and cheap enough to
   // run on every visit now — the picker's own, larger fetch loads lazily
   // below, only once it actually opens.
-  const bannerCards = useOwnedCards({ pageSize: 3 })
+  const bannerCards = useOwnedCards(3)
   // Self-host has no per-user account, so no query — 'Trainer' stays the
   // generic label there, exactly as before (issue #25 is cloud-only).
   const me = useQuery({ queryKey: ['me'], queryFn: ({ signal }) => api.me(signal), enabled: isCloudMode })
@@ -117,9 +113,23 @@ export function Profile() {
     const t = setTimeout(() => setPickerSearch(pickerTerm.trim()), 300)
     return () => clearTimeout(t)
   }, [pickerTerm])
-  // UXC-04: loads only once the sheet is actually open — not on every Profile
-  // visit — and only refetches (rather than growing) when the search changes.
-  const picker = useOwnedCards({ pageSize: 48, q: pickerSearch, enabled: picking != null })
+  // UXC-04: the first page loads only when the sheet opens. Further pages are
+  // fetched on demand, so cards beyond the first 48 remain reachable.
+  const picker = useInfiniteQuery({
+    queryKey: ['ownedCards', 'picker', pickerSearch],
+    enabled: picking != null,
+    staleTime: 60_000,
+    initialPageParam: 1,
+    queryFn: ({ pageParam, signal }) => {
+      const params = new URLSearchParams({ sort: 'value', pageSize: '48', page: String(pageParam) })
+      if (pickerSearch) params.set('q', pickerSearch)
+      return api.ownedCards(params, signal)
+    },
+    getNextPageParam: (lastPage) => lastPage.pagination.page < lastPage.pagination.pageCount ? lastPage.pagination.page + 1 : undefined,
+  })
+  const pickerCards = useMemo(() => picker.data?.pages.flatMap((page) => page.cards.map((c): ShowcasePick => ({
+    cardId: c.cardId, name: c.name, low: c.images.low, high: c.images.high,
+  }))) ?? [], [picker.data])
   // UXC-03 (deckpal audit ux-collection): this remove control was
   // `opacity-0`, revealed only on `:hover` — invisible on a phone, which has
   // no hover, while remaining a live tap target. Now it's always visible and
@@ -485,24 +495,32 @@ export function Profile() {
 
             {picker.isLoading ? (
               <Spinner label="Loading your cards…" />
-            ) : picker.isError ? (
+            ) : picker.isError && !picker.data ? (
               <ErrorState
                 message={picker.error instanceof Error ? picker.error.message : 'Could not load your cards.'}
                 onRetry={() => void picker.refetch()}
               />
-            ) : (picker.data ?? []).length === 0 ? (
+            ) : pickerCards.length === 0 ? (
               <div className="py-[40px] text-center text-[14px] text-text-muted">
                 {pickerSearch ? `No cards match "${pickerSearch}".` : "You don't own any cards yet."}
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-[10px] sm:grid-cols-4">
-                {(picker.data ?? []).map((c) => (
-                  <button key={c.cardId} onClick={() => setSlot(picking, c)} className="block text-left">
-                    <CardImage low={c.low} high={c.high} alt={c.name} />
-                    <div className="mt-[4px] truncate text-[14px] text-text-body">{c.name}</div>
-                  </button>
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-[10px] sm:grid-cols-4">
+                  {pickerCards.map((c) => (
+                    <button key={c.cardId} onClick={() => setSlot(picking, c)} className="block text-left">
+                      <CardImage low={c.low} high={c.high} alt={c.name} />
+                      <div className="mt-[4px] truncate text-[14px] text-text-body">{c.name}</div>
+                    </button>
+                  ))}
+                </div>
+                {picker.isFetchNextPageError && <p role="alert" className="text-center text-[14px] text-error">More cards could not be loaded. Try again.</p>}
+                {picker.hasNextPage && (
+                  <Button variant="secondary" loading={picker.isFetchingNextPage} className="self-center" onClick={() => void picker.fetchNextPage()}>
+                    {picker.isFetchNextPageError ? 'Retry loading more' : 'Load more cards'}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </Sheet>
