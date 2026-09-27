@@ -67,7 +67,7 @@ export function feedbackResponse(state, rel, url, {method,body}) {
 
 import { signIn, PERMISSIONS } from './admin.mjs'
 
-export async function checkFeedback(browser, server, mount, label, out, fixture) {
+export async function checkFeedback(browser, server, mount, label, out, fixture, part = 'all') {
   const {state} = fixture, results = []
   const go = (page, route) => page.goto(server.origin + mount + route, {waitUntil:'networkidle'})
   const focus = page => page.evaluate(() => window.dispatchEvent(new Event('focus')))
@@ -85,7 +85,9 @@ export async function checkFeedback(browser, server, mount, label, out, fixture)
   for (const [key,name,tier] of [['owner','Owner',60],['superuser','Superuser',20],['contributor','Contributor',30],['admin','Admin',40]]) {
     if (!state.roles.some(r => r.key===key)) state.roles.push({id:key+'-role',key,name,tier,description:name+' built-in role',permissions:tier===30?['devtools.access','design.view','diagnostics.view','scanner.label']:tier>=40?[...PERMISSIONS]:[],memberCount:1,protected:true,revision:1})
   }
-  for (const width of [1280,390,428]) {
+  state.feedbackMatrix=true
+  const widths = part.startsWith('primary-') ? [Number(part.slice('primary-'.length))] : part === 'lifecycle' ? [] : [1280,390,428]
+  for (const width of widths) {
     state.actor='owner';state.permissions=[...PERMISSIONS];state.signedOut=false;state.feedbackMatrix=true;state.optins={};state.sharing={enabled:false,revision:0,updatedAt:null}
     state.users[0].roles=[{id:'user-role',name:'User'}];state.overrideConflict=false;state.sharingConflict=false
     for (const f of state.featureCatalog) f.lifecycle='experimental'
@@ -317,6 +319,7 @@ export async function checkFeedback(browser, server, mount, label, out, fixture)
       throw error
     } finally {await context.close()}
   }
+  if (part.startsWith('primary-')) return results
   // Every eligible middle tier can opt into every experimental catalog entry;
   // an added experiment proves this is not a hard-coded scanner/Deck-E allowlist.
   state.featureCatalog.push({key:'fixture-next',label:'Future experiment',lifecycle:'experimental',revision:1})
