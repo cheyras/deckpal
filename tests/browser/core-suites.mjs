@@ -9,6 +9,7 @@ import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
 import { checkSecurityHeaders } from './securityHeaders.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
+import { checkOffline } from './offline.mjs'
 import { writesFixture, checkWrites } from './writes.mjs'
 import { checkAuthReturn } from './authReturn.mjs'
 import { checkDeployAssets } from '../../scripts/check-deploy-assets.mjs'
@@ -87,6 +88,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
         const server = await serve(fixtureDist, '', chatApi, 'fixture.html', { allowMutation: chatAllowMutation })
         try {
           results.push(...await checkChat(browser, server, out))
+          results.push(...await checkOffline(browser, server, out))
           results.push(...await checkDeckeStates(browser, server, out, 'chromium'))
           const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
             ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
