@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, type CardDetailResponse, type Progress, type SetDetailResponse, type ValueRange, type Variant } from '../lib/api'
+import { api, type ValueRange, type Variant } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -9,6 +9,8 @@ import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
 import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney, setLevelFromCounts } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
+import { useOwnedCounts } from '../lib/collectionWrites'
+import { useCurrentPathAsNext } from '../lib/landingRoute'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { variantMeta, seriesColors } from '../lib/variantStyle'
 
@@ -135,7 +137,6 @@ function QtyStepper({
   fill,
   quantity,
   onAdjust,
-  pending,
 }: {
   v: Variant
   /** Solid accent — the idle "+" glyph colour. */
@@ -144,18 +145,19 @@ function QtyStepper({
   fill: string
   quantity: number
   onAdjust: (variantId: number, newQty: number) => void
-  pending: boolean
 }) {
   const owned = quantity > 0
   // Collection writes are network-only (hard rule — no offline write queue). When
   // offline, disable the steppers with a clear reason rather than letting a tap fail.
+  // Online they stay live while a write is saving: a second tap is queued behind
+  // it (lib/collectionWrites), not refused.
   const online = useOnline()
   const offlineTitle = online ? undefined : 'Offline — reconnect to change your collection'
   return (
     <div className="flex items-center gap-[8px]" title={offlineTitle}>
       <button
         onClick={() => onAdjust(v.variantId, quantity - 1)}
-        disabled={pending || !online || quantity <= 0}
+        disabled={!online || quantity <= 0}
         aria-label={`Remove one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg bg-surface-tertiary text-icon-default enabled:hover:bg-action-default-hover disabled:text-icon-disabled"
       >
@@ -168,7 +170,7 @@ function QtyStepper({
       </span>
       <button
         onClick={() => onAdjust(v.variantId, quantity + 1)}
-        disabled={pending || !online}
+        disabled={!online}
         aria-label={`Add one ${v.displayName}`}
         className="flex h-[36px] w-[36px] items-center justify-center rounded-lg enabled:hover:opacity-90 disabled:opacity-50"
         style={{
@@ -204,14 +206,17 @@ const VARIANT_GRID =
 function VariantRow({
   v,
   onAdjust,
-  pending,
 }: {
   v: Variant
   onAdjust: (variantId: number, newQty: number) => void
-  pending: boolean
 }) {
   const meta = variantMeta(v)
   const price = v.prices.find((p) => p.currency === 'USD') ?? v.prices[0] ?? null
+  // UXC-06: reactive, not a one-off `window.location` read, so switching
+  // tabs/ranges on this same card keeps the "Sign in to track" return path
+  // current rather than snapping back to wherever the row first rendered
+  // (Astra review, PR #212).
+  const next = useCurrentPathAsNext()
   return (
     <div
       className="rounded-lg bg-surface-tertiary p-[16px]"
@@ -274,15 +279,18 @@ function VariantRow({
             replaced by the reason it is missing. */}
         <div className="col-[2] row-[1] flex justify-end gap:col-[auto] gap:row-[auto]">
           {v.quantity === undefined ? (
+            // UXC-06: labelled "Sign in to track" but opened `?mode=signup` —
+            // same mislabel as the rail's locked rows. `next` returns to this
+            // exact card once signed in, rather than the generic default.
             <Link
               to="/auth"
-              search={{ mode: 'signup' } as never}
+              search={{ next } as never}
               className="flex h-[34px] items-center whitespace-nowrap rounded-lg border border-border-default px-[12px] text-[14px] font-semibold text-text-body hover:border-surface-quaternary hover:text-text-primary"
             >
               Sign in to track
             </Link>
           ) : (
-            <QtyStepper v={v} color={meta.color} fill={meta.fill} quantity={v.quantity} onAdjust={onAdjust} pending={pending} />
+            <QtyStepper v={v} color={meta.color} fill={meta.fill} quantity={v.quantity} onAdjust={onAdjust} />
           )}
         </div>
       </div>
@@ -548,7 +556,6 @@ function CardDetailBody({
   const tabs = deckSlot ? [DECK_TAB, ...TABS] : TABS
   const [tab, setTab] = useState(deckSlot ? DECK_TAB.key : 'Card')
   const [showAdditional, setShowAdditional] = useState(false)
-  const qc = useQueryClient()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['card', cardId],
@@ -558,32 +565,25 @@ function CardDetailBody({
   const enter = useLateEntrance(isLoading)
 
   // Series slug + set id are resolved from the fetched card (authoritative),
-  // falling back to any caller-supplied hint before the fetch settles. Both feed
-  // the internal links + the ['set', setId] progress invalidation on mutation.
+  // falling back to any caller-supplied hint before the fetch settles. The set id
+  // also names the write lane the steppers queue on (lib/collectionWrites).
   const seriesSlug = data?.card.series.slug ?? backTo?.series ?? ''
   const setId = data?.card.set.setId ?? backTo?.set ?? ''
 
-  // Own/un-own a variant. Optimistic: the stepper + the three progress bars move
-  // instantly (optimisticApply), roll back on error, and reconcile against the
-  // server's authoritative recompute on settle by invalidating both queries.
-  const mutation = useMutation({
-    mutationFn: ({ variantId, newQty }: { variantId: number; newQty: number }) =>
-      api.setVariantQuantity(variantId, Math.max(0, newQty)),
-    onMutate: async ({ variantId, newQty }) => {
-      await qc.cancelQueries({ queryKey: ['card', cardId] })
-      await qc.cancelQueries({ queryKey: ['set', setId] })
-      const undo = optimisticApply(qc, cardId, setId, variantId, Math.max(0, newQty))
-      return { undo }
-    },
-    onError: (_err, _vars, ctx) => {
-      ctx?.undo()
-    },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: ['card', cardId] })
-      void qc.invalidateQueries({ queryKey: ['set', setId] })
-    },
-  })
-  const onAdjust = (variantId: number, newQty: number) => mutation.mutate({ variantId, newQty })
+  // Own/un-own a variant. The stepper shows the quantity asked for at once; the
+  // server's answer — including the set's recomputed progress — is written back
+  // into this card and every cached view of its set when it lands.
+  const owned = useOwnedCounts(setId)
+  const shown = data && {
+    ...data,
+    variants: data.variants.map((v) =>
+      v.quantity === undefined ? v : { ...v, quantity: owned.shown(v.variantId, v.quantity) },
+    ),
+  }
+  const onAdjust = (variantId: number, newQty: number) => {
+    const variant = data?.variants.find((v) => v.variantId === variantId)
+    if (data && variant) owned.set({ setId, card: { cardId, name: data.card.name }, variant }, newQty)
+  }
 
   return (
     <>
@@ -651,11 +651,10 @@ function CardDetailBody({
               {tab === DECK_TAB.key && deckSlot}
               {tab === 'Card' && (
                 <CardTab
-                  data={data}
+                  data={shown!}
                   showAdditional={showAdditional}
                   setShowAdditional={setShowAdditional}
                   onAdjust={onAdjust}
-                  pending={mutation.isPending}
                 />
               )}
               {tab === 'Price' && <PriceTab cardId={cardId} />}
@@ -742,13 +741,11 @@ function CardTab({
   showAdditional,
   setShowAdditional,
   onAdjust,
-  pending,
 }: {
   data: import('../lib/api').CardDetailResponse
   showAdditional: boolean
   setShowAdditional: (v: boolean) => void
   onAdjust: (variantId: number, newQty: number) => void
-  pending: boolean
 }) {
   const c = data.card
   const standard = data.variants.filter((v) => v.tier === 'standard')
@@ -773,7 +770,7 @@ function CardTab({
         </div>
         <div className="flex flex-col gap-[10px]">
           {standard.map((v) => (
-            <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} pending={pending} />
+            <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} />
           ))}
         </div>
 
@@ -798,7 +795,7 @@ function CardTab({
             {showAdditional && (
               <div className="flex flex-col gap-[10px]">
                 {special.map((v) => (
-                  <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} pending={pending} />
+                  <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} />
                 ))}
               </div>
             )}
@@ -828,7 +825,7 @@ function CardTab({
           </a>
         )}
         <p className="mt-[10px] text-[14px] text-text-muted">
-          Prices reflect the latest daily sync. Self-hosted feed — no affiliate relationship.
+          Prices from TCGplayer and Cardmarket, updated daily. DeckPal earns nothing from these links.
         </p>
       </div>
 
