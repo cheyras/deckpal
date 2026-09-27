@@ -63,7 +63,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       assert.equal(bugRequests[0].screenshot, undefined, 'unchecking the toggle must exclude the screenshot')
       assert.equal(bugRequests[0].text, 'Browser test: normal-page disclosure and exclude toggle')
       results.push({ case: 'bugreport-normal-disclosure-exclude', label, width })
-      await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+      await dialog.waitFor({ state: 'hidden' })
 
       if (label === 'cloud' && width === 390) {
         // The API's GitHub setting, rather than the cloud bundle, determines
@@ -97,7 +97,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
       assert.equal(bugRequests[1].page, mount + '/admin/users', 'the admin search filter must never leak into the reported page')
       assert.equal(bugRequests[1].screenshot, undefined, 'a sensitive page must never send a screenshot, toggle or not')
       results.push({ case: 'bugreport-sensitive-page-skips-capture', label, width })
-      await sensitiveDialog.getByRole('button', { name: 'Done', exact: true }).click()
+      await sensitiveDialog.waitFor({ state: 'hidden' })
 
       // The router accepts mixed-case URLs for this same page. The capture
       // guard must agree with the router, including the self-host mount.
