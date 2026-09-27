@@ -24,7 +24,7 @@ const metadata = (id, name = `upright-${id - ORIGINAL + 1}.heic`) => ({ name, so
 export function queueFixture(mount) {
   const objects = new Map()
   const locks = new Map()
-  const state = { repairPosts: 0, uploads: 0, deletes: 0, heldReads: 0, listCalls: 0, failUploadOnce: false, failListOnce: false, failList: false, failRemovePath: null, holdRead: null, holdRepair: null }
+  const state = { repairPosts: 0, uploads: 0, deletes: 0, heldReads: 0, listCalls: 0, failUploadOnce: false, failList: false, failRemovePath: null, holdRead: null, holdRepair: null }
   const store = {
     locked(id, work) {
       const prior = locks.get(id) ?? Promise.resolve()
@@ -51,7 +51,7 @@ export function queueFixture(mount) {
   const reset = (count = 3) => {
     objects.clear()
     state.repairPosts = state.uploads = state.deletes = state.heldReads = state.listCalls = 0
-    state.failUploadOnce = state.failListOnce = state.failList = false
+    state.failUploadOnce = state.failList = false
     state.failRemovePath = state.holdRead = state.holdRepair = null
     for (let i = 0; i < count; i++) {
       const id = ORIGINAL + i
@@ -77,8 +77,7 @@ export function queueFixture(mount) {
       try {
         if (req.method === 'GET' && tail === '') {
           state.listCalls++
-          if (state.failList || state.failListOnce) {
-            state.failListOnce = false
+          if (state.failList) {
             return { status: 502, body: { error: { message: 'Shared photo queue temporarily unavailable' } } }
           }
           const candidates = [...objects.keys()].map(key => Number(/^dev-queue\/(\d+)\./.exec(key)?.[1])).filter(Number.isSafeInteger)
@@ -163,10 +162,13 @@ export async function checkQueue(browser, server, mount, label, out, queue) {
       results.push({ case: 'real-heic-stale-cleanup-marker', label, width, repairPosts: queue.state.repairPosts, image })
       trace(`${width} repaired`)
 
-      queue.state.failListOnce = true
+      // Every listing fails until the message is seen. A one-shot failure raced the repair's own delayed refresh
+      // notice: whichever listing came second succeeded and cleared the message before the wait could see it.
+      queue.state.failList = true
       await page.evaluate(() => window.dispatchEvent(new Event('deckpal:scan-queue-repaired')))
       await page.getByText('Could not refresh the shared queue. The list may be out of date; try again.').waitFor()
       assert.equal(await page.locator('button[aria-label^="Label upright-"]').count(), 3, 'a failed refresh keeps visible shared photos')
+      queue.state.failList = false
       await page.evaluate(() => window.dispatchEvent(new Event('deckpal:scan-queue-repaired')))
       await page.getByText('Could not refresh the shared queue. The list may be out of date; try again.').waitFor({ state: 'detached' })
       results.push({ case: 'list-failure-preserves-visible-photos', label, width })
