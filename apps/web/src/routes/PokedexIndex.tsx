@@ -213,6 +213,11 @@ export function PokedexIndex() {
   const [q, setQ] = useState('')
   const signedOut = useSignedIn() === false
 
+  // `pageSize: '1025'` is today's National Dex size, not a promise every
+  // future dex fits in one request — `api.dexAll` follows
+  // `pagination.pageCount` past it once a new generation pushes the species
+  // count over 1025, the same fetch-completeness shape as `setAllCards`
+  // (PR #205 / `pagePlan.ts`).
   const params = new URLSearchParams({ pageSize: '1025', own })
   if (gen) params.set('generation', String(gen))
   if (q.trim()) params.set('q', q.trim())
@@ -221,7 +226,7 @@ export function PokedexIndex() {
   // only the genuine first fetch counts as late here.
   const { data, isLoading, error, isFetching } = useQuery({
     queryKey: ['dex', gen, own, q.trim()],
-    queryFn: ({ signal }) => api.dex(params, signal),
+    queryFn: ({ signal }) => api.dexAll(params, signal),
     placeholderData: keepPreviousData,
   })
   const enter = useLateEntrance(isLoading && !data)
@@ -244,7 +249,7 @@ export function PokedexIndex() {
   const compMatchesMain = own === 'all' && q.trim() === ''
   const { data: compFetched } = useQuery({
     queryKey: ['dex-completion', gen],
-    queryFn: ({ signal }) => api.dex(compParams, signal),
+    queryFn: ({ signal }) => api.dexAll(compParams, signal),
     placeholderData: keepPreviousData,
     enabled: !compMatchesMain,
   })

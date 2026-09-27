@@ -23,6 +23,7 @@ export function seriesFixture(scenario) {
     sets: [...rows, ...placeholders].sort(compareSetOrder) }
 }
 export function appResponses(scenario, rel) {
+  if (rel === '/api/client-errors') return { status: 204, raw: '' }
   if (rel === '/api/public-config') return { body: { defaults: { skin: 'premium', topbar: 'flat' } } }
   const detail = seriesFixture(scenario)
   if (rel === '/api/series/' + announcement.seriesSlug) return { body: detail }
@@ -69,8 +70,12 @@ export async function checkUpcoming(browser, server, mount, label, out) {
       await page.screenshot({ path: path.join(out, label + '-' + (width === 390 ? 'mobile390' : 'desktop') + '.png'), fullPage: true })
       results.push({ case: 'upcoming-layout', label, width, mount, date, placeholderExcludedFromCount: true, logoLoaded: !!announcement.logoAssetPath })
     } catch (error) {
-      await page.screenshot({ path: path.join(out, label + '-failure.png'), fullPage: true })
-      error.message += '\nPage: ' + (await page.locator('body').innerText()).slice(0,1500) + '\nUnexpected: ' + JSON.stringify(server.unexpected)
+      try { await page.screenshot({ path: path.join(out, label + '-failure.png'), fullPage: true }) }
+      catch (captureError) { error.message += '\nFailure screenshot unavailable: ' + captureError.message }
+      let pageText = ''
+      try { pageText = (await page.locator('body').innerText()).slice(0,1500) }
+      catch (readError) { pageText = 'Unavailable: ' + readError.message }
+      error.message += '\nPage: ' + pageText + '\nUnexpected: ' + JSON.stringify(server.unexpected)
       throw error
     } finally { await context.close() }
   }

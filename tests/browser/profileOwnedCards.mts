@@ -7,7 +7,7 @@ import { buildWeb, serve, contextFor } from './support.mjs'
 import { signIn } from './admin.mjs'
 
 /**
- * UXC-04 (DECISIONS.md 2026-09-26): the showcase picker's "what do I own"
+ * UXC-04 (2026-09-26 Profile decision): the showcase picker's "what do I own"
  * list used to be derived by paging the captured-species grid and then
  * fetching every one of those species individually — 1 + N requests on
  * EVERY /profile visit, N up to the size of the Pokédex (867 for the audit's

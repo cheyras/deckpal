@@ -48,7 +48,7 @@ interface ShowcasePick {
 // catch-all then told a collector with thousands of cards "You don't own any
 // cards yet"). `GET /me/cards` (apps/api/src/me/ownedCards.ts) answers "what
 // do I own" directly from `collection_item` in one query, paged and
-// optionally searched — see DECISIONS.md 2026-09-26.
+// optionally searched — see the 2026-09-26 Profile decision files.
 //
 // The banner's small query is cheap enough to run on every visit; the picker
 // has its own paged query below and only starts when the sheet opens.

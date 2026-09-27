@@ -7,22 +7,18 @@ import { LevelRing } from '../components/LevelRing'
 import { ValueChart } from '../components/ValueChart'
 import { Icon } from '../components/Icon'
 import { AvatarDisc, useAvatar } from '../components/Avatar'
-import { rangeCoverageCaption, rangeWindow } from '../lib/insightsCaption'
+import { rangeCoverageCaption, rangeWindow, rangeLabel, VALUE_RANGES } from '../lib/insightsCaption'
 import { fmtMoney } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
 
-const RANGES: { key: ValueRange; label: string }[] = [
-  { key: '30d', label: '30 Days' },
-  { key: '3m', label: '3 Months' },
-  { key: '6m', label: '6 Months' },
-  { key: '1y', label: '1 Year' },
-  { key: '18m', label: '18 Months' },
-  { key: '2y', label: '2 Years' },
-]
-// There is no paid tier. 1.5y/2y used to render as disabled chips stamped PRO —
-// a gate in front of a door that was never built, on data the API had no window
-// for either. Both are ordinary ranges now (owner's call, 2026-08-29); the
-// server-side halves are `Range`/`RANGE_INTERVAL` in insights/collectionValue.ts.
+// Range keys + display labels live in insightsCaption.ts's `VALUE_RANGES`
+// (UXC-07 — the delta card heading used to hardcode "Last 30 Days" because
+// its label was a separate literal instead of coming from the chips' own
+// list). There is no paid tier. 1.5y/2y used to render as disabled chips
+// stamped PRO — a gate in front of a door that was never built, on data the
+// API had no window for either. Both are ordinary ranges now (owner's call,
+// 2026-08-29); the server-side halves are `Range`/`RANGE_INTERVAL` in
+// insights/collectionValue.ts.
 
 export function Insights() {
   const [range, setRange] = useState<ValueRange>('30d')
@@ -39,7 +35,20 @@ export function Insights() {
   })
 
   const ov = overview.data
-  const val = value.data
+  // React Query may retain the previous range while the next request is pending.
+  // Only render figures when the response belongs to the selected controls.
+  const val = value.data?.range === range && value.data.series.range === range &&
+    value.data.currency === currency ? value.data : null
+  // UXC-07 (label): the delta card used to say "Last 30 Days" no matter which
+  // chip was selected. `rangeLabel` reads the real label off the same list the
+  // chips render from, so the two can't drift apart again.
+  const valueRangeLabel = rangeLabel(range)
+  // UXC-07 (error vs empty): a failed /insights/value request and a genuinely
+  // empty history used to render identical "cold start" copy across the chart,
+  // delta and movers cards — an outage read as "you don't have data yet",
+  // which is a claim about the wrong thing. `placeholderData: keepPreviousData`
+  // can retain another range's response, which must not masquerade as this one.
+  const valueOutage = value.error && !val ? (value.error as Error).message : null
 
   return (
     <Content cap={1000}>
@@ -139,7 +148,7 @@ export function Insights() {
 
             {/* range chips */}
             <div className="mt-[14px] flex flex-wrap gap-[8px]">
-              {RANGES.map((r) => (
+              {VALUE_RANGES.map((r) => (
                 <button
                   key={r.key}
                   onClick={() => setRange(r.key)}
@@ -160,10 +169,12 @@ export function Insights() {
               <span className="inline-block h-[10px] w-[10px] rounded-sm bg-action-primary" /> Your Collection
             </div>
 
-            {/* chart or honest cold-start */}
+            {/* chart, an outage, or an honest cold-start — in that priority order */}
             <div className="mt-[8px]">
-              {value.isLoading && !val ? (
+              {!val && !valueOutage ? (
                 <Spinner label="Loading series…" />
+              ) : valueOutage ? (
+                <ErrorState message={valueOutage} />
               ) : val && val.series.points.length >= 2 ? (
                 <div>
                   <ValueChart points={val.series.points} domain={rangeWindow(range)} currency={val.currency} />
@@ -192,13 +203,19 @@ export function Insights() {
             </div>
           </div>
 
-          {/* Last 30 Days delta — honest cold-start */}
+          {/* Delta for the selected range — honest cold-start, or an outage */}
           <div className="mt-[16px]">
-            {val?.series.delta ? (
-              <DeltaCard delta={val.series.delta} currency={val.currency} />
+            {valueOutage ? (
+              <ErrorState message={valueOutage} />
+            ) : !val ? (
+              <Spinner label={`Loading ${valueRangeLabel} change…`} />
+            ) : val?.series.delta ? (
+              <DeltaCard delta={val.series.delta} currency={val.currency} rangeLabel={valueRangeLabel} />
             ) : (
               <div className="rounded-2xl border border-border-default bg-surface-secondary p-[20px]">
-                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Last 30 Days</div>
+                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">
+                  {valueRangeLabel} Change
+                </div>
                 <div className="mt-[6px] text-[15px] text-text-body">
                   Not enough history yet. The daily snapshot started at cold start, so there is no first→last change
                   to report. Check back tomorrow.
@@ -210,7 +227,11 @@ export function Insights() {
           {/* Top Movers */}
           <div className="mt-[16px] rounded-2xl bg-surface-secondary p-[20px]">
             <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Top Movers</div>
-            {val && val.movers.length > 0 ? (
+            {valueOutage ? (
+              <ErrorState message={valueOutage} />
+            ) : !val ? (
+              <Spinner label="Loading top movers…" />
+            ) : val && val.movers.length > 0 ? (
               <ul className="mt-[10px] divide-y divide-divider-subtle">
                 {val.movers.map((m) => (
                   <li key={m.cardId + m.variantKind} className="flex items-center justify-between py-[8px]">
@@ -245,7 +266,15 @@ export function Insights() {
   )
 }
 
-function DeltaCard({ delta, currency }: { delta: { value: number; pct: number | null }; currency: string }) {
+function DeltaCard({
+  delta,
+  currency,
+  rangeLabel,
+}: {
+  delta: { value: number; pct: number | null }
+  currency: string
+  rangeLabel: string
+}) {
   const up = delta.value >= 0
   // The labels take a light tint of the panel's own family rather than the grey
   // text-muted, which turned to dirt against the green/red wash.
@@ -264,7 +293,7 @@ function DeltaCard({ delta, currency }: { delta: { value: number; pct: number | 
           : 'linear-gradient(120deg, rgba(255,107,107,0.18), rgba(255,120,147,0.06))',
       }}
     >
-      <div className={`font-bold uppercase tracking-wide ${labelCls}`}>Last 30 Days</div>
+      <div className={`font-bold uppercase tracking-wide ${labelCls}`}>{rangeLabel} Change</div>
       <div className="mt-[8px] flex flex-wrap gap-x-[40px] gap-y-[8px]">
         <div>
           <div className={valueCls}>
