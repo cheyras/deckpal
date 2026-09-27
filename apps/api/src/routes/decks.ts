@@ -257,7 +257,7 @@ const DECK_CARD_SELECT = `
               AND pc.source_code = 'tcgcsv' AND pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
             LIMIT 1
          ) price ON true
-   WHERE dc.deck_id = $1 AND dc.user_id = $2 AND d.deleted_at IS NULL
+   WHERE dc.deck_id = $1 AND dc.user_id = $2 AND (d.deleted_at IS NULL OR $3::boolean)
    ORDER BY CASE c.category WHEN 'Pokemon' THEN 0 WHEN 'Trainer' THEN 1 ELSE 2 END,
             c.name, c.number_sort, cvd.sort_order`;
 
@@ -278,8 +278,8 @@ async function loadMeta(deckId: string, userId: string): Promise<DeckMeta | null
   return q1<DeckMeta>(`${DECK_META_SELECT} WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [deckId, userId]);
 }
 
-async function loadRows(deckId: string, userId: string): Promise<{ rows: DeckRow[]; types: Map<number, PokemonType[]> }> {
-  const rows = await q<DeckRow>(DECK_CARD_SELECT, [deckId, userId]);
+async function loadRows(deckId: string, userId: string, includeDeleted = false): Promise<{ rows: DeckRow[]; types: Map<number, PokemonType[]> }> {
+  const rows = await q<DeckRow>(DECK_CARD_SELECT, [deckId, userId, includeDeleted]);
   const ids = rows.map((r) => Number(r.card_id));
   const types = new Map<number, PokemonType[]>();
   if (ids.length) {
@@ -509,7 +509,7 @@ decksRouter.get(
     const recordByDeck = new Map(records.map((r) => [r.deck_id, { wins: Number(r.wins), losses: Number(r.losses), ties: Number(r.ties) }]));
     const decks = [];
     for (const meta of metas) {
-      const { rows, types } = await loadRows(meta.id, userId);
+      const { rows, types } = await loadRows(meta.id, userId, deleted);
       const { deck, facts } = buildDeckModel(meta, rows, types);
       const v = await validate(deck, facts);
       decks.push({
