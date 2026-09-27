@@ -11,7 +11,14 @@ permissions:
 jobs:
   browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Was 15. fix/offline-banner added tests/browser/offline.mjs (5 more
+    # contexts, plus PwaUi/Sheet now in the fixture's own dependency graph for
+    # the upfront tsconfig typecheck) on top of an already-large suite (57+
+    # groups per tests/browser/README.md); a PR run hit the 15m ceiling with
+    # both cloud and self-host admin/feedback journeys complete but the chat
+    # fixture never reached (run 36267286821, 2026-09-26). 20 gives headroom
+    # without masking a real hang — nothing in this suite should approach it.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v7
