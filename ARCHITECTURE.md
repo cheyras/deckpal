@@ -620,6 +620,17 @@ via `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-
 protected-resource"` so a compliant client discovers it automatically
 (DECISIONS.md 2026-08-10, "a real OAuth 2.1 authorization server for /mcp").
 
+Since migration 075 (2026-09-26, security audit SEC-07) that row is a
+*connection* whose secrets rotate beneath it in `oauth_token`: a one-hour
+access token and a single-use 90-day refresh token, resolved through the row
+so revocation, suspension and expiry are decided in one place
+(`packages/db/src/grants.ts`). The consent screen names the redirect's host
+rather than the app's self-chosen name, and a connection may be read-only,
+enforced at the MCP edge (read tools only, `BEGIN READ ONLY`) and at the REST
+API (`enforceTokenScope`). Tokens from before 075 are unchanged.
+When a newer web app reaches an older API, missing `trust` on `GET /oauth/client`
+limits the consent screen to full access because the older API ignores scope.
+
 ## 11. Correctness traps that shape the design
 
 These are verified findings that a reasonable implementation would otherwise get

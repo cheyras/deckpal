@@ -72,9 +72,21 @@ export function catalogCache(res: Response, seconds = 300): void {
   res.setHeader('Cache-Control', `public, max-age=${seconds}, stale-while-revalidate=600`);
 }
 
-/** Anything derived from the user's collection/prices. Private, revalidate. */
+/**
+ * Anything derived from the user's collection/prices. Private, never cached.
+ *
+ * `no-store` rather than `no-cache`: SECURITY.md promises "no-store" for
+ * every private API response, and the two differ on a shared device — a
+ * browser (or its disk cache) may keep a `no-cache` body around and merely
+ * revalidate it before reuse, so a stale copy of one account's collection can
+ * still be sitting on disk after that account signs out. `no-store` forbids
+ * writing the response to any cache at all. The service worker already treats
+ * every non-catalog GET as `NetworkOnly` with its own `fetchOptions: { cache:
+ * 'no-store' }` (sw.ts), so this only tightens the HTTP contract to match
+ * what the app already assumes.
+ */
 export function userCache(res: Response): void {
-  res.setHeader('Cache-Control', 'private, no-cache, must-revalidate');
+  res.setHeader('Cache-Control', 'private, no-store');
 }
 
 /**

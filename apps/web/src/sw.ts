@@ -65,9 +65,24 @@ cleanupOutdatedCaches()
 const shellHandler = createHandlerBoundToURL(`${BASE}index.html`)
 const apiPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}api/`)
 const imgPattern = new RegExp(`^${IMAGES_PATH.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+// A missing built asset must reach the network 404, including direct HTML navigations.
+const assetPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}assets/`)
+// vercel.json's per-path headers (the CSP/frame-ancestors rules) are an
+// EDGE-level concern the shell's single precached Response cannot express: a
+// NavigationRoute always answers with the ONE cached index.html, whatever
+// headers THAT copy happened to carry, regardless of which path was
+// navigated to. The Deck-E comparison route needs self-framing, and the scan
+// harness's standalone iframe document needs OpenCV's JavaScript code
+// generation. Both need their own response headers, so these navigations fall
+// through to an ordinary uncontrolled network fetch, which hits Vercel's
+// edge fresh and gets ITS OWN headers rather than the shell's. Astra
+// review (2026-09-26) caught this: the crawl in
+// tests/browser/securityHeaders.mjs deliberately blocks service workers
+// (`serviceWorkers: 'block'`) and so never exercised this path.
+const specialHeadersPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}dev/decke-compare(?:\\?.*)?$`)
 registerRoute(
   new NavigationRoute(shellHandler, {
-    denylist: [apiPattern, imgPattern],
+    denylist: [apiPattern, imgPattern, assetPattern, specialHeadersPattern],
   }),
 )
 

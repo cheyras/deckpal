@@ -22,7 +22,7 @@ import {
 } from './decke/entitlement.js';
 import { maxDeepCallsPerDay, maxTurnsPerDay } from './decke/meter.js';
 import { asyncHandler, catalogCache, errorMiddleware } from './http.js';
-import { authMiddleware, resolveIdentity, resolveOptionalIdentity, requireSession } from './auth.js';
+import { authMiddleware, enforceTokenScope, resolveIdentity, resolveOptionalIdentity, requireSession } from './auth.js';
 import { seriesRouter } from './routes/series.js';
 import { setsRouter } from './routes/sets.js';
 import { cartRouter, massEntryRouter } from './routes/massentry.js';
@@ -328,6 +328,8 @@ export function createApp(): express.Express {
   // and the session-only ones (/me/billing, /tokens, /avatar, /oauth) by
   // requireSession too.
   api.use(authMiddleware);
+  // A read-only connection is refused every write here, before any route.
+  api.use(enforceTokenScope);
   if (!SUPABASE_MODE) api.use(resolveOptionalIdentity);
   // Bootstrap uses the trusted pool before RLS owns its one request connection.
   api.use((_req,_res,next)=>{ensureAdminBootstrap().then(()=>next()).catch(next);});
@@ -349,6 +351,11 @@ export function createApp(): express.Express {
   api.use('/admin', requireSession, adminRateLimit);
   api.use('/me/credits', requireSession, creditWalletRateLimit);
   api.use(['/me/features','/me/decke-sharing'], requireSession, adminRateLimit);
+  // What a connector token reaches is what the consent screen says it does:
+  // collection, decks, lists and battle logs. Not the person's Deck-E
+  // conversations, their public profile's showcase, or their preferences
+  // (SEC-07). No MCP tool calls any of these; both web surfaces use sessions.
+  api.use(['/decke', '/me/showcase', '/me/settings'], requireSession);
   // SEC-11: no requireSession here — the bug/feature reporter is not
   // account-administration and self-host's resolved local identity (settled by
   // resolveOptionalIdentity above) must still be able to file one. It already
@@ -719,7 +726,8 @@ export function createApp(): express.Express {
   // Deck-E's transcript history. Mounted under `/decke` so the feature's routes
   // are findable as a group, and gated inside the router rather than here —
   // every route needs the same two facts (signed in, entitled) and the check
-  // belongs beside the queries it protects.
+  // belongs beside the queries it protects. Connector tokens were already
+  // turned away above, with /me/showcase and /me/settings.
   api.use('/decke', deckeHistoryRouter);
 
   // PDF export routes carry full paths (/decks/:id/pdf, /lists/:id/pdf,

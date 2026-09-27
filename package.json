@@ -29,6 +29,7 @@
     "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs",
     "sim:serve": "node --import tsx tools/ios-sim/server.mjs",
     "test:ios-sim": "node --import tsx --test tools/ios-sim/__tests__/*.test.mjs && python3 -m unittest discover -s tools/ios-sim/__tests__ -p 'test_*.py' -v",
+    "test:security-headers": "node scripts/check-security-headers.mjs",
     "test:redirects": "node scripts/check-redirects.mjs"
   },
   "devDependencies": {
