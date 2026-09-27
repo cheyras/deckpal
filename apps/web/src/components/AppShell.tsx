@@ -763,7 +763,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (!desktop.matches) return
       const drawer = document.getElementById('mobile-nav-drawer')
       const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
-      const moveFocus = drawer?.contains(document.activeElement) && dialogs[dialogs.length - 1] === drawer
+      // The responsive CSS hides the drawer before this media-query callback,
+      // which can blur its focused control to <body>. The top dialog still
+      // tells us whether navigation owned focus before that layout change.
+      const moveFocus = drawer && dialogs[dialogs.length - 1] === drawer
       drawerReturnFocus.current = false
       setDrawerOpen(false)
       if (moveFocus) requestAnimationFrame(() => document.querySelector<HTMLElement>('aside nav a, aside nav button')?.focus({ preventScroll: true }))
