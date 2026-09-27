@@ -55,6 +55,9 @@ import { pinToPage, unpinToViewport } from '../../character/decke/pageAnchor'
 
 const LAYER_ID = 'decke-highlight-layer'
 const CYCLE_MS = 2600
+/** How long a ring takes to settle in, and to fade away. */
+const RING_IN_MS = 260
+const RING_OUT_MS = 180
 /** How far outside the element's box the ring sits. Enough to clear a 1px border
  *  and a focus ring without looking detached. Exported so `ringRect`'s test can
  *  state its assertions in terms of this constant rather than a copied `-6`. */
@@ -159,8 +162,17 @@ function injectKeyframes() {
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: decke-chase ${CYCLE_MS}ms linear infinite;
+  animation:
+    decke-ring-in ${RING_IN_MS}ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
+    decke-chase ${CYCLE_MS}ms linear infinite;
 }
+/* A ring ARRIVES and LEAVES; it does not blink. It lands with him, so it
+   settles in from a hair larger rather than popping into existence on the
+   frame he touches down, and it fades out rather than vanishing under the
+   reader's eye when he moves on. Scale and opacity only: both composite. */
+@keyframes decke-ring-in { from { opacity: 0; transform: scale(1.06) } to { opacity: 1; transform: none } }
+@keyframes decke-ring-out { to { opacity: 0; transform: scale(0.98) } }
+.decke-ring[data-leaving] { animation: decke-ring-out ${RING_OUT_MS}ms ease-in forwards; }
 .decke-ring::after {
   content: '';
   position: absolute;
@@ -172,10 +184,24 @@ function injectKeyframes() {
   animation: decke-halo ${CYCLE_MS * 1.5}ms ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .decke-ring, .decke-ring::after { animation: none }
+  .decke-ring, .decke-ring::after, .decke-ring[data-leaving] { animation: none }
 }
 `
   document.head.appendChild(style)
+}
+
+/**
+ * Fade a ring out, then remove it.
+ *
+ * Detached from `live` first, by the caller, so `highlighted()` answers "no"
+ * the instant the ring is cleared — what is ringed is a fact, and the fade is
+ * only how it looks. The timer rather than `animationend` is the removal of
+ * record: reduced motion runs no animation at all (so no event), and a ring
+ * left behind by a missed event would be a ghost outline on the page.
+ */
+function retire(ring: HTMLElement) {
+  ring.setAttribute('data-leaving', '')
+  window.setTimeout(() => ring.remove(), RING_OUT_MS + 40)
 }
 
 function place(l: Live) {
@@ -270,7 +296,7 @@ export function highlightElement(
 export function clearHighlight() {
   if (!live) return
   if (live.timer !== null) clearTimeout(live.timer)
-  live.ring.remove()
+  retire(live.ring)
   live = null
   if (raf) {
     cancelAnimationFrame(raf)

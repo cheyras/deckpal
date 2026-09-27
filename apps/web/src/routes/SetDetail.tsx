@@ -11,18 +11,23 @@ import { TableView } from '../components/TableView'
 import { CardSheet } from './CardDetail'
 import { type CardSearch } from './setSearch'
 import { useSignedIn } from '../lib/session'
-import { DECKE_REVEAL_EVENT, type DeckeRevealDetail } from '../character/host/uiTools'
+import {
+  DECKE_REVEAL_EVENT,
+  DECKE_REVEAL_MISS_EVENT,
+  pendingReveal,
+  type DeckeRevealDetail,
+  type DeckeRevealMissDetail,
+} from '../character/host/uiTools'
 import { useLateEntrance } from '../lib/lateEntrance'
 
 /**
  * How long a request for the same card is treated as the one already in flight.
  *
- * Deck-E repeats his ask every 400 ms while he waits (`REVEAL_RETRY_MS`), so
- * without a window here every retry would restart the scroll from wherever the
- * last one had got to and the page would crawl instead of travelling. Longer
- * than a browser's smooth scroll takes, and short enough that a SECOND, later
- * request for the same card — a reader who scrolled away and asked again — is
- * answered rather than swallowed. It is a dedupe, not a mute.
+ * Deck-E repeats his ask every 400 ms while he waits (`REVEAL_RETRY_MS`), and
+ * handing the grid a new request object on every retry would re-render it for
+ * nothing. Short enough that a SECOND, later request for the same card — a
+ * reader who scrolled away and asked again — is answered rather than
+ * swallowed. It is a dedupe, not a mute.
  */
 const REVEAL_DEDUPE_MS = 2000
 
@@ -55,7 +60,13 @@ const REVEAL_DEDUPE_MS = 2000
  * set ignore it, silently and correctly, while it is still mounted mid-navigation.
  */
 function useCardReveal(setId: string): GridReveal | null {
-  const [reveal, setReveal] = useState<GridReveal | null>(null)
+  // Seeded from an ask already in flight: the page usually mounts just AFTER he
+  // asked, and waiting for his next retry left its header on screen for up to
+  // 400 ms before the grid could answer. See `pendingReveal`.
+  const [reveal, setReveal] = useState<GridReveal | null>(() => {
+    const p = pendingReveal()
+    return p?.cardId?.startsWith(`${setId}-`) ? { cardId: p.cardId, at: Date.now() } : null
+  })
   useEffect(() => {
     const onReveal = (e: Event) => {
       const cardId = (e as CustomEvent<DeckeRevealDetail>).detail?.cardId
@@ -142,24 +153,40 @@ export function SetDetail() {
     )
   }, [allCards, search.own])
 
-  // THE OTHER TWO VIEWS, answered honestly rather than not at all. Only the
-  // grid is virtualized, so only the grid needs a row index computed for it;
-  // the table renders every row it has, which means a reveal there is the
-  // ordinary browser problem of scrolling to an element that already exists.
-  // Kept out of the grid's way by the view test — in grid view `GridView` owns
-  // this, and two scrollers aiming at the same card would fight each other.
-  // (The binder paginates rather than scrolls, so a card on another binder page
-  // is still out of reach; it fails at the 6 s cap, politely, as before.)
+  // NO VIEW SCROLLS FOR HIM. The grid mounts the requested row (see
+  // `GridView`); the table and the binder already have every tile of theirs in
+  // the document. In all three the tile existing is the whole answer, and his
+  // flight drives the one scroll that brings it in — a page that also scrolled
+  // "to help" was the second scroll owner that made the trip lurch twice.
+  //
+  // What only this page can add is a FAST NO. Once the set has loaded, a card
+  // that is not in the rows on screen is never going to appear, and waiting out
+  // his 6 s cap in a "loading" pose to discover that is dead air. So the page
+  // says why, at once, in words he can repeat.
+  const loaded = !!data && !isPlaceholderData
   useEffect(() => {
-    if (!reveal || search.view === 'grid') return
-    let el: Element | null = null
-    try {
-      el = document.querySelector(`[data-decke-card="${CSS.escape(reveal.cardId)}"]`)
-    } catch {
-      el = null
-    }
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [reveal, search.view, cards])
+    if (!reveal || !loaded) return
+    if (cards.some((c) => c.cardId === reveal.cardId)) return
+    // What the page can honestly say depends on what it filtered. The have /
+    // need / dupes filter runs here, over the whole set, so a card it hides is
+    // known to exist. A search runs on the SERVER, so rows it left out say
+    // nothing about the set — only that the search is hiding it or it is not
+    // there, and the reader can tell which by clearing the box.
+    const filtered = allCards.some((c) => c.cardId === reveal.cardId)
+    const searching = !!search.q.trim()
+    window.dispatchEvent(
+      new CustomEvent<DeckeRevealMissDetail>(DECKE_REVEAL_MISS_EVENT, {
+        detail: {
+          cardId: reveal.cardId,
+          reason: filtered
+            ? 'that card is in this set, but the filter at the top is hiding it'
+            : searching
+              ? 'the search at the top of the page is hiding it, or it is not in this set'
+              : 'that card is not in this set',
+        },
+      }),
+    )
+  }, [reveal, loaded, cards, allCards, search.q])
 
   return (
     <Content cap={1165}>
