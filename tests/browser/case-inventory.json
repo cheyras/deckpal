@@ -161,6 +161,8 @@
   "{\"case\":\"writes-collection\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"writes-deck\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"writes-deck\",\"label\":\"cloud\",\"width\":390}",
+  "{\"case\":\"writes-false-offline-hint\",\"label\":\"cloud\",\"width\":1280}",
+  "{\"case\":\"writes-false-offline-hint\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"writes-list\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"writes-list\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"writes-list-virtualized-remove\",\"label\":\"cloud\",\"width\":1280}",

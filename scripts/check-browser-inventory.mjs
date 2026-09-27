@@ -17,6 +17,20 @@ for (const file of files) {
   assets.push(...report.assets.map(asset => asset.label))
 }
 assert.equal(new Set(suites).size, suites.length, 'A suite ran on more than one shard')
-assert.deepEqual(actual.sort(), expected, 'Browser case names or variants changed from the 166-case baseline')
+const counts = entries => {
+  const found = new Map()
+  for (const entry of entries) found.set(entry, (found.get(entry) ?? 0) + 1)
+  return found
+}
+const found = counts(actual), baseline = counts(expected)
+const missing = [], extra = []
+for (const [entry, count] of baseline) {
+  for (let n = found.get(entry) ?? 0; n < count; n++) missing.push(entry)
+}
+for (const [entry, count] of found) {
+  for (let n = baseline.get(entry) ?? 0; n < count; n++) extra.push(entry)
+}
+assert.deepEqual({ missing: missing.sort(), extra: extra.sort() }, { missing: [], extra: [] },
+  'Browser case names or variants changed from the 168-case baseline')
 assert.deepEqual(assets.sort(), ['cloud', 'selfhost'], 'Both deployment builds need asset checks')
 console.log('PASS browser inventory: ' + actual.length + ' cases in ' + suites.length + ' suites, no omissions or duplicates')

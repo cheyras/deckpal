@@ -139,9 +139,9 @@ export async function signIn(context, id = OWNER) {
     localStorage.setItem('deckpal.settings.pushed.v1','1')
   }, { id })
 }
-export async function checkAdmin(browser, server, mount, label, out, fixture) {
+export async function checkAdmin(browser, server, mount, label, out, fixture, part = 'all') {
   const results = [], {state} = fixture
-  for (const width of [1280,390]) {
+  for (const width of part === 'controls' ? [] : [1280,390]) {
     state.actor='owner';state.permissions=[...PERMISSIONS]
     const {context,page}=await contextFor(browser,server,width);await signIn(context)
     try {
@@ -249,6 +249,7 @@ export async function checkAdmin(browser, server, mount, label, out, fixture) {
       results.push({case:'admin-role-economy-wallet-journey',label,width,hostedCheckoutAsserted:true})
     }catch(error){await page.screenshot({path:path.join(out,label+'-admin-failure.png'),fullPage:true});error.message+='\nPage: '+(await page.locator('body').innerText()).slice(0,1800)+'\nUnexpected: '+JSON.stringify(server.unexpected);throw error}finally{await context.close()}
   }
+  if(part==='journey') return results
   results.push(...await checkAdminTables(browser,server,mount,label,out,fixture))
   for(const [actor,permissions] of [['readonly',['admin.access','users.read','devtools.access','design.view']],['labeler',['devtools.access','scanner.label']],['ordinary',[]]]){
     state.actor=actor;state.permissions=permissions

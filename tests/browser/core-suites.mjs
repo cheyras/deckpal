@@ -48,9 +48,9 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
             }
             adminActive = true
             results.push(await checkNestedRouteRecovery(browser, server, mount, label))
-          } else if (group === 'admin') {
-            results.push(...await checkAdmin(browser, server, mount, label, out, admin))
-            results.push(...await checkInsights(browser, server, mount, label, out, admin))
+          } else if (group.startsWith('admin-')) {
+            results.push(...await checkAdmin(browser, server, mount, label, out, admin, group.slice('admin-'.length)))
+            if (group === 'admin-controls') results.push(...await checkInsights(browser, server, mount, label, out, admin))
           } else if (group.startsWith('feedback-')) {
             results.push(...await checkFeedback(browser, server, mount, label, out, admin, group.slice('feedback-'.length)))
             if (group === 'feedback-lifecycle') results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
@@ -72,9 +72,9 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           '--noEmit', '-p', path.join(ROOT, 'tests/browser/tsconfig.json')]))
       },
     },
-    ...['catalog', 'admin', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle']
+    ...['catalog', 'admin-journey', 'admin-controls', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle']
       .map(group => labelSuite('selfhost', '/deckpal', group)),
-    ...['catalog', 'admin', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'writes']
+    ...['catalog', 'admin-journey', 'admin-controls', 'feedback-primary-1280', 'feedback-primary-390', 'feedback-primary-428', 'feedback-lifecycle', 'writes']
       .map(group => labelSuite('cloud', '', group)),
     {
       name: 'authreturn',

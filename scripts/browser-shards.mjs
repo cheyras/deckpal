@@ -1,27 +1,29 @@
 import assert from 'node:assert/strict'
 
-// The 2026-09-26 CI run measured the unsplit groups (cloud feedback 386s,
-// cloud admin 174s, self-host feedback 139s). Width weights divide that
-// measured work; refresh them when the smaller groups have their own timings.
+// The 2026-09-26 CI run measured these groups on hosted runners. Admin was
+// split after its measured cloud journey reached 231s; its two new weights
+// divide that work until they have their own CI timings.
 // Longest-first packing stays stable even if discovery order changes.
 export const durations = {
   'typecheck': 2,
   'selfhost-catalog': 33,
-  'selfhost-admin': 64,
-  'selfhost-feedback-primary-1280': 35,
-  'selfhost-feedback-primary-390': 35,
-  'selfhost-feedback-primary-428': 35,
-  'selfhost-feedback-lifecycle': 40,
-  'cloud-catalog': 28,
-  'cloud-admin': 174,
-  'cloud-feedback-primary-1280': 90,
-  'cloud-feedback-primary-390': 90,
-  'cloud-feedback-primary-428': 90,
-  'cloud-feedback-lifecycle': 120,
-  'cloud-writes': 60,
-  'authreturn': 11,
-  'chat': 55,
-  'payment-history': 16,
+  'selfhost-admin-journey': 50,
+  'selfhost-admin-controls': 70,
+  'selfhost-feedback-primary-1280': 77,
+  'selfhost-feedback-primary-390': 72,
+  'selfhost-feedback-primary-428': 70,
+  'selfhost-feedback-lifecycle': 67,
+  'cloud-catalog': 27,
+  'cloud-admin-journey': 90,
+  'cloud-admin-controls': 141,
+  'cloud-feedback-primary-1280': 107,
+  'cloud-feedback-primary-390': 87,
+  'cloud-feedback-primary-428': 146,
+  'cloud-feedback-lifecycle': 129,
+  'cloud-writes': 85,
+  'authreturn': 14,
+  'chat': 63,
+  'payment-history': 15,
 }
 
 export function shardSuites(suites, count) {
