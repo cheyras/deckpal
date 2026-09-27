@@ -383,3 +383,37 @@ test('real SDK holds signed exposed input; approve writes once, decline/tamper/r
     } finally { legacyFixture.restore(); }
   } finally { f.restore(); }
 });
+
+// ── THE REFLEX READ FORCES THE QUESTION, NEVER THE ANSWER ───────────────────
+//
+// `api/chat.mjs` pins step one's `toolChoice` to `log_cards` when Jev reads a
+// plain collection change. This drives that exact `prepareStep` shape through
+// the real SDK: the model is told it must call log_cards, the call is held
+// for a signed approval, and nothing is written until someone approves it.
+
+test('a reflex-forced first step raises the signed consent card and writes nothing', async () => {
+  const f = fixture();
+  try {
+    const choices: unknown[] = [];
+    const inner = mockModel([{ toolCallId: 'forced-1', toolName: 'log_cards', input: INPUT }]);
+    const model = new MockLanguageModelV3({
+      doStream: async (options) => {
+        choices.push(options.toolChoice);
+        return inner.doStream(options);
+      },
+    });
+    const parts = await drain(streamText({
+      model,
+      messages: [{ role: 'user', content: 'add one Bulbasaur' }],
+      tools: f.build(),
+      prepareStep: ({ stepNumber }) =>
+        stepNumber === 0 ? { toolChoice: { type: 'tool' as const, toolName: 'log_cards' as const } } : {},
+      experimental_toolApprovalSecret: 'test-only-approval-secret',
+    }));
+    assert.deepEqual(choices[0], { type: 'tool', toolName: 'log_cards' }, 'the forced choice never reached the model');
+    const request = parts.find((p) => p.type === 'tool-approval-request');
+    assert.ok(request, 'the forced call was not held for consent');
+    assert.equal(typeof request.signature, 'string', 'the consent must be signed');
+    assert.deepEqual(f.counts(), { previews: 1, writeRequests: 0, writes: 0 }, 'forcing the call wrote something');
+  } finally { f.restore(); }
+});
