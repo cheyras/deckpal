@@ -389,29 +389,29 @@ export async function flushOutbox(): Promise<{
  * Outbox items sort first because their ids are negative, which is the same
  * thing as "taken before anything that has finished uploading".
  */
+export class QueueReadError extends Error {
+  constructor(public readonly local: QueuedPhoto[], cause: unknown) {
+    super('Could not refresh the shared queue. The list may be out of date; try again.', { cause })
+  }
+}
+
 export async function listQueue(): Promise<QueuedPhoto[]> {
-  const [local, remote] = await Promise.all([
-    outbox(),
-    api
-      .scanQueueList()
-      .then((r) => r.photos)
-      .catch(() => {
-        // Offline, or the gate refused. The outbox is still real and still the
-        // reader's work; showing it beats showing an empty queue.
-        return [] as Array<{ id: number; name: string; source: 'camera' | 'upload'; addedAt: string; size: number }>
-      }),
-  ])
-  return [
-    ...local.map((it) => ({
-      id: it.id,
-      name: it.name,
-      source: it.source,
-      addedAt: new Date(it.addedAt).toISOString(),
-      size: it.blob.size,
-      pending: true,
-    })),
-    ...remote.map((p) => ({ ...p, pending: false })),
-  ]
+  const local = (await outbox()).map((it) => ({
+    id: it.id,
+    name: it.name,
+    source: it.source,
+    addedAt: new Date(it.addedAt).toISOString(),
+    size: it.blob.size,
+    pending: true,
+  }))
+  try {
+    const remote = (await api.scanQueueList()).photos
+    return [...local, ...remote.map((p) => ({ ...p, pending: false }))]
+  } catch (error) {
+    // An unavailable listing is not an empty queue. The UI can retain its
+    // last server snapshot and still show newly captured local photos.
+    throw new QueueReadError(local, error)
+  }
 }
 
 /**
@@ -479,8 +479,8 @@ export async function clearQueue(): Promise<void> {
  * device's problem — so it is reported beside the local figure rather than as
  * a limit on the whole queue.
  */
-export async function queueUsage(): Promise<{ bytes: number; localBytes: number; quota: number | null }> {
-  const items = await listQueue()
+export async function queueUsage(knownItems?: QueuedPhoto[]): Promise<{ bytes: number; localBytes: number; quota: number | null }> {
+  const items = knownItems ?? await listQueue()
   const bytes = items.reduce((n, i) => n + i.size, 0)
   const localBytes = items.filter((i) => i.pending).reduce((n, i) => n + i.size, 0)
   let quota: number | null = null

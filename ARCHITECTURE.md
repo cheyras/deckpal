@@ -1868,8 +1868,11 @@ Local fixtures do not establish live Stripe delivery or production readiness.
 The labeler's object-store queue groups an original timestamp ID and its
 HEIC-to-JPEG replacement into one logical photo. Listing, reads, repair,
 cleanup, and discard take the same per-original database advisory lock;
-cloud uses a dedicated worker connection so a request disconnect cannot
-release the lock before storage work finishes. Listing returns the original
+cloud uses a dedicated worker pool capped at three connections so a request
+disconnect cannot release the lock before storage work finishes. Queue work
+waits in a FIFO before database checkout; each listing advances at most two
+families concurrently. Self-host queue work uses one shared request-pool
+connection. Listing returns the original
 ID and reads whichever photo survives, preferring the replacement. Metadata
 alone is never evidence that a photo exists. The browser's IndexedDB outbox
 continues to hold photos that have not uploaded; it does not decide which

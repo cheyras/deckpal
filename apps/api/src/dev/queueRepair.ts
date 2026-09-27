@@ -59,7 +59,16 @@ async function selectedPhoto(id: number, store: QueueStore): Promise<QueuePhoto 
 // family's lock so a stale sidecar or a concurrent repair cannot hide a photo.
 export async function listQueuePhotos(ids: Iterable<number>, store: QueueStore): Promise<QueuePhoto[]> {
   const families = [...new Set([...ids].filter(validQueuePhotoId).map(originalId))];
-  const photos = await Promise.all(families.map((id) => store.locked(id, () => selectedPhoto(id, store))));
+  const photos: Array<QueuePhoto | null> = new Array(families.length);
+  let cursor = 0;
+  // A listing contributes at most two lock requests at once. Another listing,
+  // thumbnail, or mutation can enter the shared FIFO before this batch ends.
+  await Promise.all(Array.from({ length: Math.min(2, families.length) }, async () => {
+    while (cursor < families.length) {
+      const index = cursor++;
+      photos[index] = await store.locked(families[index]!, () => selectedPhoto(families[index]!, store));
+    }
+  }));
   return photos.filter((photo): photo is QueuePhoto => photo !== null);
 }
 

@@ -21,6 +21,11 @@ other photo should be hidden. Missing metadata gets a deterministic fallback.
 Storage reads bypass caches so a second device sees completed writes/deletes.
 New uploads also lock each candidate ID and check all four paths before writing,
 so two devices posting in one millisecond receive different IDs.
+Each listing advances at most two families at a time. All queue operations wait
+in one process-level FIFO before checking out a database connection; cloud has
+three dedicated session connections, while self-host reserves only one shared
+request-pool connection for queue work. The advisory lock remains held through
+the storage operation even if the HTTP request ends.
 
 Repair writes the JPEG before its sidecar. A retry completes the sidecar before
 reporting success. Cleanup deletes the original photo and sidecar only after

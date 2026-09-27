@@ -42,6 +42,7 @@ import {
   enqueue,
   flushOutbox,
   listQueue,
+  QueueReadError,
   queueSupported,
   queueUsage,
   queuedPhotoBlob,
@@ -267,11 +268,15 @@ export function QuadLabeler() {
   const refreshQueue = useCallback(async () => {
     if (!queueSupported()) return
     try {
-      const [items, usage] = await Promise.all([listQueue(), queueUsage()])
+      const items = await listQueue()
+      const usage = await queueUsage(items)
       setQueueItems(items)
       setQueueUsageInfo(usage)
       setQueueError(null)
     } catch (e) {
+      if (e instanceof QueueReadError) {
+        setQueueItems((previous) => [...e.local, ...previous.filter((photo) => !photo.pending)])
+      }
       setQueueError(e instanceof Error ? e.message : 'the photo queue could not be read')
     }
   }, [])
@@ -426,9 +431,17 @@ export function QuadLabeler() {
     if (id !== null) {
       void (async () => {
         await removeQueued(id).catch(() => {})
-        const items = await listQueue().catch(() => [] as QueuedPhoto[])
+        let items: QueuedPhoto[]
+        try {
+          items = await listQueue()
+        } catch {
+          reset()
+          setEntryMode('queue')
+          await refreshQueue()
+          return
+        }
         setQueueItems(items)
-        void queueUsage().then(setQueueUsageInfo).catch(() => {})
+        void queueUsage(items).then(setQueueUsageInfo).catch(() => {})
         reset()
         // Straight on to the next one: the whole point of a worked queue is
         // that finishing a photo puts the following photo in front of you.
@@ -439,7 +452,7 @@ export function QuadLabeler() {
       return
     }
     reset()
-  }, [reset, openQueued])
+  }, [reset, openQueued, refreshQueue])
 
   // ── flushing the retry queue ──────────────────────────────────────────────
   const flushQueue = useCallback(async () => {

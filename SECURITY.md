@@ -511,6 +511,14 @@ consolidated into this changeset. `actions/github-script` v7→v9 is an Actions
 
 ### Self-host deployment
 
+**Browser content policy:** The API's Helmet policy permits same-origin and
+`blob:` workers so the quad labeler can decode HEIC photos, and permits
+same-origin, `data:`, and `blob:` images so private photo previews display.
+`script-src` remains same-origin only; the HEIC decoder's CSP build does not
+need JavaScript evaluation. A reverse proxy that replaces the API's
+`Content-Security-Policy` header must preserve these two narrowly scoped
+allowances or HEIC repair and photo previews will fail.
+
 **Authentication:** The API has no built-in authentication. It is designed to
 sit behind a reverse proxy that handles auth (e.g., nginx + an SSO gateway, Caddy
 with SSO, or any auth-capable proxy). **Never expose the API directly to the

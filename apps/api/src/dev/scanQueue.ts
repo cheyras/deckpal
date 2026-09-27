@@ -12,6 +12,7 @@ import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
 import { pool, SUPABASE_MODE } from '../db.js';
 import { labelerOnlyInProduction } from '../ownerGate.js';
 import { cleanupRepairedOriginal, discardQueuePhoto, enqueueQueuePhoto, listQueuePhotos, readQueuePhoto, repairQueuePhoto, validQueuePhotoId, type QueueMeta, type QueueStore } from './queueRepair.js';
+import { createQueueLocker } from './queueLock.js';
 
 /**
  * The labeler's pending-photo queue — POST/GET/DELETE /dev/scan-queue.
@@ -112,24 +113,13 @@ async function checkedObject(objectPath: string, method: 'HEAD' | 'GET'): Promis
 // rolled back on disconnect while storage work can still be running. The
 // worker pool keeps the lock alive until the object operations finish. A
 // self-host request has no RLS checkout, so it stays inside the API budget.
-const queueLockPool = SUPABASE_MODE ? makePool({ role: 'worker', max: 1 }) : pool;
+const queueLockPool = SUPABASE_MODE ? makePool({ role: 'worker', max: 3 }) : pool;
+// Cloud has a dedicated three-connection session pool. Self-host shares the
+// request pool, so queue storage work uses only one of its connections.
+const queueLocked = createQueueLocker(queueLockPool, SUPABASE_MODE ? 3 : 1);
 
 const queueStore: QueueStore = {
-  locked: async (id, work) => {
-    const client = await queueLockPool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [String(id)]);
-      const result = await work();
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw error;
-    } finally {
-      client.release();
-    }
-  },
+  locked: queueLocked,
   exists: async (path) => !!(await checkedObject(path, 'HEAD')),
   size: async (path) => {
     const response = await checkedObject(path, 'HEAD');

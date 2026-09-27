@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { EventEmitter } from 'node:events';
+import pg from 'pg';
 import { cleanupRepairedOriginal, discardQueuePhoto, enqueueQueuePhoto, listQueuePhotos, readQueuePhoto, repairQueuePhoto, replacementId, type QueueMeta, type QueueStore } from '../queueRepair.js';
+import { createQueueLocker } from '../queueLock.js';
 
 const ID = 1_700_000_000_000;
 const jpg = Buffer.from('jpeg');
@@ -44,9 +47,63 @@ const isHeic = (bytes: Buffer) => bytes.toString() === 'heic';
 
 test('storage operations hold a dedicated lock beyond the request transaction in cloud mode', () => {
   const route = readFileSync(fileURLToPath(new URL('../scanQueue.ts', import.meta.url)), 'utf8');
-  assert.match(route, /SUPABASE_MODE \? makePool\(\{ role: 'worker', max: 1 \}\) : pool/);
-  assert.match(route, /const result = await work\(\);\s*await client\.query\('COMMIT'\)/);
+  assert.match(route, /SUPABASE_MODE \? makePool\(\{ role: 'worker', max: 3 \}\) : pool/);
+  assert.match(route, /createQueueLocker\(queueLockPool, SUPABASE_MODE \? 3 : 1\)/);
+  const locker = readFileSync(fileURLToPath(new URL('../queueLock.ts', import.meta.url)), 'utf8');
+  assert.match(locker, /const result = await work\(\);\s*await client\.query\('COMMIT'\)/);
   assert.doesNotMatch(route, /withTx\(/);
+});
+
+test('concurrent listings and a thumbnail wait outside pg checkout under slow storage', async () => {
+  class FakeClient extends EventEmitter {
+    _queryable = true;
+    _ending = false;
+    connect(done: (error: Error | null) => void) { queueMicrotask(() => done(null)); }
+    async query() { return { rows: [] }; }
+    end(done?: () => void) { done?.(); }
+    ref() {}
+    unref() {}
+  }
+  const pool = new pg.Pool({ Client: FakeClient as unknown as typeof pg.Client, max: 3, connectionTimeoutMillis: 50 });
+  const locked = createQueueLocker(pool, 3);
+  const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 30));
+  const store: QueueStore = {
+    locked,
+    async exists() { return false; },
+    async size(objectPath) {
+      await delay();
+      return objectPath.split('/')[1]!.split('.')[0]!.length > 13 ? null : 100;
+    },
+    async meta() {
+      await delay();
+      return { name: 'x.jpg', source: 'upload', addedAt: '2026-01-01T00:00:00.000Z' };
+    },
+    async photo() { await delay(); return jpg; },
+    async put() {},
+    async remove() { return false; },
+  };
+  const ids = Array.from({ length: 20 }, (_, i) => ID + i);
+  let maxWaiting = 0;
+  const sample = setInterval(() => { maxWaiting = Math.max(maxWaiting, pool.waitingCount); }, 5);
+  let listsDone = false;
+  try {
+    const listings = Promise.all([listQueuePhotos(ids, store), listQueuePhotos(ids, store)]).then((result) => {
+      listsDone = true;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    const thumbnail = await readQueuePhoto(ID, store);
+    assert.equal(listsDone, false, 'a thumbnail should not wait behind a whole listing');
+    assert.deepEqual(thumbnail?.bytes, jpg);
+    const [first, second] = await listings;
+    assert.equal(first.length, 20);
+    assert.equal(second.length, 20);
+    assert.equal(maxWaiting, 0, 'all queue work must wait before pg.Pool.connect');
+    assert.ok(pool.totalCount <= 3);
+  } finally {
+    clearInterval(sample);
+    await pool.end();
+  }
 });
 
 test('retry completes an interrupted JPEG and restores missing metadata before acknowledging', async () => {

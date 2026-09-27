@@ -11,6 +11,8 @@ import { checkFeedback } from '../tests/browser/feedback.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from '../tests/browser/chat.mjs'
 import { writesFixture, checkWrites } from '../tests/browser/writes.mjs'
 import { checkAuthReturn } from '../tests/browser/authReturn.mjs'
+import { checkHeicUnderSelfHostCsp } from '../tests/browser/labelerHeic.mjs'
+import { queueFixture, checkQueue } from '../tests/browser/queue.mjs'
 import { checkDeployAssets } from './check-deploy-assets.mjs'
 
 const out = path.resolve(process.env.TEST_ARTIFACT_DIR ?? path.join(ROOT, '.cache/browser-tests'))
@@ -30,12 +32,14 @@ try {
     let scenario = 'active'
     const admin = adminFixture(mount)
     const writes = writesFixture(mount, admin)
-    let adminActive = false, writesActive = false
-    const server = await serve(dist, mount, (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html',
-      { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
+    const queue = queueFixture(mount)
+    let adminActive = false, writesActive = false, queueActive = false
+    const server = await serve(dist, mount, (rel, url, req) => queueActive && (rel.startsWith('/api/dev/scan-queue') || rel.startsWith('/api/dev/scan-flags')) ? queue.response(rel, url, req) : writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel), 'index.html',
+      { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) || (queueActive && queue.allowMutation(pathname, method)) })
     try {
       logs.push(buildWeb(dist, label === 'cloud', server.origin))
       assets.push({ label, ...checkDeployAssets(dist) })
+      if (label === 'selfhost') results.push(await checkHeicUnderSelfHostCsp(browser, dist))
       results.push(...await checkUpcoming(browser, server, mount, label, out))
       for (scenario of ['expired', 'catalogued']) {
         const { context, page } = await contextFor(browser, server, 390)
@@ -52,6 +56,9 @@ try {
       results.push(...await checkInsights(browser, server, mount, label, out, admin))
       results.push(...await checkFeedback(browser, server, mount, label, out, admin))
       results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
+      queueActive = true
+      results.push(...await checkQueue(browser, server, mount, label, out, queue))
+      queueActive = false
       // Signed-in write paths are one code path in both builds; the cloud build
       // (real auth headers, synthetic Supabase origin) is the one exercised.
       if (label === 'cloud') {
