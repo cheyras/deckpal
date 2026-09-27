@@ -761,9 +761,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     const desktop = window.matchMedia('(min-width: 1068px)')
     const closeForDesktop = () => {
       if (!desktop.matches) return
+      const drawer = document.getElementById('mobile-nav-drawer')
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      const moveFocus = drawer?.contains(document.activeElement) && dialogs[dialogs.length - 1] === drawer
       drawerReturnFocus.current = false
       setDrawerOpen(false)
-      requestAnimationFrame(() => document.querySelector<HTMLElement>('aside nav a, aside nav button')?.focus({ preventScroll: true }))
+      if (moveFocus) requestAnimationFrame(() => document.querySelector<HTMLElement>('aside nav a, aside nav button')?.focus({ preventScroll: true }))
     }
     desktop.addEventListener('change', closeForDesktop)
     closeForDesktop()

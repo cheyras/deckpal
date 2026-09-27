@@ -20,6 +20,7 @@
   "{\"case\":\"a11y-skip-link\",\"label\":\"cloud\",\"width\":390,\"engine\":\"chromium\"}",
   "{\"case\":\"a11y-skip-link\",\"label\":\"cloud\",\"width\":390,\"engine\":\"webkit\"}",
   "{\"case\":\"a11y-stacked-dialog\",\"label\":\"cloud\"}",
+  "{\"case\":\"a11y-stacked-dialog-resize\",\"label\":\"cloud\"}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"selfhost\",\"width\":1280}",

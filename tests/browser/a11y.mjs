@@ -234,6 +234,12 @@ export async function checkA11y(browser, server, mount, label, out) {
       assert.equal(await page.evaluate(() => document.activeElement?.id), 'overlaid-back',
         'the drawer must not pull focus out of a dialog opened above it')
       results.push({ case: 'a11y-stacked-dialog', label, backwardFocusStayedInTopDialog: true })
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.waitForFunction(() => !document.querySelector('#mobile-nav-drawer'))
+      await page.waitForTimeout(50)
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'overlaid-back',
+        'resizing must leave focus in the dialog above the drawer')
+      results.push({ case: 'a11y-stacked-dialog-resize', label, focusStayedInTopDialog: true })
     } finally { await context.close() }
   }
   if (label === 'cloud') {
