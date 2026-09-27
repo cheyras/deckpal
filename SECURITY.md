@@ -226,6 +226,11 @@ exception is `POST /api/chat`: its `log_cards` apply intent omits model-facing
 `preview_card_changes` always forces `dry_run: true`; failed or unresolved plans
 return evidence without writing. Existing human approval, replay, identity and
 idempotency protections remain in force.
+For an approved `log_cards` call, Deck-E derives the collection write's
+idempotency key from the SDK tool-call ID and signed input after approval; the
+collection endpoint scopes it to the authenticated user. Unsigned conversation
+metadata is excluded. Replaying that same approval across a 15-minute boundary therefore
+cannot apply the change twice; a new call can still record a new acquisition.
 `ARCHITECTURE.md` §15e carries the protocol.
 
 **The consent card can commit a corrected batch from the browser, and that is a
@@ -760,6 +765,14 @@ consolidated into this changeset. `actions/github-script` v7→v9 is an Actions
 **major** upgrade, not a minor update. Permissions/approval logic is unchanged.
 
 ### Self-host deployment
+
+**Browser content policy:** The API's Helmet policy permits same-origin and
+`blob:` workers so the quad labeler can decode HEIC photos, and permits
+same-origin, `data:`, and `blob:` images so private photo previews display.
+`script-src` remains same-origin only; the HEIC decoder's CSP build does not
+need JavaScript evaluation. A reverse proxy that replaces the API's
+`Content-Security-Policy` header must preserve these two narrowly scoped
+allowances or HEIC repair and photo previews will fail.
 
 **Authentication:** The API has no built-in authentication. It is designed to
 sit behind a reverse proxy that handles auth (e.g., nginx + an SSO gateway, Caddy

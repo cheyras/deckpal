@@ -187,6 +187,44 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       // ── Collection counters (set grid) ────────────────────────────────────
       await go('/series/fx/fx1')
       const counter = page.locator('.px-card-counters').first().getByRole('button').first()
+      // A set-grid tile has its own card link and (for a signed-in reader) a
+      // separate, intentional Tab stop for each collection counter. Pin the
+      // actual browser order and the counter's visible focus treatment: an
+      // empty counter is easy to mistake for an invisible stop if its ring is
+      // lost against the card art. The next Tab after both counters belongs to
+      // the next card, not an unlabelled wrapper or hidden control.
+      const firstTile = page.locator('a[data-decke-card="fx1-001"]')
+      const secondTile = page.locator('a[data-decke-card="fx1-002"]')
+      await firstTile.focus()
+      await page.keyboard.press('Tab')
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+        'Normal: 0 owned. Tap to add one, long-press to remove one.',
+        'Tab from the card link reaches its first named collection control')
+      const counterFocus = await counter.evaluate((el) => {
+        const rect = el.getBoundingClientRect()
+        const style = getComputedStyle(el)
+        return {
+          focused: el === document.activeElement,
+          visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight,
+          outlineStyle: style.outlineStyle,
+          outlineWidth: parseFloat(style.outlineWidth),
+          addCue: getComputedStyle(el, '::after').content,
+        }
+      })
+      assert.equal(counterFocus.focused, true)
+      assert.equal(counterFocus.visible, true, 'the focused counter is within the viewport')
+      assert.notEqual(counterFocus.outlineStyle, 'none', 'the focused counter has a visible outline')
+      assert.ok(counterFocus.outlineWidth >= 1, 'the focused counter outline has visible width')
+      assert.equal(counterFocus.addCue, '"+"', 'an empty focused counter shows its add action')
+      await page.screenshot({ path: path.join(out, `${label}-writes-counter-focus-${width}.png`) })
+      await page.keyboard.press('Tab')
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+        'Reverse Holofoil: 0 owned. Tap to add one, long-press to remove one.',
+        'the second Tab reaches the second named collection control')
+      await page.keyboard.press('Tab')
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-decke-card')),
+        'fx1-002', 'after the card controls, Tab advances to the next card link')
+      results.push({ case: 'writes-card-grid-keyboard', label, width, linkAndCounterStopsVisible: true })
       const owned = async () => Number((await counter.getAttribute('aria-label')).match(/: (\d+) owned/)[1])
       const readsBefore = state.setReads
       // CI browser scheduling can stretch three Playwright clicks past 500ms.

@@ -1444,6 +1444,24 @@ export interface ShowcaseSlot {
   images: { low: string; high: string }
 }
 
+/**
+ * One row of GET /me/cards — a card the caller owns at least one copy of.
+ * UXC-04: this endpoint replaced a client-side derivation that fanned out one
+ * request per captured Pokédex species (867 requests for a heavy collection)
+ * just to answer "what do I own". One query, paged, optionally searched.
+ */
+export interface OwnedCard {
+  cardId: string
+  name: string
+  images: { low: string; high: string }
+  quantity: number
+  price: Price | null
+}
+export interface OwnedCardsResponse {
+  pagination: { page: number; pageSize: number; total: number; pageCount: number }
+  cards: OwnedCard[]
+}
+
 export interface CollectionEvent {
   eventId: string
   occurredAt: string
@@ -1832,7 +1850,7 @@ export const api = {
   // on a phone, which is the workflow the queue exists for.
   /** Upload one pending photo. The server stamps the id, so two devices filling
    *  one queue still produce a single coherent order. */
-  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload' }) =>
+  scanQueueAdd: (body: { jpg: string; name: string; source: 'camera' | 'upload'; repairOf?: number }) =>
     send<{ ok: true; id: number; name: string; source: string; addedAt: string }>('POST', '/dev/scan-queue', body),
   scanQueueList: (signal?: AbortSignal) =>
     get<{ photos: Array<{ id: number; name: string; source: 'camera' | 'upload'; addedAt: string; size: number }> }>(
@@ -1841,8 +1859,8 @@ export const api = {
     ),
   /** Remove one — labelled, or discarded. Absent is not an error server-side:
    *  two devices can finish the same photo. */
-  scanQueueDelete: (id: number) =>
-    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}`),
+  scanQueueDelete: (id: number, repairCleanup = false) =>
+    send<{ ok: true; id: number; removed: string[] }>('DELETE', `/dev/scan-queue/${id}${repairCleanup ? '?repairCleanup=1' : ''}`),
   /** A queued photo's bytes, through the authenticated pipeline for
    *  `scanFlagBlob`'s reason: a browser-initiated `<img>` request carries no
    *  Authorization header and would 403 at the gate. */
@@ -2267,4 +2285,10 @@ export const api = {
     // deckpal rename swept this string and 404'd every species page ("No such
     // route"); the route is the Pokédex feature, not the product name.
     get<SpeciesDetailResponse>(`/insights/pokedex/${encodeURIComponent(id)}`, signal),
+
+  // UXC-04: a bounded, paged page of the caller's own owned cards — see
+  // OwnedCardsResponse above. Params: q (name filter), sort=value|recent,
+  // page, pageSize (max 100).
+  ownedCards: (params: URLSearchParams, signal?: AbortSignal) =>
+    get<OwnedCardsResponse>(`/me/cards?${params.toString()}`, signal),
 }

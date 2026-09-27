@@ -223,12 +223,17 @@ export function BinderView({
           </button>
         </label>
         <div className="flex flex-col">
-          <select
-            disabled
-            className="h-[36px] rounded-lg bg-surface-tertiary px-[12px] text-[14px] text-text-secondary"
-          >
-            <option>Hide</option>
-          </select>
+          {/* A11Y-06: this was a `<select disabled>` with one hardcoded
+              `<option>` — a read-only status display dressed as a form
+              control, and axe correctly flagged it (`select-name`: nothing
+              wires the "Additional Variants" span below to it). It can never
+              actually be changed from here, so plain text is both the
+              simpler markup and the more honest affordance — a disabled
+              dropdown implies "you could change this if you upgraded/enabled
+              something," which is not true here. */}
+          <div className="flex h-[36px] items-center rounded-lg bg-surface-tertiary px-[12px] text-[14px] text-text-secondary">
+            Hide
+          </div>
           <span className="mt-[2px] text-[14px] text-text-muted">Additional Variants</span>
         </div>
       </div>

@@ -165,7 +165,7 @@ export function CardTile({
             // being later in the DOM: on a real mouse, hovering far enough to
             // see the (formerly invisible) button also covered it, so it was
             // unclickable in the premium skin whether or not it was visible.
-            className="px-card-badge absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover"
+            className="px-card-badge absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger-fill text-action-danger-text hover:bg-action-danger-fill-hover"
           >
             <Icon name="close" size={16} />
           </button>

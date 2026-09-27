@@ -69,6 +69,10 @@ export function adminFixture(mount) {
       })
       return result
     }
+    // The Profile banner fetches owned cards on every visit; the picker itself
+    // has its own request-count test, so an empty page is enough here.
+    if (rel === '/api/me/cards') return ok({ pagination: { page: 1, pageSize: 48, total: 0, pageCount: 0 }, cards: [] })
+    if (rel === '/api/me/showcase') return ok({ showcase: [] })
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/me/billing/history') {
@@ -78,6 +82,12 @@ export function adminFixture(mount) {
       return ok({ kind, items: [], nextCursor: null, coverage: 'Shows the current billing account only. Payments on older replaced or deleted billing accounts may be missing.', billingAccountPresent: false })
     }
     if (rel === '/api/decke/history') return ok({ conversations: [] })
+    // A11Y check (tests/browser/a11y.mjs): empty collections so /lists and
+    // /decks render their real empty state — the "New List"/"New Deck" forms
+    // this pass fixed (A11Y-08) — rather than tripping the "unexpected API"
+    // guard in support.mjs's serve().
+    if (rel === '/api/lists' && method === 'GET') return ok({ lists: [] })
+    if (rel === '/api/decks' && method === 'GET') return ok({ decks: [] })
     if (rel === '/api/me/credits') return ok({ enabled: true, balance: state.balance, debt: 0, purchaseHold: false, lowAt: 100, prices: { chatTurn: 1, analysis: 4, planDeck: 75 }, packs: state.packs.filter(p => p.active), purchasesEnabled: state.purchasesEnabled, purchaseUnavailableReason: state.purchasesEnabled ? null : 'Required Stripe webhook events are missing.' })
     if (rel === '/api/me/credits/events') return ok({ events: state.events, total: state.events.length, limit: 25, offset: 0 })
     if (rel === '/api/me/credits/checkout') { assert.equal(method,'POST'); assert.equal(body.packId, 'pack-1'); assert.ok(body.idempotencyKey); assert.deepEqual(Object.keys(body).sort(), ['idempotencyKey','packId']); return ok({ url: 'https://checkout.stripe.com/c/pay/fixture-only', orderId: 'order-1' }) }

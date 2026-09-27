@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandLogo, BrandD, type IconName } from './Icon'
@@ -14,6 +14,13 @@ import { useSignedIn } from '../lib/session'
 import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
+import { SkipLink } from './SkipLink'
+
+// A11Y-05: `MobileDrawer`'s Tab trap and initial-focus target. Duplicated from
+// `Sheet.tsx` (which keeps its own copy private) rather than exported and
+// imported — see that file's `FOCUSABLE` for the canonical version.
+const FOCUSABLE =
+  'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
 
 // Signed-in avatar chip (single-user "me") — replaces Log In / Sign Up. The level
 // badge reads straight from the insights overview; links to the profile surface.
@@ -170,7 +177,12 @@ function NavRow({
       ].join(' ')}
       data-active={active ? 'true' : 'false'}
     >
-      <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
+      {/* A11Y-03: `icon-muted-strong` measures 2.15:1 on this rail's
+          surface-primary background — below WCAG 1.4.11's 3:1 floor for a
+          graphical object identifying a component, which this is (every
+          inactive row is a real link). `icon-muted` clears it at 3.49:1 and
+          reads as the same "dim but present" weight. */}
+      <span className={active ? 'text-text-primary' : 'text-icon-muted'}>
         <NavIcon name={item.icon} active={active} size={item.icon === 'discord' ? 20 : 24} />
       </span>
       {!collapsed && (
@@ -343,7 +355,7 @@ function ExpandableNavRow({
           ].join(' ')}
           data-active={active ? 'true' : 'false'}
         >
-          <span className={active ? 'text-text-primary' : 'text-icon-muted-strong'}>
+          <span className={active ? 'text-text-primary' : 'text-icon-muted'}>
             <NavIcon name={item.icon} active={active} size={24} />
           </span>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
@@ -440,11 +452,13 @@ function Sidebar({
 function MobileDrawer({
   open,
   onClose,
+  returnFocusRef,
   signedIn,
   permissions,
 }: {
   open: boolean
   onClose: () => void
+  returnFocusRef: RefObject<boolean>
   signedIn: boolean | undefined
   permissions: readonly string[]
 }) {
@@ -463,16 +477,63 @@ function MobileDrawer({
   const signedOut = signedIn === false
   const avatar = useAvatar(signedIn === true)
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const panelRef = useRef<HTMLDivElement | null>(null)
   // Reactive, not a one-off `window.location` read, so paging/sorting the
   // current page keeps the "Sign up free" CTA's return path current
   // (UXC-06; Astra review, PR #212).
   const next = useCurrentPathAsNext()
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const onKey = (e: KeyboardEvent) => {
+      const panel = panelRef.current
+      if (!panel) return
+      // The header can open a Sheet above this drawer. Only the top dialog
+      // handles Escape and Tab, as Sheet.tsx does for stacked sheets.
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      if (dialogs[dialogs.length - 1] !== panel) return
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      // A11Y-05: trap Tab inside the drawer while it is open. Same shape as
+      // `Sheet.tsx`'s trap (that component's `FOCUSABLE` is private, hence the
+      // duplicate selector rather than an import — see `DeckeChat.tsx`'s
+      // `prefersReducedMotion` for the same call elsewhere in this codebase).
+      if (e.key !== 'Tab') return
+      const nodes = Array.from(
+        panel.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement)
+      e.preventDefault()
+      if (nodes.length === 0) { panel.focus(); return }
+      // WebKit's default keyboard setting skips ordinary links and buttons on
+      // native Tab, so waiting for focus to reach the last node leaks out of
+      // the modal. Move through the drawer's visible controls ourselves.
+      const index = nodes.indexOf(document.activeElement as HTMLElement)
+      const next = e.shiftKey
+        ? (index <= 0 ? nodes.length - 1 : index - 1)
+        : (index < 0 || index === nodes.length - 1 ? 0 : index + 1)
+      nodes[next].focus()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [open, onClose])
+  // A11Y-05: move focus into the drawer on open, and back to the "Menu"
+  // trigger on close — neither happened before. The trigger is found by its
+  // accessible name (matching `DeckeHost.tsx`'s `LAUNCHER_SELECTOR` pattern)
+  // rather than a ref threaded down from `Header`, since this component
+  // already has no other coupling to it.
+  useEffect(() => {
+    if (!open) return
+    const id = requestAnimationFrame(() => {
+      const panel = panelRef.current
+      const first = panel?.querySelector<HTMLElement>(FOCUSABLE)
+      ;(first ?? panel)?.focus({ preventScroll: true })
+    })
+    return () => {
+      cancelAnimationFrame(id)
+      if (returnFocusRef.current) document.querySelector<HTMLElement>('button[aria-label="Menu"]')?.focus({ preventScroll: true })
+    }
+  }, [open, returnFocusRef])
   if (!open) return null
   const top = 'calc(64px + env(safe-area-inset-top))'
   return (
@@ -485,12 +546,33 @@ function MobileDrawer({
         aria-hidden="true"
       />
       <div
+        ref={panelRef}
+        id="mobile-nav-drawer"
+        tabIndex={-1}
         className="fixed left-0 z-(--z-overlay) w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
         style={{ top, height: `calc(100dvh - ${top})`, paddingBottom: 'env(safe-area-inset-bottom)' }}
         role="dialog"
+        aria-modal="true"
         aria-label="Navigation"
       >
-        <div className="px-[16px] py-[20px]" onClick={onClose}>
+        {/* A11Y-05 (adversarial-review follow-up): with `aria-modal="true"`,
+            assistive tech that honors modality treats everything outside this
+            dialog — including the header's "Menu" button, which is now this
+            drawer's own toggle — as unreachable. Escape and a backdrop tap
+            still close it, but neither is available to every touch
+            screen-reader gesture set, so the dialog needs its own in-panel,
+            labelled dismiss control rather than depending on either. */}
+        <div className="flex justify-end px-[8px] pt-[8px]">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close navigation"
+            className="flex h-[40px] w-[40px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
+          >
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+        <div className="px-[16px] pb-[20px]" onClick={onClose}>
           {signedOut ? (
             <Link
               to="/auth"
@@ -572,6 +654,8 @@ function Header({
           onClick={onBurger}
           className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-icon-default nav:hidden"
           aria-label="Menu"
+          aria-expanded={drawerOpen}
+          aria-controls="mobile-nav-drawer"
         >
           <Icon name={drawerOpen ? 'close' : 'menu'} size={24} />
         </button>
@@ -646,6 +730,7 @@ function Header({
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerReturnFocus = useRef(true)
   const sidebarW = collapsed ? 82 : 275
   // Self-host is always `true` (no signed-out state); cloud settles from the
   // persisted session in a tick. Drives which identity affordance the chrome
@@ -668,21 +753,58 @@ export function AppShell({ children }: { children: ReactNode }) {
   // mounted only when `signedIn === true`, so a logged-out visitor still fires
   // exactly zero authenticated calls.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  useEffect(() => {
+    if (!drawerOpen) window.dispatchEvent(new Event('deckpal:navigation-closed'))
+  }, [drawerOpen])
+  useEffect(() => {
+    if (!drawerOpen) return
+    const desktop = window.matchMedia('(min-width: 1068px)')
+    const closeForDesktop = () => {
+      if (!desktop.matches) return
+      const drawer = document.getElementById('mobile-nav-drawer')
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      // The responsive CSS hides the drawer before this media-query callback,
+      // which can blur its focused control to <body>. The top dialog still
+      // tells us whether navigation owned focus before that layout change.
+      const moveFocus = drawer && dialogs[dialogs.length - 1] === drawer
+      drawerReturnFocus.current = false
+      setDrawerOpen(false)
+      if (moveFocus) requestAnimationFrame(() => document.querySelector<HTMLElement>('aside nav a, aside nav button')?.focus({ preventScroll: true }))
+    }
+    desktop.addEventListener('change', closeForDesktop)
+    closeForDesktop()
+    return () => desktop.removeEventListener('change', closeForDesktop)
+  }, [drawerOpen])
+  useEffect(() => {
+    // Deck-E's launcher sits above the phone drawer. Opening chat dismisses
+    // that modal first, without returning focus to the now-obscured Menu button.
+    const onDeckeOpening = () => {
+      drawerReturnFocus.current = false
+      setDrawerOpen(false)
+    }
+    window.addEventListener('deckpal:decke-opening', onDeckeOpening)
+    return () => window.removeEventListener('deckpal:decke-opening', onDeckeOpening)
+  }, [])
   if (isChromelessPathname(pathname)) {
     return <>{children}</>
   }
 
   return (
     <div className="min-h-screen bg-surface-primary">
+      <SkipLink />
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}
         signedOut={signedIn === false}
         permissions={permissions}
       />
-      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
-      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} permissions={permissions} />
-      <main className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
+      <Header onBurger={() => {
+        drawerReturnFocus.current = true
+        if (!drawerOpen) window.dispatchEvent(new Event('deckpal:navigation-opening'))
+        setDrawerOpen((o) => !o)
+      }} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} returnFocusRef={drawerReturnFocus} signedIn={signedIn} permissions={permissions} />
+      <main id="main" tabIndex={-1} className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>
       {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match.

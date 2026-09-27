@@ -9,7 +9,7 @@ Registered on the same app but documented elsewhere, not repeated here: OAuth
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
 the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
 itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
-`/me/showcase` sub-routes are frontend surface and documented here (§Account).
+`/me/showcase` and `/me/cards` sub-routes are frontend surface and documented here (§Account).
 
 **Deployment modes:**
 
@@ -434,7 +434,7 @@ cards appear on both species). `sort` = `number`\|`price`\|`rarity`\|`artist`\|
 
 ---
 
-## Account — settings & showcase
+## Account — settings, showcase & owned cards
 
 Per-user, backed by `user_settings` (005 + 049) and `user_showcase` (005).
 These are the server-side home of what used to be device-only localStorage
@@ -478,6 +478,17 @@ one transaction. Each entry is a card id (resolved server-side to the card's
 primary variant, exactly as the list bulk-add does) or `null` for an empty
 slot. Unknown card id → `404`; more than 8 entries → `400`. Returns the GET
 shape.
+
+### GET /deckpal/api/me/cards
+The signed-in account's browsable owned cards, one row per card across its owned variants. Pokémon TCG Pocket cards are excluded even if the account still owns them.
+The Profile banner requests three; opening the showcase picker requests a larger
+page, can load later pages on demand, and may search by card name. Optional query parameters are `q` (name
+contains, case-insensitive), `sort=value|recent` (default `recent`), `page`
+(default 1), and `pageSize` (default 48, maximum 100). The response includes
+`pagination: { page, pageSize, total, pageCount }` and `cards`, whose rows have
+`cardId`, `name`, `images: { low, high }`, `quantity`, and `price` (a USD market
+price or `null`). Only cards with a positive owned quantity are returned. Ties
+on price and name are ordered by card ID so page boundaries are stable.
 
 ## Billing — the pay-what-you-want tier
 
@@ -1835,3 +1846,27 @@ minimum one for paid work; unlimited explicitly spends zero. Historical balances
 by policy edits. Credits use USD card-only Checkout, separate from support
 subscriptions/gifts; signed webhook reconciliation, never a return URL,
 fulfills an order. See ADMINISTRATION.md for charge/refund/debt semantics.
+
+### Labeler pending-photo queue: /deckpal/api/dev/scan-queue
+
+These routes require labeler access in production. Cloud uses the `/api` prefix.
+
+- `GET /`: `{ photos: [{ id, name, source, addedAt, size }] }`, oldest first.
+  Each logical photo appears once under its original ID, including when a
+  repair has left both original and replacement objects. Sidecar-only remnants
+  do not appear as photos; missing metadata receives fallback values.
+- `GET /:id.jpg`: reads the surviving photo, preferring its JPEG replacement.
+  Either physical ID resolves the same family. Missing bytes return 404;
+  unavailable storage returns 502. Responses are not cached.
+- `POST /`: accepts `{ jpg, name, source, repairOf? }`. `jpg` is base64 JPEG,
+  capped at 3 MiB decoded. A normal upload gets an unused timestamp ID. A
+  repair uses an existing original HEIC and returns its deterministic
+  replacement ID only after both JPEG and metadata are stored. Repeating a
+  repair completes interrupted work without creating another replacement.
+- `DELETE /:id`: discards the entire family. A partial failure returns an error;
+  surviving photos remain listed and the request can be retried. An already
+  absent family succeeds.
+- `DELETE /:id?repairCleanup=1`: removes only original objects, after checking
+  that the replacement JPEG and metadata are complete. Otherwise returns 409.
+
+See [queue states and invariants](apps/api/src/dev/queue-state.md).

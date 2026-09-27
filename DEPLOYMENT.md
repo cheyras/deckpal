@@ -1228,6 +1228,9 @@ For the current chat approval flow, this same secret signs the exact exposed too
 input after successful preflight; no separate secret or deployment step exists.
 `POST /api/chat` applies `log_cards` only after that signed approval, while
 `preview_card_changes` remains read-only.
+Approved `log_cards` calls carry a stable server-derived write key, so an
+approval replay after a 15-minute boundary returns its original result. This
+needs no new setting or deployment step.
 
    `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` must be present at **runtime**
    as well as build time. They are what `GET /api/public-config` serves, which is
@@ -1632,6 +1635,11 @@ the proxy remains the real ingress boundary.
 The API has no built-in authentication in self-host mode. Place a reverse proxy
 (e.g., nginx with an SSO gateway, Caddy with SSO, or any auth-capable proxy) in front
 of the API. See [`SECURITY.md`](SECURITY.md) for details.
+
+Preserve the API's `Content-Security-Policy` header if the proxy sets headers of
+its own. The quad labeler uses a `blob:` worker for HEIC repair and `blob:`
+images for private photo previews; the API allows those only in `worker-src`
+and `img-src`. No extra environment variable or proxy rewrite is required.
 
 ### 6. Set up sync jobs
 

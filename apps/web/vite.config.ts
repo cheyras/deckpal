@@ -266,6 +266,9 @@ export default defineConfig(async ({ command }) => {
             'assets/ChatUi-*.js',
             'assets/DeckeCompare-*.js',
             'assets/QuadHarvest-*.js',
+            // The HEIC decoder belongs to the labeler alone. A route-lazy import
+            // still enters every visitor's download if the PWA precaches it.
+            'assets/heic-to-*.js',
           ],
           maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         },
