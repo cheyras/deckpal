@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { chromium, webkit } from 'playwright'
-import { serve } from './support.mjs'
-import { signIn } from './admin.mjs'
+import { buildWeb, serve } from './support.mjs'
+import { adminFixture, signIn } from './admin.mjs'
 
 /**
  * SEC-03/SEC-14 regression: is the CSP this app actually ships (parsed live
@@ -30,6 +30,27 @@ const DECKE_COMPARE_CSP = cspOf('/dev/decke-compare')
 // correctly under its OWN real production header should get it here too.
 // `mount` is always '' here (this check only runs for label === 'cloud').
 const cspForPath = (mount) => (pathname) => (pathname === mount + '/dev/decke-compare' ? DECKE_COMPARE_CSP : GENERAL_CSP)
+
+// This crawl includes the Deck-E runtime and scanner/WASM path. Keep it serial
+// after the other suites so their parallel builds cannot starve its short auth
+// deadline and turn a fixture-only timing miss into a false product failure.
+export function browserSuites({ browser, out, scratch, results, logs }) {
+  return [{
+    name: 'security-headers',
+    serial: true,
+    async run() {
+      const dist = path.join(scratch, 'security-headers')
+      const admin = adminFixture('')
+      const originServer = await serve(dist, '', (rel, url, req) => admin.response(rel, url, req) ?? null)
+      try {
+        logs.push(await buildWeb(dist, true, originServer.origin))
+        results.push(...await checkSecurityHeaders(browser, dist, '', 'cloud', admin, out))
+      } finally {
+        await originServer.close()
+      }
+    },
+  }]
+}
 
 // Every navigation gets this before any app script runs, so a violation fired
 // during first paint (the watchdog, the boot styles) is caught too, not just

@@ -58,7 +58,8 @@ try {
   const suites = await discoverSuites({ browser, out, scratch, results, assets, logs })
   // Four workers match a GitHub-hosted runner's four cores. Builds are CPU
   // heavy, while the browser checks spend much of their time waiting on I/O.
-  await pool(4, suites)
+  await pool(4, suites.filter(suite => !suite.serial))
+  await pool(1, suites.filter(suite => suite.serial))
 } catch (error) {
   failure = error
   logs.push(error.stack ?? String(error))

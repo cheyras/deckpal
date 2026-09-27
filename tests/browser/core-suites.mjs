@@ -7,7 +7,6 @@ import { checkNestedRouteRecovery, checkRouteSplit } from './routeSplit.mjs'
 import { adminFixture, checkAdmin, checkInsights } from './admin.mjs'
 import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
-import { checkSecurityHeaders } from './securityHeaders.mjs'
 import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
 import { checkOffline } from './offline.mjs'
 import { writesFixture, checkWrites } from './writes.mjs'
@@ -50,7 +49,6 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           results.push(...await checkInsights(browser, server, mount, label, out, admin))
           results.push(...await checkFeedback(browser, server, mount, label, out, admin))
           results.push(await checkServiceWorkerPrivacy(browser, dist, mount, label))
-          results.push(...await checkSecurityHeaders(browser, dist, mount, label, admin, out))
           if (label === 'cloud') {
             writesActive = true
             results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
