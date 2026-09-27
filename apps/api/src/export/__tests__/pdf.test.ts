@@ -106,3 +106,16 @@ test('a long deck repeats its section name and table header after a page break',
   assert.ok(pages.slice(1).some((page) => page.includes('Trainer (continued)')));
   for (let i = 1; i <= trainer.length; i++) assert.ok(pages.join('').includes(`Trainer ${i}`));
 });
+
+test('long descriptions stop on the metadata line before the checklist or deck table', async () => {
+  const description = 'A very long description '.repeat(35) + 'TAILMARKER';
+  for (const render of [
+    (s: Writable) => renderListPdf(s, { ...list, description }),
+    (s: Writable) => renderDeckPdf(s, { ...deck, description }),
+  ]) {
+    const { pages } = await inspect(await renderToBuffer(render));
+    assert.equal(pages.length, 1);
+    assert.ok(pages[0]!.includes('Bulbasaur') || pages[0]!.includes('Nidoran ♀'), pages[0]!.slice(-500));
+    assert.ok(!pages[0]!.includes('TAILMARKER'));
+  }
+});

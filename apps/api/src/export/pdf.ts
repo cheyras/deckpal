@@ -86,7 +86,7 @@ function chrome(doc: Doc, label: string, title: string, meta: string, summary?: 
   font(doc, 'semibold').fontSize(8).fillColor(C.muted).text(label.toUpperCase(), x + 190, 46, { width: w - 190, align: 'right', characterSpacing: 1.3, lineBreak: false });
   rule(doc, x, 72, w);
   fitted(doc, title, x, 87, w, 25, 'display');
-  font(doc, 'regular').fontSize(9).fillColor(C.muted).text(meta, x, 122, { width: w, lineBreak: false, ellipsis: true });
+  fitted(doc, meta, x, 122, w, 9, 'regular', C.muted);
   if (!summary) { rule(doc, x, 147, w); return 166; }
   const count = `${summary.owned} / ${summary.total}`;
   font(doc, 'semibold').fontSize(17).fillColor(C.ink).text(count, x, 146, { lineBreak: false });

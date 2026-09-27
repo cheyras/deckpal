@@ -51,7 +51,7 @@
     "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
     "@types/svg-to-pdfkit": "^0.1.4",
-    "pdfjs-dist": "^6.3.289",
+    "pdfjs-dist": "^4.10.38",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
