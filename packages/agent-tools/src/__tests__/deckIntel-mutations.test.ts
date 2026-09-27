@@ -23,9 +23,9 @@
  *    that were set (never an implicit clear of an omitted one);
  *  - `delete_battle_log` is genuinely irreversible and its dry run says so;
  *    and
- *  - `deck_history revert_to` apply reports whether the revert bumped the
- *    version or amended in place, and surfaces any card the catalog can no
- *    longer resolve as a SKIPPED row rather than failing the whole revert.
+ *  - `deck_history revert_to` apply reports the new version and surfaces any
+ *    card the catalog can no longer resolve as a SKIPPED row rather than
+ *    failing the whole revert.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -408,7 +408,7 @@ test('delete_battle_log on an approximate name is a CHOICE, never an action', as
 
 // ── deck_history revert_to: the APPLY path ──────────────────────────────────
 
-test("deck_history revert_to dry_run:false reports a version BUMP when the current version has battle logs", async () => {
+test("deck_history revert_to dry_run:false reports the new version and preserves the replaced version", async () => {
   const api = stubApi({
     get: (path) => {
       if (path === '/decks') return DECKS;
@@ -433,23 +433,23 @@ test("deck_history revert_to dry_run:false reports a version BUMP when the curre
   );
 
   assert.equal(res.isError, undefined);
-  assert.match(res.text, /created v3 from v2 \(the previous version had battle logs/);
+  assert.match(res.text, /created v3; v2 keeps the list it replaced \(see deck_history\)/);
   assert.match(res.text, /deck now: 60 card\(s\), legal, strategy 'Restored'/);
 });
 
-test('deck_history revert_to dry_run:false reports an AMEND IN PLACE and lists a SKIPPED card, without failing the revert', async () => {
+test('deck_history revert_to dry_run:false lists a SKIPPED card without failing the revert', async () => {
   const api = stubApi({
     get: (path) => {
       if (path === '/decks') return DECKS;
       throw new Error(`unexpected get ${path}`);
     },
     send: () => ({
-      deck: { id: 'deck-1', name: 'Toolbox Slowking', formatCode: 'standard', version: 1, strategyMd: null },
+      deck: { id: 'deck-1', name: 'Toolbox Slowking', formatCode: 'standard', version: 2, strategyMd: null },
       counts: { total: 59 },
       validation: { legal: true },
       revert: {
         toVersion: 1,
-        version: 1,
+        version: 2,
         bumped: false,
         skippedCards: [{ cardId: 99, tcgdexId: 'old-99', name: 'Delisted Card' }],
       },
@@ -462,7 +462,7 @@ test('deck_history revert_to dry_run:false reports an AMEND IN PLACE and lists a
   );
 
   assert.equal(res.isError, undefined);
-  assert.match(res.text, /amended v1 in place \(no battle logs yet\)/);
+  assert.match(res.text, /created v2; v1 keeps the list it replaced \(see deck_history\)/);
   assert.match(res.text, /SKIPPED \(no longer in catalog\): Delisted Card \| old-99/);
 });
 
