@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { contextFor } from './support.mjs'
-import { signIn } from './admin.mjs'
+import { buildWeb, contextFor, serve } from './support.mjs'
+import { adminFixture, signIn } from './admin.mjs'
+
+export function browserSuites({ browser, out, scratch, results, logs }) {
+  return [['selfhost', '/deckpal'], ['cloud', '']].map(([label, mount]) => ({
+    name: `bug-report-${label}`,
+    async run() {
+      const dist = path.join(scratch, `bug-report-${label}`)
+      const fixture = adminFixture(mount)
+      const server = await serve(dist, mount, (rel, url, req) => fixture.response(rel, url, req),
+        'index.html', { allowMutation: fixture.allowMutation })
+      try {
+        logs.push(await buildWeb(dist, label === 'cloud', server.origin))
+        results.push(...await checkBugReport(browser, server, mount, label, out, fixture))
+        assert.deepEqual(server.unexpected, [], `${label} bug report: unexpected network/error events`)
+      } finally { await server.close() }
+    },
+  }))
+}
 
 async function dismissSavedDialog(dialog) {
   // The success panel auto-closes. A quick Done click is optional, but the

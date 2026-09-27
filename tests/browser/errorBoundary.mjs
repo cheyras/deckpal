@@ -57,7 +57,7 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
  */
 export async function checkErrorBoundary(browser, server, out) {
   const results = []
-  for (const width of [1440, 390]) {
+  for (const width of [1280, 1440, 390]) {
     const { context, page } = await contextFor(browser, server, width)
     const reports = []
     // Page-level route: takes precedence over `contextFor`'s own catch-all
