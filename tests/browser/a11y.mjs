@@ -127,6 +127,14 @@ export async function checkA11y(browser, server, mount, label, out) {
               assert.equal(await page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
                 true, `${engine}: backward Tab must stay inside navigation`)
               results.push({ case: 'a11y-drawer-tab', label, engine, width, stayedInside: true })
+              await page.setViewportSize({ width: 1440, height: 900 })
+              await page.waitForFunction(() => !document.querySelector('#mobile-nav-drawer'))
+              await page.waitForFunction(() => !!document.activeElement?.closest('aside'))
+              await page.evaluate(() => { window.__desktopStart = document.activeElement })
+              await page.keyboard.press('Tab')
+              assert.equal(await page.evaluate(() => document.activeElement !== window.__desktopStart),
+                true, `${engine}: resizing to desktop must release the drawer trap for the next Tab`)
+              results.push({ case: 'a11y-drawer-resize', label, engine, from: 390, to: 1440, focusMovedToSidebar: true })
             }
           } finally { await context.close() }
         }

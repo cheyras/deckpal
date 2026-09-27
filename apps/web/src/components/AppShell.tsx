@@ -757,6 +757,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!drawerOpen) window.dispatchEvent(new Event('deckpal:navigation-closed'))
   }, [drawerOpen])
   useEffect(() => {
+    if (!drawerOpen) return
+    const desktop = window.matchMedia('(min-width: 1068px)')
+    const closeForDesktop = () => {
+      if (!desktop.matches) return
+      drawerReturnFocus.current = false
+      setDrawerOpen(false)
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('aside nav a, aside nav button')?.focus({ preventScroll: true }))
+    }
+    desktop.addEventListener('change', closeForDesktop)
+    closeForDesktop()
+    return () => desktop.removeEventListener('change', closeForDesktop)
+  }, [drawerOpen])
+  useEffect(() => {
     // Deck-E's launcher sits above the phone drawer. Opening chat dismisses
     // that modal first, without returning focus to the now-obscured Menu button.
     const onDeckeOpening = () => {

@@ -21707,3 +21707,5 @@ tests and by `log_cards`' own preflight; it has not been measured live.
 **Implications:** Opening the menu over chat cannot end the reader's conversation or steal focus after a delay. A delayed browser check waits beyond the retirement deadline, verifies focus remains in the drawer, then checks that the same unsent draft returns when navigation closes.
 
 The drawer also advances focus explicitly through its visible controls on Tab. WebKit's default keyboard setting skips ordinary links and buttons during native Tab navigation, which let focus leave the dialog after its close button. Chromium and WebKit now check forward and backward Tab at phone width.
+
+When the viewport crosses into desktop layout, the phone drawer closes and focus moves to visible sidebar navigation. The hidden drawer can no longer keep intercepting Tab after a resize; Chromium and WebKit check the transition from 390px to 1440px.
