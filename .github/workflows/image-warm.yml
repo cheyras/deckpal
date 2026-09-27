@@ -117,7 +117,7 @@ jobs:
       - name: Restore previous residue (regression baseline)
         if: ${{ !inputs.set }}
         id: residue-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.paths.outputs.baseline }}
           key: image-warm-residue-${{ steps.paths.outputs.base_slug }}-${{ github.run_id }}
