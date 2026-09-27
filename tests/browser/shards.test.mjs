@@ -6,9 +6,9 @@ import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [
   'typecheck', 'selfhost-catalog', 'selfhost-admin-journey', 'selfhost-admin-tables-1280', 'selfhost-admin-tables-390', 'selfhost-admin-access',
-  'selfhost-feedback-primary-1280', 'selfhost-feedback-primary-390', 'selfhost-feedback-primary-428', 'selfhost-feedback-lifecycle',
+  'selfhost-feedback-primary-1280', 'selfhost-feedback-primary-390', 'selfhost-feedback-primary-428', 'selfhost-feedback-lifecycle', 'selfhost-queue',
   'cloud-catalog', 'cloud-admin-journey', 'cloud-admin-tables-1280', 'cloud-admin-tables-390', 'cloud-admin-access',
-  'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-writes',
+  'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-writes', 'cloud-queue',
   'authreturn', 'chat', 'payment-history', 'error-boundary',
 ]
 const suites = [...browserSuites({}), ...errorBoundarySuites({})]

@@ -25,6 +25,9 @@ export const durations = {
   'cloud-feedback-primary-428': 146,
   'cloud-feedback-lifecycle': 129,
   'cloud-writes': 85,
+  // Labeler queue groups (#240): estimates until they have their own CI timings.
+  'selfhost-queue': 45,
+  'cloud-queue': 50,
   'authreturn': 14,
   'chat': 63,
   'error-boundary': 50,
