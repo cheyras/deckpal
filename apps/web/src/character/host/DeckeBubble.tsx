@@ -71,6 +71,8 @@ const SWITCH_COOLDOWN_MS = 700
 /** The size a side is chosen for: a typical two-line remark. See `pick`. */
 const PLAN_W = 240
 const PLAN_H = 56
+/** The most the slot may move against him in one frame before it is eased. */
+const JUMP_PX = 12
 /** How much of the bubble's own area may overlap before its side is blocked. */
 const BLOCKED_SHARE = 0.12
 
@@ -154,6 +156,24 @@ export function chooseSide(
 }
 
 // In-out, not out: a switch that starts at full speed reads as a jump.
+/** The point on a bubble at `at` that faces him — its anchor for `side`. */
+function facingPoint(side: BubbleSide, at: { left: number; top: number }, b: { width: number; height: number }) {
+  switch (side) {
+    case 'above':
+    case 'over':
+      return { x: at.left + b.width / 2, y: at.top + b.height }
+    case 'below':
+    case 'under':
+      return { x: at.left + b.width / 2, y: at.top }
+    case 'left':
+      return { x: at.left + b.width, y: at.top + b.height / 2 }
+    case 'right':
+      return { x: at.left, y: at.top + b.height / 2 }
+    default:
+      return { x: at.left + b.width / 2, y: at.top + b.height / 2 }
+  }
+}
+
 function reducedMotion(): boolean {
   try {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -235,6 +255,8 @@ export function DeckeBubble({
     let wasFlying = follow.getState().flying
     let last: { left: number; top: number } | null = null
     const written = { transform: '', side: '', switching: false, visible: false }
+    let prevSlot: { x: number; y: number } | null = null
+    let prevHim: { x: number; y: number } | null = null
 
     const avoidRect = (): Rect | null => {
       const a = highlighted()
@@ -288,6 +310,26 @@ export function DeckeBubble({
       }
       wasFlying = flying
       let at = slot(current, size, him, vw, vh, avoidRect())
+      // A SLOT CAN JUMP WITHOUT HIM MOVING: the ring appears and a caption slot
+      // re-measures against the card, or a longer line meets the screen edge
+      // and the clamp takes over. Any move of the slot that his own movement
+      // does not explain is eased like a change of side, never drawn in one
+      // frame.
+      const hx = him.left + him.width / 2
+      const hy = him.top + him.height / 2
+      // Measured at the edge that FACES him, so a longer line growing the box
+      // away from him is not mistaken for the box moving.
+      const face = facingPoint(current, at, size)
+      if (!from && prevSlot && prevHim && !reducedMotion()) {
+        const dx = face.x - prevSlot.x - (hx - prevHim.x)
+        const dy = face.y - prevSlot.y - (hy - prevHim.y)
+        if (Math.hypot(dx, dy) > JUMP_PX && last) {
+          from = last
+          blendStart = now
+        }
+      }
+      prevSlot = face
+      prevHim = { x: hx, y: hy }
       if (from) {
         const t = Math.min(1, (now - blendStart) / SWITCH_MS)
         const e = easeInOut(t)
