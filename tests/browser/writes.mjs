@@ -344,9 +344,10 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       assert.equal(state.deck.find(r => r.i === 0).quantity, 6)
 
       // Undo recreates the removed row with the exact-print pin it had before removal.
+      state.latency = () => 350
       await page.getByRole('button', { name: 'Pin Fixturemon to this exact printing' }).click()
-      await settle()
-      assert.equal(state.deck.find(r => r.i === 0).pinExact, true)
+      await page.getByRole('button', { name: 'Unpin Fixturemon printing' }).waitFor()
+      assert.equal(state.deck.find(r => r.i === 0).pinExact, false, 'pin is still saving when removal is requested')
       await page.getByRole('button', { name: 'Remove Fixturemon' }).click()
       await settle()
       assert.equal(state.deck.some(r => r.i === 0), false)

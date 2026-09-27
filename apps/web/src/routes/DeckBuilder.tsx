@@ -826,7 +826,10 @@ export function DeckBuilder() {
     const cards = data.cards
       .map((c) => {
         const quantity = lane.intent<number>(rowKey(c))
-        return quantity === undefined ? c : { ...c, quantity }
+        const pinExact = lane.intent<boolean>(`${rowKey(c)}:pin`)
+        return quantity === undefined && pinExact === undefined ? c : {
+          ...c, quantity: quantity ?? c.quantity, pinExact: pinExact ?? c.pinExact,
+        }
       })
       .filter((c) => c.quantity > 0)
     return { ...data, cards, deck: { ...data.deck, ...(name !== undefined ? { name } : {}), ...format } }
