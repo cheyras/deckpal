@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { q, q1 } from '../db.js';
-import { asyncHandler, notFound, userCache } from '../http.js';
+import { asyncHandler, catalogOrUserCache, notFound } from '../http.js';
 import { optionalUserId } from '../identity.js';
 import { pct } from '../insights/trainerLevel.js';
 import { compareSetOrder, mapUpcomingPlaceholder, todayIso, upcomingSetsFor } from '../upcomingSets.js';
@@ -108,11 +108,12 @@ seriesRouter.get(
         ORDER BY s.sort_order DESC, s.first_release_on DESC NULLS LAST, s.name`,
       [userId],
     );
-    // May include the user's completion rollup, so it's user-private (not
-    // shared-cacheable). Deliberately unchanged for the anonymous shape too: one
-    // URL must not have both a `public` and a `private` variant in a shared
-    // cache, or a signed-in visitor gets served the ownership-free copy.
-    userCache(res);
+    // Public catalog shape when nobody is signed in — safe for a shared cache
+    // (PERF-02). Anyone with a completion rollup to embed stays private, exactly
+    // as before: one URL must never have both a `public` and a `private` variant
+    // reachable in a shared cache, or a signed-in visitor could be served the
+    // ownership-free copy (see catalogOrUserCache's `Vary: Authorization`).
+    catalogOrUserCache(res, userId);
     res.json({
       series: rows.map((r) => {
         const owned = Number(r.owned_required ?? 0);
@@ -207,7 +208,6 @@ seriesRouter.get(
       [series.id, userId],
     );
 
-    userCache(res);
     const catalogSets = sets.map((s) => {
         const total = s.card_count_total ?? Number(s.card_rows);
         const official = s.card_count_official ?? total;
@@ -247,7 +247,11 @@ seriesRouter.get(
       todayIso(),
     ).map(mapUpcomingPlaceholder);
 
-    userCache(res);
+    // Public catalog shape when nobody is signed in (PERF-02) — same reasoning
+    // as the series list above. (The earlier, now-removed duplicate call here
+    // was harmless — setting the same header twice — but dead: this is the one
+    // that actually reaches the response.)
+    catalogOrUserCache(res, userId);
     res.json({
       series: { slug: series.slug, tcgdexId: series.tcgdex_id, name: series.name, firstReleaseOn: series.first_release_on },
       // Re-sorted rather than concatenated, so a placeholder lands in date order
