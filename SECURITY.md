@@ -488,6 +488,48 @@ tiers) returns `application/octet-stream` for malformed non-byte input types.
 Genuine `Buffer`/`Uint8Array` including nonzero-`byteOffset` views are
 supported. Object, string and array values are rejected via
 `util.types.isUint8Array`, which checks the internal `[[TypedArrayName]]` slot.
+The in-app bug reporter's screenshot upload (`apps/api/src/routes/bugs.ts`)
+uses the same sniffer, for the same reason: see "Bug-report privacy" below.
+
+### Bug-report privacy (2026-09-26)
+
+The in-app bug/feature-request reporter (`apps/web/src/components/BugReport.tsx`,
+`apps/api/src/routes/bugs.ts`) files a labeled **public** GitHub issue in cloud
+mode (see AGENTS.md B10). Three things are enforced so that publishing a
+report cannot publish more than the reporter chose to:
+
+- **Disclosure before Submit.** The modal states, before the report is sent,
+  whether the description and page path will be posted publicly on GitHub,
+  using the API's actual issue setting. It explains that any screenshot is
+  saved separately, and lets the reporter exclude it with a checkbox. This did not exist
+  before 2026-09-26 — the reporter was told a screenshot would be "attached,"
+  never that it would be public.
+- **No screenshot at all on a sensitive page.** `isSensitiveBugPage` (mirrored
+  in both files, same shape as the `isAllowedRoute`/`routeAllowed` pair for
+  Deck-E navigation) refuses to capture, or to store one sent anyway, for any
+  `/admin`, `/profile` or `/credits` page, including mixed-case and encoded URLs the router
+  accepts. Those can show account details that
+  are not the reporter's to publish — most acutely, `/admin/users` renders
+  other signed-in users' email addresses. The server-side check is a
+  backstop, not a formality: it runs regardless of what the client sends, so
+  a stale bundle or a hand-built request cannot bypass it.
+- **No link to the screenshot in the public issue, ever.** Until 2026-09-26,
+  a saved screenshot got a Supabase Storage **signed URL valid for one year**,
+  posted directly in the issue body — readable by anyone who found the issue,
+  for that whole year, no sign-in required. The issue body now says only that
+  a screenshot was saved privately (never a URL); the project owner reaches
+  the bytes through Supabase Storage or the private `bug_report` row, by
+  Report-ID. See the SEC-06 entry in `decisions/2026/` for why this shape was chosen over a
+  short-lived signed URL, and for the disposition of the pre-existing public
+  issues that carried the old year-long links.
+
+The reported page path is also stripped of its query string and fragment
+(client and server, independently) before it is stored or published — a
+search box or a `?next=` parameter can carry something identifying that the
+page path itself never would. The screenshot's declared content type is never
+trusted: `decodeScreenshot` sniffs the actual bytes (see "Content-type
+sniffing" above) and rejects anything that isn't a real PNG, JPEG, or WebP,
+the same rule the avatar upload path already enforced.
 
 ### Migration CLI error safety
 

@@ -1499,22 +1499,27 @@ or a missing `vector` extension is one log line and the pre-vector ladder, not a
 The top-nav "Report a bug" button posts here. Body (JSON, 12 MB limit for the
 screenshot data URL):
 `{ "text" (required, ≤20000), "page"? (current route), "userAgent"?, "viewport"?,
-"screenshot"? (a `data:image/(png|jpeg|webp);base64,…` URL, ≤8 MB decoded) }`.
+"screenshot"? (a `data:image/(png|jpeg|webp);base64,…` URL, ≤8 MB decoded),
+"kind"? ("bug" or "feature") }`.
 `400` when `text` is missing/empty, the screenshot is not a valid image data URL,
-or the decoded screenshot exceeds 8 MB.
+its bytes are not a PNG, JPEG, or WebP image, or it exceeds 8 MB. The server
+strips the page's query string and fragment before saving or publishing it. It
+ignores any screenshot sent for an admin, profile, or credits page, including
+mixed-case or encoded spellings of those routes.
 
 **Cloud mode** (GITHUB_TOKEN + GITHUB_REPO set): inserts a `bug_report` row
 (user id and email from the JWT, stored privately — never in the public issue),
 then creates a GitHub issue labelled `in-app-report`. If Supabase Storage is
-configured, the screenshot is uploaded and a signed URL is included in the issue
-body. The returned issue number is stored on the DB row. If GitHub is unreachable
+configured, the screenshot is uploaded privately under the Report-ID. The public
+issue says whether a screenshot was saved but never includes a screenshot URL.
+The returned issue number is stored on the DB row. If GitHub is unreachable
 the row still persists and the response is `202` with a `note`.
 ```json
 201 { "id": "<uuid>", "issueUrl": "https://github.com/…/issues/42", "issueNumber": 42 }
 202 { "id": "<uuid>", "note": "Report saved but GitHub issue creation failed." }
 ```
 
-**Self-host mode** (no GITHUB_TOKEN): persists each report as a folder under the
+**Filesystem mode** (either GitHub setting absent): persists each report as a folder under the
 repo's `issues/` dir (a developer artefact, not user data — the `fix-issues`
 skill walks that dir). No DB.
 ```json
