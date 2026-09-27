@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { decisionFile, metadata, parseDecisionFile, splitLegacy } from '../decisions-lib.mjs';
+import { decisionDate, decisionFile, metadata, parseDecisionFile, splitLegacy } from '../decisions-lib.mjs';
 
 const cli = fileURLToPath(new URL('../decisions.mjs', import.meta.url));
 const run = (repo, command, args = []) => execFileSync(command, args, { cwd: repo, encoding: 'utf8',
@@ -21,13 +21,18 @@ test('the splitter preserves decorated and undated historical sections exactly',
   assert.equal(parseDecisionFile(file).body, blocks[1].body);
 });
 
-function branchFixture(otherConflict = false) {
+test('a date remains on the Denver day across midnight UTC', () => {
+  assert.equal(decisionDate(new Date('2026-09-27T00:06:00Z')), '2026-09-26');
+});
+
+function branchFixture(otherConflict = false, mainCorrection = false, extraNote = false) {
   const repo = mkdtempSync(join(tmpdir(), 'deckpal-decisions-test-'));
   run(repo, 'git', ['init', '-q', '-b', 'main']);
   run(repo, 'git', ['config', 'user.name', 'Test']);
   run(repo, 'git', ['config', 'user.email', 'test@example.invalid']);
   const old = '# DeckPal — Decision Log\n\n## 2026-01-01 — Original\n**Decided by:** Chey\n\n**Decision:** First.\n';
-  const added = '\n## 2026-01-02 — Branch decision\n**Decided by:** Chey\n\n**Decision:** Second.\n';
+  const added = '\n## 2026-01-02 — Branch decision\n**Decided by:** Chey\n\n**Decision:** Second.\n' +
+    (extraNote ? '\n## Verification\nThis must survive conversion.\n' : '');
   writeFileSync(join(repo, '.gitattributes'), 'DECISIONS.md merge=union\n');
   writeFileSync(join(repo, 'DECISIONS.md'), old);
   if (otherConflict) writeFileSync(join(repo, 'code.txt'), 'baseline\n');
@@ -38,7 +43,8 @@ function branchFixture(otherConflict = false) {
   writeFileSync(join(repo, 'DECISIONS.md'), guide);
   const original = splitLegacy(old)[1];
   mkdirSync(join(repo, 'decisions/2026'), { recursive: true });
-  writeFileSync(join(repo, 'decisions/2026/2026-01-01-original.md'), decisionFile(metadata(original), original.body));
+  writeFileSync(join(repo, 'decisions/2026/2026-01-01-original.md'), decisionFile(metadata(original),
+    mainCorrection ? original.body.replace('**Decision:** First.', '**Decision:** Corrected by main.') : original.body));
   if (otherConflict) writeFileSync(join(repo, 'code.txt'), 'main change\n');
   run(repo, 'git', ['add', '.']);
   run(repo, 'git', ['commit', '-qm', 'migrate']);
@@ -86,4 +92,19 @@ test('adopt-branch works while another file is conflicted', () => {
   assert.equal(readFileSync(join(repo, 'DECISIONS.md'), 'utf8'), guide);
   assert.equal(readdirSync(join(repo, 'decisions/2026')).length, 2);
   assert.match(run(repo, 'git', ['diff', '--name-only', '--diff-filter=U']), /code\.txt/);
+});
+
+test('adopt-branch keeps a correction made only on main', () => {
+  const { repo } = branchFixture(false, true);
+  const result = run(repo, process.execPath, [cli, 'adopt-branch', '--base-ref', 'main']);
+  assert.match(result, /1 new, 0 already present/);
+  const mainFile = readFileSync(join(repo, 'decisions/2026/2026-01-01-original.md'), 'utf8');
+  assert.match(parseDecisionFile(mainFile).body, /Corrected by main/);
+});
+
+test('adopt-branch refuses an appended undated section', () => {
+  const { repo } = branchFixture(false, false, true);
+  assert.throws(() => run(repo, process.execPath, [cli, 'adopt-branch', '--base-ref', 'main']),
+    /edits an undated section/);
+  assert.equal(readdirSync(join(repo, 'decisions/2026')).length, 1);
 });

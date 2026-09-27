@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { decisions, root } from './decisions-lib.mjs';
+import { decisionDate, decisions, root } from './decisions-lib.mjs';
 
 const outputIndex = process.argv.indexOf('--output');
 if (outputIndex >= 0 && !process.argv[outputIndex + 1]) throw new Error('--output needs a path');
@@ -19,7 +19,7 @@ const historical = manifest.blocks.map(block => {
 });
 const later = [...all.values()].sort((a, b) => a.meta.date.localeCompare(b.meta.date) || a.path.localeCompare(b.path));
 const source = historical.join('') + later.map(entry => `\n${entry.body}`).join('') +
-  `\n_Last updated by ${agent} on behalf of @cheyras -- ${new Date().toISOString().slice(0, 10)}_\n`;
+  `\n_Last updated by ${agent} on behalf of @cheyras -- ${decisionDate()}_\n`;
 if (outputIndex >= 0) {
   writeFileSync(process.argv[outputIndex + 1], source);
   console.log(`Wrote ${process.argv[outputIndex + 1]}`);

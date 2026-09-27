@@ -6,6 +6,13 @@ import { fileURLToPath } from 'node:url';
 export const root = resolve(process.env.DECKPAL_DECISIONS_ROOT || fileURLToPath(new URL('../', import.meta.url)));
 export const headingPattern = /^## (\d{4}-\d{2}-\d{2}) (?:—|--) (.+)$/m;
 
+export function decisionDate(at = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(at).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 export function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }

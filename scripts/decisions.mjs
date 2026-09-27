@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
-import { decisionFile, decisions, metadata, parseDecisionFile, root, slug, splitLegacy } from './decisions-lib.mjs';
+import { decisionDate, decisionFile, decisions, metadata, parseDecisionFile, root, slug, splitLegacy } from './decisions-lib.mjs';
 
 const [command, ...args] = process.argv.slice(2);
 const usage = `Usage: pnpm decisions <list [--area name] [--year YYYY] | recent [count] | search words... | show date-or-path | new "Title" [--date YYYY-MM-DD] [--by name] [--area name] | adopt-branch [--source-ref ref] [--base-ref ref] [--source-file path] [--output-dir path]>`;
@@ -67,10 +67,23 @@ function adoptBranch() {
   const knownBodies = new Set(historic.map(item => item.body.trimEnd()));
   const knownHeadings = new Set(historic.map(item => `${item.meta.date}\n${item.meta.title}`));
   const sourceBlocks = splitLegacy(source);
-  const appended = sourceBlocks.filter(block => block.kind === 'entry' && !knownBodies.has(block.body.trimEnd()));
+  const baseBlocks = splitLegacy(base);
+  if (source.startsWith('# DeckPal — Decision Log\n')) {
+    const sourceNotes = sourceBlocks.filter(block => block.kind !== 'entry');
+    const baseNotes = baseBlocks.filter(block => block.kind !== 'entry');
+    if (sourceNotes.length !== baseNotes.length || sourceNotes.some((block, index) =>
+      block.title !== baseNotes[index].title || block.body.trimEnd() !== baseNotes[index].body.trimEnd())) {
+      fail('The branch edits an undated section of the old log; review that edit manually');
+    }
+  }
+  const baseEntries = new Map(baseBlocks.filter(block => block.kind === 'entry')
+    .map(block => [`${block.date}\n${block.title}`, block.body.trimEnd()]));
+  const appended = sourceBlocks.filter(block => block.kind === 'entry' &&
+    !knownBodies.has(block.body.trimEnd()) &&
+    baseEntries.get(`${block.date}\n${block.title}`) !== block.body.trimEnd());
   const edited = appended.filter(block => knownHeadings.has(`${block.date}\n${block.title}`));
   if (edited.length) fail(`The branch also edits existing decisions; review these manually:\n${edited.map(block => `${block.date} ${block.title}`).join('\n')}`);
-  const baseHeadings = new Set(splitLegacy(base).filter(block => block.kind === 'entry').map(block => `${block.date}\n${block.title}`));
+  const baseHeadings = new Set(baseEntries.keys());
   const branchHeadings = new Set(sourceBlocks.filter(block => block.kind === 'entry').map(block => `${block.date}\n${block.title}`));
   if ([...baseHeadings].some(heading => !branchHeadings.has(heading))) fail('The branch removed an existing decision; review its diff manually');
   if (output === root && !sourceFile && (sourceRef === 'HEAD' || headSource)) {
@@ -131,8 +144,9 @@ switch (command) {
   case 'new': {
     const title = args[0];
     if (!title || title.startsWith('--')) fail('Give a title in quotes');
-    const date = flag('--date', new Date().toISOString().slice(0, 10));
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
+    const date = flag('--date', decisionDate());
+    const parsedDate = new Date(`${date}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsedDate.valueOf()) || parsedDate.toISOString().slice(0, 10) !== date) {
       fail('Use a valid YYYY-MM-DD date');
     }
     const by = flag('--by', 'Chey (via Codex)');
