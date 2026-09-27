@@ -21,9 +21,13 @@ A per-row “Pin” control limits ownership to the selected exact printing.
 A promo-set card or stamped variant cannot satisfy an ordinary card, or be
 satisfied by one. Exact copies still count for their own row.
 
-Exact copies are allocated before equivalent copies, and one owned copy can
-satisfy only one row in a deck. Copies remain independently available to other
-decks, as before. The deck continues to name and price its selected printing.
+The shared allocator reserves exact copies for pinned rows first, then exact
+copies for unpinned rows, then legal equivalents. Rows within each phase use
+ascending variant ID, and equivalent candidates use ascending variant ID too.
+This stable order is independent of the page and PDF display/query orders; the
+allocator does not reorder either display. One owned copy can satisfy only one
+row in a deck. Copies remain independently available to other decks, as before.
+The deck continues to name and price its selected printing.
 
 ## What the reader sees
 

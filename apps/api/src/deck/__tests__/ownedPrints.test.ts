@@ -87,3 +87,36 @@ test('one owned copy is allocated once even when two deck rows accept it', () =>
   const result = count([first, second], [owned({ quantity: '1' })]);
   assert.equal(result.get(11)!.owned + result.get(33)!.owned, 1);
 });
+
+test('allocation and source labels are stable when slots and candidates arrive in either order', () => {
+  const slots = [slot({ quantity: 1 }), slot({ cardId: 3, variantId: 33, quantity: 1 })];
+  const candidates = [owned({ quantity: '1' }), owned({
+    card_id: '4', variant_id: '44', quantity: '1', set_id: 'sv3', local_id: '047',
+  })];
+  const legal = new Set([2, 4]);
+  const expected = count(slots, candidates, legal);
+  for (const rows of [slots, [...slots].reverse()]) {
+    for (const copies of [candidates, [...candidates].reverse()]) {
+      assert.deepEqual(count(rows, copies, legal), expected);
+    }
+  }
+  assert.equal(expected.get(11)!.ownedAs[0]?.number, '024');
+  assert.equal(expected.get(33)!.ownedAs[0]?.number, '047');
+  assert.deepEqual(slots.map((s) => s.variantId), [11, 33], 'caller display order is unchanged');
+  assert.deepEqual(candidates.map((c) => c.variant_id), ['22', '44']);
+});
+
+test('pinned exact copies and unpinned exact copies are reserved before equivalents', () => {
+  const result = count([
+    slot({ quantity: 2 }),
+    slot({ cardId: 2, variantId: 22, quantity: 1 }),
+    slot({ cardId: 3, variantId: 33, quantity: 1, pinExact: true }),
+  ], [
+    owned({ quantity: '2' }),
+    owned({ card_id: '3', variant_id: '33', quantity: '1' }),
+  ], new Set([2, 3]));
+  assert.deepEqual(result.get(33), { owned: 1, ownedAs: [] });
+  assert.deepEqual(result.get(22), { owned: 1, ownedAs: [] });
+  assert.equal(result.get(11)!.owned, 1);
+  assert.equal(result.get(11)!.ownedAs[0]?.quantity, 1);
+});

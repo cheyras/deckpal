@@ -1000,7 +1000,10 @@ ids are also a `404`). Each card row reports `owned`, `have`, `pinExact`, and
 `ownedAs` (the other printings whose copies satisfy this row, with set code,
 number and quantity). Exact copies count first; legal gameplay-identical
 ordinary printings of the same finish then count once across the deck. Basic
-Energy matches by type. Promo and stamped variants remain distinct.
+Energy matches by type. Promo and stamped variants remain distinct. Allocation
+reserves pinned exact copies, then unpinned exact copies, then equivalents, with
+ascending variant ID breaking ties for both deck rows and owned candidates. The
+page and PDF share this order regardless of their display order.
 
 ### PATCH /deckpal/api/decks/:id
 Rename / edit description / format / glcType / favorite / cover render. Body

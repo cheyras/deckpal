@@ -50,21 +50,28 @@ export function basicEnergyType(name: string, storedType: string | null): string
   return Object.values(BRACE_TO_TYPE).find((type) => type.toLowerCase() === match?.[1]?.toLowerCase()) ?? null;
 }
 
-/** Exact copies are reserved first, then each remaining copy can satisfy one slot. */
+/**
+ * Reserve pinned exact copies, then other exact copies, then legal equivalents.
+ * Within each phase, ascending variant ID breaks ties for slots and candidates.
+ * Own this order here: page and PDF queries have different display orders, but
+ * must assign a scarce copy to the same row. Never reorder the caller's arrays.
+ */
 export function allocateOwnedPrints(
   slots: OwnedSlot[], candidates: OwnedCandidate[], legalCardIds: Set<number>,
 ): Map<number, OwnedAllocation> {
+  const orderedSlots = [...slots].sort((a, b) => Number(b.pinExact) - Number(a.pinExact) || a.variantId - b.variantId);
+  const orderedCandidates = [...candidates].sort((a, b) => Number(a.variant_id) - Number(b.variant_id));
   const remaining = new Map(candidates.map((c) => [Number(c.variant_id), Number(c.quantity)]));
   const result = new Map<number, OwnedAllocation>();
-  for (const slot of slots) {
+  for (const slot of orderedSlots) {
     const exact = Math.min(slot.quantity, remaining.get(slot.variantId) ?? 0);
     remaining.set(slot.variantId, (remaining.get(slot.variantId) ?? 0) - exact);
     result.set(slot.variantId, { owned: exact, ownedAs: [] });
   }
-  for (const slot of slots) {
+  for (const slot of orderedSlots) {
     const out = result.get(slot.variantId)!;
     if (slot.pinExact || slot.isPromo || slot.isStamped) continue;
-    for (const candidate of candidates) {
+    for (const candidate of orderedCandidates) {
       if (out.owned >= slot.quantity) break;
       const id = Number(candidate.variant_id);
       const available = remaining.get(id) ?? 0;
