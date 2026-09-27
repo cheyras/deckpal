@@ -46,6 +46,7 @@
  *    that needs him to be SEEN doing something refuses a target with no box,
  *    and says so, rather than performing an escort that reads as a teleport.
  */
+import { highlighted } from '../../components/ui/elementHighlight'
 import { runUiTool, type UiToolContext, type UiToolResult } from './uiTools'
 
 /** Mirrors `JOURNEY_VERBS` in `apps/api/src/decke/tools.ts`. */
@@ -138,6 +139,38 @@ function waitForLandmark(landmark: string, signal: AbortSignal): Promise<HTMLEle
   })
 }
 
+/**
+ * Wait until EITHER landmark is visible, bounded; say which one, or null.
+ * `a` wins a tie, because the caller's first choice is the cheaper outcome.
+ */
+function waitForEither(
+  a: string,
+  b: string,
+  signal: AbortSignal,
+): Promise<'landmark' | 'opener' | null> {
+  return new Promise((resolve) => {
+    const check = (): 'landmark' | 'opener' | null =>
+      visibleLandmark(a) ? 'landmark' : visibleLandmark(b) ? 'opener' : null
+    const now = check()
+    if (now) return resolve(now)
+    if (signal.aborted) return resolve(null)
+    const done = (which: 'landmark' | 'opener' | null) => {
+      obs.disconnect()
+      window.clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      resolve(which)
+    }
+    const onAbort = () => done(null)
+    const obs = new MutationObserver(() => {
+      const which = check()
+      if (which) done(which)
+    })
+    obs.observe(document.body, { childList: true, subtree: true, attributes: true })
+    const timer = window.setTimeout(() => done(null), STEP_WAIT_MS)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /** Wait for the router to actually commit, so a landmark check cannot match the
  *  page he is leaving. */
 function waitForRoute(route: string, signal: AbortSignal): Promise<boolean> {
@@ -194,29 +227,29 @@ type JourneyContext = UiToolContext & {
  *
  * ── WHY A WALK NEEDS A BEAT ──────────────────────────────────────────────────
  *
- * `flyTo` and `highlight` are FIRE-AND-FORGET: `runUiTool` hands the flight to
- * the character and returns `{ ok: true }` immediately, because the flight is
- * animation and the tool is a command. With no pause the sequencer's next step
- * therefore lands DURING the flight — and when that next step is a `click` that
- * navigates, the person watches him set off toward a row and the page changes
- * out from under him before he arrives. The pointing is the entire product
- * here (the cueing meta-analyses measure the pointing, not the mascot), so a
- * step that erases it is worse than not taking it.
+ * The pointing is the entire product here (the cueing meta-analyses measure the
+ * pointing, not the mascot), so a step that erases it before anyone has taken
+ * it in is worse than not taking it. That is the mechanism behind "mostly it
+ * just goes right to the page, and he just highlights one thing — it isn't the
+ * step by step arc I've been talking about."
  *
- * That is the mechanism behind "mostly it just goes right to the page, and he
- * just highlights one thing — it isn't the step by step arc I've been talking
- * about." The arc was never authored; the steps simply ran as fast as the event
- * loop would let them.
+ * ── AND WHY IT IS SHORTER THAN IT WAS ────────────────────────────────────────
+ *
+ * This was 1100 ms because it had a second job: `flyTo` answered the moment it
+ * was ISSUED, so the beat was also a guess at how long the flight would take —
+ * and a guess the via-background trip (well over two seconds) routinely lost,
+ * so the next `click` navigated out from under him mid-air. `flyTo` now answers
+ * when he LANDS (see `present` in `uiTools.ts`), so the beat is only what it
+ * says: time to see the ring he has just drawn. 700 ms is enough to register a
+ * ring that animates in, without the walk feeling like it is waiting for you.
  *
  * ── THE REDUCED-MOTION VALUE IS NOT ZERO, AND THAT IS DELIBERATE ─────────────
  *
  * X1 asks that reduced motion ship with the motion. A dwell is not motion — it
  * is reading time — and removing it under `reduce` would make the walk hardest
- * to follow for the person who asked for less movement. Under `reduce` the
- * flight is instant, so there is no travel left to wait out and the beat is cut
- * to what it takes to register a ring that is already drawn.
+ * to follow for the person who asked for less movement.
  */
-export const LOOK_BEAT_MS = 1100
+export const LOOK_BEAT_MS = 700
 export const LOOK_BEAT_REDUCED_MS = 450
 
 /** The verbs whose whole purpose is to be LOOKED at. */
@@ -288,6 +321,12 @@ export async function runJourney(
   const cancelled = { by: null as string | null }
   const onGesture = (e: Event) => {
     if (!e.isTrusted || cancelled.by) return
+    // HIS OWN UI IS NOT THE PAGE. Typing the next question, tapping the bubble
+    // or the minimised bar is talking to him, not taking over from him — and
+    // counting it as a takeover ended real walks at "1 of 2 steps, then you
+    // took over" while he went on to say "we're on the list page now".
+    const t = e.target
+    if (t instanceof Element && t.closest('[data-decke-ui]')) return
     cancelled.by = e.type === 'wheel' || e.type === 'touchmove' ? 'scrolled' : 'clicked'
   }
   const GESTURES = ['pointerdown', 'wheel', 'touchmove', 'keydown'] as const
@@ -342,20 +381,22 @@ export async function runJourney(
             break
           }
           const opener = s.byClicking ?? ''
-          // WAIT FOR THE OPENER TOO, and this was wrong on the first attempt.
-          //
-          // `goTo` waits for the route to COMMIT, which is a different and much
-          // earlier event than the page having its data. So `ensure` arrived
-          // while `/series` was still fetching, found neither the grid nor the
-          // control that reveals it, and refused instantly with "there is
-          // nothing like that on this page" — a fail-stop that was accurate
-          // about what it saw and completely wrong about what was happening.
-          // Measured: every one of three trial journeys died here.
-          //
-          // Both halves of an `ensure` are conditional waits, because both are
-          // things that appear when the page is ready rather than when the URL
-          // changes.
-          if (!(await waitForLandmark(opener, signal))) {
+          // WAIT FOR EITHER, and the first version of this waited for the
+          // opener alone. `goTo` answers when the route COMMITS, which is long
+          // before the page has its data, so the landmark is usually absent at
+          // the check above for no reason but timing. On a page where it then
+          // appears by itself — every series a collector already owns sits
+          // outside the disclosure — the walk waited six seconds for a
+          // "show the rest" control that page never renders, and failed:
+          // "1 of 6 steps, then … I could not find the control that opens that".
+          // Whichever turns up first decides: the landmark means it was already
+          // showing; the opener means it has to be pressed.
+          const first = await waitForEither(landmark, opener, signal)
+          if (first === 'landmark') {
+            ran.push({ verb: 'ensure', target: landmark, reason: 'it was already showing' })
+            break
+          }
+          if (!first) {
             return fail(i, s, 'absent', 'I could not find the control that opens that', ran, planned)
           }
           const r = await runUiTool(ctx, 'click', { selector: opener })
@@ -383,12 +424,29 @@ export async function runJourney(
             // watch is not an escort.
             return fail(i, s, 'absent', 'I could not see that on this page', ran, planned)
           }
+          // A RING HE HAS ALREADY DRAWN IS NOT DRAWN AGAIN. `flyTo` rings its
+          // target as he lands, so an escort's `highlight` of the same row used
+          // to tear that ring down and rebuild it — a flicker — and then hold a
+          // second look beat on a row everyone was already looking at.
+          if (s.verb === 'highlight' && highlighted() === el) {
+            ran.push({ verb: s.verb, target: landmark, reason: 'it was already ringed' })
+            continue
+          }
+          // `point`, the name the tool's schema uses. This spelled it
+          // `then: 'point'`, which `runUiTool` never read — so every escort
+          // flew to the set row and did not point at it.
           const input =
             s.verb === 'flyTo'
-              ? { selector: landmark, ...(s.point ? { then: 'point' } : {}) }
+              ? { selector: landmark, ...(s.point ? { point: true } : {}) }
               : { selector: landmark }
           const r: UiToolResult = await runUiTool(ctx, s.verb, input)
-          if (!r.ok) return fail(i, s, 'refused', r.reason ?? 'that did not work', ran, planned)
+          if (!r.ok) {
+            // A flight the reader interrupted is theirs, not a refusal.
+            if (cancelled.by || signal.aborted) {
+              return fail(i, s, 'cancelled', 'you took over, so I stopped', ran, planned)
+            }
+            return fail(i, s, 'refused', r.reason ?? 'that did not work', ran, planned)
+          }
           ran.push({ verb: s.verb, target: landmark, reason: r.reason })
           break
         }
