@@ -463,12 +463,26 @@ export async function removeQueued(id: number): Promise<void> {
 }
 
 export async function clearQueue(): Promise<void> {
-  const items = await listQueue()
+  let items: QueuedPhoto[]
+  let sharedUnavailable = false
+  try {
+    items = await listQueue()
+  } catch (error) {
+    if (!(error instanceof QueueReadError)) throw error
+    // The shared list is unknown, but this device's outbox is known. Clear
+    // those rows while leaving the last visible shared snapshot alone.
+    items = error.local
+    sharedUnavailable = true
+  }
   // Sequential, and failures do not stop the rest: "clear" should clear as much
   // as it can rather than abandoning the job over one stubborn row.
   let failed = 0
   for (const it of items) {
     try { await removeQueued(it.id) } catch { failed += 1 }
+  }
+  if (sharedUnavailable) {
+    const localFailure = failed ? `${failed} local photo${failed === 1 ? '' : 's'} could not be discarded. ` : ''
+    throw new Error(`${localFailure}Could not clear the shared queue. Try again.`)
   }
   if (failed) throw new Error(`${failed} photo${failed === 1 ? '' : 's'} could not be discarded. Try again.`)
 }
@@ -498,6 +512,8 @@ export async function queueUsage(knownItems?: QueuedPhoto[]): Promise<{ bytes: n
  *  bearer token, which is the lesson the harvest thumbnails taught. */
 const repairs = new Map<number, Promise<Blob>>()
 const removedIds = new Set<number>()
+let repairsChanged = false
+let repairNoticeTimer: number | undefined
 // Older clients persisted cleanup hints and hid originals based on them.
 // Ignore those hints: only the server can know which copy still exists.
 
@@ -523,6 +539,7 @@ export async function queuedPhotoBlob(
   // must never cost the reader the only copy of their photo.
   let repair = repairs.get(id)
   if (!repair) {
+    window.clearTimeout(repairNoticeTimer)
     repair = (async () => {
       const jpg = await normalizeForUpload(blob, details?.name)
       if (removedIds.has(id)) throw new Error('that photo has already been removed')
@@ -533,11 +550,21 @@ export async function queuedPhotoBlob(
         repairOf: id,
       })
       if (added.id !== id) await api.scanQueueDelete(id, true).catch(() => {})
-      window.dispatchEvent(new Event('deckpal:scan-queue-repaired'))
+      repairsChanged = true
       return jpg
     })()
     repairs.set(id, repair)
-    void repair.finally(() => repairs.delete(id)).catch(() => {})
+    void repair.finally(() => {
+      repairs.delete(id)
+      // A thumbnail batch needs one new listing, not one full listing per
+      // repaired photo. Include successes even when the last repair fails.
+      if (repairs.size === 0 && repairsChanged) {
+        repairNoticeTimer = window.setTimeout(() => {
+          repairsChanged = false
+          window.dispatchEvent(new Event('deckpal:scan-queue-repaired'))
+        }, 250)
+      }
+    }).catch(() => {})
   }
   return repair
 }

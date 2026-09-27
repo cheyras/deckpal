@@ -276,6 +276,12 @@ export function QuadLabeler() {
     } catch (e) {
       if (e instanceof QueueReadError) {
         setQueueItems((previous) => [...e.local, ...previous.filter((photo) => !photo.pending)])
+        const localBytes = e.local.reduce((bytes, photo) => bytes + photo.size, 0)
+        setQueueUsageInfo((previous) => ({
+          bytes: (previous ? previous.bytes - previous.localBytes : 0) + localBytes,
+          localBytes,
+          quota: previous?.quota ?? null,
+        }))
       }
       setQueueError(e instanceof Error ? e.message : 'the photo queue could not be read')
     }

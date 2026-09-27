@@ -24,7 +24,7 @@ const metadata = (id, name = `upright-${id - ORIGINAL + 1}.heic`) => ({ name, so
 export function queueFixture(mount) {
   const objects = new Map()
   const locks = new Map()
-  const state = { repairPosts: 0, uploads: 0, deletes: 0, heldReads: 0, failUploadOnce: false, failListOnce: false, failRemovePath: null, holdRead: null, holdRepair: null }
+  const state = { repairPosts: 0, uploads: 0, deletes: 0, heldReads: 0, listCalls: 0, failUploadOnce: false, failListOnce: false, failList: false, failRemovePath: null, holdRead: null, holdRepair: null }
   const store = {
     locked(id, work) {
       const prior = locks.get(id) ?? Promise.resolve()
@@ -50,8 +50,8 @@ export function queueFixture(mount) {
   }
   const reset = (count = 3) => {
     objects.clear()
-    state.repairPosts = state.uploads = state.deletes = state.heldReads = 0
-    state.failUploadOnce = state.failListOnce = false
+    state.repairPosts = state.uploads = state.deletes = state.heldReads = state.listCalls = 0
+    state.failUploadOnce = state.failListOnce = state.failList = false
     state.failRemovePath = state.holdRead = state.holdRepair = null
     for (let i = 0; i < count; i++) {
       const id = ORIGINAL + i
@@ -76,7 +76,8 @@ export function queueFixture(mount) {
       const id = tail === '' ? null : Number(/^\/(\d+)(?:\.jpg)?$/.exec(tail)?.[1])
       try {
         if (req.method === 'GET' && tail === '') {
-          if (state.failListOnce) {
+          state.listCalls++
+          if (state.failList || state.failListOnce) {
             state.failListOnce = false
             return { status: 502, body: { error: { message: 'Shared photo queue temporarily unavailable' } } }
           }
@@ -275,6 +276,56 @@ export async function checkQueue(browser, server, mount, label, out, queue) {
       results.push({ case: 'simultaneous-thumbnail-and-editor-one-repair', label, width })
     } finally { await simultaneous.context.close() }
   }
+
+  // A failed shared LIST must not prevent Clear from draining this device's
+  // known outbox. It must also say that the shared side was left untouched.
+  queue.reset(0)
+  queue.state.failUploadOnce = true
+  const offlineClear = await contextFor(browser, server, 1440)
+  await signIn(offlineClear.context)
+  try {
+    await offlineClear.page.goto(route(server, mount), { waitUntil: 'networkidle' })
+    await offlineClear.page.getByRole('button', { name: /^queue/i }).click()
+    await offlineClear.page.locator('input[type="file"]').setInputFiles(fileURLToPath(new URL('../../apps/web/src/scan/labeler/__tests__/fixtures/upright.heic', import.meta.url)))
+    await offlineClear.page.getByText('local', { exact: true }).waitFor()
+    queue.state.failList = true
+    await offlineClear.page.getByRole('button', { name: 'Clear' }).click()
+    await offlineClear.page.getByRole('button', { name: 'discard all 1' }).click()
+    await offlineClear.page.getByText('Nothing queued.').waitFor()
+    await offlineClear.page.getByText('Could not clear the shared queue. Try again.').waitFor()
+    assert.equal(await offlineClear.page.getByText('local', { exact: true }).count(), 0, 'the stale local badge must leave')
+    const stored = await offlineClear.page.evaluate(() => new Promise((resolve, reject) => {
+      const opened = indexedDB.open('deckpal-labeler', 1)
+      opened.onerror = () => reject(opened.error)
+      opened.onsuccess = () => {
+        const request = opened.result.transaction('queue', 'readonly').objectStore('queue').getAll()
+        request.onerror = () => reject(request.error)
+        request.onsuccess = () => resolve(request.result.length)
+      }
+    }))
+    assert.equal(stored, 0, 'Clear must delete the held photo from IndexedDB')
+    assert.equal(queue.state.uploads, 0, 'the held photo was removed locally, never uploaded')
+    results.push({ case: 'offline-clear-drains-local-and-reports-shared-unknown', label })
+  } finally { await offlineClear.context.close() }
+
+  // All 30 cards are visible at desktop width. Count actual LIST calls while
+  // they repair; browser connection limits may divide them into several waves.
+  queue.reset(30)
+  const batch = await contextFor(browser, server, 1440)
+  await signIn(batch.context)
+  try {
+    await batch.page.goto(route(server, mount), { waitUntil: 'domcontentloaded' })
+    await batch.page.getByRole('button', { name: /^queue/i }).click()
+    await batch.page.getByText('30 photos waiting').waitFor()
+    await batch.page.waitForFunction(() => {
+      const buttons = [...document.querySelectorAll('button[aria-label^="Label upright-"]')]
+      return buttons.length === 30 && buttons.every(button => button.getAttribute('aria-label')?.endsWith('.jpg'))
+    }, undefined, { timeout: 45_000 })
+    assert.equal(queue.state.repairPosts, 30, 'every HEIC photo was repaired once')
+    assert.ok(queue.state.listCalls <= 3, `30 repairs caused ${queue.state.listCalls} full LIST requests; expected the initial list plus at most two refreshes`)
+    results.push({ case: 'thirty-repairs-bounded-list-refresh', label, listCalls: queue.state.listCalls })
+  } finally { await batch.context.close() }
+
   const harvest = await contextFor(browser, server, 390)
   await signIn(harvest.context)
   try {
