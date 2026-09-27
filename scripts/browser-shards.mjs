@@ -30,6 +30,7 @@ export const durations = {
   // Labeler queue groups (#240): estimates until they have their own CI timings.
   'selfhost-queue': 45,
   'cloud-queue': 50,
+  'cloud-labeler-formats': 65,
   'authreturn': 14,
   'chat': 63,
   'error-boundary': 50,

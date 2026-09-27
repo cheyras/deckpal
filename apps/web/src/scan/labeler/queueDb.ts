@@ -33,7 +33,7 @@
 // Nothing here holds a finished annotation. A queued photo has no verdict, no
 // crop and no quad; the moment it acquires them it becomes a label, goes out
 // through `saveLabel.ts`, and is deleted from the queue.
-import { api } from '../../lib/api'
+import { api, ApiError } from '../../lib/api'
 import { decodeQueueImage, isHeic } from './heic'
 
 /** One photo waiting to be labelled, as the queue reports it. */
@@ -51,6 +51,8 @@ export interface QueuedPhoto {
    *  shows in the queue immediately regardless, because a photo the reader has
    *  taken exists whether or not the network agrees yet. */
   pending: boolean
+  /** A photo that cannot be converted or uploaded, even after reconnecting. */
+  failureReason?: string
 }
 
 // ── the outbox ─────────────────────────────────────────────────────────────
@@ -85,6 +87,21 @@ interface OutboxItem {
   name: string
   source: 'camera' | 'upload'
   addedAt: number
+  failureReason?: string
+}
+
+class PermanentUploadError extends Error {}
+
+function isPermanentUploadError(error: unknown): boolean {
+  return error instanceof PermanentUploadError ||
+    (error instanceof ApiError && [400, 413, 415, 422].includes(error.status))
+}
+
+async function isJxl(blob: Blob, name: string): Promise<boolean> {
+  if (/\.jxl$/i.test(name) || blob.type === 'image/jxl') return true
+  const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
+  return (head[0] === 0xff && head[1] === 0x0a) ||
+    [0, 0, 0, 12, 74, 88, 76, 32, 13, 10, 135, 10].every((byte, i) => head[i] === byte)
 }
 
 function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
@@ -228,6 +245,9 @@ const UPLOAD_LADDER: Array<{ edge: number; quality: number }> = [
  * would label them JPEG without making them readable.
  */
 async function normalizeForUpload(blob: Blob, name = 'queued'): Promise<Blob> {
+  if (await isJxl(blob, name)) {
+    throw new PermanentUploadError("JPEG XL isn't supported yet — export as JPEG or HEIC")
+  }
   // THROWS RATHER THAN FALLING BACK. The previous version returned the original
   // bytes when it could not decode them, which manufactured broken rows: the
   // route stores everything as `image/jpeg`, so an undecodable HEIC went up
@@ -235,39 +255,45 @@ async function normalizeForUpload(blob: Blob, name = 'queued'): Promise<Blob> {
   // had been locally. If even the HEIC decoder cannot read the picture, no
   // upload of it can be correct, and saying so is the useful thing to do.
   const src = await decodeQueueImage(blob, name).catch(() => {
-    throw new Error(
+    throw new PermanentUploadError(
       `this photo could not be decoded (${name}). Try exporting it as JPEG.`,
     )
   })
   const w = 'width' in src ? src.width : 0
   const h = 'height' in src ? src.height : 0
-  if (!w || !h) throw new Error('that file decoded to an empty image')
+  if (!w || !h) throw new PermanentUploadError('that file decoded to an empty image')
 
-  let best: Blob | null = null
-  for (const { edge, quality } of UPLOAD_LADDER) {
-    const scale = Math.min(1, edge / Math.max(w, h))
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(w * scale))
-    canvas.height = Math.max(1, Math.round(h * scale))
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('this browser could not prepare the photo')
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(src as CanvasImageSource, 0, 0, canvas.width, canvas.height)
-    const out = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', quality))
-    if (out) {
-      best = out
-      if (out.size <= MAX_UPLOAD_BYTES) break
+  try {
+    let best: Blob | null = null
+    for (const { edge, quality } of UPLOAD_LADDER) {
+      const scale = Math.min(1, edge / Math.max(w, h))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(w * scale))
+      canvas.height = Math.max(1, Math.round(h * scale))
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new PermanentUploadError('this browser could not prepare the photo')
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(src as CanvasImageSource, 0, 0, canvas.width, canvas.height)
+      const out = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', quality))
+      if (out) {
+        best = out
+        if (out.size <= MAX_UPLOAD_BYTES) break
+      }
     }
+    if (!best) throw new PermanentUploadError('this browser could not re-encode that photo')
+    if (best.size > MAX_UPLOAD_BYTES) {
+      throw new PermanentUploadError(
+        `this photo is still ${(best.size / 1024 / 1024).toFixed(1)} MB after downscaling — over the ` +
+          `${MAX_UPLOAD_BYTES / 1024 / 1024} MB upload limit`,
+      )
+    }
+    return best
+  } catch (error) {
+    if (error instanceof PermanentUploadError) throw error
+    throw new PermanentUploadError('this browser could not prepare the photo')
+  } finally {
+    ;(src as { close?: () => void }).close?.()
   }
-  ;(src as { close?: () => void }).close?.()
-  if (!best) throw new Error('this browser could not re-encode that photo')
-  if (best.size > MAX_UPLOAD_BYTES) {
-    throw new Error(
-      `this photo is still ${(best.size / 1024 / 1024).toFixed(1)} MB after downscaling — over the ` +
-        `${MAX_UPLOAD_BYTES / 1024 / 1024} MB upload limit`,
-    )
-  }
-  return best
 }
 
 /** Is the browser telling us the network is gone? `navigator.onLine` is only
@@ -325,7 +351,8 @@ export async function enqueue(
       uploaded += 1
     } catch (e) {
       lastError = e instanceof Error ? e.message : 'the upload was refused'
-      held.push({ id: nextLocalId(), blob: it.blob, name: it.name, source: it.source, addedAt: Date.now() })
+      held.push({ id: nextLocalId(), blob: it.blob, name: it.name, source: it.source, addedAt: Date.now(),
+        failureReason: isPermanentUploadError(e) ? lastError : undefined })
     }
   }
   if (held.length) await stash(held)
@@ -364,6 +391,7 @@ export async function flushOutbox(): Promise<{
   // network outage still short-circuits, because `looksOffline` stops the run
   // rather than retrying thirty times against a connection that is gone.
   for (const it of items) {
+    if (it.failureReason) continue
     try {
       const jpg = await blobToBase64(await normalizeForUpload(it.blob, it.name))
       await api.scanQueueAdd({ jpg, name: jpgName(it.name), source: it.source })
@@ -373,6 +401,10 @@ export async function flushOutbox(): Promise<{
       const message = e instanceof Error ? e.message : 'the upload was refused'
       failed += 1
       if (!error) error = message
+      if (isPermanentUploadError(e)) {
+        await run('readwrite', (s) => s.put({ ...it, failureReason: message }))
+        continue
+      }
       if (looksOffline()) {
         error = 'no connection — the queue will finish uploading when you are back online'
         break
@@ -403,6 +435,7 @@ export async function listQueue(): Promise<QueuedPhoto[]> {
     addedAt: new Date(it.addedAt).toISOString(),
     size: it.blob.size,
     pending: true,
+    failureReason: it.failureReason,
   }))
   try {
     const remote = (await api.scanQueueList()).photos

@@ -302,8 +302,8 @@ export function QuadLabeler() {
   // no other device can see, and nothing else would push it.
   useEffect(() => {
     const drain = () => {
-      void flushOutbox().then(({ sent, failed, remaining, error }) => {
-        if (sent > 0) void refreshQueue()
+      void flushOutbox().then(async ({ sent, failed, remaining, error }) => {
+        if (sent > 0 || failed > 0) await refreshQueue()
         // SAY WHAT HAPPENED, WITH THE TALLY. A photo that can never upload —
         // an undecodable HEIC, say — otherwise looks exactly like a photo
         // waiting for signal, forever. Reporting how many went and how many

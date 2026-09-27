@@ -57,7 +57,7 @@ export function QueueStage({
   // fetching, the lazy-loading and the revocation for both this grid and the
   // harvest's. The hand-rolled `URL.createObjectURL` map that used to live here
   // went with the local-only queue.
-  const next = items[0]
+  const next = items.find((item) => !item.failureReason)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-neutral-950">
@@ -130,11 +130,11 @@ export function QueueStage({
           <div className="flex shrink-0 items-center gap-[8px] border-b border-white/10 px-[12px] py-[8px]">
             <button
               type="button"
-              disabled={busy !== null}
+              disabled={busy !== null || !next}
               onClick={() => next && onOpen(next)}
               className="h-[44px] flex-1 rounded-full bg-cyan-400 px-[16px] text-[12px] font-bold text-cyan-950 hover:bg-cyan-300 disabled:opacity-40"
             >
-              Label next →
+              {next ? 'Label next →' : 'No photos ready to label'}
             </button>
             <AddFilesButton onAddFiles={onAddFiles} compact />
           </div>
@@ -145,22 +145,29 @@ export function QueueStage({
                 <div
                   key={it.id}
                   className={`flex flex-col overflow-hidden rounded-[8px] bg-white/5 ring-1 ${
-                    i === 0 ? 'ring-cyan-300/60' : 'ring-white/10'
+                    it.failureReason ? 'ring-red-400/50' : it.id === next?.id ? 'ring-cyan-300/60' : 'ring-white/10'
                   }`}
                 >
                   <button
                     type="button"
-                    disabled={busy !== null}
+                    disabled={busy !== null || !!it.failureReason}
                     onClick={() => onOpen(it)}
                     className="relative aspect-square bg-black disabled:opacity-50"
-                    aria-label={`Label ${it.name}`}
+                    aria-label={it.failureReason ? `${it.name} cannot be uploaded` : `Label ${it.name}`}
                   >
-                    <AuthThumb
-                      cacheKey={it.id}
-                      alt={it.name}
-                      load={(signal) => queuedPhotoBlob(it.id, signal, it)}
-                      onMissing={() => onMissing(it.id)}
-                    />
+                    {it.failureReason ? (
+                      <span className="flex h-full w-full flex-col items-center justify-center gap-[4px] px-[8px] text-center text-[10px] text-red-200/80">
+                        <Icon name="alert" size={22} />
+                        Can't upload
+                      </span>
+                    ) : (
+                      <AuthThumb
+                        cacheKey={it.id}
+                        alt={it.name}
+                        load={(signal) => queuedPhotoBlob(it.id, signal, it)}
+                        onMissing={() => onMissing(it.id)}
+                      />
+                    )}
                     <span className="pointer-events-none absolute left-[4px] top-[4px] rounded bg-black/70 px-[5px] py-[1px] font-mono text-[9px] font-bold text-white/70">
                       {i + 1}
                     </span>
@@ -173,7 +180,7 @@ export function QueueStage({
                         className="pointer-events-none absolute right-[4px] top-[4px] rounded bg-amber-400/20 px-[5px] py-[1px] text-[9px] font-bold text-amber-300"
                         title="Waiting to upload — this photo is on this device only until it does"
                       >
-                        local
+                        {it.failureReason ? 'needs action' : 'local'}
                       </span>
                     )}
                     {busy === it.id && (
@@ -193,9 +200,14 @@ export function QueueStage({
                       title="Discard this photo without labelling it"
                       className="rounded px-[5px] text-[10px] font-bold text-white/35 hover:bg-red-500/20 hover:text-red-300"
                     >
-                      ✕
+                      {it.failureReason ? 'Discard' : <Icon name="close" size={13} />}
                     </button>
                   </div>
+                  {it.failureReason && (
+                    <p className="px-[6px] pb-[7px] text-[10px] leading-[14px] text-red-200" role="alert">
+                      {it.failureReason}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
