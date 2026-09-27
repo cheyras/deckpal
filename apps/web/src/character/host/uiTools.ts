@@ -771,13 +771,24 @@ function whenStill(el: Element, then: () => void): void {
   }
   let last = read()
   let same = 0
-  const started = Date.now()
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    window.clearTimeout(guard)
+    then()
+  }
+  // A TIMER, NOT ONLY FRAMES. A hidden tab delivers no animation frames at
+  // all, and a cap checked inside the frame loop then never fires — the wait
+  // hung the whole turn (found by review). Timers still run, if slowly.
+  const guard = window.setTimeout(finish, STILL_CAP_MS)
   const tick = () => {
+    if (done) return
     const now = read()
     same = now === last ? same + 1 : 0
     last = now
-    if (same >= 2 || Date.now() - started >= STILL_CAP_MS) {
-      then()
+    if (same >= 2) {
+      finish()
       return
     }
     frame(tick)
@@ -943,6 +954,17 @@ function travelAfterRoute(
       settle({ ok: false, reason: `we are on the page, but ${d.reason}` })
     }
     if (cardId) window.addEventListener(DECKE_REVEAL_MISS_EVENT, onMiss)
+    // STOP ENDS THE WAIT AT EVERY STAGE: for the page, for the box to settle,
+    // and (inside `present`) for the landing.
+    const onAbort = () => {
+      finish()
+      settle({ ok: false, reason: 'you stopped me before I got there' })
+    }
+    if (ctx.signal?.aborted) {
+      resolve({ ok: false, reason: 'you stopped me before I got there' })
+      return
+    }
+    ctx.signal?.addEventListener('abort', onAbort, { once: true })
 
     // ── SHOWING THAT HE IS WAITING ───────────────────────────────────────────
     //
@@ -958,6 +980,7 @@ function travelAfterRoute(
       asking = 0
       window.clearTimeout(waiting)
       if (cardId) window.removeEventListener(DECKE_REVEAL_MISS_EVENT, onMiss)
+      ctx.signal?.removeEventListener('abort', onAbort)
       if (pending?.selector === selector) pending = null
       // A SUCCESS HANDS HIM OVER, A FAILURE HANDS HIM BACK. The flight's
       // `then: 'point'` owns his state from the moment it lands, so clearing the

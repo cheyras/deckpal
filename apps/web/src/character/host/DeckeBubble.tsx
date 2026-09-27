@@ -154,6 +154,14 @@ export function chooseSide(
 }
 
 // In-out, not out: a switch that starts at full speed reads as a jump.
+function reducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
 /**
@@ -268,7 +276,9 @@ export function DeckeBubble({
         if ((landed || blocked) && now - switchedAt > SWITCH_COOLDOWN_MS) {
           const next = pick(him, last)
           if (next !== current) {
-            from = last
+            // Under reduced motion the new side is simply taken; the fade is
+            // the only change the reader sees.
+            from = reducedMotion() ? null : last
             blendStart = now
             switchedAt = now
             current = next
