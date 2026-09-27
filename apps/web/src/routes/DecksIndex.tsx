@@ -219,6 +219,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     })
     return rows
   })()
+  const reviewCount = unmatchedWithIndexes.length
   const remaining = unmatchedWithIndexes.filter(row => !fixedByLine.has(row.lineIndex)).length
   const askDecke = () => {
     if (!checked || stale || fix.isPending || !entitled) return
@@ -374,7 +375,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
             <div className="flex min-w-0 items-start justify-between gap-[10px]">
               <div role="alert" className="flex min-w-0 items-center gap-[8px] pt-[4px] text-[14px] font-bold text-text-primary">
                 <Icon name="sparkle" size={16} className="shrink-0 text-action-primary" />
-                <span>{reviewing ? `${unmatched.length} line${unmatched.length === 1 ? '' : 's'} to review` : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}</span>
+                <span>{reviewing ? `${reviewCount} line${reviewCount === 1 ? '' : 's'} to review` : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}</span>
               </div>
               {(!stale || reviewing) && entitled && (hideCharacter ? (
                 !reviewing && <button type="button" onClick={askDecke} disabled={fix.isPending || check.isPending}
@@ -386,7 +387,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                   {reviewing || fix.isPending ? (
                     <span role="status" className="flex max-w-[156px] items-center gap-[7px] rounded-xl border border-border-default bg-surface-primary px-[10px] py-[7px] text-[12px] leading-[16px] text-text-secondary sm:max-w-none sm:text-[13px]">
                       {fix.isPending && <Spinner inline size={13} className="text-action-primary motion-reduce:animate-none" />}
-                      <span>{fix.isPending ? 'Checking…' : `Fixed ${acceptedFixes.length} of ${unmatched.length}, check them`}</span>
+                      <span>{fix.isPending ? 'Checking…' : `Fixed ${acceptedFixes.length} of ${reviewCount}, check ${reviewCount === 1 ? 'it' : 'them'}`}</span>
                     </span>
                   ) : (
                     <button type="button" onClick={askDecke} disabled={check.isPending}

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import path from 'node:path'
 import { contextFor } from './support.mjs'
 import { signIn } from './admin.mjs'
 
@@ -129,11 +128,7 @@ export async function checkDeckImport(browser, server, fixture) {
       const group = page.getByRole('group', { name: 'Unmatched decklist lines' })
       assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 1,
         'editing A keeps B’s suggestion and does not duplicate A’s manual fix')
-      if (process.env.DECKPAL_233_BOARD_DIR) {
-        await page.screenshot({ path: path.join(process.env.DECKPAL_233_BOARD_DIR, `${width}-edit-keeps-fix-focused.png`), fullPage: true })
-        await group.locator('p').last().click()
-        await page.screenshot({ path: path.join(process.env.DECKPAL_233_BOARD_DIR, `${width}-edit-keeps-fix.png`), fullPage: true })
-      }
+      await group.getByText('1 line to review').waitFor()
       await page.getByRole('button', { name: 'Import deck' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
       assert.equal(created.at(-1).text, '2 Iono PAL 185\n2 Arven OBF 186',
@@ -143,8 +138,7 @@ export async function checkDeckImport(browser, server, fixture) {
       await page.getByRole('textbox', { name: 'Decklist' }).fill('2 Arven OBF 999')
       assert.equal(await group.getByRole('button', { name: 'Undo' }).count(), 1,
         'deleting A keeps B’s suggestion after its line index moves')
-      if (process.env.DECKPAL_233_BOARD_DIR)
-        await page.screenshot({ path: path.join(process.env.DECKPAL_233_BOARD_DIR, `${width}-delete-keeps-fix.png`), fullPage: true })
+      await group.getByText('1 line to review').waitFor()
       await page.getByRole('button', { name: 'Import deck' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
       assert.equal(created.at(-1).text, '2 Arven OBF 186', 'the remaining fix applies to B, not the deleted line')
