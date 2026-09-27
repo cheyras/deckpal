@@ -31,6 +31,12 @@ test('one shard can run the entire suite despite the isolated visual case', () =
   assert.deepEqual(shardSuites(suites, 1)[0].map(suite => suite.name), [...names].sort())
 })
 
+test('two shards keep every suite when both visual reservations cannot fit', () => {
+  const assignment = shardSuites(suites, 2).map(shard => shard.map(suite => suite.name))
+  assert.ok(assignment.every(shard => shard.length))
+  assert.deepEqual(assignment.flat().sort(), [...names].sort())
+})
+
 test('shard argument rejects missing and out-of-range indexes', () => {
   assert.deepEqual(parseShard([]), null)
   assert.deepEqual(parseShard(['--shard', '1/1']), { index: 1, count: 1 })

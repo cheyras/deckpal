@@ -311,6 +311,11 @@ try {
   await client.query(`
     ALTER TABLE card ADD COLUMN name text;
     UPDATE card SET name = 'Fixture Card' WHERE id = 1;
+    CREATE VIEW browsable_card WITH (security_invoker = true) AS
+      SELECT c.* FROM card c
+      JOIN card_set cs ON cs.id = c.set_id
+      JOIN series s ON s.id = cs.series_id
+      WHERE s.tcgdex_id <> 'tcgp';
     CREATE TABLE collection_item (user_id text, card_variant_id bigint, quantity integer);
     CREATE TABLE price_current (
       card_variant_id bigint, currency_code text, market_minor bigint, avg30_minor bigint
