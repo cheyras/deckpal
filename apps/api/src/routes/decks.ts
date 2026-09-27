@@ -961,6 +961,14 @@ decksRouter.post(
       byCard.set(e.card.id, Math.min(60, (byCard.get(e.card.id) ?? 0) + e.quantity));
     }
     const unresolved = (resolved.importWarnings ?? []).filter((w) => w.code === 'UNRESOLVED_CARD');
+    const formatIssues = dryRun
+      ? (await validate(resolved, resolved.entries.map((entry) => entry.card))).violations
+        .filter((violation) => violation.severity === 'error' && violation.scope === 'card')
+        .flatMap((violation) => (violation.card_ids ?? []).flatMap((id) => {
+          const card = resolved.entries.find((entry) => entry.card.id === id)?.card;
+          return card ? [{ cardId: card.tcgdexId, reason: violation.message }] : [];
+        }))
+      : [];
     const summary = {
       source,
       resolvedEntries: resolved.entries.length,
@@ -969,6 +977,7 @@ decksRouter.post(
       unresolved: unresolved.map((w) => w.message),
       // The same lines, verbatim, for the dialog to list and find in the text.
       unresolvedLines: unresolved.map((w) => w.line ?? w.message),
+      formatIssues,
       warnings: (resolved.importWarnings ?? []).filter((w) => w.code !== 'UNRESOLVED_CARD'),
       // Decklist text carries no printing info; every line is stored as the
       // card's primary variant (migration 051).

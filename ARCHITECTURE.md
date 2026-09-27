@@ -1387,7 +1387,10 @@ asks the chat-tier model to select their keys. A server membership check and a
 second pass through the normal resolver guard every replacement. The UI reserves
 a bay in the import dialog for Deck-E, shows each old and proposed line with
 Undo, and sends the confirmed text through the no-write check again before any
-deck is created. The errand store only moves the character; it does not grant
+deck is created. Switching formats runs that check against the current text;
+accepted corrections stay visible and undoable, while a correction illegal in
+the selected format returns to an editable review row with its reason. The
+errand store only moves the character; it does not grant
 permission or save cards. The route shares Deck-E's entitlement, Gateway key,
 daily meter, and usage ledger. When paid credits are enabled, it converts the
 provider-reported cost using the request's credit policy and accumulates the

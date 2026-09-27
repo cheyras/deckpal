@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import { contextFor } from './support.mjs'
 import { signIn } from './admin.mjs'
 
@@ -8,9 +9,9 @@ const confirmed = '2 Iono PAL 185\n2 Iono PAL 185'
 const partial = '2 Iono PAL 185\n2 Iono PAL 999'
 const originalWithWhitespace = '2 Iono PAL 999\n  2 Iono PAL 999  '
 const partialWithWhitespace = '2 Iono PAL 185\n  2 Iono PAL 999  '
-const summary = (unresolvedLines, lineCount = 2) => ({ import: { source: 'ptcgl', resolvedEntries: lineCount - unresolvedLines.length,
+const summary = (unresolvedLines, lineCount = 2, formatIssues = []) => ({ import: { source: 'ptcgl', resolvedEntries: lineCount - unresolvedLines.length,
   distinctCards: 1, totalCards: (lineCount - unresolvedLines.length) * 2, unresolved: unresolvedLines,
-  unresolvedLines, warnings: [], variantNote: '' } })
+  unresolvedLines, formatIssues, warnings: [], variantNote: '' } })
 const fixes = [0, 1].map(lineIndex => ({ lineIndex, original: '2 Iono PAL 999', replacement: '2 Iono PAL 185',
   card: { id: 'pal-185', name: 'Iono', set: 'PAL', number: '185' },
   reason: 'PAL 185 is Iono.', confidence: 'suggested' }))
@@ -23,14 +24,14 @@ const twoDifferentFixes = [fixes[0], {
 
 /** The built cloud app, fake account and intercepted API: no deck is created
  * until the exact reviewed text passes its second dry run. */
-export async function checkDeckImport(browser, server, fixture) {
+export async function checkDeckImport(browser, server, fixture, out) {
   const results = []
   fixture.state.actor = 'ordinary'
   fixture.state.permissions = ['decke.use']
   for (const width of [1440, 390]) {
     const { context, page } = await contextFor(browser, server, width)
     await signIn(context, USER)
-    const created = [], checked = []
+    const created = [], checked = [], formatChecks = []
     let returnedFixes = fixes
     let novelUnresolved = false
     let holdConfirmedCheck = true
@@ -46,6 +47,7 @@ export async function checkDeckImport(browser, server, fixture) {
         const body = route.request().postDataJSON()
         if (body.dryRun) {
           checked.push(body.text)
+          formatChecks.push({ text: body.text, formatCode: body.formatCode })
           if (body.text === confirmed && holdConfirmedCheck) {
             holdConfirmedCheck = false
             confirmedCheckStarted()
@@ -54,7 +56,9 @@ export async function checkDeckImport(browser, server, fixture) {
           if (body.text === '2 Iono PAL 999' || body.text === '2 Iono PAL 999\n')
             return route.fulfill({ json: summary(['2 Iono PAL 999'], 1) })
           if (body.text.includes('Arven OBF'))
-            return route.fulfill({ json: summary(body.text.split('\n').filter(line => line.endsWith('999'))) })
+            return route.fulfill({ json: summary(body.text.split('\n').filter(line => line.endsWith('999')), 2,
+              body.formatCode === 'glc' && body.text.includes('2 Arven OBF 186')
+                ? [{ cardId: 'obf-186', reason: 'Arven is not legal in GLC.' }] : []) })
           return route.fulfill({ json: summary(body.text === confirmed ? []
             : body.text === partial ? [novelUnresolved ? '2 Iono PAL 185' : '2 Iono PAL 999']
               : body.text === partialWithWhitespace ? ['  2 Iono PAL 999  ']
@@ -217,6 +221,43 @@ export async function checkDeckImport(browser, server, fixture) {
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
       assert.equal(created.at(-1).text, partialWithWhitespace, 'spaces on the skipped line must not require a second click')
+      returnedFixes = twoDifferentFixes
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(2, twoDifferent)
+      const format = page.getByLabel('Format')
+      await format.selectOption('expanded')
+      await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).first().waitFor()
+      await format.selectOption('standard')
+      await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).nth(1).waitFor()
+      await page.getByRole('button', { name: 'Import deck' }).waitFor({ state: 'visible' })
+      assert.equal(await page.getByRole('button', { name: 'Import deck' }).isEnabled(), true)
+      assert.equal(await page.getByRole('textbox', { name: 'Decklist' }).inputValue(), '2 Iono PAL 185\n2 Arven OBF 186')
+      assert.equal(await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).count(), 2,
+        'both accepted fixes and their Undo controls survive Standard → Expanded → Standard')
+      assert.deepEqual(formatChecks.slice(-2), [
+        { text: '2 Iono PAL 185\n2 Arven OBF 186', formatCode: 'expanded' },
+        { text: '2 Iono PAL 185\n2 Arven OBF 186', formatCode: 'standard' },
+      ], 'each format change rechecks the current corrected text')
+      await page.screenshot({ path: path.join(out, `deck-import-format-roundtrip-${width}.png`) })
+      await page.getByRole('button', { name: 'Import deck' }).click()
+      await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
+      assert.equal(created.at(-1).text, '2 Iono PAL 185\n2 Arven OBF 186', 'the round trip imports the corrected text')
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(2, twoDifferent)
+      await format.selectOption('glc')
+      await page.getByText('Arven is not legal in GLC.').waitFor()
+      assert.equal(await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).count(), 1,
+        'the valid accepted fix stays accepted')
+      assert.equal(await page.getByRole('button', { name: 'Edit the line 2 Arven OBF 186' }).count(), 1,
+        'the illegal accepted fix returns to the unmatched review')
+      assert.equal(await page.getByRole('button', { name: 'Import deck' }).isDisabled(), true,
+        'an illegal correction cannot be imported')
+      await page.screenshot({ path: path.join(out, `deck-import-format-illegal-${width}.png`) })
+      await format.selectOption('expanded')
+      await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).nth(1).waitFor()
+      assert.equal(await page.getByRole('button', { name: 'Import deck' }).isEnabled(), true,
+        'the accepted fix returns when the selected format allows it')
+      returnedFixes = fixes
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await open()
       await page.getByRole('textbox', { name: 'Decklist' }).fill(original)

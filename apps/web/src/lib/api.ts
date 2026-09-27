@@ -1048,6 +1048,8 @@ export interface DeckImportSummary {
   unresolved: string[]
   /** The lines that matched no card, verbatim as pasted. */
   unresolvedLines: string[]
+  /** Card-specific legality problems in the selected format. */
+  formatIssues?: { cardId: string; reason: string }[]
   warnings: ValidationWarning[]
   variantNote: string
 }

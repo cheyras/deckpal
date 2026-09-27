@@ -142,6 +142,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const [text, setText] = useState('')
   const [name, setName] = useState('')
   const [formatCode, setFormatCode] = useState<DeckFormat>('standard')
+  const [refreshFormat, setRefreshFormat] = useState(false)
   const listRef = useRef<HTMLTextAreaElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   // ── CHECK FIRST, THEN CREATE ──────────────────────────────────────────────
@@ -154,6 +155,17 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   // shown here, while the text is still in front of them, to fix or to skip.
   const [checked, setChecked] = useState<{ text: string; formatCode: DeckFormat; summary: DeckImportSummary } | null>(null)
   const check = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.checkDeckImport(asked) })
+  useEffect(() => {
+    if (!refreshFormat || !text.trim()) return
+    const asked = { text, formatCode }
+    check.mutate(asked, {
+      onSuccess: ({ import: summary }) => {
+        if (latest.current.text !== asked.text || latest.current.formatCode !== asked.formatCode) return
+        setChecked({ ...asked, summary })
+        setRefreshFormat(false)
+      },
+    })
+  }, [refreshFormat, text, formatCode])
   const fix = useMutation({
     mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.fixDeckImport(asked),
     onSettled: () => { void queryClient.invalidateQueries({ queryKey: ['credits'] }) },
@@ -194,20 +206,23 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const stale = checked !== null && (checked.text !== text || checked.formatCode !== formatCode)
   const skipping = checked !== null && !stale && unmatched.length > 0
   const matchedCards = checked?.summary.totalCards ?? 0
-  const currentFixes = fixResult?.formatCode === formatCode ? fixResult.fixes.flatMap(({ lineId, fix }) => {
+  const currentFixes = fixResult ? fixResult.fixes.flatMap(({ lineId, fix }) => {
     const lineIndex = lineIds.current.indexOf(lineId)
     const expected = undone.has(lineId) ? fix.original : fix.replacement
     return lineIndex >= 0 && text.split('\n')[lineIndex]?.trim() === expected.trim()
       ? [{ lineId, fix: { ...fix, lineIndex } }] : []
   }) : []
+  const formatIssues = stale ? [] : checked?.summary.formatIssues ?? []
+  const issueFor = (fix: DeckImportFix) => formatIssues.find(issue => issue.cardId === fix.card.id)
+  const invalidFixes = currentFixes.filter(({ lineId, fix }) => !undone.has(lineId) && issueFor(fix))
   const reviewing = currentFixes.length > 0
-  const showDock = checked !== null && unmatched.length > 0 && (!stale || reviewing) && entitled && !hideCharacter
+  const showDock = checked !== null && (unmatched.length > 0 || reviewing) && (!stale || reviewing) && entitled && !hideCharacter
   useEffect(() => {
     if (showDock) startDeckeErrand()
     else endDeckeErrand()
     return () => endDeckeErrand()
   }, [showDock])
-  const acceptedFixes = reviewing ? currentFixes.filter(f => !undone.has(f.lineId)).map(f => f.fix) : []
+  const acceptedFixes = reviewing ? currentFixes.filter(f => !undone.has(f.lineId) && !issueFor(f.fix)).map(f => f.fix) : []
   const confirmedText = reviewing ? text : null
   const fixedByLine = new Map(acceptedFixes.map(f => [f.lineIndex, f]))
   const unmatchedWithIndexes = (() => {
@@ -222,7 +237,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     // Its physical line still needs its own review row and Undo control.
     for (const { fix } of currentFixes) {
       if (!rows.some(row => row.lineIndex === fix.lineIndex))
-        rows.push({ line: fix.original.trim(), lineIndex: fix.lineIndex })
+        rows.push({ line: issueFor(fix) ? fix.replacement.trim() : fix.original.trim(), lineIndex: fix.lineIndex })
     }
     return rows.sort((a, b) => a.lineIndex - b.lineIndex)
   })()
@@ -266,7 +281,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
     })
   }
   const confirmFixes = () => {
-    if (!confirmedText || !reviewing || check.isPending) return
+    if (!confirmedText || !reviewing || check.isPending || invalidFixes.length) return
     const asked = { text: confirmedText, formatCode }
     const source = { text, formatCode }
     const expectedUnresolved = unmatchedWithIndexes.filter(row => !fixedByLine.has(row.lineIndex)).map(row => row.line).sort()
@@ -354,7 +369,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
       footer={
         <div className="flex justify-end gap-[10px]">
           <Button variant="secondary" onClick={close}>Cancel</Button>
-          <Button type="submit" form={formId} disabled={!text.trim() || (reviewing ? !confirmedText || (remaining > 0 && matchedCards === 0 && acceptedFixes.length === 0) : skipping && matchedCards === 0) || fix.isPending} loading={busy || check.isPending}>
+          <Button type="submit" form={formId} disabled={!text.trim() || invalidFixes.length > 0 || (reviewing ? !confirmedText || (remaining > 0 && matchedCards === 0 && acceptedFixes.length === 0) : skipping && matchedCards === 0) || fix.isPending} loading={busy || check.isPending}>
             {check.isPending ? 'Checking…' : busy ? 'Importing…' : skipping && remaining > 0 ? 'Import without them' : 'Import deck'}
           </Button>
         </div>
@@ -381,7 +396,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           </label>
           <label className="flex flex-col gap-[6px]">
             <span className="text-[14px] font-semibold text-text-secondary">Format</span>
-            <select value={formatCode} onChange={(e) => { setFormatCode(e.target.value as DeckFormat); setFixResult(null) }}
+            <select value={formatCode} onChange={(e) => { setFormatCode(e.target.value as DeckFormat); setRefreshFormat(true) }}
               className="h-[42px] rounded-lg border border-border-default bg-surface-primary px-[12px] text-[14px] text-text-primary">
               {FORMATS.map((f) => <option key={f} value={f}>{FORMAT_META[f].label}</option>)}
             </select>
@@ -397,7 +412,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           placeholder={'Pokémon: 6\n3 Charizard ex OBF 125\n…\n\nTrainer: …\n\nEnergy: …\n\nTotal Cards: 60'}
           className="rounded-lg border border-border-default bg-surface-primary px-[14px] py-[10px] font-mono text-[14px] leading-[19px] text-text-primary placeholder:text-text-muted"
         />
-        {checked && unmatched.length > 0 && (
+        {checked && (unmatched.length > 0 || reviewing) && (
           <div ref={panelRef} role="group" aria-label="Unmatched decklist lines" className="rounded-xl border border-action-primary/45 bg-surface-secondary p-[14px] shadow-sm">
             <div className="flex min-w-0 items-start justify-between gap-[10px]">
               <div role="alert" className="flex min-w-0 items-center gap-[8px] pt-[4px] text-[14px] font-bold text-text-primary">
@@ -433,6 +448,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
             <ul className="mt-[10px] flex flex-col gap-[8px]">
               {unmatchedWithIndexes.map(({ line, lineIndex }) => {
                 const found = fixedByLine.get(lineIndex)
+                const invalid = currentFixes.find(({ fix }) => fix.lineIndex === lineIndex && issueFor(fix))
                 return (
                   <li key={lineIndex} className={`flex min-w-0 flex-col gap-[6px] rounded-lg bg-surface-primary p-[10px] ${reviewing && !found ? 'border-l-[3px] border-warning' : ''}`}>
                     {found ? <>
@@ -446,10 +462,13 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                         <button type="button" onClick={() => undoFix(lineIndex)} disabled={check.isPending}
                           className="shrink-0 rounded-full px-[8px] py-[6px] text-[14px] font-semibold text-link hover:bg-action-default-hover disabled:opacity-50">Undo</button>
                       </div>
-                    </> : <div className="flex min-w-0 items-center justify-between gap-[10px]">
-                      <code className="min-w-0 break-words font-mono text-[14px] text-text-primary">{line}</code>
-                      <button type="button" onClick={() => editLine(lineIndex)} aria-label={`Edit the line ${line}`}
-                        className="h-[36px] shrink-0 rounded-full px-[12px] text-[14px] font-semibold text-link hover:bg-action-default-hover hover:text-link-hover">Edit</button>
+                    </> : <div className="flex min-w-0 flex-col gap-[4px]">
+                      <div className="flex min-w-0 items-center justify-between gap-[10px]">
+                        <code className="min-w-0 break-words font-mono text-[14px] text-text-primary">{line}</code>
+                        <button type="button" onClick={() => editLine(lineIndex)} aria-label={`Edit the line ${line}`}
+                          className="h-[36px] shrink-0 rounded-full px-[12px] text-[14px] font-semibold text-link hover:bg-action-default-hover hover:text-link-hover">Edit</button>
+                      </div>
+                      {invalid && <span className="text-[13px] text-error">{issueFor(invalid.fix)?.reason}</span>}
                     </div>}
                   </li>
                 )
@@ -458,6 +477,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
             <p className="mt-[10px] text-[13px] text-text-muted">
               {stale
                 ? 'You changed the list, so importing checks it again.'
+                : invalidFixes.length
+                  ? `A corrected card is not legal in ${FORMAT_META[formatCode].label}. Edit its line or choose another format.`
                 : reviewing
                   ? remaining ? 'Check each fix. Edit or skip the lines still unmatched.' : 'Check each fix. Undo any line Deck-E got wrong.'
                 : matchedCards > 0
