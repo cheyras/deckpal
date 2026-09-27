@@ -319,8 +319,10 @@ try {
     INSERT INTO price_current VALUES
       (1, 'USD', 1500, NULL), (2, 'USD', 2500, NULL),
       (3, 'EUR', 3500, 1000);
-    DELETE FROM price_observation WHERE card_variant_id = 2 AND currency_code = 'USD';
+    DELETE FROM price_observation WHERE card_variant_id IN (1, 2) AND currency_code = 'USD';
     INSERT INTO price_observation VALUES
+      (1, 'USD', now() - interval '2 days', 700),
+      (1, 'USD', now() - interval '1 day', 900),
       (2, 'USD', now(), 2000),
       (3, 'EUR', now() - interval '2 days', 3000),
       (3, 'EUR', now() - interval '1 day', 3200);
@@ -330,8 +332,8 @@ try {
   assert.deepEqual(usdMovers.map((mover) => mover.cardId), ['base1-1']);
   assert.equal(usdMovers[0].quantity, 2);
   assert.equal(usdMovers[0].marketMinor, 1500);
-  assert.ok(usdMovers[0].avg30Minor > 1000 && usdMovers[0].avg30Minor < 1500);
-  assert.equal(usdMovers[0].changeMinor, (1500 - usdMovers[0].avg30Minor) * 2);
+  assert.equal(usdMovers[0].avg30Minor, 800);
+  assert.equal(usdMovers[0].changeMinor, (1500 - 800) * 2);
   const eurMovers = await topMovers('mover-user', 'EUR');
   assert.equal(eurMovers.length, 1);
   assert.equal(eurMovers[0].avg30Minor, 1000, 'vendor average wins over derived history');
