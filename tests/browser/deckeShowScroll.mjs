@@ -12,8 +12,13 @@ export function analyseScroll(frames, viewportHeight) {
     if (run) {
       const travel = high - low
       if (travel <= RUN_NOISE_PX) settlingPx += distance
-      else if (run >= 3) glides++
-      else jumps++
+      else {
+        // A wide run can still wobble: charge all travel beyond its range,
+        // including tiny oscillations attached to the start/end of a glide.
+        settlingPx += distance - travel
+        if (run >= 3) glides++
+        else jumps++
+      }
     }
     run = 0
     distance = 0

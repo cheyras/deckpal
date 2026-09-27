@@ -57,6 +57,13 @@ test('small oscillations cannot hide inside a narrow range', () => {
   assert.equal(passes(m), false)
 })
 
+test('small oscillations attached to a glide still consume the budget', () => {
+  const m = analyse([0, 10000, ...still(10000), ...glide(10000), ...Array(10).fill([10097, 10100]).flat()])
+  assert.equal(m.glides, 1)
+  assert.equal(m.settlingPx, 60)
+  assert.equal(passes(m), false)
+})
+
 test('a five-pixel second glide is still a glide', () => {
   const m = analyse([0, 10000, ...still(10000), ...glide(10000), ...still(10100), 10101, 10102, 10103, 10104, 10105])
   assert.equal(m.glides, 2)
