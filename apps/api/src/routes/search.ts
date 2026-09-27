@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, badRequest, catalogCache, clampInt, oneOf, str, strList } from '../http.js';
 import { raritySortSql } from '../rarity.js';
+import { formatPoolSql, poolRule, LEGALITY_FORMATS } from '../deck/index.js';
 
 export const searchRouter: Router = Router();
 
@@ -69,6 +70,9 @@ interface SearchRow {
  *   ability    (free text; matches ability name/effect)
  *   artist                                            — repeatable
  *   q          (free text: card name or number)
+ *   legal      (standard|expanded|glc|unlimited: only cards in that format's card
+ *               pool — the deck validator's pool rule, run in SQL; the response
+ *               echoes the rule as `legal: { format, rule }`)
  * Sorts: sort=name|number|price|rarity|released, dir=asc|desc. Pagination: page,pageSize.
  * Pass ?facets=1 to also receive the available filter vocabularies (see gaps).
  */
@@ -96,6 +100,11 @@ searchRouter.get(
     const ability = str(req.query.ability);
     const artist = strList(req.query.artist);
     const search = str(req.query.q);
+    // A format name that is not a format is a 400, not a silently unfiltered
+    // result set: "legal only" returning illegal cards is the one wrong answer.
+    const legalRaw = str(req.query.legal)?.toLowerCase();
+    const legal = legalRaw === undefined ? null : LEGALITY_FORMATS.find((f) => f === legalRaw);
+    if (legal === undefined) throw badRequest(`legal must be one of ${LEGALITY_FORMATS.join(', ')}`);
 
     const params: unknown[] = [];
     const where: string[] = ['true'];
@@ -120,6 +129,8 @@ searchRouter.get(
     // Accent-insensitive name match: unaccent() folds diacritics on both sides
     // so "Poke" matches "Pokémon" (é ↔ e). local_id/number_sort are ASCII.
     if (search) where.push(`(unaccent(c.name) ILIKE unaccent(${p(`%${search}%`)}) OR c.local_id ILIKE $${params.length} OR c.number_sort ILIKE $${params.length})`);
+    const inPool = legal ? formatPoolSql(legal, p) : null;
+    if (inPool) where.push(inPool);
 
     const orderSql = `ORDER BY ${SORT_COLUMNS[sort]} ${dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST, c.number_sort ASC`;
     const limitIdx = p(pageSize);
@@ -158,8 +169,9 @@ searchRouter.get(
       query: {
         cardType, energyType, subType, set, rarity, weakness, resistance, retreat, hp,
         hpMin: hpMin ?? null, hpMax: hpMax ?? null, attack: attack ?? null, ability: ability ?? null,
-        artist, q: search ?? null, sort, dir, page, pageSize,
+        artist, q: search ?? null, legal, sort, dir, page, pageSize,
       },
+      ...(legal ? { legal: { format: legal, rule: poolRule(legal) } } : {}),
       pagination: { page, pageSize, total: totalRows, pageCount: Math.ceil(totalRows / pageSize) },
       cards: rows.map((r) => ({
         cardId: r.tcgdex_id,
