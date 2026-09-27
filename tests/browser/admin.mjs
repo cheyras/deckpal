@@ -69,6 +69,10 @@ export function adminFixture(mount) {
       })
       return result
     }
+    // The Profile banner fetches owned cards on every visit; the picker itself
+    // has its own request-count test, so an empty page is enough here.
+    if (rel === '/api/me/cards') return ok({ pagination: { page: 1, pageSize: 48, total: 0, pageCount: 0 }, cards: [] })
+    if (rel === '/api/me/showcase') return ok({ showcase: [] })
     if (rel === '/api/avatar') return ok({ avatarUrl: null })
     if (rel === '/api/me/billing' || rel === '/api/me/billing/visit') return ok({ available: false, mode: 'unconfigured', prompt: { due: null } })
     if (rel === '/api/me/billing/history') {

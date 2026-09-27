@@ -440,12 +440,19 @@ async function main() {
       pathToFileURL(join(REPO, 'apps/api/src/insights/pokedex.ts'))
     );
     const { topMovers } = await import(pathToFileURL(join(REPO, 'apps/api/src/insights/collectionValue.ts')));
+    const { ownedCardsPage } = await import(pathToFileURL(join(REPO, 'apps/api/src/me/ownedCards.ts')));
     const { resolveCard, resolveCardsBatch } = await import(pathToFileURL(join(REPO, 'packages/agent-tools/src/resolve.ts')));
     const { resolveSet } = await import(pathToFileURL(join(REPO, 'packages/agent-tools/src/entities.ts')));
     const { catalogTools } = await import(pathToFileURL(join(REPO, 'packages/agent-tools/src/tools/catalog.ts')));
     const [searchCardsTool, , setProgressTool] = catalogTools;
 
     toolsCtx = { db: pool, api: {}, userId: fixture.userId };
+
+    await check('Profile owned cards exclude an already-owned Pocket printing', async () => {
+      const page = await ownedCardsPage(fixture.userId, { sort: 'value', page: 1, pageSize: 48 });
+      assert.equal(page.pagination.total, 0);
+      assert.deepEqual(page.cards, []);
+    });
 
     await check('dexCapturedCount ignores an owned Pocket-only capture', async () => {
       assert.equal(await dexCapturedCount(fixture.userId), 0);

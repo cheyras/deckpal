@@ -1419,6 +1419,24 @@ export interface ShowcaseSlot {
   images: { low: string; high: string }
 }
 
+/**
+ * One row of GET /me/cards — a card the caller owns at least one copy of.
+ * UXC-04: this endpoint replaced a client-side derivation that fanned out one
+ * request per captured Pokédex species (867 requests for a heavy collection)
+ * just to answer "what do I own". One query, paged, optionally searched.
+ */
+export interface OwnedCard {
+  cardId: string
+  name: string
+  images: { low: string; high: string }
+  quantity: number
+  price: Price | null
+}
+export interface OwnedCardsResponse {
+  pagination: { page: number; pageSize: number; total: number; pageCount: number }
+  cards: OwnedCard[]
+}
+
 export interface CollectionEvent {
   eventId: string
   occurredAt: string
@@ -2241,4 +2259,10 @@ export const api = {
     // deckpal rename swept this string and 404'd every species page ("No such
     // route"); the route is the Pokédex feature, not the product name.
     get<SpeciesDetailResponse>(`/insights/pokedex/${encodeURIComponent(id)}`, signal),
+
+  // UXC-04: a bounded, paged page of the caller's own owned cards — see
+  // OwnedCardsResponse above. Params: q (name filter), sort=value|recent,
+  // page, pageSize (max 100).
+  ownedCards: (params: URLSearchParams, signal?: AbortSignal) =>
+    get<OwnedCardsResponse>(`/me/cards?${params.toString()}`, signal),
 }
