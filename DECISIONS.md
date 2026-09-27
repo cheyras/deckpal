@@ -20600,6 +20600,92 @@ scenario and the `fetch()` `redirect: 'manual'` spec instead. Also bumped
 this branch (36267286821) hit the ceiling with both cloud and self-host
 admin/feedback journeys complete but the chat/offline fixture never reached;
 a full local run measured ~18 minutes on the (contended) dev machine.
+## 2026-09-26 — Collection, list and deck writes go through per-document lanes and always end visibly
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Collection counters, list edits and deck edits stop using one
+`useMutation` per write. They go through `lib/writeLane.ts`: one request in
+flight per document (`collection:<setId>`, `list:<id>`, `deck:<id>`); a write
+still waiting its turn is replaced by a newer write for the same item (the last
+intent wins); and the control shows the pending intent until the item's last
+write settles. Every such write states an absolute target — the counters use
+`PATCH /collection/variants/:id` instead of `…/increment`, and a deck row's ×
+is `PATCH …/cards/:cardId {quantity: 0}` — which is what makes coalescing and
+Retry safe. Outcomes are reported one way (`lib/writes.ts`): a final failure
+rolls back and raises a `Toast` naming what did not save ("Couldn't remove
+Pikachu from “Trade binder”."), adds why only when it is actionable (offline,
+timed out, deleted, a 4xx's own message), and offers Retry when repeating the
+request is harmless. A form that stays open (Edit list, the delete
+confirmations) reports inline through `FormAlert` instead. Deleting a list or a
+deck, and removing a card from a deck, offer Undo through the existing restore
+and absolute-set endpoints. The server's answer to a collection write is folded
+into the cached card and set responses (after cancelling any older read still in
+flight, which would otherwise land last and undo it on screen); the set itself is
+re-read once, two seconds after the taps stop, for the goal-specific have/need
+flags the answer cannot supply, and the grid is no longer dimmed for a
+background read. `Toast` is a new `components/ui` primitive: one at a time, in
+PwaUi's bottom-right stack with the offline banner, errors announced
+assertively.
+
+**Why:** Quality audit QUAL-02: fifteen collection/list/deck mutations failed
+with no message (restore, edit, delete, pin, add card, update deck among them);
+Restore in Recently deleted — the undo for every delete — did nothing visible
+on a 500. QUAL-06: the deck stepper fired unordered requests, and a stale
+answer landing last replaced the whole deck with an older count. UX audit
+UXC-02: the grid counters disabled themselves during a write, so the 2nd and
+3rd tap of a three-copy pull were dropped, and each tap re-downloaded the whole
+set (0.8–6.5 s on production) while dimming the grid. UXC-08: no undo in the UI,
+although the server has one. TanStack Query does not order concurrent
+`mutate()` calls, and its `scope` option serialises without coalescing or
+saying which answer is an item's last word; those three properties are the
+whole fix, so they live in one small module unit-tested on its own
+(`lib/__tests__/writeLane.test.ts`) and in a browser check that injects 500s,
+reordered latency and offline (`tests/browser/writes.mjs`).
+
+**Implications:**
+- Offline is unchanged where it was defined: the service worker still never
+  queues a write, and the collection counters stay disabled offline. Other
+  writes are attempted and fail with "You're offline." — they are no longer
+  held by TanStack's paused-mutation queue and replayed later.
+- A write that has not answered in 20 s is aborted and reported, so one stalled
+  request cannot freeze the document's other writes. Aborting a fetch does not
+  stop the server, though, so when a write got no answer (the deadline, a
+  dropped connection) its outcome is UNKNOWN: the newer write already queued
+  for that item fails with it (reported once, as the item's final word, so
+  Retry targets the latest intent), and nothing more is sent for that item
+  until 75 s after the unanswered one left — longer than the API function's
+  60 s `maxDuration`, so it can no longer land after its replacement. A unit
+  test holds that margin against `vercel.json`. Failures the server answered
+  (a 500), and requests that never left an offline device, fence nothing.
+  After an unanswered failure the surface re-reads what the write touched,
+  at once and again when the window closes, in case the change landed late.
+- Offline, a write is refused when it is asked for, not queued: one waiting
+  behind another would otherwise go out by itself on reconnecting.
+- `applyAnswer` cancels every read of the data a write touched that is in
+  flight when its answer arrives, applies the answer, then asks those reads
+  again, so a slow GET can neither undo the edit on screen nor be lost (an
+  add's list refresh, a first load).
+- The write-feedback toast sits outside every sheet, so the topmost `Sheet`'s
+  Tab loop now runs through it: a keyboard can reach Retry for a save that
+  failed inside a sheet. Only the topmost dialog handles Tab.
+- Writes belong to the account that asked for them. On IDENTITY_CHANGED every
+  lane is cancelled (queue dropped, in-flight request aborted, its answer
+  ignored) and any Retry/Undo toast is dismissed; each write also re-checks the
+  session just before it is sent, because another tab signing in changes
+  storage before this tab hears about it.
+- The set progress bars move when the server confirms (one round trip) rather
+  than instantly from CardDetail's client-side copy of the progress maths,
+  which is removed. Have/Need/Dupes counts and the "Need" filter catch up with
+  the one re-read after the taps stop, so a card no longer vanishes from under
+  the finger logging it.
+- Additive writes — adding N copies from the deck search picker, adding to a
+  static list — get no Retry, and their tile stays disabled while saving.
+- Not done here: an exact Undo for removing a card from a list needs the list
+  item DELETE to return its mutation `batchId` for `POST /mutations/revert`.
+  Scanner and Deck-E batch commits have their own flows and are unchanged.
+- New writes to these documents should use `save()` / `laneFor()` from
+  `lib/writes.ts`, not a bare `useMutation`.
 ## 2026-09-26 — Deck-E stands clear of what the reader has to press, and every card and notice says what it will do
 
 **Decided by:** Chey (via Claude)
@@ -20621,3 +20707,65 @@ a full local run measured ~18 minutes on the (contended) dev machine.
 - `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
 - `CardArt.name` is now rendered, by the dry-run rows only.
 - Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
+
+## 2026-09-26 — Deck-E hardening: a bounded conversation, a normalised route, a guide write bound to its deck
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Three findings from the 2026-09-26 security audit are closed in
+code. **SEC-04:** `/api/chat` reads at most 256 KB, streamed, and validates the
+conversation with zod before any ledger, credit accounting or model call: at
+most 200 messages of 80 parts, `user`/`assistant` roles only, text and
+`tool-<name>` parts only (so no `file`, `reasoning`, `source-*` or `system`
+message from the browser), and no single part over 60,000 characters (a pasted
+battle log plus words). A request past a size limit is a 413 the reader sees as
+"That's more than I can read in one go"; a wrong shape is a 400. The model is
+shown the reader's current turn whole, approvals included, plus the newest
+prior history that fits 24 messages and 64,000 characters, cut at a message
+boundary and started on a reader message. Every ledger derived from history
+(declines, failing tools, what he already said, the paste, research
+provenance, the charge hash) still reads the whole validated array. The
+browser trims to the same window before sending (`chat/wireWindow.ts`), drops
+a message the server already refused, and tells the reader once per
+conversation when the start of the chat falls out of the window. Replies that
+leave the window still send what the two conversation-wide ledgers need (the
+failing-tool breaker and the already-told record) in a separate `evidence`
+field the server never shows the model: the breaker's STATE compacted into at
+most 4 messages, one per turn depth, each carrying every tool still failing at
+that depth since it last worked — plus the newest lookup records in the
+remaining room, at most 24 messages. So a tool that failed in two turns stays
+switched off however long the chat gets and however many tools are failing
+(found by Astra across three review passes: trimming dropped the evidence, a
+last-24 slice evicted old failures, and one message per failure could still
+cut a tool). A question queued while Deck-E loads is set aside as the current
+turn before the window is applied, so an oversized one still reaches the
+server and comes back as the 413 it is. And because a bounded window can be
+byte-identical across two genuinely new exchanges, the replay-protection key
+(`chatChargeReference`) now includes the browser's `exchangeId` and `seq`; a
+retried leg of the same exchange still collides and is still refused. `route` is
+clipped to 200 characters and each landmark string to 200. **SEC-12:** both
+route allowlists (`isAllowedRoute`, `routeAllowed`) accept a path only if URL
+resolution leaves it unchanged, and refuse `%2e`/`%2f`/`%5c`/`%00` and control
+characters, so `/decks/../profile` no longer reaches `/profile`. **SEC-13:**
+`write_strategy_guide`'s sub-agent holds `deck_strategy` through
+`bindGuideWrite`: a write must resolve to the same deck as the approved `deck`
+argument, and one write is all an approval buys. Reads are unchanged.
+
+**Why:** The charge is flat per request while each of up to twelve steps
+re-bills the whole context, so an unbounded client-built history let any
+`decke.use` account buy large turns on the owner's key (the audit's proof
+carried a 4 MB text part and a PDF `file` URL through the pinned SDK). The
+window is 64,000 characters rather than smaller because the paste channel's
+ordinary shape is "paste, then say yes on the next turn", and the paste must
+still be in the prior window on that turn. The route and guide fixes each turn
+a prompt-text promise into a check in code.
+
+**Implications:** A very long conversation now loses its oldest turns from
+the model's view; the reader is told, and a new chat is the remedy. Declines
+and the other ledgers are unaffected by trimming. `WINDOW_MESSAGES`,
+`WINDOW_PRIOR_CHARS`, `PART_MAX_CHARS` and `EVIDENCE_MAX` are mirrored between
+`apps/api/src/decke/wireBounds.ts` and `apps/web/src/character/host/chat/wireWindow.ts`
+and pinned by `wireBounds.test.ts`; `isNormalPath` is mirrored between
+`tools.ts` and `uiTools.ts` and pinned by `tools.test.ts`. A guide sub-agent
+that fails its one write cannot retry within the same approval. No schema,
+environment variable or deployment change.
