@@ -272,9 +272,12 @@ test('preflight promise is request-local and keyed by toolCallId plus exposed ar
   } finally { f.restore(); }
 });
 
-test('real SDK holds signed exposed input; approve writes once, decline/tamper/replay do not add mutations', async () => {
+test('real SDK holds signed exposed input; approve writes once, decline/tamper/replay do not add mutations', async (t) => {
   const f = fixture();
   const secret = 'test-only-approval-secret';
+  const boundary = Math.ceil(Date.now() / (15 * 60_000)) * (15 * 60_000);
+  let now = boundary - 1_000;
+  t.mock.method(Date, 'now', () => now);
   try {
     const issued = await drain(streamText({
       model: mockModel([{ toolCallId: 'signed-1', toolName: 'log_cards', input: INPUT }]),
@@ -313,7 +316,9 @@ test('real SDK holds signed exposed input; approve writes once, decline/tamper/r
     assert.deepEqual(f.counts(), { previews: 2, writeRequests: 1, writes: 1 });
 
     // Stateless replay can reach the idempotent endpoint again, but its stable
-    // key makes the second request return the original result, not mutate.
+    // key makes the second request return the original result, even when the
+    // approval crosses the derived key's 15-minute bucket boundary.
+    now = boundary + 1_000;
     await drain(streamText({
       model: mockModel(), messages: await replayMessages(true), tools: f.build(),
       experimental_toolApprovalSecret: secret,

@@ -812,7 +812,7 @@ async function serve(request) {
           // honest about the lookup that really ran. Data tools only: the
           // deep tier's sub-agents have no reader to have told anything to.
           priorSummaries: told,
-          // Log-only, for the one line a tripped breaker writes.
+          // Scopes the breaker log line and approved collection-write key.
           conversationId,
           grounding: groundingForTools,
         }),

@@ -172,6 +172,10 @@ exception is `POST /api/chat`: its `log_cards` apply intent omits model-facing
 `preview_card_changes` always forces `dry_run: true`; failed or unresolved plans
 return evidence without writing. Existing human approval, replay, identity and
 idempotency protections remain in force.
+For an approved `log_cards` call, Deck-E derives the collection write's
+idempotency key from the conversation, SDK tool-call ID and signed input after
+approval. Replaying that same approval across a 15-minute boundary therefore
+cannot apply the change twice; a new call can still record a new acquisition.
 `ARCHITECTURE.md` §15e carries the protocol.
 
 **The consent card can commit a corrected batch from the browser, and that is a
