@@ -90,6 +90,23 @@ test('routeAllowed keeps /profile out, by both smuggled spellings', () => {
   assert.equal(routeAllowed(42), false)
 })
 
+test('routeAllowed refuses a dot segment inside an allowed prefix (SEC-12)', () => {
+  // Mirrors the server's own case list: the raw prefix match read each of
+  // these as "under /decks" and the router landed on /profile or /admin.
+  for (const path of [
+    '/decks/../profile',
+    '/decks/%2e%2e/profile',
+    '/decks/./../admin',
+    '/series/../devtools',
+    '/decks/..%2fprofile',
+    '/decks/x\n/profile',
+  ]) {
+    assert.equal(routeAllowed(path), false, `${JSON.stringify(path)} must be refused`)
+  }
+  assert.equal(routeAllowed('/decks/6f1c2a9e-2b7d-4a44-9d0e-1c2b3a4d5e6f'), true)
+  assert.equal(routeAllowed('/search?q=../profile'), true)
+})
+
 test('a card tile is addressable by ONE spelling, and that spelling only', () => {
   // The card tile is the only target that is allowed on its own authority
   // rather than by an ancestor `data-decke-landmark`, because the grid is

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Icon } from './Icon'
+import { Toaster } from './ui/Toast'
 import { useOnline } from '../lib/useOnline'
 import { applyUpdate, needRefresh as initialNeedRefresh, onNeedRefresh } from '../pwa'
 
@@ -125,10 +126,17 @@ export function PwaUi() {
           <InstallButton />
         </div>
       )}
-      {/* bottom-right: offline banner stacked above the update toast */}
-      <div className="pointer-events-none fixed bottom-[16px] right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px]">
+      {/* bottom-right: offline banner, update toast, then write feedback (the
+          one most likely to carry a button someone needs right now sits
+          nearest the thumb). Lifted clear of the iOS home indicator, which
+          otherwise swallows taps on a Retry sitting 16px from the edge. */}
+      <div
+        className="pointer-events-none fixed left-[16px] right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px] nav:left-auto"
+        style={{ bottom: 'calc(16px + env(safe-area-inset-bottom))' }}
+      >
         <OfflineBanner />
         <UpdateToast />
+        <Toaster />
       </div>
     </>
   )

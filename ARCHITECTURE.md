@@ -243,15 +243,22 @@ branches without a database and fails if a route reaches for `req.user` again.
 
 ### Classification
 
-Every table is either **catalog (shared)** or **per-user**:
+Every table is **catalog (shared)**, **per-user**, or a **public profile** table:
 
 - **Catalog tables** (card, series, card_set, card_variant, price_current,
   price_observation, sync_run, image_asset, etc.): world-readable, service-role-
   writable. No `user_id` column. RLS policy: `SELECT: true`.
 - **Per-user tables** (collection_item, deck, deck_card, deck_version,
-  battle_log, card_list, list_item, binder_placement, user_settings,
-  user_profile, etc.): readable/writable only by the owning user. RLS policy:
-  `user_id = (SELECT auth.uid())`.
+  battle_log, card_list, list_item, binder_placement, user_settings, etc.):
+  readable/writable only by the owning user. RLS policy:
+  `user_id = (SELECT auth.uid())`. A child row's foreign key includes
+  `user_id` (`(deck_id, user_id) REFERENCES deck (id, user_id)`), because a
+  foreign-key check ignores RLS and would otherwise let a user attach rows to
+  someone else's parent (migration 072).
+- **Public profile tables** (`user_profile`, `user_showcase`): world-readable
+  for the `/u/{name}` profile page, writable only by the owner. `user_profile`
+  is writable only in its avatar columns, and an avatar key can belong to one
+  profile at a time (migration 072).
 
 ### The user ID migration
 
@@ -266,10 +273,27 @@ as a constant.
 
 ### Views
 
-Catalog views (`variant_tier_resolved`, `master_required_variant`,
-`set_variant_coverage`, `card_without_standard_variant`) have no user_id and
-need no RLS change. `collection_dupe_predicate` reads through the RLS'd
-`collection_item` table and works correctly.
+A Postgres view runs with its **owner's** rights unless it is created
+`WITH (security_invoker = true)`, and the owner here is the migration role,
+which owns every table and so never meets their RLS. A plain view over a
+per-user table therefore publishes all of it to anyone Supabase's default
+grants let SELECT the view, which includes the anon key.
+
+That is exactly what `collection_dupe_predicate` did. This section used to say
+it "reads through the RLS'd `collection_item` table and works correctly"; it
+did not. From migration 020 until 072 it served every account's
+(user, card, owns-two-or-more) rows at `/rest/v1/collection_dupe_predicate` to
+anyone with the anon key (DECISIONS.md 2026-09-26). Nothing read it, and 072
+dropped it.
+
+Every remaining view (`variant_tier_resolved`, `master_required_variant`,
+`set_variant_coverage`, `card_without_standard_variant`, and the service-only
+`admin_user_role`) is `security_invoker` since 072, so a view applies the
+caller's RLS like the tables beneath it. Two checks hold that line:
+`packages/db/src/__tests__/migrationLint.test.ts` fails any migration that
+creates a view without the option, and the database integration suite
+(`apps/api/src/__integration__/reach.mjs`) applies every migration and asserts
+that anon and a second user reach none of a user's rows in any table or view.
 
 ## 7. Image storage
 
@@ -830,6 +854,28 @@ backstop for the failures nobody has diagnosed yet, not for this one.
 `scripts/visual-harness/probe-first-paint.mjs` asserts the property against a
 real browser with the token endpoint held open.
 
+**Writes go through a lane, and end visibly (2026-09-26).** Every collection,
+list and deck write is sent by `lib/writeLane.ts`: one request in flight per
+document (`collection:<setId>`, `list:<id>`, `deck:<id>`), so answers — which
+are whole-document snapshots — land in the order sent; a write still waiting its
+turn is replaced by a newer one for the same item, so a burst of taps sends the
+last intent rather than every step; and the control shows that intent until the
+item's last write settles, which makes rollback nothing more than the intent
+going away. That only works because every such write states an absolute target
+(`PATCH` a quantity, never `…/increment`). `lib/writes.ts` is the single place
+that reports the outcome: a final failure raises the `Toast` with what did not
+save, why when it is actionable, and Retry when repeating is harmless; a form
+that stays open reports inline through `FormAlert`; a destructive success offers
+Undo. A write that does not answer in 20 s is aborted so it cannot hold its
+document's later writes, and every lane is cancelled when the signed-in account
+changes. A write the server never answered (the deadline, a dropped connection)
+may still land, so for that item the lane fails the newer write queued behind
+it and sends nothing more for 75 s after the unanswered one left — past the API
+function's 60 s limit. Answers go into the cache through `applyAnswer`, which
+cancels any read of the same data still in flight and asks it again afterwards.
+Nothing is queued offline — the service worker keeps mutations `NetworkOnly`,
+and the collection counters stay disabled offline.
+
 ## 14. Design system and the /design editor
 
 The visual language is a token system in `apps/web/src/theme.css`: three brand
@@ -839,7 +885,7 @@ match, actions, status, energy types, variant accents, z-layers). Two type
 roles — Figtree (body/UI) and Fraunces (display, reserved for the app's
 proper nouns) — with a 14px floor and named exceptions. Shared primitives
 live in `apps/web/src/components/ui/` (Button, Tabs, Progress, StatTile,
-SelectableCard, EmptyState, CounterBox, Field/FormAlert/StatusPanel,
+SelectableCard, EmptyState, CounterBox, Field/FormAlert/StatusPanel, Toast,
 useDismiss), each with a co-located `*.gallery.tsx` that type-checks its
 catalog entry against the real prop surface. The premium visual pass
 (`premium.css`) is scoped entirely under `[data-skin='premium']` — a
@@ -1492,6 +1538,14 @@ with more than one printing and no stated variant used to be silently resolved
 to the primary *and written*. It is now asked about, and not written if the
 question is ignored.
 
+**A write reaches the page behind him.** Page data is TanStack Query, fresh for
+five minutes, so a write he made used to leave the deck page showing the old list
+(and its absolute-quantity steppers able to write it back). `useDeckeChat`
+now invalidates query roots when a write's chip finishes, whether the server ran
+the tool or the card committed a corrected batch. The roots come from
+`chat/writeRefresh.ts`, one entry per tool that can ask. A test fails when a write
+tool has no entry, or when an entry names a root no query uses.
+
 ### 15f. Fabrication is bounded, not cured
 
 Nine defects were found by deploying this branch to a preview and asking it real
@@ -1689,10 +1743,10 @@ Two shapes of collection write, deliberately:
 | | per-variant | batch |
 |---|---|---|
 | endpoint | `PATCH /collection/variants/:id`, `POST …/increment` | `POST /collection/batch` |
-| caller | the web UI's stepper | `log_cards`, imports |
+| caller | the web UI's counters and steppers (absolute `PATCH` only, via `lib/collectionWrites.ts`); `…/increment` is for agents | `log_cards`, imports |
 | transaction | one per variant | ONE for the whole batch |
 | progress recompute | one per call | one per DISTINCT SET |
-| idempotency | none (a human pressing again means it) | keyed |
+| idempotency | `PATCH` is idempotent by being absolute; `…/increment` has none (a human pressing again means it) | keyed |
 
 The batch endpoint exists because the per-variant shape does not scale to a
 pack-opening haul. Driving it in a loop from the MCP cost **0.65 s per item** in
