@@ -26,6 +26,7 @@ import { registerPwa } from './pwa'
 import { lazyRoute, type LazyRoute } from './lib/lazyRoute'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
+import { RootErrorBoundary, RouteErrorFallback } from './components/ErrorBoundary'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, safeNextPath } from './lib/landingRoute'
 import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED, ACCESS_CHANGED } from './lib/access'
@@ -836,6 +837,18 @@ const router = createRouter({
   basepath: import.meta.env.VITE_SUPABASE_URL ? '' : '/deckpal',
   defaultPendingComponent: RoutePending,
   defaultPreload: 'intent',
+  // QUAL-01: with no `errorComponent`/`defaultErrorComponent` anywhere in the
+  // tree, TanStack Router wraps NO route in a catch boundary at all (its
+  // `Match.js` resolves the boundary to a no-op `SafeFragment` unless one of
+  // the two is set) — a render throw in any route unmounted the whole app.
+  // Setting it here alone gives EVERY route its own boundary, because the
+  // router applies this as the fallback for every match that doesn't define
+  // its own `errorComponent`, one boundary per matched route in the chain.
+  // A leaf route's crash is caught by that route's own (nearest) boundary
+  // before it reaches its parent, so AppShell's header/rail and the rest of
+  // the route tree above the crash stay mounted and interactive. See
+  // components/ErrorBoundary.tsx.
+  defaultErrorComponent: RouteErrorFallback,
 })
 
 declare module '@tanstack/react-router' {
@@ -1001,9 +1014,12 @@ router.subscribe('onRendered', () => {
 void router.load().catch(() => {}).then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
+      {/* Last resort: catches anything outside the router's per-route boundaries. */}
+      <RootErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </RootErrorBoundary>
     </StrictMode>,
   )
   // After the page's own images and data, never competing with them.

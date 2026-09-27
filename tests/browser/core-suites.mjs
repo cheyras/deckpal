@@ -28,7 +28,8 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
         let adminActive = false, writesActive = false
         const server = await serve(dist, mount,
           (rel, url, req) => writesActive ? writes.response(rel, url, req) : adminActive ? admin.response(rel, url, req) : appResponses(scenario, rel),
-          'index.html', { allowMutation: (pathname, method) => admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
+          'index.html', { allowMutation: (pathname, method) => pathname.endsWith('/api/client-errors') && method === 'POST'
+            || admin.allowMutation(pathname, method) || (writesActive && writes.allowMutation(pathname, method)) })
         try {
           logs.push(await buildWeb(dist, label === 'cloud', server.origin))
           assets.push({ label, ...await checkDeployAssets(dist) })
