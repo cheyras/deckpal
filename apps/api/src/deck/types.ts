@@ -108,6 +108,9 @@ export interface Violation {
 export interface ValidationWarning {
   code: ViolationCode;
   message: string;
+  /** The decklist line an import warning is about, exactly as pasted, so the
+   *  import dialog can show the reader their own text rather than a paraphrase. */
+  line?: string;
 }
 
 export interface ValidationCounts {
