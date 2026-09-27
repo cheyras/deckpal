@@ -332,8 +332,9 @@ async function checkAdminTables(browser, server, mount, label, out, fixture) {
       assert.equal(await region.evaluate(node=>{const style=getComputedStyle(node);return (style.outlineStyle!=='none' && parseFloat(style.outlineWidth)>0)||style.boxShadow!=='none'}),true,'Keyboard focus must have a visible outline or ring')
       await region.evaluate(node=>{node.scrollLeft=0})
       const before=await region.evaluate(node=>node.scrollLeft)
-      await page.keyboard.press('ArrowRight');await page.waitForTimeout(120)
-      assert.equal(await region.evaluate(node=>node.scrollLeft)>before,true,'ArrowRight must actually scroll overflowing columns')
+      await page.keyboard.press('ArrowRight')
+      const moved=await page.waitForFunction(before=>document.activeElement?.scrollLeft>before,before,{timeout:2000}).then(()=>true,()=>false)
+      assert.equal(moved,true,'ArrowRight must actually scroll overflowing columns')
     }
     if(width===390)assert.equal(await region.evaluate(node=>node.scrollWidth>node.clientWidth),true,'Phone retains columns in an overflowing table')
     await region.evaluate(node=>{node.scrollLeft=0})

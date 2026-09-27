@@ -20978,7 +20978,9 @@ helper; it failed before reaching the browser checks.
 
 **Implications:** Suite names must be unique, and each suite must own its temporary build,
 server and browser contexts. The runner checks this registration contract before executing
-the bounded pool. The main-branch write and sign-in-return suites remain in the run.
+the bounded pool. The main-branch write and sign-in-return suites remain in the run. The
+table keyboard-scroll check waits for the observed scroll instead of assuming it completes
+within 120 ms under concurrent CI load.
 
 ## 2026-09-26 — Deck-E hardening: a bounded conversation, a normalised route, a guide write bound to its deck
 
