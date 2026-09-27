@@ -416,7 +416,7 @@ export async function checkChat(browser, server, out) {
       await page.route(/ChatMarkdownBody.*\.js/, route => {
         releaseMarkdown = () => route.continue()
         markdownRequested()
-      })
+      }, { times: 1 })
       await set(page, { busy: true, messages: assistant('A streaming fragment') })
       await markdownPending
       await panel.getByText('A streaming fragment', { exact: true }).waitFor()
