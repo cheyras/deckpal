@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, useRouterState, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Icon, BrandLogo, BrandD, type IconName } from './Icon'
@@ -452,11 +452,13 @@ function Sidebar({
 function MobileDrawer({
   open,
   onClose,
+  returnFocusRef,
   signedIn,
   permissions,
 }: {
   open: boolean
   onClose: () => void
+  returnFocusRef: RefObject<boolean>
   signedIn: boolean | undefined
   permissions: readonly string[]
 }) {
@@ -530,9 +532,9 @@ function MobileDrawer({
     })
     return () => {
       cancelAnimationFrame(id)
-      document.querySelector<HTMLElement>('button[aria-label="Menu"]')?.focus({ preventScroll: true })
+      if (returnFocusRef.current) document.querySelector<HTMLElement>('button[aria-label="Menu"]')?.focus({ preventScroll: true })
     }
-  }, [open])
+  }, [open, returnFocusRef])
   if (!open) return null
   const top = 'calc(64px + env(safe-area-inset-top))'
   return (
@@ -729,6 +731,7 @@ function Header({
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerReturnFocus = useRef(true)
   const sidebarW = collapsed ? 82 : 275
   // Self-host is always `true` (no signed-out state); cloud settles from the
   // persisted session in a tick. Drives which identity affordance the chrome
@@ -751,6 +754,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // mounted only when `signedIn === true`, so a logged-out visitor still fires
   // exactly zero authenticated calls.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
+  useEffect(() => {
+    // Deck-E's launcher sits above the phone drawer. Opening chat dismisses
+    // that modal first, without returning focus to the now-obscured Menu button.
+    const onDeckeOpening = () => {
+      drawerReturnFocus.current = false
+      setDrawerOpen(false)
+    }
+    window.addEventListener('deckpal:decke-opening', onDeckeOpening)
+    return () => window.removeEventListener('deckpal:decke-opening', onDeckeOpening)
+  }, [])
   if (isChromelessPathname(pathname)) {
     return <>{children}</>
   }
@@ -764,8 +777,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         signedOut={signedIn === false}
         permissions={permissions}
       />
-      <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
-      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} permissions={permissions} />
+      <Header onBurger={() => { drawerReturnFocus.current = true; setDrawerOpen((o) => !o) }} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
+      <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} returnFocusRef={drawerReturnFocus} signedIn={signedIn} permissions={permissions} />
       <main id="main" tabIndex={-1} className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>

@@ -1918,6 +1918,7 @@ function settledRect(el: HTMLElement): DOMRect {
         overChat={chatOpen}
         chatOpen={chatOpen}
         onOpen={(rect) => {
+          window.dispatchEvent(new Event('deckpal:decke-opening'))
           launchRectRef.current = rect
           setChatOpen(true)
         }}
@@ -1928,7 +1929,10 @@ function settledRect(el: HTMLElement): DOMRect {
       <DeckeChat
         open={chatOpen}
         minimised={travelling}
-        onExpand={() => setTravelling(false)}
+        onExpand={() => {
+          window.dispatchEvent(new Event('deckpal:decke-opening'))
+          setTravelling(false)
+        }}
         onClose={() => {
           // ENDS THE TURN, and settles anything he was waiting on. Closing used
           // to do neither, so closing while he was asking permission parked the

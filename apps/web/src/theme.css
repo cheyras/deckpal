@@ -420,6 +420,14 @@ button {
   color: var(--color-action-primary-text);
 }
 
+@media (max-width: 1067px) {
+  /* The focused link sits below the phone header. Reserve its row so it does
+     not cover the page heading while the reader decides whether to skip. */
+  #root:has(.skip-link:focus) #main {
+    padding-top: 48px;
+  }
+}
+
 /* The skip link moves focus to this landmark; the next Tab shows the first
    actual control's ring. A full-page ring around the landmark is misleading. */
 #main:focus {

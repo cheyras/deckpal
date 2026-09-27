@@ -930,7 +930,14 @@ function announce(text: string): void {
 
 let headingWatcher: MutationObserver | null = null
 let headingFallback: number | null = null
+let announcedPathname: string | null = null
 router.subscribe('onRendered', () => {
+  const pathname = router.state.location.pathname
+  // Search filters, sort, pagination and card sheets can change the URL while
+  // staying on the same page. Keep the existing heading watcher and timer;
+  // restarting them would turn an unchanged h1 into the generic site title.
+  if (pathname === announcedPathname) return
+  announcedPathname = pathname
   headingWatcher?.disconnect()
   if (headingFallback !== null) window.clearTimeout(headingFallback)
   const previousHeading = routeAnnouncer.textContent ?? ''

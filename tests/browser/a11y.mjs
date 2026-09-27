@@ -86,16 +86,25 @@ export async function checkA11y(browser, server, mount, label, out) {
                 visible: !!rect && rect.width > 0 && rect.height > 0 &&
                   document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === link,
                 top: rect?.top,
+                bottom: rect?.bottom,
+                headingTop: document.querySelector('#main h1')?.getBoundingClientRect().top,
+                background: link && getComputedStyle(link).backgroundColor,
                 mainExists: !!document.getElementById('main'),
               }
             })
             assert.equal(firstStop.isSkipLink, true, `${engine} ${width}: the skip link must be the first Tab stop`)
             assert.equal(firstStop.visible, true, `${engine} ${width}: the focused skip link must be unobscured`)
             assert.equal(firstStop.mainExists, true, `${engine} ${width}: #main must exist`)
-            if (width === 390) assert.ok(firstStop.top >= 64, `${engine}: the phone header must not cover the skip link`)
+            assert.notEqual(firstStop.background, 'rgba(0, 0, 0, 0)', `${engine} ${width}: the focused link needs an opaque face`)
+            if (width === 390) {
+              assert.ok(firstStop.top >= 64, `${engine}: the phone header must not cover the skip link`)
+              assert.ok(firstStop.headingTop >= firstStop.bottom, `${engine}: the skip link must not cover the page heading`)
+            }
             await page.keyboard.press('Enter')
             assert.equal(await page.evaluate(() => document.activeElement?.id), 'main', `${engine} ${width}: Enter must focus main`)
             assert.equal(await page.locator('#main').getAttribute('tabindex'), '-1')
+            assert.equal(await page.locator('#main').evaluate((el) => getComputedStyle(el).outlineStyle), 'none',
+              `${engine} ${width}: the landmark itself must not gain a page-sized outline`)
             await page.keyboard.press('Tab')
             assert.equal(await page.evaluate(() => document.querySelector('#main')?.contains(document.activeElement) && document.activeElement?.id !== 'main'),
               true, `${engine} ${width}: the next Tab must stay inside main`)
@@ -106,6 +115,18 @@ export async function checkA11y(browser, server, mount, label, out) {
         }
       }
     } finally { await safari.close() }
+    const decke = await contextFor(browser, server, 390)
+    try {
+      await signIn(decke.context)
+      await decke.page.goto(server.origin + '/lists', { waitUntil: 'networkidle' })
+      await decke.page.getByRole('button', { name: 'Menu' }).click()
+      await decke.page.getByRole('dialog', { name: 'Navigation' }).waitFor()
+      await decke.page.locator('button[aria-label="Chat with Deck-E"]').click()
+      await decke.page.waitForFunction(() => !document.querySelector('#mobile-nav-drawer'))
+      assert.notEqual(await decke.page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Menu',
+        'opening Deck-E must not return focus to the drawer trigger')
+      results.push({ case: 'a11y-drawer-to-chat', label, drawerClosed: true, focusStayedOutOfMenu: true })
+    } finally { await decke.context.close() }
     const { context, page } = await contextFor(browser, server, 390)
     try {
       await signIn(context)
@@ -185,6 +206,16 @@ export async function checkA11y(browser, server, mount, label, out) {
       }))
       await page.goto(server.origin + '/search?q=Pikachu', { waitUntil: 'networkidle' })
       const live = 'body > [role="status"][aria-live="polite"]'
+      await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'Search', live)
+      await page.locator('input[placeholder^="Search every card"]').fill('Raichu')
+      await page.waitForURL(/\/search\?q=Raichu/)
+      await page.waitForTimeout(4200)
+      assert.equal(await page.locator('h1').textContent(), 'Search')
+      assert.equal(await page.locator(live).textContent(), 'Search',
+        'a query-only search change must not replace the page heading with the generic site title')
+      results.push({ case: 'a11y-search-query-announcement', label, announcement: 'Search' })
+      await page.locator('input[placeholder^="Search every card"]').fill('Pikachu')
+      await page.waitForURL(/\/search\?q=Pikachu/)
       for (const [cardId, expected] of [
         ['fixture-a-1', 'Pikachu — Alpha Set #001'],
         ['fixture-b-1', 'Pikachu — Beta Set #001'],
