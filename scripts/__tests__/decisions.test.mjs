@@ -9,7 +9,7 @@ import { decisionDate, decisionFile, metadata, parseDecisionFile, splitLegacy } 
 
 const cli = fileURLToPath(new URL('../decisions.mjs', import.meta.url));
 const run = (repo, command, args = []) => execFileSync(command, args, { cwd: repo, encoding: 'utf8',
-  env: { ...process.env, DECKPAL_DECISIONS_ROOT: repo }, stdio: ['ignore', 'pipe', 'pipe'] });
+  env: { ...process.env, DECKPAL_DECISIONS_ROOT: repo, GIT_EDITOR: 'true' }, stdio: ['ignore', 'pipe', 'pipe'] });
 
 test('the splitter preserves decorated and undated historical sections exactly', () => {
   const source = '# Preamble\n\n---\n\n## 2026-01-01 — First\nbody\n\n## Phase 2 progress\nnotes\n' +
