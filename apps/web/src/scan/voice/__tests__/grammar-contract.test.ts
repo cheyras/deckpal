@@ -58,6 +58,11 @@ const matrix: readonly [string, Expected][] = [
   ['remove Charizard and that one', 'two-cards'],
   ['remove Venonat that one', 'two-cards'],
   ['remove it Charizard', 'two-cards'],
+  ['this one is two copies and the holo card is reverse', 'two-cards'],
+  ['this one is two copies and holo is reverse', 'two-cards'],
+  ['two of those and holo is reverse', 'two-cards'],
+  ['this one is two copies holo is reverse', 'two-cards'],
+  ["two of those and they are reverse", 2],
   ['remove that one Venonat', 'two-cards'],
   ['two copies and Charizard holo', 'two-cards'],
 ]

@@ -668,15 +668,25 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
       ['that', 'this'].includes(words[previous.from])
     if (!apposition && !breaks.some((at) => at >= previous.to && at <= subject.from)) breaks.push(subject.from)
   }
+  const isInstruction = (s: Segment) => isPrinting(s) || slotKind(s) === 'remove' ||
+    (s.kind === 'number' && used.has(segs.indexOf(s)))
+  const isCopula = (s: Segment) => isFiller(s) &&
+    words.slice(s.from, s.to).some((w) => w === 'is' || w === 'was' || w === 'are')
+  // A later subject can itself sound like printing vocabulary (“the holo card
+  // is reverse”). Its copula starts a clause even without a known reference.
+  for (const s of segs.filter(isCopula)) {
+    const previous = segs.filter((o) => o.to <= s.from && isInstruction(o)).at(-1)
+    if (previous && !breaks.some((at) => at >= previous.to && at <= s.from)) breaks.push(s.from)
+  }
   const removeAndEdit = has('remove') && (quantity !== null || segs.some(isPrinting))
   for (const at of breaks) {
     const before = segs.filter((s) => s.to <= at)
     const afterSubjects = subjects.filter((s) => s.from >= at)
-    const hasInstruction = before.some((s) => isPrinting(s) || slotKind(s) === 'remove' ||
-      (s.kind === 'number' && used.has(segs.indexOf(s))))
+    const hasInstruction = before.some(isInstruction)
     const beforeSubjects = subjects.filter((s) => s.to <= at)
-    if (!afterSubjects.length || (!hasInstruction && !beforeSubjects.length)) continue
-    const sharedCopies = !nameSeg && quantity !== null && before.some((s) => slotKind(s) === 'of') &&
+    const hasSubjectClause = afterSubjects.length > 0 || segs.some((s) => s.from >= at && isCopula(s))
+    if (!hasSubjectClause || (!hasInstruction && !beforeSubjects.length)) continue
+    const sharedCopies = afterSubjects.length === 1 && !nameSeg && quantity !== null && before.some((s) => slotKind(s) === 'of') &&
       beforeSubjects.length === 1 && words.slice(beforeSubjects[0].from, beforeSubjects[0].to).some((w) => w === 'those' || w === 'these' || w === 'them') &&
       afterSubjects.every((s) => s.kind === 'slot' && words.slice(s.from, s.to).every((w) => w === 'they' || w === 'theyre')) &&
       (words[at - 1] === 'and' || words[at] === 'and') && !segs.some((s) => s.from >= at && (slotKind(s) === 'remove' || slotKind(s) === 'qty'))

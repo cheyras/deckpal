@@ -41,6 +41,8 @@ executing one against the wrong capture can change the collection.
    omits a clause separator. “Two of those and they’re reverse” explicitly
    shares one target and remains supported. A bare “that” or “this” may
    qualify a name (“that Venonat”); a separate reference after a name cannot.
+   A later subject clause (“the holo card is reverse”) is refused even when
+   its subject sounds like printing vocabulary.
 7. One count reader validates complete tokens before punctuation normalization.
    Digits with valid thousands grouping and existing number-word forms are the
    only count syntax; the result must be an integer within 1–99. Leading or
