@@ -6,6 +6,8 @@ const USER = '10000000-0000-4000-8000-000000000002'
 const original = '2 Iono PAL 999\n2 Iono PAL 999'
 const confirmed = '2 Iono PAL 185\n2 Iono PAL 185'
 const partial = '2 Iono PAL 185\n2 Iono PAL 999'
+const originalWithWhitespace = '2 Iono PAL 999\n  2 Iono PAL 999  '
+const partialWithWhitespace = '2 Iono PAL 185\n  2 Iono PAL 999  '
 const summary = unresolvedLines => ({ import: { source: 'ptcgl', resolvedEntries: 2 - unresolvedLines.length,
   distinctCards: 1, totalCards: (2 - unresolvedLines.length) * 2, unresolved: unresolvedLines,
   unresolvedLines, warnings: [], variantNote: '' } })
@@ -43,7 +45,11 @@ export async function checkDeckImport(browser, server, fixture) {
             confirmedCheckStarted()
             return heldResponse.then(() => route.fulfill({ json: summary([]) }))
           }
-          return route.fulfill({ json: summary(body.text === confirmed ? [] : body.text === partial ? [novelUnresolved ? '2 Iono PAL 185' : '2 Iono PAL 999'] : ['2 Iono PAL 999', '2 Iono PAL 999']) })
+          return route.fulfill({ json: summary(body.text === confirmed ? []
+            : body.text === partial ? [novelUnresolved ? '2 Iono PAL 185' : '2 Iono PAL 999']
+              : body.text === partialWithWhitespace ? ['  2 Iono PAL 999  ']
+                : body.text === originalWithWhitespace ? ['2 Iono PAL 999', '  2 Iono PAL 999  ']
+                  : ['2 Iono PAL 999', '2 Iono PAL 999']) })
         }
         created.push(body)
         return route.fulfill({ json: { deck: { id: 'fixture-import' } } })
@@ -53,9 +59,9 @@ export async function checkDeckImport(browser, server, fixture) {
     try {
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       const open = () => page.getByRole('button', { name: /Import from PTCG Live/ }).click()
-      const prepare = async (suggested = 2) => {
+      const prepare = async (suggested = 2, input = original) => {
         await open()
-        await page.getByRole('textbox', { name: 'Decklist' }).fill(original)
+        await page.getByRole('textbox', { name: 'Decklist' }).fill(input)
         await page.getByRole('button', { name: 'Import deck' }).click()
         const group = page.getByRole('group', { name: 'Unmatched decklist lines' })
         await group.getByText("2 lines don't match a card").waitFor()
@@ -117,6 +123,11 @@ export async function checkDeckImport(browser, server, fixture) {
       assert.equal(created.length, 2, 'a newly unmatched replacement must be shown, not silently skipped')
       novelUnresolved = false
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+      await prepare(1, originalWithWhitespace)
+      await page.getByRole('button', { name: 'Import without them' }).click()
+      await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
+      assert.equal(created.at(-1).text, partialWithWhitespace, 'spaces on the skipped line must not require a second click')
+      await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await open()
       await page.getByRole('textbox', { name: 'Decklist' }).fill(original)
       await page.getByRole('button', { name: 'Import deck' }).click()
@@ -132,7 +143,7 @@ export async function checkDeckImport(browser, server, fixture) {
       await page.getByText('PAL 185 is Iono.').first().waitFor()
       results.push({ case: 'deck-import-fix-confirm', width, checked: checked.length, created: created.length,
         undoDisabledDuringCheck: true, canceledCheckCreated: false, partialSkip: true,
-        newUnresolvedNotSkipped: true, hiddenTextAction: true })
+        newUnresolvedNotSkipped: true, whitespaceSkip: true, hiddenTextAction: true })
     } finally { releaseConfirmedCheck(); await context.close() }
   }
   return results

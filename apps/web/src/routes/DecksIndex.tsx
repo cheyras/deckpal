@@ -242,7 +242,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
         // The primary action explicitly permits skipping the lines still shown
         // here. If the dry run finds a NEW unresolved line, show it instead of
         // silently skipping something the reader never agreed to skip.
-        const onlyExpectedUnresolved = JSON.stringify([...summary.unresolvedLines].sort()) === JSON.stringify(expectedUnresolved)
+        const onlyExpectedUnresolved = JSON.stringify(summary.unresolvedLines.map(line => line.trim()).sort()) === JSON.stringify(expectedUnresolved)
         if (summary.unresolvedLines.length === 0 || (summary.totalCards > 0 && onlyExpectedUnresolved))
           onSubmit({ ...asked, name: now.name.trim() || undefined })
       },
