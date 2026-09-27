@@ -24,8 +24,13 @@ test('eight shards cover every suite once, regardless of discovery order', () =>
   assert.deepEqual(shardSuites([...suites].reverse(), 8).map(shard => shard.map(suite => suite.name)), assignment)
 })
 
+test('one shard can run the entire suite despite the isolated visual case', () => {
+  assert.deepEqual(shardSuites(suites, 1)[0].map(suite => suite.name), [...names].sort())
+})
+
 test('shard argument rejects missing and out-of-range indexes', () => {
   assert.deepEqual(parseShard([]), null)
+  assert.deepEqual(parseShard(['--shard', '1/1']), { index: 1, count: 1 })
   assert.deepEqual(parseShard(['--shard', '2/4']), { index: 2, count: 4 })
   for (const args of [['--shard'], ['--shard', '0/4'], ['--shard', '5/4'], ['--shard', '1/0'], ['--shard', 'a/4']]) {
     assert.throws(() => parseShard(args))

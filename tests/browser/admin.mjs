@@ -7,6 +7,7 @@ import { appResponses, announcement } from './upcoming.mjs'
 export const PERMISSIONS = ['devtools.access','admin.access','users.read','users.manage','roles.read','roles.manage','settings.read','settings.write','credits.read','credits.manage','audit.read','scanner.use','scanner.label','design.view','diagnostics.view','decke.use']
 const OWNER = '10000000-0000-4000-8000-000000000001', USER = '10000000-0000-4000-8000-000000000002'
 const now = '2026-09-12T18:00:00Z'
+const DELAYED_SEARCH_MS = 1500
 export function adminFixture(mount) {
   const state = {
     actor: 'owner', permissions: [...PERMISSIONS], conflicts: false, requests: [], signedOut: false, usersFailOnce: false, rolesFail: false, delayedSearch: '',
@@ -81,7 +82,7 @@ export function adminFixture(mount) {
       const users = state.users.filter(u => (!search || u.id === search || u.username.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase())) && (status === 'all' || u.suspended === (status === 'suspended')) && (!role || u.roles.some(r => r.id === role)))
       const limit = Number(url.searchParams.get('limit') ?? 25), offset = Number(url.searchParams.get('offset') ?? 0)
       const result = ok({ users: users.slice(offset, offset + limit), total: users.length, limit, offset })
-      return state.delayedSearch && search === state.delayedSearch ? new Promise(resolve => setTimeout(() => resolve(result), 400)) : result
+      return state.delayedSearch && search === state.delayedSearch ? new Promise(resolve => setTimeout(() => resolve(result), DELAYED_SEARCH_MS)) : result
     }
     if (rel === '/api/admin/users/' + USER) return ok({ user: state.users[0], permissions: state.users[0].roles.flatMap(r => state.roles.find(role => role.id === r.id)?.permissions ?? []), stats: { collectionItems: 3, decks: 1, connectors: 2 } })
     if (rel === '/api/admin/users/' + USER + '/role') {
@@ -424,7 +425,7 @@ async function checkAdminTables(browser, server, mount, label, out, fixture, wid
       await users.getByRole('status').filter({hasText:'Loading results'}).waitFor()
       assert.equal(await userTable.getByRole('link').count(),0,'New request hides the previous-filter accounts')
       await users.getByLabel('Search users',{exact:true}).fill('Member 058');await users.getByRole('button',{name:'Search',exact:true}).click()
-      await userTable.getByRole('link',{name:'Member 058',exact:true}).waitFor();await page.waitForTimeout(500)
+      await userTable.getByRole('link',{name:'Member 058',exact:true}).waitFor();await page.waitForTimeout(DELAYED_SEARCH_MS + 100)
       assert.equal(await userTable.getByRole('link',{name:'Member 059',exact:true}).count(),0,'Late cancelled response must not replace newer results')
       state.delayedSearch='';state.usersFailOnce=true
       await users.getByLabel('Search users',{exact:true}).fill('Member 057');await users.getByRole('button',{name:'Search',exact:true}).click()

@@ -32,6 +32,7 @@ export const durations = {
 
 export function shardSuites(suites, count) {
   assert.ok(Number.isInteger(count) && count > 0, 'Shard count must be a positive integer')
+  if (count === 1) return [[...suites].sort((a, b) => a.name.localeCompare(b.name))]
   const shards = Array.from({ length: count }, () => ({ weight: 0, suites: [], exclusive: false }))
   // This long visual case made a concurrent catalog screenshot fail once.
   // Reserve a runner for it while every other group remains duration-packed.
