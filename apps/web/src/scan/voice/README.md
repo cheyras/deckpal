@@ -36,13 +36,19 @@ executing one against the wrong capture can change the collection.
    “that one.” A named Undo is refused because Undo only targets the latest
    action. Conflicting framed quantities refuse the whole utterance, including
    a later count of one.
-   A second referenced subject after a printing is also refused without an
-   explicit card name; “this one’s a holo and that one’s reverse” cannot apply
-   its second clause to the first capture.
-7. Numeric punctuation stays attached to its count until validation. Grouped
-   thousands exceed the 1–99 limit; decimals, fractions, negative numbers and
-   malformed grouping refuse the entire command. A trailing comma before a
-   word is sentence punctuation, so “3, copies” still means three.
+   Subjects are checked independently of edits: a second card reference after
+   a count, printing or removal refuses the whole command, even when speech
+   omits a clause separator. “Two of those and they’re reverse” explicitly
+   shares one target and remains supported.
+7. One count reader validates complete tokens before punctuation normalization.
+   Digits with valid thousands grouping and existing number-word forms are the
+   only count syntax; the result must be an integer within 1–99. Leading or
+   trailing dots, decimals, fractions, signs, ranges and mixed digit/word
+   expressions refuse the entire command with “I didn’t catch the count.”
+   Whitespace cannot detach punctuation from a number. A sentence comma is
+   explicitly allowed, so “3, copies” still means three. Tests include a
+   table-driven contract and 6,000 seeded punctuation/whitespace trials that
+   permit only the exact count or refusal, never another number.
 
 ## Change lifecycle
 

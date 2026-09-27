@@ -275,6 +275,79 @@ const COMPILED = LEXICON.map((e) => ({
     (e.slot.kind === 'modifier' && e.slot.value === 'cosmos'),
 }))
 
+/** Keep digit-bearing tokens intact until readCount decides their meaning.
+ * Punctuation on ordinary speech still follows the name/printing normalizer.
+ * Only the existing `x3` frame and `1st` printing have digit-bearing syntax. */
+function speechWords(text: string): string[] {
+  const rawWords: string[] = []
+  const numeric = (word: string) => /\p{N}/u.test(word) || NUMBER_WORDS.has(word.toLowerCase())
+  const punctuation = (word: string) => /^[\p{P}\p{S}]+$/u.test(word)
+  for (const raw of text.match(/\S+/gu) ?? []) {
+    const previous = rawWords.at(-1) ?? ''
+    // Whitespace cannot hide a sign or decimal point from its number.
+    if ((numeric(previous) && punctuation(raw)) ||
+      (numeric(raw) && (punctuation(previous) || ((numeric(previous) || tokenize(previous).some((w) => NUMBER_WORDS.has(w))) && /[\p{P}\p{S}]$/u.test(previous))))) {
+      rawWords[rawWords.length - 1] += raw
+    } else rawWords.push(raw)
+  }
+  return rawWords.flatMap((raw) => {
+    const normalized = tokenize(raw)
+    const numericWord = normalized.some((w) => NUMBER_WORDS.has(w))
+    if ((!/\p{N}/u.test(raw) && (!numericWord || /^[a-z]+[.,!?;:]?$/i.test(raw))) || /^1st[.,!?]?$/i.test(raw)) return normalized
+    if (/^x\d+,?$/i.test(raw)) return ['x', raw.slice(1)]
+    return [raw.toLowerCase()]
+  })
+}
+
+type CountToken = { value: number; size: number; frameOnly: boolean }
+
+/** The sole count reader. NaN means numeric-looking speech we must refuse,
+ * never a substring we can salvage. Grouping and the legacy sentence comma
+ * are accepted by whole-token syntax, before any punctuation is removed. */
+function readCount(words: readonly string[], at: number): CountToken | null {
+  const word = words[at]
+  if (!word) return null
+  let value: number | undefined
+  let size = 1
+  let frameOnly = false
+  if (/\p{N}/u.test(word)) {
+    const digit = /^(\d{1,3}(?:,\d{3})+|\d+),?$/.exec(word)
+    value = digit ? Number(digit[1].replace(/,/g, '')) : NaN
+  } else if (word.includes('-') && word.split('-').every((w) => NUMBER_WORDS.has(w))) {
+    const parts = word.split('-').map((w) => NUMBER_WORDS.get(w)!)
+    value = parts.length === 2 && parts[0] >= 20 && parts[0] % 10 === 0 && parts[1] < 10
+      ? parts[0] + parts[1] : NaN
+  } else if (word === 'a' && words[at + 1] === 'copy') {
+    value = 1
+  } else {
+    value = NUMBER_WORDS.get(word)
+    if (value === undefined) {
+      value = FRAME_ONLY_NUMBERS.get(word)
+      frameOnly = value !== undefined
+    }
+  }
+  if (value === undefined && tokenize(word).some((w) => NUMBER_WORDS.has(w))) value = NaN
+  if (value === undefined) return /^(?:zero|half|halves|quarter|quarters|hundred|thousand|minus|negative|plus)$/.test(word)
+    ? { value: NaN, size: 1, frameOnly: false } : null
+  const next = words[at + 1]
+  const unit = NUMBER_WORDS.get(next)
+  if (!frameOnly && (unit !== undefined || /\p{N}/u.test(next ?? ''))) {
+    // Only a tens WORD followed by a unit WORD is one compound count.
+    if (NUMBER_WORDS.has(word) && value >= 20 && value % 10 === 0 && unit !== undefined && unit < 10) {
+      value += unit
+      size = 2
+      if (NUMBER_WORDS.has(words[at + 2]) || /\p{N}/u.test(words[at + 2] ?? '')) value = NaN
+    } else value = NaN
+  }
+  // These continuations describe a fraction, range or decimal, not a count.
+  const rest = words.slice(at + size)
+  if (!frameOnly && (/^(?:point|half|halves|quarter|quarters|hundred|thousand|over)$/.test(rest[0] ?? '') ||
+    (/^(?:to|through|or)$/.test(rest[0] ?? '') && (NUMBER_WORDS.has(rest[1]) || /\p{N}/u.test(rest[1] ?? ''))) ||
+    (rest[0] === 'and' && rest[1] === 'a' && /^(?:half|quarter)$/.test(rest[2] ?? '')))) value = NaN
+  if (!Number.isInteger(value) || value < 1 || value > MAX_QUANTITY) value = NaN
+  return { value, size, frameOnly }
+}
+
 // ── SEGMENTATION ────────────────────────────────────────────────────────────
 
 type Segment =
@@ -354,7 +427,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
   const structural = new Set<number>()
   const objections = new Set<number>()
   for (let at = 0; at < words.length; at++) {
-    if (/^\d+$/.test(words[at]) || NUMBER_WORDS.has(words[at]) || FRAME_ONLY_NUMBERS.has(words[at])) structural.add(at)
+    if (readCount(words, at)) structural.add(at)
     for (const entry of COMPILED) {
       if (!entry.exact) continue
       const hit = exactWindow(words, at, entry.phrases)
@@ -374,7 +447,7 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     if (name && !unique.has(name)) unique.set(name, row)
   }
   const names = [...unique.values()].map((row) => {
-    const full = tokenize(row.name, true)
+    const full = /\d/.test(row.name) ? speechWords(row.name) : tokenize(row.name, true)
     const core = full.filter((w, idx) => idx === 0 || !NAME_SUFFIXES.has(w))
     // A one-character difference between symbols is a different identity,
     // even though its flattened phonetic key looks like a near-perfect match.
@@ -416,20 +489,10 @@ function segment(words: readonly string[], rows: readonly NamedRow[]): Segment[]
     const end = [...reserved.keys()].find((at) => at > i) ?? words.length
     const boundedWords = words.slice(0, end)
     const boundedKeys = keys.slice(0, end)
-    const word = words[i]
-    const literal = /^\d+$/.test(word) ? Number(word)
-      : word === 'a' && boundedWords[i + 1] === 'copy' ? 1 : NUMBER_WORDS.get(word)
-    if (literal !== undefined) {
-      const unit = literal >= 20 && literal % 10 === 0 ? NUMBER_WORDS.get(boundedWords[i + 1] ?? '') : undefined
-      const compound = unit !== undefined && unit < 10
-      out.push({ kind: 'number', value: compound ? literal + unit : literal, frameOnly: false, from: i, to: i + (compound ? 2 : 1) })
-      i += compound ? 2 : 1
-      continue
-    }
-    const homophone = FRAME_ONLY_NUMBERS.get(word)
-    if (homophone !== undefined) {
-      out.push({ kind: 'number', value: homophone, frameOnly: true, from: i, to: i + 1 })
-      i += 1
+    const count = readCount(boundedWords, i)
+    if (count) {
+      out.push({ kind: 'number', value: count.value, frameOnly: count.frameOnly, from: i, to: i + count.size })
+      i += count.size
       continue
     }
 
@@ -502,16 +565,12 @@ export function printingLabel(spec: Pick<PrintingSpec, 'finish' | 'modifiers'>):
  * that" said over a pending removal has to mean undo, not remove.
  */
 export function parseUtterance(transcript: string, rows: readonly NamedRow[] = []): ParseResult {
-  // Inspect numeric punctuation before tokenization can turn a decimal,
-  // fraction, or negative into a different whole number. Grouped thousands
-  // stay together and reach the normal 1–99 range check below.
-  const withoutGrouping = transcript.replace(/\b\d{1,3}(?:,\d{3})+\b/g, (grouped) => grouped.replace(/,/g, ''))
-  if (/\d\s*[.,/]\s*\d|[-−]\s*\d/.test(withoutGrouping)) {
-    return { command: null, coverage: 0, refused: 'invalid-count' }
-  }
-  const words = tokenize(transcript)
+  const words = speechWords(transcript)
   if (!words.length) return { command: null, coverage: 0 }
   const segs = segment(words, rows)
+  if (segs.some((s) => s.kind === 'number' && Number.isNaN(s.value))) {
+    return { command: null, coverage: 0, refused: 'invalid-count' }
+  }
 
   const used = new Set<number>() // indices into `segs` a rule consumed
   let quantity: number | null = null
@@ -544,9 +603,17 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
       used.add(k)
     }
   }
-  // A count it cannot set ("0 reverse holos", "100 of those"). Refused below,
-  // after the objections, so a lesser guess cannot outvote either.
-  const invalidCount = [...quantities].some((n) => !(Number.isInteger(n) && n >= 1 && n <= MAX_QUANTITY))
+
+  // Unclaimed numbers are not chatter we can discard while applying another
+  // count. Only “one” in a card reference is filler, and “to” can introduce a
+  // printing. This also refuses mixed number expressions split by filler.
+  for (let k = 0; k < segs.length; k++) {
+    const s = segs[k]
+    if (s.kind !== 'number' || used.has(k) || s.frameOnly) continue
+    const referenceOne = words[s.from] === 'one' &&
+      (['the', 'that', 'this', 'last'].includes(words[s.from - 1]) || isPrinting(neighbour(segs, k, -1)))
+    if (!referenceOne) return { command: null, coverage: 0, refused: 'invalid-count' }
+  }
 
   // Coverage: every word some segment explains. An unused "one" is filler ("the
   // reverse one"), and an unused "to" is a preposition when a printing follows
@@ -558,7 +625,7 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
     const s = segs[k]
     if (s.kind === 'unknown' || s.kind === 'ambiguous') continue
     if (!used.has(k)) {
-      if (s.kind === 'number' && (s.frameOnly ? !isPrinting(neighbour(segs, k, 1)) : s.value !== 1)) continue
+      if (s.kind === 'number' && (s.frameOnly ? !isPrinting(neighbour(segs, k, 1)) : words[s.from] !== 'one')) continue
       if (slotKind(s) === 'of') continue
     }
     explained += s.to - s.from
@@ -572,33 +639,51 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   // a reverse holo") would otherwise pair one card with the other's command.
   const named = new Set(segs.flatMap((s) => (s.kind === 'name' ? [s.rowId] : [])))
   if (named.size > 1) return { command: null, coverage, refused: 'two-cards' }
-  // A second clause can introduce another target without naming it. A
-  // punctuation mark inside a card name does not separate its own segment.
+  // Resolve subjects independently of the operations. Names and demonstratives
+  // introduce a capture; a new subject in a later clause is not extra filler.
+  // The one shared-subject continuation we accept is “two of those and they're
+  // reverse”: the plural pronoun explicitly describes those same copies.
   const breaks = segs.flatMap((s) => isFiller(s) && words.slice(s.from, s.to).some((w) => w === 'and' || w === 'then')
     ? [s.to] : [])
-  for (const mark of transcript.matchAll(/[.,;:!?]+/g)) breaks.push(tokenize(transcript.slice(0, mark.index)).length)
+  for (const mark of transcript.matchAll(/[.,;:!?]+/g)) {
+    const at = speechWords(transcript.slice(0, mark.index)).length
+    // Only boundaries between whole segments can separate subjects.
+    if (segs.some((s) => s.to === at) && segs.some((s) => s.from === at)) breaks.push(at)
+  }
   const references = new Set(['it', 'its', 'that', 'thats', 'this', 'those', 'these', 'them', 'they', 'theyre'])
+  const demonstratives = new Set(['that', 'thats', 'this', 'those', 'these', 'last'])
+  const subjects = segs.filter((s) => s.kind === 'name' || (s.kind === 'slot' &&
+    words.slice(s.from, s.to).some((w) => references.has(w) || w === 'last')))
   const nameSeg = segs.find((s): s is Extract<Segment, { kind: 'name' }> => s.kind === 'name')
-  // A printing word before "is/was/are" may be an absent card name heard as
-  // printing vocabulary. Without a recognized name or reference, do not send
-  // that instruction to the latest capture.
+  const explicitReferences = subjects.filter((s) => s.kind !== 'name' &&
+    words.slice(s.from, s.to).some((w) => demonstratives.has(w)))
+  if (explicitReferences.length > 1) return { command: null, coverage, refused: 'two-cards' }
+  for (let i = 1; i < subjects.length; i++) {
+    const previous = subjects[i - 1]
+    const subject = subjects[i]
+    const apposition = previous.to === subject.from &&
+      ((previous.kind === 'name') !== (subject.kind === 'name'))
+    if (!apposition && !breaks.some((at) => at >= previous.to && at <= subject.from)) breaks.push(subject.from)
+  }
+  const removeAndEdit = has('remove') && (quantity !== null || segs.some(isPrinting))
+  for (const at of breaks) {
+    const before = segs.filter((s) => s.to <= at)
+    const afterSubjects = subjects.filter((s) => s.from >= at)
+    const hasInstruction = before.some((s) => isPrinting(s) || slotKind(s) === 'remove' ||
+      (s.kind === 'number' && used.has(segs.indexOf(s))))
+    const beforeSubjects = subjects.filter((s) => s.to <= at)
+    if (!afterSubjects.length || (!hasInstruction && !beforeSubjects.length)) continue
+    const sharedCopies = !nameSeg && quantity !== null && before.some((s) => slotKind(s) === 'of') &&
+      beforeSubjects.length === 1 && words.slice(beforeSubjects[0].from, beforeSubjects[0].to).some((w) => w === 'those' || w === 'these' || w === 'them') &&
+      afterSubjects.every((s) => s.kind === 'slot' && words.slice(s.from, s.to).every((w) => w === 'they' || w === 'theyre')) &&
+      words[at - 1] === 'and' && !segs.some((s) => s.from >= at && (slotKind(s) === 'remove' || slotKind(s) === 'qty'))
+    if (!sharedCopies) return { command: null, coverage, refused: removeAndEdit && !explicitReferences.length && !nameSeg ? 'two-commands' : 'two-cards' }
+  }
+  // A printing-like word in subject position may be an absent card name.
   const copula = words.findIndex((w) => w === 'is' || w === 'was' || w === 'are')
-  if (copula > 0 && !nameSeg && segs.some((s) => s.kind === 'slot' && isPrinting(s) && s.to <= copula) &&
+  if (copula > 0 && !nameSeg && segs.some((s) => isPrinting(s) && s.to <= copula) &&
     !words.slice(0, copula).some((w) => references.has(w))) {
     return { command: null, coverage, refused: 'ambiguous-target' }
-  }
-  if (nameSeg && segs.some((s) =>
-    s.kind === 'slot' && words.slice(s.from, s.to).some((word) => references.has(word)) &&
-    breaks.some((at) => (nameSeg.to <= at && s.from >= at) || (s.to <= at && nameSeg.from >= at)))) {
-    return { command: null, coverage, refused: 'two-cards' }
-  }
-  // A fresh subject after a completed printing can mean a newer capture even
-  // when neither clause names its card. The first clause's anchor must not
-  // receive the second clause's finish.
-  if (breaks.some((at) => segs.some((s) => isPrinting(s) && s.to <= at) &&
-    segs.some((s) => s.kind === 'slot' && s.from >= at &&
-      words.slice(s.from, s.to).some((word) => references.has(word))))) {
-    return { command: null, coverage, refused: 'two-cards' }
   }
   const target: VoiceTarget = nameSeg ? { kind: 'row', rowId: nameSeg.rowId, name: nameSeg.name } : { kind: 'anchor' }
 
@@ -641,9 +726,6 @@ export function parseUtterance(transcript: string, rows: readonly NamedRow[] = [
   if (command?.kind === 'remove' && (finish || modifiers.length || quantity !== null)) {
     return { command: null, coverage, refused: 'two-commands' }
   }
-  // Applying only the printing half of "0 reverse holos" would be a partial
-  // answer to a request that was never valid.
-  if (invalidCount) return { command: null, coverage, refused: 'invalid-count' }
   if (quantities.size > 1) return { command: null, coverage, refused: 'two-commands' }
 
   // Every word explained, for every command — "undo" and "stop listening"

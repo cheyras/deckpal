@@ -883,8 +883,10 @@ one hook:
 
 * `grammar.ts` is a closed grammar matched with a phonetic edit distance, plus
   a coverage gate so conversation is ignored. It validates whole numeric
-  expressions before punctuation is removed, refusing any count it cannot
-  apply exactly within 1–99.
+  tokens with one count reader before punctuation is removed, refusing any
+  count it cannot apply exactly within 1–99. Subject resolution is independent
+  of the operation: a second capture or an unclear second subject refuses the
+  entire count, printing or removal command.
 * `printings.ts` maps a spoken printing onto the card's real variant kind
   slugs.
 * `actions.ts` turns a command into a pending action on a row (the row id is the

@@ -19,7 +19,7 @@ const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content
 const server = await createServer({
   root: path.join(root, 'apps/web'), configFile: false, appType: 'custom',
   define: { 'import.meta.env.VITE_SUPABASE_URL': '""', 'import.meta.env.VITE_SUPABASE_ANON_KEY': '""' },
-  server: { host: '127.0.0.1', port: 0, strictPort: true }, optimizeDeps: { entries: [fixture] },
+  server: { host: '127.0.0.1', port: Number(process.env.SCANNER_VOICE_PORT ?? 0), strictPort: true }, optimizeDeps: { entries: [fixture] },
   resolve: { alias: { react: path.join(root, 'apps/web/node_modules/react'), 'react-dom': path.join(root, 'apps/web/node_modules/react-dom') } },
   plugins: [tailwindcss(), { name: 'fixture-html', configureServer(vite) { vite.middlewares.use((req, res, next) => { if (req.url !== '/') return next(); res.writeHead(200, { 'content-type': 'text/html' }); res.end(html) }) } }],
 })
@@ -155,10 +155,23 @@ try {
     await page.locator('[data-voice-caption="refused"]').getByText('Couldn’t find “seel” in the list').waitFor()
     assert.equal(await page.locator('[data-voice-pending]').count(), 0)
 
-    await say(page, '1.5 copies', true, ['one copy'])
-    await page.locator('[data-voice-caption="refused"]').getByText('I didn’t catch the count. Say 1 to 99').waitFor()
-    assert.equal(await page.locator('[data-voice-pending]').count(), 0)
-    await page.screenshot({ path: path.join(outputDir, `${name}-invalid-count.png`) })
+    const listBeforeRefusals = await rows.allTextContents()
+    for (const heard of ['1.5 copies', '.5 copies', 'make it .5', '.5 reverse holos', '5. copies', '1-2 copies', 'twenty 2 copies']) {
+      await say(page, heard, true, ['one copy'])
+      await page.locator('[data-voice-caption="refused"]').getByText('I didn’t catch the count. Say 1 to 99').waitFor()
+      assert.equal(await page.locator('[data-voice-pending]').count(), 0)
+      assert.deepEqual(await rows.allTextContents(), listBeforeRefusals)
+      if (heard === '.5 copies') await page.screenshot({ path: path.join(outputDir, `${name}-invalid-count.png`) })
+    }
+    for (const heard of ['this one is two copies and that one is a holo', 'this one is two copies and that one is normal', 'remove this one and that one']) {
+      await say(page, heard, true, ['two copies'])
+      await page.locator('[data-voice-caption="refused"]').getByText('Which card did you mean? Say its full name or tap it in the list').waitFor()
+      assert.equal(await page.locator('[data-voice-pending]').count(), 0)
+      assert.deepEqual(await rows.allTextContents(), listBeforeRefusals)
+      if (heard.endsWith('normal')) await page.screenshot({ path: path.join(outputDir, `${name}-two-cards.png`) })
+      await page.clock.runFor(4_200)
+      assert.deepEqual(await rows.allTextContents(), listBeforeRefusals)
+    }
 
     // Named targets are pinned when the utterance starts. A newer duplicate
     // arriving before the final result cannot steal the command.
