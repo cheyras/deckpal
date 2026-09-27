@@ -20661,6 +20661,111 @@ a synthetic SET fixture with the entrance animation actively running at measurem
 fix is correct by construction (`getBoundingClientRect` is unaffected by transformed ancestors by
 definition, not by observed behavior in one scenario), which is why this is noted rather than
 claimed as fully covered.
+## 2026-09-26 — The offline banner must never lie and never cover a sheet
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Three changes to `apps/web/src/components/PwaUi.tsx` and its
+supporting modules:
+
+1. **Layering:** `theme.css`'s `--z-toast` token moves from `9999` to `50` —
+   above `--z-chrome` (20, app nav/header) but below `--z-modal` (100, every
+   `Sheet`). The install pill / offline banner / update toast were the only
+   things in the app painting above an open modal; now Sheet's own scrim dims
+   them exactly like the rest of the page behind it, instead of them floating
+   over the sheet's footer. Chosen over "suppress the toast layer while a
+   sheet is open" or "move it to the top": a shared z-index token is a
+   one-line, permanent fix that needs no new open/closed state to track, and
+   it fixes every current and future `Sheet` at once, not just Bug Report and
+   Add Cards.
+2. **Truthfulness:** the offline banner now reads `useConnectivity()`
+   (`apps/web/src/lib/useConnectivity.ts`), not the raw `useOnline()` hint.
+   `navigator.onLine` is confirmed with a cheap same-origin probe
+   (`api.ts#pingReachable`, hitting `/me` — deliberately not `/health`, which
+   `sw.ts`'s `publicCatalog` allowlist routes NetworkFirst and could answer
+   from a stale cache while genuinely offline) on mount, on the `online` and
+   `offline` events, and on window `focus`. The decision table lives in
+   `apps/web/src/lib/connectivity.ts` (pure, unit-tested): a settled probe
+   wins outright either direction; an errored probe (a real network failure)
+   reports offline even over a hint that says online; a timed-out probe is
+   inconclusive and falls back to the hint. No polling — event-driven only.
+   `lib/useOnline.ts` (the raw hint) is UNCHANGED and still backs the
+   collection-write gate in CardDetail/CardTile/TableView, which wants
+   "offline → disable, online → let it try and surface any real error" and
+   is fine with an occasional false disable; the banner makes a claim the
+   write-gate never does, so it alone earns the extra round trip.
+3. **Safe-area:** `PwaUi`'s two fixed bottom-pinned wrappers now sit at
+   `bottom: calc(16px + env(safe-area-inset-bottom))` instead of a bare
+   `16px`, matching `Sheet.tsx`'s own footer padding idiom, so the toasts
+   clear the home indicator on a Home-Screen install (flagged but left
+   unfixed by the 2026-09 R5 mobile-layout research pass).
+
+**Why:** Observed in the iOS Simulator: `navigator.onLine` reported `false`
+while every real request succeeded, so the banner said "Offline." on a working
+connection and never corrected itself — a banner that lies erodes trust in
+every other status the app shows. Separately, the banner's `z-index: 9999`
+painted over the Bug Report sheet's Submit/Cancel footer and the Add Cards
+results, unreachable underneath it; a user who is genuinely offline could not
+submit a bug report about it.
+
+**Implications:** `api.ts` gains one bespoke, auth-free, no-retry probe
+(`pingReachable`/`api.ping`) alongside its existing `keepaliveJson`/`upload`
+bespoke helpers — same "owns the base path" contract, enforced by
+`scripts/check-api-base.mjs`. A known, explicitly out-of-scope gap: Deck-E's
+own chat panel (`DeckeChat.tsx`) is a hand-rolled overlay, not built on
+`Sheet`, and its z-index (15–25) sits below the new `--z-toast: 50` too — the
+same class of collision could still occur there and is left for a future pass
+rather than expanding this fix into an unrelated, heavily-tested surface.
+
+**Evidence:** `apps/web/src/lib/__tests__/connectivity.test.ts` (4 cases: the
+decision table plus a flapping sequence) and a new
+`tests/browser/offline.mjs`, wired into `pnpm test:browser`, using the real
+`PwaUi` and `Sheet` components against a real fetch — a lying
+`navigator.onLine` over a reachable network, a real `context.setOffline`
+round trip at 1280px and 390px, and an open sheet's Submit button hit-tested
+on top of the banner while genuinely offline. Manually re-verified against
+the signed-in app (sim fixture, port 5320) with headless Playwright:
+screenshots of all of the above plus the real Bug Report sheet.
+
+## 2026-09-26 — Two Astra findings on the offline-banner probe, both fixed
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Two corrections to the reachability probe from the entry above, both raised by the required independent Astra review on PR #211:
+
+1. `useConnectivity.ts` schedules a bounded 5-second self-retry
+   (`RETRY_WHILE_OFFLINE_MS`) while — and only while — the banner is
+   confirmed offline, cancelled the instant a check clears it. Without this,
+   a single transient probe failure with `navigator.onLine` staying `true`
+   and the tab staying focused fired none of the `online`/`offline`/`focus`
+   events the hook listened for, so the banner would show "Offline." forever
+   after one bad request on an otherwise-working connection.
+2. `api.ts#pingReachable` now fetches with `redirect: 'manual'`. Self-host's
+   supported reverse-proxy-auth deployment turns an expired session into a
+   3xx to a cross-origin login page (the same shape `sw.ts`'s SSO guard
+   already exists for); default `fetch` FOLLOWS that redirect, and a login
+   page with no CORS headers for this origin makes the followed request
+   reject — reporting a perfectly reachable proxy as offline, and (after
+   fix 1) retrying on a timer forever. `redirect: 'manual'` stops at the 3xx
+   itself: fetch resolves with an opaque `type: 'opaqueredirect'` response
+   instead of throwing, which is the reachability evidence the probe wants
+   — the response body is never read, so an opaque one is no loss.
+
+**Why:** Both are exactly the class of bug an independent adversarial pass
+exists to catch before merge rather than after a self-host operator reports
+"the app thinks I'm offline and won't stop retrying."
+
+**Implications:** `tests/browser/offline.mjs` gained a fourth case
+(`recovers-without-window-event`) simulating a transient probe failure via a
+page-level route abort, asserting the banner clears on its own within the
+retry window. The redirect fix has no unit-level regression test (it needs a
+real cross-origin redirect target, which the existing fixture harness
+doesn't model) — verified by code review against `sw.ts`'s own documented SSO
+scenario and the `fetch()` `redirect: 'manual'` spec instead. Also bumped
+`.github/workflows/browser.yml`'s timeout from 15 to 20 minutes: a CI run on
+this branch (36267286821) hit the ceiling with both cloud and self-host
+admin/feedback journeys complete but the chat/offline fixture never reached;
+a full local run measured ~18 minutes on the (contended) dev machine.
 ## 2026-09-26 — Every page is its own chunk; first paint carries only the shell (PERF-01)
 
 **Decided by:** Chey (via Claude)
@@ -21251,6 +21356,65 @@ reordered latency and offline (`tests/browser/writes.mjs`).
 - `tests/browser/chat.mjs` `checkDeckeStates` asserts the geometry precondition for each state (park box ∩ card actions = ∅ at 390; at 1440 the landmark exists and everything to be read sits in its column), the dry-run rows, the price line, the held-wallet copy, and every notice action. It runs in Chromium and WebKit at 390 and 1440. The browser workflow now installs WebKit.
 - `CardArt.name` is now rendered, by the dry-run rows only.
 - Not done: the reading-a-record exit bar is still not a floor, so on a phone he stands in the corner beside it. The greeting on an out-of-credits empty state still reads as an invitation. That is a copy call for the owner.
+## 2026-09-26 — Browser CI job: cache Playwright browsers, run its build+check branches concurrently
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** `browser.yml`'s single job was close to timing out (11-13 min against a 15 min
+cap, several open PRs already raising the cap). Two changes, aimed at the two real costs:
+1. Cache `~/.cache/ms-playwright`, keyed on `runner.os` + the pinned Playwright version read
+   from `package.json` at run time. On a cache hit, run `playwright install-deps` (system
+   libraries only) instead of the full `install --with-deps` (which re-downloads the browser
+   binaries every run).
+2. `scripts/test-browser.mjs` ran its three independent build+check branches (self-host,
+   cloud, the rendered-chat fixture) and a standalone typecheck sequentially in a single
+   `for` loop, sharing one process. They do not share mutable state with one another (each
+   builds its own dist into its own scratch dir and drives its own fixture server; only the
+   self-host/cloud admin-fixture state is shared *within* a label, not across labels), so
+   they were only sequential because `support.mjs`'s `run()` used `child_process.spawnSync`
+   for the `vite build`/`tsc` subprocess calls, which blocks Node's single thread for the
+   whole build. Switched `run()` to async `spawn`, and the orchestrator now runs all four
+   branches through a small bounded-concurrency pool (limit 4, matching a GitHub-hosted
+   runner's 4 cores) instead of the sequential loop.
+
+**Why:** Confirmed the three `vite build` invocations are genuinely different builds (distinct
+`VITE_SUPABASE_URL`/base path per self-host vs cloud, a wholly separate Vite config for the
+chat fixture), so there was no redundant "same build twice" to collapse — QUAL-08 already
+flagged this correctly. The actual lever is wall-clock concurrency of otherwise-independent
+work. Verified two concurrent `vite build` invocations against the same `apps/web` root (same
+Rollup/PWA plugin config, different `--outDir` and env) do not collide or corrupt each other's
+output before relying on this for the real fix.
+
+**Implications:**
+- A suite's own try/finally (browser context close, fixture-server close, failure screenshot)
+  is unchanged; only the orchestration around the four branches changed from fail-fast (a
+  failing label stops before the next one starts) to fail-together (every branch runs to
+  completion and every failure is reported in one combined error). No assertion in any test
+  file changed.
+- Follow-up completion below replaces the maintained suite list with module discovery.
+- CI timing before/after and Astra's review are recorded in the PR.
+
+## 2026-09-26 — Browser suites register from their own files
+
+**Decided by:** Chey (via Codex)
+
+**Decision:** The browser runner discovers every `tests/browser/*.mjs` module and runs suites
+returned by its optional `browserSuites(context)` export. The existing build and check
+branches live in `core-suites.mjs`; future branches can register from a new file without
+editing the runner. The deployment asset gate also awaits the shared asynchronous process
+helper, including its standalone invocation.
+
+**Why:** Every parallel feature PR that added a browser suite conflicted on the runner's
+maintained list. The first CI run of this PR exposed a missed synchronous call to the process
+helper; it failed before reaching the browser checks.
+
+**Implications:** Suite names must be unique, and each suite must own its temporary build,
+server and browser contexts. The runner checks this registration contract before executing
+the bounded pool. The main-branch write, insights and sign-in-return checks remain in the run. The
+table keyboard-scroll check waits for the observed scroll instead of assuming it completes
+within 120 ms under concurrent CI load.
+The iOS fixture server merged from main also awaits the shared build helper before
+processing its output; otherwise its `--rebuild` path would read a Promise as a string.
 
 ## 2026-09-26 — Deck-E hardening: a bounded conversation, a normalised route, a guide write bound to its deck
 
@@ -21335,6 +21499,53 @@ and a resize across the breakpoint deep in a 3,200-row list at phone and desktop
 The separate question of whether quantity counters should be hidden below 768px
 remains for Chey.
 
+## 2026-09-26 — Keep failed-write feedback reachable over sheets
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** Passive PWA notices (`--z-toast: 50`) remain below sheets. The
+actionable save toast gets its own `--z-toast-action: 110` layer above sheets,
+so Retry stays visible and usable when a save fails inside an open sheet. While
+that toast is visible, PwaUi measures its height and lifts the passive notice
+stack just enough to keep the two messages from overlapping.
+
+**Why:** After PR #219 added save-failure feedback to the shared PWA host, the
+existing z-index fix for the offline banner put the new Retry action behind an
+open sheet too. Astra identified that regression during review.
+
+**Implications:** The browser write suite now hit-tests Retry above an open
+sheet and checks that an offline banner and an offline save toast do not
+overlap. This keeps passive status notices behind sheets without hiding the
+action a person needs to recover a failed save.
+
+## 2026-09-26 — Use confirmed connectivity for save refusals
+
+**Decided by:** Chey (via Claude)
+
+**Decision:** The offline banner, collection counters, and list and deck write
+gate use the same server probe result. A successful probe permits writes even
+when `navigator.onLine` is false. A failed probe refuses them up front. While
+the probe is pending or timed out, a write is attempted and its existing save
+lane reports the result.
+
+**Why:** On iOS and some flaky networks, the browser can claim it is offline
+while DeckPal reaches the server. The old split hid the offline banner yet
+refused a working list or deck save with “You're offline.”
+
+**Implications:** No offline write queue is added. Confirmed offline still
+refuses before sending, and an attempted write still saves or rolls back with
+its existing message. A timed-out probe no longer falls back to the browser
+hint for the banner; neither surface claims an outage without confirmation.
+Browser and unit tests cover
+the false browser hint, confirmed offline, and unknown states.
+## 2026-09-26 — Decouple Supabase API keys from the leaked JWT secret
+**Decided by:** Chey (via Codex)
+
+**Decision:** Keep the existing DeckPal environment variable names during the cutover, but accept Supabase publishable and secret API keys in them. Send opaque `sb_` keys only as `apikey`; retain the legacy `Authorization` header only for JWT-format keys. Sign billing-history cursors with the Stripe secret instead of the Supabase JWT secret.
+
+**Why:** The legacy service-role key and JWT secret leaked. New API keys are not JWTs, and sending them as Bearer tokens breaks Storage and manifest requests. A cursor secret tied to the compromised JWT secret would keep the API dependent on that secret after rotation.
+
+**Implications:** Deploying this code prepares the migration but does not close the incident. The operator must set and verify new keys, rotate signing to an asymmetric key, remove `SUPABASE_JWT_SECRET` from Vercel, deactivate legacy API keys, and revoke the legacy JWT secret. Existing billing-history cursors may need one page refresh after deployment.
 ## 2026-09-26 — Jev reads the reader before Deck-E answers
 
 **Decided by:** Chey (via Claude). Chey approved Jev on 2026-09-26 ("implement
