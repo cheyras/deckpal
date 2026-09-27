@@ -403,6 +403,27 @@ button {
   outline-offset: 2px;
 }
 
+/* This link has to paint an opaque face over the fixed header while focused.
+   Focus-only utility colors are not applied to its premium skin variant. */
+.skip-link:focus {
+  background-color: var(--color-action-primary);
+  color: var(--color-action-primary-text);
+}
+
+/* The skip link moves focus to this landmark; the next Tab shows the first
+   actual control's ring. A full-page ring around the landmark is misleading. */
+#main:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* An unowned variant is an empty, colored box over card art. Show its add
+   action when a reader reaches it by keyboard or pointer, so that Tab stop
+   cannot be mistaken for the card merely losing focus. */
+.counter-box[data-empty='true']:is(:focus-visible, :hover)::after {
+  content: '+';
+}
+
 
 /* Filled button variants (Button.tsx primary/secondary/danger).
  *

@@ -19,6 +19,7 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { webkit } from 'playwright'
 import { contextFor } from './support.mjs'
 import { signIn } from './admin.mjs'
 
@@ -68,11 +69,57 @@ export async function checkA11y(browser, server, mount, label, out) {
     }
   }
   if (label === 'cloud') {
+    const safari = await webkit.launch({ headless: true })
+    try {
+      for (const [engine, candidate] of [['chromium', browser], ['webkit', safari]]) {
+        for (const width of [1440, 390]) {
+          const { context, page } = await contextFor(candidate, server, width)
+          try {
+            await signIn(context)
+            await page.goto(server.origin + '/lists', { waitUntil: 'networkidle' })
+            await page.keyboard.press('Tab')
+            const firstStop = await page.evaluate(() => {
+              const link = document.querySelector('a[href="#main"]')
+              const rect = link?.getBoundingClientRect()
+              return {
+                isSkipLink: document.activeElement === link,
+                visible: !!rect && rect.width > 0 && rect.height > 0 &&
+                  document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === link,
+                top: rect?.top,
+                mainExists: !!document.getElementById('main'),
+              }
+            })
+            assert.equal(firstStop.isSkipLink, true, `${engine} ${width}: the skip link must be the first Tab stop`)
+            assert.equal(firstStop.visible, true, `${engine} ${width}: the focused skip link must be unobscured`)
+            assert.equal(firstStop.mainExists, true, `${engine} ${width}: #main must exist`)
+            if (width === 390) assert.ok(firstStop.top >= 64, `${engine}: the phone header must not cover the skip link`)
+            await page.keyboard.press('Enter')
+            assert.equal(await page.evaluate(() => document.activeElement?.id), 'main', `${engine} ${width}: Enter must focus main`)
+            assert.equal(await page.locator('#main').getAttribute('tabindex'), '-1')
+            await page.keyboard.press('Tab')
+            assert.equal(await page.evaluate(() => document.querySelector('#main')?.contains(document.activeElement) && document.activeElement?.id !== 'main'),
+              true, `${engine} ${width}: the next Tab must stay inside main`)
+            await page.locator('a[href="#main"]').evaluate((link) => link.click())
+            assert.equal(await page.evaluate(() => document.activeElement?.id), 'main', `${engine} ${width}: clicking the link must focus main`)
+            results.push({ case: 'a11y-skip-link', label, engine, width, first: true, enteredMain: true })
+          } finally { await context.close() }
+        }
+      }
+    } finally { await safari.close() }
     const { context, page } = await contextFor(browser, server, 390)
     try {
       await signIn(context)
-      await page.goto(server.origin + '/lists', { waitUntil: 'networkidle' })
       const live = 'body > [role="status"][aria-live="polite"]'
+      await page.goto(server.origin + '/admin', { waitUntil: 'networkidle' })
+      await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'Administration — Overview', live)
+      const adminTabs = page.getByRole('navigation', { name: 'Administration sections' })
+      await adminTabs.getByRole('link', { name: 'Users' }).click()
+      await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'Administration — Users', live)
+      assert.equal(await page.locator('h1').textContent(), 'Administration', 'the visible h1 stays shared across admin pages')
+      await adminTabs.getByRole('link', { name: 'Roles' }).click()
+      await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'Administration — Roles', live)
+      results.push({ case: 'a11y-shared-heading-routes', label, announcements: ['Administration — Overview', 'Administration — Users', 'Administration — Roles'] })
+      await page.goto(server.origin + '/lists', { waitUntil: 'networkidle' })
       await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'My Lists', live)
       const repeatedWrites = await page.evaluate(async (selector) => {
         const region = document.querySelector(selector)
@@ -107,6 +154,47 @@ export async function checkA11y(browser, server, mount, label, out) {
       assert.equal(await page.evaluate(() => document.activeElement?.id), 'overlaid-back',
         'the drawer must not pull focus out of a dialog opened above it')
       results.push({ case: 'a11y-stacked-dialog', label, backwardFocusStayedInTopDialog: true })
+    } finally { await context.close() }
+  }
+  if (label === 'cloud') {
+    const { context, page } = await contextFor(browser, server, 390)
+    const art = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="140"/%3E'
+    const cards = [
+      { cardId: 'fixture-a-1', number: '1', name: 'Pikachu', set: { setId: 'fixture-a', name: 'Alpha Set' } },
+      { cardId: 'fixture-b-1', number: '1', name: 'Pikachu', set: { setId: 'fixture-b', name: 'Beta Set' } },
+    ]
+    try {
+      await signIn(context)
+      await page.route(/\/api\/search\?/, route => route.fulfill({ json: {
+        pagination: { page: 1, pageSize: 60, total: 2, pageCount: 1 },
+        cards: cards.map(card => ({ ...card, category: 'Pokemon', rarity: 'Common', artist: null,
+          series: { slug: 'fixture', name: 'Fixture Series' }, variantCount: 0,
+          images: { low: art, high: art }, price: null })),
+      } }))
+      await page.route(/\/api\/cards\/fixture-[ab]-1$/, route => {
+        const card = cards.find(item => route.request().url().endsWith(item.cardId))
+        return route.fulfill({ json: { card: { ...card, printedTotal: 100, category: 'Pokemon', rarity: 'Common', artist: null,
+          hp: null, stage: null, evolvesFrom: null, retreat: null, regulationMark: null, releasedOn: null,
+          set: { ...card.set, slug: card.set.setId, logoUrl: null, symbolUrl: null },
+          series: { slug: 'fixture', name: 'Fixture Series', tcgdexId: 'fixture' },
+          images: { low: art, high: art }, types: [], subtypes: [], tags: [], attacks: [], abilities: [],
+          weaknesses: [], resistances: [], species: [] }, variants: [] } })
+      })
+      await page.route(/\/sets\/fixture-[ab]\/symbol\.webp$/, route => route.fulfill({
+        contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"/>',
+      }))
+      await page.goto(server.origin + '/search?q=Pikachu', { waitUntil: 'networkidle' })
+      const live = 'body > [role="status"][aria-live="polite"]'
+      for (const [cardId, expected] of [
+        ['fixture-a-1', 'Pikachu — Alpha Set #001'],
+        ['fixture-b-1', 'Pikachu — Beta Set #001'],
+      ]) {
+        await page.locator(`[data-decke-card="${cardId}"]`).click()
+        await page.waitForFunction(([selector, value]) => document.querySelector(selector)?.textContent === value, [live, expected])
+        assert.equal(await page.locator('h1').textContent(), 'Pikachu', 'both card pages intentionally share the visible h1')
+        if (cardId === 'fixture-a-1') await page.goBack({ waitUntil: 'networkidle' })
+      }
+      results.push({ case: 'a11y-same-name-cards', label, announcements: ['Pikachu — Alpha Set #001', 'Pikachu — Beta Set #001'] })
     } finally { await context.close() }
   }
   return results

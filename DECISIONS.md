@@ -21299,3 +21299,13 @@ tests and by `log_cards`' own preflight; it has not been measured live.
 **Decision:** A corrective `edit_list`, `save_deck` or `add_battle_log` call uses a correction-only schema whose `dry_run` defaults to `false` and rejects `true`. The parsed `false` is part of the SDK's signed approval input. The ordinary tool schemas retain their safe `dry_run: true` defaults.
 **Why:** Astra found that forcing a tool name alone could produce only a dry run: those three tools default to preview, so the one-step correction would stop without a card. A real-SDK test for each tool now proves that an omitted `dry_run` becomes a signed apply request, raises the card with zero writes, and applies only after signed approval is replayed under the ordinary tool set.
 **Implications:** Corrective tool choice can no longer silently become a preview because the model omitted `dry_run`. Invalid or declined calls still fail closed, and the existing approval gate remains the only route to a write.
+
+## 2026-09-26 — Make keyboard orientation explicit across the app
+
+**Decided by:** Chey (via Codex)
+
+**Decision:** The shared skip link is an explicit first Tab stop in WebKit, paints above the page chrome, and focuses the `main` landmark on activation. The first visible control in `main` receives an explicit Tab stop for WebKit's default keyboard setting. Empty card counters show `+` on hover or keyboard focus. Route announcements use a page-specific label when a visual heading is shared, including the admin section and a card's set and number.
+
+**Why:** On a fresh page, WebKit skipped the ordinary skip-link anchor; on phones, the link's transparent face could disappear into the header. The hash alone left focus on the document body. A blank counter was easy to mistake for a lost focus stop between cards. Identical headings on distinct routes made the announcer fall back to a generic title.
+
+**Implications:** Enter and click on the skip link focus content, and the next Tab reaches a content control. Each card counter remains a separate, visibly named action; card links retain one Tab stop each. Admin sections and same-name cards announce their actual destination. Browser checks cover Chromium and WebKit at desktop and phone widths, card-grid Tab order, and same-heading navigation.

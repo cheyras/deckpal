@@ -540,7 +540,7 @@ function CardDetailBody({
             {/* detail column */}
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-[16px]">
-                <h1 className="text-[40px] font-bold leading-[44px] text-text-primary">{data.card.name}</h1>
+                <h1 data-route-announcement={`${data.card.name} — ${data.card.set.name} ${fmtNumber(data.card.number)}`} className="text-[40px] font-bold leading-[44px] text-text-primary">{data.card.name}</h1>
                 <button
                   type="button"
                   onClick={copyCardLink}

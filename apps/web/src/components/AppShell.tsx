@@ -14,6 +14,7 @@ import { useSignedIn } from '../lib/session'
 import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
+import { SkipLink } from './SkipLink'
 
 // A11Y-05: `MobileDrawer`'s Tab trap and initial-focus target. Duplicated from
 // `Sheet.tsx` (which keeps its own copy private) rather than exported and
@@ -756,20 +757,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-surface-primary">
-      {/* A11Y-02: the skip link existed only on the marketing landing page
-          (`Landing.tsx`) — the entire signed-in/catalog product had no way to
-          bypass the header/nav chrome (WCAG 2.4.1, Level A). Hoisted here so it
-          renders once above every non-chromeless route, pointed at the same
-          `#main` landmark below. The classes are copied from Landing.tsx
-          exactly rather than reinvented: `sr-only` alone lost to premium.css's
-          unlayered `position: relative` rule (DECISIONS.md 2026-08-16), and
-          `focus:not-sr-only focus:absolute` is the fix that survives it. */}
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-[16px] focus:top-[16px] focus:z-(--z-modal) focus:rounded-full focus:bg-action-primary focus:px-[16px] focus:py-[10px] focus:text-[14px] focus:font-bold focus:text-action-primary-text"
-      >
-        Skip to content
-      </a>
+      <SkipLink />
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed((c) => !c)}
@@ -778,7 +766,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       />
       <Header onBurger={() => setDrawerOpen((o) => !o)} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} signedIn={signedIn} permissions={permissions} />
-      <main id="main" className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
+      <main id="main" tabIndex={-1} className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
         <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
       </main>
       {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match.

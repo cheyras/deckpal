@@ -739,7 +739,8 @@ document.body.appendChild(routeAnnouncer)
 const appRoot = document.getElementById('root')!
 
 /**
- * The heading's announceable text — `textContent`, with one fallback.
+ * The heading's announceable text. A route can give a shared visual heading
+ * a more specific live-region message (for example, Administration — Users).
  *
  * SetHeader's `<h1>` (A11Y-04) wraps an `<img alt={set.name}>` on every set
  * that has a logo, which is the common case — `textContent` of an element
@@ -748,6 +749,8 @@ const appRoot = document.getElementById('root')!
  * this announcer silent on exactly the busiest page in the catalog.
  */
 function headingText(h1: HTMLElement): string {
+  const label = h1.dataset.routeAnnouncement?.trim()
+  if (label) return label
   const text = h1.textContent?.trim()
   if (text) return text
   return h1.querySelector('img[alt]')?.getAttribute('alt')?.trim() ?? ''
@@ -781,7 +784,7 @@ router.subscribe('onRendered', () => {
   // Keep watching until the next navigation. A query can finish after the
   // fallback, and its real heading should still replace the title.
   headingWatcher = new MutationObserver(update)
-  headingWatcher.observe(appRoot, { childList: true, subtree: true, characterData: true })
+  headingWatcher.observe(appRoot, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['data-route-announcement'] })
   // The timer must run independently: an ErrorState may render once and then
   // produce no more mutations. A later failure also runs update and falls back.
   headingFallback = window.setTimeout(() => {
