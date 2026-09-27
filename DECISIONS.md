@@ -20508,6 +20508,13 @@ same `DATA_TABLE_PAGE_SIZES`, `nextDataTableSort`, `getDataTablePage` and
 **Why:** Each is documented in `audits/ux-collection.md` with production/fixture evidence. The premium-skin z-index gap was not in the audit — it only surfaced because verification drove the fix with a real (non-force) Playwright click at desktop width, which is exactly the gap a `force: true` click or a manual hover-then-inspect check would have hidden.
 
 **Implications:** `api.ts`'s `listPdfUrl`/`setChecklistPdfUrl` are gone (replaced by `listPdfPath`/`setChecklistPdfPath` + `downloadPdf`); nothing else referenced them. A source-guard suite (`apps/web/src/components/__tests__/{pdfDownload,destructiveControls}.test.ts`, `apps/web/src/routes/__tests__/{listDetailSmart,listDetailPolish}.test.ts`, wired as `deckpal-web`'s `test:collection` and into `ci.yml`) pins the collection behaviors; #219's write-lane suite verifies queued writes and visible failures. Any future overlay control added inside a card tile (`CardTile.tsx`) needs the `px-card-badge`/`px-card-counters` marker class to stay clickable under the premium skin's hover-lift — that contract isn't enforced by a test, only by this note and the comment at the call site.
+
+## 2026-09-26 — Keep list card removal confirmation above virtual rows
+**Decided by:** Chey (via Codex)
+**Decision:** The list grid owns the selected card and removal confirmation; a tile only requests removal. The confirmation renders outside the virtual rows and outside the tile's `CardLink`.
+**Why:** Locking scroll for the confirmation can unmount a tile far down a long list. A dialog owned by that tile disappears before the reader can confirm.
+**Implications:** The list write still runs through #219's per-list lane after confirmation. Browser coverage opens removal near the bottom of an 80-card list and checks the dialog remains visible.
+
 ## 2026-09-26 — Every gated entry point carries a return path; `next` is validated by one strict parse
 
 **Decided by:** Chey (via Claude)

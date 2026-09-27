@@ -288,6 +288,20 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       assert.ok(state.list.some(x => x.itemId === 'added-2'), 'the retried add reached the server')
       results.push({ case: 'writes-list', label, width, removeRollback: true, editInline: true, retryReachableFromSheet: true })
 
+      // Opening a sheet locks the body scroll. A virtualized tile far down
+      // the list can unmount when that happens; its dialog must stay mounted.
+      state.list = Array.from({ length: 80 }, (_, i) => ({ itemId: 'item-' + i, i: i % 3 }))
+      await go('/lists/' + LIST)
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+      const lateRemove = page.getByRole('button', { name: /^Remove / }).last()
+      await lateRemove.click()
+      const lateDialog = page.getByRole('dialog', { name: 'Remove card' })
+      await lateDialog.waitFor()
+      await sleep(250)
+      assert.equal(await lateDialog.isVisible(), true, 'the removal dialog survives tile unmount after scroll lock')
+      await lateDialog.getByRole('button', { name: 'Cancel' }).click()
+      results.push({ case: 'writes-list-virtualized-remove', label, width, dialogSurvivesScrollLock: true })
+
       // ── Deck quantity ──────────────────────────────────────────────────────
       await go('/decks/' + DECK)
       const plus = page.getByRole('button', { name: 'Increase', exact: true }).first()

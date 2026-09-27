@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type CardRow, type TileVariant } from '../lib/api'
 import { useOwnedCounts } from '../lib/collectionWrites'
@@ -11,7 +10,6 @@ import { CounterBox } from './ui/CounterBox'
 import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
 import { CardLink } from './CardLink'
-import { ConfirmModal } from './ListModals'
 
 import { VariantBadge } from './VariantChip'
 
@@ -109,13 +107,6 @@ export function CardTile({
   // Where a click goes is `CardLink`'s decision, not this component's — see the
   // header there for why it stopped being three separate decisions.
 
-  // UXC-03 (deckpal audit ux-collection): the remove corner used to be
-  // `opacity-0`, revealed only on `:hover` — invisible on a phone, which has
-  // no hover, while remaining a live tap target. A 390px tap on that corner
-  // removed a card with no dialog and no undo. It is visible now (below) and
-  // gated behind a confirm step instead.
-  const [confirmingRemove, setConfirmingRemove] = useState(false)
-
   const inner = (
     <>
       <div className="relative" style={owned === false ? { opacity: 0.5, filter: 'grayscale(0.6)' } : undefined}>
@@ -158,49 +149,26 @@ export function CardTile({
           </span>
         )}
         {onRemove && (
-          <>
-            <button
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                setConfirmingRemove(true)
-              }}
-              aria-label={`Remove ${card.name}`}
-              // `px-card-badge`: not a badge, but it earns the same premium-skin
-              // rule (theme.css/premium.css §"Counters and overlay badges sit at
-              // z-index 2") for the same reason the counters and the +N/owned
-              // badges need it — the card-art lift on hover/focus (premium.css
-              // §"Card art") promotes `.px-card-art` to z-index 1, and without a
-              // matching z-index this button sat BELOW that lifted layer despite
-              // being later in the DOM: on a real mouse, hovering far enough to
-              // see the (formerly invisible) button also covered it, so it was
-              // unclickable in the premium skin whether or not it was visible.
-              className="px-card-badge absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover"
-            >
-              <Icon name="close" size={16} />
-            </button>
-            {confirmingRemove && (
-              // `onClick` stopPropagation, not a DOM-position fix: `Sheet`
-              // portals to `document.body`, but React re-fires a portal's
-              // events up through the REACT tree, not the DOM tree — so a
-              // click on the scrim (which does not itself stop propagation;
-              // it only calls `requestClose`) would otherwise keep bubbling
-              // to this tile's enclosing `CardLink` and open the card sheet
-              // at the same time as dismissing this dialog.
-              <div onClick={(e) => e.stopPropagation()}>
-                <ConfirmModal
-                  title="Remove card"
-                  message={`Remove ${card.name} from this list?`}
-                  confirmLabel="Remove"
-                  onClose={() => setConfirmingRemove(false)}
-                  onConfirm={() => {
-                    setConfirmingRemove(false)
-                    onRemove()
-                  }}
-                />
-              </div>
-            )}
-          </>
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onRemove()
+            }}
+            aria-label={`Remove ${card.name}`}
+            // `px-card-badge`: not a badge, but it earns the same premium-skin
+            // rule (theme.css/premium.css §"Counters and overlay badges sit at
+            // z-index 2") for the same reason the counters and the +N/owned
+            // badges need it — the card-art lift on hover/focus (premium.css
+            // §"Card art") promotes `.px-card-art` to z-index 1, and without a
+            // matching z-index this button sat BELOW that lifted layer despite
+            // being later in the DOM: on a real mouse, hovering far enough to
+            // see the (formerly invisible) button also covered it, so it was
+            // unclickable in the premium skin whether or not it was visible.
+            className="px-card-badge absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger text-action-danger-text hover:bg-action-danger-hover"
+          >
+            <Icon name="close" size={16} />
+          </button>
         )}
         {showCounters && (
           <VariantCounters card={{ cardId: `${set}-${card.number}`, name: card.name }} setId={set} seed={card.standardVariants} />
