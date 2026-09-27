@@ -15,26 +15,33 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:local": "node scripts/dev.mjs --local",
+    "decisions": "node scripts/decisions.mjs",
+    "decisions:check": "node scripts/check-decisions.mjs",
+    "decisions:test": "node --test scripts/__tests__/decisions.test.mjs",
+    "decisions:wiki": "node scripts/regenerate-decision-wiki.mjs",
     "migrate": "pnpm --filter @deckpal/db migrate",
     "migrate:status": "pnpm --filter @deckpal/db migrate:status",
     "build": "pnpm --filter @deckpal/db build && pnpm --filter @deckpal/storage build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-api build && pnpm --filter deckpal-images build && pnpm --filter deckpal-sync build",
     "typecheck": "pnpm -r typecheck",
     "dev:api": "pnpm --filter deckpal-api dev",
-    "test:browser": "node --import tsx scripts/test-browser.mjs && node --import tsx tests/browser/paymentHistory.mts",
-    "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs"
+    "test:browser": "node --import tsx scripts/test-browser.mjs",
+    "test:deploy-assets": "node --import tsx scripts/check-deploy-assets.mjs",
+    "sim:serve": "node --import tsx tools/ios-sim/server.mjs",
+    "test:ios-sim": "node --import tsx --test tools/ios-sim/__tests__/*.test.mjs && python3 -m unittest discover -s tools/ios-sim/__tests__ -p 'test_*.py' -v",
+    "test:redirects": "node scripts/check-redirects.mjs"
   },
   "devDependencies": {
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.6.2",
     "playwright": "1.63.0",
     "sharp": "^0.35.4",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "4.0.76",
+    "@ai-sdk/gateway": "4.0.91",
     "@deckpal/db": "workspace:*",
-    "ai": "7.0.94",
+    "ai": "7.0.113",
     "pg": "^8.23.0",
-    "zod": "4.5.4"
+    "zod": "4.6.5"
   }
 }

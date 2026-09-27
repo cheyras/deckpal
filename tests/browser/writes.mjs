@@ -189,7 +189,9 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       const counter = page.locator('.px-card-counters').first().getByRole('button').first()
       const owned = async () => Number((await counter.getAttribute('aria-label')).match(/: (\d+) owned/)[1])
       const readsBefore = state.setReads
-      fresh(); state.latency = () => 500
+      // CI browser scheduling can stretch three Playwright clicks past 500ms.
+      // Keep the first request in flight while all three user intents arrive.
+      fresh(); state.latency = () => 2500
       // UXC-02: taps made while a write is saving used to hit a disabled button.
       for (let n = 1; n <= 3; n++) { await counter.click(); assert.equal(await owned(), n, 'every tap shows at once') }
       await settle()
@@ -275,6 +277,14 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       await picker.getByRole('button', { name: /Mockipom/ }).click()
       await said("Couldn't add Mockipom to “Show binder”.").waitFor()
       await shot('list-add-failed')
+      const retryIsOnTop = await page.evaluate(() => {
+        const retry = [...document.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Retry')
+        if (!retry) return false
+        const rect = retry.getBoundingClientRect()
+        const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        return !!top && (top === retry || retry.contains(top))
+      })
+      assert.ok(retryIsOnTop, 'the toast’s Retry is visible and hit-tested above the open sheet')
       await search.focus()
       let reached = false
       for (let i = 0; i < 8 && !reached; i++) {
@@ -330,13 +340,45 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       // Offline, a deck edit is attempted and explained rather than silently lost.
       await context.setOffline(true)
       await page.waitForFunction(() => !navigator.onLine)
+      await page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor()
+      const beforeOfflineWrites = state.writes.length
       await plus.click()
       await said("Couldn't change Fixturemon to 7 in “Fixture Deck”. You're offline.").waitFor()
+      assert.equal(state.writes.length, beforeOfflineWrites, 'confirmed offline refuses before contacting the server')
       assert.equal(await copies(), 6)
+      await page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor()
+      const noticesSeparate = await page.evaluate(() => {
+        const banner = [...document.querySelectorAll('[role="status"]')].find(node => node.textContent?.includes('Browsing cached data'))
+        const toast = document.querySelector('[data-toaster]')
+        if (!banner || !toast) return false
+        const a = banner.getBoundingClientRect(), b = toast.getBoundingClientRect()
+        return b.bottom <= a.top || a.bottom <= b.top
+      })
+      assert.ok(noticesSeparate, 'offline banner and actionable save feedback do not overlap')
       await shot('deck-offline')
       await context.setOffline(false)
       results.push({ case: 'writes-deck', label, width, ordered: true, rollback: true, retry: true, offline: true })
     } finally { await context.close() }
+
+    // iOS can report offline while requests still work. The same successful
+    // probe that hides the banner must leave deck saves enabled.
+    fixture.reset()
+    const lying = await contextFor(browser, server, width)
+    await signIn(lying.context, USER)
+    try {
+      await lying.page.addInitScript(() => {
+        Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false })
+      })
+      await lying.page.goto(server.origin + mount + '/decks/' + DECK, { waitUntil: 'networkidle' })
+      await lying.page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor({ state: 'hidden' })
+      const plus = lying.page.getByRole('button', { name: 'Increase', exact: true }).first()
+      await plus.click()
+      for (let i = 0; i < 40 && state.deck[0].quantity !== 2; i++) await sleep(50)
+      assert.equal(state.deck[0].quantity, 2, 'deck save reached the server despite navigator.onLine=false')
+      if (width === 1280) await lying.page.setViewportSize({ width: 1440, height: 900 })
+      await lying.page.screenshot({ path: path.join(out, `${label}-writes-false-hint-${width === 1280 ? 1440 : 390}.png`) })
+      results.push({ case: 'writes-false-offline-hint', label, width, saved: true })
+    } finally { await lying.context.close() }
   }
   return results
 }

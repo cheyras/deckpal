@@ -135,7 +135,7 @@ async function checkMeterReplay(page, server, width, out) {
   const wirePath = path.join(out, 'meter-wire-' + width + '.json')
   fs.writeFileSync(wirePath, JSON.stringify(captured, null, 2))
   const proofPath = path.join(out, 'meter-proof-' + width + '.json')
-  const proof = run(process.execPath, ['--import', 'tsx',
+  const proof = await run(process.execPath, ['--import', 'tsx',
     fileURLToPath(new URL('./meterReplayProof.mts', import.meta.url)), wirePath, proofPath])
   assert.match(proof, /PASS captured browser wire seeds the real ledger/)
   await page.unroute('**/api/chat')
@@ -279,6 +279,106 @@ async function checkBounds(page, server, width, out) {
   return { case: 'wire-bounds', width, requests: bodies.length, lastBodyMessages: last.length, droppedFailureEvidence: true, trimNotice: 1, tooLongNotice: true }
 }
 
+/**
+ * ── THE REFLEX READ: THE CARD COMES FIRST ────────────────────────────────────
+ *
+ * With Jev on, a plain "add one Charizard ex" pins the server's first step to
+ * `log_cards`, so the first leg carries the consent request and NO prose — the
+ * "Sound good?" sentence that used to stand in for the card never exists. The
+ * server half is pinned by `reflex.test.ts` and `conversationalLogging.test.ts`
+ * (Jev mocked, real SDK). This is the browser half, over the real hook: a leg
+ * that opens with the card must show the card, say nothing it did not say, and
+ * carry the signed answer back as the last part of the next request.
+ */
+async function checkForcedCard(page, server, width, out) {
+  const bodies = []
+  const legs = [
+    sse(
+      { type: 'tool-input-available', toolCallId: 'forced-1', toolName: 'log_cards',
+        input: { items: [{ card_id: 'sv3-125', delta: 1 }] } },
+      { type: 'tool-approval-request', approvalId: 'ap-forced', toolCallId: 'forced-1', signature: 'sig-forced' },
+    ),
+    sse({ type: 'text-delta', delta: 'Done: 1 → 2. Undo is on the card if you want it.' }),
+  ]
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body: legs[bodies.length - 1] })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  await page.evaluate(() => window.meterChat.send('add one Charizard ex from Obsidian Flames'))
+  const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
+  await card.waitFor()
+  assert.equal(await panel.getByText(/sound good/i).count(), 0, 'no prose stands in for the card')
+  await page.screenshot({ path: path.join(out, 'reflex-card-' + width + '.png') })
+  await card.getByRole('button', { name: 'Go ahead' }).click()
+  await panel.getByText('Done: 1 → 2.', { exact: false }).waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  assert.equal(bodies.length, 2)
+  const last = bodies[1].messages[bodies[1].messages.length - 1].parts
+  assert.equal(last[last.length - 1].state, 'approval-responded')
+  assert.equal(last[last.length - 1].approval.approved, true)
+  assert.equal(last[last.length - 1].approval.signature, 'sig-forced', 'the signature must survive')
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'reflex-forced-card', width, cardBeforeProse: true, signedAnswerLast: true }
+}
+
+/**
+ * ── THE AUDIT'S CORRECTION: HIS WORDS, THEN THE REAL CARD ───────────────────
+ *
+ * With Jev on, a reply that claims a change no tool made ("Done! I've added
+ * it") is followed in the same response by one corrective step pinned to the
+ * tool that raises the consent card (`audit.ts`, pinned server-side by
+ * `conversationalLogging.test.ts` over the real SDK). This is the browser half:
+ * the phantom sentence, the correction line, then the card — in that order,
+ * over the real hook — and the signed answer rides last on the next request.
+ */
+async function checkCorrection(page, server, width, out) {
+  const bodies = []
+  const legs = [
+    sse(
+      { type: 'text-delta', delta: "Done! I've added the Charizard ex to your collection." },
+      { type: 'text-delta', id: 'turn-guard', delta: "\n\nOne correction: I said that as if it were done, but I hadn't actually run it. Here it is for you to confirm." },
+      { type: 'tool-input-available', toolCallId: 'corrective-1', toolName: 'log_cards',
+        input: { items: [{ card_id: 'sv3-125', delta: 1 }] } },
+      { type: 'tool-approval-request', approvalId: 'ap-corrective', toolCallId: 'corrective-1', signature: 'sig-corrective' },
+    ),
+    sse({ type: 'text-delta', delta: 'Added for real this time: 1 → 2.' }),
+  ]
+  await page.route('**/decke/history', route =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}' }))
+  await page.route('**/api/chat', route => {
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    return route.fulfill({ status: 200, contentType: 'text/event-stream',
+      headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' }, body: legs[bodies.length - 1] })
+  })
+  await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
+  const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+  await panel.waitFor({ state: 'visible' })
+  await page.evaluate(() => window.meterChat.send('add one Charizard ex'))
+  const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
+  await card.waitFor()
+  const text = await panel.innerText()
+  const claim = text.indexOf("Done! I've added")
+  const fix = text.indexOf('One correction:')
+  assert.ok(claim >= 0 && fix > claim, 'the correction must follow the claim it corrects')
+  await page.screenshot({ path: path.join(out, 'audit-correction-' + width + '.png') })
+  await card.getByRole('button', { name: 'Go ahead' }).click()
+  await panel.getByText('Added for real this time', { exact: false }).waitFor()
+  await page.waitForFunction(() => window.meterChat.busy === false)
+  const last = bodies[1].messages[bodies[1].messages.length - 1].parts
+  assert.equal(last[last.length - 1].state, 'approval-responded')
+  assert.equal(last[last.length - 1].approval.signature, 'sig-corrective', 'the signature must survive')
+  await page.unroute('**/api/chat')
+  await page.unroute('**/decke/history')
+  return { case: 'audit-correction', width, claimThenCorrectionThenCard: true, signedAnswerLast: true }
+}
+
 export async function checkChat(browser, server, out) {
   const results = []
   for (const width of [1280, 390]) {
@@ -307,13 +407,39 @@ export async function checkChat(browser, server, out) {
       const transcript = panel.locator('.decke-transcript-fade')
       const emptyPad = await panel.locator('[data-decke-composer]').evaluate(el => parseFloat(getComputedStyle(el.parentElement).paddingBottom))
       assert.equal(emptyPad, width === 390 ? 20 : 12)
+      let releaseMarkdown
+      let markdownRequested
+      const markdownPending = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Markdown chunk was not requested')), 10_000)
+        markdownRequested = () => { clearTimeout(timeout); resolve() }
+      })
+      await page.route(/ChatMarkdownBody.*\.js/, route => {
+        releaseMarkdown = () => route.continue()
+        markdownRequested()
+      }, { times: 1 })
       await set(page, { busy: true, messages: assistant('A streaming fragment') })
+      await markdownPending
       await panel.getByText('A streaming fragment', { exact: true }).waitFor()
       assert.equal(await panel.getByText('A streaming fragment', { exact: true }).evaluate(el => !!el.closest('[aria-live]')), false,
         'Streaming text must not be inside a live region')
       assert.equal(await live.innerText(), '', 'No fragment announcements while busy')
       await set(page, { busy: false, messages: assistant('A completed answer for the reader.') })
       await page.waitForFunction(() => document.querySelector('[role="dialog"] [role="status"].sr-only')?.textContent === 'Deck-E replied.')
+      const pendingAnswer = panel.getByText('A completed answer for the reader.', { exact: true })
+      assert.equal(await pendingAnswer.evaluate(el => el.matches('span.whitespace-pre-wrap')), true,
+        'Answer must still use the selectable Markdown fallback')
+      await pendingAnswer.evaluate(el => {
+        const range = document.createRange(); range.selectNodeContents(el)
+        const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range)
+      })
+      assert.equal(await page.evaluate(() => getSelection().toString()), 'A completed answer for the reader.')
+      await releaseMarkdown()
+      await panel.locator('p').filter({ hasText: 'A completed answer for the reader.' }).waitFor()
+      await transcript.dispatchEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true })
+      await transcript.dispatchEvent('click', { clientX: 10, clientY: 10, bubbles: true })
+      assert.equal(await page.evaluate(() => window.fixture.events.closes), 0,
+        'Replacing selected fallback text with Markdown must not dismiss')
+      await page.evaluate(() => getSelection().removeAllRanges())
       const transcriptPad = await panel.locator('[data-decke-composer]').evaluate(el => parseFloat(getComputedStyle(el.parentElement).paddingBottom))
       assert.equal(transcriptPad, 40, 'Transcript composer has its larger bottom clearance')
       // Click a real child, drag the real background, and release a selection.
@@ -327,9 +453,10 @@ export async function checkChat(browser, server, out) {
         const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range)
       })
       await transcript.dispatchEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true })
+      // A real pointerdown may collapse the selection before the click handler.
+      await page.evaluate(() => getSelection().removeAllRanges())
       await transcript.dispatchEvent('click', { clientX: 10, clientY: 10, bubbles: true })
       assert.equal(await page.evaluate(() => window.fixture.events.closes), 0, 'Text selection must not dismiss')
-      await page.evaluate(() => getSelection().removeAllRanges())
       await transcript.dispatchEvent('pointerdown', { clientX: 10, clientY: 10, bubbles: true })
       await transcript.dispatchEvent('click', { clientX: 10, clientY: 10, bubbles: true })
       assert.equal(await page.evaluate(() => window.fixture.events.closes), 1, 'A plain background click must dismiss')
@@ -391,6 +518,8 @@ export async function checkChat(browser, server, out) {
       results.push(await checkMeterReplay(page, server, width, out))
       results.push(await checkWriteRefresh(page, server, width, out))
       results.push(await checkBounds(page, server, width, out))
+      results.push(await checkForcedCard(page, server, width, out))
+      results.push(await checkCorrection(page, server, width, out))
     } finally { await context.close() }
   }
   return results
@@ -441,11 +570,16 @@ async function assertClear(page, width, targets, label) {
     // is the one a reader sees him land on.
     const key = () => page.evaluate(() => [document.querySelector('[data-decke-park]'), document.querySelector('[data-decke-approval]')]
       .map(el => el ? Math.round(el.getBoundingClientRect().top) + ':' + Math.round(el.getBoundingClientRect().bottom) : '-').join('|'))
-    let last = await key(), still = 0
-    for (let i = 0; i < 60 && still < 5; i++) {
+    // AND for half a second. Frames alone are not enough: on a busy runner the
+    // frames come quickly while a debounced re-solve is still waiting on its
+    // timer, so five identical frames were once measured just before the box
+    // moved (a flake on main at 5313fdb). Stillness has to hold in both clocks.
+    let last = await key(), still = 0, since = Date.now()
+    for (let i = 0; i < 240 && (still < 5 || Date.now() - since < 500); i++) {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => resolve())))
       const next = await key()
-      still = next === last ? still + 1 : 0
+      if (next === last) still++
+      else { still = 0; since = Date.now() }
       last = next
     }
     const him = await rect(park)

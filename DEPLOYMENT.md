@@ -230,6 +230,51 @@ directory; the object tier proves it by listing the bucket:
 pnpm --filter deckpal-images manifest:check -- --object-store
 ```
 
+### Rotating leaked legacy Supabase keys on deckpal.app
+
+This is an operator action. The code accepts both key formats so the cutover can
+be staged, but **deploying the code alone does not close the incident**. Use the
+current [Supabase API-key migration](https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys)
+and [JWT signing-key guide](https://supabase.com/docs/guides/auth/signing-keys)
+alongside these DeckPal-specific steps. Never paste key values into an issue,
+PR, terminal output, or chat.
+
+1. In Supabase **Settings > API Keys > Publishable and secret API keys**, select
+   **Create new API keys** if offered. Create a new secret key and use the
+   publishable key. Legacy keys remain active for the transition.
+2. In Vercel **Production and Preview**, set `SUPABASE_SERVICE_ROLE_KEY` to the
+   `sb_secret_…` value; set `NEXT_PUBLIC_SUPABASE_ANON_KEY` and
+   `VITE_SUPABASE_ANON_KEY` (where present) to the `sb_publishable_…` value.
+   Confirm `SUPABASE_URL` is set to this project's URL in both environments:
+   without it DeckPal cannot verify ES256 tokens after the old secret is removed.
+   Update local and job environments that hold these keys too. Redeploy both
+   environments; changing a variable does not change a running deployment.
+3. Check `GET /api/health` and `GET /api/public-config`, sign in, and exercise
+   an image write and a bug-report screenshot in the new deployment. Confirm
+   build jobs that download the scanner model still succeed. The public config
+   endpoint should serve the publishable key; do not print its value while
+   checking. Check any third-party callers or webhooks before retiring old keys.
+4. In Supabase **JWT signing keys**, select **Migrate JWT secret**. This imports
+   the legacy secret and creates an asymmetric standby key. Then select
+   **Rotate keys** so new user tokens use the asymmetric key. Verify a fresh
+   sign-in and an authenticated API request. The API verifies ES256 user tokens
+   through Supabase's JWKS using `SUPABASE_URL`.
+5. Remove `SUPABASE_JWT_SECRET` from Vercel Production and Preview and redeploy
+   both. This stops DeckPal's API and chat function from trusting any HS256
+   token signed with the leaked secret. Billing history uses
+   `STRIPE_SECRET_KEY` for its cursor and requires that key whenever billing is
+   available; an in-flight history cursor may need a page refresh once.
+6. In Supabase **Settings > API Keys**, deactivate the legacy `anon` and
+   `service_role` keys. Verify sign-in, authenticated API requests, Storage,
+   screenshots, and the scanner model download again. Only after the old keys
+   are disabled, return to **JWT signing keys** and **Revoke** the legacy JWT
+   secret under **Previously used**. Because this secret leaked, revoke it
+   promptly; users holding old access tokens may need to sign in again.
+
+The leak is not contained until steps 5 and 6 are complete. Supabase's signing
+key migration does not itself revoke the legacy JWT secret, and deactivating
+legacy API keys does not remove DeckPal's own HS256 verifier.
+
 ### 4. Create a Vercel project
 
 1. Import the repo on [vercel.com](https://vercel.com).
@@ -247,8 +292,10 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | Variable | Value | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project>.supabase.co` | |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | Server-side only |
+| `SUPABASE_URL` | `https://<project>.supabase.co` | Server-side JWKS verification, Storage, and manifest requests. Required before removing `SUPABASE_JWT_SECRET`. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_...` | Public browser key; the existing variable name is retained for compatibility. Also set `VITE_SUPABASE_ANON_KEY` to this value where the web build needs it. |
+| `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` | Server-side only; the existing variable name is retained for compatibility. Never place it in a `VITE_` or `NEXT_PUBLIC_` variable. |
+| `SUPABASE_JWT_SECRET` | **unset after signing-key migration** | Only needed while accepting legacy HS256 user tokens. ES256 tokens are verified using `SUPABASE_URL` and Supabase's public JWKS. |
 | `PGHOST` | `aws-0-us-east-1.pooler.supabase.com` | Pooled connection (API) — the runtime reads `PG*`, not a URL |
 | `PGPORT` | `6543` | |
 | `PGDATABASE` | `postgres` | |
@@ -270,6 +317,8 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DECKE_METER_TIMEOUT_MS` | `5000` (default) | Watchdog on the meter's connect and query. A database that has stopped answering must not turn every Deck-E request into a hung socket holding a pooled connection on an instance Vercel is about to freeze. On timeout the meter **fails open** and logs loudly — accounting fails open, access control does not, and they are separate checks for exactly that reason. |
 | `DECKE_PGRLS_MAX_HOLD_MS` | `10000` (default) | How long ONE Deck-E tool call may hold its pooled connection. Deliberately far below the API's 30 s `PGRLS_MAX_HOLD_MS`, because the unit differs: that budget covers a whole request, this one covers a single `search_cards`. A read taking ten seconds is not slow, it is stuck, and on a conversational path the reader gave up several seconds ago. On expiry the connection is **destroyed rather than pooled** — it may be mid-statement inside an open transaction carrying that turn's RLS claims, and returning it would let the next request race a still-running query from someone else's session. |
 | `DECKE_DEEP_BUDGET_MS` | `210000` (default) | Wall-clock ceiling for ONE deep-tier sub-agent (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Must stay comfortably under `api/chat.mjs`'s `maxDuration` (300 s) — the gap is not slack, it is the time needed to write the partial answer out, let the conversational model comment on it, and close the stream properly. A sub-agent that hits this returns **what it has so far, labelled incomplete**, rather than being killed: it streams for exactly that reason, since a call that is simply killed produced nothing and was billed anyway. |
+| `DECKE_JEV` | unset (default) = `off` | **Switches Deck-E's Jev judgments on — `on` or `off`, nothing else.** Jev (`typesafe-ai/jev`, the Gateway's evaluation model) reads the reader's latest message before each chat request (each leg of a turn) and decides three things the model kept getting wrong: force the first step to raise the `log_cards` consent card for a plain collection change, take `escort` out of view for a walk it cannot make, and count a "no" said in words as a decline (`apps/api/src/decke/reflex.ts`); and after each reply it checks whether he claimed a change no tool made, and if so runs one corrective step that raises the real consent card (`audit.ts`). Claimed deletions of lists, decks or battle logs get an admission instead, because those corrective edit tools cannot delete. It uses `DECKE_VERCEL_AI_GATEWAY_KEY`, asks for zero data retention from TypeSafe only on every call, and costs about $0.00004 a request. **Off is a normal state and changes nothing** — Deck-E behaves exactly as before Jev. Any other value is treated as off, warned about at boot, and reported as `deckeJev.status: "invalid"` on `GET /health`. TypeSafe's data retention is unconfirmed (SECURITY.md); switch it on in Preview first. |
+| `DECKE_JEV_TIMEOUT_MS` | `800` (default) | The hard deadline for one Jev call, 100–5000 ms. Past it the turn proceeds exactly as it would with Jev off. 800 is twice the p95 measured through the Gateway on the eval set (0.4 s). Reported on `GET /health` as `deckeJev.timeoutMs`. |
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_PULL_REQUEST_ID`, `VERCEL_GIT_COMMIT_MESSAGE` | Vercel system values | Read on the server at request acceptance. SHA must be full 40 hex; a strict positive preview PR ID takes precedence over a PR parsed from the first commit-message line. Missing/invalid tags remain null. Check system-variable exposure on the intended deployment; never infer it from source or accept browser stamps. See [official system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables). |
 | `DECKE_CREDITS_ENABLED` | unset (default) | Imported exactly once as enabled only for the exact string true, after owner bootstrap succeeds. Thereafter Administration → Settings is authoritative. Existing balances/events remain unchanged; initial quoted prices preserve 1/4/75 and must be reviewed before sales. No pack is created or activated automatically. |
 | `SCAN_EMBED_MATCH` | unset (default) | **Switches on the scanner's embedding matcher — `POST /api/scan/embed`, and the vector's part in `POST /api/scan/resolve`.** Unset, or anything other than the exact string `true`, and `/embed` answers **404** (the honest answer: this deployment does not have that endpoint) while `/resolve` ignores any `vectorMatches` in the body and returns exactly what it returned before the matcher was written — same keys, no `similarity` field, same ordering. The dHash path (`POST /api/scan`) is untouched either way. **THREE things must be true before setting it, and none of them is checked from the API**: migration 051 applied (which needs `pgvector`, see below), `tools/embed-catalog` run for the current stamp, and the ONNX checkpoint present at `SCAN_EMBED_MODEL_PATH`. A serverless function has no boot to verify them in, so each surfaces on the first request instead — a missing table or extension degrades **silently back to the old ladder** (one warning in the log, no 500), while a missing model file is a 500 whose message names the path. Turn it on in **Preview first**, run one real scan, then Production. `GET /health` reports `scanEmbed: "on" \| "off"`, and the API logs one line at boot when it is on. |
@@ -285,20 +334,44 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 The API's abuse budgets need **no new env variable to deploy**. The pre-auth
 ingress guard (600 requests/min per source IP per process) and the per-user
 session limits (`/tokens` 20/min, `/avatar` 10/min, `/oauth` 30/min,
-all `/admin` 120/min, all `/me/credits` 180/min) are wired unconditionally
-in `createApp` on the ordinary base-path API router (`/api` on Vercel,
-`/deckpal/api` self-host). A single parent admin limiter includes credit
-administration once; the wallet budget is separate. These use the existing
-bounded per-instance store. Ingress, admin and wallet middleware use the pinned
-`express-rate-limit` 8.7.0 dependency installed by the normal frozen workspace
-install. Ingress runs before authentication; admin/wallet session gates and
-limits run after verified/local identity but before RLS request-connection
-acquisition. Active-account/action permissions still precede handlers. The
-database checkout limits of 60 requests and 10 new order attempts per user/hour
-are unchanged. The Stripe raw-body webhook and the
-bare-origin OAuth discovery / `/register` / `/token` handlers are mounted
-separately on `app` ahead of that router and are outside this guard; the MCP
-transport at `/mcp` is a separate function. Client-identity resolution keys on
+`/bugs` 10/hour, all `/admin` 120/min, all `/me/credits` 180/min) are wired
+unconditionally in `createApp` on the ordinary base-path API router (`/api`
+on Vercel, `/deckpal/api` self-host). A single parent admin limiter includes
+credit administration once; the wallet budget is separate. These use the
+existing bounded per-instance store. Ingress, admin and wallet middleware use
+the pinned `express-rate-limit` 8.7.0 dependency installed by the normal
+frozen workspace install. Ingress runs before authentication; admin/wallet
+session gates and limits run after verified/local identity but before RLS
+request-connection acquisition. `/bugs` runs after identity too, but with no
+`requireSession` — a personal access token, or self-host's resolved local
+identity, may still file a report. Active-account/action permissions still
+precede handlers. The database checkout limits of 60 requests and 10 new
+order attempts per user/hour are unchanged.
+
+**The Stripe raw-body webhook** is still mounted separately on `app` ahead of
+that router and is outside this guard (unchanged). **The bare-origin OAuth
+discovery / `/register` / `/token` handlers** are also still mounted
+separately on `app` ahead of that router, but each of the four now carries its
+own limiter — `oauthPublicRateLimit`, 30 requests/min per source IP, checked
+first, before the host allowlist or any body parsing. **The MCP transport at
+`/mcp`** is still a separate function, but it too now carries two limiters:
+a global 300 requests/min-per-instance admission counter, checked before
+`resolveToken`'s database lookup, and a 60 requests/min-per-token budget,
+checked only after `resolveToken` succeeds and keyed on the resolved,
+database-verified `tokenId` rather than the caller's IP — because claude.ai
+and other hosted MCP connectors share egress IPs across all of their users,
+an IP-keyed limit there would let one heavy connector user exhaust the budget
+for every other user behind the same IP. (The admission counter is
+deliberately NOT keyed on the credential either: an unauthenticated caller
+can mint unlimited distinct credential strings for free, and an earlier
+version of this fix that keyed the pre-resolution check on the credential
+let exactly that flood exhaust the bounded map and lock out brand-new,
+legitimate credentials too — caught in review before it shipped.) All new
+limiters are honest about the same limitation as everything else in this
+section — per-process, not global (see the warning below) — and none needs a
+new env variable either.
+
+Client-identity resolution keys on
 the existing **`VERCEL`** runtime variable — platform-provided on Vercel
 (`'1'`), absent elsewhere — to decide whether to trust
 `x-vercel-forwarded-for` / `x-forwarded-for` (Vercel overwrites both at
@@ -313,6 +386,42 @@ per process / per serverless function instance and reset on restart or cold
 start. They stop retry storms and casual abuse; they are not a durable
 distributed quota and do not protect from distributed or network flooding —
 reverse-proxy / platform controls remain the deployment boundary.
+
+#### Body-size limits — also no new environment variable
+
+Every REST route's JSON body limit is now sized per route rather than one
+12 MB parser for the whole API (see `SECURITY.md`'s "Body-size limits" section
+for the full table and the reasoning), mounted immediately after the pre-auth
+ingress guard — ahead of authentication, since bounding a body's size needs
+none. Nothing here is configurable and nothing needs to be: `/bugs` (12 MB,
+the screenshot), `/client-errors` (32 KB, the crash beacon),
+`/dev/scan-queue` and `/dev/scan-flags` (4200 KB,
+labeler/harness photos, owner-only in production), `/decke` (2 MB, one
+transcript-history turn), `/lists` (2 MB, a bulk item add), `/decks` (512 KB,
+the strategy-guide and battle-log text), and 100 KB for everything else.
+`/register` and `/token` keep their existing 16 KB parsers in
+`oauthServer.ts`, now actually effective. Deck-E's live chat (`api/chat.mjs`)
+is a separate Vercel function with its own body handling and is untouched by
+any of this.
+
+Every one of the numbers above is sized in **bytes on the wire**, not
+characters, and `/decke`, `/lists` and `/decks` are reachable over the plain
+REST API (a personal access token, an MCP client, a script) — not only this
+repo's own browser client — so the limit has to hold for whatever a caller's
+own JSON encoder does. A character-count cap elsewhere in this codebase (e.g.
+`STRATEGY_MAX`, `RAW_LOG_MAX`) counts JS string length (UTF-16 code units); a
+raw-UTF-8 client costs up to 3 bytes per non-Latin code unit (CJK, Hangul,
+Cyrillic), and an ASCII-safe-escaping client — Python's `json.dumps` defaults
+to `ensure_ascii=True` — costs 6 (`\uXXXX` is 6 ASCII bytes for 1 code unit).
+`/decke`, `/lists` and `/decks` are all sized at that ×6 worst case: two
+review passes each caught a version of this undersizing — the first pass
+assumed 1 byte per character and missed `/decks` entirely; a second pass
+found the first fix's ×3 estimate itself insufficient once measured against
+an actual ASCII-escaped body. `/dev/scan-queue` and `/dev/scan-flags` have
+the inverse problem: their decoded caps (3 MB) divide evenly by 3, so base64
+encoding (pure ASCII, no further escaping possible) produces EXACTLY 4 MB on
+the wire with nothing left for the JSON wrapper around it — a bare 4 MB
+parser 413'd a real max-size upload, so both get 4200 KB instead.
 
 #### `pgvector` is a prerequisite of migration 051
 
@@ -1137,6 +1246,7 @@ input after successful preflight; no separate secret or deployment step exists.
    | Variable | Effect |
    |---|---|
    | `VITE_CARD_ART_BUCKET` | Storage bucket the SPA addresses card art in **directly**, skipping the `/deckpal/images` function and its redirect (DECISIONS.md 2026-08-26). Build-time only. Defaults to `card-art`, which is the same default the server uses (`CARD_ART_BUCKET`, `packages/storage/src/config.ts`) — **set it only if you renamed the bucket, and set it to the same value on both.** Getting it wrong does not break images: the direct URL 404s, `CardImage` falls back to the image tier, and you silently get the slower pre-2026-08-26 behaviour. `VITE_SUPABASE_URL` must be set at build time for the fast path to exist at all; without it every image uses the proxy (expected on self-host, and the dev build warns). |
+   | `VITE_DECKE_TEST_HANDLE` | **Test builds only — never set it in a deployment.** `1` exposes the Deck-E engine as `window.__decke` so `tests/browser/deckeShow.mjs` can step him frame by frame. Set by `tests/browser/support.mjs`'s build and nothing else; unset, the handle is folded out of the bundle entirely. |
 
    After a catalog import or a set release, warm the new art or the first person
    to view it pays a ~1.5–2.5 s fill per image:
@@ -1173,7 +1283,10 @@ input after successful preflight; no separate secret or deployment step exists.
    reporter's identity is stored privately in the `bug_report` DB table and
    never appears in the public issue. If Supabase Storage is configured
    (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`), screenshots are uploaded to
-   a `bug-reports` storage bucket and linked in the issue body.
+   a `bug-reports` storage bucket. The public issue notes that a screenshot
+   exists but never links to it. The owner can find it by Report-ID in Storage.
+   The reporter's disclosure reflects the server's `GITHUB_TOKEN` and
+   `GITHUB_REPO` setting through `/api/public-config`.
 
 5. Deploy. The `vercel.json` in the repo carries the real build command and the
    rewrites, in this order (order matters — the SPA fallback must stay last, or
@@ -1355,9 +1468,10 @@ pnpm --filter deckpal-images manifest:check --object-store
 ### 7. AI issue triage (optional)
 
 **`.github/workflows/issue-triage.yml` — runs on every issue opened via the
-in-app reporter.**  A cheap AI model (Claude Haiku) reviews the report and posts
-a draft analysis as a comment — noting missing details for bugs, and ranking
-against current priorities from the wiki.  The comment is clearly labeled as
+in-app reporter.**  A cheap Haiku-class model (`anthropic/claude-haiku-4.5`,
+called through the Vercel AI Gateway) reviews the report and posts a draft
+analysis as a comment — noting missing details for bugs, and ranking against
+current priorities from the wiki.  The comment is clearly labeled as
 AI-generated and non-authoritative; the workflow never modifies labels or issue
 state.
 
@@ -1365,10 +1479,10 @@ Add one repository secret:
 
 | Secret | Value | Required |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | An Anthropic API key (any tier — Haiku is very cheap) | yes |
+| `AI_GATEWAY_API_KEY` | A Vercel AI Gateway API key — Vercel dashboard, the deck-pal team → AI Gateway → API Keys. Mint a **dedicated** key for this workflow rather than reusing an existing one: this is a GitHub Actions repository secret (a separate credential store from any Vercel project environment variable of the same name), and a dedicated key keeps triage's tiny, infrequent spend legible and independently revocable — the same reasoning `DECKE_VERCEL_AI_GATEWAY_KEY` above is deliberately split from the marketing generator's key. | yes |
 
 ```bash
-gh secret set ANTHROPIC_API_KEY --repo cheyras/deckpal
+gh secret set AI_GATEWAY_API_KEY --repo cheyras/deckpal
 # paste the key when prompted
 ```
 

@@ -77,14 +77,15 @@ applies every migration with Supabase's default grants and asserts that the
 anon role and a second signed-in user reach none of a user's rows in any table
 or view in `public`.
 
-**Service role key:** The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and is used
-only server-side (sync jobs, catalog writes, storage uploads). It is set as a
-Vercel environment variable and is never exposed to the client.
+**Server secret key:** `SUPABASE_SERVICE_ROLE_KEY` holds a Supabase `sb_secret_…`
+key after rotation. It bypasses RLS and is used only server-side for Storage
+and manifest access. Server requests send it on `apikey`, never as a Bearer
+token. The old service-role JWT remains supported only during migration.
 
 **Key handling rules:**
-- The anon key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`) is safe to expose -- it is
-  rate-limited and subject to RLS.
-- The service role key must never appear in client-side code, browser
+- The publishable key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`, also
+  `VITE_SUPABASE_ANON_KEY`) is safe to expose; RLS still governs data access.
+- The server secret key must never appear in client-side code, browser
   `localStorage`, or git history.
 - Vercel environment variables marked as server-side are not bundled into the
   SPA.
@@ -366,6 +367,34 @@ domain-allowlist control available on this Gateway for other research tools —
 provider-side; the compensating controls here are structural rather than that
 allowlist.)
 
+**Jev is a new data processor, and its retention is unconfirmed** (2026-09-26).
+With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
+AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
+(`apps/api/src/decke/reflex.ts`). What it receives: the reader's latest message
+(clipped to 2,000 characters), Deck-E's previous reply (last 800) and the page
+path — and, for the after-turn audit (`audit.ts`), the reply he just gave (last
+2,000). No separate collection or account records, or photos, are attached, but
+those text fields and the path are not redacted: a reader can include ownership
+counts, card IDs or account details in their message, Deck-E can repeat them,
+and a deck or list path can contain an ID. Every request
+sets `zeroDataRetention: true` and pins the provider with `only: ["typesafe-ai"]`.
+That pin matters: measured on 2026-09-26, the Gateway otherwise routes Jev to a
+second host (DigitalOcean) first, and with the flag it skips that host as
+ZDR-ineligible. **Whether TypeSafe itself retains what it is sent is not
+confirmed**: the Gateway's model list reports `zdr: "none"` for Jev, Vercel's
+guide says ZDR is available per request, and TypeSafe's own documentation offers
+ZDR to enterprise customers only. Jev never approves anything and is not a
+control: its vendor documents that text in its state can move its answers, so
+its judgments only ever raise a consent card, hide a tool the reader cannot use,
+add a refusal, or run one corrective step that can itself only raise a consent
+card. A claimed list, deck or battle-log deletion gets an admission rather than
+forcing an edit tool that cannot delete. Each failure is today's behaviour. Off
+by default; `GET /health` reports `deckeJev`.
+For corrective list, deck and battle-log calls, `dry_run: false` is inserted
+into the parsed, signed tool input before the approval card is issued. The
+write still executes only after that signed approval is replayed; ordinary
+calls keep their preview default.
+
 **Server-side request forgery — where the server is allowed to fetch from.**
 Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
 `js/request-forgery` code-scanning alerts):
@@ -455,19 +484,85 @@ these at ingress, so a client cannot spoof them. Outside Vercel, forwarding
 headers are **ignored** and the raw socket peer is used. Express `trust proxy`
 stays at its default **false** (not loopback), and no new production env
 variable is required — the existing `VERCEL` is platform-provided, not user
-input. The Stripe raw-body webhook and the bare-origin OAuth discovery /
-`/register` / `/token` handlers are mounted separately on `app` ahead of that
-router and are outside this guard; the MCP transport at `/mcp` is a separate
-function (`api/mcp.mjs`).
+input. The Stripe raw-body webhook is mounted separately on `app` ahead of
+that router and is outside this guard, as is the bare-origin OAuth discovery /
+`/register` / `/token` handlers — **which now carry their own limiter, below**
+— and the MCP transport at `/mcp`, a separate function (`api/mcp.mjs`, **also
+now its own limiter, below**).
 
 **Per-user session routes.** `/tokens` (20/min), `/avatar` (10/min),
-`/oauth` (30/min), all `/admin` (120/min) and all `/me/credits` (180/min)
-are guarded after authentication/resolved self-host identity and
+`/oauth` (30/min), `/bugs` (10/hour), all `/admin` (120/min) and all
+`/me/credits` (180/min) are guarded after authentication/resolved self-host
+identity and (for `/tokens`, `/avatar`, `/oauth`, `/admin`, `/me/credits`)
 `requireSession`, before RLS acquires its request connection. Cloud
 anonymous/PAT callers are rejected before their per-user budget. Self-host uses
 its resolved local account. Authentication lookup and trusted bootstrap can
 access their own pool earlier, so this is specifically an RLS-connection
 boundary. Active-account and action/SQL permission checks still follow RLS.
+`/bugs` does not require a browser session (a personal access token may file
+a report; self-host's resolved local identity must too), only identity — see
+"Bug/feature reports are keyed per account" below for why it moved off `req.ip`.
+
+**The public OAuth "Connect" endpoints (SEC-09).** `/register`, `/token` and
+the two `/.well-known/oauth-*` discovery documents are mounted at the bare
+origin, ahead of the base-path router above, so none of its limiters ever ran
+for them — `POST /register` in particular was an unauthenticated
+`oauth_client` INSERT with **no rate limit anywhere upstream of it**. Each of
+the four now carries its own `oauthPublicRateLimit`
+(`apps/api/src/rateLimit.ts`), **30 requests/minute per source IP**, checked
+before the host allowlist and before any body is read. It is keyed the same
+way the ingress guard is (validated platform IP on Vercel, raw socket peer on
+self-host) because none of these four requests carries a credential yet —
+there is nothing else to key on — and it uses a distinct store prefix
+(`oauth-public`) from the ingress guard's `preauth`, so the two budgets never
+fight over one shared counter for the same IP.
+
+**MCP (SEC-09).** `/mcp` (`apps/mcp/src/cloud.ts`) now carries two limiters,
+for two different threats:
+
+1. A **global pre-resolution counter**, 300 requests/minute per instance,
+   checked before `resolveToken`'s database lookup, so a flood of
+   unresolvable tokens never reaches the pool. It is deliberately ONE shared
+   counter, not one per credential: an unauthenticated caller can mint
+   unlimited distinct credential strings for free, and a per-credential check
+   at this stage — the first version of this fix — let a flood of 10,000
+   fabricated Bearer values fill the bounded map's admission capacity,
+   rejecting even a brand-new, never-before-seen credential for a full
+   sweep window afterward (reproduced and fixed before this shipped). A
+   global counter has no per-key capacity to exhaust.
+2. A **per-token budget**, 60 requests/minute, checked only after
+   `resolveToken` succeeds, keyed on the resolved `tokenId` rather than the
+   raw credential string. This is the fairness guarantee: no single
+   legitimate token can crowd out another token's share. Keying on `tokenId`
+   (a database-verified uuid) rather than the raw string is what makes a
+   bounded map safe here — an attacker cannot mint many `tokenId`s for free
+   the way it can vary a Bearer header, since each one costs a real account
+   plus `/register`'s and `/token`'s own rate limits and `MAX_ACTIVE_TOKENS`.
+
+A request with no credential at all is already the cheapest path in that
+handler (an immediate 401, no DB) and is metered by neither layer.
+
+**Why the credential, not the IP, for the per-token layer.** Every other
+limiter in this file keys on the caller's IP because that is the identity
+available before authentication. `/mcp`'s fairness layer is the one place
+that reasoning breaks: claude.ai (and every other hosted MCP connector) makes
+its calls from that provider's own shared egress IPs, common to every one of
+that provider's users. An IP-keyed limit there would let one heavy user on a
+shared connector exhaust the bucket for every other user behind the same
+egress IP — silencing a stranger's MCP access because of a heavy neighbor,
+the exact class of bug SEC-11 fixes for `/bugs` below, one hop upstream.
+
+**Bug/feature reports are keyed per account, not per source IP (SEC-11).**
+`routes/bugs.ts` used to run its own hand-rolled 10/hour bucket keyed on
+`req.ip`, bypassing the shared `resolveClientKey` helper every other limiter
+in this file uses. Behind a reverse proxy (self-host, `trust proxy` false)
+that is always the same loopback peer — one shared bucket for the whole
+deployment — and on Vercel it read the raw, unvalidated `req.ip` rather than
+the platform-checked forwarding header. Either way, one signed-in user filing
+(or scripting) 10 reports silenced the reporter for every other user sharing
+that bucket. The route already requires identity by the time it runs, so it
+is keyed on `req.user.id` now (`bugsRateLimit`, same shape as `/tokens` and
+`/avatar`), giving each account its own 10/hour budget regardless of IP.
 
 Ingress, admin and wallet use genuine `express-rate-limit` 8.7.0 middleware
 with `BoundedExpressStore` over the existing store. All adapters share its
@@ -491,10 +586,90 @@ instance keeps its own budget, so a caller spread across instances gets a
 multiple of the limit. The budgets are speed bumps, not boundaries.
 
 **MCP scope.** The MCP transport at `/mcp` (separate `api/mcp.mjs` function)
-is **not** automatically covered by the 600/min guard. The MCP token/OAuth
-**management** endpoints (`/tokens`, `/oauth`, `/avatar`) are REST routes on
-the base-path router and use these REST controls. Existing MCP-specific
-security details are unchanged.
+is **not** covered by the 600/min guard — it is a different function entirely
+— but it is no longer uncovered: it carries its own two-layer limiter (see
+above). The MCP token/OAuth **management** endpoints (`/tokens`,
+`/oauth`, `/avatar`) are REST routes on the base-path router and use these
+REST controls. Existing MCP-specific security details are unchanged.
+
+### Body-size limits (REST API), per route (SEC-08)
+
+Until this fix, ONE `express.json({limit:'12mb'})` sat on `app`, ahead of
+*every* route — including `preAuthFloodGuard`, `authMiddleware` and the
+bare-origin OAuth routes — sized only for the bug reporter's screenshot. Every
+other route paid the same 12 MB ceiling before anything unauthenticated was
+even throttled, and a handful of concurrent oversized bodies could push the
+serverless function toward its memory limit: an internal audit measured
+roughly **22×** JSON-to-heap amplification (4.5 MB of JSON body retained
+~100 MB of heap; 12 MB retained ~268 MB). It also
+made `/register`'s and `/token`'s own 16 KB parsers dead code:
+`express.json()` no-ops on a request whose body a *prior* matching parser
+already consumed (checked via body-parser's own `req._body` flag), so
+whichever parser for a given path ran **first** decided its limit — and the
+blanket 12 MB parser on `app` always ran first for every path.
+
+**The fix is per-route parsers, most-specific first**, mounted on the ordinary
+base-path router (`createApp` in `apps/api/src/index.ts`) immediately after
+`preAuthFloodGuard` — ahead of `authMiddleware`, the per-user rate limits and
+the RLS connection acquisition, since none of them are needed to bound a
+body's size — so a flood is throttled, and an oversized body rejected, before
+either a byte is read or a pooled connection is claimed. The identity-free
+`/client-errors` handler also sits here, after its own parser and the default
+parser, so its crash report is available as `req.body` before any database
+work. Every character-count cap this repo already had (`MAX_TEXT`,
+`STRATEGY_MAX`, `RAW_LOG_MAX`, …) is a
+JS string length — UTF-16 **code units**, not the UTF-8 **bytes** a limit
+here actually measures — and `/decke`, `/lists` and `/decks` are reachable
+over the plain REST API (a personal access token, an MCP client, a script),
+not only this repo's own browser client, so the limit has to hold for
+whatever a caller's OWN JSON encoder does, not just this repo's. A raw-UTF-8
+client (this repo's browser code, `JSON.stringify`) costs up to 3 bytes per
+BMP code unit outside Latin-1 (CJK, Hangul, Cyrillic — most of the world's
+scripts). An ASCII-safe-escaping client — Python's `json.dumps` defaults to
+`ensure_ascii=True`, and it is a common default elsewhere too — costs **6**:
+`\uXXXX` is 6 ASCII bytes for what was 1 code unit. Two review passes each
+caught a version of this: the first sized the table below at ×3 and omitted
+`/decks` entirely; the second found ×3 itself insufficient once measured
+against an actual ASCII-escaped body (a supported 50,000-character `rawLog`,
+`json.dumps`-encoded, is 300,013 bytes). Every number below is now the ×6
+worst case.
+
+| Route | Limit | Why |
+|---|---|---|
+| `/bugs` | 12 MB | The screenshot dataURL. `MAX_IMG_BYTES` is 8 MB decoded; base64 costs +33%, so a full-size screenshot is ~10.7 MB on the wire before the JSON wrapper and the 20 KB text fields (×6 for escaped multibyte text is still negligible against the image). |
+| `/client-errors` | 32 KB | The crash beacon sends route, message, stack and build id. Even if all four fields reach their logged lengths and each character is ASCII-escaped, the JSON stays under 32 KB. This limit runs before the unauthenticated logging handler and its 20/minute/IP limiter. |
+| `/dev/scan-queue` | 4200 KB | The labeler queue photo. `MAX_PHOTO_BYTES` (3 MB decoded) divides evenly by 3, so its base64 form is EXACTLY 4 MB on the wire — leaving no room for the `{"jpg":…,"name":…,"source":…}` wrapper around it. A bare 4 MB parser 413'd a real max-size upload (caught in review); 4200 KB leaves ~104 KB of headroom. Base64 is pure ASCII with no characters JSON needs to escape further, so neither multibyte ratio above applies. Owner-only in production. |
+| `/dev/scan-flags` | 4200 KB | The scan-harness flag capture: `pngBytes + metaJson` combined, decoded, capped at 3 MB — same exact-boundary arithmetic as `/dev/scan-queue` above when nearly the whole budget is the base64 PNG. Owner-only in production. |
+| `/decke` | 2 MB | One Deck-E transcript-history turn (`routes/deckeHistory.ts`): two 24,000-char text fields plus up to 60 tool records, each up to ~2,000 chars. At the ×6 worst case that's ~1 MB before JSON structure; 2 MB leaves real headroom. This is the transcript-history endpoint, **not** the live chat stream — Deck-E's chat (`api/chat.mjs`) is a separate Vercel function with its own body handling, unaffected by any of this and untouched here. |
+| `/lists` | 2 MB | `POST /:id/items/bulk` allows 500 items, each with its own 500-char note — at ×6 that's ~1.43 MB before structure. 2 MB leaves headroom without reopening the ceiling for every other `/lists` route. |
+| `/decks` | 512 KB | `PUT /:id/strategy` (`STRATEGY_MAX` 40,000 chars) and `POST /:id/logs` / `/log-preview` (`RAW_LOG_MAX` 50,000 chars) are the two biggest single-field caps outside the routes above — at ×6 the larger is ~293 KB (matches the 300,013-byte reproduction above almost exactly), already over the 100 KB default. |
+| everything else | **100 KB** | Every other route posts small JSON (ids, filters, short text) with nothing near the caps above, even at ×6. |
+
+`/register` and `/token` keep their own existing 16 KB parsers
+(`apps/api/src/oauthServer.ts`) — unchanged code, now actually effective, for
+the reason above: nothing on `app` reads their body first any more.
+
+Oversized bodies are surfaced as a proper `413 payload_too_large` JSON error
+(`apps/api/src/http.ts`'s `errorMiddleware`), not the generic `500` a bare
+body-parser error used to produce — the same translation `scan/router.ts`
+already did by hand for its own raw-body parser, now done once for every
+`express.json()`-guarded route.
+
+**Verified:** `apps/api/src/__tests__/bodyLimits.test.ts` sends real HTTP
+requests at each boundary (just under / just over each limit) and asserts the
+413/200 split, including a real multibyte case (a full-length Japanese
+strategy guide and battle log against `/decks`, and a full-length Japanese
+transcript turn against `/decke`) in BOTH raw-UTF-8 and ASCII-escaped
+serialization, a real base64-encoded max-size photo
+(`Buffer.alloc(3*1024*1024).toString('base64')`, not an ASCII approximation)
+against `/dev/scan-queue` and `/dev/scan-flags`, a normal `/client-errors`
+beacon whose fields appear in the log and an oversized one rejected before
+logging, and a regression control that reproduces the shadowing bug on
+purpose by reversing the mount order —
+proving the ordering above is load-bearing, not cosmetic.
+`apps/api/src/__tests__/rateLimit.test.ts` separately asserts the exact mount
+order in `index.ts`'s own source, including that the whole block now
+precedes `authMiddleware`.
 
 ### Self-host images rate limiting
 
@@ -513,6 +688,48 @@ tiers) returns `application/octet-stream` for malformed non-byte input types.
 Genuine `Buffer`/`Uint8Array` including nonzero-`byteOffset` views are
 supported. Object, string and array values are rejected via
 `util.types.isUint8Array`, which checks the internal `[[TypedArrayName]]` slot.
+The in-app bug reporter's screenshot upload (`apps/api/src/routes/bugs.ts`)
+uses the same sniffer, for the same reason: see "Bug-report privacy" below.
+
+### Bug-report privacy (2026-09-26)
+
+The in-app bug/feature-request reporter (`apps/web/src/components/BugReport.tsx`,
+`apps/api/src/routes/bugs.ts`) files a labeled **public** GitHub issue in cloud
+mode (see AGENTS.md B10). Three things are enforced so that publishing a
+report cannot publish more than the reporter chose to:
+
+- **Disclosure before Submit.** The modal states, before the report is sent,
+  whether the description and page path will be posted publicly on GitHub,
+  using the API's actual issue setting. It explains that any screenshot is
+  saved separately, and lets the reporter exclude it with a checkbox. This did not exist
+  before 2026-09-26 — the reporter was told a screenshot would be "attached,"
+  never that it would be public.
+- **No screenshot at all on a sensitive page.** `isSensitiveBugPage` (mirrored
+  in both files, same shape as the `isAllowedRoute`/`routeAllowed` pair for
+  Deck-E navigation) refuses to capture, or to store one sent anyway, for any
+  `/admin`, `/profile` or `/credits` page, including mixed-case and encoded URLs the router
+  accepts. Those can show account details that
+  are not the reporter's to publish — most acutely, `/admin/users` renders
+  other signed-in users' email addresses. The server-side check is a
+  backstop, not a formality: it runs regardless of what the client sends, so
+  a stale bundle or a hand-built request cannot bypass it.
+- **No link to the screenshot in the public issue, ever.** Until 2026-09-26,
+  a saved screenshot got a Supabase Storage **signed URL valid for one year**,
+  posted directly in the issue body — readable by anyone who found the issue,
+  for that whole year, no sign-in required. The issue body now says only that
+  a screenshot was saved privately (never a URL); the project owner reaches
+  the bytes through Supabase Storage or the private `bug_report` row, by
+  Report-ID. See the SEC-06 entry in `decisions/2026/` for why this shape was chosen over a
+  short-lived signed URL, and for the disposition of the pre-existing public
+  issues that carried the old year-long links.
+
+The reported page path is also stripped of its query string and fragment
+(client and server, independently) before it is stored or published — a
+search box or a `?next=` parameter can carry something identifying that the
+page path itself never would. The screenshot's declared content type is never
+trusted: `decodeScreenshot` sniffs the actual bytes (see "Content-type
+sniffing" above) and rejects anything that isn't a real PNG, JPEG, or WebP,
+the same rule the avatar upload path already enforced.
 
 ### Migration CLI error safety
 
@@ -611,6 +828,12 @@ brand, last four digits, expiry month and year — and nothing else.
 That is what keeps this deployment within PCI SAQ-A. It is a property of the
 code rather than a promise: self-hosting Stripe.js would break the iframe origin
 and is therefore forbidden, not merely discouraged.
+
+Stripe.js is fetched only when a payment surface calls `loadStripe`:
+`lib/billing.ts` imports `@stripe/stripe-js/pure`. Until 2026-09-26 it imported
+the package's main entry, which injects the script as a side effect of being
+imported, so every page load, signed out or not, fetched Stripe.js and opened
+Stripe's `m.stripe.network` fraud-signals frame (PERF-01).
 
 ### The webhook's signature is its only authentication, and there is no fallback
 

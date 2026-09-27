@@ -1,7 +1,4 @@
-import { AdminFeatures } from './routes/admin/Features'
-import { AdminAiUsage } from './routes/admin/AiUsage'
-import { Devtools } from './routes/Devtools'
-import { StrictMode, Suspense } from 'react'
+import { StrictMode, Suspense, useEffect, useState, type ComponentType } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -26,20 +23,15 @@ import { preconnectArtOrigin } from './lib/cardArt'
 import { initTopbar } from './lib/topbar'
 import { initSettingsSync } from './lib/settingsSync'
 import { registerPwa } from './pwa'
-import { lazyRoute } from './lib/lazyRoute'
+import { lazyRoute, type LazyRoute } from './lib/lazyRoute'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
+import { RootErrorBoundary, RouteErrorFallback } from './components/ErrorBoundary'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, safeNextPath } from './lib/landingRoute'
 import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED, ACCESS_CHANGED } from './lib/access'
 import { requireVerifiedCapability } from './lib/capabilities'
 import { Content, EmptyState } from './components/ui'
-import Admin, { AdminOverview } from './routes/admin/Admin'
-import { AdminUsers, AdminUserDetail } from './routes/admin/Users'
-import { AdminRoles } from './routes/admin/Roles'
-import { AdminSettings } from './routes/admin/Settings'
-import { AdminAudit } from './routes/admin/Audit'
-import { Credits } from './routes/credits/Credits'
 import { isCloudMode } from './lib/supabase'
 import { readSession } from './lib/authSession'
 import { isReturningVisitor } from './lib/returningVisitor'
@@ -47,28 +39,197 @@ import { Auth } from './routes/Auth'
 import { Authorize } from './routes/Authorize'
 import { ResetPassword } from './routes/auth/ResetPassword'
 import { SignedOut } from './routes/auth/SignedOut'
-import { Landing } from './routes/Landing'
-import { SeriesIndex } from './routes/SeriesIndex'
-import { SeriesDetail } from './routes/SeriesDetail'
-import { SetDetail } from './routes/SetDetail'
-import { CardDetail } from './routes/CardDetail'
-import { ListsIndex } from './routes/ListsIndex'
-import { ListDetail } from './routes/ListDetail'
-import { DecksIndex } from './routes/DecksIndex'
-import { DeckBuilder } from './routes/DeckBuilder'
-import { Insights } from './routes/Insights'
-import { PokedexIndex } from './routes/PokedexIndex'
-import { SpeciesDetail } from './routes/SpeciesDetail'
-import { Profile } from './routes/Profile'
-import { Scan } from './routes/Scan'
-import { SearchResults } from './routes/SearchResults'
 import { validateGlobalSearch, GLOBAL_SEARCH_DEFAULTS } from './routes/globalSearch'
 import { validateCardSearch } from './routes/setSearch'
 import { validateListSearch } from './routes/listSearch'
 import { validateDeckSearch, DECK_SEARCH_DEFAULTS } from './routes/deckSearch'
 import { DevBackendRibbon } from './components/DevBackendRibbon'
-import { DeckeHost } from './character/host/DeckeHost'
-import { SupportPrompt } from './components/billing/SupportPrompt'
+import { deckeEntitled, onDeckeEntitlementChange } from './character/host/entitlement'
+
+// ── EVERY PAGE IS ITS OWN CHUNK (PERF-01) ────────────────────────────────────
+//
+// These were static imports, which put every page — the admin panel, the
+// scanner, Stripe's checkout UI — in the one entry chunk every visitor
+// downloaded and parsed before the first card appeared. The names are unchanged,
+// so the route table below reads exactly as it did. Each is now a `lazyRoute`:
+// the router preloads it on hover and touchstart (`defaultPreload: 'intent'`)
+// and awaits it before committing a navigation, and the service worker precaches
+// it like any other chunk, so every page still works offline.
+//
+// THE AUTH PAGES STAY STATIC, ABOVE, and ResetPassword has to: it reads the
+// recovery link's error out of the URL at MODULE SCOPE, before auth-js rewrites
+// it (see its header), and a lazy module body runs far too late for that. The
+// other three are the first page a lapsed session sees and share its `authUi`
+// kit — which is also what keeps `landing.css` in the entry CSS, where Profile's
+// `.ls-cta` buttons rely on finding it.
+const Landing = lazyRoute('./routes/Landing', () => import('./routes/Landing'), 'Landing')
+const SeriesIndex = lazyRoute('./routes/SeriesIndex', () => import('./routes/SeriesIndex'), 'SeriesIndex')
+const SeriesDetail = lazyRoute('./routes/SeriesDetail', () => import('./routes/SeriesDetail'), 'SeriesDetail')
+const SetDetail = lazyRoute('./routes/SetDetail', () => import('./routes/SetDetail'), 'SetDetail')
+const CardDetail = lazyRoute('./routes/CardDetail', () => import('./routes/CardDetail'), 'CardDetail')
+const SearchResults = lazyRoute('./routes/SearchResults', () => import('./routes/SearchResults'), 'SearchResults')
+const PokedexIndex = lazyRoute('./routes/PokedexIndex', () => import('./routes/PokedexIndex'), 'PokedexIndex')
+const SpeciesDetail = lazyRoute('./routes/SpeciesDetail', () => import('./routes/SpeciesDetail'), 'SpeciesDetail')
+const ListsIndex = lazyRoute('./routes/ListsIndex', () => import('./routes/ListsIndex'), 'ListsIndex')
+const ListDetail = lazyRoute('./routes/ListDetail', () => import('./routes/ListDetail'), 'ListDetail')
+const DecksIndex = lazyRoute('./routes/DecksIndex', () => import('./routes/DecksIndex'), 'DecksIndex')
+const DeckBuilder = lazyRoute('./routes/DeckBuilder', () => import('./routes/DeckBuilder'), 'DeckBuilder')
+const Insights = lazyRoute('./routes/Insights', () => import('./routes/Insights'), 'Insights')
+const Profile = lazyRoute('./routes/Profile', () => import('./routes/Profile'), 'Profile')
+const Credits = lazyRoute('./routes/credits/Credits', () => import('./routes/credits/Credits'), 'Credits')
+const Scan = lazyRoute('./routes/Scan', () => import('./routes/Scan'), 'Scan')
+const Devtools = lazyRoute('./routes/Devtools', () => import('./routes/Devtools'), 'Devtools')
+const Admin = lazyRoute('./routes/admin/Admin', () => import('./routes/admin/Admin'))
+const AdminOverview = lazyRoute('./routes/admin/Admin', () => import('./routes/admin/Admin'), 'AdminOverview')
+const AdminUsers = lazyRoute('./routes/admin/Users', () => import('./routes/admin/Users'), 'AdminUsers')
+const AdminUserDetail = lazyRoute('./routes/admin/Users', () => import('./routes/admin/Users'), 'AdminUserDetail')
+const AdminRoles = lazyRoute('./routes/admin/Roles', () => import('./routes/admin/Roles'), 'AdminRoles')
+const AdminSettings = lazyRoute('./routes/admin/Settings', () => import('./routes/admin/Settings'), 'AdminSettings')
+const AdminAudit = lazyRoute('./routes/admin/Audit', () => import('./routes/admin/Audit'), 'AdminAudit')
+const AdminFeatures = lazyRoute('./routes/admin/Features', () => import('./routes/admin/Features'), 'AdminFeatures')
+const AdminAiUsage = lazyRoute('./routes/admin/AiUsage', () => import('./routes/admin/AiUsage'), 'AdminAiUsage')
+
+// The two things `RootComponent` mounts on every page and almost nobody sees:
+// Deck-E's host (two accounts) and the support prompt (signed in, cloud only).
+const DeckeHost = lazyRoute('./character/host/DeckeHost', () => import('./character/host/DeckeHost'), 'DeckeHost')
+const SupportPrompt = lazyRoute('./components/billing/SupportPrompt', () => import('./components/billing/SupportPrompt'), 'SupportPrompt')
+
+/** Run `fn` when the main thread is free. Safari has no `requestIdleCallback`. */
+function whenIdle(fn: () => void): void {
+  if ('requestIdleCallback' in window) requestIdleCallback(fn, { timeout: 4000 })
+  else setTimeout(fn, 300)
+}
+
+/**
+ * Mount an always-on feature once its chunk is here.
+ *
+ * Not `<Suspense>` around it, for two reasons. Suspending here would suspend
+ * `RootComponent`, whose nearest boundary is above the whole app. And rendering
+ * an unloaded `lazyRoute` is what triggers its stale-chunk RELOAD — right for a
+ * page somebody navigated to, wrong for a background feature on a page they are
+ * reading. So this only ever renders it loaded; if the chunk will not come, the
+ * feature is simply absent until the next page load.
+ */
+function WhenLoaded({ page: Page, idle = false }: { page: LazyRoute<ComponentType>; idle?: boolean }) {
+  const [ready, setReady] = useState(Page.ready)
+  useEffect(() => {
+    if (ready) return
+    let alive = true
+    const load = () => void Page.preload().then(() => alive && Page.ready() && setReady(true))
+    if (idle) whenIdle(load)
+    else load()
+    return () => {
+      alive = false
+    }
+  }, [Page, idle, ready])
+  return ready ? <Page /> : null
+}
+
+/**
+ * Has this device had Deck-E before? Only a hint, never a permission: it lets
+ * the host's chunk be fetched ALONGSIDE the first page and the access check
+ * instead of after them. Measured on a throttled phone, fetching it only once
+ * entitlement came back put the launcher 264 ms later than when the host was in
+ * the entry; the launcher is how he first appears, so it must not be later.
+ */
+const DECKE_HINT = 'deckpal:decke-host'
+function deckeHinted(): boolean {
+  try {
+    return localStorage.getItem(DECKE_HINT) === '1'
+  } catch {
+    return false
+  }
+}
+function rememberDecke(entitled: boolean): void {
+  try {
+    if (entitled) localStorage.setItem(DECKE_HINT, '1')
+    else localStorage.removeItem(DECKE_HINT)
+  } catch {
+  }
+}
+
+/**
+ * Deck-E's host, fetched only for an account that can use him.
+ *
+ * `deckeEntitled` is the host's own check, so there is one definition of who
+ * that is. It decides only when the host MOUNTS: once mounted it stays mounted
+ * for this identity (`RootComponent`'s `key` resets it) and its own entitlement
+ * effect governs what it shows, exactly as before. Not deferred to idle,
+ * because the launcher is how he first appears.
+ */
+function DeckeHostWhenEntitled() {
+  const [entitled, setEntitled] = useState(false)
+  useEffect(() => {
+    if (entitled) return
+    let alive = true
+    const ask = () =>
+      void deckeEntitled().then((ok) => {
+        rememberDecke(ok)
+        if (alive && ok) setEntitled(true)
+      })
+    ask()
+    const off = onDeckeEntitlementChange(ask)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [entitled])
+  return entitled ? <WhenLoaded page={DeckeHost} /> : null
+}
+
+/** Save-Data is an explicit request not to spend bytes on a guess. */
+const saveData = () => !!(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
+
+/**
+ * From each page, the one a tap there most likely opens — a level down the
+ * catalog, or the list or deck behind an index — keyed by route id and warmed as
+ * soon as the page has rendered, without waiting for its `load`. Measured on a
+ * throttled phone, a set tapped the instant its series page appeared took 1.3 s
+ * longer than with every page in the entry while this waited for `load` (the
+ * chunk queued behind that page's set logos); warmed on render it is 0.4 s, and
+ * a tap one second in is faster than before the split.
+ */
+const NEXT_PAGE: Record<string, LazyRoute<ComponentType<any>>> = {
+  '/': SeriesIndex,
+  '/series': SeriesDetail,
+  '/series/$series': SetDetail,
+  '/series/$series/$set/$number': SetDetail,
+  '/pokedex': SpeciesDetail,
+  '/lists': ListDetail,
+  '/decks': DeckBuilder,
+}
+
+/**
+ * Then the rest of what somebody is likely to open, once the first page has
+ * loaded and the browser is idle, one at a time so it never becomes a long task.
+ * Hover and touchstart already preload whatever is under the pointer; this is
+ * for a phone's first tap and a first visit, before the service worker has
+ * precached anything. The catalog for everyone, the collection for someone
+ * signed in.
+ */
+function prefetchLikelyPages(): void {
+  if (saveData()) return
+  const queue: LazyRoute<ComponentType<any>>[] = [
+    SeriesIndex, SeriesDetail, SetDetail, CardDetail, SearchResults, PokedexIndex, SpeciesDetail,
+  ]
+  const next = () => {
+    const page = queue.shift()
+    if (page) void page.preload().then(() => whenIdle(next))
+  }
+  void getAccess().then((access) => {
+    if (access.identity) queue.push(ListsIndex, ListDetail, DecksIndex, DeckBuilder, Insights, Profile)
+    whenIdle(next)
+  })
+}
+
+/** What a navigation shows if the next page's chunk takes longer than `pendingMs` (1 s). */
+function RoutePending() {
+  return (
+    <Content>
+      <p role="status" className="text-text-muted">Loading…</p>
+    </Content>
+  )
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -143,7 +304,7 @@ function RootComponent() {
     <>
       <DevBackendRibbon />
       <div key={'shell:' + access.identity}>{shell}</div>
-      <DeckeHost key={'decke:' + access.identity} />
+      <DeckeHostWhenEntitled key={'decke:' + access.identity} />
       {/* A sibling of `{shell}` for the same reason DeckeHost is: crossing the
           public/private boundary swaps <AppShell> for <AuthGuard> at that
           position and unmounts everything inside it. Mounted in there, the
@@ -151,8 +312,10 @@ function RootComponent() {
           "visit" -- on every /series -> /decks navigation. Here it mounts once
           per page load, which is the unit visit_count is supposed to count.
           It renders nothing at all when signed out, on a chromeless page, or
-          on a deployment with no Stripe. */}
-      {access.ready && <SupportPrompt />}
+          on a deployment with no Stripe -- and its chunk, which carries the
+          Stripe payment UI, is not even fetched unless somebody is signed in
+          on cloud, and then only once the page is idle. */}
+      {access.ready && isCloudMode && access.identity !== '' && <WhenLoaded page={SupportPrompt} idle />}
     </>
   )
 }
@@ -449,7 +612,7 @@ const coreRoutes = [
 // indistinguishable from a URL that does not exist. The flag's identity check
 // lives server-side (DESIGN_EDITOR_USER_ID) — nothing about who the owner is
 // appears in this bundle.
-const LazyDesignSystem = lazyRoute(() => import('./routes/design/DesignSystem'))
+const LazyDesignSystem = lazyRoute('./routes/design/DesignSystem', () => import('./routes/design/DesignSystem'))
 const DesignSystemRoute = () => (
   <Suspense
     fallback={
@@ -485,9 +648,9 @@ const designRoute = createRoute({
 // that exclusion is the only thing standing between this route and a megabyte of
 // dead weight in every session. Do not remove it without re-reading the note
 // there.
-const LazyDecke = lazyRoute(() => import('./routes/dev/Decke'))
-const LazyDeckeCompare = lazyRoute(() => import('./routes/dev/DeckeCompare'))
-const LazyChatUi = lazyRoute(() => import('./routes/dev/ChatUi'))
+const LazyDecke = lazyRoute('./routes/dev/Decke', () => import('./routes/dev/Decke'))
+const LazyDeckeCompare = lazyRoute('./routes/dev/DeckeCompare', () => import('./routes/dev/DeckeCompare'))
+const LazyChatUi = lazyRoute('./routes/dev/ChatUi', () => import('./routes/dev/ChatUi'))
 const DeckeRoute = () => (
   <Suspense
     fallback={
@@ -565,7 +728,7 @@ const deckeCompareRoute = createRoute({
  * self-contained HTML artifact carried as a raw string in this lazy chunk
  * (~72 KB pre-gzip), so only whoever opens the route pays for it.
  */
-const LazyScanHarness = lazyRoute(() => import('./routes/dev/ScanHarness'))
+const LazyScanHarness = lazyRoute('./routes/dev/ScanHarness', () => import('./routes/dev/ScanHarness'))
 const ScanHarnessRoute = () => (
   <Suspense
     fallback={
@@ -590,7 +753,7 @@ const scanHarnessRoute = createRoute({
  * other /dev route; the component (and the engine chunk it lazy-loads on
  * first use) ships only to whoever opens it.
  */
-const LazyQuadLabeler = lazyRoute(() => import('./routes/dev/QuadLabeler'))
+const LazyQuadLabeler = lazyRoute('./routes/dev/QuadLabeler', () => import('./routes/dev/QuadLabeler'))
 const QuadLabelerRoute = () => (
   <Suspense
     fallback={
@@ -619,7 +782,7 @@ const quadLabelerRoute = createRoute({
  * and a harvest view open to someone who cannot see the labeler would be a
  * listing of frames photographed in the owner's house.
  */
-const LazyQuadHarvest = lazyRoute(() => import('./routes/dev/QuadHarvest'))
+const LazyQuadHarvest = lazyRoute('./routes/dev/QuadHarvest', () => import('./routes/dev/QuadHarvest'))
 const QuadHarvestRoute = () => (
   <Suspense
     fallback={
@@ -672,7 +835,20 @@ const routeTree = rootRoute.addChildren([
 const router = createRouter({
   routeTree,
   basepath: import.meta.env.VITE_SUPABASE_URL ? '' : '/deckpal',
+  defaultPendingComponent: RoutePending,
   defaultPreload: 'intent',
+  // QUAL-01: with no `errorComponent`/`defaultErrorComponent` anywhere in the
+  // tree, TanStack Router wraps NO route in a catch boundary at all (its
+  // `Match.js` resolves the boundary to a no-op `SafeFragment` unless one of
+  // the two is set) — a render throw in any route unmounted the whole app.
+  // Setting it here alone gives EVERY route its own boundary, because the
+  // router applies this as the fallback for every match that doesn't define
+  // its own `errorComponent`, one boundary per matched route in the chain.
+  // A leaf route's crash is caught by that route's own (nearest) boundary
+  // before it reaches its parent, so AppShell's header/rail and the rest of
+  // the route tree above the crash stay mounted and interactive. See
+  // components/ErrorBoundary.tsx.
+  defaultErrorComponent: RouteErrorFallback,
 })
 
 declare module '@tanstack/react-router' {
@@ -722,13 +898,42 @@ initSettingsSync()
 // pays DNS + TCP + TLS before a single byte of art moves.
 preconnectArtOrigin()
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
-  </StrictMode>,
-)
+// Ask who this is now rather than at first render, which now waits for the
+// page's chunk: the Deck-E launcher, the admin rail and every gated page read
+// this, and it is the same single request either way. And on a device that has
+// had Deck-E, start his host's chunk now too (see `deckeHinted`).
+void getAccess()
+if (deckeHinted()) void DeckeHost.preload()
+
+router.subscribe('onRendered', () => {
+  const next = NEXT_PAGE[router.state.matches.at(-1)?.routeId ?? '']
+  if (next && !next.ready() && !saveData()) whenIdle(() => void next.preload())
+})
+
+// The first route's chunk is resolved BEFORE React's first commit, not after.
+// That commit replaces `#root`'s children, and the inline "Loading DeckPal" card
+// in index.html is one of them — so committing while the page's chunk was still
+// in flight would swap an explained wait for a blank one, the exact thing #87
+// put that card there to stop. Held until here, the card stays up until the
+// whole page can paint at once, and index.html's first-paint watchdog, which
+// counts `#root` as unpainted while the card is in it, covers a route chunk that
+// never arrives as well as an entry that never does. `RouterProvider` sees the
+// location already resolved and does not load it twice.
+void router.load().catch(() => {}).then(() => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      {/* Last resort: catches anything outside the router's per-route boundaries. */}
+      <RootErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </RootErrorBoundary>
+    </StrictMode>,
+  )
+  // After the page's own images and data, never competing with them.
+  if (document.readyState === 'complete') whenIdle(prefetchLikelyPages)
+  else window.addEventListener('load', () => whenIdle(prefetchLikelyPages), { once: true })
+})
 
 // Register the service worker + request persistent storage (iOS-eviction guard).
 registerPwa()

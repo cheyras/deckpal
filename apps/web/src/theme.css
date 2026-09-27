@@ -285,8 +285,18 @@
   --z-overlay: 10;
   --z-popover: 13;
   --z-chrome: 20;
+  /* BELOW --z-modal on purpose. PwaUi's install pill / offline banner /
+     update toast used to sit at 9999 — above absolutely everything,
+     including an open Sheet — so the offline banner painted over the Bug
+     Report sheet's Submit/Cancel footer and the Add Cards results,
+     unreachable underneath it. A toast is above app chrome, never above a
+     modal the user is actively looking at; Sheet's scrim (`--z-modal`, a
+     0.75-alpha dark overlay) now dims it exactly like the rest of the page
+     behind the sheet, instead of floating on top of the sheet's own
+     controls. Actionable save feedback uses --z-toast-action above this layer. */
+  --z-toast: 50;
   --z-modal: 100;
-  --z-toast: 9999;
+  --z-toast-action: 110;
 
   /* ── The app shell's geometry, for anything that has to sit inside it ──────
    *
@@ -1189,6 +1199,32 @@ body {
   .decke-speech-pop {
     transform: none;
   }
+}
+
+/* His next line is on its way: three dots IN the bubble he is already wearing,
+ * so the words arrive where the reader is looking instead of a new bubble
+ * appearing somewhere else. Opacity only; under reduced motion they hold still. */
+.decke-bubble-dots {
+  display: inline-flex;
+  gap: 4px;
+  padding: 6px 2px;
+}
+.decke-bubble-dots > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: decke-bubble-dot 1.1s ease-in-out infinite;
+}
+.decke-bubble-dots > span:nth-child(2) { animation-delay: 0.15s; }
+.decke-bubble-dots > span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes decke-bubble-dot {
+  0%, 100% { opacity: 0.25; }
+  40% { opacity: 0.9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .decke-bubble-dots > span { animation: none; opacity: 0.6; }
 }
 
 /* A panel he composed is a FIGURE, not a remark — it takes the full column so a

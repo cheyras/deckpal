@@ -44,6 +44,22 @@ export function errorMiddleware(err: unknown, _req: Request, res: Response, _nex
     res.status(err.status).json({ error: { code: err.code, message: err.message } });
     return;
   }
+  // body-parser (express.json/express.urlencoded) signals an oversize body
+  // with a plain Error tagged `type: 'entity.too.large'` and `status: 413`,
+  // not an ApiError. Left alone that falls into the generic branch below and
+  // the caller is told "Internal server error" — wrong (it is a 413, the
+  // caller's mistake, not a server fault) and unactionable. scan/router.ts
+  // already works around this by hand for its own raw-body parser (its
+  // `readImageBody`); doing the translation here once, in the shared funnel,
+  // covers every express.json()-guarded route (SEC-08) instead of asking each
+  // one to repeat it — including /register's and /token's own parsers, whose
+  // limit only became reachable once the blanket parser that used to shadow
+  // them was removed.
+  const sized = err as { type?: string; status?: number; statusCode?: number };
+  if (sized?.type === 'entity.too.large' || sized?.status === 413 || sized?.statusCode === 413) {
+    res.status(413).json({ error: { code: 'payload_too_large', message: 'Request body is too large.' } });
+    return;
+  }
   // Log the real error server-side; send a generic message to the client.
   console.error('[deckpal-api] unhandled', err);
   res.status(500).json({ error: { code: 'internal', message: 'Internal server error' } });
@@ -59,6 +75,45 @@ export function catalogCache(res: Response, seconds = 300): void {
 /** Anything derived from the user's collection/prices. Private, revalidate. */
 export function userCache(res: Response): void {
   res.setHeader('Cache-Control', 'private, no-cache, must-revalidate');
+}
+
+/**
+ * Chooses the cache posture for a catalog route that EMBEDS the caller's
+ * ownership at the same URL a signed-out visitor also hits (series/sets/cards:
+ * `progress`, owned counts). `userId === null` means the request is genuinely
+ * anonymous (identity.ts's `optionalUserId` — a settled "nobody", not "unknown")
+ * — the response is then the plain catalog shape, byte-identical for every such
+ * caller and safe for a shared cache. Anyone else gets the private, per-caller
+ * response, exactly as before.
+ *
+ * `Vary: Authorization` on the catalog branch only: without it, a CDN that
+ * cached the anonymous response for this URL could later hand that same body
+ * to a request that DOES carry a credential, instead of ever reaching this
+ * handler to compute that caller's ownership — the opposite failure from
+ * leaking a private response, but still a correctness bug (a signed-in visitor
+ * silently sees the signed-out shape). The web client only ever sends an
+ * Authorization header when signed in (`apps/web/src/lib/api.ts`'s
+ * `authHeaders()` returns `{}` when there is no session), so every anonymous
+ * request already shares one cache key — "no header" — and this costs the
+ * anonymous hit rate nothing. `search.ts`'s `catalogCache()` call is exempt: it
+ * has no `userId` branch at all (no personalization is ever possible there), so
+ * varying its cache by `Authorization` would only fragment it for no reason.
+ *
+ * `res.append`, not `res.setHeader`: index.ts's optional CORS middleware may
+ * already have added `Vary: Origin` ahead of this (a fork with
+ * `API_CORS_ORIGINS` set reflects the request's Origin into
+ * `Access-Control-Allow-Origin`, so a shared cache needs to know Origin is a
+ * second reason this response could differ). `setHeader` would silently
+ * discard that and reintroduce exactly the bug this function exists to avoid,
+ * for a different header. `append` composes: `Vary: Origin, Authorization`.
+ */
+export function catalogOrUserCache(res: Response, userId: string | null, seconds = 300): void {
+  if (userId === null) {
+    res.append('Vary', 'Authorization');
+    catalogCache(res, seconds);
+  } else {
+    userCache(res);
+  }
 }
 
 // ── Query-param coercion (all defensive; never throws on junk) ───────────────

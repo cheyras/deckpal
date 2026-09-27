@@ -10,7 +10,7 @@
  */
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { place, type Rect } from '../DeckeBubble'
+import { chooseSide, place, slot, type Rect } from '../DeckeBubble'
 
 const VW = 1280
 const VH = 900
@@ -111,4 +111,43 @@ test('with both him and a highlight present, the choice clears both rectangles',
   const p = place(BUBBLE, him, avoid, VW, VH)
   assert.equal(overlapArea(asRect(p), him), 0, 'bubble must not land on top of him')
   assert.equal(overlapArea(asRect(p), avoid), 0, 'bubble must not land on the highlight either')
+})
+
+// ── riding him: the edge that faces him stays put ────────────────────────────
+
+test('new words grow the bubble AWAY from him, so the edge facing him stays put', () => {
+  // "when it updates, it moves down the page": a longer line re-solved to a
+  // different place. The slot is anchored at the edge nearest him, so a
+  // taller box keeps that edge exactly where it was.
+  const him = { left: 600, top: 400, right: 640, bottom: 452, width: 40, height: 52 }
+  const short = slot('above', { width: 200, height: 40 }, him, VW, VH)
+  const tall = slot('above', { width: 200, height: 96 }, him, VW, VH)
+  assert.equal(short.top + 40, tall.top + 96, 'the bottom edge (facing him) moved')
+  const below1 = slot('below', { width: 200, height: 40 }, him, VW, VH)
+  const below2 = slot('below', { width: 200, height: 96 }, him, VW, VH)
+  assert.equal(below1.top, below2.top, 'the top edge (facing him) moved')
+})
+
+test('the side is a choice, and place() is that choice at its slot', () => {
+  const him = { left: 600, top: 400, right: 640, bottom: 452, width: 40, height: 52 }
+  const size = { width: 200, height: 60 }
+  const side = chooseSide(size, him, null, VW, VH)
+  assert.equal(side, 'above')
+  assert.deepEqual(place(size, him, null, VW, VH), slot(side, size, him, VW, VH))
+})
+
+test('with no room beside him, it captions the card rather than sit on it', () => {
+  // A phone, him in the gutter between two cards, the ringed card to his left:
+  // every slot beside him lands on the card, so the choice is a caption slot
+  // just above or below it — still near him — before the screen edge.
+  const vw = 390, vh = 844
+  const him = { left: 180, top: 380, right: 214, bottom: 414, width: 34, height: 34 }
+  const card = { left: 10, top: 200, right: 190, bottom: 600, width: 180, height: 400 }
+  const size = { width: 260, height: 60 }
+  const side = chooseSide(size, him, card, vw, vh)
+  assert.ok(side === 'over' || side === 'under', 'expected a caption slot, got ' + side)
+  const at = slot(side, size, him, vw, vh, card)
+  const r = { left: at.left, top: at.top, right: at.left + size.width, bottom: at.top + size.height }
+  const covers = r.left < card.right && r.right > card.left && r.top < card.bottom && r.bottom > card.top
+  assert.ok(!covers, 'the bubble covers the card he is showing')
 })
