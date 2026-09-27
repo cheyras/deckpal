@@ -69,7 +69,8 @@ export async function checkA11y(browser, server, mount, label, out) {
     }
   }
   if (label === 'cloud') {
-    const safari = await webkit.launch({ headless: true })
+    const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
     try {
       for (const [engine, candidate] of [['chromium', browser], ['webkit', safari]]) {
         for (const width of [1440, 390]) {
