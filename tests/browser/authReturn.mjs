@@ -67,7 +67,7 @@ export async function checkAuthReturn(browser, dist, out) {
     (pathname === '/auth/v1/token' && method === 'POST') || admin.allowMutation(pathname, method)
   const server = await serve(dist, '', respondApi, 'index.html', { allowMutation })
   try {
-    buildWeb(dist, true, server.origin)
+    await buildWeb(dist, true, server.origin)
     for (const width of [1440, 390]) {
       const { context, page } = await contextFor(browser, server, width)
       try {

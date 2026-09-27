@@ -220,6 +220,51 @@ directory; the object tier proves it by listing the bucket:
 pnpm --filter deckpal-images manifest:check -- --object-store
 ```
 
+### Rotating leaked legacy Supabase keys on deckpal.app
+
+This is an operator action. The code accepts both key formats so the cutover can
+be staged, but **deploying the code alone does not close the incident**. Use the
+current [Supabase API-key migration](https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys)
+and [JWT signing-key guide](https://supabase.com/docs/guides/auth/signing-keys)
+alongside these DeckPal-specific steps. Never paste key values into an issue,
+PR, terminal output, or chat.
+
+1. In Supabase **Settings > API Keys > Publishable and secret API keys**, select
+   **Create new API keys** if offered. Create a new secret key and use the
+   publishable key. Legacy keys remain active for the transition.
+2. In Vercel **Production and Preview**, set `SUPABASE_SERVICE_ROLE_KEY` to the
+   `sb_secret_…` value; set `NEXT_PUBLIC_SUPABASE_ANON_KEY` and
+   `VITE_SUPABASE_ANON_KEY` (where present) to the `sb_publishable_…` value.
+   Confirm `SUPABASE_URL` is set to this project's URL in both environments:
+   without it DeckPal cannot verify ES256 tokens after the old secret is removed.
+   Update local and job environments that hold these keys too. Redeploy both
+   environments; changing a variable does not change a running deployment.
+3. Check `GET /api/health` and `GET /api/public-config`, sign in, and exercise
+   an image write and a bug-report screenshot in the new deployment. Confirm
+   build jobs that download the scanner model still succeed. The public config
+   endpoint should serve the publishable key; do not print its value while
+   checking. Check any third-party callers or webhooks before retiring old keys.
+4. In Supabase **JWT signing keys**, select **Migrate JWT secret**. This imports
+   the legacy secret and creates an asymmetric standby key. Then select
+   **Rotate keys** so new user tokens use the asymmetric key. Verify a fresh
+   sign-in and an authenticated API request. The API verifies ES256 user tokens
+   through Supabase's JWKS using `SUPABASE_URL`.
+5. Remove `SUPABASE_JWT_SECRET` from Vercel Production and Preview and redeploy
+   both. This stops DeckPal's API and chat function from trusting any HS256
+   token signed with the leaked secret. Billing history uses
+   `STRIPE_SECRET_KEY` for its cursor and requires that key whenever billing is
+   available; an in-flight history cursor may need a page refresh once.
+6. In Supabase **Settings > API Keys**, deactivate the legacy `anon` and
+   `service_role` keys. Verify sign-in, authenticated API requests, Storage,
+   screenshots, and the scanner model download again. Only after the old keys
+   are disabled, return to **JWT signing keys** and **Revoke** the legacy JWT
+   secret under **Previously used**. Because this secret leaked, revoke it
+   promptly; users holding old access tokens may need to sign in again.
+
+The leak is not contained until steps 5 and 6 are complete. Supabase's signing
+key migration does not itself revoke the legacy JWT secret, and deactivating
+legacy API keys does not remove DeckPal's own HS256 verifier.
+
 ### 4. Create a Vercel project
 
 1. Import the repo on [vercel.com](https://vercel.com).
@@ -237,8 +282,10 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | Variable | Value | Notes |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project>.supabase.co` | |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJ...` | |
-| `SUPABASE_SERVICE_ROLE_KEY` | `eyJ...` | Server-side only |
+| `SUPABASE_URL` | `https://<project>.supabase.co` | Server-side JWKS verification, Storage, and manifest requests. Required before removing `SUPABASE_JWT_SECRET`. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_...` | Public browser key; the existing variable name is retained for compatibility. Also set `VITE_SUPABASE_ANON_KEY` to this value where the web build needs it. |
+| `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` | Server-side only; the existing variable name is retained for compatibility. Never place it in a `VITE_` or `NEXT_PUBLIC_` variable. |
+| `SUPABASE_JWT_SECRET` | **unset after signing-key migration** | Only needed while accepting legacy HS256 user tokens. ES256 tokens are verified using `SUPABASE_URL` and Supabase's public JWKS. |
 | `PGHOST` | `aws-0-us-east-1.pooler.supabase.com` | Pooled connection (API) — the runtime reads `PG*`, not a URL |
 | `PGPORT` | `6543` | |
 | `PGDATABASE` | `postgres` | |
@@ -260,7 +307,7 @@ pnpm --filter deckpal-images manifest:check -- --object-store
 | `DECKE_METER_TIMEOUT_MS` | `5000` (default) | Watchdog on the meter's connect and query. A database that has stopped answering must not turn every Deck-E request into a hung socket holding a pooled connection on an instance Vercel is about to freeze. On timeout the meter **fails open** and logs loudly — accounting fails open, access control does not, and they are separate checks for exactly that reason. |
 | `DECKE_PGRLS_MAX_HOLD_MS` | `10000` (default) | How long ONE Deck-E tool call may hold its pooled connection. Deliberately far below the API's 30 s `PGRLS_MAX_HOLD_MS`, because the unit differs: that budget covers a whole request, this one covers a single `search_cards`. A read taking ten seconds is not slow, it is stuck, and on a conversational path the reader gave up several seconds ago. On expiry the connection is **destroyed rather than pooled** — it may be mid-statement inside an open transaction carrying that turn's RLS claims, and returning it would let the next request race a still-running query from someone else's session. |
 | `DECKE_DEEP_BUDGET_MS` | `210000` (default) | Wall-clock ceiling for ONE deep-tier sub-agent (`plan_deck`, `write_strategy_guide`, `research_meta`, `analyze_collection`). Must stay comfortably under `api/chat.mjs`'s `maxDuration` (300 s) — the gap is not slack, it is the time needed to write the partial answer out, let the conversational model comment on it, and close the stream properly. A sub-agent that hits this returns **what it has so far, labelled incomplete**, rather than being killed: it streams for exactly that reason, since a call that is simply killed produced nothing and was billed anyway. |
-| `DECKE_JEV` | unset (default) = `off` | **Switches Deck-E's Jev judgments on — `on` or `off`, nothing else.** Jev (`typesafe-ai/jev`, the Gateway's evaluation model) reads the reader's latest message before each chat request (each leg of a turn) and decides three things the model kept getting wrong: force the first step to raise the `log_cards` consent card for a plain collection change, take `escort` out of view for a walk it cannot make, and count a "no" said in words as a decline (`apps/api/src/decke/reflex.ts`). It uses `DECKE_VERCEL_AI_GATEWAY_KEY`, asks for zero data retention from TypeSafe only on every call, and costs about $0.00004 a request. **Off is a normal state and changes nothing** — Deck-E behaves exactly as before Jev. Any other value is treated as off, warned about at boot, and reported as `deckeJev.status: "invalid"` on `GET /health`. TypeSafe's data retention is unconfirmed (SECURITY.md); switch it on in Preview first. |
+| `DECKE_JEV` | unset (default) = `off` | **Switches Deck-E's Jev judgments on — `on` or `off`, nothing else.** Jev (`typesafe-ai/jev`, the Gateway's evaluation model) reads the reader's latest message before each chat request (each leg of a turn) and decides three things the model kept getting wrong: force the first step to raise the `log_cards` consent card for a plain collection change, take `escort` out of view for a walk it cannot make, and count a "no" said in words as a decline (`apps/api/src/decke/reflex.ts`); and after each reply it checks whether he claimed a change no tool made, and if so runs one corrective step that raises the real consent card (`audit.ts`). Claimed deletions of lists, decks or battle logs get an admission instead, because those corrective edit tools cannot delete. It uses `DECKE_VERCEL_AI_GATEWAY_KEY`, asks for zero data retention from TypeSafe only on every call, and costs about $0.00004 a request. **Off is a normal state and changes nothing** — Deck-E behaves exactly as before Jev. Any other value is treated as off, warned about at boot, and reported as `deckeJev.status: "invalid"` on `GET /health`. TypeSafe's data retention is unconfirmed (SECURITY.md); switch it on in Preview first. |
 | `DECKE_JEV_TIMEOUT_MS` | `800` (default) | The hard deadline for one Jev call, 100–5000 ms. Past it the turn proceeds exactly as it would with Jev off. 800 is twice the p95 measured through the Gateway on the eval set (0.4 s). Reported on `GET /health` as `deckeJev.timeoutMs`. |
 | `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_PULL_REQUEST_ID`, `VERCEL_GIT_COMMIT_MESSAGE` | Vercel system values | Read on the server at request acceptance. SHA must be full 40 hex; a strict positive preview PR ID takes precedence over a PR parsed from the first commit-message line. Missing/invalid tags remain null. Check system-variable exposure on the intended deployment; never infer it from source or accept browser stamps. See [official system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables). |
 | `DECKE_CREDITS_ENABLED` | unset (default) | Imported exactly once as enabled only for the exact string true, after owner bootstrap succeeds. Thereafter Administration → Settings is authoritative. Existing balances/events remain unchanged; initial quoted prices preserve 1/4/75 and must be reviewed before sales. No pack is created or activated automatically. |

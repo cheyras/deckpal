@@ -13,6 +13,7 @@ import { declinedCalls } from '../declined.js'
 import { callKey } from '../repeat.js'
 import { CLIENT_TOOLS } from '../tools.js'
 import { REFLEX_QUESTIONS, reflexFrom, reflexState } from '../reflex.js'
+import { ACTION_TOOLS, AUDIT_QUESTIONS, auditFrom, auditState } from '../audit.js'
 import type { Answer, Question } from '../jev.js'
 
 export interface JudgmentSet {
@@ -66,19 +67,6 @@ const tally = (xs: boolean[]) => ({ right: xs.filter(Boolean).length, of: xs.len
 
 export const precision = (c: Confusion) => (c.tp + c.fp ? c.tp / (c.tp + c.fp) : null)
 export const recall = (c: Confusion) => (c.tp + c.fn ? c.tp / (c.tp + c.fn) : null)
-
-/**
- * The tools whose having run makes a claimed action true. MIRRORS the map the
- * after-turn audit uses; kept here so the baseline can be scored on its own.
- */
-const PERFORMS: Record<string, readonly string[]> = {
-  collection: ['log_cards'],
-  list: ['edit_list', 'delete_list'],
-  deck: ['save_deck', 'delete_deck', 'deck_history', 'revert'],
-  battle_log: ['add_battle_log', 'edit_battle_log', 'delete_battle_log'],
-  guide: ['deck_strategy', 'write_strategy_guide'],
-  navigation: ['goTo', 'flyTo', 'escort', 'journey', 'click', 'highlight', 'scrollToMe'],
-}
 
 /** Pages `escort` cannot reach — the truth `reflexFrom`'s `hide` is scored against. */
 const ESCORTLESS = new Set(['list', 'deck', 'other_page'])
@@ -182,13 +170,30 @@ export async function scoreSet(set: JudgmentSet, ask?: Ask) {
   // log is the flow working, not a phantom.
   const CLIENT = new Set<string>(CLIENT_TOOLS)
   const phantomTruth = (it: JudgmentSet['audit'][number]) =>
-    it.claimsAction && !(PERFORMS[it.action] ?? []).some((t) => it.tools.includes(t))
+    it.claimsAction && !(ACTION_TOOLS[it.action] ?? []).some((t) => it.tools.includes(t))
   const todayFlags = (it: JudgmentSet['audit'][number]) =>
     phantomClaims(it.reply, it.tools).length > 0 ||
     promisedWithoutActing([{ text: it.reply, toolNames: it.tools }], CLIENT, it.tools) !== null
+  const auditRows = []
+  for (const it of set.audit) {
+    const answers = ask
+      ? await ask('eval-audit', auditState({ message: it.message, reply: it.reply }), AUDIT_QUESTIONS as unknown as Record<string, Question>)
+      : null
+    auditRows.push({ it, answers, v: ask ? auditFrom(answers as never, it.tools) : null })
+  }
   const audit = {
     items: set.audit.length,
     today: { phantom: confusion(set.audit.map((it) => [todayFlags(it), phantomTruth(it)])) },
+    ...(ask
+      ? {
+          jev: {
+            answered: auditRows.filter((x) => x.answers).length,
+            phantom: confusion(auditRows.map((x) => [x.v?.phantom != null, phantomTruth(x.it)])),
+            phantomKindRight: auditRows.filter((x) => phantomTruth(x.it) && x.v?.phantom === x.it.action).length,
+            misses: auditRows.filter((x) => (x.v?.phantom != null) !== phantomTruth(x.it)).map((x) => x.it.id),
+          },
+        }
+      : {}),
   }
 
   // ── PRINTING, PER ROW ─────────────────────────────────────────────────────
@@ -216,6 +221,11 @@ export async function scoreSet(set: JudgmentSet, ask?: Ask) {
   const printing = { today: printingMetrics(today) }
 
   // The raw answers, so a threshold can be re-chosen without paying again.
-  const answers = ask ? { reflex: reflexRows.map((x) => ({ id: x.it.id, answers: x.answers })) } : undefined
+  const answers = ask
+    ? {
+        reflex: reflexRows.map((x) => ({ id: x.it.id, answers: x.answers })),
+        audit: auditRows.map((x) => ({ id: x.it.id, answers: x.answers })),
+      }
+    : undefined
   return { reflex, audit, printing, ...(answers ? { answers } : {}) }
 }
