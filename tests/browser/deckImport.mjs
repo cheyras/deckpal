@@ -130,10 +130,7 @@ export async function checkDeckImport(browser, server, fixture, out) {
       assert.equal(created.length, 0, 'the pending check must not create a deck')
       await page.getByRole('button', { name: 'Cancel' }).click()
       await page.getByRole('textbox', { name: 'Decklist' }).waitFor({ state: 'hidden' })
-      const response = page.waitForResponse(r => r.url().endsWith('/api/decks/import') &&
-        r.request().postDataJSON()?.text === confirmed)
       releaseConfirmedCheck()
-      await response
       await page.waitForTimeout(100)
       assert.equal(created.length, 0, 'a canceled confirmation response must not create a deck')
       await prepare()
@@ -241,6 +238,8 @@ export async function checkDeckImport(browser, server, fixture, out) {
       await prepare(2, twoDifferent)
       const format = page.getByLabel('Format')
       await format.selectOption('expanded')
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button =>
+        button.textContent?.trim() === 'Import deck' && !button.disabled))
       await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).first().waitFor()
       await format.selectOption('standard')
       await page.getByRole('group', { name: 'Unmatched decklist lines' }).getByRole('button', { name: 'Undo' }).nth(1).waitFor()
@@ -337,6 +336,7 @@ export async function checkDeckImport(browser, server, fixture, out) {
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'dialog fits viewport')
       await page.getByRole('button', { name: 'Suggest fixes' }).click()
       await page.getByText('PAL 185 is Iono.').first().waitFor()
+      await checkLatestImport(page, server, width, out)
       results.push({ case: 'deck-import-fix-confirm', width, checked: checked.length, created: created.length,
         undoDisabledDuringCheck: true, canceledCheckCreated: false, partialSkip: true,
         newUnresolvedNotSkipped: true, whitespaceSkip: true, hiddenTextAction: true })
@@ -344,4 +344,162 @@ export async function checkDeckImport(browser, server, fixture, out) {
     } finally { releaseConfirmedCheck(); releaseChangedReviewCheck(); await context.close() }
   }
   return results
+}
+
+async function checkLatestImport(page, server, width, out) {
+  const checks = [], writes = []
+  await page.addInitScript(() => {
+    window.__importChecksAborted = 0
+    const fetch = window.fetch.bind(window)
+    window.fetch = (url, init) => {
+      if (String(url).endsWith('/api/decks/import'))
+        init?.signal?.addEventListener('abort', () => { window.__importChecksAborted++ }, { once: true })
+      return fetch(url, init)
+    }
+  })
+  let delay = 0, fail = false
+  const pokemon = {
+    Squirtle: { type: 'Water', id: 'sv01-54', number: '54' },
+    Bulbasaur: { type: 'Grass', id: 'sv01-1', number: '1' },
+  }
+  // The API tests exercise real GLC validation. This fixture supplies its
+  // known/unknown contract to exercise the rendered review and write gate.
+  await page.route('**/api/decks/import**', async route => {
+    const body = route.request().postDataJSON()
+    const lines = body.text.split('\n').filter(line => line.trim())
+    if (route.request().url().endsWith('/fix')) {
+      return route.fulfill({ json: { fixes: lines.flatMap((line, lineIndex) => {
+        const name = line.split(' ')[1], card = pokemon[name]
+        return card && line.endsWith('999') ? [{ lineIndex, original: line,
+          replacement: `1 ${name} SVI ${card.number}`, card: { id: card.id, name, set: 'SVI', number: card.number },
+          reason: 'Correct catalog number.', confidence: 'suggested' }] : []
+      }), unfixed: [] } })
+    }
+    if (!body.dryRun) {
+      writes.push(body)
+      return route.fulfill({ json: { deck: { id: 'fixture-import' } } })
+    }
+    checks.push(body)
+    const responseDelay = delay, responseFails = fail
+    if (responseDelay) await new Promise(resolve => setTimeout(resolve, responseDelay))
+    if (responseFails) return route.fulfill({ status: 500, json: { error: { message: 'Fixture check failed' } } })
+    const unresolved = lines.filter(line => line.trim().endsWith('999'))
+    const matched = lines.filter(line => !unresolved.includes(line))
+    const cards = matched.map(line => pokemon[line.trim().split(' ')[1]]).filter(Boolean)
+    const types = new Set(cards.map(card => card.type))
+    const glcType = body.formatCode === 'glc' && types.size === 1 ? [...types][0] : null
+    const result = summary(unresolved, lines.length)
+    result.import.glcType = glcType
+    result.import.pendingTypeCardIds = body.formatCode === 'glc' && !glcType ? cards.map(card => card.id) : []
+    await route.fulfill({ json: result })
+  })
+  const text = page.getByRole('textbox', { name: 'Decklist' })
+  const submit = page.locator('button[form="deck-import-form"]')
+  const ready = () => page.waitForFunction(() => {
+    const button = document.querySelector('button[form="deck-import-form"]')
+    return button && !button.disabled && button.textContent.trim() === 'Import deck'
+  })
+  const prepare = async input => {
+    await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: /Import from PTCG Live/ }).click()
+    await page.getByLabel('Format', { exact: true }).selectOption('expanded')
+    await text.fill(input)
+    await submit.click()
+    await page.getByRole('button', { name: 'Suggest fixes' }).click()
+    await ready()
+  }
+  for (const name of ['Squirtle', 'Bulbasaur']) {
+    await prepare(`1 ${name} SVI 999`)
+    await page.getByLabel('Format', { exact: true }).selectOption('glc')
+    await ready()
+    if (name === 'Squirtle') {
+      await text.focus()
+      await page.waitForTimeout(400)
+      await page.screenshot({ path: path.join(out, `glc-focused-${width}.png`) })
+      await page.getByRole('button', { name: 'Cancel', exact: true }).focus()
+      await page.screenshot({ path: path.join(out, `glc-unfocused-${width}.png`) })
+    }
+    await submit.click()
+    await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
+    assert.equal(writes.at(-1).formatCode, 'glc')
+    assert.equal(writes.at(-1).text, `1 ${name} SVI ${pokemon[name].number}`)
+  }
+  await prepare('1 Squirtle SVI 999\n1 Bulbasaur SVI 999')
+  await page.getByLabel('Format', { exact: true }).selectOption('glc')
+  await page.getByText('GLC type is unknown', { exact: true }).waitFor()
+  assert.equal(await submit.isDisabled(), true, 'ambiguous GLC corrections wait for a known deck type')
+  assert.equal(await page.getByText(/GLC type is unknown. Edit the list/).count(), 2, 'both dependent rows explain pending status')
+  await page.locator('#deck-import-form').dispatchEvent('submit')
+  assert.equal(writes.length, 2, 'unknown type cannot bypass the final gate')
+  await page.screenshot({ path: path.join(out, `glc-unknown-${width}.png`) })
+  await text.fill('1 Squirtle SVI 54')
+  await ready()
+  assert.equal(await page.getByText('GLC type is unknown', { exact: true }).count(), 0, 'editing to one type resolves the pending correction')
+
+  // Start a slow check, then type ten fast edits. The first fetch must abort,
+  // and the burst may create only one replacement request after 300 ms idle.
+  delay = 900
+  checks.length = 0
+  const firstRequest = page.waitForRequest(req => req.url().endsWith('/api/decks/import') && req.postDataJSON()?.dryRun)
+  await text.fill(Array(30).fill('1 Squirtle SVI 54').join('\n'))
+  await firstRequest
+  const abortedBefore = await page.evaluate(() => window.__importChecksAborted)
+  await text.focus()
+  await text.press('ControlOrMeta+End')
+  await text.pressSequentially('          ', { delay: 35 })
+  await page.waitForFunction(before => window.__importChecksAborted > before, abortedBefore)
+  assert.equal(await submit.isDisabled(), true)
+  assert.match(await submit.innerText(), /Checking/)
+  const finalText = await text.inputValue()
+  await ready()
+  assert.ok(checks.length <= 2, `ten edits should send at most two checks, got ${checks.length}`)
+  assert.equal(checks.at(-1).text, finalText)
+  assert.equal(checks.at(-1).formatCode, 'glc')
+  const rapidChecks = checks.length
+
+  // A transport can deliver a reply despite abort. Ignore AbortSignal in this
+  // probe only, so a late stale success/error must be rejected by the guards.
+  await page.evaluate(() => {
+    const fetch = window.fetch.bind(window)
+    window.fetch = (url, init) => String(url).endsWith('/api/decks/import')
+      ? fetch(url, { ...init, signal: undefined }) : fetch(url, init)
+  })
+  delay = 1600
+  const staleRequest = page.waitForRequest(req => req.url().endsWith('/api/decks/import') && req.postDataJSON()?.dryRun)
+  await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 1')
+  await staleRequest
+  delay = 0
+  await page.getByLabel('Format', { exact: true }).selectOption('expanded')
+  await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
+  await page.getByRole('button', { name: 'Import without them' }).waitFor()
+  await page.waitForTimeout(1700)
+  assert.equal(await page.getByRole('button', { name: 'Import without them' }).isEnabled(), true,
+    'late old text/GLC reply cannot replace the newest Expanded unresolved summary')
+  assert.equal(await page.getByText('GLC type is unknown', { exact: true }).count(), 0)
+  delay = 1200
+  fail = true
+  const staleError = page.waitForRequest(req => req.url().endsWith('/api/decks/import') && req.postDataJSON()?.dryRun)
+  await text.fill('1 Squirtle SVI 54')
+  await staleError
+  delay = 0
+  fail = false
+  await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
+  await page.getByRole('button', { name: 'Import without them' }).waitFor()
+  await page.waitForTimeout(1300)
+  assert.equal(await page.getByText('Fixture check failed', { exact: false }).count(), 0,
+    'a late error cannot replace the latest successful check')
+  fail = true
+  await text.fill('1 Squirtle SVI 54 ')
+  await page.getByText('Fixture check failed', { exact: false }).waitFor()
+  assert.equal(await submit.isDisabled(), true, 'failed current validation keeps Import disabled')
+  fail = false
+  await page.getByRole('button', { name: 'Check again' }).click()
+  await ready()
+  await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
+  await page.getByRole('button', { name: 'Import without them' }).click()
+  await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
+  assert.equal(writes.at(-1).text, '1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
+  assert.equal(writes.at(-1).formatCode, 'expanded')
+  console.log(JSON.stringify({ width, glcWater: true, glcGrass: true, glcAmbiguous: true,
+    rapidEdits: 10, rapidChecks, canceled: true, latestTextAndFormat: true }))
 }

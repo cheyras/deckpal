@@ -346,3 +346,31 @@ test('seeded action sequences preserve the write gate and unrelated line identit
   assert.ok(exercised.skip > 100, `successful skips: ${exercised.skip}`)
   assert.ok(exercised.import > 100, `import-ready states: ${exercised.import}`)
 })
+
+test('unknown GLC type keeps accepted Pokémon pending through whitespace and duplicate edits', () => {
+  let state = importReviewReducer(initialImportReview(), { type: 'text', text: '1 Squirtle SVI 999' })
+  state = importReviewReducer(state, { type: 'start' })
+  state = importReviewReducer(state, { type: 'validated', revision: state.revision,
+    summary: { ...serverSummary(TYPO, 'expanded'), unresolvedLines: ['1 Squirtle SVI 999'] } })
+  state = importReviewReducer(state, { type: 'accept', revision: state.revision, fixes: [{
+    lineIndex: 0, original: '1 Squirtle SVI 999', replacement: '1 Squirtle SVI 54',
+    card: { id: 'squirtle', name: 'Squirtle', set: 'SVI', number: '54' }, reason: 'Correct number', confidence: 'suggested',
+  }] })
+  state = importReviewReducer(state, { type: 'format', formatCode: 'glc' })
+  const summary = { ...serverSummary(IONO, 'expanded'), glcType: null, pendingTypeCardIds: ['squirtle'] }
+  for (const text of ['1 Squirtle SVI 54\n1 Bulbasaur SVI 1', '\n1 Squirtle SVI 54\n1 Squirtle SVI 54\n1 Bulbasaur SVI 1', '1 Squirtle SVI 54\n1 Bulbasaur SVI 1']) {
+    state = importReviewReducer(state, { type: 'text', text })
+    state = importReviewReducer(state, { type: 'validated', revision: state.revision, summary })
+    const review = deriveImportReview(state)
+    assert.equal(review.canAct, false)
+    assert.equal(review.canSkip, false)
+    assert.equal(reviewedImportPayload(state), null)
+    assert.deepEqual(review.pendingTypeCardIds, ['squirtle'])
+    assert.match(review.issues[0].reason, /GLC type is unknown/)
+  }
+  state = importReviewReducer(state, { type: 'text', text: '1 Squirtle SVI 54' })
+  assert.equal(reviewedImportPayload(state), null, 'one-type text still needs its own check')
+  state = importReviewReducer(state, { type: 'validated', revision: state.revision,
+    summary: { ...summary, glcType: 'Water', pendingTypeCardIds: [] } })
+  assert.ok(reviewedImportPayload(state), 'a validated Water correction can import')
+})

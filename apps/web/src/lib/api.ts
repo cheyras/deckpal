@@ -1050,6 +1050,10 @@ export interface DeckImportSummary {
   unresolvedLines: string[]
   /** Card-specific legality problems in the selected format. */
   formatIssues?: { cardId: string; reason: string }[]
+  /** GLC type inferred from the resolved Pokémon, or unknown. */
+  glcType?: string | null
+  /** Pokémon whose type-dependent legality cannot yet be checked. */
+  pendingTypeCardIds?: string[]
   warnings: ValidationWarning[]
   variantNote: string
 }
@@ -2011,8 +2015,8 @@ export const api = {
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
   /** The same import resolved WITHOUT creating anything, so unmatched lines can be shown first. */
-  checkDeckImport: (body: { text: string; formatCode?: DeckFormat; source?: 'ptcgl' | 'massentry' }) =>
-    send<{ import: DeckImportSummary }>('POST', '/decks/import', { ...body, dryRun: true }),
+  checkDeckImport: (body: { text: string; formatCode?: DeckFormat; source?: 'ptcgl' | 'massentry' }, signal?: AbortSignal) =>
+    send<{ import: DeckImportSummary }>('POST', '/decks/import', { ...body, dryRun: true }, signal),
   fixDeckImport: (body: { text: string; formatCode: DeckFormat }) =>
     send<DeckImportFixResult>('POST', '/decks/import/fix', body),
   // variantId (migration 051): which printing. Omitted = the card's primary

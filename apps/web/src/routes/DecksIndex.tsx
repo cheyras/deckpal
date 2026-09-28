@@ -156,23 +156,50 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const panelRef = useRef<HTMLDivElement>(null)
   const revealReview = useRef(true)
   const active = useRef(true)
-  const check = useMutation({ mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.checkDeckImport(asked) })
-  const validate = (submit: boolean) => {
-    const asked = stateRef.current
-    check.mutate({ text: asked.text, formatCode: asked.formatCode }, {
-      onSuccess: ({ import: summary }) => {
-        if (!active.current || stateRef.current.revision !== asked.revision) return
-        const validated = apply({ type: 'validated', revision: asked.revision, summary })
-        const payload = reviewedImportPayload(validated)
-        if (submit && payload) onSubmit({ ...payload, name: nameRef.current.trim() || undefined })
-      },
-    })
+  const [check, setCheck] = useState<{ revision: number; isPending: boolean; error: Error | null }>({ revision: -1, isPending: false, error: null })
+  const checkSequence = useRef(0)
+  const checkController = useRef<AbortController | null>(null)
+  const checkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelCheck = () => {
+    if (checkTimer.current !== null) clearTimeout(checkTimer.current)
+    checkTimer.current = null
+    checkSequence.current++
+    checkController.current?.abort()
+    checkController.current = null
   }
-  // Every source change invalidates the previous facts. Refresh the exact new
-  // revision, including accepted text and Undo, without ever patching a summary.
+  const validate = async (submit: boolean) => {
+    cancelCheck()
+    const asked = stateRef.current
+    const sequence = checkSequence.current
+    const controller = new AbortController()
+    checkController.current = controller
+    const isLatest = () => active.current && sequence === checkSequence.current &&
+      stateRef.current.revision === asked.revision
+    setCheck({ revision: asked.revision, isPending: true, error: null })
+    try {
+      const { import: summary } = await api.checkDeckImport({ text: asked.text, formatCode: asked.formatCode }, controller.signal)
+      if (!isLatest()) return
+      const validated = apply({ type: 'validated', revision: asked.revision, summary })
+      const payload = reviewedImportPayload(validated)
+      setCheck({ revision: asked.revision, isPending: false, error: null })
+      if (submit && payload) onSubmit({ ...payload, name: nameRef.current.trim() || undefined })
+    } catch (error) {
+      if (isLatest() && !controller.signal.aborted)
+        setCheck({ revision: asked.revision, isPending: false, error: error as Error })
+    }
+  }
+  // Source changes invalidate facts immediately; only check after typing rests.
+  // Cancellation saves client work, while revision + sequence guards also cover
+  // replies already delivered and repeated checks of the same revision.
   useEffect(() => {
-    if (state.started && state.text.trim()) validate(false)
+    if (state.started && state.text.trim()) {
+      setCheck({ revision: state.revision, isPending: true, error: null })
+      checkTimer.current = setTimeout(() => { void validate(false) }, 300)
+    } else setCheck({ revision: state.revision, isPending: false, error: null })
+    return cancelCheck
   }, [state.revision])
+  const checkError = check.revision === state.revision ? check.error : null
+  const checking = !!state.text.trim() && (check.isPending || (state.started && !review.current && !checkError))
   const fix = useMutation({
     mutationFn: (asked: { text: string; formatCode: DeckFormat }) => api.fixDeckImport(asked),
     onSettled: () => { void queryClient.invalidateQueries({ queryKey: ['credits'] }) },
@@ -180,7 +207,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   const [entitled, setEntitled] = useState(false)
   const [hideCharacter, setHideCharacter] = useState(deckeHidden)
   const [fixError, setFixError] = useState<string | null>(null)
-  const close = () => { active.current = false; endDeckeErrand(); onClose() }
+  const close = () => { active.current = false; cancelCheck(); endDeckeErrand(); onClose() }
   useEffect(() => onDeckeVisibilityChange(() => setHideCharacter(deckeHidden())), [])
   useEffect(() => {
     active.current = true
@@ -232,12 +259,12 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
   }
   const run = () => {
     const current = deriveImportReview(stateRef.current)
-    if (!current.canAct || check.isPending || fix.isPending || busy) return
+    if (!current.canAct || checking || fix.isPending || busy) return
     // The only skip action is the explicitly labelled button in this revision.
     // A fresh final check must still satisfy the same gate before any write.
     if (review.canSkip) apply({ type: 'skip', revision: state.revision, lineIds: review.unresolved.map(row => row.lineId) })
     apply({ type: 'start' })
-    validate(true)
+    void validate(true)
   }
   const editLine = (lineIndex: number) => {
     const el = listRef.current
@@ -267,8 +294,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
       footer={
         <div className="flex justify-end gap-[10px]">
           <Button variant="secondary" onClick={close}>Cancel</Button>
-          <Button type="submit" form={formId} disabled={!review.canAct || fix.isPending} loading={busy || check.isPending}>
-            {check.isPending ? 'Checking…' : busy ? 'Importing…' : review.canSkip ? 'Import without them' : 'Import deck'}
+          <Button type="submit" form={formId} disabled={!review.canAct || fix.isPending} loading={busy || checking}>
+            {checking ? 'Checking…' : busy ? 'Importing…' : review.canSkip ? 'Import without them' : 'Import deck'}
           </Button>
         </div>
       }
@@ -315,10 +342,10 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
             <div className="flex min-w-0 items-start justify-between gap-[10px]">
               <div role="alert" className="flex min-w-0 items-center gap-[8px] pt-[4px] text-[14px] font-bold text-text-primary">
                 <Icon name="sparkle" size={16} className="shrink-0 text-action-primary" />
-                <span>{invalidFixes.length > 0 ? 'Check card legality' : reviewCount === 0 ? 'No cards found' : reviewing ? `${reviewCount} line${reviewCount === 1 ? '' : 's'} to review` : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}</span>
+                <span>{review.pendingTypeCardIds.length > 0 ? 'GLC type is unknown' : invalidFixes.length > 0 ? 'Check card legality' : reviewCount === 0 ? 'No cards found' : reviewing ? `${reviewCount} line${reviewCount === 1 ? '' : 's'} to review` : <>{unmatched.length} line{unmatched.length === 1 ? " doesn't" : "s don't"} match a card</>}</span>
               </div>
               {(!stale || reviewing) && (reviewing || unmatched.length > 0) && entitled && (hideCharacter ? (
-                !reviewing && <button type="button" onClick={askDecke} disabled={fix.isPending || check.isPending}
+                !reviewing && <button type="button" onClick={askDecke} disabled={fix.isPending || checking}
                   className="shrink-0 text-[13px] font-semibold text-link hover:text-link-hover disabled:opacity-50">
                   {fix.isPending ? 'Checking…' : 'Suggest fixes'}
                 </button>
@@ -330,12 +357,12 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                       <span>{fix.isPending ? 'Checking…' : `Fixed ${acceptedFixes.length} of ${reviewCount}, check ${reviewCount === 1 ? 'it' : 'them'}`}</span>
                     </span>
                   ) : (
-                    <button type="button" onClick={askDecke} disabled={check.isPending}
+                    <button type="button" onClick={askDecke} disabled={checking}
                       className="max-w-[156px] rounded-xl border border-action-primary/45 bg-surface-primary px-[10px] py-[7px] text-left text-[12px] leading-[16px] text-text-primary hover:border-action-primary disabled:opacity-50 sm:max-w-none sm:text-[13px]">
                       Want me to fix {unmatched.length === 1 ? 'this' : `these ${unmatched.length}`}?
                     </button>
                   )}
-                  <button type="button" onClick={askDecke} disabled={reviewing || fix.isPending || check.isPending}
+                  <button type="button" onClick={askDecke} disabled={reviewing || fix.isPending || checking}
                     aria-label={reviewing ? 'Deck-E finished suggesting fixes' : fix.isPending ? 'Deck-E is checking the lines' : 'Ask Deck-E to suggest fixes'}
                     className="relative h-[54px] w-[42px] shrink-0 rounded-lg border border-transparent hover:border-action-primary disabled:cursor-default disabled:hover:border-transparent sm:h-[72px] sm:w-[56px]">
                     <span data-decke-errand aria-hidden="true" className="absolute inset-0" />
@@ -357,7 +384,7 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                           <div className="break-words font-mono text-[14px] font-semibold text-text-primary">{found.replacement}</div>
                           <div className="text-[13px] text-text-muted">{found.reason}</div>
                         </div>
-                        <button type="button" onClick={() => undoFix(lineIndex)} disabled={check.isPending}
+                        <button type="button" onClick={() => undoFix(lineIndex)} disabled={checking}
                           className="shrink-0 rounded-full px-[8px] py-[6px] text-[14px] font-semibold text-link hover:bg-action-default-hover disabled:opacity-50">Undo</button>
                       </div>
                     </> : <div className="flex min-w-0 flex-col gap-[4px]">
@@ -367,8 +394,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
                           className="h-[36px] shrink-0 rounded-full px-[12px] text-[14px] font-semibold text-link hover:bg-action-default-hover hover:text-link-hover">Edit</button>
                       </div>
                       {correction && <div className="flex items-center justify-between gap-[10px]">
-                        <span className="text-[13px] text-error">{correction.issue?.reason ?? 'This correction no longer matches a card.'}</span>
-                        <button type="button" onClick={() => undoFix(lineIndex)} disabled={check.isPending}
+                        <span className={`text-[13px] ${review.pendingTypeCardIds.includes(correction.fix.card.id) ? 'text-warning' : 'text-error'}`}>{correction.issue?.reason ?? 'This correction no longer matches a card.'}</span>
+                        <button type="button" onClick={() => undoFix(lineIndex)} disabled={checking}
                           className="shrink-0 rounded-full px-[8px] py-[6px] text-[14px] font-semibold text-link hover:bg-action-default-hover disabled:opacity-50">Undo</button>
                       </div>}
                     </div>}
@@ -377,11 +404,13 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
               })}
             </ul>
             {invalidFixes.filter(issue => !currentFixes.some(entry => entry.issue?.cardId === issue.cardId)).map(issue => (
-              <p key={issue.cardId} className="mt-[10px] text-[13px] text-error">{issue.reason}</p>
+              <p key={`${issue.cardId}:${issue.reason}`} className={`mt-[10px] text-[13px] ${review.pendingTypeCardIds.includes(issue.cardId) ? 'text-warning' : 'text-error'}`}>{issue.reason}</p>
             ))}
             <p className="mt-[10px] text-[13px] text-text-muted">
               {stale
                 ? 'Checking the current list and format…'
+                : review.pendingTypeCardIds.length
+                  ? 'Type-dependent corrections are waiting for the deck’s GLC type.'
                 : invalidFixes.length
                   ? `A card is not legal in ${FORMAT_META[formatCode].label}. Edit its line or choose another format.`
                 : reviewing
@@ -393,8 +422,8 @@ function ImportModal({ busy, error, onClose, onSubmit }: { busy?: boolean; error
           </div>
         )}
         {fixError && !stale && <div role="alert" className="text-[14px] text-error">{fixError}</div>}
-        {(check.error || error) && <div className="text-[14px] text-error">{((check.error as Error | null)?.message ?? error)}
-          {check.isError && <button type="button" onClick={() => validate(false)} className="ml-[8px] text-link underline">Check again</button>}
+        {(checkError || error) && <div className="text-[14px] text-error">{(checkError?.message ?? error)}
+          {checkError && <button type="button" onClick={() => { void validate(false) }} className="ml-[8px] text-link underline">Check again</button>}
         </div>}
       </form>
     </Modal>

@@ -94,7 +94,11 @@ export function deriveImportReview(state: ImportReviewState) {
   // Fail closed if a malformed/stale response cannot be mapped to physical lines.
   const complete = [...wanted.values()].every(count => count === 0)
   const acceptedCards = new Set([...state.corrections.values()].flatMap(fixes => fixes.map(fix => fix.card.id)))
-  const issues = (summary?.formatIssues ?? []).filter(issue => acceptedCards.has(issue.cardId))
+  const pendingTypeCardIds = (summary?.pendingTypeCardIds ?? []).filter(id => acceptedCards.has(id))
+  const issues = [
+    ...(summary?.formatIssues ?? []),
+    ...pendingTypeCardIds.map(cardId => ({ cardId, reason: 'GLC type is unknown. Edit the list so its Pokémon share one type, or choose another format, before checking this correction.' })),
+  ].filter(issue => acceptedCards.has(issue.cardId))
   const lines = state.text.split('\n')
   const corrections = [...state.corrections].flatMap(([lineId, fixes]) => {
     const fix = fixes.at(-1)!
@@ -109,7 +113,7 @@ export function deriveImportReview(state: ImportReviewState) {
   const skipConfirmed = state.skipped?.revision === state.revision &&
     unresolved.every(row => state.skipped!.lineIds.includes(row.lineId))
   return {
-    current, summary, unresolved, corrections, issues, matchedCards,
+    current, summary, unresolved, corrections, issues, matchedCards, pendingTypeCardIds,
     rows: [...rows.values()].sort((a, b) => a.lineIndex - b.lineIndex),
     canSkip: safe && unresolved.length > 0,
     canImport: safe && (unresolved.length === 0 || skipConfirmed),
