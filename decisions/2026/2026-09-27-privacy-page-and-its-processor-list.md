@@ -40,7 +40,8 @@ The processor list, and the file behind each entry:
   - `claude-haiku-4.5` for issue triage on public bug reports (`scripts/triage-issue.sh`). No ZDR.
 - **Perplexity**, `sonar-pro` with `sonar` as fallback: research queries, screened by `researchQuery.ts`. No ZDR.
 - **TypeSafe**, `jev`: reflex and audit judgments (`apps/api/src/decke/jev.ts`). The only request with
-  `zeroDataRetention: true`.
+  `zeroDataRetention: true`. On in production since 2026-09-28 (`DECKE_JEV=on`; `/api/health` reports
+  `deckeJev.status: "on"`), so TypeSafe receives this data today.
 
 **Not listed on the page, and why:**
 
