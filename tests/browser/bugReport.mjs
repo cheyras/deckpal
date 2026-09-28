@@ -42,7 +42,7 @@ export async function checkBugReport(browser, server, mount, label, out, fixture
   const results = []
   // The API reports whether this deployment files public GitHub issues.
   const disclosure = label === 'cloud'
-    ? /description and page path will be posted publicly on DeckPal's GitHub issue tracker/
+    ? /description, page path, screen size and browser will be posted publicly on DeckPal's GitHub issue tracker/
     : /saved to this server.s issue folder and is not posted to GitHub/
   for (const width of [1440, 390]) {
     state.actor = 'owner'

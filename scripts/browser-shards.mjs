@@ -45,6 +45,9 @@ export const durations = {
   'decke-show': 150,
   // Estimated from local runs: its own build, then Chromium and WebKit at 390.
   'decke-chat-phone': 70,
+  // Measured 12s locally (a 3s cloud build, then two widths of static pages);
+  // padded for hosted runners until it has its own CI timing.
+  'privacy': 40,
 }
 
 export function shardSuites(suites, count) {

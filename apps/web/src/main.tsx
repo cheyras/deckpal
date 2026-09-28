@@ -77,6 +77,7 @@ const DeckBuilder = lazyRoute('./routes/DeckBuilder', () => import('./routes/Dec
 const Insights = lazyRoute('./routes/Insights', () => import('./routes/Insights'), 'Insights')
 const Profile = lazyRoute('./routes/Profile', () => import('./routes/Profile'), 'Profile')
 const Credits = lazyRoute('./routes/credits/Credits', () => import('./routes/credits/Credits'), 'Credits')
+const Privacy = lazyRoute('./routes/Privacy', () => import('./routes/Privacy'), 'Privacy')
 const Scan = lazyRoute('./routes/Scan', () => import('./routes/Scan'), 'Scan')
 const Devtools = lazyRoute('./routes/Devtools', () => import('./routes/Devtools'), 'Devtools')
 const Admin = lazyRoute('./routes/admin/Admin', () => import('./routes/admin/Admin'))
@@ -582,12 +583,27 @@ const signedOutRoute = createRoute({
   component: SignedOut,
 })
 
+// What deckpal.app collects and which services receive it. Public and
+// chrome-free (lib/landingRoute.ts), because the two places that link here —
+// the landing footer and the sign-up form — are read by people with no account.
+// Cloud-only like the rest of this block, for a different reason: it describes
+// deckpal.app's own processors (Supabase, Stripe, the AI Gateway…), none of
+// which a self-hosted copy uses, so on self-host it would be describing someone
+// else's service to that copy's users.
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/privacy',
+  beforeLoad: cloudOnly,
+  component: Privacy,
+})
+
 const coreRoutes = [
   indexRoute,
   authRoute,
   authorizeRoute,
   authResetRoute,
   signedOutRoute,
+  privacyRoute,
   seriesIndexRoute,
   seriesDetailRoute,
   setDetailRoute,

@@ -375,6 +375,10 @@ export function Auth() {
           By creating an account you agree to keep it civil. DeckPal is AGPL-3.0 open source —{' '}
           <Link to="/" className="text-text-secondary hover:text-link">
             read what it does
+          </Link>{' '}
+          and{' '}
+          <Link to="/privacy" className="text-text-secondary hover:text-link">
+            how it handles your data
           </Link>
           .
         </p>

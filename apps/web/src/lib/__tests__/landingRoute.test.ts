@@ -42,6 +42,15 @@ test('Deck-E pauses on the quad labeler without removing its app chrome', () => 
   }
 })
 
+test('the privacy page renders chrome-free and signed-out, on either base path', () => {
+  for (const base of ['/', '/deckpal/']) {
+    const route = (path: string) => base.replace(/\/$/, '') + path
+    assert.equal(isChromelessPathname(route('/privacy'), base), true)
+    assert.equal(isChromelessPathname(route('/privacy/'), base), true)
+    assert.equal(isChromelessPathname(route('/privacyx'), base), false)
+  }
+})
+
 test('the auditor\'s exact SEC-05 payload is rejected', () => {
   // Repro, run directly against the platform parser this fix relies on:
   //   new URL('/\t/evil.example/phish', 'https://deckpal.app').href

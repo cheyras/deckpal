@@ -8,8 +8,8 @@ function stripBase(pathname: string, baseUrl = import.meta.env.BASE_URL): string
   return rest.replace(/\/+$/, '')
 }
 
-// Routes that render with NO app chrome at all: the marketing landing and
-// every auth surface. AppShell returns bare children for these.
+// Routes that render with NO app chrome at all: the marketing landing, the
+// privacy page and every auth surface. AppShell returns bare children for these.
 // The nav mounts ProfileChip, whose overview query 401s while signed out →
 // handle401 → location.assign('/auth') → reload → 401 … the loop this list
 // exists to break. (The catalog below fixes that differently — it renders the
@@ -18,6 +18,7 @@ const CHROMELESS_PATHS = new Set([
   '/auth', // sign in / sign up / forgot password
   '/auth/reset', // password-recovery link target
   '/signed-out', // post-sign-out confirmation
+  '/privacy', // what DeckPal collects and who receives it — linked from the landing footer and sign-up, so it must read signed-out
   '/authorize', // OAuth "Connect" consent screen — must render signed-out, see Authorize.tsx
   '/design', // design-system editor — no app chrome; owner-only in prod (gated in main.tsx via /me.designEditor)
   '/dev/decke', // Deck-E three.js preview — full-viewport canvas; owner-only in prod (gated in main.tsx via /me.owner)
