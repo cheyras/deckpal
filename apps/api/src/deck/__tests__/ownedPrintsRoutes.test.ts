@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument } from '../../__tests__/pdfjsCompat.js';
 import type pg from 'pg';
 import type { Request, Response } from 'express';
 import { rlsStore } from '../../db.js';
