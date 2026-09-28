@@ -397,7 +397,7 @@ domain-allowlist control available on this Gateway for other research tools —
 provider-side; the compensating controls here are structural rather than that
 allowlist.)
 
-**Jev is a new data processor, and its retention is unconfirmed** (2026-09-26).
+**Jev is a data processor under Vercel's zero-retention agreement with TypeSafe** (verified 2026-09-27).
 With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
 AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
 (`apps/api/src/decke/reflex.ts`). What it receives: the reader's latest message
@@ -410,10 +410,21 @@ and a deck or list path can contain an ID. Every request
 sets `zeroDataRetention: true` and pins the provider with `only: ["typesafe-ai"]`.
 That pin matters: measured on 2026-09-26, the Gateway otherwise routes Jev to a
 second host (DigitalOcean) first, and with the flag it skips that host as
-ZDR-ineligible. **Whether TypeSafe itself retains what it is sent is not
-confirmed**: the Gateway's model list reports `zdr: "none"` for Jev, Vercel's
-guide says ZDR is available per request, and TypeSafe's own documentation offers
-ZDR to enterprise customers only. Jev never approves anything and is not a
+ZDR-ineligible. **Through the Gateway, TypeSafe does not retain what it is sent.** Vercel's
+AI Gateway ZDR page (https://vercel.com/docs/ai-gateway/security-and-compliance/zdr, updated
+2026-09-22) lists TypeSafe AI as a ZDR provider on the Gateway under this agreement: "Except as
+necessary to comply with its legal obligations, TypeSafe shall not retain (a) prompts that are
+Customer Data for any longer than is necessary to generate Output for Customer and (b) Output for
+any longer than necessary to enable TypeSafe to fulfil its obligations to Customer under the
+Agreement." With `zeroDataRetention: true` the Gateway routes only to ZDR providers and FAILS the
+request (`no_providers_available`) rather than falling back to one that retains, so the flag is
+what makes this hold: never remove it. Two caveats. The Gateway's model list still shows
+`zdr: "none"` for Jev (the per-provider agreement governs routing; the model field lags or
+reflects other hosts). And per-request ZDR requires a Vercel Pro or Enterprise team; the
+2026-09-26 measurement above shows the Gateway filtering Jev's hosts by ZDR on DeckPal's team.
+TypeSafe's own direct-customer policy (ZDR for enterprise only) does not apply to Gateway traffic.
+TypeSafe does not train on requests (`no_training: "all"`). The owner accepted Jev's data use on
+2026-09-27 either way. Jev never approves anything and is not a
 control: its vendor documents that text in its state can move its answers, so
 its judgments only ever raise a consent card, hide a tool the reader cannot use,
 add a refusal, or run one corrective step that can itself only raise a consent
