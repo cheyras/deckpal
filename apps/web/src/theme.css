@@ -1330,13 +1330,22 @@ body {
   max-width: 100%;
 }
 
-/* HIS WORDS, beside him. One fixed gutter that never toggles, so reading back
- * up the conversation re-wraps nothing — the column his words sit in is the
- * same column from the first message to the last, the way a messaging app's
- * replies keep their indent beside the avatar. */
+/* HIS LATEST WORDS, beside him. One fixed gutter that never toggles on scroll,
+ * so reading back up the conversation re-wraps nothing. */
 .decke-beside {
   margin-left: var(--decke-gutter, 0px);
   max-width: calc(100% - var(--decke-gutter, 0px));
+}
+
+/* HIS EARLIER WORDS take the whole column. Only his latest reply is ever beside
+ * him — he rides off with its top and is never higher than it — so a gutter on
+ * an older reply held space for nobody. The owner (2026-09-28): only the latest
+ * keeps the indent, "because he is now supposed to scroll out of the frame with
+ * the top of his latest text box". A reply loses its gutter once, when the next
+ * turn starts, and never while the reader scrolls. Overrides the gutter cap
+ * `.decke-bubble` carries. */
+.decke-bubble.decke-settled {
+  max-width: 100%;
 }
 
 /* ── THE COMPOSER KEEPS NO GUTTER, and that is a consequence of where he now
