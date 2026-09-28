@@ -235,6 +235,34 @@ directory; the object tier proves it by listing the bucket:
 pnpm --filter deckpal-images manifest:check -- --object-store
 ```
 
+**The private capture bucket (`dev-captures`) — nothing to set up.** The
+scanner's and labeler's captures (labels, flagged frames, scanner reports and
+their sidecars under `dev-flags/`; pending labeler photos under `dev-queue/`)
+are photographs of the owner's cards and table, and live in a separate
+**private** bucket named `dev-captures`. The API creates it (`public: false`)
+the first time a capture route needs it, with the same `SUPABASE_URL` +
+`SUPABASE_SERVICE_ROLE_KEY` it already has — **no new variable, no migration, no
+dashboard step**. The name is a constant (`CAPTURE_BUCKET` in
+`packages/storage/src/capture-store.ts`), not configuration. If you ever find a
+`dev-captures` bucket marked public, the capture routes refuse to write to it
+and say why: make it private in Supabase Storage (or delete it and let the API
+recreate it).
+
+Before 2026-09-28 these captures were written to `card-art/dev-flags/` and
+`card-art/dev-queue/`, i.e. publicly. Deploying the change needs no operator
+step for those either: the first time an entitled account opens
+`/dev/quad-labeler` or `/dev/quad-harvest`, the page calls
+`POST /api/dev/scan-queue/migrate-captures` in the background until it answers
+`done`, and each call moves a 20-second batch — copy to `dev-captures`, read
+back and compare, and only then delete the public copy (see SECURITY.md,
+"Scanner and labeler captures are private"). Until an object has been moved the
+API still reads it, with the service key, so nothing disappears from the
+labeler meanwhile. A moved object keeps its key; an object whose key was
+already taken in `dev-captures` by different bytes is kept under
+`legacy-conflicts/<key>` instead. Once the move is done no capture remains in
+`card-art`, which also takes them out of `manifest:check --object-store`'s
+"objects with no row" (they never had `image_asset` rows).
+
 ### Rotating leaked legacy Supabase keys on deckpal.app
 
 This is an operator action. The code accepts both key formats so the cutover can

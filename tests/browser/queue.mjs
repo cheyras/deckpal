@@ -24,7 +24,7 @@ const metadata = (id, name = `upright-${id - ORIGINAL + 1}.heic`) => ({ name, so
 export function queueFixture(mount) {
   const objects = new Map()
   const locks = new Map()
-  const state = { repairPosts: 0, uploads: 0, deletes: 0, heldReads: 0, listCalls: 0, failUploadOnce: false, failList: false, failRemovePath: null, holdRead: null, holdRepair: null }
+  const state = { repairPosts: 0, uploads: 0, deletes: 0, heldReads: 0, listCalls: 0, migrateCalls: 0, failUploadOnce: false, failList: false, failRemovePath: null, holdRead: null, holdRepair: null }
   const store = {
     locked(id, work) {
       const prior = locks.get(id) ?? Promise.resolve()
@@ -50,7 +50,7 @@ export function queueFixture(mount) {
   }
   const reset = (count = 3) => {
     objects.clear()
-    state.repairPosts = state.uploads = state.deletes = state.heldReads = state.listCalls = 0
+    state.repairPosts = state.uploads = state.deletes = state.heldReads = state.listCalls = state.migrateCalls = 0
     state.failUploadOnce = state.failList = false
     state.failRemovePath = state.holdRead = state.holdRepair = null
     for (let i = 0; i < count; i++) {
@@ -72,6 +72,13 @@ export function queueFixture(mount) {
         return { status: 404, body: { error: { message: 'no such harvest photo' } } }
       }
       if (!rel.startsWith(route)) return null
+      // The labeler and harvest routes drive the server's move of pre-2026-09-28
+      // captures out of the public bucket (scan/labeler/captureMigration.ts).
+      // The fixture's objects were never public, so there is nothing to move.
+      if (rel === `${route}/migrate-captures` && req.method === 'POST') {
+        state.migrateCalls++
+        return { body: { ok: true, listed: 0, moved: 0, preserved: 0, gone: 0, failed: 0, failures: [], remaining: 0, done: true } }
+      }
       const tail = rel.slice(route.length)
       const id = tail === '' ? null : Number(/^\/(\d+)(?:\.jpg)?$/.exec(tail)?.[1])
       try {
@@ -135,6 +142,13 @@ const pause = () => {
   return { promise, release, entered, waitEntered }
 }
 const route = (server, mount) => server.origin + mount + '/dev/quad-labeler'
+// The capture move is a background effect with nothing on screen to wait for,
+// so poll the fixture's own count instead of racing `networkidle`.
+async function eventually(check, message, timeout = 10_000) {
+  const by = Date.now() + timeout
+  while (!check() && Date.now() < by) await new Promise(resolve => setTimeout(resolve, 20))
+  assert.ok(check(), message)
+}
 
 export async function checkQueue(browser, server, mount, label, out, queue) {
   const results = []
@@ -149,6 +163,7 @@ export async function checkQueue(browser, server, mount, label, out, queue) {
     }, [queue.original, replacementId(queue.original)])
     try {
       await page.goto(route(server, mount), { waitUntil: 'networkidle' })
+      await eventually(() => queue.state.migrateCalls >= 1, 'opening the labeler starts the private-capture move')
       await page.getByRole('button', { name: /^queue/i }).click()
       await page.getByText('3 photos waiting').waitFor()
       await page.waitForFunction(() => [...document.querySelectorAll('button[aria-label^="Label upright-"] img')].length === 3)
@@ -332,9 +347,12 @@ export async function checkQueue(browser, server, mount, label, out, queue) {
   const harvest = await contextFor(browser, server, 390)
   await signIn(harvest.context)
   try {
+    const migrateBefore = queue.state.migrateCalls
     await harvest.page.goto(server.origin + mount + '/dev/quad-harvest', { waitUntil: 'networkidle' })
     await harvest.page.getByText('This photo is no longer available.').waitFor()
     results.push({ case: 'missing-harvest-thumbnail-explanation', label, width: 390 })
+    await eventually(() => queue.state.migrateCalls > migrateBefore, 'opening the harvest starts the private-capture move too')
+    results.push({ case: 'labeler-routes-start-private-capture-move', label, width: 390 })
   } finally { await harvest.context.close() }
   return results
 }

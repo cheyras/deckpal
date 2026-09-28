@@ -128,8 +128,11 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * `uploadObject`'s header for why, and for the deliberately small default
  * budget. `attemptOnce` runs the request; `onSuccess` shapes the result for a
  * 2xx (only the upload has an etag to record).
+ *
+ * Exported for `capture-store.ts` (the private capture bucket's writes want the
+ * same ladder); deliberately NOT re-exported from the package index.
  */
-async function withRetries(
+export async function withRetries(
   maxAttempts: number,
   attemptOnce: () => Promise<Response>,
   onSuccess: (res: Response) => UploadResult,
@@ -238,8 +241,10 @@ const LIST_PAGE = 1000;
 async function listObjectLevel(
   prefix: string,
   timeoutMs: number,
+  bucketOverride?: string,
 ): Promise<{ objects: StoredObject[]; folders: string[] }> {
-  const { supabaseUrl, bucket, serviceKey } = storageEnv();
+  const { supabaseUrl, serviceKey } = storageEnv();
+  const bucket = bucketOverride ?? storageEnv().bucket;
   const objects: StoredObject[] = [];
   const folders: string[] = [];
 
@@ -288,17 +293,22 @@ async function listObjectLevel(
  *
  * `onBatch` is called per directory so a caller can stream progress on a bucket
  * with tens of thousands of objects instead of buffering it all.
+ *
+ * `bucket` defaults to the card-art bucket (`storageEnv().bucket`). The one
+ * caller that passes another is `capture-store.ts`, listing the PRIVATE
+ * capture bucket with the same walk.
  */
 export async function listObjectsRecursive(
   prefix = '',
   onBatch?: (objects: StoredObject[], dir: string) => void | Promise<void>,
   timeoutMs = 20_000,
+  bucket?: string,
 ): Promise<StoredObject[]> {
   const all: StoredObject[] = [];
   const queue = [prefix];
   while (queue.length > 0) {
     const dir = queue.shift()!;
-    const { objects, folders } = await listObjectLevel(dir, timeoutMs);
+    const { objects, folders } = await listObjectLevel(dir, timeoutMs, bucket);
     if (objects.length > 0) {
       all.push(...objects);
       if (onBatch) await onBatch(objects, dir);

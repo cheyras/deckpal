@@ -12,6 +12,10 @@
  *      Its own bucket, its own choke point, and its own record (the
  *      `user_profile` row, migration 029) because an avatar's source is a person
  *      rather than a URL. Read its header before touching it.
+ *   4. `capture-store.ts` + `capture-migration.ts` — the scanner's and labeler's
+ *      captures, in a PRIVATE bucket read only through the gated API, and the
+ *      copy-verify-delete move of the ones written to the public bucket before
+ *      2026-09-28. Read their headers before touching them.
  *
  * Importing this package is side-effect free; credentials are read lazily, so
  * apps/images can depend on it for the path algebra alone.
@@ -80,6 +84,29 @@ export {
   unknownProvenance,
   type Provenance,
 } from './put-asset.js';
+export {
+  CAPTURE_BUCKET,
+  CAPTURE_CACHE_CONTROL,
+  CAPTURE_CONFLICT_PREFIX,
+  CAPTURE_PREFIXES,
+  CaptureStorageError,
+  assertCaptureKey,
+  captureStore,
+  createCaptureStore,
+  ensureCaptureBucket,
+  type CaptureBucket,
+  type CaptureObject,
+  type CapturePrefix,
+  type CaptureStore,
+  type CaptureWriteMode,
+  type PutCaptureInput,
+} from './capture-store.js';
+export {
+  conflictKey,
+  migrateLegacyCaptures,
+  type CaptureMigrationOptions,
+  type CaptureMigrationReport,
+} from './capture-migration.js';
 export {
   ACCEPTED_AVATAR_UPLOAD_TYPES,
   AVATAR_EDGE,

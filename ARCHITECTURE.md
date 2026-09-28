@@ -446,6 +446,17 @@ A second public bucket, `user-avatars`, holds profile photos independently of
 derived from the user id, and re-encoded server-side to 256×256 WebP
 (DECISIONS.md 2026-08-10, "Profile photos").
 
+A third bucket, `dev-captures`, is **private**: the scanner's and labeler's
+captures (`dev-flags/` labels, flagged frames and scanner reports with their
+sidecars; `dev-queue/` pending labeler photos). The API creates it on first use
+and reaches it only with the service key (`packages/storage/src/capture-store.ts`);
+the browser gets the bytes through the labeler-gated `/dev/scan-flags` and
+`/dev/scan-queue` routes, never by URL. Until 2026-09-28 these prefixes sat in
+the public `card-art` bucket; `capture-migration.ts` moves what is left there
+(copy, read back and compare, then delete), driven from the labeler pages via
+`POST /dev/scan-queue/migrate-captures`. See SECURITY.md, "Scanner and labeler
+captures are private".
+
 ### Self-host: local disk cache
 
 Unchanged from the original design. `apps/images/src/store.ts` is the write

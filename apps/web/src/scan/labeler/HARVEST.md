@@ -23,6 +23,12 @@ id**, where the id is the epoch-ms capture time:
 Owner-gated on production, open on preview deployments and self-host. Sign in as
 the QA account (`.qa-account`), not the owner's — `AGENTS.md` B12.
 
+**The endpoint is the only way in.** Since 2026-09-28 the objects live in the
+PRIVATE `dev-captures` Supabase bucket (they used to be public in `card-art`,
+readable by anyone who guessed a timestamp), so there is no Storage URL to fetch
+them from — a harvest script goes through these calls with a signed-in bearer
+token, like the harvest view does.
+
 ### The bucket is shared. Filter first.
 
 `/dev/scan-flags` also holds the scan harness's live-camera flags and the
