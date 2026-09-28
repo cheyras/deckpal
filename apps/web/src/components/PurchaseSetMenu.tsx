@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Goal } from '../routes/setSearch'
+import { GOAL_TITLE } from '../routes/setSearch'
 import { api, type SetMassEntry } from '../lib/api'
 import { Icon } from './Icon'
 import { Button } from './ui/Button'
@@ -25,9 +26,9 @@ const FINISHES = [
 type FinishCode = (typeof FINISHES)[number]['code']
 
 const GOALS: { key: Goal; label: string; blurb: string }[] = [
-  { key: 'complete', label: 'Complete Set', blurb: 'one of any printing per card' },
-  { key: 'master', label: 'Master Set', blurb: 'every standard printing' },
-  { key: 'grandmaster', label: 'Grandmaster Set', blurb: 'every printing, stamps included' },
+  { key: 'complete', label: GOAL_TITLE.complete, blurb: 'one of any printing per card' },
+  { key: 'master', label: GOAL_TITLE.master, blurb: 'every standard printing' },
+  { key: 'grandmaster', label: GOAL_TITLE.grandmaster, blurb: 'every printing, stamps included' },
 ]
 
 // The response shape and the request itself live in `lib/api.ts` (api.setMassEntry).

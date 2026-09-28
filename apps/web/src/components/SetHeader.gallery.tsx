@@ -42,12 +42,12 @@ export default {
   section: 'component',
   description: 'Set-detail page header: logo, shop/purchase/print actions, symbol, progress-or-sign-in-prompt, 6-stat strip. Requires live session for sign-in status.',
   component: SetHeader,
-  defaults: { data: mockData as any, goal: 'complete' as Goal },
+  defaults: { data: mockData as any, goal: 'complete' as Goal, onGoalChange: () => {} },
   variants: [
-    { label: 'normal set', props: { data: mockData as any, goal: 'complete' as Goal } },
+    { label: 'normal set', props: { data: mockData as any, goal: 'complete' as Goal, onGoalChange: () => {} } },
     {
       label: 'master goal',
-      props: { data: mockData as any, goal: 'master' as Goal },
+      props: { data: mockData as any, goal: 'master' as Goal, onGoalChange: () => {} },
     },
     {
       label: 'promo set',
@@ -57,10 +57,11 @@ export default {
           set: { ...mockData.set, isPromo: true, name: 'SWSH Black Star Promos', setId: 'swshp' },
         } as any,
         goal: 'complete' as Goal,
+        onGoalChange: () => {},
       },
     },
   ],
   knobs: {
     goal: { kind: 'select', options: ['complete', 'master', 'grandmaster'] as const },
   },
-} satisfies GalleryMeta<{ data: any; goal: Goal }>
+} satisfies GalleryMeta<{ data: any; goal: Goal; onGoalChange: (goal: Goal) => void }>

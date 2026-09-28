@@ -210,15 +210,15 @@ export function SetDetail() {
               is what composes the piece — a wrapper here beats reaching into
               SetHeader, and it keeps the marking auditable from one file per
               page. The two exceptions on this page are the completion bar and
-              the goal switcher, which live inside SetHeader and FilterControls
-              respectively and cannot be addressed from out here at all. */}
+              the goal switcher, which both live inside SetHeader and cannot be
+              addressed from out here at all. */}
           <div
             data-decke-set-header
             data-decke-landmark="[data-decke-set-header]"
             data-decke-label="the set header"
             data-decke-rank="container"
           >
-            <SetHeader data={data} goal={search.goal} />
+            <SetHeader data={data} goal={search.goal} onGoalChange={(goal) => patch({ goal })} />
           </div>
 
           {/* filter bar */}

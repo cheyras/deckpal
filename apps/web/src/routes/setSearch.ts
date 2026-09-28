@@ -41,19 +41,14 @@ const VIEWS: ViewMode[] = ['grid', 'table', 'binder']
 const GOALS: Goal[] = ['complete', 'master', 'grandmaster']
 const OWNS: Ownership[] = ['all', 'have', 'need', 'dupes']
 
-// Shared goal copy — used by FilterControls' goal switcher tooltip (full form)
-// and ProgressCluster's goal badge (short form). One map each, so the two
-// call sites can't drift (GitHub #30 cleanup).
+// Display names describe targets. The persisted `complete` value stays stable
+// for existing links and saved lists.
 export const GOAL_TITLE: Record<Goal, string> = {
-  complete: 'Complete Set',
-  master: 'Master Set',
-  grandmaster: 'Grandmaster Set',
+  complete: 'Standard set',
+  master: 'Master set',
+  grandmaster: 'Grandmaster set',
 }
-export const GOAL_SHORT_LABEL: Record<Goal, string> = {
-  complete: 'Complete',
-  master: 'Master',
-  grandmaster: 'Grandmaster',
-}
+export const GOAL_SHORT_LABEL = GOAL_TITLE
 
 // validateSearch: returns fully-typed, defaulted search. TanStack Router feeds
 // raw parsed params in; we normalise. Combined with stripping in the component,

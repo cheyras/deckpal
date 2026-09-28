@@ -920,7 +920,7 @@ export function Landing() {
         <Feature
           eyebrow="Collection tracking"
           title="Count the printing, not just the card."
-          body="Most trackers stop at the card. DeckPal tracks each printing of it — Normal, Reverse Holofoil, Holofoil and the special ones — with its own quantity, its own market price and its own place in your completion. Every set carries three goals: Complete, Master and Grandmaster."
+          body="Most trackers stop at the card. DeckPal tracks each printing of it — Normal, Reverse Holofoil, Holofoil and the special ones — with its own quantity, its own market price and its own place in your completion. Every set carries three goals: Standard set, Master set and Grandmaster set."
           bullets={[
             'Tap a counter on the card to add a copy; hold to take one back',
             'Milestones at 25%, 50% and 75% turn from dots into stars',
