@@ -26,7 +26,9 @@ export const durations = {
   'cloud-feedback-primary-390': 87,
   'cloud-feedback-primary-428': 146,
   'cloud-feedback-lifecycle': 129,
-  'cloud-writes': 85,
+  // Measured 537s before the GLC/debounce regressions; reserve room for those
+  // journeys instead of packing other suites against the old 85s estimate.
+  'cloud-writes': 720,
   // Labeler queue groups (#240): estimates until they have their own CI timings.
   'selfhost-queue': 45,
   'cloud-queue': 50,
