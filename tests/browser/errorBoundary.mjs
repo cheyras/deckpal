@@ -112,7 +112,7 @@ export async function checkErrorBoundary(browser, server, out) {
       }))
       await fallback.getByRole('button', { name: 'Report this', exact: true }).click()
       const reportDialog = page.getByRole('dialog', { name: 'Report a bug', exact: true })
-      await reportDialog.getByText(/description and page path will be posted publicly on DeckPal's GitHub issue tracker/).waitFor()
+      await reportDialog.getByText(/description, page path, screen size and browser will be posted publicly on DeckPal's GitHub issue tracker/).waitFor()
       assert.match(await reportDialog.getByRole('textbox').inputValue(), /Crash on \/crash:/)
       assert.match(await reportDialog.getByRole('textbox').inputValue(), /deliberate render-time throw/)
       assert.equal(reports.length, 1, 'opening Report this must not send another crash beacon')

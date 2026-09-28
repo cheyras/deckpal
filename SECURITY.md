@@ -822,7 +822,9 @@ mode (see AGENTS.md B10). Three things are enforced so that publishing a
 report cannot publish more than the reporter chose to:
 
 - **Disclosure before Submit.** The modal states, before the report is sent,
-  whether the description and page path will be posted publicly on GitHub,
+  whether the description, page path, screen size and browser will be posted
+  publicly on GitHub (all four are in the issue body; the last two were missing
+  from this sentence until 2026-09-27),
   using the API's actual issue setting. It explains that any screenshot is
   saved separately, and lets the reporter exclude it with a checkbox. This did not exist
   before 2026-09-26 — the reporter was told a screenshot would be "attached,"
@@ -1177,6 +1179,28 @@ on file for a one-time charge" to `type: unknown` hid the wiring failure it
 exists to expose. Keys are never logged, and `/health` reports only which of four configuration states the
 deployment is in (`configured` / `partial` / `unset` / `self-host`) plus the
 mode read off the key's prefix.
+
+## The privacy page (2026-09-27)
+
+`/privacy` (`apps/web/src/routes/Privacy.tsx`) tells readers what deckpal.app
+collects and names every outside service that receives it. Its claims are read
+from the code, so **a change to where data goes is a change to that page, in the
+same PR**. The triggers:
+
+- a new or different Deck-E model or provider (`apps/api/src/decke/models.ts`),
+  or a change to which requests set `zeroDataRetention` (today only Jev's);
+- a new origin in the CSP (`vercel.json`). The page's "no third-party analytics
+  or tracking scripts" rests on that allow-list being DeckPal, Supabase and
+  Stripe (with Stripe's Link);
+- a new field in the public bug-report issue (`formatIssueBody`);
+- anything new sent to Stripe (`billing/service.ts`, `credits/payments.ts`);
+- a new third-party service, email sender, or scheduled job that reads user data.
+
+Facts that are legal or business decisions (operator, contact address,
+retention periods, age limit, applicable law) are drawn on the page as
+"To decide" markers until the maintainer supplies them. The processor list and
+the file behind each entry are in
+`decisions/2026/2026-09-27-privacy-page-and-its-processor-list.md`.
 
 ## Data retention: deleted lists and decks
 

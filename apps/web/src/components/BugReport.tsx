@@ -449,10 +449,10 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
                   unavailable, warn conservatively instead of promising privacy. */}
               <p className="text-[13px] leading-[18px] text-text-muted">
                 {reportPublic === true
-                  ? "Your description and page path will be posted publicly on DeckPal's GitHub issue tracker. An included screenshot is saved separately for the project owner and is never linked in the public issue."
+                  ? "Your description, page path, screen size and browser will be posted publicly on DeckPal's GitHub issue tracker. An included screenshot is saved separately for the project owner and is never linked in the public issue."
                   : reportPublic === false
                     ? 'Your report is saved to this server’s issue folder and is not posted to GitHub.'
-                    : 'Your description and page path may be posted publicly on GitHub. An included screenshot is never linked in the public issue.'}
+                    : 'Your description, page path, screen size and browser may be posted publicly on GitHub. An included screenshot is never linked in the public issue.'}
               </p>
               <textarea
                 value={text}

@@ -28,6 +28,7 @@ import {
   ProgressMockup,
   ValueMockup,
 } from './landing/Mockups'
+import { SiteFooter } from './landing/SiteFooter'
 import './landing/landing.css'
 import { prefersReducedMotion } from '../lib/reducedMotion'
 
@@ -35,7 +36,6 @@ type Vars = CSSProperties & Record<`--${string}`, string>
 
 const REPO = 'https://github.com/cheyras/deckpal'
 const WIKI = `${REPO}/wiki`
-const LICENSE = `${REPO}/blob/main/LICENSE`
 /* The connector walkthrough — the same six steps the app shows signed-in under
    Profile → Agent access, but readable by a visitor who has no account yet. */
 const MCP_DOCS = `${REPO}/blob/main/DEPLOYMENT.md#connect-an-ai-assistant-mcp`
@@ -792,7 +792,7 @@ function Faq() {
   )
 }
 
-/* ── final CTA + footer ───────────────────────────────────────────────────── */
+/* ── final CTA ────────────────────────────────────────────────────────────── */
 
 function FinalCta() {
   return (
@@ -822,78 +822,6 @@ function FinalCta() {
         <p className="mt-[16px] text-[14px] text-text-muted">No credit card. Nothing to install.</p>
       </Reveal>
     </section>
-  )
-}
-
-function Footer() {
-  return (
-    <footer className="border-t border-border-default bg-surface-footer">
-      <div className="ls-wrap py-[42px]">
-        <div className="flex flex-col gap-[32px] md:flex-row md:justify-between">
-          <div className="max-w-[320px]">
-            <span className="flex items-center">
-              <BrandLogo height={26} />
-            </span>
-            <p className="mt-[12px] text-[14px] leading-[1.6] text-text-muted">
-              An open-source Pokémon TCG collection tracker. Track, build, and master your collection.
-            </p>
-          </div>
-
-          <div className="flex gap-[48px]">
-            <div>
-              <h2 className="mb-[10px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
-                Product
-              </h2>
-              <ul className="flex flex-col gap-[8px] text-[14px]">
-                <li>
-                  <Link to="/auth" search={{ mode: 'signup' as const }} className="text-text-body hover:text-link">
-                    Create account
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/auth" className="text-text-body hover:text-link">
-                    Sign in
-                  </Link>
-                </li>
-                <li>
-                  <a href="#faq" className="text-text-body hover:text-link">
-                    FAQ
-                  </a>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h2 className="mb-[10px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
-                Open source
-              </h2>
-              <ul className="flex flex-col gap-[8px] text-[14px]">
-                <li>
-                  <a href={REPO} target="_blank" rel="noreferrer" className="text-text-body hover:text-link">
-                    GitHub
-                  </a>
-                </li>
-                <li>
-                  <a href={WIKI} target="_blank" rel="noreferrer" className="text-text-body hover:text-link">
-                    Wiki
-                  </a>
-                </li>
-                <li>
-                  <a href={LICENSE} target="_blank" rel="noreferrer" className="text-text-body hover:text-link">
-                    License (AGPL-3.0)
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <p className="mt-[36px] border-t border-border-default pt-[20px] text-[12px] leading-[1.6] text-text-muted">
-          DeckPal is an independent, fan-made project. Pokémon and all related names are trademarks of
-          Nintendo, Creatures Inc. and GAME FREAK inc. DeckPal is not affiliated with, endorsed or sponsored
-          by them. Interface illustrations on this page are stylised recreations of the product.
-        </p>
-      </div>
-    </footer>
   )
 }
 
@@ -985,7 +913,7 @@ export function Landing() {
         <FinalCta />
       </main>
 
-      <Footer />
+      <SiteFooter onLanding />
     </div>
   )
 }
