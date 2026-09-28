@@ -44,10 +44,11 @@
  * `zeroDataRetention: true` and `only: ['typesafe-ai']` on every request.
  * Measured: without them the Gateway routes Jev to a second host (DigitalOcean)
  * first; with them it skips that host as ZDR-ineligible and serves the call
- * from TypeSafe itself. TypeSafe's own documentation offers ZDR to enterprise
- * customers only, so its retention of what it is sent is UNCONFIRMED — see
- * SECURITY.md. Same Deck-E Gateway key as the chat model, so the spend stays
- * legible as Deck-E's.
+ * from TypeSafe itself. Through the Gateway, TypeSafe is under Vercel's
+ * zero-retention agreement (verified 2026-09-27, #260) — and the flag is what
+ * makes that agreement apply, so it must never be removed. See SECURITY.md.
+ * Same Deck-E Gateway key as the chat model, so the spend stays legible as
+ * Deck-E's.
  */
 import { EVALUATION } from './models.js'
 
