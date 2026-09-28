@@ -69,7 +69,10 @@ export async function serve(dist, mount, respondApi, html = 'index.html', option
     let body
     if (mutation) {
       let raw = ''
-      for await (const chunk of req) { raw += chunk; if (raw.length > 20000) return reject('Fixture body too large', 413) }
+      for await (const chunk of req) {
+        raw += chunk
+        if (raw.length > (options.maxMutationChars ?? 20000)) return reject('Fixture body too large', 413)
+      }
       try { body = raw ? JSON.parse(raw) : {} } catch { return reject('Invalid JSON', 400) }
     }
     if (mount && url.pathname !== mount && !url.pathname.startsWith(mount + '/')) return reject('Outside mount: ' + url.pathname)
