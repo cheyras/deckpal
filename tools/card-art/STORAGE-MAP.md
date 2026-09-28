@@ -74,6 +74,12 @@ path-contract change (`research/CARD-ART-SOURCES.md` §1).
 - Disk root: `IMAGE_CACHE_ROOT` — `apps/images/src/config.ts:33`.
 - Public object URL: `{SUPABASE_URL}/storage/v1/object/public/card-art/{key}` —
   `packages/storage/src/object-store.ts:24-30` (`publicObjectUrl`).
+- **Not card art, and no longer in this bucket:** the scanner's and labeler's
+  captures (`dev-flags/`, `dev-queue/`) moved to the PRIVATE bucket
+  `dev-captures` on 2026-09-28 (`packages/storage/src/capture-store.ts`). An
+  object still under either prefix in `card-art` is a capture the migration
+  (`capture-migration.ts`) has not moved yet — never an image asset, and never
+  something to publish or delete by hand.
 
 **The key equality is the point** (migration `025_image_object.sql:37-39`): "the
 Supabase Storage object key IS `image_asset.relative_path`, verbatim, which is

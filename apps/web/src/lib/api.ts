@@ -1879,6 +1879,15 @@ export const api = {
       '/dev/scan-queue',
       signal,
     ),
+  /** Move a batch of captures written before 2026-09-28 out of the public
+   *  bucket into the private one, and say how many are left. Driven by
+   *  `scan/labeler/captureMigration.ts`; see the route for the guarantees. */
+  scanCaptureMigrate: () =>
+    send<{ ok: true; listed: number; moved: number; preserved: number; gone: number; failed: number; remaining: number; done: boolean }>(
+      'POST',
+      '/dev/scan-queue/migrate-captures',
+      {},
+    ),
   /** Remove one — labelled, or discarded. Absent is not an error server-side:
    *  two devices can finish the same photo. */
   scanQueueDelete: (id: number, repairCleanup = false) =>

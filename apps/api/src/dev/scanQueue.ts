@@ -1,18 +1,12 @@
 import { Router } from 'express';
 import { makePool } from '@deckpal/db';
-import {
-  deleteObject,
-  hasStorageEnv,
-  listObjectsRecursive,
-  publicObjectUrl,
-  putUnmanifestedObject,
-  unknownProvenance,
-} from '@deckpal/storage';
-import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
+import { CaptureStorageError, captureStore, ensureCaptureBucket, hasStorageEnv, migrateLegacyCaptures, type CaptureStore } from '@deckpal/storage';
+import { ApiError, asyncHandler, badRequest, notFound, str, userCache } from '../http.js';
 import { pool, SUPABASE_MODE } from '../db.js';
 import { labelerOnlyInProduction } from '../ownerGate.js';
-import { cleanupRepairedOriginal, discardQueuePhoto, enqueueQueuePhoto, listQueuePhotos, readQueuePhoto, repairQueuePhoto, validQueuePhotoId, type QueueMeta, type QueueStore } from './queueRepair.js';
+import { cleanupRepairedOriginal, discardQueuePhoto, enqueueQueuePhoto, listQueuePhotos, originalId as queueFamilyId, readQueuePhoto, repairQueuePhoto, validQueuePhotoId, type QueueStore } from './queueRepair.js';
 import { createQueueLocker } from './queueLock.js';
+import { createCaptureQueueStore } from './captureQueueStore.js';
 
 /**
  * The labeler's pending-photo queue — POST/GET/DELETE /dev/scan-queue.
@@ -42,6 +36,15 @@ import { createQueueLocker } from './queueLock.js';
  * hide a fourth record type (it already shows three), and a listing that
  * answers "what is in my corpus" would be answering "…plus what I have not
  * looked at yet". Separate prefix, separate question.
+ *
+ * ── PRIVATE SINCE 2026-09-28 ───────────────────────────────────────────────
+ *
+ * Both prefixes live in the PRIVATE `dev-captures` bucket, reached only with
+ * the server's key (`captureStore()`, packages/storage/src/capture-store.ts).
+ * They used to be in the public `card-art` bucket under guessable timestamp
+ * names. `POST /migrate-captures` below moves what is still there — for both
+ * prefixes, because this router owns the queue's family lock and the move of a
+ * queued photo has to take it.
  */
 
 const QUEUE_ID_RE = /^(\d+)\.(jpg|json)$/;
@@ -84,37 +87,6 @@ function isHeicBytes(bytes: Buffer): boolean {
   return false;
 }
 
-async function readMeta(objectPath: string, strict = false): Promise<QueueMeta | null> {
-  try {
-    const upstream = await fetch(publicObjectUrl(objectPath), { cache: 'no-store' });
-    if (!upstream.ok) {
-      if (strict && upstream.status !== 404 && upstream.status !== 400) {
-        throw new ApiError(502, 'queue_storage_unavailable', 'Could not read queued photo metadata.');
-      }
-      return null;
-    }
-    const data = (await upstream.json()) as Partial<QueueMeta>;
-    if (!data || typeof data !== 'object' || typeof data.name !== 'string') return null;
-    return {
-      name: data.name,
-      source: data.source === 'camera' ? 'camera' : 'upload',
-      addedAt: typeof data.addedAt === 'string' ? data.addedAt : new Date().toISOString(),
-    };
-  } catch (error) {
-    if (strict && (error instanceof ApiError || !(error instanceof SyntaxError))) {
-      throw error instanceof ApiError ? error : new ApiError(502, 'queue_storage_unavailable', 'Could not read queued photo metadata.');
-    }
-    return null;
-  }
-}
-
-async function checkedObject(objectPath: string, method: 'HEAD' | 'GET'): Promise<Response | null> {
-  const response = await fetch(publicObjectUrl(objectPath), { method, cache: 'no-store' });
-  if (response.status === 404 || response.status === 400) return null;
-  if (!response.ok) throw new ApiError(502, 'queue_storage_unavailable', 'Queued photo storage is temporarily unavailable.');
-  return response;
-}
-
 // Cloud requests already hold a connection for RLS. A second checkout from
 // that same pool could deadlock at capacity, and its request transaction is
 // rolled back on disconnect while storage work can still be running. The
@@ -125,37 +97,34 @@ const queueLockPool = SUPABASE_MODE ? makePool({ role: 'worker', max: 3 }) : poo
 // request pool, so queue storage work uses only one of its connections.
 const queueLocked = createQueueLocker(queueLockPool, SUPABASE_MODE ? 3 : 1);
 
-const queueStore: QueueStore = {
-  locked: queueLocked,
-  exists: async (path) => !!(await checkedObject(path, 'HEAD')),
-  size: async (path) => {
-    const response = await checkedObject(path, 'HEAD');
-    return response ? Number(response.headers.get('content-length') ?? 0) : null;
-  },
-  photo: async (path) => {
-    // Public GETs may be CDN-cached after another device discards the photo.
-    if (!(await checkedObject(path, 'HEAD'))) return null;
-    const response = await checkedObject(path, 'GET');
-    return response ? Buffer.from(await response.arrayBuffer()) : null;
-  },
-  meta: (path) => readMeta(path, true),
-  put: async (path, bytes, contentType) => {
-    await putUnmanifestedObject({
-      objectPath: path,
-      bytes,
-      provenance: unknownProvenance('quad-labeler pending photo — client camera frame or picked file, no upstream URL'),
-      tierProvenanceReason: 'work-in-progress photos under dev-queue/; their sidecars share the same provenance',
-      contentType,
-    });
-  },
-  remove: async (path) => {
-    if (await deleteObject(path)) return true;
-    if (await checkedObject(path, 'HEAD')) {
-      throw new ApiError(502, 'queue_delete_failed', 'The queued photo could not be removed. Try again.');
-    }
-    return false;
-  },
-};
+// Built on first use: `captureStore()` reads the storage credentials, and a
+// self-host deploy without them must still be able to import this router.
+let queueStoreInstance: QueueStore | null = null;
+function queueStore(): QueueStore {
+  queueStoreInstance ??= createCaptureQueueStore(captureStore(), queueLocked);
+  return queueStoreInstance;
+}
+
+/**
+ * The migration's lock for one object: a queued photo's family lock, the same
+ * one listing, reading, repair, cleanup and discard take (queue-state.md), so a
+ * photo cannot be moved out from under a discard and resurrected by it. Labels
+ * (`dev-flags/`) have no such lock and run bare.
+ */
+const QUEUE_OBJECT_RE = /^dev-queue\/(\d+)\.(jpg|json)$/;
+function migrationLock<T>(path: string, work: () => Promise<T>): Promise<T> {
+  const match = QUEUE_OBJECT_RE.exec(path);
+  const id = match ? Number(match[1]) : Number.NaN;
+  return validQueuePhotoId(id) ? queueLocked(queueFamilyId(id), work) : work();
+}
+
+/**
+ * How long one migration request may keep STARTING objects. The function's
+ * ceiling is 60 s (vercel.json); objects already in flight finish after this,
+ * and a request killed mid-object is safe anyway (see capture-migration.ts).
+ * The labeler calls again until the answer says `done`.
+ */
+const MIGRATION_BUDGET_MS = 20_000;
 
 export const scanQueueRouter: Router = Router();
 // The labeler set, same as the corpus router beside it: whoever may write a
@@ -193,7 +162,7 @@ scanQueueRouter.post(
         source: body.source === 'camera' ? 'camera' as const : 'upload' as const,
       };
       try {
-        const repaired = await repairQueuePhoto(originalId, bytes, requested, queueStore, isHeicBytes);
+        const repaired = await repairQueuePhoto(originalId, bytes, requested, queueStore(), isHeicBytes);
         res.json({ ok: true, ...repaired });
       } catch (error) {
         if (error instanceof Error && error.message === 'no such queued photo') throw notFound(error.message);
@@ -206,7 +175,7 @@ scanQueueRouter.post(
       name: typeof body.name === 'string' && body.name ? body.name.slice(0, 200) : `photo-${epochMs}.jpg`,
       source: body.source === 'camera' ? 'camera' as const : 'upload' as const,
     };
-    const queued = await enqueueQueuePhoto(epochMs, bytes, requested, queueStore);
+    const queued = await enqueueQueuePhoto(epochMs, bytes, requested, queueStore());
     res.json({ ok: true, ...queued });
   }),
 );
@@ -219,7 +188,17 @@ scanQueueRouter.get(
       res.json({ photos: [] });
       return;
     }
-    const objects = await listObjectsRecursive(PREFIX.slice(0, -1));
+    // Both buckets: the private one, plus any photo still waiting in the
+    // public one for `POST /migrate-captures` to move it.
+    let objects: Awaited<ReturnType<CaptureStore['list']>>;
+    try {
+      objects = await captureStore().list('dev-queue');
+    } catch (error) {
+      if (error instanceof CaptureStorageError) {
+        throw new ApiError(502, 'queue_storage_unavailable', 'Shared photo queue temporarily unavailable.');
+      }
+      throw error;
+    }
     const ids = new Set<number>();
     for (const obj of objects) {
       const m = QUEUE_ID_RE.exec(obj.path.slice(PREFIX.length));
@@ -229,9 +208,67 @@ scanQueueRouter.get(
     // OLDEST FIRST — the order they were shot, which is the order a reader
     // works a stack of cards in. (The corpus listing is newest-first; that one
     // is a review, this one is a work queue.)
-    const photos = (await listQueuePhotos(ids, queueStore)).map(({ id, size, meta }) => ({ id, size, ...meta }));
+    const photos = (await listQueuePhotos(ids, queueStore())).map(({ id, size, meta }) => ({ id, size, ...meta }));
     photos.sort((a, b) => Date.parse(a.addedAt) - Date.parse(b.addedAt) || a.id - b.id);
     res.json({ photos });
+  }),
+);
+
+// ── POST /migrate-captures — move public captures into the private bucket ───
+//
+// Captures written before 2026-09-28 are still in the PUBLIC card-art bucket
+// (`dev-flags/`, `dev-queue/`). This moves a time-boxed batch of them — copy,
+// read back and compare, and only then delete the public copy — and says how
+// many are left. The labeler and the harvest call it when they open and keep
+// calling until it answers `done`, so the move needs no operator and finishes
+// in the first session after a deploy. Idempotent and safe to run from two
+// tabs at once; see packages/storage/src/capture-migration.ts for why.
+//
+// Here, behind the labeler gate, rather than on a cron: nothing else in this
+// deployment runs on a schedule without a new secret, and the people who can
+// call it are exactly the people whose photos these are.
+scanQueueRouter.post(
+  '/migrate-captures',
+  asyncHandler(async (_req, res) => {
+    userCache(res);
+    if (!hasStorageEnv()) {
+      res.json({ ok: true, listed: 0, moved: 0, preserved: 0, gone: 0, failed: 0, failures: [], remaining: 0, done: true });
+      return;
+    }
+    const store = captureStore();
+    let report: Awaited<ReturnType<typeof migrateLegacyCaptures>>;
+    try {
+      // Up front, once: a bucket that cannot be made (or is public) fails the
+      // whole request here, instead of failing every object in turn.
+      await ensureCaptureBucket();
+      report = await migrateLegacyCaptures({
+        primary: store.primary,
+        legacy: store.legacy,
+        budgetMs: MIGRATION_BUDGET_MS,
+        concurrency: 4,
+        lock: migrationLock,
+      });
+    } catch (error) {
+      // The bucket, or a listing, failed: nothing was moved and nothing deleted.
+      if (error instanceof CaptureStorageError) {
+        throw new ApiError(502, 'capture_storage_unavailable', 'Capture storage is temporarily unavailable. Nothing was moved.');
+      }
+      throw error;
+    }
+    if (report.failed.length) {
+      console.warn(`[capture-migration] ${report.failed.length} left in the public bucket this run`, report.failed.slice(0, 5));
+    }
+    res.json({
+      ok: true,
+      listed: report.listed,
+      moved: report.moved,
+      preserved: report.preserved,
+      gone: report.gone,
+      failed: report.failed.length,
+      failures: report.failed.slice(0, 20),
+      remaining: report.remaining,
+      done: report.done,
+    });
   }),
 );
 
@@ -249,7 +286,7 @@ scanQueueRouter.delete(
     if (req.query.repairCleanup === '1') {
       if (numericId >= 1_000_000_000_000_000) throw badRequest('bad repair photo id');
       try {
-        removed = await cleanupRepairedOriginal(numericId, queueStore);
+        removed = await cleanupRepairedOriginal(numericId, queueStore());
       } catch (error) {
         if (error instanceof Error && error.message === 'replacement is incomplete') {
           throw new ApiError(409, 'queue_repair_incomplete', 'The JPEG replacement is not complete yet. Try again.');
@@ -257,7 +294,7 @@ scanQueueRouter.delete(
         throw error;
       }
     } else {
-      removed = await discardQueuePhoto(numericId, queueStore);
+      removed = await discardQueuePhoto(numericId, queueStore());
     }
     // Absent is not an error, for `dev/scanFlags.ts`'s reason: two devices can
     // finish the same photo, and the second one must report success rather than
@@ -277,9 +314,11 @@ scanQueueRouter.get(
     const [rawId, ext] = file.split('.') as [string, 'jpg' | 'json'];
     const numericId = Number(rawId);
     if (!validQueuePhotoId(numericId)) throw badRequest('bad file id');
-    const selected = await readQueuePhoto(numericId, queueStore);
+    const selected = await readQueuePhoto(numericId, queueStore());
     if (!selected) throw notFound('no such queued photo');
-    res.setHeader('cache-control', 'no-store');
+    // `private, no-store`: read with the server's key and served only through
+    // this gate; nothing between here and the browser should keep a copy.
+    userCache(res);
     if (ext === 'json') {
       res.json(selected.photo.meta);
     } else {

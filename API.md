@@ -1909,5 +1909,20 @@ These routes require labeler access in production. Cloud uses the `/api` prefix.
   absent family succeeds.
 - `DELETE /:id?repairCleanup=1`: removes only original objects, after checking
   that the replacement JPEG and metadata are complete. Otherwise returns 409.
+- `POST /migrate-captures`: moves a time-boxed batch (about 20 s) of captures
+  written before 2026-09-28 — both `dev-flags/` and `dev-queue/` — from the
+  public `card-art` bucket into the private `dev-captures` bucket, and answers
+  `{ ok, listed, moved, preserved, gone, failed, failures, remaining, done }`.
+  Each object is copied create-only, read back and compared (length and
+  SHA-256), and only then deleted from the public bucket; a failure leaves the
+  public copy for the next call. Idempotent and safe to call concurrently. The
+  labeler and harvest pages call it in the background until `done`. `502` if
+  the private bucket or a listing is unavailable (nothing moved).
+
+Queue photos, like the labels under `/dev/scan-flags`, live in the **private**
+`dev-captures` bucket and are read with the server's key; responses carry
+`Cache-Control: private, no-store`. Objects not yet moved are still read (and
+deleted) through the same routes. See SECURITY.md, "Scanner and labeler captures
+are private".
 
 See [queue states and invariants](apps/api/src/dev/queue-state.md).

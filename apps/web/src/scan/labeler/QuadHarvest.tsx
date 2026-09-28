@@ -2,8 +2,9 @@
 //
 // ── WHY IT EXISTS (owner request, 2026-09-08) ───────────────────────────────
 //
-// Labels have been written to `card-art/dev-flags/` since the labeler shipped
-// and there has never been a way to look at them. A corpus you cannot see is
+// Labels have been written to `dev-flags/` since the labeler shipped (in the
+// public `card-art` bucket until 2026-09-28, the private `dev-captures` bucket
+// since) and there has never been a way to look at them. A corpus you cannot see is
 // one you cannot audit: a run where the reader was pressing the wrong reason
 // chip, or where every row came back `seededFrom: 'default'` because the model
 // never loaded, is invisible until a training run fails weeks later and

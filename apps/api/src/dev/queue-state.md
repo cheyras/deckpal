@@ -19,6 +19,11 @@ lock. Both physical IDs resolve to one logical listing ID and the same current
 photo. A sidecar is metadata, never evidence that its photo exists or that the
 other photo should be hidden. Missing metadata gets a deterministic fallback.
 Storage reads bypass caches so a second device sees completed writes/deletes.
+The objects live in the private `dev-captures` bucket and every read uses the
+server's key. A photo still in the public `card-art` bucket from before
+2026-09-28 is read through and deleted with its family, and the migration that
+moves it (`POST /migrate-captures`) takes the same family lock, so a move can
+never race a discard into resurrecting a photo.
 New uploads also lock each candidate ID and check all four paths before writing,
 so two devices posting in one millisecond receive different IDs.
 Each listing advances at most two families at a time. All queue operations wait

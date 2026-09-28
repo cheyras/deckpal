@@ -202,6 +202,8 @@
   "{\"case\":\"labeler-jxl-permanent-error-cloud-csp\",\"label\":\"cloud\",\"width\":1440,\"scenario\":\"signature\"}",
   "{\"case\":\"labeler-jxl-permanent-error-cloud-csp\",\"label\":\"cloud\",\"width\":390,\"scenario\":\"extension\"}",
   "{\"case\":\"labeler-jxl-permanent-error-cloud-csp\",\"label\":\"cloud\",\"width\":390,\"scenario\":\"signature\"}",
+  "{\"case\":\"labeler-routes-start-private-capture-move\",\"label\":\"cloud\",\"width\":390}",
+  "{\"case\":\"labeler-routes-start-private-capture-move\",\"label\":\"selfhost\",\"width\":390}",
   "{\"case\":\"late-read-after-discard\",\"label\":\"cloud\",\"width\":1440}",
   "{\"case\":\"late-read-after-discard\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"late-read-after-discard\",\"label\":\"selfhost\",\"width\":1440}",

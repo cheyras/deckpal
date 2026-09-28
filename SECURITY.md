@@ -854,6 +854,49 @@ trusted: `decodeScreenshot` sniffs the actual bytes (see "Content-type
 sniffing" above) and rejects anything that isn't a real PNG, JPEG, or WebP,
 the same rule the avatar upload path already enforced.
 
+### Scanner and labeler captures are private (2026-09-28)
+
+The quad labeler's photos and labels, the scan harness's "Flag frame"
+captures, the product scanner's capture/lock/identity reports, their JSON and
+comment sidecars (`dev-flags/`) and the labeler's pending photos
+(`dev-queue/`) are photographs taken in the owner's house. Until 2026-09-28
+they were stored in the **public** `card-art` bucket — the catalog-art CDN —
+under millisecond-timestamp names. The `/dev/scan-flags` and `/dev/scan-queue`
+routes were gated, but the objects were not: anyone who guessed a timestamp
+could fetch a photo straight from Supabase with no sign-in.
+
+They now live in a **private** bucket, `dev-captures`
+(`packages/storage/src/capture-store.ts`):
+
+- **Every read, list, write and delete carries the server's service key**, on
+  Storage's authenticated object route. Nothing in the API or the web app can
+  build a public URL for a capture, and the tests pin that
+  (`apps/api/src/dev/__tests__/privateCaptures.test.ts`,
+  `apps/web/src/scan/labeler/__tests__/captureMigration.test.ts`).
+- **The bytes reach a browser only through the labeler gate**
+  (`labelerOnlyInProduction`, `scanner.label`), as `Cache-Control: private,
+  no-store` responses fetched with the bearer token — never by URL, never
+  cacheable by a shared cache.
+- **The bucket creates itself, private.** The API creates `dev-captures` with
+  `public: false` the first time it needs it (an idempotent Storage-API call
+  with the service key; no migration, no dashboard step). If a bucket with
+  that name already exists and is public, the API refuses to store anything in
+  it and says so, rather than recreating the leak.
+- **The legacy public copies are moved, not copied.**
+  `POST /dev/scan-queue/migrate-captures` (labeler-gated; the labeler and
+  harvest pages call it in the background until it reports `done`) copies each
+  object to the private bucket create-only, reads the copy back and compares
+  length and SHA-256, and only then deletes the public object. A public object
+  is never deleted without a verified private copy; an object whose key is
+  already taken privately by different bytes is kept under
+  `legacy-conflicts/` instead of overwriting either. The handle it uses on
+  `card-art` can only read, list and delete keys under `dev-flags/` and
+  `dev-queue/` — it cannot write, and it cannot address catalog art.
+
+Until a public copy has been moved it stays reachable at its old public URL,
+exactly as before this change; nothing about the move widens access. See the
+`decisions/2026/` entry "Scanner and labeler captures move to a private bucket".
+
 ### Migration CLI error safety
 
 The migration CLI (`packages/db/src/cliErrors.ts`) replaces open-ended error

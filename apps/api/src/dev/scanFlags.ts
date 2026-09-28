@@ -1,14 +1,6 @@
-import { Router } from 'express';
-import {
-  deleteObject,
-  hasStorageEnv,
-  listObjectsRecursive,
-  objectExists,
-  publicObjectUrl,
-  putUnmanifestedObject,
-  unknownProvenance,
-} from '@deckpal/storage';
-import { ApiError, asyncHandler, badRequest, notFound, str } from '../http.js';
+import { Router, type RequestHandler } from 'express';
+import { captureStore, hasStorageEnv, unknownProvenance, type CaptureStore } from '@deckpal/storage';
+import { ApiError, asyncHandler, badRequest, notFound, str, userCache } from '../http.js';
 import { labelerOnlyInProduction } from '../ownerGate.js';
 
 /**
@@ -22,6 +14,16 @@ import { labelerOnlyInProduction } from '../ownerGate.js';
  * Objects are unmanifested (no `image_asset` row): they are debug captures,
  * not catalog art, and `ImageAssetKind` has no slot for them. Provenance is
  * tracked at the class level, same shape as sprites — see put-asset.ts.
+ *
+ * ── PRIVATE SINCE 2026-09-28 ───────────────────────────────────────────────
+ *
+ * Every object this router touches lives in the PRIVATE `dev-captures` bucket
+ * and is read, listed, written and deleted with the server's key through
+ * `captureStore()` (packages/storage/src/capture-store.ts). They used to sit in
+ * the public `card-art` bucket, where anyone who guessed a timestamp could read
+ * a photo. Copies written before the move are still read through (and deleted
+ * with their private twin) until `POST /dev/scan-queue/migrate-captures` has
+ * moved them — see capture-migration.ts.
  */
 
 const FLAG_ID_RE = /^(\d+)\.(png|json)$/;
@@ -56,11 +58,11 @@ const MAX_COMMENT_BYTES = 4 * 1024;
  * Best-effort: a corrupt or unreachable comment object must not break the
  * list, since every other field in that entry is still good.
  */
-async function readComment(objectPath: string): Promise<string | null> {
+async function readComment(store: CaptureStore, objectPath: string): Promise<string | null> {
   try {
-    const upstream = await fetch(publicObjectUrl(objectPath));
-    if (!upstream.ok) return null;
-    const data = (await upstream.json()) as { comment?: unknown };
+    const object = await store.read(objectPath);
+    if (!object) return null;
+    const data = JSON.parse(object.bytes.toString('utf8')) as { comment?: unknown };
     return typeof data.comment === 'string' ? data.comment : null;
   } catch {
     return null;
@@ -124,11 +126,11 @@ function summarize(meta: Record<string, unknown>): LabelSummary {
 
 /** Fetch one sidecar and summarize it. Best-effort, exactly like `readComment`:
  *  a row whose JSON is unreachable still lists, just without its verdict. */
-async function readSummary(objectPath: string): Promise<LabelSummary | null> {
+async function readSummary(store: CaptureStore, objectPath: string): Promise<LabelSummary | null> {
   try {
-    const upstream = await fetch(publicObjectUrl(objectPath));
-    if (!upstream.ok) return null;
-    const data = (await upstream.json()) as Record<string, unknown>;
+    const object = await store.read(objectPath);
+    if (!object) return null;
+    const data = JSON.parse(object.bytes.toString('utf8')) as Record<string, unknown>;
     return summarize(data);
   } catch {
     return null;
@@ -157,7 +159,238 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-export const scanFlagsRouter: Router = Router();
+/**
+ * What the router needs from outside, so a test can hand it an in-memory store
+ * and an open gate. `store()` answers null when no object store is configured
+ * (self-host), which is the same "degrade, don't throw" the routes always had.
+ */
+export interface ScanFlagsDeps {
+  store: () => CaptureStore | null;
+  gate: RequestHandler;
+}
+
+export function createScanFlagsRouter(deps: ScanFlagsDeps): Router {
+  const router: Router = Router();
+  router.use(deps.gate);
+
+  // ── POST / — upload a flagged frame ───────────────────────────────────────
+  router.post(
+    '/',
+    asyncHandler(async (req, res) => {
+      const store = deps.store();
+      if (!store) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
+
+      const body = (req.body ?? {}) as { png?: unknown; meta?: unknown };
+      if (typeof body.png !== 'string' || !body.png) throw badRequest('png (base64 string) is required');
+      if (typeof body.meta !== 'object' || body.meta === null || Array.isArray(body.meta)) {
+        throw badRequest('meta (object) is required');
+      }
+
+      const pngBytes = Buffer.from(body.png, 'base64');
+      if (pngBytes.length === 0) throw badRequest('png decoded to 0 bytes');
+      const metaJson = JSON.stringify(body.meta, null, 2);
+      if (pngBytes.length + Buffer.byteLength(metaJson) > MAX_UPLOAD_BYTES) {
+        throw new ApiError(
+          413,
+          'payload_too_large',
+          `flagged frame is over the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB dev-harness limit`,
+        );
+      }
+
+      const epochMs = Date.now();
+      const reason = 'scan-harness "Flag frame" capture — client-generated canvas frame, no upstream URL';
+      await store.put({
+        objectPath: `${PREFIX}${epochMs}.png`,
+        bytes: pngBytes,
+        provenance: unknownProvenance(reason),
+        tierProvenanceReason: 'dev-only debug captures under dev-flags/ in the private dev-captures bucket, not catalog art; every object in the prefix shares this one reason',
+        contentType: 'image/png',
+      });
+      await store.put({
+        objectPath: `${PREFIX}${epochMs}.json`,
+        bytes: Buffer.from(metaJson, 'utf8'),
+        provenance: unknownProvenance(reason),
+        tierProvenanceReason: 'sidecar metadata for the paired PNG above — same class, same reason',
+        contentType: 'application/json',
+      });
+
+      res.json({ ok: true, id: epochMs });
+    }),
+  );
+
+  // ── POST /:id/comment — annotate a flagged frame ──────────────────────────
+  router.post(
+    '/:id/comment',
+    asyncHandler(async (req, res) => {
+      const store = deps.store();
+      if (!store) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
+
+      const id = str(req.params.id) ?? '';
+      if (!ID_RE.test(id)) throw badRequest('bad flag id');
+
+      const body = (req.body ?? {}) as { comment?: unknown };
+      const comment = typeof body.comment === 'string' ? body.comment.trim() : '';
+      if (!comment) throw badRequest('comment is required');
+      if (Buffer.byteLength(comment, 'utf8') > MAX_COMMENT_BYTES) {
+        throw new ApiError(413, 'payload_too_large', `comment is over the ${MAX_COMMENT_BYTES / 1024} KB limit`);
+      }
+
+      // The flag itself has to exist — a comment with nothing to attach to is a
+      // typo'd id, not a new resource. Its .json sidecar is the flag's identity
+      // (the .png could in principle be missing on a partial failure; the .json
+      // is what the POST / handler writes second, so its presence is the
+      // stronger signal that the upload actually completed). `exists` reads
+      // through to a not-yet-migrated public copy, so an old flag can still be
+      // annotated; the comment itself lands in the private bucket.
+      if (!(await store.exists(`${PREFIX}${id}.json`))) throw notFound('no such flag');
+
+      const record = { comment, updatedAt: new Date().toISOString() };
+      await store.put({
+        objectPath: `${PREFIX}${id}.comment.json`,
+        bytes: Buffer.from(JSON.stringify(record, null, 2), 'utf8'),
+        provenance: unknownProvenance('scan-harness owner comment — typed in the harness UI, no upstream URL'),
+        tierProvenanceReason: 'comment sidecar for a dev-flags capture — same class as the paired PNG/JSON above; x-upsert makes a re-POST an edit',
+        contentType: 'application/json',
+      });
+
+      res.json({ ok: true, id: Number(id), ...record });
+    }),
+  );
+
+  // ── GET / — list flagged frames, newest first ─────────────────────────────
+  router.get(
+    '/',
+    asyncHandler(async (req, res) => {
+      const store = deps.store();
+      if (!store) {
+        res.json({ flags: [] });
+        return;
+      }
+      // One listing call per bucket sees every key under the prefix, including
+      // which ids have a comment.json — but not what it SAYS, since Storage's
+      // list endpoint reports size/type/etag, never content. Comment TEXT is
+      // fetched below (commentPaths), and only for ids that both (a) survive
+      // the top-N cut and (b) actually have a comment.json — few in practice.
+      // The private bucket and any not-yet-migrated public copies are listed
+      // together, so the move is invisible from here.
+      const objects = await store.list('dev-flags');
+      const byId = new Map<string, { files: string[]; size: number }>();
+      const commentPaths = new Map<string, string>(); // id -> comment.json object path
+      for (const obj of objects) {
+        const name = obj.path.slice(PREFIX.length);
+        const cm = COMMENT_RE.exec(name);
+        if (cm) {
+          commentPaths.set(cm[1]!, obj.path);
+          continue;
+        }
+        const m = FLAG_ID_RE.exec(name);
+        if (!m) continue; // ignore anything under the prefix this router didn't write
+        const id = m[1]!;
+        const ext = m[2]!;
+        const entry = byId.get(id) ?? { files: [], size: 0 };
+        entry.files.push(ext);
+        entry.size += obj.byteSize;
+        byId.set(id, entry);
+      }
+      // 200 held ~a session's worth of rows until identity-events doubled the
+      // rate (owner session 3, 2026-09-06: the cap fell INSIDE the session and
+      // 12 of 63 captures were unrecoverable). 1000 holds the densest recorded
+      // session ~5x over; ?limit lets a harvester ask for less. The listing
+      // call already sees every key either way — the cap only bounds the
+      // comment fetches and the response body.
+      const limit = Math.min(Math.max(Number(req.query.limit) || 1000, 1), 5000);
+      const top = [...byId.entries()]
+        .sort((a, b) => Number(b[0]) - Number(a[0]))
+        .slice(0, limit);
+      // `?meta=1` costs one extra read per row and is what makes a harvest view
+      // sortable by verdict; without it the listing is one call, as it always was.
+      const wantMeta = req.query.meta === '1' || req.query.meta === 'true';
+      const flags = await mapLimit(top, 12, async ([id, { files, size }]) => {
+        const cpath = commentPaths.get(id);
+        const comment = cpath ? await readComment(store, cpath) : null;
+        const label =
+          wantMeta && files.includes('json') ? await readSummary(store, `${PREFIX}${id}.json`) : null;
+        return {
+          id: Number(id),
+          files,
+          size,
+          uploadedAt: new Date(Number(id)).toISOString(), // the id IS the capture time
+          comment,
+          label,
+        };
+      });
+      userCache(res);
+      res.json({ flags });
+    }),
+  );
+
+  // ── DELETE /:id — remove one flag and everything paired with it ───────────
+  //
+  // PERMANENT, AND SAYS SO. There is no recycle bin here: these are debug
+  // captures in an unmanifested prefix, with no `image_asset` row to soft-delete
+  // and no restore path that would not be a second feature. The confirmation
+  // therefore lives in the UI, where the reader can see WHICH row they are about
+  // to lose, rather than in a `?purge=true` flag they would learn to append.
+  //
+  // ALL THREE OBJECTS, and the comment is not optional cleanup: a `<id>.comment
+  // .json` left behind would keep appearing in the listing loop's `commentPaths`
+  // map forever, attached to an id whose png and json no longer exist. Deleting
+  // the frame and orphaning its annotation is the one outcome worth ruling out.
+  //
+  // IN BOTH BUCKETS. `store.remove` deletes a not-yet-migrated public copy as
+  // well as the private one; leaving the public one would both keep it public
+  // and let the migration carry it straight back.
+  //
+  // Absent objects are not an error. `remove` reports whether it removed
+  // anything, and a partial delete retried is exactly how a caller recovers from
+  // the first attempt failing halfway — so a second run over a half-gone id must
+  // finish the job and report success, not 404 on the piece already gone.
+  router.delete(
+    '/:id',
+    asyncHandler(async (req, res) => {
+      const id = str(req.params.id) ?? '';
+      if (!ID_RE.test(id)) throw badRequest('bad flag id');
+      const store = deps.store();
+      if (!store) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
+
+      const paths = [`${PREFIX}${id}.png`, `${PREFIX}${id}.json`, `${PREFIX}${id}.comment.json`];
+      const removed: string[] = [];
+      for (const p of paths) {
+        if (await store.remove(p)) removed.push(p.slice(PREFIX.length));
+      }
+      if (!removed.length) throw notFound(`no flag ${id}`);
+      res.json({ ok: true, id: Number(id), removed });
+    }),
+  );
+
+  // ── GET /:file — one stored object's bytes ────────────────────────────────
+  router.get(
+    '/:file',
+    asyncHandler(async (req, res) => {
+      const file = str(req.params.file) ?? '';
+      // A flag's own png/json, OR its comment sidecar — nothing else lives
+      // under this prefix, and no path tricks: both regexes are `^...$`.
+      if (!FLAG_ID_RE.test(file) && !COMMENT_RE.test(file)) throw badRequest('bad file id');
+      const store = deps.store();
+      if (!store) throw notFound('no object store configured');
+
+      // Read with the server's key from the private bucket (or, until it has
+      // been moved, the public one — still with the key and still through
+      // this gate). There is no URL the browser could be handed instead.
+      const object = await store.read(`${PREFIX}${file}`);
+      if (!object) throw notFound('no such flag object');
+
+      res.setHeader('Content-Type', file.endsWith('.json') ? 'application/json' : 'image/png');
+      // `private, no-store`: a photo from the owner's house is not something a
+      // shared cache, or the browser's disk, should be holding on to.
+      userCache(res);
+      res.send(object.bytes);
+    }),
+  );
+
+  return router;
+}
+
 // The LABELER SET on production (owner + QA, see ../ownerGate.ts); open on
 // preview and self-host. Mounted ahead of resolveIdentity in index.ts
 // specifically so a preview deployment is not ALSO forced through its 401 for
@@ -173,203 +406,7 @@ export const scanFlagsRouter: Router = Router();
 // saying "you may not" to the wrong account is more useful than pretending the
 // route is absent — the opposite of the scanner's gate, which is meant to be
 // invisible.
-scanFlagsRouter.use(labelerOnlyInProduction('forbidden'));
-
-// ── POST / — upload a flagged frame ─────────────────────────────────────────
-scanFlagsRouter.post(
-  '/',
-  asyncHandler(async (req, res) => {
-    if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
-
-    const body = (req.body ?? {}) as { png?: unknown; meta?: unknown };
-    if (typeof body.png !== 'string' || !body.png) throw badRequest('png (base64 string) is required');
-    if (typeof body.meta !== 'object' || body.meta === null || Array.isArray(body.meta)) {
-      throw badRequest('meta (object) is required');
-    }
-
-    const pngBytes = Buffer.from(body.png, 'base64');
-    if (pngBytes.length === 0) throw badRequest('png decoded to 0 bytes');
-    const metaJson = JSON.stringify(body.meta, null, 2);
-    if (pngBytes.length + Buffer.byteLength(metaJson) > MAX_UPLOAD_BYTES) {
-      throw new ApiError(
-        413,
-        'payload_too_large',
-        `flagged frame is over the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB dev-harness limit`,
-      );
-    }
-
-    const epochMs = Date.now();
-    const reason = 'scan-harness "Flag frame" capture — client-generated canvas frame, no upstream URL';
-    await putUnmanifestedObject({
-      objectPath: `${PREFIX}${epochMs}.png`,
-      bytes: pngBytes,
-      provenance: unknownProvenance(reason),
-      tierProvenanceReason: 'dev-only debug captures under dev-flags/, not catalog art; every object in the prefix shares this one reason',
-      contentType: 'image/png',
-    });
-    await putUnmanifestedObject({
-      objectPath: `${PREFIX}${epochMs}.json`,
-      bytes: Buffer.from(metaJson, 'utf8'),
-      provenance: unknownProvenance(reason),
-      tierProvenanceReason: 'sidecar metadata for the paired PNG above — same class, same reason',
-      contentType: 'application/json',
-    });
-
-    res.json({ ok: true, id: epochMs });
-  }),
-);
-
-// ── POST /:id/comment — annotate a flagged frame ────────────────────────────
-scanFlagsRouter.post(
-  '/:id/comment',
-  asyncHandler(async (req, res) => {
-    if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
-
-    const id = str(req.params.id) ?? '';
-    if (!ID_RE.test(id)) throw badRequest('bad flag id');
-
-    const body = (req.body ?? {}) as { comment?: unknown };
-    const comment = typeof body.comment === 'string' ? body.comment.trim() : '';
-    if (!comment) throw badRequest('comment is required');
-    if (Buffer.byteLength(comment, 'utf8') > MAX_COMMENT_BYTES) {
-      throw new ApiError(413, 'payload_too_large', `comment is over the ${MAX_COMMENT_BYTES / 1024} KB limit`);
-    }
-
-    // The flag itself has to exist — a comment with nothing to attach to is a
-    // typo'd id, not a new resource. Its .json sidecar is the flag's identity
-    // (the .png could in principle be missing on a partial failure; the .json
-    // is what the POST / handler writes second, so its presence is the
-    // stronger signal that the upload actually completed).
-    if (!(await objectExists(`${PREFIX}${id}.json`))) throw notFound('no such flag');
-
-    const record = { comment, updatedAt: new Date().toISOString() };
-    await putUnmanifestedObject({
-      objectPath: `${PREFIX}${id}.comment.json`,
-      bytes: Buffer.from(JSON.stringify(record, null, 2), 'utf8'),
-      provenance: unknownProvenance('scan-harness owner comment — typed in the harness UI, no upstream URL'),
-      tierProvenanceReason: 'comment sidecar for a dev-flags capture — same class as the paired PNG/JSON above; x-upsert makes a re-POST an edit',
-      contentType: 'application/json',
-    });
-
-    res.json({ ok: true, id: Number(id), ...record });
-  }),
-);
-
-// ── GET / — list flagged frames, newest first ───────────────────────────────
-scanFlagsRouter.get(
-  '/',
-  asyncHandler(async (_req, res) => {
-    if (!hasStorageEnv()) {
-      res.json({ flags: [] });
-      return;
-    }
-    // One listing call sees every key under the prefix, including which ids
-    // have a comment.json — but not what it SAYS, since Storage's list
-    // endpoint reports size/type/etag, never content. Comment TEXT is fetched
-    // below (commentPaths), and only for ids that both (a) survive the
-    // top-200 cut and (b) actually have a comment.json — few in practice.
-    const objects = await listObjectsRecursive(PREFIX.slice(0, -1));
-    const byId = new Map<string, { files: string[]; size: number }>();
-    const commentPaths = new Map<string, string>(); // id -> comment.json object path
-    for (const obj of objects) {
-      const name = obj.path.slice(PREFIX.length);
-      const cm = COMMENT_RE.exec(name);
-      if (cm) {
-        commentPaths.set(cm[1]!, obj.path);
-        continue;
-      }
-      const m = FLAG_ID_RE.exec(name);
-      if (!m) continue; // ignore anything under the prefix this router didn't write
-      const id = m[1]!;
-      const ext = m[2]!;
-      const entry = byId.get(id) ?? { files: [], size: 0 };
-      entry.files.push(ext);
-      entry.size += obj.byteSize;
-      byId.set(id, entry);
-    }
-    // 200 held ~a session's worth of rows until identity-events doubled the
-    // rate (owner session 3, 2026-09-06: the cap fell INSIDE the session and
-    // 12 of 63 captures were unrecoverable). 1000 holds the densest recorded
-    // session ~5x over; ?limit lets a harvester ask for less. The listing
-    // call already sees every key either way — the cap only bounds the
-    // comment fetches and the response body.
-    const limit = Math.min(Math.max(Number(_req.query.limit) || 1000, 1), 5000);
-    const top = [...byId.entries()]
-      .sort((a, b) => Number(b[0]) - Number(a[0]))
-      .slice(0, limit);
-    // `?meta=1` costs one extra fetch per row and is what makes a harvest view
-    // sortable by verdict; without it the listing is one call, as it always was.
-    const wantMeta = _req.query.meta === '1' || _req.query.meta === 'true';
-    const flags = await mapLimit(top, 12, async ([id, { files, size }]) => {
-      const cpath = commentPaths.get(id);
-      const comment = cpath ? await readComment(cpath) : null;
-      const label =
-        wantMeta && files.includes('json') ? await readSummary(`${PREFIX}${id}.json`) : null;
-      return {
-        id: Number(id),
-        files,
-        size,
-        uploadedAt: new Date(Number(id)).toISOString(), // the id IS the capture time
-        comment,
-        label,
-      };
-    });
-    res.json({ flags });
-  }),
-);
-
-// ── DELETE /:id — remove one flag and everything paired with it ─────────────
-//
-// PERMANENT, AND SAYS SO. There is no recycle bin here: these are debug
-// captures in an unmanifested prefix, with no `image_asset` row to soft-delete
-// and no restore path that would not be a second feature. The confirmation
-// therefore lives in the UI, where the reader can see WHICH row they are about
-// to lose, rather than in a `?purge=true` flag they would learn to append.
-//
-// ALL THREE OBJECTS, and the comment is not optional cleanup: a `<id>.comment
-// .json` left behind would keep appearing in the listing loop's `commentPaths`
-// map forever, attached to an id whose png and json no longer exist. Deleting
-// the frame and orphaning its annotation is the one outcome worth ruling out.
-//
-// Absent objects are not an error. `deleteObject` reports whether it removed
-// anything, and a partial delete retried is exactly how a caller recovers from
-// the first attempt failing halfway — so a second run over a half-gone id must
-// finish the job and report success, not 404 on the piece already gone.
-scanFlagsRouter.delete(
-  '/:id',
-  asyncHandler(async (req, res) => {
-    const id = str(req.params.id) ?? '';
-    if (!ID_RE.test(id)) throw badRequest('bad flag id');
-    if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
-
-    const paths = [`${PREFIX}${id}.png`, `${PREFIX}${id}.json`, `${PREFIX}${id}.comment.json`];
-    const removed: string[] = [];
-    for (const p of paths) {
-      if (await deleteObject(p)) removed.push(p.slice(PREFIX.length));
-    }
-    if (!removed.length) throw notFound(`no flag ${id}`);
-    res.json({ ok: true, id: Number(id), removed });
-  }),
-);
-
-// ── GET /:file — one stored object's bytes ──────────────────────────────────
-scanFlagsRouter.get(
-  '/:file',
-  asyncHandler(async (req, res) => {
-    const file = str(req.params.file) ?? '';
-    // A flag's own png/json, OR its comment sidecar — nothing else lives
-    // under this prefix, and no path tricks: both regexes are `^...$`.
-    if (!FLAG_ID_RE.test(file) && !COMMENT_RE.test(file)) throw badRequest('bad file id');
-    if (!hasStorageEnv()) throw notFound('no object store configured');
-
-    // The bucket is public (see object-store.ts); fetching its own published
-    // URL server-side is the same read path `headObject`/`objectExists` use,
-    // rather than inventing a second way to reach Storage.
-    const upstream = await fetch(publicObjectUrl(`${PREFIX}${file}`));
-    if (!upstream.ok) throw notFound('no such flag object');
-
-    res.setHeader('Content-Type', file.endsWith('.json') ? 'application/json' : 'image/png');
-    res.setHeader('Cache-Control', 'no-store');
-    res.send(Buffer.from(await upstream.arrayBuffer()));
-  }),
-);
+export const scanFlagsRouter: Router = createScanFlagsRouter({
+  store: () => (hasStorageEnv() ? captureStore() : null),
+  gate: labelerOnlyInProduction('forbidden'),
+});

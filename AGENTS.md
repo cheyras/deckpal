@@ -128,6 +128,12 @@ bulk-cloned from one pinned upstream SHA, so its provenance is recorded once for
 the class rather than per file, and it carries no `image_asset` row -- and
 therefore no `image_object` row either. It still demands provenance.
 
+**Not the image store at all:** scanner/labeler captures live in their own
+PRIVATE bucket, `dev-captures`, written only through `CaptureStore.put()`
+(`packages/storage/src/capture-store.ts`) -- the same class-level provenance
+shape as sprites, still demanded at the call, and never a `card-art` object
+(2026-09-28; see SECURITY.md "Scanner and labeler captures are private").
+
 ### B2 — Connection budget (role- and backend-aware pooling)
 
 **Rule:** `makePool()` sizes and routes every pool by ROLE and BACKEND

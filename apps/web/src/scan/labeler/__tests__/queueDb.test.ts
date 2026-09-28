@@ -79,6 +79,10 @@ import { fileURLToPath } from 'node:url'
 
 const QUEUE_SRC = fs.readFileSync(fileURLToPath(new URL('../queueDb.ts', import.meta.url)), 'utf8')
 const SERVER_SRC = fs.readFileSync(fileURLToPath(new URL('../../../../../api/src/dev/scanQueue.ts', import.meta.url)), 'utf8')
+// The queue's object layer moved out of the route when its photos moved into
+// the private capture bucket (2026-09-28); its behaviour is tested in
+// apps/api/src/dev/__tests__/privateCaptures.test.ts, and these pins follow it.
+const STORE_SRC = fs.readFileSync(fileURLToPath(new URL('../../../../../api/src/dev/captureQueueStore.ts', import.meta.url)), 'utf8')
 const REPAIR_SRC = fs.readFileSync(fileURLToPath(new URL('../../../../../api/src/dev/queueRepair.ts', import.meta.url)), 'utf8')
 const THUMB_SRC = fs.readFileSync(fileURLToPath(new URL('../AuthThumb.tsx', import.meta.url)), 'utf8')
 const LABELER_SRC = fs.readFileSync(fileURLToPath(new URL('../QuadLabeler.tsx', import.meta.url)), 'utf8')
@@ -146,7 +150,7 @@ test('server repair owns identity; client cleanup hints never hide a surviving p
   assert.match(QUEUE_SRC, /removedIds\.add\(id\)[\s\S]*?await repairs\.get\(id\)/)
   assert.match(QUEUE_SRC, /catch \(error\) \{\s*removedIds\.delete\(id\)/)
   assert.match(REPAIR_SRC, /id \* 1000 \+ 1/)
-  assert.match(SERVER_SRC, /if \(await checkedObject\(path, 'HEAD'\)\)/)
+  assert.match(STORE_SRC, /if \(await storage\(\(\) => store\.exists\(path\)\)\)/)
 })
 
 test('a missing harvest thumbnail shows an explanation when no removal callback exists', () => {
@@ -155,7 +159,9 @@ test('a missing harvest thumbnail shows an explanation when no removal callback 
 })
 
 test('a temporary storage failure is not reported as a missing photo', () => {
-  assert.match(SERVER_SRC, /response\.status === 404 \|\| response\.status === 400/)
+  // Absent vs failed is decided in packages/storage/src/capture-store.ts (and
+  // tested there); the queue maps every failure to a retryable 502.
+  assert.match(STORE_SRC, /error instanceof CaptureStorageError\) throw new ApiError\(502, 'queue_storage_unavailable'/)
   assert.match(SERVER_SRC, /new ApiError\(502, 'queue_storage_unavailable'/)
 })
 
