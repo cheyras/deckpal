@@ -402,7 +402,7 @@ async function checkLatestImport(page, server, width, out) {
   const prepare = async input => {
     await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: /Import from PTCG Live/ }).click()
-    await page.getByLabel('Format', { exact: true }).selectOption('expanded')
+    await page.locator('#deck-import-form select').selectOption('expanded')
     await text.fill(input)
     await submit.click()
     await page.getByRole('button', { name: 'Suggest fixes' }).click()
@@ -410,7 +410,7 @@ async function checkLatestImport(page, server, width, out) {
   }
   for (const name of ['Squirtle', 'Bulbasaur']) {
     await prepare(`1 ${name} SVI 999`)
-    await page.getByLabel('Format', { exact: true }).selectOption('glc')
+    await page.locator('#deck-import-form select').selectOption('glc')
     await ready()
     if (name === 'Squirtle') {
       await text.focus()
@@ -425,7 +425,7 @@ async function checkLatestImport(page, server, width, out) {
     assert.equal(writes.at(-1).text, `1 ${name} SVI ${pokemon[name].number}`)
   }
   await prepare('1 Squirtle SVI 999\n1 Bulbasaur SVI 999')
-  await page.getByLabel('Format', { exact: true }).selectOption('glc')
+  await page.locator('#deck-import-form select').selectOption('glc')
   await page.getByText('GLC type is unknown', { exact: true }).waitFor()
   assert.equal(await submit.isDisabled(), true, 'ambiguous GLC corrections wait for a known deck type')
   assert.equal(await page.getByText(/GLC type is unknown. Edit the list/).count(), 2, 'both dependent rows explain pending status')
@@ -469,7 +469,7 @@ async function checkLatestImport(page, server, width, out) {
   await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 1')
   await staleRequest
   delay = 0
-  await page.getByLabel('Format', { exact: true }).selectOption('expanded')
+  await page.locator('#deck-import-form select').selectOption('expanded')
   await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
   await page.getByRole('button', { name: 'Import without them' }).waitFor()
   await page.waitForTimeout(1700)
