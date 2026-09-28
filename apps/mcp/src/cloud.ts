@@ -96,21 +96,23 @@ function pool(): pg.Pool {
 }
 
 /**
- * The caller's personal access token, from either place a client can put it.
+ * The caller's token, from either place a client can put it.
  *
- * 1. `Authorization: Bearer dsk_…` — the standard, and what Claude Code's
- *    `--header` flag produces.
- * 2. The last path segment — `https://deckpal.app/mcp/dsk_…`. claude.ai's
- *    "Add custom connector" dialog takes a URL and (unless the server runs a
- *    full OAuth flow) nothing else, so for that client the URL *is* the
- *    credential. It is exactly the same secret, revocable from the same panel
- *    and scoped to exactly one user; the UI labels the URL as a password so
- *    nobody pastes it into a screenshot.
+ * 1. `Authorization: Bearer dsk_…` — the standard. OAuth connections send
+ *    their access token this way, and so does Claude Code's `--header` flag.
+ * 2. The last path segment — `https://deckpal.app/mcp/dsk_…`. Kept only so
+ *    connectors people already set up this way keep working. It is
+ *    deliberately no longer offered (Agent access, the docs, the 401 below):
+ *    request paths land in the host's request logs, so a token there gets
+ *    stored in them. It was added for claude.ai's connector dialog, which
+ *    takes only a URL — and which now connects through OAuth instead.
  *
  * Nothing else is accepted — in particular no query string, so a token cannot
  * arrive somewhere a `Referer` header would carry it onward.
+ *
+ * Exported for its own tests; the HTTP handler below is the only other caller.
  */
-function tokenFrom(req: Request): string {
+export function tokenFrom(req: Pick<Request, 'headers' | 'path'>): string {
   const auth = req.headers.authorization;
   if (auth?.startsWith('Bearer ')) return auth.slice(7).trim();
   const last = (req.path || '/').split('/').filter(Boolean).pop() ?? '';
@@ -256,9 +258,9 @@ function originFor(req: Request): string {
  * Bare 401, now WITH `WWW-Authenticate` — a real OAuth 2.1 "Connect" flow
  * exists (apps/api/src/oauthServer.ts), so a client that reads this hint and
  * fetches the protected-resource metadata lands on a working /authorize
- * instead of guessing one and 404ing (issue #29). The manual token / personal
- * connector URL below still works unchanged for clients that don't speak MCP
- * OAuth at all.
+ * instead of guessing one and 404ing (issue #29). A personal access token sent
+ * as `Authorization: Bearer` still works unchanged for clients that don't
+ * speak MCP OAuth at all.
  */
 function unauthorized(req: Request, res: Response, message: string, { presented = false } = {}): void {
   // `error="invalid_token"` when a credential was sent (RFC 6750 §3.1): an
@@ -268,6 +270,15 @@ function unauthorized(req: Request, res: Response, message: string, { presented 
   res.setHeader('WWW-Authenticate', `Bearer resource_metadata="${originFor(req)}/.well-known/oauth-protected-resource"${error}`);
   res.status(401).json({ error: { code: 'unauthorized', message } });
 }
+
+/**
+ * What a request with no credential is told. It names the two ways in that are
+ * offered — never the `/mcp/<token>` path form, which {@link tokenFrom} still
+ * accepts for existing connectors but which would put a token in request logs.
+ */
+export const NO_TOKEN_MESSAGE =
+  'No token. Connect with OAuth in your MCP client, or send Authorization: Bearer <token> ' +
+  'with a token from DeckPal → Profile → Agent access.';
 
 /** A human hitting https://deckpal.app/mcp in a browser deserves a sentence, not a protocol error. */
 function endpointCard(res: Response): void {
@@ -312,12 +323,7 @@ export function createCloudApp(): Express {
         return;
       }
       if (!raw) {
-        unauthorized(
-          req,
-          res,
-          'No token. Connect via OAuth in your MCP client, send Authorization: Bearer <token>, or use the ' +
-            'personal connector URL https://deckpal.app/mcp/<token>. Create a token in DeckPal at Profile → Agent access.',
-        );
+        unauthorized(req, res, NO_TOKEN_MESSAGE);
         return;
       }
 

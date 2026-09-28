@@ -119,7 +119,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 | Thing | Self-host (`src/index.ts`) | Cloud (`src/cloud.ts` → `api/mcp.mjs`) |
 |---|---|---|
 | Endpoint | `http://127.0.0.1:3704/mcp` behind a reverse proxy | `https://deckpal.app/mcp` (vercel.json rewrite → `api/mcp.mjs`) |
-| Credential | `x-brain-key: <shared secret>` | `Authorization: Bearer dsk_…`, **or** the token as the last path segment (`/mcp/dsk_…`) — personal access tokens, migration 026 |
+| Credential | `x-brain-key: <shared secret>` | `Authorization: Bearer dsk_…` — an OAuth connection's access token or a personal access token (migration 026). The token as the last path segment (`/mcp/dsk_…`) is still accepted for existing connectors but no longer offered (2026-09-28) |
 | User | lowest `app_user.id`, resolved once at startup | `api_token.user_id` for the presented token, resolved per request |
 | DB access | process pool, no RLS | per-request client inside `withUserContext` — `SET LOCAL role = 'authenticated'` + `request.jwt.claims.sub`, so migration 021's policies fire on every tool query |
 | API-backed tools | unauthenticated call to `127.0.0.1:3700` | same token forwarded as `Authorization: Bearer`, so `deckpal-api` resolves the identical user |
@@ -137,21 +137,24 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   OAuth client whose one-hour access token ran out to refresh rather than start over.
   A spec-compliant client that reads this hint runs real OAuth discovery and lands on a working
   `/authorize` — see below — instead of guessing one and 404ing against the SPA.
-- **Three credential paths, one credential.** OAuth 2.1 + PKCE + dynamic client registration
+- **Two credential paths offered, one credential.** OAuth 2.1 + PKCE + dynamic client registration
   (`apps/api/src/oauthServer.ts` for `/register` + `/token` + the two `.well-known/*` metadata
   documents; `apps/web/src/routes/Authorize.tsx` for the browser-facing `/authorize` consent
-  screen) is the primary path now — any MCP-spec client that runs OAuth ends up, after the user
+  screen) is the primary path — any MCP-spec client that runs OAuth ends up, after the user
   approves, with an ordinary `api_token` row minted by the token endpoint calling the exact same
-  `createToken()` Profile → Agent access uses. Claude Code takes arbitrary headers
-  (`--header "Authorization: Bearer …"`) as a second path. claude.ai's custom-connector dialog
-  exposes headers only through its beta *Request headers* section (allowlisted names, rolled out
-  per account); for clients with neither OAuth nor a header field, the URL carries the secret as a
-  third path: `https://deckpal.app/mcp/<token>`. The token goes in the **path**, never the query
-  string — the MCP authorization spec's "access tokens MUST NOT be included in the URI query
-  string" and Anthropic's own "not recommended" both name the query string specifically. The UI
-  labels that URL as a password. All three paths resolve to the same `api_token` table and the
-  same `resolveToken()` at the `/mcp` edge — OAuth and dynamic client registration are a front
-  door onto the existing credential, not a parallel one.
+  `createToken()` Profile → Agent access uses. A personal access token sent as
+  `Authorization: Bearer` is the second: Claude Code takes it with
+  `--header "Authorization: Bearer …"`, and claude.ai's custom-connector dialog through its beta
+  *Request headers* section (allowlisted names, rolled out per account). Both resolve to the same
+  `api_token` table and the same `resolveToken()` at the `/mcp` edge — OAuth and dynamic client
+  registration are a front door onto the existing credential, not a parallel one.
+- **The path form is accepted, not offered (2026-09-28).** `tokenFrom()` still reads a token from
+  the last path segment (`https://deckpal.app/mcp/dsk_…`). It was once offered as a third path, for
+  claude.ai's connector dialog before OAuth existed, and connectors people set up that way must keep
+  working. It is no longer offered anywhere — not in Profile → Agent access, not in the docs, not
+  in the 401 — because request paths land in the hosting provider's request logs, so a token there
+  gets stored in them. Never the query string either: the MCP authorization spec forbids access
+  tokens in the URI query string.
 - **OAuth connections renew, expire, and may be read-only (migration 075, 2026-09-26, security
   audit SEC-07).** The token endpoint now opens a *connection* (`packages/db/src/grants.ts`): still
   one `api_token` row, but its own hash is sealed and the client holds rotating secrets from
