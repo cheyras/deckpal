@@ -397,7 +397,7 @@ domain-allowlist control available on this Gateway for other research tools —
 provider-side; the compensating controls here are structural rather than that
 allowlist.)
 
-**Jev is a new data processor, and its retention is unconfirmed** (2026-09-26).
+**Jev is a data processor that may retain what it is sent, and that is accepted** (2026-09-27).
 With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
 AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
 (`apps/api/src/decke/reflex.ts`). What it receives: the reader's latest message
@@ -410,10 +410,14 @@ and a deck or list path can contain an ID. Every request
 sets `zeroDataRetention: true` and pins the provider with `only: ["typesafe-ai"]`.
 That pin matters: measured on 2026-09-26, the Gateway otherwise routes Jev to a
 second host (DigitalOcean) first, and with the flag it skips that host as
-ZDR-ineligible. **Whether TypeSafe itself retains what it is sent is not
-confirmed**: the Gateway's model list reports `zdr: "none"` for Jev, Vercel's
-guide says ZDR is available per request, and TypeSafe's own documentation offers
-ZDR to enterprise customers only. Jev never approves anything and is not a
+ZDR-ineligible. **TypeSafe may retain what it is sent.** The Gateway's model list
+reports `zdr: "none"` for Jev, and TypeSafe offers zero retention only to enterprise
+customers on request; DeckPal is not one. TypeSafe states it does not train Jev on
+customer requests or responses. The owner accepted this on 2026-09-27: the data is
+card-collection conversation, not sensitive by nature, though a reader can type anything,
+so treat Jev as seeing whatever a reader writes. Requests still ask for zero retention,
+which costs nothing and applies if TypeSafe ever honours it through the Gateway.
+Jev never approves anything and is not a
 control: its vendor documents that text in its state can move its answers, so
 its judgments only ever raise a consent card, hide a tool the reader cannot use,
 add a refusal, or run one corrective step that can itself only raise a consent
