@@ -517,7 +517,9 @@ function installLayoutRecorder() {
       st: sc ? Math.round(sc.scrollTop) : null,
       him: him ? box(him) : null, floor,
       widgets: [...dialog.querySelectorAll('.decke-figure, li > ul')].map((el) => box(el.getBoundingClientRect())),
-      texts: [...dialog.querySelectorAll('.decke-beside.decke-bubble')].map((el) => box(el.getBoundingClientRect())),
+      texts: [...dialog.querySelectorAll('.decke-beside.decke-bubble, .decke-settled.decke-bubble')].map((el) => box(el.getBoundingClientRect())),
+      beside: [...dialog.querySelectorAll('.decke-beside.decke-bubble')].map((el) => box(el.getBoundingClientRect())),
+      settled: [...dialog.querySelectorAll('.decke-settled.decke-bubble')].map((el) => box(el.getBoundingClientRect())),
       anchor: (() => { const a = dialog.querySelector('[data-decke-anchor]'); return a ? box(a.getBoundingClientRect()) : null })(),
       // For a failure message: what he is standing on, and where the park box is.
       park: (() => { const p = document.querySelector('[data-decke-park]'); return p ? [Math.round(p.getBoundingClientRect().top), p.dataset.ride ?? null] : null })(),
@@ -717,6 +719,14 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
     // Back at the bottom he stands beside his latest words, not above them.
     const end = f.at(-1)
     assert.ok(end.him && end.anchor && end.him[1] >= end.anchor[1] - 2, engine + ': at rest he stands above his latest words')
+    // Only his latest reply keeps the gutter (owner, 2026-09-28): the first
+    // answer's long paragraph takes the whole column, the latest answer's words
+    // are indented past him.
+    assert.ok(end.settled.length > 0 && end.beside.length > 0, engine + ': expected words from both answers: ' + JSON.stringify({ settled: end.settled, beside: end.beside }))
+    const widestSettled = Math.max(...end.settled.map((t) => t[2]))
+    assert.ok(widestSettled >= 390 - 32 - 2, engine + ': an earlier reply kept his gutter (' + widestSettled + ' px wide)')
+    const leftEdge = Math.min(...end.settled.map((t) => t[0]))
+    assert.ok(end.beside.every((t) => t[0] >= leftEdge + 8), engine + ': his latest reply is not indented past him: ' + JSON.stringify(end.beside))
     // Up the page he left with those words: drawn nowhere above the composer.
     const up = f.reduce((best, x) => (x.st !== null && (best === null || x.st < best.st) ? x : best), null)
     assert.ok(up.floor !== null && drawn(up.him, up.floor)[3] === 0, engine + ': scrolled up, he was still drawn over the conversation')

@@ -249,7 +249,8 @@ of them breaks — extend it when you add a new way to show something.
   then a ring on every matching card on screen (`addHighlight`). Stopping at the
   set page and saying "they're in the grid" is the bug this rule exists for.
 - **On a phone, nothing resizes for him.** Widgets are always full width; only
-  his own words carry the fixed `.decke-beside` gutter. He rests on the top of
+  his latest reply's words carry the fixed `.decke-beside` gutter, and earlier
+  replies take the whole column (`.decke-settled`). He rests on the top of
   his latest response (`data-decke-anchor`), rides off with it by a transform
   written in the scroll handler, and his canvas is clipped at his resting line
   (`clipBelow`). Toggling a width on scroll is what made widgets flicker between

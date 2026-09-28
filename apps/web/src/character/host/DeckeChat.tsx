@@ -1975,8 +1975,13 @@ export function DeckeChat({
   // across the line, which widened it again. A feedback loop at scroll rate.
   //
   // So nothing in the conversation moves for him any more. Widgets are always
-  // full width. His words keep one fixed gutter (`decke-beside`) that never
-  // toggles. And HE moves instead: `data-decke-anchor` marks the top of his
+  // full width. His LATEST reply's words keep one fixed gutter
+  // (`decke-beside`) that never toggles on scroll; earlier replies take the
+  // whole column (`decke-settled`), because he leaves with his latest reply
+  // and is never beside an older one. A reply gives up its gutter once, when
+  // the next turn starts, never at scroll rate.
+  //
+  // And HE moves instead: `data-decke-anchor` marks the top of his
   // most recent response, and he is held at his resting spot on the composer
   // until the reader scrolls that response's top down to him — past that he
   // rides down with it and leaves with it, clipped at the composer's edge
@@ -2937,7 +2942,9 @@ export function DeckeChat({
                             'decke-bubble rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
                             m.role === 'user'
                               ? 'self-end bg-action-primary text-action-primary-text'
-                              : 'decke-beside self-start bg-surface-secondary text-text-body',
+                              : m.id === lastAssistantId
+                                ? 'decke-beside self-start bg-surface-secondary text-text-body'
+                                : 'decke-settled self-start bg-surface-secondary text-text-body',
                           ].join(' ')}
                         >
                           {/* MARKDOWN, at last. `{m.text}` rendered raw, so a
