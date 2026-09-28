@@ -14,7 +14,7 @@ const names = [
   'selfhost-feedback-primary-1280', 'selfhost-feedback-primary-390', 'selfhost-feedback-primary-428', 'selfhost-feedback-lifecycle', 'selfhost-queue', 'selfhost-a11y',
   'cloud-catalog', 'cloud-admin-journey', 'cloud-admin-tables-1280', 'cloud-admin-tables-390', 'cloud-admin-access',
   'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-a11y', 'cloud-writes', 'cloud-queue',
-  'authreturn', 'chat', 'payment-history', 'decke-show', 'error-boundary', 'list-table-virtualization', 'bug-report-selfhost', 'bug-report-cloud', 'profile-owned-cards',
+  'authreturn', 'chat', 'payment-history', 'decke-show', 'decke-chat-phone', 'error-boundary', 'list-table-virtualization', 'bug-report-selfhost', 'bug-report-cloud', 'profile-owned-cards',
   'payment-history-proof', 'scanner-voice-proof',
 ]
 const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({}), ...standaloneProofSuites({})]

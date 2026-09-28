@@ -126,8 +126,12 @@ const CARD_FOIL = {
   clearcoatRoughness: 0.08,
 } as const
 
-export function fixupMaterials(root: Object3D): { cardsFixed: number } {
+export function fixupMaterials(
+  root: Object3D,
+  { brand = true }: { brand?: boolean } = {},
+): { cardsFixed: number; bodyFixed: boolean } {
   let cardsFixed = 0
+  let bodyFixed = false
   const seen = new Set<Material>()
 
   root.traverse((o) => {
@@ -145,6 +149,14 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number } {
       const std = mat as MeshStandardMaterial
       const name = std.name ?? ''
 
+      if (name === BODY_MATERIAL) {
+        if (brand) {
+          brandBody(std)
+          bodyFixed = true
+        }
+        continue
+      }
+
       // Only the FRONTS glow. The backs already export with a black emissive,
       // which is correct — the foil is printed on the face.
       if (!name.startsWith('Card_Front_')) continue
@@ -157,11 +169,9 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number } {
       std.emissiveMap = std.map
       std.emissiveIntensity = CARD_EMISSION_STRENGTH
 
-      // Skip the stage's AgX curve for the CARD FRONTS ONLY — see the header
-      // comment above `CARD_EMISSION_STRENGTH` for the measurement. The
-      // character himself keeps it (nothing outside this `if` block is
-      // touched), because the stage's whole calibration is against Blender's
-      // AgX render and that parity must not move.
+      // Skip the stage's tone curve for the CARD FRONTS ONLY — see the header
+      // comment above `CARD_EMISSION_STRENGTH` for the measurement (taken under
+      // AgX; the cards' art is shown as printed under either curve).
       std.toneMapped = false
 
       // `KHR_materials_specular` is on every card front, so the loader has
@@ -182,5 +192,46 @@ export function fixupMaterials(root: Object3D): { cardsFixed: number } {
     }
   })
 
-  return { cardsFixed }
+  return { cardsFixed, bodyFixed }
+}
+
+/** The glb's name for his body — the shell of the deck box. */
+export const BODY_MATERIAL = 'DeckBox_Cyan400'
+
+/**
+ * DeckPal's cyan: `--color-brand-primary-400` in theme.css. Mirrored rather than
+ * read at runtime because the engine does not read the page's CSS; the
+ * `bodyColor.test.ts` pin fails if the token moves without him.
+ */
+export const BRAND_CYAN = '#00d3f3'
+
+/**
+ * How metallic his shell is. The glb says 0.85; see `brandBody` for why that
+ * kept his faces off the brand colour, and why not 0.
+ */
+export const BODY_METALNESS = 0.3
+
+/**
+ * His body in DeckPal's cyan, as a painted shell rather than a tinted mirror.
+ *
+ * The desaturation the owner saw was the renderer's tone curve, over all of him
+ * (see `toneMapping` in `stage.ts`). With that fixed pipeline-wide, two things
+ * about the body itself still kept its lit faces off the brand colour, measured
+ * at 390x844 under the Neutral curve (lit face = the 75th-95th brightness
+ * percentiles of his cyan pixels, per-channel median):
+ *
+ *   - THE METAL. The glb says 0.85, which leaves the shell almost no diffuse
+ *     colour of its own: it is a cyan tint on reflections of a grey studio, so
+ *     its faces sit dark whatever the curve does (lit #03aac4, ΔE 15). At 0.5
+ *     it is ΔE 7; at 0.3, ΔE 3.5, keeping a lacquered sheen and his form.
+ *   - THE BASE COLOUR was Tailwind's cyan-400 (#22d3ee), a copy that had
+ *     drifted from the brand token.
+ *
+ * No brightness, saturation or emissive is added, and he is on the same curve
+ * as everything else, so his whites and accents keep their relationship to him.
+ */
+function brandBody(std: MeshStandardMaterial) {
+  std.color.setStyle(BRAND_CYAN)
+  std.metalness = BODY_METALNESS
+  std.needsUpdate = true
 }

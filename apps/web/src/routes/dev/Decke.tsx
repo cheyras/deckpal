@@ -155,6 +155,8 @@ export default function Decke() {
       // identity. Everywhere else he starts at home.
       startAt: parity ? 'staging' : 'home',
       clearColor: parity ? BLENDER_BACKDROP_LINEAR : null,
+      // Blender's own tone curve and authored body, so the comparison is like for like.
+      look: parity ? 'blender' : 'app',
       onError: (e) => {
         setError(String(e))
         setStatus('error')

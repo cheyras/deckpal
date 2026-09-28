@@ -31,6 +31,7 @@
  * pins that against the server's own schema rather than trusting the claim.
  */
 import { JOURNEY_MAX_STEPS, type JourneyStep } from './journey'
+import { cardTileSelector, revealCardId } from './uiTools'
 
 /**
  * Mirrors `ADDRESSING_LINES` in `apps/api/src/decke/prompt.ts`, the same way
@@ -53,7 +54,13 @@ export const setLandmark = (setId: string) => `[data-decke-set="${setId}"]`
  */
 export const SHOW_OTHERS = '[data-decke-show-others]'
 
-export type EscortInput = { seriesSlug: string; setId?: string; opener?: string }
+export type EscortInput = { seriesSlug: string; setId?: string; cardIds?: string[]; opener?: string }
+
+/**
+ * The most cards one walk ends on. Enough for a V-UNION set of four or a
+ * small evolution line; past that "show me" is a search, not a walk.
+ */
+export const ESCORT_MAX_CARDS = 8
 
 /**
  * The whole way there, from two ids.
@@ -64,7 +71,7 @@ export type EscortInput = { seriesSlug: string; setId?: string; opener?: string 
  * one hop of an "escort" that cannot be a press, and it is why the prompt's
  * "point at what to press, press it, arrive" needed reconciling.
  */
-export function buildEscortSteps({ seriesSlug, setId, opener }: EscortInput): JourneyStep[] {
+export function buildEscortSteps({ seriesSlug, setId, cardIds, opener }: EscortInput): JourneyStep[] {
   const series = seriesLandmark(seriesSlug)
   const steps: JourneyStep[] = []
 
@@ -97,9 +104,29 @@ export function buildEscortSteps({ seriesSlug, setId, opener }: EscortInput): Jo
     // `journey.ts`); without that this click lands mid-flight and the pointing
     // is never seen at all.
     steps.push({ verb: 'click', landmark: set })
+
+    // ── AND THEN THE THING THEY ASKED FOR ────────────────────────────────────
+    //
+    // "Show me the pikachu ones in the app" walked to the SWSH Promos page and
+    // stopped there, and he said "they're all in the grid now" over a page
+    // showing none of them. The walk had nowhere to put the cards: it took a
+    // series and a set, so it could only ever end at the set. The owner: "he
+    // shouldn't take me halfway there and then peace out." With the card ids
+    // the data tools already returned, the last step flies to the first card
+    // (the grid mounts it, the page glides to it) and rings every one of them
+    // on screen. Ids from another set, or malformed ones, are dropped here:
+    // this set's page is the only place the walk can show them.
+    const cards = (cardIds ?? [])
+      .filter((id) => typeof id === 'string' && id.startsWith(`${setId}-`))
+      .map(cardTileSelector)
+      .filter((sel) => revealCardId(sel) !== null)
+      .slice(0, ESCORT_MAX_CARDS)
+    if (cards.length) {
+      steps.push({ verb: 'flyTo', landmark: cards[0], point: true, ...(cards.length > 1 ? { also: cards.slice(1) } : {}) })
+    }
   }
 
-  // Seven steps at the longest. The cap is asserted rather than assumed because
+  // Eight steps at the longest. The cap is asserted rather than assumed because
   // a plan over it is refused whole, and this is the one place that could grow.
   if (steps.length > JOURNEY_MAX_STEPS) {
     throw new Error(`escort built ${steps.length} steps, over the ${JOURNEY_MAX_STEPS} cap`)

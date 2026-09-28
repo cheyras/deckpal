@@ -42,6 +42,8 @@ export const durations = {
   'profile-owned-cards': 30,
   // Estimated from local runs (build + Chromium 70s + WebKit 9s, drawing off).
   'decke-show': 150,
+  // Estimated from local runs: its own build, then Chromium and WebKit at 390.
+  'decke-chat-phone': 70,
 }
 
 export function shardSuites(suites, count) {

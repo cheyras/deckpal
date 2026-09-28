@@ -24,6 +24,7 @@ import {
   FloatType,
   HalfFloatType,
   Matrix4,
+  NeutralToneMapping,
   Object3D,
   PerspectiveCamera,
   PMREMGenerator,
@@ -429,11 +430,13 @@ export type StageOptions = {
   /** Transparent by default so he composites over the DOM. Set a linear colour
    *  (e.g. BLENDER_BACKDROP_LINEAR) for parity screenshots. */
   clearColor?: readonly [number, number, number] | null
-  /** `agx` is Blender's AgX, reproduced (see BLENDER_AGX_GLSL) — not three's
-   *  stock `AgXToneMapping`, which is measurably brighter in the shadows. ACES
-   *  is the nearest common alternative and is offered only so the difference can
-   *  be compared side by side. */
-  toneMapping?: 'agx' | 'aces'
+  /** `neutral` (the app) is Khronos' PBR Neutral: colours come out as authored,
+   *  and only the highlights are compressed. `agx` is Blender's AgX, reproduced
+   *  (see BLENDER_AGX_GLSL), for the parity harness, which compares against a
+   *  Blender render. ACES is offered only so the difference can be compared
+   *  side by side. See `toneMapping` in `createStage` for why the app is not on
+   *  AgX. */
+  toneMapping?: 'neutral' | 'agx' | 'aces'
   maxPixelRatio?: number
   /** Dolly the camera so he is this tall on screen, in CSS pixels. `null` keeps
    *  Blender's exact staging distance, which is what the parity harness wants. */
@@ -545,7 +548,7 @@ export function createStage(opts: StageOptions): Stage {
   const {
     canvas,
     clearColor = null,
-    toneMapping = 'agx',
+    toneMapping = 'neutral',
     maxPixelRatio = MAX_PIXEL_RATIO,
   } = opts
 
@@ -561,17 +564,32 @@ export function createStage(opts: StageOptions): Stage {
   })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio))
   renderer.outputColorSpace = SRGBColorSpace
-  // Blender's view transform is AgX. The symbol palette was deliberately chosen
-  // deeper and more saturated BECAUSE AgX desaturates hard, so swapping to a
-  // different operator does not just shift the look — it invalidates the palette.
-  // If three ever renames the CustomToneMapping stub the patch cannot apply, and
-  // CustomToneMapping would then be an identity pass — far worse than stock AgX.
-  // Fall back to stock rather than silently rendering untone-mapped.
+  // THE APP IS ON NEUTRAL, NOT BLENDER'S AgX. The owner, on his phone: "like
+  // someone ran a desaturate filter over him entirely, not just the blue." It was
+  // this curve, and nothing else in the pipeline. Measured at 390x844 on the
+  // chat's dark ground, pixels read inside the canvas and off the page agree to
+  // the digit (no CSS filter, opacity, blend or overlay; premultiplied alpha
+  // composites cleanly; output is sRGB; texture colour spaces are right). Under
+  // AgX (Look: None) his eye whites, authored #ffffff under white lights, came
+  // out #cacbcb, the amber bolts #c29f5e and the rose mouth #d29095. AgX greys
+  // saturated colour and pulls diffuse white down BY DESIGN; that is its look.
+  // Neutral gives #f0f3f5, #e9a914 and #f47587: what was authored.
+  //
+  // The symbol palette in `eyes/eyeMaterial.ts` was picked deeper to survive
+  // AgX. It is Tailwind's 600/400 pairs, the app's own colours, so under
+  // Neutral it now renders as those.
+  //
+  // AgX stays for the parity harness (`look: 'blender'`), which compares against
+  // Blender's own render. If three ever renames the CustomToneMapping stub the
+  // patch cannot apply, and CustomToneMapping would then be an identity pass —
+  // far worse than stock AgX. Fall back to stock rather than render untone-mapped.
   const agx = installBlenderAgX() ? CustomToneMapping : AgXToneMapping
-  renderer.toneMapping = (toneMapping === 'agx' ? agx : ACESFilmicToneMapping) as ToneMapping
-  // NOT a tuning knob. Blender's Exposure is 0.0, so this is 1.0, and any parity
-  // gap must be closed at the thing that is actually wrong — nudging this would
-  // only trade one end of the transfer curve for the other.
+  renderer.toneMapping = (
+    toneMapping === 'neutral' ? NeutralToneMapping : toneMapping === 'agx' ? agx : ACESFilmicToneMapping
+  ) as ToneMapping
+  // NOT a tuning knob. Blender's Exposure is 0.0, so this is 1.0, and any gap
+  // must be closed at the thing that is actually wrong — nudging this would only
+  // trade one end of the transfer curve for the other.
   renderer.toneMappingExposure = 1.0
 
   if (clearColor) {

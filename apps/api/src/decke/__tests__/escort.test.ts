@@ -52,6 +52,29 @@ test('the plan the browser builds from two ids is one the server would accept', 
   )
 })
 
+test('a walk that ends on cards is a valid journey too', () => {
+  // The expansion of `{ seriesSlug, setId: 'swshp', cardIds: [...] }`: the set
+  // walk above, then one flight to the first card. `also` is the browser's own
+  // field; the server's schema strips it, which is fine — it validates steps,
+  // it does not run them.
+  const parsed = journeySchema.safeParse({
+    steps: [
+      ...EXPANDED_ESCORT,
+      { verb: 'click', landmark: '[data-decke-set="me05"]' },
+      { verb: 'flyTo', landmark: '[data-decke-card="me05-084"]', point: true, also: ['[data-decke-card="me05-085"]'] },
+    ],
+  })
+  assert.ok(parsed.success, 'a walk ending on a card tile is not a valid journey')
+})
+
+test('escort takes card ids the data tools return, and refuses anything that could leave the attribute', () => {
+  const tools = buildTools(noopWriter) as Record<string, { inputSchema: z.ZodTypeAny } | undefined>
+  const schema = tools.escort!.inputSchema
+  assert.ok(schema.safeParse({ seriesSlug: 'sword-shield', setId: 'swshp', cardIds: ['swshp-SWSH139', 'swshp-SWSH140'] }).success)
+  assert.equal(schema.safeParse({ seriesSlug: 's', setId: 'x', cardIds: ['a"]'] }).success, false)
+  assert.equal(schema.safeParse({ seriesSlug: 's', setId: 'x', cardIds: Array.from({ length: 9 }, (_, i) => 'x-' + i) }).success, false)
+})
+
 test('the shorter walk — series only, no opener — is valid too', () => {
   const parsed = journeySchema.safeParse({
     steps: [
@@ -114,7 +137,8 @@ test('escort asks for two ids and nothing that has to be quoted exactly', () => 
   assert.ok(escort, 'buildTools no longer builds an escort tool')
 
   const fields = Object.keys(escort.inputSchema.shape).sort()
-  assert.deepEqual(fields, ['opener', 'seriesSlug', 'setId'])
+  // `cardIds` is ids too — the ones `search_cards` returns — not a selector.
+  assert.deepEqual(fields, ['cardIds', 'opener', 'seriesSlug', 'setId'])
 
   // And it accepts exactly what a data tool hands back, with nothing to quote.
   const ok = escort.inputSchema.safeParse({ seriesSlug: 'mega-evolution', setId: 'me05' })
