@@ -38,7 +38,7 @@
  *   canvas  z-30   (owned by DeckeHost)
  *   modals  100 / toasts 9999 still paint over him, which is correct and rare.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
@@ -823,6 +823,9 @@ const PARK_BOTTOM = 6
  */
 const PARK_ABOVE = 8
 
+/** `anchorPartId`'s answer when his latest response ended in a widget. */
+const SPACER_ANCHOR = '\u0000spacer'
+
 /**
  * How long the panel stays on screen after `open` goes false.
  *
@@ -1492,7 +1495,11 @@ export function DeckeChat({
     }
     // `asking` mounts and unmounts `askRef`'s node, and neither is a resize of
     // anything already observed — so the effect has to be rebuilt around it.
-  }, [visible, shownMinimised, empty, spent, desktop, asking])
+  // `viewing`: reading a saved conversation swaps the composer for the viewer's
+  // exit bar, and the panel observer measured "no composer" (0) meanwhile. The
+  // composer that comes back is a new element; without re-measuring it, the
+  // park box stayed at the not-measured fallback, 100 px low at 390x844.
+  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing])
 
 
   // HIS FOOTPRINT, from the one number that decides his size.
@@ -1541,6 +1548,20 @@ export function DeckeChat({
 
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant') ?? null
   const lastAssistantId = lastAssistant?.id ?? null
+  /**
+   * The part of his latest response he stands beside: its last words, or —
+   * when it ended in a widget — a spacer after it. While a turn is running the
+   * thinking row carries the mark itself, so this is null then.
+   */
+  const anchorPartId = (() => {
+    if (!lastAssistant || busy) return null
+    const last = [...lastAssistant.parts].reverse().find((p) => p.kind !== 'text' || p.text)
+    return last?.kind === 'text' ? last.id : last ? SPACER_ANCHOR : null
+  })()
+  const anchorProps = {
+    'data-decke-anchor': '',
+    style: desktop || !characterPx ? undefined : { minHeight: `${Math.round(characterPx * SILHOUETTE) + PARK_ABOVE}px` },
+  }
 
   // ── What he says, and what he offers, on the new-chat screen ──────────────
   //
@@ -1944,6 +1965,87 @@ export function DeckeChat({
     }
   }, [])
 
+  // ── WHERE HE STANDS ON A PHONE: BESIDE HIS LATEST WORDS, AND NO HIGHER ─────
+  //
+  // The owner, on his own iPhone: a card widget in the transcript "repeatedly
+  // resizing to fit beside Deck-E, flipping back and forth". The mechanism was
+  // `reflow` above, applied to everything: any block whose bottom edge was
+  // below his head was narrowed by a gutter — a widget included — which
+  // re-wrapped it, which changed its height, which moved its bottom edge back
+  // across the line, which widened it again. A feedback loop at scroll rate.
+  //
+  // So nothing in the conversation moves for him any more. Widgets are always
+  // full width. His words keep one fixed gutter (`decke-beside`) that never
+  // toggles. And HE moves instead: `data-decke-anchor` marks the top of his
+  // most recent response, and he is held at his resting spot on the composer
+  // until the reader scrolls that response's top down to him — past that he
+  // rides down with it and leaves with it, clipped at the composer's edge
+  // (`DeckE.clipBelow`). Nothing above his latest response can ever be under
+  // him, because he never stands higher than its top.
+  //
+  // WRITTEN STRAIGHT TO THE DOM, like `reflow`, and called SYNCHRONOUSLY from
+  // the scroll handler: scroll events are dispatched before the frame's
+  // animation callbacks, so the engine's frame, which re-solves his station
+  // from this box, sees the box where it is this frame, not where it was.
+  //
+  // ONLY WHILE HE IS PARKED IN AN OPEN CHAT. A reply streaming in while he is
+  // minimised out on the page runs this from the layout effect too, and a clip
+  // set then would cut him off at a composer that is not there when he lands.
+  //
+  // THE RIDE LIVES ON THE ELEMENT (`data-ride`), not in a ref: closing the chat
+  // unmounts the park box while this component stays mounted, and a ref would
+  // carry the old box's offset onto the new, untransformed one.
+  const placePark = useCallback(() => {
+    const park = parkRef.current
+    const list = transcriptRef.current
+    if (!park || !visible || shownMinimised) return
+    const r = park.getBoundingClientRect()
+    const was = Number(park.dataset.ride || 0)
+    const restTop = r.top - was
+    const floor = restTop + r.height + PARK_ABOVE
+    const anchor = list?.querySelector<HTMLElement>('[data-decke-anchor]')
+    // Far enough to be wholly under the floor is far enough: the clip hides
+    // him from there, and a station solved miles off-screen buys nothing.
+    const ride = anchor
+      ? Math.min(Math.max(0, anchor.getBoundingClientRect().top - restTop), r.height + PARK_ABOVE + 8)
+      : 0
+    if (Math.abs(ride - was) > 0.5) {
+      park.style.transform = ride ? `translate3d(0, ${ride}px, 0)` : ''
+      park.dataset.ride = String(ride)
+      // A move that no scroll caused (a message arriving while the reader is
+      // up the page) wakes no scroll listener in the engine, so say so.
+      decke?.restation()
+    }
+    decke?.clipBelow(floor)
+  }, [decke, visible, shownMinimised])
+
+  // Watching the conversation's own size catches what no message change does:
+  // a widget opening "Show all 8 cards", card art arriving, a font landing.
+  // And on close, minimise or a wide screen the clip goes, so nothing he does
+  // out on the page is cut off at a composer that is not there.
+  //
+  // `viewing` IS A DEPENDENCY here and on the scroll listener below: reading a
+  // saved conversation unmounts the live transcript, and coming back mounts a
+  // new one. Bound only to the first, he would stop following the scroll.
+  useEffect(() => {
+    if (!visible || shownMinimised || desktop || !decke) {
+      decke?.clipBelow(null)
+      return
+    }
+    const content = transcriptRef.current?.firstElementChild
+    const ro = new ResizeObserver(() => placePark())
+    if (content) ro.observe(content)
+    placePark()
+    // And on his every frame, before he is placed: a scrolled element's scroll
+    // events are not one per frame in every engine (see `DeckE.onBeforeFrame`).
+    const offFrame = decke.onBeforeFrame(placePark)
+    return () => {
+      ro.disconnect()
+      offFrame()
+      decke.clipBelow(null)
+    }
+  }, [visible, shownMinimised, desktop, decke, placePark, viewing])
+
   // Keep the newest message in view as it streams, then re-solve what that
   // pushed past him.
   //
@@ -1985,7 +2087,8 @@ export function DeckeChat({
     const el = transcriptRef.current
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
     reflow()
-  }, [messages, reflow, gutter, standOn])
+    placePark()
+  }, [messages, reflow, placePark, gutter, standOn, busy])
 
   /**
    * Go to the end, and put focus somewhere it can survive.
@@ -2012,6 +2115,18 @@ export function DeckeChat({
     setAtLatest(true)
   }, [open])
 
+  // So does coming back from a saved conversation. The live transcript that
+  // returns is a new element scrolled to its top, which read as the start of
+  // the chat and, on a phone, had him ride off with a reply nobody was on.
+  // Before paint, so the top is never shown.
+  useLayoutEffect(() => {
+    const el = transcriptRef.current
+    if (viewing || !el) return
+    stickRef.current = true
+    setAtLatest(true)
+    el.scrollTop = el.scrollHeight
+  }, [viewing])
+
   // Dragging the transcript moves bubbles past him too. rAF-coalesced: `scroll`
   // can fire several times per frame and the pass reads layout.
   useEffect(() => {
@@ -2034,6 +2149,7 @@ export function DeckeChat({
       // and every one of them would otherwise be a render of the whole message
       // list to change nothing.
       setAtLatest((prev) => (prev === stuck ? prev : stuck))
+      placePark()
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
@@ -2047,7 +2163,7 @@ export function DeckeChat({
       window.removeEventListener('resize', on)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [visible, shownMinimised, reflow])
+  }, [visible, shownMinimised, reflow, placePark, viewing])
 
   /**
    * Dismiss on a click that landed on nothing.
@@ -2689,6 +2805,7 @@ export function DeckeChat({
         ) : (
         <div
           ref={transcriptRef}
+          data-decke-transcript
           onPointerDown={onSurfaceDown}
           onClick={onSurfaceClick}
           className={[
@@ -2814,14 +2931,13 @@ export function DeckeChat({
                   {m.parts.map((part) => {
                     if (part.kind === 'text') {
                       if (!part.text) return null
-                      return (
+                      const bubble = (
                         <div
-                          key={part.id}
                           className={[
                             'decke-bubble rounded-[14px] px-[12px] py-[8px] text-[14px] leading-[21px]',
                             m.role === 'user'
                               ? 'self-end bg-action-primary text-action-primary-text'
-                              : 'decke-shift self-start bg-surface-secondary text-text-body',
+                              : 'decke-beside self-start bg-surface-secondary text-text-body',
                           ].join(' ')}
                         >
                           {/* MARKDOWN, at last. `{m.text}` rendered raw, so a
@@ -2835,10 +2951,21 @@ export function DeckeChat({
                           <ChatMarkdown text={part.text} tone="transcript" />
                         </div>
                       )
+                      if (m.role === 'user') return <Fragment key={part.id}>{bubble}</Fragment>
+                      // HIS LATEST WORDS ARE WHERE HE STANDS. The wrapper is his
+                      // footprint: tall enough for him, so a one-line sign-off
+                      // under a widget still leaves him room below the widget.
+                      // Every reply of his gets the wrapper, marked or not, so a
+                      // bubble never remounts when the mark moves on to the next.
+                      return (
+                        <div key={part.id} {...(part.id === anchorPartId ? anchorProps : {})} className="flex flex-col items-stretch">
+                          {bubble}
+                        </div>
+                      )
                     }
                     if (part.kind === 'tool') {
                       return (
-                        <ul key={part.id} className="decke-shift w-full self-start">
+                        <ul key={part.id} className="w-full self-start">
                           {/*
                             `toolRowFromChip` WAS A BRIDGE AND IS NOW A BACKSTOP.
                             `deny` used to emit its "nothing was written" row as
@@ -2875,7 +3002,7 @@ export function DeckeChat({
                       // that does nothing.
                       const act = noticeAction(part.action, { onRetry: onRetryTool && (() => onRetryTool(part.id)), onTopUp })
                       return (
-                        <div key={part.id} className="decke-figure decke-shift">
+                        <div key={part.id} className="decke-figure">
                           <DeckeNotice tone={part.tone} title={part.title} detail={part.detail} action={act?.label} onAction={act?.run} />
                         </div>
                       )
@@ -2884,8 +3011,8 @@ export function DeckeChat({
                     // figure, and an 85%-wide column with a card grid in it is
                     // a column of one card.
                     return (
-                      <div key={part.id} className="decke-figure decke-shift">
-                        <DeckeScreen spec={part.spec} onResize={reflow} />
+                      <div key={part.id} className="decke-figure">
+                        <DeckeScreen spec={part.spec} onResize={placePark} />
                       </div>
                     )
                   })}
@@ -2922,7 +3049,8 @@ export function DeckeChat({
                   */}
                   {busy && m.role === 'assistant' && m.id === lastAssistantId ? (
                     <div
-                      className="decke-shift w-full self-start"
+                      {...anchorProps}
+                      className="decke-beside w-full self-start"
                       // A stable hook for verification. The gates and the
                       // visual harness both need to know when a turn is still
                       // in flight, and every other signal in this panel is
@@ -2942,6 +3070,9 @@ export function DeckeChat({
                       )}
                     </div>
                   ) : null}
+                  {/* His latest response ended in a widget: he stands BELOW it,
+                      in a footprint of his own, never over it. */}
+                  {m.id === lastAssistantId && anchorPartId === SPACER_ANCHOR ? <div aria-hidden {...anchorProps} /> : null}
                 </li>
               ))}
             </ul>

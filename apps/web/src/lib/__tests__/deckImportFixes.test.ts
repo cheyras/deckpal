@@ -17,6 +17,7 @@ test('applies only the confirmed physical occurrence of duplicate lines', () => 
 test('rejects a stale, duplicated, or forged line index', () => {
   const text = '2 Iono PAL 999\n2 Iono PAL 999'
   assert.equal(confirmedDecklistText(text, [fix(0, '2 Boss PAL 999', '2 Boss PAL 185')], new Set()), null)
+  assert.equal(confirmedDecklistText(text, [fix(0, '2 Iono PAL 999', '2 Iono PAL 185\n2 Iono PAL 185')], new Set()), null)
   assert.equal(confirmedDecklistText(text, [fix(2, '2 Iono PAL 999', '2 Iono PAL 185')], new Set()), null)
   assert.equal(confirmedDecklistText(text, [fix(0, '2 Iono PAL 999', '2 Iono PAL 185'), fix(0, '2 Iono PAL 999', '2 Iono PAL 185')], new Set()), null)
 })

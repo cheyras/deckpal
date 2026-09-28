@@ -813,14 +813,20 @@ function settledRect(el: HTMLElement): DOMRect {
     // the landmark actually being inside the viewport, and anything else
     // falls through to the fraction park, which is sane by construction —
     // the composer watch re-parks him onto the real mark once it settles.
+    // Judged at its RESTING place: the phone's park box rides down with his
+    // latest reply when the reader scrolls up (`data-ride`, DeckeChat's
+    // `placePark`), and a box that has ridden off is still his station. He
+    // flies to it and is clipped with it, rather than falling back to a
+    // corner where he would stand over the conversation.
     const onScreen = (el: Element | null): el is Element => {
       if (!el) return false
       const r = el.getBoundingClientRect()
+      const ride = Number((el as HTMLElement).dataset?.ride || 0)
       return (
         r.width > 0 &&
-        r.top > -8 &&
+        r.top - ride > -8 &&
         r.left > -8 &&
-        r.bottom < window.innerHeight + 8 &&
+        r.bottom - ride < window.innerHeight + 8 &&
         r.right < window.innerWidth + 8
       )
     }
@@ -1430,10 +1436,16 @@ function settledRect(el: HTMLElement): DOMRect {
   useEffect(() => {
     if (!live || (!chatOpen && !errand) || travelling) return
     const read = (): MarkBox | null => {
-      const el = document.querySelector(errand ? ERRAND_SELECTOR : `[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
+      const el = document.querySelector<HTMLElement>(errand ? ERRAND_SELECTOR : `[${wide ? COMPOSER_LANDMARK : PARK_LANDMARK}]`)
       if (!el) return null
       const r = el.getBoundingClientRect()
-      return { top: Math.round(r.top), left: Math.round(r.left), h: Math.round(r.height) }
+      // THE RESTING BOX, NOT THE RIDDEN ONE. On a phone the park box rides
+      // down with his latest words as the reader scrolls (`placePark` in
+      // DeckeChat), and the engine already follows that frame by frame through
+      // his station. Watching the ridden box here re-parked him 420 ms after
+      // every scroll, a flight to where he already stood.
+      const ride = Number(el.dataset.ride || 0)
+      return { top: Math.round(r.top - ride), left: Math.round(r.left), h: Math.round(r.height) }
     }
     let last = read()
     let settle = 0

@@ -8,6 +8,8 @@
 // the other thing a reader reaches for mid-scan. Nothing here makes a sound —
 // audio playback silently kills the iOS recognizer (recognizer.ts) — so every
 // acknowledgement is visual, plus a vibration where the platform has one.
+// Spoken text stays visible in the app but is marked for the bug reporter's
+// screenshot exclusion, so a private report cannot persist a transcript.
 import { useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
 import { Button } from '../../components/ui/Button'
@@ -85,7 +87,7 @@ export function VoiceToggle({ voice, onRequestStart, compact = false }: { voice:
 export function VoiceVerifyWarning({ voice }: { voice: ScannerVoice }) {
   if (!voice.verifyWarnings.length) return null
   return (
-    <div role="alert" className="mx-[14px] mb-[8px] flex max-h-[min(45vh,400px)] shrink-0 flex-col overflow-hidden rounded-xl border border-warning/60 bg-surface-secondary p-[12px] text-[13px] text-text-body">
+    <div role="alert" data-bug-capture-ignore className="mx-[14px] mb-[8px] flex max-h-[min(45vh,400px)] shrink-0 flex-col overflow-hidden rounded-xl border border-warning/60 bg-surface-secondary p-[12px] text-[13px] text-text-body">
       <p className="shrink-0 font-bold text-warning">Voice change not applied</p>
       <div role="region" aria-label="Voice changes requiring review" tabIndex={0} data-voice-warning-list className="min-h-0 overflow-y-auto overscroll-contain">
         {voice.verifyWarnings.map((warning) => <p key={warning.rowId} data-voice-warning>{warning.message}</p>)}
@@ -162,6 +164,7 @@ export function VoiceCaption({ voice, placement = 'camera' }: { voice: ScannerVo
   if (!body) return null
   return (
     <div
+      data-bug-capture-ignore
       className={`pointer-events-none absolute inset-x-[12px] flex justify-center ${placement === 'camera' ? 'bottom-[50px] z-30' : 'z-[58]'}`}
       style={placement === 'list' ? { bottom: 'calc(76px + env(safe-area-inset-bottom))' } : undefined}
     >
@@ -180,7 +183,7 @@ export function VoiceCaption({ voice, placement = 'camera' }: { voice: ScannerVo
  *  reader. */
 export function VoiceLiveRegion({ text }: { text: string }) {
   return (
-    <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+    <div role="status" aria-live="polite" aria-atomic="true" data-bug-capture-ignore className="sr-only">
       {text}
     </div>
   )
@@ -193,7 +196,7 @@ export function VoiceLiveRegion({ text }: { text: string }) {
  */
 export function VoicePendingChips({ entry, actions, onCancel }: { entry: FeedEntry; actions: readonly VoiceAction[]; onCancel: (id: string) => void }) {
   return (
-    <div className="mt-[5px] flex flex-wrap items-center gap-[6px]">
+    <div data-bug-capture-ignore className="mt-[5px] flex flex-wrap items-center gap-[6px]">
       {actions.map((a) => (
         <PendingChip key={a.id} action={a} entry={entry} onCancel={onCancel} />
       ))}

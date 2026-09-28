@@ -1079,13 +1079,26 @@ two lines is summed (clamped to 60). Unresolved lines are reported, not dropped.
   "import": { "source": "ptcgl", "resolvedEntries": 59, "distinctCards": 24, "totalCards": 58,
               "unresolved": [ "\"2 Latias ex SSP 76\" — could not resolve to a catalogue card." ],
               "unresolvedLines": [ "2 Latias ex SSP 76" ],
+              "glcType": null, "pendingTypeCardIds": [],
+              "formatIssues": [],
               "warnings": [ { …non-UNRESOLVED import warnings… } ],
               "variantNote": "…" } }
 ```
 `unresolvedLines` are the same lines verbatim, as pasted. `"dryRun": true`
 resolves the text and writes nothing: `200` with only `{ "import": { … } }`. The
 web import dialog checks first, lists every unmatched line, and lets the reader
-fix the text or import without those lines.
+fix the text or import without those lines. Dry runs also return card-specific
+`formatIssues` as `{ "cardId": "…", "reason": "…" }` entries when a resolved card
+is illegal in the requested format. They do not change which lines resolve or
+which cards the import writes. The dialog uses them to recheck accepted Deck-E
+corrections after a format change.
+For GLC imports without an explicit `glcType`, the API infers the type only when
+all resolved Pokémon share exactly one type. The summary reports it as `glcType`.
+If the type is unknown, `glcType` is `null` and `pendingTypeCardIds` lists the
+resolved Pokémon whose type-dependent correction cannot yet be decided; other
+format issues remain available. A non-dry-run GLC import with unknown type
+returns `400` rather than storing a guessed type. Supply `glcType` or edit the
+list until its Pokémon establish one shared type.
 
 ### POST /deckpal/api/decks/import/fix
 Ask Deck-E to suggest repairs for unmatched PTCG Live lines. Authenticated

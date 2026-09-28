@@ -8,7 +8,7 @@ export function confirmedDecklistText(text: string, fixes: DeckImportFix[], undo
   for (const fix of fixes) {
     if (!Number.isSafeInteger(fix.lineIndex) || fix.lineIndex < 0 || fix.lineIndex >= lines.length || seen.has(fix.lineIndex)) return null
     seen.add(fix.lineIndex)
-    if (lines[fix.lineIndex].trim() !== fix.original.trim() || !fix.replacement.trim()) return null
+    if (lines[fix.lineIndex].trim() !== fix.original.trim() || !fix.replacement.trim() || /[\r\n]/.test(fix.replacement)) return null
     if (undone.has(fix.lineIndex)) continue
     const raw = lines[fix.lineIndex]
     const leading = raw.length - raw.trimStart().length

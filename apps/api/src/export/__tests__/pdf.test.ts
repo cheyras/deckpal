@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { once } from 'node:events';
-import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, OPS } from '../../__tests__/pdfjsCompat.js';
 import { renderDeckPdf, renderListPdf, renderSetChecklistPdf,
   type DeckPdfData, type ListPdfData, type SetChecklistData } from '../pdf.js';
 
@@ -83,10 +83,10 @@ test('set section labels use print-legible pink while progress stays cyan', asyn
   const task = getDocument({ data: new Uint8Array(await renderToBuffer((s) => renderSetChecklistPdf(s, set))) });
   const pdf = await task.promise;
   const ops = await (await pdf.getPage(1)).getOperatorList();
-  const hasColor = (operation: number, color: number[]): boolean => ops.fnArray.some((fn, i) =>
-    fn === operation && Array.from(ops.argsArray[i] as Uint8ClampedArray).every((value, j) => value === color[j]));
-  assert.ok(hasColor(OPS.setFillRGBColor, [198, 0, 92]));
-  assert.ok(hasColor(OPS.setStrokeRGBColor, [0, 117, 149]));
+  const hasColor = (operation: number, color: string): boolean => ops.fnArray.some((fn, i) =>
+    fn === operation && ops.argsArray[i]?.[0] === color);
+  assert.ok(hasColor(OPS.setFillRGBColor, '#c6005c'));
+  assert.ok(hasColor(OPS.setStrokeRGBColor, '#007595'));
   await task.destroy();
 });
 
@@ -138,7 +138,7 @@ test('fallback symbols share the row baseline with card names', async () => {
   const items = (await (await pdf.getPage(1)).getTextContent()).items.filter((item): item is typeof item & { str: string; transform: number[] } =>
     'str' in item && 'transform' in item);
   const symbol = items.find((item) => item.str === '♀');
-  const nidoran = items.find((item) => item.str === 'N' && symbol && Math.abs(item.transform[5]! - symbol.transform[5]!) < 5);
+  const nidoran = items.find((item) => item.str === 'Nidoran' && symbol && Math.abs(item.transform[5]! - symbol.transform[5]!) < 5);
   assert.ok(nidoran && symbol);
   assert.ok(Math.abs(nidoran.transform[5]! - symbol.transform[5]!) < 0.1);
   await task.destroy();

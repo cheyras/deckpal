@@ -47,7 +47,7 @@
  *    and says so, rather than performing an escort that reads as a teleport.
  */
 import { highlighted } from '../../components/ui/elementHighlight'
-import { runUiTool, type UiToolContext, type UiToolResult } from './uiTools'
+import { revealCardId, runUiTool, travelTo, type UiToolContext, type UiToolResult } from './uiTools'
 
 /** Mirrors `JOURNEY_VERBS` in `apps/api/src/decke/tools.ts`. */
 export const JOURNEY_VERBS = ['say', 'goTo', 'flyTo', 'highlight', 'click', 'ensure'] as const
@@ -64,6 +64,11 @@ export type JourneyStep = {
   landmark?: string
   byClicking?: string
   point?: boolean
+  /**
+   * verb "flyTo" only: more landmarks to ring when he lands — "the four
+   * Pikachu V-UNION cards" is one flight to the first and a ring on each.
+   */
+  also?: string[]
 }
 
 export type JourneyRan = { verb: JourneyVerb; target?: string; reason?: string }
@@ -412,6 +417,23 @@ export async function runJourney(
         case 'highlight':
         case 'click': {
           const landmark = s.landmark ?? ''
+          // A CARD TILE IS NOT WAITED FOR, IT IS ASKED FOR. The set grid is
+          // virtualized, so a tile far down it never appears on its own and
+          // `waitForLandmark` would time out on the very thing the walk exists
+          // to reach. `travelTo` runs the reveal handshake `goTo` uses, flies
+          // him to the tile with the page, rings `also` on arrival, and answers
+          // when he has landed.
+          if (s.verb === 'flyTo' && revealCardId(landmark)) {
+            const r = await travelTo({ ...ctx, signal }, landmark, s.also)
+            if (!r.ok) {
+              if (cancelled.by || signal.aborted) {
+                return fail(i, s, 'cancelled', 'you took over, so I stopped', ran, planned)
+              }
+              return fail(i, s, 'absent', r.reason ?? 'I could not find that card here', ran, planned)
+            }
+            ran.push({ verb: s.verb, target: landmark, reason: r.reason })
+            break
+          }
           const el = await waitForLandmark(landmark, signal)
           if (!el) {
             if (cancelled.by || signal.aborted) {
