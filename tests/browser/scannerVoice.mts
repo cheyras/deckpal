@@ -71,6 +71,44 @@ async function until(check: () => Promise<boolean>, what: string) {
 const visibility = (state: 'hidden' | 'visible') =>
   `Object.defineProperty(document, 'visibilityState', { configurable: true, get() { return '${state}' } }); document.dispatchEvent(new Event('visibilitychange'))`
 
+async function checkTranscriptReport(page: Page, phrase: string) {
+  const caption = page.locator('[data-voice-caption]')
+  const bounds = await caption.boundingBox()
+  assert.ok(bounds, 'the spoken caption is visible before capture')
+  const wrapper = caption.locator('xpath=..')
+  assert.notEqual(await wrapper.getAttribute('data-bug-capture-ignore'), null, 'the caption is excluded from bug screenshots')
+  await page.getByRole('button', { name: 'Report a bug or feature request' }).click()
+  await page.clock.runFor(100)
+  const dialog = page.getByRole('dialog', { name: 'Report a bug' })
+  const shot = dialog.locator('img[alt="Screenshot of the current page that will be saved separately"]')
+  await shot.waitFor()
+  const shotData = await shot.getAttribute('src')
+  const cameraPixels = await shot.evaluate((img, box) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = (img as HTMLImageElement).naturalWidth
+    canvas.height = (img as HTMLImageElement).naturalHeight
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(img as HTMLImageElement, 0, 0)
+    const pixels = ctx.getImageData(Math.ceil(box.x), Math.ceil(box.y), Math.floor(box.width), Math.floor(box.height)).data
+    let bright = 0
+    for (let i = 0; i < pixels.length; i += 4) if (Math.max(pixels[i], pixels[i + 1], pixels[i + 2]) > 60) bright++
+    return bright
+  }, bounds)
+  assert.equal(cameraPixels, 0, 'the actual captured JPEG has no caption pixels on the black camera')
+  assert.equal(await dialog.getByLabel('Include screenshot').isChecked(), true)
+  await dialog.getByRole('textbox').fill('The scanner needs attention')
+  await dialog.getByRole('button', { name: 'Submit', exact: true }).click()
+  await dialog.getByText('Thanks — your report was saved.').waitFor()
+  const payload = await page.evaluate(() => (window as unknown as { bugPayload: Record<string, unknown> }).bugPayload)
+  assert.equal(payload.screenshot, shotData, 'the inspected screenshot was included in the submitted report')
+  for (const [field, value] of Object.entries(payload)) {
+    if (field === 'screenshot') continue
+    assert.doesNotMatch(String(value), new RegExp(phrase, 'i'), `${field} must not copy speech into the report`)
+  }
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await dialog.waitFor({ state: 'hidden' })
+}
+
 let browser
 try {
   await server.listen()
@@ -84,6 +122,13 @@ try {
     let external = 0
     await page.route('**/*', async (route) => {
       if (new URL(route.request().url()).origin !== origin) { external++; await route.abort('blockedbyclient'); return }
+      if (route.request().url().endsWith('/deckpal/api/public-config')) {
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ bugReportsPublic: false }) }); return
+      }
+      if (route.request().url().endsWith('/deckpal/api/bugs')) {
+        await page.evaluate((payload) => { (window as unknown as { bugPayload: unknown }).bugPayload = payload }, route.request().postDataJSON())
+        await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'voice-fixture-report' }) }); return
+      }
       await route.continue()
     })
     await page.addInitScript({ content: installFakeSpeech })
@@ -113,8 +158,10 @@ try {
     await say(page, "that one's a reverse", false)
     await page.locator('[data-voice-interim]').waitFor()
     assert.match((await page.locator('[data-voice-interim]').textContent()) ?? '', /that one's a reverse/)
+    await checkTranscriptReport(page, "that one's a reverse")
     await say(page, "that one's a reverse hollow", true, ["that one's a reverse holo"])
     const pending = row(2).locator('[data-voice-pending="printing"]')
+    assert.notEqual(await pending.locator('xpath=..').getAttribute('data-bug-capture-ignore'), null, 'pending voice chips are excluded from bug screenshots')
     await pending.waitFor()
     assert.equal((await pending.textContent())?.trim(), 'Reverse Holofoil')
     assert.equal(await row(2).locator('[data-printing="needs-pick"]').count(), 1, 'still pending, nothing applied')
@@ -227,6 +274,7 @@ try {
     await say(page, 'I still need to find a reverse holo of this')
     await page.locator('[data-voice-caption="ignored"]').waitFor()
     assert.equal(await page.locator('[data-voice-pending]').count(), 0)
+    await checkTranscriptReport(page, 'I still need to find a reverse holo of this')
 
     // Remove: struck through with Keep, then gone, then Undo puts it back where
     // it was — even with a newer command pending on another card, which that

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../../apps/web/src/theme.css'
+import { BugButton } from '../../apps/web/src/components/BugReport'
 import { useScannerVoice } from '../../apps/web/src/scan/voice/useScannerVoice'
 import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../../apps/web/src/scan/voice/VoiceControls'
 import { VerifyFeed } from '../../apps/web/src/scan/ui/VerifyFeed'
@@ -94,6 +95,7 @@ function Scanner() {
         <VoiceCaption voice={voice} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', height: 44, flexShrink: 0, padding: '0 12px', background: 'var(--color-surface-secondary)' }}>
+        <BugButton />
         <VoiceToggle voice={voice} onRequestStart={requestStart} />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
