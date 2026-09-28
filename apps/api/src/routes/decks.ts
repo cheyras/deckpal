@@ -14,7 +14,7 @@ import {
   parsePtcgl, parseMassEntry, serializeMassEntry,
   buildPtcglExport, findLiveReprint, ptcglCodeForSet,
   expandLibrary, drawOpeningHand, mulberry32, hypergeometricMulligan,
-  formatConfig, glcTypes, normalizeName,
+  formatConfig, glcTypes, inferGlcType, normalizeName,
   type FormatCode, type PokemonType, type CardFacts, type Deck, type DeckEntry,
   type ValidationResult, type ParsedDeck, type ParsedLine, type Section, type ExportRow,
 } from '../deck/index.js';
@@ -933,8 +933,7 @@ decksRouter.post(
     // it is plain `source`).
     const writeSource = parseSource(body.writeSource);
     const format = parseFormat(body.formatCode ?? body.format);
-    let glcType = parseGlcType(body.glcType);
-    if (format === 'glc' && !glcType) glcType = glcTypes()[0] ?? null;
+    const requestedGlcType = parseGlcType(body.glcType);
     const name = parseName(body.name, false) || 'Imported Deck';
     const dryRun = body.dryRun === true;
     const userId = currentUserId(req);
@@ -953,7 +952,9 @@ decksRouter.post(
       parsed = parsePtcgl(text);
     }
 
-    const resolved = await resolveDeck(dbHandle(), parsed, format, glcType);
+    const resolved = await resolveDeck(dbHandle(), parsed, format, requestedGlcType);
+    const glcType = format === 'glc' ? requestedGlcType ?? inferGlcType(resolved.entries) : null;
+    resolved.glcType = glcType;
 
     // Aggregate resolved entries by catalogue card id (same print on two lines sums).
     const byCard = new Map<number, number>();
@@ -961,6 +962,14 @@ decksRouter.post(
       byCard.set(e.card.id, Math.min(60, (byCard.get(e.card.id) ?? 0) + e.quantity));
     }
     const unresolved = (resolved.importWarnings ?? []).filter((w) => w.code === 'UNRESOLVED_CARD');
+    const formatIssues = dryRun
+      ? (await validate(resolved, resolved.entries.map((entry) => entry.card))).violations
+        .filter((violation) => violation.severity === 'error' && violation.scope === 'card')
+        .flatMap((violation) => (violation.card_ids ?? []).flatMap((id) => {
+          const card = resolved.entries.find((entry) => entry.card.id === id)?.card;
+          return card ? [{ cardId: card.tcgdexId, reason: violation.message }] : [];
+        }))
+      : [];
     const summary = {
       source,
       resolvedEntries: resolved.entries.length,
@@ -969,6 +978,15 @@ decksRouter.post(
       unresolved: unresolved.map((w) => w.message),
       // The same lines, verbatim, for the dialog to list and find in the text.
       unresolvedLines: unresolved.map((w) => w.line ?? w.message),
+      glcType,
+      // A missing or ambiguous type cannot decide whether a Pokémon correction
+      // belongs in this one-type deck. Keep it pending instead of guessing Grass.
+      pendingTypeCardIds: format === 'glc' && !glcType
+        ? [...new Set(resolved.entries
+          .filter((entry) => entry.card.category === 'Pokemon')
+          .map((entry) => entry.card.tcgdexId))]
+        : [],
+      formatIssues,
       warnings: (resolved.importWarnings ?? []).filter((w) => w.code !== 'UNRESOLVED_CARD'),
       // Decklist text carries no printing info; every line is stored as the
       // card's primary variant (migration 051).
@@ -978,6 +996,10 @@ decksRouter.post(
       userCache(res);
       res.json({ import: summary });
       return;
+    }
+
+    if (format === 'glc' && !glcType) {
+      throw badRequest('Cannot import a GLC deck until its Pokémon type is known. Edit the list so its Pokémon share one type, or choose another format.');
     }
 
     const deckId = await withTx(async (client) => {

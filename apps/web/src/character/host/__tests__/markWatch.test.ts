@@ -209,10 +209,13 @@ test('the mark watch reads the park box on a phone and the composer on desktop',
   assert.ok(watch.length > 0, 'the mark watch is gone from DeckeHost.tsx')
   assert.match(
     watch.slice(0, 300),
-    /document\.querySelector\(errand \? ERRAND_SELECTOR : `\[\$\{wide \? COMPOSER_LANDMARK : PARK_LANDMARK\}\]`\)/,
+    /document\.querySelector(<HTMLElement>)?\(errand \? ERRAND_SELECTOR : `\[\$\{wide \? COMPOSER_LANDMARK : PARK_LANDMARK\}\]`\)/,
     'the watch no longer reads the park box on a phone — an approval card will not re-park him',
   )
   assert.match(watch.slice(0, 300), /errand \? ERRAND_SELECTOR/, 'the import errand must watch its bay')
+  // The RESTING box: the ride that follows his latest words is the engine's to
+  // track, and a watch that saw it re-parked him after every scroll.
+  assert.match(watch.slice(0, 1200), /dataset\.ride/, 'the watch reads the ridden park box, not the resting one')
   // And `park()` on a phone still aims at that same box, or the pin above is
   // watching something he is not flown to.
   assert.match(host, /d\.flyTo\(\s*\/\/[^]*?\{ selector: `\[\$\{PARK_LANDMARK\}\]` \}/)

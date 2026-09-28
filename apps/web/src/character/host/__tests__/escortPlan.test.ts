@@ -15,7 +15,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { buildEscortSteps, SHOW_OTHERS, seriesLandmark, setLandmark } from '../escortPlan'
+import { ESCORT_MAX_CARDS, buildEscortSteps, SHOW_OTHERS, seriesLandmark, setLandmark } from '../escortPlan'
 import { JOURNEY_MAX_STEPS, JOURNEY_VERBS } from '../journey'
 
 const PROMPT_SRC = fileURLToPath(
@@ -146,4 +146,54 @@ test('there is still no [data-decke-nav="/series"] to press, which is why hop on
     'prompt.ts no longer says /series has no pressable nav row — re-check hop one',
   )
   assert.equal(buildEscortSteps({ seriesSlug: 's' })[0].verb, 'goTo')
+})
+
+test('asked for cards, the walk ENDS ON THE CARDS, not at the set', () => {
+  // "Show me the pikachu ones in the app" walked to the SWSH Promos page and
+  // stopped, and he told the reader the cards were "in the grid" over a page
+  // that showed none of them. The last step is now a flight to the first card,
+  // ringing the rest on arrival.
+  const steps = buildEscortSteps({
+    seriesSlug: 'sword-shield',
+    setId: 'swshp',
+    cardIds: ['swshp-SWSH139', 'swshp-SWSH140', 'swshp-SWSH141', 'swshp-SWSH142'],
+  })
+  const last = steps[steps.length - 1]
+  assert.equal(last.verb, 'flyTo')
+  assert.equal(last.landmark, '[data-decke-card="swshp-SWSH139"]')
+  assert.equal(last.point, true)
+  assert.deepEqual(last.also, [
+    '[data-decke-card="swshp-SWSH140"]',
+    '[data-decke-card="swshp-SWSH141"]',
+    '[data-decke-card="swshp-SWSH142"]',
+  ])
+  // And it still opens the set first — the cards live on that page.
+  assert.equal(steps[steps.length - 2].verb, 'click')
+  assert.equal(steps[steps.length - 2].landmark, '[data-decke-set="swshp"]')
+})
+
+test('cards from another set, or ids that could leave the attribute, are not walked to', () => {
+  const steps = buildEscortSteps({
+    seriesSlug: 's',
+    setId: 'swshp',
+    cardIds: ['sv1-001', 'swshp-a"]', 'swshp-SWSH139'],
+  })
+  const last = steps[steps.length - 1]
+  assert.equal(last.landmark, '[data-decke-card="swshp-SWSH139"]')
+  assert.equal(last.also, undefined)
+  // None of them usable: the walk ends at the set, as before.
+  const none = buildEscortSteps({ seriesSlug: 's', setId: 'swshp', cardIds: ['sv1-001'] })
+  assert.equal(none[none.length - 1].verb, 'click')
+})
+
+test('the longest walk, cards included, is still inside the cap', () => {
+  const steps = buildEscortSteps({
+    seriesSlug: 's',
+    setId: 'x1',
+    opener: 'hi',
+    cardIds: Array.from({ length: 20 }, (_, i) => `x1-${i}`),
+  })
+  assert.equal(steps.length, 8)
+  assert.ok(steps.length <= JOURNEY_MAX_STEPS)
+  assert.equal((steps[7].also ?? []).length + 1, ESCORT_MAX_CARDS)
 })

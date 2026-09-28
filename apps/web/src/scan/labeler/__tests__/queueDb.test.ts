@@ -129,7 +129,7 @@ test('an undecodable photo is REFUSED, never uploaded as-is', () => {
   // The route stores everything as image/jpeg. Uploading bytes that failed to
   // decode manufactures a server row as broken as the local one — the previous
   // "fall back to the original blob" path did exactly that.
-  assert.match(QUEUE_SRC, /throw new Error\(\s*`this photo could not be decoded/, 'decode failure must throw')
+  assert.match(QUEUE_SRC, /throw new PermanentUploadError\(\s*`this photo could not be decoded/, 'decode failure must be marked permanent')
   assert.doesNotMatch(
     QUEUE_SRC,
     /async function normalizeForUpload[\s\S]*?\n  \} catch \{\n    return blob\n  \}/,

@@ -817,7 +817,10 @@ export function buildTools(
         'steps after it do not run, so do not describe them as though they did. ' +
         'A LIST and a DECK each have their own page — /lists/<id> and /decks/<id> — so "take me to it" is a single ' +
         '`goTo` call with that route, never escort; "show me where" is still a hand-authored `journey`, never a bare `goTo`. ' +
-        'For a walk this cannot express — anywhere that is not a set or a series — use `journey` and write the steps yourself.',
+        'For a walk this cannot express — anywhere that is not a set or a series — use `journey` and write the steps yourself. ' +
+        'WHEN THEY ASKED TO SEE PARTICULAR CARDS ("show me the pikachu ones"), pass their full card ids as cardIds: the walk then ' +
+        'ends ON those cards — the page glides to the first and every one on screen is ringed. Without cardIds it ends at the ' +
+        'set page, and saying the cards are "in the grid" over a page that does not show them is not showing them.',
       inputSchema: z.object({
         seriesSlug: z
           .string()
@@ -829,6 +832,15 @@ export function buildTools(
           .optional()
           .describe(
             'The set id the data tools returned, e.g. "me05". Leave it out to walk only as far as the series.',
+          ),
+        cardIds: z
+          .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/))
+          .min(1)
+          .max(8)
+          .optional()
+          .describe(
+            'The cards they asked to see, as the full ids the data tools returned (e.g. "swshp-SWSH139"), all from this setId, ' +
+              'in the order to show them. The walk ends by bringing the first into view and ringing every one on screen.',
           ),
         opener: z
           .string()

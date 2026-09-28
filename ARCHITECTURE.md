@@ -906,6 +906,9 @@ stored in the voice queue, independently of captions. They survive Verify,
 later commands and Undo until explicitly acknowledged. Both Add and the
 unresolved-row confirmation pass the same warning gate before a collection write.
 The bounded warning list scrolls while acknowledgement stays reachable.
+The caption, pending chips, screen-reader announcement and Verify warnings
+carry the bug reporter's screenshot exclusion marker. A report can show the
+scanner without saving spoken text.
 
 Targeting snapshots both named captures and “that one” at the first words.
 Structural phrases match normalized token arrays, while exact names reserve
@@ -1387,7 +1390,26 @@ asks the chat-tier model to select their keys. A server membership check and a
 second pass through the normal resolver guard every replacement. The UI reserves
 a bay in the import dialog for Deck-E, shows each old and proposed line with
 Undo, and sends the confirmed text through the no-write check again before any
-deck is created. The errand store only moves the character; it does not grant
+deck is created. The import review is a projection of current text, format,
+stable line IDs, accepted correction provenance, and the exact revision's
+read-only check. Edits, Undo, and format changes invalidate that check and
+refresh it after 300 ms of idle time; no summary is incrementally relabelled as
+current. Superseded requests are aborted, and both a request sequence and the
+source revision guard success and error responses. Import remains disabled
+with a checking state during the debounce and request. An explicit Import
+always runs its final check immediately. Only the explicit
+“Import without them” action authorizes skipping the displayed unresolved line
+IDs, and any source change revokes that permission. Both the button and the
+final check use the same write gate. Accepted corrections remain undoable while
+their physical lines survive. Their card provenance lasts for the dialog so
+blank lines, whitespace, or duplicate deletion cannot erase a format guard;
+ordinary raw-deck imports retain their existing card-legality behavior. GLC
+imports infer their type only when every resolved Pokémon shares exactly one
+type; no implicit Grass default is used. An ambiguous type leaves accepted
+Pokémon corrections pending with an explanation in their rows. Definitive
+format issues still apply. The write endpoint requires a known or explicitly
+provided GLC type before creating a deck. The
+errand store only moves the character; it does not grant
 permission or save cards. The route shares Deck-E's entitlement, Gateway key,
 daily meter, and usage ledger. When paid credits are enabled, it converts the
 provider-reported cost using the request's credit policy and accumulates the

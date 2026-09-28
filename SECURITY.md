@@ -1154,7 +1154,10 @@ to Apple, and iOS says so in its own permission prompt. Chrome sends it to
 Google. DeckPal's code never sends, logs or stores audio or transcripts. A
 transcript exists only in page memory, long enough to be matched against a
 fixed command grammar. It is not attached to scan telemetry, bug reports or any
-request. The explainer shown before the first browser prompt tells the reader
+request. The bug reporter excludes the live caption, pending voice chips,
+screen-reader announcement and Verify warnings from its screenshot, including
+recent and ignored speech. Its report text comes only from what the reporter
+types. The explainer shown before the first browser prompt tells the reader
 the same thing. The microphone is only on while the reader has the Voice
 control on during the scan step. Hiding the page, leaving the scan step or
 leaving the route stops it.

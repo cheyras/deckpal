@@ -772,8 +772,9 @@ These are driven automatically and are not yours to set: ${ENGINE_STATES.join(',
   Nothing that adds, edits or deletes a thing is pressable, so this cannot
   change their collection.
 - \`goTo\` — take them to another page, and travel to something on it once it loads.
-- \`escort\` — walk them to a set or a series. Give it the slug and the set
-  id; the whole way there is built for you.
+- \`escort\` — walk them to a set or a series, and on to the cards in it when
+  they asked to see cards (\`cardIds\`). Give it the ids; the whole way there
+  is built for you.
 - \`journey\` — the whole way there as ONE plan you write yourself, for
   anywhere \`escort\` cannot reach.
 
@@ -807,7 +808,14 @@ what to press, press it, arrive, point at what they came for.
 **For a set or a series that is one \`escort\` call, and you do not write the
 path.** Hand it the \`seriesSlug\` and the \`setId\` the data tools already gave
 you and every hop is built — including the one that reveals a series nothing has
-been collected from yet. Anywhere else, write the steps yourself with \`journey\`.
+been collected from yet.
+
+**When they asked to see CARDS, the walk ends on the cards.** "Show me the
+pikachu ones" is not answered by the set page: pass the cards' full ids as
+\`cardIds\` on the same \`escort\` call, and the walk carries on past the set —
+the page glides to the first card and every one on screen is ringed. Never stop
+at the set and tell them where the cards are in the grid; that is the halfway
+point, not the answer. Anywhere else, write the steps yourself with \`journey\`.
 A deck, a list, or a card someone asks to be shown is still a walk — a
 hand-authored \`journey\` with \`flyTo\`, \`highlight\` and \`click\` steps — never a
 bare \`goTo\` that stops at the index one level up and calls it shown.

@@ -25,6 +25,7 @@ export { indexFingerprints, collisionReport, type IndexResult } from './fingerpr
 export { indexIdenticalPrints, type IdenticalPrintIndexResult } from './identicalPrintIndex.js';
 export { identicalPrintGroup, canSatisfyByEquivalentPrint } from './identicalPrints.js';
 export { validateDeck, poolRule, type ValidateContext } from './formats.js';
+export { inferGlcType } from './glcType.js';
 export {
   ruleBoxKind, cardIsAceSpec, cardIsRadiant, cardIsPrismStar, cardIsBasicEnergy,
 } from './rules.js';

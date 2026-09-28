@@ -368,6 +368,13 @@ export type DeckEOptions = {
    */
   modelFile?: string
   clearColor?: readonly [number, number, number] | null
+  /**
+   * `app` (the default) renders him in his true colours: the Neutral tone curve
+   * and DeckPal's cyan body (`brandBody`). `blender` keeps the `.blend`'s AgX
+   * and its authored body, for the parity harness, which compares against a
+   * Blender render.
+   */
+  look?: 'app' | 'blender'
   onReady?: () => void
   onError?: (e: unknown) => void
   /**
@@ -846,6 +853,7 @@ export class DeckE {
     this.stage = createStage({
       canvas: opts.canvas,
       clearColor: opts.clearColor,
+      toneMapping: opts.look === 'blender' ? 'agx' : 'neutral',
       // `??` would be wrong here: an EXPLICIT null means "use Blender's exact
       // staging distance" (parity mode) and must not fall through to the
       // default. Only an absent option gets the default.
@@ -913,7 +921,7 @@ export class DeckE {
     this.model = model
     this.stage.scene.add(model)
     // Repair what glTF's fixed material model flattened, before anything binds.
-    fixupMaterials(model)
+    fixupMaterials(model, { brand: this.opts.look !== 'blender' })
     this.rig = bindRig(model)
     this.riderSystem = createRiderSystem(model)
     this.eyeSocket = createEyeSocket(model)
@@ -2861,6 +2869,15 @@ export class DeckE {
       // from a browser that is not calling us often — on a phone those look
       // identical from the outside and have completely different fixes.
       const t0 = performance.now()
+      // BEFORE his station is solved, so what they move this frame is where he
+      // stands this frame. See `onBeforeFrame`.
+      for (const fn of this.beforeFrameListeners) {
+        try {
+          fn()
+        } catch {
+          /* a caller's bug must not stop him drawing */
+        }
+      }
       this.elapsed += dt
       this.update(dt)
       if (draw) this.stage.renderer.render(this.stage.scene, this.stage.camera)
@@ -2900,6 +2917,7 @@ export class DeckE {
       }
       this.tickMs = performance.now() - t0
     }
+    this.applyClip()
     // AFTER he is drawn, in the same frame: anything that rides him reads the
     // position he was just drawn at, so it can never be a frame behind him.
     for (const fn of this.frameListeners) {
@@ -2913,6 +2931,47 @@ export class DeckE {
 
   /** See `onFrame`. */
   private readonly frameListeners = new Set<() => void>()
+  /** See `onBeforeFrame`. */
+  private readonly beforeFrameListeners = new Set<() => void>()
+
+  /** The clip `clipBelow` asked for, as a CSS value; '' for none. */
+  private clipWanted = ''
+  /** What is on the canvas now, so a frame writes only a change. */
+  private clipDrawn = ''
+
+  /**
+   * Draw nothing of him below viewport `y` — the edge of the thing he stands
+   * on — or `null` to draw all of him again.
+   *
+   * ── WHY THE CANVAS IS CLIPPED ────────────────────────────────────────────────
+   *
+   * On a phone he stands beside his latest words, and when the reader scrolls
+   * those words down the page he goes with them (`placePark` in DeckeChat). The
+   * canvas is a layer above the whole app, so "goes with them" would otherwise
+   * mean sliding down over the composer. Clipped at its top edge, he passes
+   * behind it the way the words he is beside do. `clip-path` is applied by the
+   * compositor; nothing here re-renders to hide him.
+   *
+   * NEVER WHILE HE IS FLYING: his entrance starts at the launcher chip and his
+   * exit ends in it, both below this line, so a flight draws all of him.
+   */
+  clipBelow(y: number | null) {
+    if (y === null) {
+      this.clipWanted = ''
+    } else {
+      const c = this.opts.canvas.getBoundingClientRect()
+      const inset = Math.max(0, Math.round(c.bottom - y))
+      this.clipWanted = inset > 0 ? `inset(0px 0px ${inset}px 0px)` : ''
+    }
+    this.applyClip()
+  }
+
+  private applyClip() {
+    const want = this.track ? '' : this.clipWanted
+    if (want === this.clipDrawn) return
+    this.clipDrawn = want
+    this.opts.canvas.style.clipPath = want
+  }
 
   /**
    * Run `fn` after every frame he is drawn, on his own clock. Returns the
@@ -2930,6 +2989,24 @@ export class DeckE {
     this.frameListeners.add(fn)
     return () => {
       this.frameListeners.delete(fn)
+    }
+  }
+
+  /**
+   * Run `fn` at the START of every frame, before his station is solved.
+   * Returns the unsubscribe.
+   *
+   * For DOM he stands on that moves when nothing he listens to fires. The phone
+   * chat's park box rides down with his latest reply as the transcript scrolls,
+   * and an element's scroll events are not one per frame everywhere: Linux
+   * WebKit delivered three for a 70-frame scripted scroll, so the box stayed
+   * put and he stood over a card widget. Placing the box here, on his own
+   * frame, keeps him on it whatever the scroll events do.
+   */
+  onBeforeFrame(fn: () => void): () => void {
+    this.beforeFrameListeners.add(fn)
+    return () => {
+      this.beforeFrameListeners.delete(fn)
     }
   }
 

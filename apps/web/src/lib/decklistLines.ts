@@ -25,7 +25,7 @@ export function decklistLineRange(text: string, line: string, lineIndex?: number
 export function reconcileDecklistLineIds(
   before: string, after: string, ids: readonly string[], nextId: () => string,
 ): string[] {
-  const oldLines = before.split('\n'), newLines = after.split('\n')
+  const oldLines = before.split('\n').map(line => line.trim()), newLines = after.split('\n').map(line => line.trim())
   const result: string[] = new Array(newLines.length)
   let start = 0
   while (start < oldLines.length && start < newLines.length && oldLines[start] === newLines[start]) {

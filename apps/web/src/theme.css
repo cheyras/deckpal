@@ -1318,8 +1318,24 @@ body {
 }
 
 /* A panel he composed is a FIGURE, not a remark — it takes the full column so a
- * card grid is a grid rather than a stack of one. It still stops at his edge. */
+ * card grid is a grid rather than a stack of one.
+ *
+ * AND IT NO LONGER STOPS AT HIS EDGE. On the owner's iPhone a card widget
+ * "repeatedly resized to fit beside Deck-E, flipping back and forth": narrowed
+ * by his gutter, it re-wrapped, grew taller, crossed back over the line that
+ * narrowed it, and widened again, at scroll rate. A widget is worth more than
+ * the space beside him, so it keeps the whole column and he stands where it is
+ * not — beside his latest words, never higher (`placePark` in DeckeChat). */
 .decke-figure {
+  max-width: 100%;
+}
+
+/* HIS WORDS, beside him. One fixed gutter that never toggles, so reading back
+ * up the conversation re-wraps nothing — the column his words sit in is the
+ * same column from the first message to the last, the way a messaging app's
+ * replies keep their indent beside the avatar. */
+.decke-beside {
+  margin-left: var(--decke-gutter, 0px);
   max-width: calc(100% - var(--decke-gutter, 0px));
 }
 
