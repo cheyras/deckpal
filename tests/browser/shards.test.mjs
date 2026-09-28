@@ -28,6 +28,7 @@ test('eight shards cover every suite once, regardless of discovery order', () =>
   assert.ok(assignment.every(shard => shard.length))
   assert.deepEqual(assignment.flat().sort(), [...names].sort())
   assert.deepEqual(assignment.find(shard => shard.includes('cloud-feedback-primary-428')), ['cloud-feedback-primary-428'])
+  assert.deepEqual(assignment.find(shard => shard.includes('cloud-writes')), ['cloud-writes'])
   assert.deepEqual(shardSuites([...suites].reverse(), 8).map(shard => shard.map(suite => suite.name)), assignment)
 })
 
@@ -35,7 +36,7 @@ test('one shard can run the entire suite despite the isolated visual case', () =
   assert.deepEqual(shardSuites(suites, 1)[0].map(suite => suite.name), [...names].sort())
 })
 
-test('two shards keep every suite when both visual reservations cannot fit', () => {
+test('two shards keep every suite when a heavy suite outweighs the reserved visual case', () => {
   const assignment = shardSuites(suites, 2).map(shard => shard.map(suite => suite.name))
   assert.ok(assignment.every(shard => shard.length))
   assert.deepEqual(assignment.flat().sort(), [...names].sort())

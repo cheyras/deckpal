@@ -26,7 +26,9 @@ export const durations = {
   'cloud-feedback-primary-390': 87,
   'cloud-feedback-primary-428': 146,
   'cloud-feedback-lifecycle': 129,
-  'cloud-writes': 85,
+  // Measured 537s before the GLC/debounce regressions; reserve room for those
+  // journeys instead of packing other suites against the old 85s estimate.
+  'cloud-writes': 720,
   // Labeler queue groups (#240): estimates until they have their own CI timings.
   'selfhost-queue': 45,
   'cloud-queue': 50,
@@ -49,7 +51,10 @@ export function shardSuites(suites, count) {
   // This long visual case made a concurrent catalog screenshot fail once.
   // Reserve a runner for it while every other group remains duration-packed.
   const exclusive = new Set(['cloud-feedback-primary-428'])
+  // Reserve isolated cases before heavier ordinary suites can occupy every
+  // runner (notably when a local run asks for only two shards).
   for (const suite of [...suites].sort((a, b) =>
+    Number(exclusive.has(b.name)) - Number(exclusive.has(a.name)) ||
     (durations[b.name] ?? 60) - (durations[a.name] ?? 60) || a.name.localeCompare(b.name))) {
     const available = shards.filter(shard => exclusive.has(suite.name) ? !shard.suites.length : !shard.exclusive)
     assert.ok(available.length, 'No runner available for suite ' + suite.name)

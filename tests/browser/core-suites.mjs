@@ -67,7 +67,7 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           } else if (group === 'a11y') {
             results.push(...await checkA11y(browser, server, mount, label, out))
           } else if (group === 'writes') {
-            results.push(...await checkDeckImport(browser, server, admin))
+            results.push(...await checkDeckImport(browser, server, admin, out))
             results.push(...await checkWrites(browser, server, mount, label, out, writes, admin))
           }
           assert.deepEqual(server.unexpected, [], label + ': unexpected network/error events')
