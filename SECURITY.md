@@ -91,10 +91,21 @@ token. The old service-role JWT remains supported only during migration.
   SPA.
 
 **Cloud MCP authentication.** `https://deckpal.app/mcp` accepts a personal
-access token (`dsk_…`, table `api_token`) as `Authorization: Bearer <token>`
-or as the URL's last path segment. Only a SHA-256 hash is stored; the raw
-value is shown once, at creation, in Profile -> Agent access, and is
-revocable there at any time. As of 2026-08-10 a token can also be minted
+access token (`dsk_…`, table `api_token`) as `Authorization: Bearer <token>`.
+Only a SHA-256 hash is stored; the raw value is shown once, at creation, in
+Profile -> Agent access, and is revocable there at any time.
+
+**No token in the URL (2026-09-28).** The endpoint also still accepts the token
+as the URL's last path segment (`/mcp/dsk_…`), but only so connectors already
+set up that way keep working; DeckPal no longer offers it anywhere. A request
+path is written to the hosting provider's request logs, so a token placed there
+ends up stored in those logs. The Agent access page now leads with OAuth
+(paste the bare `https://deckpal.app/mcp`, sign in, approve) and offers a token
+only as an `Authorization: Bearer` header; the MCP server's 401 names only those
+two routes. Anyone with an old path-form connector can reconnect with OAuth and
+revoke the old token.
+
+As of 2026-08-10 a token can also be minted
 automatically via a real OAuth 2.1 authorization server (dynamic client
 registration, RFC 7591; authorization-code + PKCE S256, RFC 6749/7636;
 discovery metadata, RFC 8414/9728) -- `apps/api/src/oauthServer.ts` and

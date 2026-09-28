@@ -1,9 +1,14 @@
 /* ─────────────────────────────────────────────────────────────────────────────
- * Agent access — personal access tokens for the MCP endpoint (/profile).
+ * Agent access — connections and personal access tokens for the MCP endpoint
+ * (/profile).
  *
  * This is the surface behind DeckPal's sharpest trick: point Claude at your
- * own collection and decks. A token is minted here, shown ONCE, and pasted into
- * a claude.ai connector or `claude mcp add`. The server keeps only a hash, so
+ * own collection and decks. The main path mints nothing here: a client pointed
+ * at bare `/mcp` runs the OAuth sign-in and approval (routes/Authorize.tsx),
+ * and the connection it opens is listed below beside any tokens. A token is
+ * for clients that can't do that — minted here, shown ONCE, and sent as an
+ * `Authorization: Bearer` header. It is never offered inside a URL: request
+ * paths land in the host's request logs. The server keeps only a hash, so
  * "show it again" is not a feature we can add later — the one-time reveal has
  * to carry that weight visually, which is why it is a full-width panel with its
  * own warning rather than an inline field.
@@ -35,11 +40,6 @@ function mcpUrl(): string {
   // to a different host silently drops the Authorization header — which
   // surfaces inside claude.ai as an authorization failure with no clue why.
   return `${window.location.origin.replace('://www.', '://')}/mcp`
-}
-
-/** The whole-URL form: the credential is the URL. Used by clients that cannot send a header. */
-function connectorUrl(token: string): string {
-  return `${mcpUrl()}/${token}`
 }
 
 function fmtDate(iso: string | null): string {
@@ -258,8 +258,8 @@ export function AgentAccess() {
             <div className="text-[14px] font-bold text-text-primary">Connect an AI assistant</div>
             <div className="text-[14px] text-text-muted">
               {active.length === 0
-                ? 'Create a token to let Claude read and update your collection.'
-                : `${active.length} active token${active.length === 1 ? '' : 's'}`}
+                ? 'Let Claude read and update your collection. You sign in and approve it here.'
+                : `${active.length} active connection${active.length === 1 ? '' : 's'}`}
             </div>
           </div>
         </div>
@@ -291,7 +291,9 @@ export function AgentAccess() {
               </div>
               <p className="mt-[4px] text-[14px] leading-[1.55] text-text-body">
                 DeckPal stores only a hash of this token, so it cannot be shown a second time. If you lose it,
-                revoke it and create another.
+                revoke it and create another. Your client sends it as an{' '}
+                <code className="font-mono text-[14px] text-text-primary">Authorization: Bearer</code> header;{' '}
+                {isCloudMode ? 'step 5 below shows where it goes.' : 'see the note below.'}
               </p>
             </div>
             <button
@@ -303,18 +305,8 @@ export function AgentAccess() {
               <Icon name="close" size={16} />
             </button>
           </div>
-          <div className="mt-[12px] flex flex-col gap-[12px]">
+          <div className="mt-[12px]">
             <CodeRow label="Token" value={secret.raw} />
-            {isCloudMode && (
-              <CodeRow
-                label={
-                  <>
-                    Personal connector URL <span className="font-normal text-text-muted">— the token is inside it</span>
-                  </>
-                }
-                value={connectorUrl(secret.raw)}
-              />
-            )}
           </div>
         </div>
       )}
@@ -374,22 +366,61 @@ export function AgentAccess() {
         <div id="agent-access-help" className="mt-[12px] flex flex-col gap-[16px]">
           {isCloudMode ? (
             <>
-              <Step n={1} title="Create a token">
-                <p>
-                  Use the <strong className="text-text-body">New token</strong> button above. Copy the value the
-                  moment it appears — it is shown once and cannot be recovered.
+              <Step n={1} title="Add the connector in claude.ai">
+                <p className="mb-[8px]">
+                  In claude.ai: <strong className="text-text-body">Customize → Connectors → + → Add custom connector</strong>.
+                  Name it <em>DeckPal</em>, paste this as the Remote MCP server URL, and click{' '}
+                  <strong className="text-text-body">Add</strong>. Leave the advanced settings empty — there is
+                  nothing to copy from here.
+                </p>
+                <CodeRow value={mcpUrl()} />
+                <p className="mt-[8px] text-text-muted">
+                  Any other assistant that supports MCP connectors with sign-in uses the same address.
                 </p>
               </Step>
 
-              <Step n={2} title="Add the connector in claude.ai">
+              <Step n={2} title="Sign in and approve">
+                <p>
+                  Press <strong className="text-text-body">Connect</strong> on the new connector. A DeckPal page
+                  opens; sign in if you aren’t already. It shows who is asking before anything else — Claude is
+                  marked <strong className="text-text-body">Verified</strong> — and lets you choose{' '}
+                  <em>Read and change</em> or <em>Read only</em>. Press{' '}
+                  <strong className="text-text-body">Allow</strong> and you are back in Claude, connected. The
+                  connection then appears in the list above as <em>Claude (OAuth · claude.ai)</em>.
+                </p>
+              </Step>
+
+              <Step n={3} title="Check that it works">
+                <p>
+                  Start a new chat, turn DeckPal on in the tools menu, and ask{' '}
+                  <em>“what is my collection worth, and which set am I closest to finishing?”</em> You should get your
+                  own numbers back. The connection’s <strong className="text-text-body">Last used</strong> date
+                  above updates within a minute.
+                </p>
+              </Step>
+
+              <Step n={4} title="Claude Code instead (optional)">
+                <CodeRow value={`claude mcp add --transport http deckpal ${mcpUrl()}`} />
+                <p className="mt-[8px]">
+                  Then run <code className="font-mono text-[14px] text-text-primary">/mcp</code> in Claude Code and
+                  pick <em>deckpal</em> to sign in. The same approval opens in your browser, where Claude Code shows
+                  as <em>An app on this computer</em>. Afterwards{' '}
+                  <code className="font-mono text-[14px] text-text-primary">claude mcp list</code> should print{' '}
+                  <code className="font-mono text-[14px] text-text-primary">deckpal: {mcpUrl()} (HTTP) - ✔ Connected</code>.
+                  Remove it with <code className="font-mono text-[14px] text-text-primary">claude mcp remove deckpal</code>.
+                </p>
+              </Step>
+
+              <Step n={5} title="Use a token instead (advanced)">
                 <p className="mb-[8px]">
-                  In claude.ai: <strong className="text-text-body">Settings → Connectors → Add custom connector</strong>.
-                  Name it <em>DeckPal</em>, then use whichever of these two the dialog offers you.
+                  For a client that can’t sign in this way, create a token with the{' '}
+                  <strong className="text-text-body">New token</strong> button above and have the client send it as a
+                  header: <code className="font-mono text-[14px] text-text-primary">Authorization: Bearer &lt;your token&gt;</code>.
                 </p>
 
                 <div className="mb-[10px] rounded-[10px] border border-action-ghost-border p-[12px]">
                   <div className="mb-[6px] text-[14px] font-bold text-text-primary">
-                    A · If the dialog has a “Request headers” section (preferred)
+                    In claude.ai, if the dialog has a “Request headers” section
                   </div>
                   <ol className="ml-[16px] list-decimal leading-[1.7]">
                     <li>
@@ -406,73 +437,51 @@ export function AgentAccess() {
                     </li>
                   </ol>
                   <p className="mt-[6px] text-text-muted">
-                    Request headers are a beta Anthropic is still rolling out. If you don’t see that section, use B.
+                    Request headers are a beta Anthropic is still rolling out. If you don’t see that section, use
+                    steps 1 and 2 instead.
                   </p>
                 </div>
 
-                <div className="rounded-[10px] border border-action-ghost-border p-[12px]">
-                  <div className="mb-[6px] text-[12px] font-bold text-text-primary">
-                    B · If there is no header field — use your personal connector URL
-                  </div>
-                  <ol className="ml-[16px] list-decimal leading-[1.7]">
-                    <li>
-                      Paste your personal connector URL as the Remote MCP server URL. It looks like{' '}
-                      <code className="font-mono text-[14px] text-text-primary">{`${mcpUrl()}/dsk_…`}</code> and is shown
-                      once, next to the token, when you create it.
-                    </li>
-                    <li>Add no headers. Click Add.</li>
-                  </ol>
-                  <p className="mt-[6px] text-text-muted">
-                    That URL <strong className="text-text-body">contains your token</strong> — treat the whole thing
-                    like a password. Revoking the token kills the URL too.
-                  </p>
-                </div>
-              </Step>
-
-              <Step n={3} title="Check that it works">
-                <p>
-                  Start a new chat, turn DeckPal on in the tools menu, and ask{' '}
-                  <em>“what is my collection worth, and which set am I closest to finishing?”</em> You should get your
-                  own numbers back. The token’s <strong className="text-text-body">Last used</strong> date above
-                  updates within a minute.
-                </p>
-              </Step>
-
-              <Step n={4} title="Claude Code instead (optional)">
                 <CodeRow
+                  label="In Claude Code"
                   value={`claude mcp add --transport http deckpal ${mcpUrl()} --header "Authorization: Bearer <token>"`}
                 />
-                <p className="mt-[8px]">
-                  Then <code className="font-mono text-[14px] text-text-primary">claude mcp list</code> should print{' '}
-                  <code className="font-mono text-[14px] text-text-primary">deckpal: {mcpUrl()} (HTTP) - ✔ Connected</code>.
-                  Remove it with <code className="font-mono text-[14px] text-text-primary">claude mcp remove deckpal</code>.
+
+                <p className="mt-[8px] text-text-muted">
+                  DeckPal no longer offers a connector address with the token inside it: web addresses end up in
+                  server request logs, so a token belongs in a header. One you already set up that way keeps working.
+                  To replace it, connect with steps 1 and 2, then revoke the old token.
                 </p>
               </Step>
 
-              <Step n={5} title="If it doesn’t connect">
+              <Step n={6} title="If it doesn’t connect">
                 <ul className="ml-[16px] list-disc leading-[1.7]">
                   <li>
                     Use <code className="font-mono text-[14px] text-text-primary">{mcpUrl()}</code> exactly — not the{' '}
                     <code className="font-mono text-[14px]">www.</code> version. That one redirects, and a redirect
-                    drops the header.
+                    breaks the sign-in and drops a token header.
                   </li>
                   <li>
-                    “Couldn’t reach the MCP server” or an authorization error almost always means the token is missing,
-                    mistyped, or revoked. Create a fresh one and re-paste it — a token cannot be shown twice, so a
-                    partial copy is unrecoverable.
+                    If the DeckPal page says <em>“Invalid connection request”</em>, that client doesn’t support this
+                    sign-in yet. Use a token (step 5).
+                  </li>
+                  <li>
+                    With a token, “Couldn’t reach the MCP server” or an authorization error almost always means the
+                    token is missing, mistyped, or revoked. Create a fresh one and re-paste it — a token cannot be
+                    shown twice, so a partial copy is unrecoverable.
                   </li>
                   <li>
                     Include the word <code className="font-mono text-[14px] text-text-primary">Bearer</code> and one
-                    space before the token in option A. claude.ai sends the value exactly as typed.
+                    space before the token. claude.ai sends the value exactly as typed.
                   </li>
                 </ul>
               </Step>
 
-              <Step n={6} title="Revoking">
+              <Step n={7} title="Disconnecting">
                 <p>
-                  Press <strong className="text-text-body">Revoke</strong> next to a token here. It stops working
-                  immediately, on every client, and the row stays in the list so you can see it happened. Then delete
-                  the connector in claude.ai, or replace its token with a new one.
+                  Press <strong className="text-text-body">Revoke</strong> next to a connection or token here. It
+                  stops working immediately, on every client, and the row stays in the list so you can see it
+                  happened. Then remove the connector in claude.ai, or connect it again.
                 </p>
               </Step>
             </>
@@ -486,13 +495,13 @@ export function AgentAccess() {
           )}
 
           <p className="text-[12px] leading-[1.6] text-text-muted">
-            <strong className="text-text-body">What the token grants.</strong> Anyone holding it can read your
-            collection, lists, decks and battle logs, and can change them — the same things you can do when signed
-            in. It cannot change your password or account settings, read your Deck-E conversations, spend money, or
-            create or revoke tokens. A token you make here never expires, so treat it like a password: paste it only
-            into clients you trust, and revoke it here the moment you are done with it. Apps you connect with
-            OAuth appear here too; they can be read-only if you chose that when approving, and they end by
-            themselves after 90 days without use.
+            <strong className="text-text-body">What a connection grants.</strong> Anything you connect — by
+            approving it or with a token — can read your collection, lists, decks and battle logs, and can change
+            them: the same things you can do when signed in. One you approved as <em>Read only</em> can only read.
+            None can change your password or account settings, read your Deck-E conversations, spend money, or
+            create or revoke tokens. An approved connection ends by itself after 90 days without use. A token you
+            make here never expires, so treat it like a password: paste it only into clients you trust, and revoke
+            it here the moment you are done with it.
           </p>
         </div>
       )}

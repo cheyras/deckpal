@@ -23,7 +23,9 @@
  * shared egress IPs, so an IP-keyed limiter would let one heavy connector
  * user exhaust the budget for every other user behind the same egress IP.
  */
-import { test, describe, beforeEach } from 'node:test';
+import { test, describe, beforeEach, before, after } from 'node:test';
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
 import assert from 'node:assert/strict';
 import {
   mcpRateOk,
@@ -33,6 +35,9 @@ import {
   __resetMcpPreResolveForTests,
   MCP_PRERESOLVE_MAX,
   MCP_PRERESOLVE_WINDOW_MS,
+  tokenFrom,
+  NO_TOKEN_MESSAGE,
+  createCloudApp,
 } from '../cloud.js';
 
 describe('mcpPreResolveOk — global pre-resolution admission (SEC-09, P1 fix)', () => {
@@ -117,5 +122,74 @@ describe('mcpRateOk — per-token fairness budget, keyed on the resolved tokenId
       if (mcpRateOk('the-real-user')) allowedAfterFlood++;
     }
     assert.ok(allowedAfterFlood < MCP_RATE_MAX, 'the pre-flood call already counted against this bucket');
+  });
+});
+
+/**
+ * Where a token may come from. The path form (`/mcp/dsk_…`) is no longer
+ * offered anywhere — request paths land in the host's request logs — but
+ * connectors people already set up that way must keep working, so it is
+ * still ACCEPTED. These pin both halves: accepted, and never advertised.
+ */
+describe('tokenFrom — header first, path form kept for existing connectors', () => {
+  const req = (path: string, authorization?: string) =>
+    ({ path, headers: authorization ? { authorization } : {} }) as Parameters<typeof tokenFrom>[0];
+
+  test('reads Authorization: Bearer', () => {
+    assert.equal(tokenFrom(req('/mcp', 'Bearer dsk_header')), 'dsk_header');
+  });
+
+  test('still accepts the token as the last path segment, as existing connectors send it', () => {
+    assert.equal(tokenFrom(req('/mcp/dsk_frompath')), 'dsk_frompath');
+    assert.equal(tokenFrom(req('/api/mcp/dsk_frompath')), 'dsk_frompath');
+  });
+
+  test('the header wins over a path token', () => {
+    assert.equal(tokenFrom(req('/mcp/dsk_frompath', 'Bearer dsk_header')), 'dsk_header');
+  });
+
+  test('a path segment that is not token-shaped is no credential', () => {
+    assert.equal(tokenFrom(req('/mcp')), '');
+    assert.equal(tokenFrom(req('/mcp/something')), '');
+  });
+});
+
+describe('401 with no credential — offers OAuth and the header, never the path form', () => {
+  let server: Server;
+  let base: string;
+
+  before(async () => {
+    server = createCloudApp().listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  test('the message names OAuth and Authorization: Bearer', async () => {
+    // No credential is the one path through the handler that never touches
+    // the database, so this runs against the real app with no pool.
+    const res = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: '{}',
+    });
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get('www-authenticate') ?? '', /resource_metadata="[^"]+\/\.well-known\/oauth-protected-resource"/);
+    const body = (await res.json()) as { error: { message: string } };
+    assert.equal(body.error.message, NO_TOKEN_MESSAGE);
+    assert.match(body.error.message, /OAuth/);
+    assert.match(body.error.message, /Authorization: Bearer/);
+  });
+
+  test('neither the 401 nor the browser endpoint card advertises a token in the URL', async () => {
+    const unauthorized = await (await fetch(`${base}/mcp`, { method: 'POST', body: '{}' })).text();
+    const card = await (await fetch(`${base}/mcp`, { headers: { accept: 'text/html' } })).text();
+    for (const text of [NO_TOKEN_MESSAGE, unauthorized, card]) {
+      assert.doesNotMatch(text, /\/mcp\/(<|\{|dsk_)/, text);
+      assert.doesNotMatch(text, /connector URL/i, text);
+    }
   });
 });

@@ -397,24 +397,13 @@ function Stats() {
 
 /* ── agentic flow ─────────────────────────────────────────────────────────────
  * The lead story, spelled out. Everything claimed here is live and verified:
- * the endpoint, the token flow, the 21 tools, both clients, and the isolation
+ * the endpoint, the sign-in flow, the 21 tools, both clients, and the isolation
  * guarantee. What is deliberately NOT claimed: that DeckPal ships an
  * assistant, or anything at all about how good the model is. The product is the
  * connection and the data behind it — the visitor brings the assistant.
  * ───────────────────────────────────────────────────────────────────────────── */
 
 const AGENT_STEPS: { icon: 'key' | 'link' | 'sparkle'; title: string; body: ReactNode }[] = [
-  {
-    icon: 'key',
-    title: 'Create a token',
-    body: (
-      <>
-        <strong className="font-semibold text-text-body">Profile → Agent access</strong> mints a personal token.
-        It is shown once — DeckPal keeps only a hash — and you can revoke it from that same screen, on every
-        client at once.
-      </>
-    ),
-  },
   {
     icon: 'link',
     title: 'Connect Claude',
@@ -423,6 +412,17 @@ const AGENT_STEPS: { icon: 'key' | 'link' | 'sparkle'; title: string; body: Reac
         Add <span className="font-mono text-[14px] text-text-body">deckpal.app/mcp</span> as a custom connector
         in claude.ai, or register it in Claude Code with one <span className="font-mono text-[14px] text-text-body">claude&nbsp;mcp&nbsp;add</span> command.
         Both are supported, and there is nothing to install either way.
+      </>
+    ),
+  },
+  {
+    icon: 'key',
+    title: 'Sign in and approve',
+    body: (
+      <>
+        DeckPal asks you to sign in and shows who is asking before you allow it — to read and change, or only
+        to read. There is no token to copy, and you can disconnect it any time from{' '}
+        <strong className="font-semibold text-text-body">Profile → Agent access</strong>.
       </>
     ),
   },
@@ -714,7 +714,7 @@ function OpenSource() {
 const FAQ = [
   {
     q: 'How does the Claude connection work?',
-    a: 'DeckPal exposes your account over MCP at deckpal.app/mcp. Create a personal token in Profile → Agent access, add it as a custom connector in claude.ai or register it in Claude Code, and Claude gets 21 tools scoped to your data — collection, set progress, card search, decks, lists, battle logs, strategy guides and a buy list. DeckPal has no assistant of its own; you bring yours, and you can revoke the token at any time.',
+    a: 'DeckPal exposes your account over MCP at deckpal.app/mcp. Add it as a custom connector in claude.ai or register it in Claude Code, sign in to DeckPal and approve the connection, and Claude gets 21 tools scoped to your data — collection, set progress, card search, decks, lists, battle logs, strategy guides and a buy list. DeckPal has no assistant of its own; you bring yours, and you can disconnect it at any time from Profile → Agent access.',
   },
   {
     q: 'Is DeckPal free?',

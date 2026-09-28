@@ -1753,7 +1753,8 @@ the MCP Authorization spec (OAuth 2.1 + PKCE + dynamic client registration —
 
 1. In your client, add a custom MCP connector pointed at
    `https://deckpal.app/mcp` and choose **Connect** (not a manual-header
-   option).
+   option). In claude.ai that is **Customize → Connectors → + → Add custom
+   connector**; leave the advanced settings empty.
 2. Your client registers itself, then opens `https://deckpal.app/authorize`
    in a browser tab. Sign in to DeckPal if you aren't already.
 3. Check who is asking, then approve. The consent screen leads with where your
@@ -1778,7 +1779,8 @@ Connections made before 075 keep working exactly as before and show
 
 ### 2. If your client doesn't support MCP OAuth — a personal access token
 
-Some clients (or older versions) only take a static URL or header. For those:
+Some clients (or older versions) can't run the sign-in above but can send a
+header. For those:
 
 1. Sign in at <https://deckpal.app> and open **Profile** (the avatar, top
    right).
@@ -1786,17 +1788,17 @@ Some clients (or older versions) only take a static URL or header. For those:
 3. Name it after the client — e.g. `claude.ai` or `Claude on my laptop` — and
    press **Create token**.
 4. Copy the value **immediately.** DeckPal stores only a SHA-256 hash, so the
-   token is shown exactly once and can never be recovered. Alongside it you also
-   get a **personal connector URL** of the form
-   `https://deckpal.app/mcp/dsk_…` — copy that too.
+   token is shown exactly once and can never be recovered.
 
 Tokens are listed afterwards by their `dsk_…` prefix with their creation and
 last-used dates, and can be revoked from the same panel at any time — same as
 an OAuth-connected client, because it's the same underlying credential. A token
-made here never expires, because the clients that need one (a URL pasted into
-a connector dialog) have no way to renew it; revoke it when you are done.
+made here never expires, because a client that needs one has no way to renew
+it; revoke it when you are done.
 
-**A · If the dialog has a "Request headers" section**
+The client sends it as `Authorization: Bearer <your token>` on every request.
+In claude.ai, that means the **Request headers** section of the custom
+connector dialog, a beta Anthropic is still rolling out:
 
 1. Remote MCP server URL: `https://deckpal.app/mcp`
 2. Open **Request headers**. Choose the header name `authorization` and set the
@@ -1804,17 +1806,15 @@ a connector dialog) have no way to renew it; revoke it when you are done.
    token. Mark it **Required**.
 3. Click **Add**.
 
-**B · If there is no header field either — use your personal connector URL**
+If your dialog has no Request headers section, use §1 instead. For Claude
+Code, see §4.
 
-1. Remote MCP server URL: paste `https://deckpal.app/mcp/dsk_…` (the personal
-   connector URL from step 4 above).
-2. Add no headers. Click **Add**.
-
-That URL *contains* your token, so treat the whole string like a password:
-don't paste it into a screenshot, a shared doc, or a bug report. It is
-revocable and scoped to exactly one user — revoking the token kills the URL.
-The token is in the URL **path**, never a query parameter (the MCP
-authorization spec forbids credentials in the query string).
+**No token in the URL.** DeckPal used to also hand out a *personal connector
+URL* with the token as its last path segment (`https://deckpal.app/mcp/dsk_…`)
+for clients that could send neither OAuth nor a header. It no longer does:
+request paths land in the hosting provider's request logs, so a token there
+ends up stored in them. Connectors already set up that way keep working. To
+move one off it, connect with §1 and then revoke the old token.
 
 ### 3. Check that it works
 
@@ -1822,8 +1822,8 @@ Start a new chat, enable DeckPal in the tools menu, and ask:
 
 > what is my collection worth, and which set am I closest to finishing?
 
-You should get your own numbers back. The token's **Last used** date in
-Profile → Agent access updates within a minute.
+You should get your own numbers back. The connection's (or token's) **Last
+used** date in Profile → Agent access updates within a minute.
 
 ### 4. Claude Code
 
@@ -1857,9 +1857,9 @@ Remove it with `claude mcp remove deckpal`.
   token almost always means the token is missing, truncated, or revoked. A
   token cannot be shown twice, so a partial copy is unrecoverable — create a
   fresh one and re-paste.
-- In option A above, include the word `Bearer` and one space before the token.
-  claude.ai sends the header value exactly as typed and adds no scheme of its
-  own.
+- In the Request headers value (§2), include the word `Bearer` and one space
+  before the token. claude.ai sends the header value exactly as typed and adds
+  no scheme of its own.
 
 ### 6. Revoking
 
@@ -1874,8 +1874,8 @@ client or reconnect to get a new one.
 Point it at `https://deckpal.app/mcp` over **Streamable HTTP** and either let
 it run OAuth discovery (`.well-known/oauth-protected-resource` →
 `.well-known/oauth-authorization-server` → register → `/authorize` → `/token`),
-or give it an `Authorization: Bearer <token>` header, or point it at
-`https://deckpal.app/mcp/<token>` with no header at all.
+or give it an `Authorization: Bearer <token>` header. Never put the token in
+the URL (see §2).
 
 ### What the token grants
 
