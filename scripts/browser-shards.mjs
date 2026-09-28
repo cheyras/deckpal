@@ -51,7 +51,10 @@ export function shardSuites(suites, count) {
   // This long visual case made a concurrent catalog screenshot fail once.
   // Reserve a runner for it while every other group remains duration-packed.
   const exclusive = new Set(['cloud-feedback-primary-428'])
+  // Reserve isolated cases before heavier ordinary suites can occupy every
+  // runner (notably when a local run asks for only two shards).
   for (const suite of [...suites].sort((a, b) =>
+    Number(exclusive.has(b.name)) - Number(exclusive.has(a.name)) ||
     (durations[b.name] ?? 60) - (durations[a.name] ?? 60) || a.name.localeCompare(b.name))) {
     const available = shards.filter(shard => exclusive.has(suite.name) ? !shard.suites.length : !shard.exclusive)
     assert.ok(available.length, 'No runner available for suite ' + suite.name)
