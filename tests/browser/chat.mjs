@@ -462,17 +462,20 @@ export async function checkChat(browser, server, out) {
       assert.equal(await page.evaluate(() => window.fixture.events.closes), 1, 'A plain background click must dismiss')
 
       await set(page, { messages: [{ id: 'tools', role: 'assistant', parts: [
-        { kind: 'tool', id: 'refusal', chip: { id: 'call-declined', name: 'collection_add', title: 'Adding fixture cards', phase: 'ok' } },
+        { kind: 'tool', id: 'refusal', chip: { id: 'call-declined', name: 'collection_add', title: 'Adding fixture cards', phase: 'declined' } },
         { kind: 'tool', id: 'failure', chip: { id: 'retry-call', name: 'collection_get', title: 'Reading fixture cards', phase: 'error', summary: 'Fixture read failed' } },
       ] }] })
-      await panel.getByText('Cancelled', { exact: true }).waitFor()
+      // One activity line for the run: the failure tints its summary, and the
+      // steps (the declined write included) are one tap away.
+      await panel.getByRole('button', { name: /step didn.t work/ }).click()
+      await panel.getByText('Skipped that change', { exact: true }).waitFor()
       await panel.getByRole('button', { name: 'Try Reading fixture cards again' }).click()
       assert.deepEqual(await page.evaluate(() => window.fixture.events.retries), ['retry-call'])
       await set(page, { credits: { remaining: 0, allowance: 100 } })
       assert.equal(await panel.getByRole('textbox', { name: 'Message Deck-E' }).count(), 0, 'Spent credits replace the composer')
       await panel.getByText('Out of credits', { exact: true }).waitFor()
       await panel.getByText("I'm out of credits, so I can't take anything new on right now.", { exact: true }).waitFor()
-      await panel.getByText('Cancelled', { exact: true }).waitFor()
+      await panel.getByText('Skipped that change', { exact: true }).waitFor()
       await page.screenshot({ path: path.join(out, 'chat-' + width + '.png'), fullPage: true })
 
       // Reopening exercises the real persisted opener history rather than a
