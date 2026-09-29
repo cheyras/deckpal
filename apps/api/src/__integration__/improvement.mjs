@@ -700,7 +700,7 @@ try {
     assert.deepEqual(leg, { recorded: false, reason: 'not_shared' });
     assert.deepEqual(events, { recorded: false, reason: 'not_shared' });
     const feedback = await server(member, (c) => data(c,
-      'SELECT public.decke_improvement_record_feedback($1,$2,0,(-1)::smallint,$3,false) data',
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,(-1)::smallint,$3,false,$3) data',
       [member, disabledConversation, 'personal only']));
     assert.equal(feedback.saved, true);
     assert.equal(feedback.copied, false);
@@ -953,7 +953,7 @@ try {
   await seedConversation({ conversation: feedbackConversation, request: feedbackRequest, operation: id(132), suffix: '130' });
   await test('feedback can grant sharing, always saves personal feedback, and list_mine maps raw IDs', async () => {
     const saved = await server(member, (c) => data(c,
-      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,true) data',
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,true,$3) data',
       [member, feedbackConversation, 'John+Smith liked this; jsmith%40example.invalid']));
     assert.equal(saved.saved, true);
     assert.equal(saved.shared, true);
@@ -972,6 +972,33 @@ try {
     const mine = await server(member, (c) => data(c, 'SELECT public.decke_improvement_list_mine($1) data', [member]));
     assert.deepEqual(new Set(mine.items.map((item) => item.conversationId)), new Set([sharedConversation, feedbackConversation]));
     assert.equal(mine.items.some((item) => item.conversationId === derivedShared), false);
+  });
+
+  await test('the corpus copy of a feedback comment is the API-redacted one; personal feedback keeps the original', async () => {
+    // 'Ɤan' uses a character newer than this database's Unicode tables, so SQL
+    // alone folds it differently from the API; the API copy is what must land.
+    const raw = 'My name is %C9%A4%61%6E';
+    const saved = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,(-1)::smallint,$3,false,$4) data',
+      [member, feedbackConversation, raw, '[redacted]']));
+    assert.equal(saved.copied, true);
+    assert.equal(saved.comment, raw, 'the reader sees their own words');
+    const personal = (await db.query('SELECT comment FROM public.decke_turn_feedback WHERE user_id=$1 AND conversation_id=$2 AND seq=0', [member, feedbackConversation])).rows[0];
+    assert.equal(personal.comment, raw);
+    const corpusId = (await db.query("SELECT public.decke_improvement_uuid('conversation:',$1) id", [feedbackConversation])).rows[0].id;
+    const corpus = (await db.query('SELECT feedback_comment FROM public.decke_improvement_turn WHERE conversation_id=$1 AND seq=0', [corpusId])).rows[0];
+    assert.equal(corpus.feedback_comment, '[redacted]');
+    // A caller that sends no separate copy gets nothing but the vote into the corpus.
+    await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,false,NULL) data',
+      [member, feedbackConversation, 'no copy supplied']));
+    assert.equal((await db.query('SELECT feedback_comment FROM public.decke_improvement_turn WHERE conversation_id=$1 AND seq=0', [corpusId])).rows[0].feedback_comment, '[redacted]');
+    // The new signature is callable by the request role only through the server claim.
+    await denied(session(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,false,$3) data', [member, feedbackConversation, 'x'])));
+    // 078's six-argument writer (SQL redaction only) is retired even for the server.
+    await denied(server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,false) data', [member, feedbackConversation, 'x'])));
   });
 
   let tokenId;

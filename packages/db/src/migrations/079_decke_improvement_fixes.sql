@@ -496,6 +496,61 @@ FROM identities i WHERE e.conversation_id=i.id;
 DROP FUNCTION public.decke_improvement_repair_terms(text,uuid);
 DROP TABLE pg_temp.decke_improvement_079_map;
 
+-- Feedback with the API's redacted copy of the comment. The 078 signature let
+-- a shared comment reach the corpus with SQL redaction alone, and SQL's case
+-- folding is bounded by the database's Unicode tables (a name using a
+-- character newer than them folds differently than in the API). The reader's
+-- own feedback keeps the comment as written; the corpus receives the
+-- API-redacted copy, redacted again here as defence in depth.
+CREATE FUNCTION public.decke_improvement_record_feedback(
+ p_user text,p_conversation uuid,p_seq integer,p_vote smallint,p_comment text,p_share boolean,p_corpus_comment text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; clean_comment text; copied boolean:=false; identity_terms text[]; shared boolean:=false;
+BEGIN
+ IF p_conversation IS NULL OR p_seq IS NULL OR p_seq<0 OR p_share IS NULL
+    OR (p_vote IS NOT NULL AND p_vote NOT IN(-1,1)) OR char_length(p_comment)>500
+    OR char_length(p_corpus_comment)>2000 THEN
+  RAISE EXCEPTION 'Invalid feedback' USING ERRCODE='22023';
+ END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ IF NOT EXISTS(SELECT 1 FROM public.decke_turn t WHERE t.conversation_id=p_conversation
+   AND t.seq=p_seq AND t.user_id::text=p_user) THEN
+  RAISE EXCEPTION 'Personal history turn is unavailable' USING ERRCODE='P0002';
+ END IF;
+ IF p_vote IS NULL THEN p_comment=NULL; p_corpus_comment=NULL; END IF;
+ -- No separate copy supplied means nothing reaches the corpus but a vote.
+ IF p_comment IS NOT NULL AND p_corpus_comment IS NULL THEN p_corpus_comment='[redacted]'; END IF;
+ SELECT ARRAY[p_user,p_conversation::text]
+   ||coalesce(array_agg(r.id::text),'{}'::text[])
+   ||coalesce(array_agg(r.exchange_id::text),'{}'::text[])
+ INTO identity_terms FROM public.decke_ai_request r
+ WHERE r.user_id=p_user AND r.conversation_id=p_conversation AND r.seq=p_seq;
+ clean_comment=left(public.decke_improvement_redact_text(
+   public.decke_improvement_redact_text(p_corpus_comment,identity_terms),
+   public.decke_improvement_redaction_terms(p_user)),500);
+ INSERT INTO public.decke_turn_feedback(user_id,conversation_id,seq,vote,comment,updated_at)
+ VALUES(p_user::uuid,p_conversation,p_seq,p_vote,p_comment,now())
+ ON CONFLICT(user_id,conversation_id,seq) DO UPDATE SET vote=EXCLUDED.vote,comment=EXCLUDED.comment,updated_at=now();
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ SELECT status='shared' INTO shared FROM public.decke_improvement_consent
+  WHERE id=conversation AND owner_key=owner FOR SHARE;
+ shared=coalesce(shared,false);
+ IF p_share AND NOT shared THEN
+  PERFORM public.decke_improvement_answer(p_user,p_conversation,true,'feedback');
+  shared=true;
+ END IF;
+ IF shared THEN
+  UPDATE public.decke_improvement_turn SET feedback=p_vote,feedback_comment=clean_comment
+   WHERE conversation_id=conversation AND seq=p_seq
+     AND EXISTS(SELECT 1 FROM public.decke_improvement_conversation c WHERE c.id=conversation AND c.owner_key=owner);
+  copied=FOUND;
+  IF copied AND EXISTS(SELECT 1 FROM public.decke_improvement_leg WHERE conversation_id=conversation AND seq=p_seq) THEN
+   PERFORM public.decke_improvement_recompute(conversation,p_seq);
+  END IF;
+ END IF;
+ RETURN jsonb_build_object('saved',true,'copied',copied,'shared',shared,'vote',p_vote,'comment',p_comment);
+END $$;
+
 DO $acl$
 DECLARE principal text;
 BEGIN
@@ -516,11 +571,16 @@ BEGIN
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_is_shared(text,uuid) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_request_telemetry(text,uuid) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_withdraw_history() FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_record_feedback(text,uuid,integer,smallint,text,boolean,text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  -- Retire 078's six-argument writer: it put comments in the corpus with SQL
+  -- redaction alone. Nothing may write a comment without the API's copy.
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_record_feedback(text,uuid,integer,smallint,text,boolean) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
  END LOOP;
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
   GRANT EXECUTE ON FUNCTION public.decke_improvement_identity_terms(text),
    public.decke_improvement_is_shared(text,uuid),
-   public.decke_improvement_request_telemetry(text,uuid) TO authenticated;
+   public.decke_improvement_request_telemetry(text,uuid),
+   public.decke_improvement_record_feedback(text,uuid,integer,smallint,text,boolean,text) TO authenticated;
  END IF;
 END $acl$;
 

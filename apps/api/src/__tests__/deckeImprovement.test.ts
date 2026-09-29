@@ -213,6 +213,21 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
     });
   });
 
+  it('a feedback comment reaches the corpus only through API redaction; the personal copy keeps what was written', async () => {
+    const { deps, state } = fakeDeps();
+    await serve(deps, async (request) => {
+      const comment = 'Alice here, mail me at alice%40example.com';
+      const { response } = await request('/decke/feedback', post({ conversationId: CHAT, seq: 0, vote: -1, comment, share: true }, 'PUT'));
+      assert.equal(response.status, 200);
+      const write = state.calls.find(({ sql }) => sql.includes('decke_improvement_record_feedback'));
+      assert.ok(write, 'feedback was written');
+      assert.match(write.sql, /record_feedback\(\$1,\$2,\$3,\$4,\$5,\$6,\$7\)/, 'the corpus copy travels as its own argument');
+      assert.equal(write.params[4], comment, 'personal feedback is stored as written');
+      assert.equal(typeof write.params[6], 'string');
+      assert.doesNotMatch(String(write.params[6]), /alice/i, 'the corpus copy carries no identity');
+    });
+  });
+
   it('fails and rolls back consent or feedback when a required backfill fails', async () => {
     const { deps, state } = fakeDeps({ backfillFails: true });
     await serve(deps, async (request) => {

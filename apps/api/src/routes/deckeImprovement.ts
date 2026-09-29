@@ -280,7 +280,12 @@ export function createDeckeImprovementRouter(
         const answer = await call<JsonObject>(db, 'SELECT public.decke_improvement_answer($1,$2,true,\'feedback\') AS data', [userId, conversationId]);
         await requireBackfill(deps, db, { userId, conversationId, backfill: (answer.backfill ?? {}) as SharedBackfill });
       }
-      return call<JsonObject>(db, 'SELECT public.decke_improvement_record_feedback($1,$2,$3,$4,$5,$6) AS data', [userId, conversationId, seq, body.vote, body.comment ?? null, share]);
+      // Every write into the shared corpus passes API redaction; the comment is
+      // no exception. The reader's own feedback keeps what they wrote, and the
+      // corpus gets this redacted copy (which SQL redacts again).
+      const comment = typeof body.comment === 'string' ? body.comment : null;
+      const corpusComment = comment === null ? null : deps.clean(comment, await deps.terms(db, userId)) as string;
+      return call<JsonObject>(db, 'SELECT public.decke_improvement_record_feedback($1,$2,$3,$4,$5,$6,$7) AS data', [userId, conversationId, seq, body.vote, comment, share, corpusComment]);
     });
     res.json(result);
   }));
