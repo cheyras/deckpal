@@ -188,7 +188,7 @@ try {
     await server(ten, (c) => value(c, "SELECT public.decke_metered_settle($1,'cancelled') data", [request10]));
     const request2 = await beginRequest(low, 'paid', 'too-low');
     assert.deepEqual(await meteredBegin(low, request2), {
-      allowed: false, reason: 'insufficient', balance: '2.000000000000', needed: 3,
+      allowed: false, mode: 'paid', reason: 'insufficient', balance: '2.000000000000', needed: 3,
     });
   });
 
@@ -199,10 +199,10 @@ try {
     await db.query(`INSERT INTO public.credit_order(user_id,pack_id,pack_revision,pack_name,credits,price_cents,currency,pricing_revision,attempt_key,pending_refund_cents)
       VALUES($1,$2,1,'hold',10,100,'usd',$3,'metered-payment-hold',1)`, [held, pack, revision]);
     assert.deepEqual(await meteredBegin(held, await beginRequest(held, 'paid', 'payment-hold')), {
-      allowed: false, reason: 'payment_hold', balance: '30.000000000000',
+      allowed: false, mode: 'paid', reason: 'payment_hold', balance: '30.000000000000',
     });
     assert.deepEqual(await meteredBegin(debtor, await beginRequest(debtor, 'paid', 'debt')), {
-      allowed: false, reason: 'debt', balance: '30.000000000000', debt: 4,
+      allowed: false, mode: 'paid', reason: 'debt', balance: '30.000000000000', debt: 4,
     });
   });
 
@@ -315,6 +315,91 @@ try {
       [id(1999), request],
     )), '42501');
     await server(spare, (c) => value(c, "SELECT public.decke_metered_settle($1,'cancelled') data", [request]));
+  });
+
+  const current = (await db.query('SELECT public.credit_policy_read() data')).rows[0].data;
+  await session(owner, (c) => value(c, 'SELECT public.credit_policy_save($1,$2) data', [{ ...current.policy, markupBps: 0 }, current.revision]));
+  const walletRead = (user) => session(user, (c) => value(c, 'SELECT public.credit_wallet_read(NULL) data'));
+  const carryOf = async (user) => (await db.query('SELECT fractional_credits::text value FROM public.decke_metered_credit WHERE user_id=$1', [user])).rows[0].value;
+
+  await test('the chat pool path: a trusted server connection with no claims begins, records, reads and settles', async () => {
+    await wallet(spare, 30);
+    const request = await beginRequest(spare, 'paid', 'pool');
+    const begun = (await db.query('SELECT public.decke_metered_begin($1) data', [request])).rows[0].data;
+    assert.equal(begun.mode, 'paid');
+    assert.equal(begun.heldCredits, 25);
+    await db.query(
+      "SELECT public.decke_usage_operation_begin($1,$2,'response','chat_turn','fixture/model','fixture','pool-step',NULL)",
+      [id(2999), request],
+    );
+    await db.query(
+      "SELECT public.decke_usage_external_operation_begin($1,$2,'jev_reflex','fixture/model','fixture','pool-jev',NULL)",
+      [id(2998), request],
+    );
+    await db.query(`UPDATE public.decke_ai_operation SET status='completed',finished_at=now(),cost_usd='0.012',cost_source='provider_reported'
+      WHERE id=ANY($1::uuid[])`, [[id(2999), id(2998)]]);
+    const status = (await db.query('SELECT public.decke_metered_status($1) data', [request])).rows[0].data;
+    assert.equal(status.capReached, false);
+    const settled = (await db.query("SELECT public.decke_metered_settle($1,'completed') data", [request])).rows[0].data;
+    assert.equal(settled.credits, '2.400000000000');
+    assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [spare])).rows[0].balance, 28);
+    const other = await beginRequest(spare, 'paid', 'pool-owner');
+    await rejects(session(ten, (c) => c.query('SELECT public.decke_metered_status($1)', [other])), '42501');
+    await rejects(server(ten, (c) => c.query('SELECT public.decke_metered_begin($1)', [other])), '42501');
+  });
+
+  await test('a fractional overrun is owed as debt, never a negative balance, and never rounded up', async () => {
+    await wallet(race, 3);
+    const request = await beginRequest(race, 'paid', 'fraction'); await meteredBegin(race, request);
+    await operation(race, request, 'chat_turn', '0.035');
+    const settled = await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [request]));
+    assert.equal(settled.credits, '3.500000000000');
+    assert.equal(Number(settled.balance), 0);
+    const read = await walletRead(race);
+    assert.equal(Number(read.balance), 0);
+    assert.equal(read.debt, 0.5);
+    assert.equal(await carryOf(race), '0.500000000000');
+    const refused = await meteredBegin(race, await beginRequest(race, 'paid', 'fraction-next'));
+    assert.deepEqual([refused.allowed, refused.reason, refused.debt, Number(refused.balance)], [false, 'debt', 0.5, 0]);
+    await db.query("SELECT public.credit_apply_delta($1,10,'grant','Metered fixture','metered-fraction-topup')", [race]);
+    const topped = await walletRead(race);
+    assert.deepEqual([topped.balance, topped.debt], ['9.500000000000', 0]);
+  });
+
+  await test('prior carry: the hold covers it, and whole plus fractional overrun both become debt', async () => {
+    await wallet(race, 4, '0.5');
+    const covered = await beginRequest(race, 'paid', 'carry-covered');
+    const begun = await meteredBegin(race, covered);
+    assert.deepEqual([begun.heldCredits, begun.capCredits, Number(begun.balance)], [4, '3.500000000000', 0]);
+    await operation(race, covered, 'chat_turn', '0.036');
+    await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [covered]));
+    let read = await walletRead(race);
+    assert.deepEqual([Number(read.balance), read.debt], [0, 0.1]);
+    await wallet(race, 5, '0.5');
+    const over = await beginRequest(race, 'paid', 'carry-over'); await meteredBegin(race, over);
+    await operation(race, over, 'chat_turn', '0.062');
+    const settled = await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [over]));
+    assert.equal(settled.credits, '6.200000000000');
+    assert.equal(Number(settled.balance), 0);
+    assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [race])).rows[0].debt, 1);
+    read = await walletRead(race);
+    assert.deepEqual([Number(read.balance), read.debt], [0, 1.7]);
+    assert.equal(await carryOf(race), '0.700000000000');
+  });
+
+  await test('the import-fix path shares the carry and the same owed-not-negative invariant', async () => {
+    await wallet(ten, 1, '0.9');
+    const charged = await server(ten, async (c) => {
+      const start = await value(c, 'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) data',
+        [120, 'import_fix:metered-fraction', hash('b'), 'fixture-model', 'fixture', 233]);
+      return value(c, 'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) data',
+        [start.requestId, start.operationId, 'completed', 1000, 100, 0, 0, 0, '0.005', 'provider_reported', 'fixture-fraction']);
+    });
+    assert.equal(Number(charged.credits), 0.5);
+    assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [ten])).rows[0].balance, 0);
+    const read = await walletRead(ten);
+    assert.deepEqual([Number(read.balance), read.debt], [0, 0.4]);
+    assert.equal(await carryOf(ten), '0.400000000000');
   });
 
   results.status = 'passed';

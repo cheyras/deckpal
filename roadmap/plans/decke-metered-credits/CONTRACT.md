@@ -31,8 +31,12 @@ Jev, gating).
 ## 1. SQL — `packages/db/src/migrations/081_decke_metered_credits.sql`
 
 Never edit shipped migrations (B4). All functions `SECURITY DEFINER SET
-search_path=pg_catalog`, schema-qualified, and — like 077 — callable only with
-the API's server claim (`deckpal_server_request`); revoke everything from
+search_path=pg_catalog`, schema-qualified. The chat function reaches them on
+the API's own privileged pool connection, which carries no JWT claims, so
+`decke_metered_authorize` accepts that trusted connection (no client role set,
+session user not `authenticator`/`anon`/`authenticated`) against the request's
+owner; any connection in a client role must — like 077 — carry the verified
+subject and the API's server claim (`deckpal_server_request`). Revoke everything from
 `PUBLIC`/`anon`/`authenticated`, then grant `EXECUTE` on the entry points below
 to `authenticated` only (guarded, as 077 does, for plain-Postgres self-host).
 Money arithmetic is SQL `numeric`, never float.
@@ -52,9 +56,9 @@ Entry points (exact names/signatures):
   Lock order governance → wallet control → balance (as 070/077).
   - request `charge_mode` `paid` + v2 frozen policy:
     `available = balance − carry`. Payment hold ⇒
-    `{allowed:false, reason:'payment_hold', balance}`; debt ⇒
-    `{allowed:false, reason:'debt', balance, debt}`; `available <
-    legHoldMinCredits` ⇒ `{allowed:false, reason:'insufficient', balance,
+    `{allowed:false, mode:'paid', reason:'payment_hold', balance}`; debt, including a carry the balance no longer covers, ⇒
+    `{allowed:false, mode:'paid', reason:'debt', balance, debt}`; `available <
+    legHoldMinCredits` ⇒ `{allowed:false, mode:'paid', reason:'insufficient', balance,
     needed: legHoldMinCredits}`. Else debit
     `held = LEAST(legHoldCredits, integer balance)` whole credits and set
     `cap = held − carry` ⇒ `{allowed:true, mode:'paid', heldCredits, capCredits,
@@ -88,7 +92,7 @@ Entry points (exact names/signatures):
   `credit_quote_read` (v2: `{enabled, lowAt, mode:'metered', holdCredits,
   holdMinCredits, pricingRevision, unlimited, overrideRevision}`; v1 unchanged
   plus `mode:'flat'`), `credit_wallet_read` (recover first; `balance` exact
-  string = integer balance − carry; `heldCredits` = open holds),
+  string = max(0, integer balance − carry); `debt` = whole debt plus any carry the balance no longer covers, a fraction owed rather than a negative balance and never rounded up; `heldCredits` = open holds; the same reading applies to every returned balance, since chat and import fixes share the carry),
   `credit_events_read` (internal hold/release rows hidden; one "Deck-E chat"
   row per settled leg with its exact fractional delta),
   `decke_import_fix_finish` (use the generic carry; migrate existing

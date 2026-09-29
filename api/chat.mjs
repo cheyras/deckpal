@@ -522,7 +522,9 @@ async function serve(request) {
       }
       const result = await beginMeteredCredits(chatPool(), userId, usage.id)
       usage.meteredStarted = result.allowed
-      const admission = { ...result, credits: result.mode === 'paid', held: result.reason === 'payment_hold',
+      // Every metered refusal is a credit refusal (the balance, a debt or a payment
+      // hold), never the daily allowance, so it must offer the wallet, not "tomorrow".
+      const admission = { ...result, credits: !result.allowed || result.mode === 'paid', held: result.reason === 'payment_hold',
         needed: result.needed ?? (result.allowed ? undefined : quote.policy.legHoldMinCredits),
         ...creditWork(async () => {}, request.signal) }
       if (!result.allowed || result.mode !== 'daily') return admission

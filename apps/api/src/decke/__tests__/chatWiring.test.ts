@@ -142,6 +142,10 @@ test('metered research uses the leg hold and never starts another reservation', 
   assert.doesNotMatch(research, /reserveCredits|beginMeteredCredits/);
 });
 
+test('a metered refusal is a credit refusal that offers the wallet, never "try again tomorrow"', () => {
+  assert.match(CODE, /credits: !result\.allowed \|\| result\.mode === 'paid'/);
+});
+
 test('the model loop checks the durable cap and closes in Deck-E voice once', () => {
   assert.match(CODE, /async \(\) => \{\s*capReached = await meteredCapReached\(usage\)\s*return capReached/);
   assert.match(CODE, /id: 'metered-cap', delta: meteredCapText\(\)/);

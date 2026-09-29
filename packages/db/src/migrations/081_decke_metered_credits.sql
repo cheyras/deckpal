@@ -153,6 +153,32 @@ BEGIN
  RETURN actor;
 END $$;
 
+-- Authorise a metered call on a request owned by p_owner. The chat function
+-- (api/chat.mjs) reaches these entry points on the API's own privileged pool
+-- connection, which carries no JWT claims: only the server holds those
+-- credentials, and that role can already read and write every table here, so
+-- the connection itself is the proof. A connection that has switched to a
+-- client role (Express's per-user RLS transactions, PostgREST as anon or
+-- authenticated) or that PostgREST opened (session user 'authenticator') must
+-- instead carry the verified subject and the API's server claim. Inside this
+-- SECURITY DEFINER function current_user is the owner, so the caller's role is
+-- read from the 'role' setting and session_user.
+CREATE FUNCTION public.decke_metered_authorize(p_owner text,p_require_active boolean) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE actor text;
+BEGIN
+ IF coalesce(current_setting('role',true),'none') IN ('none','')
+    AND session_user::text NOT IN ('authenticator','anon','authenticated') THEN
+  IF p_owner IS NULL THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+  IF p_require_active AND NOT public.admin_account_active(p_owner) THEN
+   RAISE EXCEPTION 'Account unavailable' USING ERRCODE='42501';
+  END IF;
+  RETURN;
+ END IF;
+ actor=public.decke_metered_actor(p_require_active);
+ IF p_owner IS NULL OR actor<>p_owner THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+END $$;
+
 CREATE FUNCTION public.decke_metered_known_credits(p_request uuid) RETURNS numeric
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE r public.decke_ai_request; p jsonb; known_usd numeric(24,12);
@@ -166,6 +192,18 @@ BEGIN
    /((p->>'microUsdPerCredit')::numeric*10000),12);
 END $$;
 
+-- The carry is a fraction of a credit already used but not yet taken from the
+-- whole-credit balance. While the balance covers it, the spendable balance is
+-- balance minus carry; once an overrun has emptied the balance, the uncovered
+-- fraction is owed like any other debt instead of showing a negative wallet.
+-- It is never rounded up: the next whole credit that arrives settles it.
+CREATE FUNCTION public.decke_metered_spendable(p_balance integer,p_carry numeric) RETURNS numeric
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT round(greatest(0::numeric,coalesce(p_balance,0)-coalesce(p_carry,0)),12) $$;
+CREATE FUNCTION public.decke_metered_owed(p_debt integer,p_balance integer,p_carry numeric) RETURNS numeric
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT trim_scale(coalesce(p_debt,0)+greatest(0::numeric,coalesce(p_carry,0)-coalesce(p_balance,0))) $$;
+
 CREATE FUNCTION public.decke_metered_begin(p_request uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE actor text; r public.decke_ai_request; reservation public.decke_metered_reservation;
@@ -173,11 +211,12 @@ DECLARE actor text; r public.decke_ai_request; reservation public.decke_metered_
  carry numeric(20,12):=0; available numeric(24,12); held integer; cap numeric(24,12); moved jsonb;
 BEGIN
  PERFORM pg_advisory_xact_lock_shared(741290064);
- actor=public.decke_metered_actor(true);
  SELECT * INTO r FROM public.decke_ai_request WHERE id=p_request FOR UPDATE;
- IF NOT FOUND OR r.user_id<>actor OR r.status<>'started' THEN
+ IF NOT FOUND OR r.status<>'started' THEN
   RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501';
  END IF;
+ PERFORM public.decke_metered_authorize(r.user_id,true);
+ actor=r.user_id;
  SELECT * INTO reservation FROM public.decke_metered_reservation WHERE request_id=p_request;
  IF FOUND THEN
   IF r.charge_mode<>'paid' THEN
@@ -191,7 +230,7 @@ BEGIN
     LEFT JOIN public.decke_metered_credit c ON c.user_id=actor;
   RETURN jsonb_build_object('allowed',true,'mode',r.charge_mode,
    'heldCredits',reservation.held_credits,
-   'capCredits',reservation.cap_credits::text,'balance',(balance_now-carry)::text);
+   'capCredits',reservation.cap_credits::text,'balance',public.decke_metered_spendable(balance_now,carry)::text);
  END IF;
  effective=public.credit_effective_policy(actor,r.pricing_revision,r.override_revision);
  policy=effective->'policy';
@@ -225,13 +264,17 @@ BEGIN
   INTO payment_hold;
  available=balance_now-carry;
  IF payment_hold THEN
-  RETURN jsonb_build_object('allowed',false,'reason','payment_hold','balance',available::text);
+  RETURN jsonb_build_object('allowed',false,'mode','paid','reason','payment_hold',
+   'balance',public.decke_metered_spendable(balance_now,carry)::text);
  END IF;
- IF debt_now>0 THEN
-  RETURN jsonb_build_object('allowed',false,'reason','debt','balance',available::text,'debt',debt_now);
+ IF debt_now>0 OR carry>balance_now THEN
+  RETURN jsonb_build_object('allowed',false,'mode','paid','reason','debt',
+   'balance',public.decke_metered_spendable(balance_now,carry)::text,
+   'debt',public.decke_metered_owed(debt_now,balance_now,carry));
  END IF;
  IF available<(policy->>'legHoldMinCredits')::integer THEN
-  RETURN jsonb_build_object('allowed',false,'reason','insufficient','balance',available::text,
+  RETURN jsonb_build_object('allowed',false,'mode','paid','reason','insufficient',
+   'balance',public.decke_metered_spendable(balance_now,carry)::text,
    'needed',(policy->>'legHoldMinCredits')::integer);
  END IF;
  held=least((policy->>'legHoldCredits')::integer,balance_now);
@@ -241,16 +284,17 @@ BEGIN
  moved=public.credit_apply_delta(actor,-held,'spend','Deck-E chat hold',
   'metered-reserve:'||p_request::text,r.pricing_revision,effective);
  RETURN jsonb_build_object('allowed',true,'mode','paid','heldCredits',held,
-  'capCredits',cap::text,'balance',((moved->>'balance')::numeric-carry)::text);
+  'capCredits',cap::text,'balance',public.decke_metered_spendable((moved->>'balance')::integer,carry)::text);
 END $$;
 
 CREATE FUNCTION public.decke_metered_status(p_request uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE actor text; r public.decke_ai_request; reservation public.decke_metered_reservation; known numeric(24,12);
 BEGIN
- actor=public.decke_metered_actor(true);
  SELECT * INTO r FROM public.decke_ai_request WHERE id=p_request;
- IF NOT FOUND OR r.user_id<>actor THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ PERFORM public.decke_metered_authorize(r.user_id,true);
+ actor=r.user_id;
  SELECT * INTO reservation FROM public.decke_metered_reservation WHERE request_id=p_request;
  IF NOT FOUND THEN RAISE EXCEPTION 'Metered reservation unavailable' USING ERRCODE='42501'; END IF;
  known=public.decke_metered_known_credits(p_request);
@@ -266,9 +310,10 @@ DECLARE actor text; r public.decke_ai_request; s public.credit_spend;
  reservation public.decke_metered_reservation; first_start boolean=false;
 BEGIN
  PERFORM pg_advisory_xact_lock_shared(741290064);
- actor=public.decke_metered_actor(true);
  SELECT * INTO r FROM public.decke_ai_request WHERE id=p_request AND status='started';
- IF r.id IS NULL OR r.user_id<>actor THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ IF r.id IS NULL THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ PERFORM public.decke_metered_authorize(r.user_id,true);
+ actor=r.user_id;
  IF p_spend IS NOT NULL THEN
   s=public.credit_spend_lock_authorize(r.user_id,p_spend);
   IF s.request_key IS DISTINCT FROM (CASE WHEN p_tool='chat_turn' THEN r.request_key ELSE r.request_key||':deep:'||p_key END) THEN
@@ -321,9 +366,10 @@ BEGIN
   RAISE EXCEPTION 'Invalid external usage operation' USING ERRCODE='22023';
  END IF;
  PERFORM pg_advisory_xact_lock_shared(741290064);
- actor=public.decke_metered_actor(true);
  SELECT * INTO r FROM public.decke_ai_request WHERE id=p_request AND status='started';
- IF r.id IS NULL OR r.user_id<>actor THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ IF r.id IS NULL THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ PERFORM public.decke_metered_authorize(r.user_id,true);
+ actor=r.user_id;
  IF p_spend IS NOT NULL THEN
   s=public.credit_spend_lock_authorize(r.user_id,p_spend);
   IF s.request_key IS DISTINCT FROM r.request_key THEN
@@ -382,7 +428,7 @@ BEGIN
  IF NOT FOUND THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
  SELECT * INTO settled FROM public.decke_metered_settlement WHERE request_id=p_request;
  IF FOUND THEN
-  SELECT coalesce(b.balance,0)-coalesce(c.fractional_credits,0)
+  SELECT public.decke_metered_spendable(b.balance,c.fractional_credits)
    INTO final_balance FROM (SELECT 1) x
    LEFT JOIN public.decke_credit_balance b ON b.user_id::text=r.user_id
    LEFT JOIN public.decke_metered_credit c ON c.user_id=r.user_id;
@@ -428,7 +474,7 @@ BEGIN
   request_id,user_id,known_cost_usd,credits,whole_credits,unknown_operations,coverage,status
  ) VALUES(p_request,r.user_id,known_usd,amount,whole,unknown_count,coverage,p_status);
  UPDATE public.decke_ai_request SET status=p_status,finished_at=now(),charged_credits=amount WHERE id=p_request;
- SELECT coalesce(b.balance,0)-coalesce(c.fractional_credits,0)
+ SELECT public.decke_metered_spendable(b.balance,c.fractional_credits)
   INTO final_balance FROM (SELECT 1) x
   LEFT JOIN public.decke_credit_balance b ON b.user_id::text=r.user_id
   LEFT JOIN public.decke_metered_credit c ON c.user_id=r.user_id;
@@ -441,9 +487,8 @@ CREATE FUNCTION public.decke_metered_settle(p_request uuid,p_status text) RETURN
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE actor text; owner_id text;
 BEGIN
- actor=public.decke_metered_actor(false);
  SELECT user_id INTO owner_id FROM public.decke_ai_request WHERE id=p_request;
- IF owner_id IS NULL OR owner_id<>actor THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ PERFORM public.decke_metered_authorize(owner_id,false);
  RETURN public.decke_metered_settle_core(p_request,p_status);
 END $$;
 
@@ -533,8 +578,8 @@ BEGIN
    WHERE h.user_id=p_user AND NOT EXISTS(
     SELECT 1 FROM public.decke_import_fix_settlement s WHERE s.request_id=h.request_id)
  ) holds;
- RETURN jsonb_build_object('balance',(coalesce(b,0)-coalesce(carry,0))::text,
-  'heldCredits',open_holds,'debt',coalesce(d,0),'purchaseHold',payment_hold);
+ RETURN jsonb_build_object('balance',public.decke_metered_spendable(b,carry)::text,
+  'heldCredits',open_holds,'debt',public.decke_metered_owed(d,b,carry),'purchaseHold',payment_hold);
 END $$;
 
 CREATE OR REPLACE FUNCTION public.credit_events_read(p_user text,p_limit integer,p_offset integer) RETURNS jsonb
@@ -698,7 +743,8 @@ END $$;
 -- Creation defaults in Supabase grant broadly. Close every new object and all
 -- replaced internals before restoring only the guarded application RPCs.
 REVOKE ALL ON public.decke_metered_credit,public.decke_metered_reservation,public.decke_metered_settlement FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.decke_metered_actor(boolean),public.decke_metered_known_credits(uuid),
+REVOKE ALL ON FUNCTION public.decke_metered_actor(boolean),public.decke_metered_authorize(text,boolean),public.decke_metered_spendable(integer,numeric),
+ public.decke_metered_owed(integer,integer,numeric),public.decke_metered_known_credits(uuid),
  public.decke_metered_begin(uuid),public.decke_metered_status(uuid),
  public.decke_metered_settle_core(uuid,text),public.decke_metered_settle(uuid,text),
  public.decke_metered_recover(text) FROM PUBLIC;
@@ -711,7 +757,8 @@ BEGIN
   EXECUTE format('REVOKE ALL ON public.decke_metered_credit,public.decke_metered_reservation,public.decke_metered_settlement FROM %s',grantee_sql);
   FOREACH signature IN ARRAY ARRAY[
    'credit_validate_policy(jsonb)','credit_policy_initialize(boolean)',
-   'decke_metered_actor(boolean)','decke_metered_known_credits(uuid)',
+   'decke_metered_actor(boolean)','decke_metered_authorize(text,boolean)','decke_metered_spendable(integer,numeric)',
+   'decke_metered_owed(integer,integer,numeric)','decke_metered_known_credits(uuid)',
    'decke_metered_begin(uuid)','decke_metered_status(uuid)',
    'decke_metered_settle_core(uuid,text)','decke_metered_settle(uuid,text)',
    'decke_metered_recover(text)','decke_usage_operation_begin(uuid,uuid,text,text,text,text,text,uuid)',
