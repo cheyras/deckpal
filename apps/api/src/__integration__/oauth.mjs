@@ -137,7 +137,9 @@ export async function runOAuthIntegration({ db, as, id, test, legacy }) {
 
     await test('consent facts name the destination, and only a known callback is verified', async () => {
       const shown = await (await request('/s/oauth/client?client_id=' + lookalike + '&redirect_uri=' + encodeURIComponent(LOOKALIKE))).json();
-      assert.deepEqual(shown, { clientName: 'Claude', redirectUri: LOOKALIKE, redirectHost: 'evil.example', trust: 'unverified', verifiedName: null });
+      // canGrantDeckeImprovementRead is false here: the fixture's consenting
+      // account lacks the admin permissions the shared-chat reader requires.
+      assert.deepEqual(shown, { clientName: 'Claude', redirectUri: LOOKALIKE, redirectHost: 'evil.example', trust: 'unverified', verifiedName: null, canGrantDeckeImprovementRead: false });
       const real = await (await request('/s/oauth/client?client_id=' + claude + '&redirect_uri=' + encodeURIComponent(CLAUDE))).json();
       assert.equal(real.trust, 'verified');
       assert.equal(real.verifiedName, 'Claude');
