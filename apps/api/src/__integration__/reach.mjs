@@ -209,7 +209,7 @@ try {
       });
       assert.deepEqual(charges, [0.2, 0.2, 0.2, 0.2, 0.2]);
       assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, 1);
-      // 079 folds import fixes into the one generic carry; five 0.2 fixes net to zero there.
+      // 081 folds import fixes into the one generic carry; five 0.2 fixes net to zero there.
       assert.equal(Number((await db.query('SELECT fractional_credits FROM public.decke_metered_credit WHERE user_id=$1', [A])).rows[0].fractional_credits), 0);
       assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_import_fix_settlement WHERE user_id=$1', [A])).rows[0].n, 5);
       const pricing = await asServer(A, async (c) => (await c.query(

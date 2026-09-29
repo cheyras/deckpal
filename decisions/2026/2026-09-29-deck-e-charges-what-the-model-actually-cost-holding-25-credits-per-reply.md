@@ -26,7 +26,7 @@ The hold is risk control, not a price: 25 credits covers every reply measured
 in the replay probes with room to spare, and the 3-credit floor keeps small
 balances usable for ordinary replies.
 
-**Implications:** Migration 079 converts the current credit policy to a
+**Implications:** Migration 081 converts the current credit policy to a
 versioned metered policy and adds reservation and settlement records; the code
 keeps flat pricing until that migration runs, so it ships first and the owner
 migrates after. Balances and statements show up to four decimals. Import-fix's

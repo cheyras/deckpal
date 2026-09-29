@@ -127,7 +127,7 @@ try {
   `);
 
   const files = readdirSync(join(REPO, 'packages/db/src/migrations'))
-    .filter((file) => /^\d+.*\.sql$/.test(file) && Number(file.slice(0, 3)) <= 78).sort();
+    .filter((file) => /^\d+.*\.sql$/.test(file) && Number(file.slice(0, 3)) <= 80).sort();
   for (const file of files) {
     if (file.startsWith('021_')) await db.query('DELETE FROM public.app_user WHERE id NOT IN (SELECT id FROM auth.users)');
     await migration(file);
@@ -144,13 +144,13 @@ try {
   assert.equal(v1.policy.version, undefined);
   await db.query("SELECT public.credit_apply_delta($1,200,'grant','Metered fixture','metered-fixture-paid')", [paid]);
   const flat = (await db.query(
-    "SELECT public.credit_spend_create_effective($1,'chatTurn',$2,0,'pre-079-flat',$3) data",
+    "SELECT public.credit_spend_create_effective($1,'chatTurn',$2,0,'pre-081-flat',$3) data",
     [paid, v1.revision, hash('f')],
   )).rows[0].data;
   assert.equal(flat.allowed, true);
   assert.equal(flat.spent, 1);
   const legacyRequest = (await db.query(
-    "SELECT public.decke_usage_begin($1,NULL,NULL,NULL,'pre-079-flat',$2,'fixture',278,$3,0,'paid','') data",
+    "SELECT public.decke_usage_begin($1,NULL,NULL,NULL,'pre-081-flat',$2,'fixture',278,$3,0,'paid','') data",
     [paid, hash('f'), v1.revision],
   )).rows[0].data.id;
   await db.query(
@@ -160,9 +160,9 @@ try {
   await db.query("UPDATE public.decke_ai_operation SET status='completed',finished_at=now(),cost_usd='0.01',cost_source='provider_reported' WHERE id=$1", [id(90)]);
   await db.query("UPDATE public.decke_ai_request SET status='completed',finished_at=now(),charged_credits=1 WHERE id=$1", [legacyRequest]);
   await db.query("INSERT INTO public.decke_import_fix_credit(user_id,fractional_credits) VALUES($1,'0.4')", [paid]);
-  await migration('079_decke_metered_credits.sql');
+  await migration('081_decke_metered_credits.sql');
 
-  await test('079 creates v2 current policy while preserving exact v1 history and migrated carry', async () => {
+  await test('081 creates v2 current policy while preserving exact v1 history and migrated carry', async () => {
     const current = (await db.query('SELECT public.credit_policy_read() data')).rows[0].data;
     assert.deepEqual(current.policy, {
       version: 2, enabled: true, microUsdPerCredit: 10000, markupBps: 0,

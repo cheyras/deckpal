@@ -19,16 +19,16 @@ Jev, gating).
 - **v2 (metered):** exactly `{version:2, enabled, microUsdPerCredit, markupBps,
   lowBalance, legHoldCredits, legHoldMinCredits}`; integers;
   `1 ≤ legHoldMinCredits ≤ legHoldCredits ≤ 10000`.
-- Migration **079** inserts a new current revision in v2 shape, preserving
+- Migration **081** inserts a new current revision in v2 shape, preserving
   `enabled`, `microUsdPerCredit`, `markupBps`, `lowBalance`, with
   `legHoldCredits=25`, `legHoldMinCredits=3`. Historical revisions untouched.
 - Code decides flat vs metered **only** from the policy the request froze:
-  `version === 2` ⇒ metered. Before 079 is applied every path behaves exactly
+  `version === 2` ⇒ metered. Before 081 is applied every path behaves exactly
   as today. Nothing else (env var, feature flag) toggles it.
 - `unlimited` accounts and `enabled:false` (daily-turn mode) are unchanged in
   both versions: no hold, existing daily meter.
 
-## 1. SQL — `packages/db/src/migrations/079_decke_metered_credits.sql`
+## 1. SQL — `packages/db/src/migrations/081_decke_metered_credits.sql`
 
 Never edit shipped migrations (B4). All functions `SECURITY DEFINER SET
 search_path=pg_catalog`, schema-qualified, and — like 077 — callable only with
@@ -100,7 +100,7 @@ Entry points (exact names/signatures):
 
 - `credits/policy.ts`: `CreditPolicy = LegacyPolicy | MeteredPolicy`,
   `isMetered()`. Stored reads accept either exact shape; admin `PUT` accepts
-  the version currently stored (so an admin cannot switch to v2 before 079
+  the version currently stored (so an admin cannot switch to v2 before 081
   exists). Flat helpers remain only for v1.
 - Chat leg, metered + paid: `decke_metered_begin` replaces `reserveCredits`;
   no per-research reservation (research runs under the leg's hold, still one
@@ -138,7 +138,7 @@ Entry points (exact names/signatures):
   last credits, replayed begin/settle, chat+research+Jev sum, abort before and
   after invocation, partial/unknown cost, overrun to debt, cap refusal
   (`DKCAP`), stale recovery, frozen revision, import-fix carry migration,
-  grants/RLS, wallet/statement decimals, and v1 behaviour intact before 079.
+  grants/RLS, wallet/statement decimals, and v1 behaviour intact before 081.
 - The full `scripts/test-db-integration.mjs` run passes.
 - Unit: policy normalisation both shapes, decimal math, chat gating, header,
   web rendering/math.

@@ -103,7 +103,7 @@ BEGIN
  END LOOP;
 END $$;
 
--- Fresh databases reach 079 before runtime initialization. They must initialize
+-- Fresh databases reach 081 before runtime initialization. They must initialize
 -- directly into v2, while upgraded databases get a new immutable revision below.
 CREATE OR REPLACE FUNCTION public.credit_policy_initialize(p_enabled boolean) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
