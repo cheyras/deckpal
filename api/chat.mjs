@@ -1444,7 +1444,10 @@ async function serve(request) {
               model: observeUsageModel(gateway(choice.id), meter),
               providerOptions: chatProviderOptions(choice),
               instructions: cachedInstructions(choice, `${systemPrompt}\n\n${correctiveInstruction(corrective)}`),
-              messages: [...preparedMessages, ...(await result.response).messages],
+              // EVERY step's messages, not `result.response.messages`: in ai@7 that is the
+              // FINAL step only, so the correction ran without the turn's earlier tool
+              // calls and results (measured 2026-09-28, scripts/decke-replay-probe.mjs).
+              messages: [...preparedMessages, ...(await result.steps).flatMap((step) => step.response.messages)],
               tools: correctiveApplyTools(allDeckeTools, corrective),
               toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: corrective },
               stopWhen: stepCountIs(1),

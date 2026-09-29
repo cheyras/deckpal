@@ -469,13 +469,15 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     if (budget.spent > budget.limit + 1e-9) throw new Error(`Budget exceeded after a model call: $${budget.spent.toFixed(6)} > $${budget.limit.toFixed(6)}`)
     const resumedMessage = resumedResults.length ? { role: 'tool', content: resumedResults } : null
     if (resumedMessage) modelMessages.push(resumedMessage)
-    modelMessages.push(...(response.messages ?? []))
-    const approvals = (response.messages ?? []).flatMap((message) => Array.isArray(message.content) ? message.content : [])
+    // ai@7: `response.messages` is the FINAL step only; each step carries its own.
+    const legResponseMessages = steps.flatMap((step) => step.response?.messages ?? [])
+    modelMessages.push(...legResponseMessages)
+    const approvals = legResponseMessages.flatMap((message) => Array.isArray(message.content) ? message.content : [])
       .filter((part) => part.type === 'tool-approval-request')
     if (!approvals.length) break
     const answer = { role: 'tool', content: approvals.map((part) => ({ type: 'tool-approval-response', approvalId: part.approvalId, approved: true, reason: 'approved by the fixture reader' })) }
     modelMessages.push(answer)
-    legMessages = [...legMessages, ...(resumedMessage ? [resumedMessage] : []), ...(response.messages ?? []), answer]
+    legMessages = [...legMessages, ...(resumedMessage ? [resumedMessage] : []), ...legResponseMessages, answer]
     pendingApprovedCalls = new Set(approvals.map((part) => part.toolCallId))
     if (approvalRound === 7) throw new Error('Write approval loop exceeded 8 rounds')
   }
