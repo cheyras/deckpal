@@ -35,6 +35,7 @@ function fakeDeps(options: { deny?: boolean; detail?: Record<string, unknown>; b
   const db: Queryable = {
     async query(sql: string, params: unknown[] = []) {
       state.calls.push({ sql, params });
+      if (sql.includes('INSERT INTO public.user_settings')) return { rows: [] } as never;
       if (sql.includes('purge_expired')) return { rows: [{ decke_improvement_purge_expired: 0 }] } as never;
       if (sql.includes('decke_improvement_answer')) {
         const share = params[2] === true || sql.includes("true,'feedback'");
@@ -159,6 +160,38 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
     });
   });
 
+  it('enables share-all and shares the current chat in the same transaction', async () => {
+    const { deps, state } = fakeDeps();
+    await serve(deps, async (request) => {
+      const shared = await request('/decke/improvement/consent', post({
+        conversationId: CHAT, share: true, shareAll: true, source: 'decke_ask',
+      }));
+      assert.equal(shared.response.status, 200);
+      assert.deepEqual(shared.body, { status: 'shared', source: 'decke_ask' });
+      assert.equal(state.commits, 1);
+      assert.equal(state.rollbacks, 0);
+      assert.match(state.calls[0]!.sql, /decke_improvement_answer/);
+      assert.match(state.calls[1]!.sql, /INSERT INTO public\.user_settings/);
+      assert.deepEqual(state.calls[1]!.params, [USER]);
+      assert.equal(state.backfills.length, 1);
+    });
+  });
+
+  it('accepts shareAll only for a positive Deck-E ask', async () => {
+    const { deps, state } = fakeDeps();
+    await serve(deps, async (request) => {
+      for (const payload of [
+        { conversationId: CHAT, share: false, shareAll: true, source: 'decke_ask' },
+        { conversationId: CHAT, share: true, shareAll: false, source: 'decke_ask' },
+        { conversationId: CHAT, share: true, shareAll: true, source: 'reader' },
+      ]) {
+        const { response } = await request('/decke/improvement/consent', post(payload));
+        assert.equal(response.status, 400);
+      }
+      assert.equal(state.calls.length, 0);
+    });
+  });
+
   it('revokes the one conversation', async () => {
     const { deps } = fakeDeps();
     await serve(deps, async (request) => {
@@ -263,10 +296,13 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
   it('fails and rolls back consent or feedback when a required backfill fails', async () => {
     const { deps, state } = fakeDeps({ backfillFails: true });
     await serve(deps, async (request) => {
-      const consent = await request('/decke/improvement/consent', post({ conversationId: CHAT, share: true, source: 'reader' }));
+      const consent = await request('/decke/improvement/consent', post({
+        conversationId: CHAT, share: true, shareAll: true, source: 'decke_ask',
+      }));
       assert.equal(consent.response.status, 500);
       assert.equal(state.commits, 0);
       assert.equal(state.rollbacks, 1);
+      assert.equal(state.calls.some(({ sql }) => sql.includes('INSERT INTO public.user_settings')), true);
 
       const feedback = await request('/decke/feedback', post({ conversationId: CHAT, seq: 0, vote: 1, share: true }, 'PUT'));
       assert.equal(feedback.response.status, 500);
@@ -355,18 +391,23 @@ describe('Deck-E improvement administration', () => {
   });
 });
 
-describe('Deck-E share-prompt preference', () => {
+describe('Deck-E sharing preferences', () => {
   it('round-trips both boolean values in the public settings shape', () => {
     const base: SettingsRow = {
       default_goal: 'complete', display_currency: 'USD', pricing_enabled: true,
       show_collection_value: true, binder_pocket_size: 9, binder_stack_variants: true,
       binder_additional_variants: 'inline', decke_hidden: false, decke_share_prompts: true,
+      decke_share_all: false,
       skin: null, topbar: null, series_sort_key: 'recency', series_sort_dir: 'desc', series_group_owned: true,
     };
     assert.equal(shapeSettings(base).deckeSharePrompts, true);
     assert.equal(shapeSettings({ ...base, decke_share_prompts: false }).deckeSharePrompts, false);
+    assert.equal(shapeSettings(base).deckeShareAll, false);
+    assert.equal(shapeSettings({ ...base, decke_share_all: true }).deckeShareAll, true);
     assert.equal(strictBoolean('deckeSharePrompts', false), false);
     assert.throws(() => strictBoolean('deckeSharePrompts', 'false'), /must be a boolean/);
+    assert.equal(strictBoolean('deckeShareAll', true), true);
+    assert.throws(() => strictBoolean('deckeShareAll', 1), /must be a boolean/);
   });
 
   it('keeps the retired account-wide endpoint disabled and points old clients to per-chat sharing', () => {

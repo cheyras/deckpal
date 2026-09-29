@@ -195,10 +195,23 @@ export function createDeckeImprovementRouter(
     const body = bodyObject(req.body);
     const conversationId = uuid(body.conversationId);
     if (typeof body.share !== 'boolean') throw invalid('share must be a boolean.');
+    if (body.shareAll !== undefined && body.shareAll !== true) throw invalid('shareAll must be true when provided.');
+    if (body.shareAll === true && body.share !== true) throw invalid('shareAll requires share to be true.');
     if (typeof body.source !== 'string' || !SOURCES.has(body.source)) throw invalid('Invalid consent source.');
+    if (body.shareAll === true && body.source !== 'decke_ask') throw invalid('shareAll requires the decke_ask source.');
     const userId = currentUserId(req);
     const result = await deps.run(req, async (db) => {
       const answer = await call<JsonObject>(db, 'SELECT public.decke_improvement_answer($1,$2,$3,$4) AS data', [userId, conversationId, body.share, body.source]);
+      if (body.shareAll === true) {
+        // Match auto_share's conversation-then-settings lock order. Both writes
+        // still share deps.run's transaction, so failed backfill rolls back both.
+        await db.query(
+          `INSERT INTO public.user_settings (user_id, decke_share_all)
+           VALUES ($1, true)
+           ON CONFLICT (user_id) DO UPDATE SET decke_share_all = true`,
+          [userId],
+        );
+      }
       if (body.share) await requireBackfill(deps, db, { userId, conversationId, backfill: (answer.backfill ?? {}) as SharedBackfill });
       return answer;
     });

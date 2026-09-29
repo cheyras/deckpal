@@ -18,6 +18,17 @@ usage accounting, or account tables.
 
 - `user_settings.decke_share_prompts boolean NOT NULL DEFAULT true` means “Let
   Deck-E ask to share chats.” It permits a prompt; it does not share anything.
+- `user_settings.decke_share_all boolean NOT NULL DEFAULT false` (added by 079)
+  means “Always share my Deck-E chats.” While on, `decke_improvement_auto_share`
+  shares each undecided conversation (consent source `always`) from its first
+  recorded leg and `can_ask` returns false; a conversation already `declined` or
+  `revoked` is never auto-shared; turning it off affects future chats only. The
+  ask card's “Share all my chats” turns it on and shares the current chat.
+- Redaction is best effort (owner, 2026-09-29, following ChatGPT/Claude): the
+  guarantees are consent, admin-only access, retention and no account IDs;
+  usernames, display names and emails are removed where they appear, including
+  common encodings, and every live content write passes API redaction before
+  SQL redaction as defence in depth.
 - Consent is represented only by `decke_improvement_consent`, one row per
   conversation. Writers lock that row and write content only while its status
   is `shared`.

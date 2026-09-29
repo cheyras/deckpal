@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import pg from 'pg'
 import type { Queryable } from '@deckpal/db'
-import { backfillShared, loadIdentityTerms, recordLeg, summarizeCosts } from '../improvement.js'
+import { autoShareAndRecordLeg, backfillShared, loadIdentityTerms, recordLeg, summarizeCosts } from '../improvement.js'
 
 const record = {
   userId: 'user-1',
@@ -20,11 +20,17 @@ const record = {
 function fixture(options: {
   shared?: boolean
   writerFails?: boolean
+  autoShare?: { status: string; reason?: string; backfill?: unknown }
+  autoShareFails?: boolean
   identity?: { username: string | null; displayName: string | null; email: string | null }
 } = {}) {
   const calls: Array<{ sql: string; params: unknown[] }> = []
   const db = { query: async (sql: string, params: unknown[] = []) => {
     calls.push({ sql, params })
+    if (sql.includes('decke_improvement_auto_share')) {
+      if (options.autoShareFails) throw Object.assign(new Error('down'), { code: '57P01' })
+      return { rows: [{ data: options.autoShare ?? { status: 'skipped', reason: 'off' } }] }
+    }
     if (sql.includes('decke_improvement_is_shared')) return { rows: [{ shared: options.shared !== false }] }
     if (sql.includes('decke_improvement_identity_terms')) return { rows: [{ terms: options.identity ?? {
       username: 'Ash', displayName: 'Ash Ketchum', email: 'ash@example.com',
@@ -53,6 +59,29 @@ test('unknown operation cost makes coverage partial while preserving the known s
   assert.deepEqual(summarizeCosts([{ cost_usd: null, cost_source: 'unknown' }]), {
     costUsd: null, costCoverage: 'unknown', costSource: 'unknown',
   })
+})
+
+test('auto-share redacts its backfill before recording the current leg', async () => {
+  const { db, calls } = fixture({ autoShare: {
+    status: 'shared',
+    backfill: { turns: [{ seq: 0, asked: 'Ash asks', answered: 'ok', tools: [] }], requests: [] },
+  } })
+  assert.equal(await autoShareAndRecordLeg(db, record), true)
+  const auto = calls.findIndex(({ sql }) => sql.includes('decke_improvement_auto_share'))
+  const backfill = calls.findIndex(({ sql }) => sql.includes('decke_improvement_record_backfill'))
+  const leg = calls.findIndex(({ sql }) => sql.includes('decke_improvement_record_leg'))
+  assert.ok(auto >= 0 && auto < backfill && backfill < leg)
+  assert.match(String(calls[backfill]!.params[2]), /\[redacted\] asks/)
+})
+
+test('auto-share honors a prior decision and remains fail-open for chat', async () => {
+  const decided = fixture({ shared: false, autoShare: { status: 'skipped', reason: 'decided' } })
+  assert.equal(await autoShareAndRecordLeg(decided.db, record), false)
+  assert.equal(decided.calls.some(({ sql }) => sql.includes('decke_improvement_record_backfill')), false)
+  assert.equal(decided.calls.some(({ sql }) => sql.includes('decke_improvement_record_leg')), false)
+
+  const failed = fixture({ autoShareFails: true })
+  assert.equal(await autoShareAndRecordLeg(failed.db, record), false)
 })
 
 test('recordLeg redacts nested tool output and writes partial cost coverage', async () => {

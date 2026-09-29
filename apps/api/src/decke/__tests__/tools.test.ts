@@ -62,9 +62,9 @@ test('ask_to_share_chat draws one transient choice only when SQL allows it', asy
     { db, userId: 'user', conversationId: 'conversation' },
   ) as unknown as Record<string, { execute: (input: unknown) => Promise<string> }>
   const output = await tools.ask_to_share_chat!.execute({ reason: 'failure' })
-  assert.match(output, /Share \/ No thanks buttons/)
+  assert.match(output, /sharing choices/)
   assert.deepEqual(writes, [{
-    type: 'data-decke-consent', data: { conversationId: 'conversation', reason: 'failure' }, transient: true,
+    type: 'data-decke-consent', data: { conversationId: 'conversation', reason: 'failure', shareAll: true }, transient: true,
   }])
 })
 

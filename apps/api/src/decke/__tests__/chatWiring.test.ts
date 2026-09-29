@@ -289,10 +289,11 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
 });
 
 test('improvement capture receives identity, correlation and runs after usage finalization', () => {
-  assert.match(SRC, /import \{ recordLeg \} from '\.\.\/apps\/api\/dist\/decke\/improvement\.js'/)
+  assert.match(SRC, /import \{ autoShareAndRecordLeg \} from '\.\.\/apps\/api\/dist\/decke\/improvement\.js'/)
   assert.match(CODE, /db: chatPool\(\),\s*userId: user\.id,\s*conversationId,/)
   assert.match(CODE, /requestId: usage\.id,\s*leg: 0,\s*payload,/)
   assert.ok(CODE.indexOf("finishAiRequest(usage, 'completed', meter.spent)") < CODE.indexOf('recordImprovementWithDeadline(chatPool(),'))
+  assert.match(CODE, /autoShareAndRecordLeg\(db, record\)/)
   assert.match(CODE, /toolResult\.output/)
   assert.match(CODE, /createNarrationFilter\(\)/)
 })

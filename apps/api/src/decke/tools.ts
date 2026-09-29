@@ -1033,10 +1033,13 @@ export function buildTools(
         if (!await canAskToShare(opts.db, { userId: opts.userId, conversationId: opts.conversationId })) return unavailable
         writer.write({
           type: 'data-decke-consent',
-          data: { conversationId: opts.conversationId, reason },
+          // Capability lives in the server-authored card payload so older
+          // clients can keep their two choices while updated clients add the
+          // account-wide choice without trusting model-authored prose.
+          data: { conversationId: opts.conversationId, reason, shareAll: true },
           transient: true,
         })
-        return "The Share / No thanks buttons are under your message. Don't mention sharing again in this chat; carry on."
+        return "The sharing choices are under your message. Don't mention sharing again in this chat; carry on."
       },
     }),
   }

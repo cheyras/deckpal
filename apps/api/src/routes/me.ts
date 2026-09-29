@@ -104,6 +104,7 @@ export interface SettingsRow {
   binder_additional_variants: string;
   decke_hidden: boolean;
   decke_share_prompts: boolean;
+  decke_share_all: boolean;
   skin: string | null;
   topbar: string | null;
   series_sort_key: string;
@@ -113,7 +114,7 @@ export interface SettingsRow {
 
 const SETTINGS_COLS = `default_goal, display_currency, pricing_enabled, show_collection_value,
        binder_pocket_size, binder_stack_variants, binder_additional_variants,
-       decke_hidden, decke_share_prompts, skin, topbar, series_sort_key, series_sort_dir, series_group_owned`;
+       decke_hidden, decke_share_prompts, decke_share_all, skin, topbar, series_sort_key, series_sort_dir, series_group_owned`;
 
 export function shapeSettings(r: SettingsRow) {
   return {
@@ -126,6 +127,7 @@ export function shapeSettings(r: SettingsRow) {
     binderAdditionalVariants: r.binder_additional_variants,
     deckeHidden: r.decke_hidden,
     deckeSharePrompts: r.decke_share_prompts,
+    deckeShareAll: r.decke_share_all,
     skin: r.skin,
     topbar: r.topbar,
     seriesSortKey: r.series_sort_key,
@@ -189,6 +191,9 @@ meRouter.patch(
     if (body.deckeHidden !== undefined) push('decke_hidden', Boolean(body.deckeHidden));
     if (body.deckeSharePrompts !== undefined) {
       push('decke_share_prompts', strictBoolean('deckeSharePrompts', body.deckeSharePrompts));
+    }
+    if (body.deckeShareAll !== undefined) {
+      push('decke_share_all', strictBoolean('deckeShareAll', body.deckeShareAll));
     }
     // skin/topbar accept null: "no explicit choice — follow the app default".
     if (body.skin !== undefined) push('skin', body.skin === null ? null : strictOneOf('skin', body.skin, SKIN_VALUES));

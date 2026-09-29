@@ -678,3 +678,218 @@ COMMENT ON FUNCTION public.decke_improvement_is_shared(text,uuid) IS
  'Reports subject-owned sharing state without exposing the corpus owner HMAC.';
 COMMENT ON FUNCTION public.decke_improvement_request_telemetry(text,uuid) IS
  'Returns accounting metadata for one subject-owned request without chat content.';
+
+-- Always-share is a separate, default-off choice. Existing per-chat consent
+-- rows remain authoritative, so changing this preference never rewrites them.
+ALTER TABLE public.user_settings
+ ADD COLUMN decke_share_all boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.decke_improvement_consent
+ DROP CONSTRAINT decke_improvement_consent_source_check,
+ ADD CONSTRAINT decke_improvement_consent_source_check
+  CHECK (source IN ('decke_ask','feedback','reader','always'));
+
+-- Keep 078's answer transaction intact while admitting the server-only source
+-- used when the reader has enabled always-share.
+CREATE OR REPLACE FUNCTION public.decke_improvement_answer(
+ p_user text,p_conversation uuid,p_share boolean,p_source text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; consent_owner bytea; prior_status text; started timestamptz;
+ raw_turns jsonb; raw_requests jsonb; request_row record; affected integer;
+BEGIN
+ IF p_conversation IS NULL OR p_share IS NULL OR p_source NOT IN ('decke_ask','feedback','reader','always') THEN
+  RAISE EXCEPTION 'Invalid improvement answer' USING ERRCODE='22023';
+ END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ PERFORM 1 FROM public.decke_conversation
+  WHERE id=p_conversation AND user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation is unavailable' USING ERRCODE='P0002'; END IF;
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ INSERT INTO public.decke_improvement_consent(id,owner_key,status,source,asked_at,answered_at,updated_at)
+ VALUES(conversation,owner,CASE WHEN p_share THEN 'shared' ELSE 'declined' END,p_source,
+   CASE WHEN p_source='decke_ask' THEN now() END,now(),now())
+ ON CONFLICT(id) DO NOTHING;
+ SELECT owner_key,status INTO consent_owner,prior_status
+  FROM public.decke_improvement_consent WHERE id=conversation FOR UPDATE;
+ IF consent_owner<>owner THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+ IF NOT p_share AND prior_status IN ('shared','revoked') THEN
+  RAISE EXCEPTION 'Stop sharing through revoke' USING ERRCODE='22023';
+ END IF;
+ UPDATE public.decke_improvement_consent SET
+  status=CASE WHEN p_share THEN 'shared' ELSE 'declined' END,
+  source=p_source,answered_at=now(),updated_at=now()
+ WHERE id=conversation;
+ IF NOT p_share THEN
+  RETURN jsonb_build_object('status','declined','source',p_source,'conversationId',conversation);
+ END IF;
+
+ SELECT coalesce(min(at),now()) INTO started FROM (
+  SELECT created_at at FROM public.decke_turn WHERE conversation_id=p_conversation AND user_id::text=p_user
+  UNION ALL
+  SELECT started_at FROM public.decke_ai_request WHERE conversation_id=p_conversation AND user_id=p_user
+ ) available;
+ INSERT INTO public.decke_improvement_conversation(id,owner_key,started_at,updated_at)
+ VALUES(conversation,owner,started,now())
+ ON CONFLICT(id) DO UPDATE SET updated_at=greatest(public.decke_improvement_conversation.updated_at,EXCLUDED.updated_at)
+ WHERE public.decke_improvement_conversation.owner_key=EXCLUDED.owner_key;
+ GET DIAGNOSTICS affected=ROW_COUNT;
+ IF affected=0 THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+
+ -- Create empty turn shells for every History row.  No transcript text crosses
+ -- this boundary; the returned backfill is redacted by the API before writing.
+ INSERT INTO public.decke_improvement_turn(conversation_id,seq,started_at,build_sha,build_pr,finish_reason)
+ SELECT conversation,t.seq,t.created_at,t.build_sha,t.build_pr,t.finish_reason
+ FROM public.decke_turn t WHERE t.conversation_id=p_conversation AND t.user_id::text=p_user
+ ON CONFLICT(conversation_id,seq) DO UPDATE SET
+  started_at=least(public.decke_improvement_turn.started_at,EXCLUDED.started_at),
+  build_sha=coalesce(EXCLUDED.build_sha,public.decke_improvement_turn.build_sha),
+  build_pr=coalesce(EXCLUDED.build_pr,public.decke_improvement_turn.build_pr),
+  finish_reason=coalesce(EXCLUDED.finish_reason,public.decke_improvement_turn.finish_reason);
+
+ -- One improvement leg represents one metered request.  Operation values are
+ -- aggregated; raw request/conversation IDs are used only while deriving HMACs.
+ FOR request_row IN
+  SELECT r.*,
+   (row_number() OVER(PARTITION BY r.seq ORDER BY r.started_at,r.id)-1)::integer leg_no,
+   a.operation_count,a.known_costs,a.input_tokens,a.output_tokens,a.cache_read_tokens,
+   a.cache_write_tokens,a.reasoning_tokens,a.cost_usd,a.has_estimate,a.model_id,a.provider
+  FROM public.decke_ai_request r
+  CROSS JOIN LATERAL (
+   SELECT count(*)::integer operation_count,count(o.cost_usd)::integer known_costs,
+    sum(o.input_tokens) input_tokens,sum(o.output_tokens) output_tokens,
+    sum(o.cache_read_tokens) cache_read_tokens,sum(o.cache_write_tokens) cache_write_tokens,
+    sum(o.reasoning_tokens) reasoning_tokens,sum(o.cost_usd) cost_usd,
+    bool_or(o.cost_source='token_rate_estimate') has_estimate,
+    CASE WHEN count(DISTINCT o.model_id)=1 THEN min(o.model_id)
+         WHEN count(DISTINCT o.model_id)>1 THEN 'mixed' END model_id,
+    CASE WHEN count(DISTINCT o.provider)=1 THEN min(o.provider)
+         WHEN count(DISTINCT o.provider)>1 THEN 'mixed' END provider
+   FROM public.decke_ai_operation o WHERE o.request_id=r.id
+  ) a
+  WHERE r.conversation_id=p_conversation AND r.user_id=p_user AND r.seq IS NOT NULL
+  ORDER BY r.seq,r.started_at,r.id
+ LOOP
+  INSERT INTO public.decke_improvement_turn(conversation_id,seq,started_at,build_sha,build_pr,finish_reason)
+  VALUES(conversation,request_row.seq,request_row.started_at,request_row.build_sha,request_row.build_pr,
+    (SELECT finish_reason FROM public.decke_turn WHERE conversation_id=p_conversation AND seq=request_row.seq AND user_id::text=p_user))
+  ON CONFLICT(conversation_id,seq) DO UPDATE SET
+   started_at=least(public.decke_improvement_turn.started_at,EXCLUDED.started_at),
+   build_sha=coalesce(EXCLUDED.build_sha,public.decke_improvement_turn.build_sha),
+   build_pr=coalesce(EXCLUDED.build_pr,public.decke_improvement_turn.build_pr),
+   finish_reason=coalesce(EXCLUDED.finish_reason,public.decke_improvement_turn.finish_reason);
+  INSERT INTO public.decke_improvement_leg(
+   id,conversation_id,seq,leg,model_id,provider,started_at,finished_at,
+   input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,
+   cost_usd,cost_coverage,cost_source,status,finish_reason,build_sha,build_pr,error,tool_calls)
+  VALUES(public.decke_improvement_uuid('request:',request_row.id),conversation,request_row.seq,request_row.leg_no,
+   request_row.model_id,request_row.provider,request_row.started_at,request_row.finished_at,
+   request_row.input_tokens,request_row.output_tokens,request_row.cache_read_tokens,
+   request_row.cache_write_tokens,request_row.reasoning_tokens,request_row.cost_usd,
+   CASE WHEN request_row.known_costs=0 THEN 'unknown'
+        WHEN request_row.known_costs=request_row.operation_count THEN 'complete' ELSE 'partial' END,
+   CASE WHEN request_row.known_costs=0 THEN 'unknown'
+        WHEN request_row.has_estimate THEN 'token_rate_estimate' ELSE 'provider_reported' END,
+   request_row.status,
+   (SELECT finish_reason FROM public.decke_turn WHERE conversation_id=p_conversation AND seq=request_row.seq AND user_id::text=p_user),
+   request_row.build_sha,request_row.build_pr,NULL,'[]'::jsonb)
+  ON CONFLICT(id) DO UPDATE SET
+   model_id=EXCLUDED.model_id,provider=EXCLUDED.provider,started_at=EXCLUDED.started_at,
+   finished_at=EXCLUDED.finished_at,input_tokens=EXCLUDED.input_tokens,output_tokens=EXCLUDED.output_tokens,
+   cache_read_tokens=EXCLUDED.cache_read_tokens,cache_write_tokens=EXCLUDED.cache_write_tokens,
+   reasoning_tokens=EXCLUDED.reasoning_tokens,cost_usd=EXCLUDED.cost_usd,cost_coverage=EXCLUDED.cost_coverage,cost_source=EXCLUDED.cost_source,
+   status=EXCLUDED.status,finish_reason=EXCLUDED.finish_reason,build_sha=EXCLUDED.build_sha,build_pr=EXCLUDED.build_pr
+  WHERE public.decke_improvement_leg.conversation_id=EXCLUDED.conversation_id
+    AND public.decke_improvement_leg.seq=EXCLUDED.seq AND public.decke_improvement_leg.leg=EXCLUDED.leg;
+  PERFORM public.decke_improvement_recompute(conversation,request_row.seq);
+ END LOOP;
+
+ SELECT coalesce(jsonb_agg(jsonb_build_object(
+  'seq',t.seq,'asked',t.asked,'answered',t.answered,'tools',t.tools,
+  'buildSha',t.build_sha,'buildPr',t.build_pr,'finishReason',t.finish_reason,
+  'createdAt',t.created_at) ORDER BY t.seq),'[]'::jsonb)
+ INTO raw_turns FROM public.decke_turn t
+ WHERE t.conversation_id=p_conversation AND t.user_id::text=p_user;
+ SELECT coalesce(jsonb_agg(jsonb_build_object(
+  'requestId',r.id,'seq',r.seq,'leg',r.leg_no) ORDER BY r.seq,r.started_at,r.id),'[]'::jsonb)
+ INTO raw_requests FROM (
+  SELECT q.id,q.seq,q.started_at,
+   (row_number() OVER(PARTITION BY q.seq ORDER BY q.started_at,q.id)-1)::integer leg_no
+  FROM public.decke_ai_request q
+  WHERE q.conversation_id=p_conversation AND q.user_id=p_user AND q.seq IS NOT NULL
+ ) r;
+ RETURN jsonb_build_object('status','shared','source',p_source,'conversationId',conversation,
+  'backfill',jsonb_build_object('turns',raw_turns,'requests',raw_requests));
+END $$;
+
+-- A global sharing choice suppresses prompts before the one-per-conversation
+-- insert, while all original prompt and prior-decision rules remain unchanged.
+CREATE OR REPLACE FUNCTION public.decke_improvement_can_ask(p_user text,p_conversation uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; prompts boolean; share_all boolean; inserted integer; existing_status text;
+BEGIN
+ IF p_conversation IS NULL THEN RAISE EXCEPTION 'Conversation is required' USING ERRCODE='22023'; END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ PERFORM 1 FROM public.decke_conversation
+  WHERE id=p_conversation AND user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation is unavailable' USING ERRCODE='P0002'; END IF;
+ SELECT decke_share_prompts,decke_share_all INTO prompts,share_all FROM public.user_settings
+  WHERE user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Settings row is unavailable' USING ERRCODE='P0002'; END IF;
+ IF share_all THEN
+  RETURN jsonb_build_object('allowed',false,'reason','share_all_enabled');
+ END IF;
+ IF NOT prompts THEN
+  RETURN jsonb_build_object('allowed',false,'reason','prompts_disabled');
+ END IF;
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ INSERT INTO public.decke_improvement_consent(id,owner_key,status,source,asked_at,updated_at)
+ VALUES(conversation,owner,'asked','decke_ask',now(),now()) ON CONFLICT(id) DO NOTHING;
+ GET DIAGNOSTICS inserted=ROW_COUNT;
+ IF inserted=1 THEN RETURN jsonb_build_object('allowed',true,'reason','asked'); END IF;
+ SELECT status INTO existing_status FROM public.decke_improvement_consent
+  WHERE id=conversation AND owner_key=owner;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+ RETURN jsonb_build_object('allowed',false,'reason','already_'||existing_status);
+END $$;
+
+-- Locking the owned History conversation serialises the absent-row decision
+-- with prompt and answer writers. A prior decision can therefore never be
+-- replaced by an automatic grant, including under concurrent requests.
+CREATE FUNCTION public.decke_improvement_auto_share(p_user text,p_conversation uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; share_all boolean;
+BEGIN
+ owner=public.decke_improvement_require_writer(p_user);
+ IF p_conversation IS NULL THEN RAISE EXCEPTION 'Conversation is required' USING ERRCODE='22023'; END IF;
+ PERFORM 1 FROM public.decke_conversation
+  WHERE id=p_conversation AND user_id::text=p_user FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation is unavailable' USING ERRCODE='P0002'; END IF;
+ SELECT decke_share_all INTO share_all FROM public.user_settings
+  WHERE user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Settings row is unavailable' USING ERRCODE='P0002'; END IF;
+ IF NOT share_all THEN
+  RETURN jsonb_build_object('status','skipped','reason','off');
+ END IF;
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ IF EXISTS(SELECT 1 FROM public.decke_improvement_consent
+   WHERE id=conversation AND owner_key=owner) THEN
+  RETURN jsonb_build_object('status','skipped','reason','decided');
+ END IF;
+ RETURN public.decke_improvement_answer(p_user,p_conversation,true,'always');
+END $$;
+
+DO $always_share_acl$
+DECLARE principal text;
+BEGIN
+ FOREACH principal IN ARRAY ARRAY['PUBLIC','anon','authenticated','service_role'] LOOP
+  CONTINUE WHEN principal<>'PUBLIC' AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_auto_share(text,uuid) FROM %s',
+   CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
+  GRANT EXECUTE ON FUNCTION public.decke_improvement_auto_share(text,uuid) TO authenticated;
+ END IF;
+END $always_share_acl$;
+
+COMMENT ON FUNCTION public.decke_improvement_auto_share(text,uuid) IS
+ 'Shares one undecided subject-owned conversation only while the reader always-share setting is enabled.';

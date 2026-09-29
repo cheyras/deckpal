@@ -31,6 +31,11 @@ export interface SharedBackfill {
   requests?: BackfillRequest[]
 }
 
+interface AutoShareResult {
+  status?: string
+  backfill?: SharedBackfill
+}
+
 export interface CostSummary {
   costUsd: number | null
   costCoverage: 'complete' | 'partial' | 'unknown'
@@ -107,35 +112,66 @@ export async function recordLeg(db: Queryable, record: LegRecord): Promise<boole
   }
 }
 
+/** Auto-share, redact any History backfill, then capture this completed leg. */
+export async function autoShareAndRecordLeg(db: Queryable, record: LegRecord): Promise<boolean> {
+  try {
+    return await asWriter(db, record.userId, async (client) => {
+      const { rows } = await client.query<{ data?: AutoShareResult }>(
+        'SELECT public.decke_improvement_auto_share($1,$2) AS data',
+        [record.userId, record.conversationId],
+      )
+      const result = rows[0]?.data
+      if (result?.status === 'shared') {
+        await backfillSharedInner(client, {
+          userId: record.userId,
+          conversationId: record.conversationId,
+          backfill: result.backfill ?? {},
+        })
+      }
+      return recordLegInner(client, record)
+    })
+  } catch (error) {
+    // Collection is observational. Keep the same safe, bounded diagnostic as
+    // the per-leg writer without exposing database or identity details.
+    console.error('[deck-e] improvement leg unavailable', safeErrorCode(error))
+    return false
+  }
+}
+
 /** Redact the confidential grant response before either corpus writer sees it. */
 export async function backfillShared(
   db: Queryable,
   args: { userId: string; conversationId: string; backfill: SharedBackfill },
 ): Promise<boolean> {
   try {
-    return await asWriter(db, args.userId, async (client) => {
-      const terms = await loadIdentityTerms(client, args.userId)
-      const turns = redact(args.backfill.turns ?? [], terms)
-      await client.query(
-        'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) AS data',
-        [args.userId, args.conversationId, JSON.stringify(turns)],
-      )
-      for (const request of args.backfill.requests ?? []) {
-        await recordLegInner(client, {
-          userId: args.userId,
-          conversationId: args.conversationId,
-          seq: request.seq,
-          requestId: request.requestId,
-          leg: request.leg,
-          payload: backfillTranscript(request.seq, turns),
-        })
-      }
-      return true
-    })
+    return await asWriter(db, args.userId, (client) => backfillSharedInner(client, args))
   } catch (error) {
     console.error('[deck-e] improvement backfill unavailable', safeErrorCode(error))
     return false
   }
+}
+
+async function backfillSharedInner(
+  db: Queryable,
+  args: { userId: string; conversationId: string; backfill: SharedBackfill },
+): Promise<boolean> {
+  const terms = await loadIdentityTerms(db, args.userId)
+  const turns = redact(args.backfill.turns ?? [], terms)
+  await db.query(
+    'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) AS data',
+    [args.userId, args.conversationId, JSON.stringify(turns)],
+  )
+  for (const request of args.backfill.requests ?? []) {
+    await recordLegInner(db, {
+      userId: args.userId,
+      conversationId: args.conversationId,
+      seq: request.seq,
+      requestId: request.requestId,
+      leg: request.leg,
+      payload: backfillTranscript(request.seq, turns),
+    })
+  }
+  return true
 }
 
 async function recordLegInner(db: Queryable, record: LegRecord): Promise<boolean> {

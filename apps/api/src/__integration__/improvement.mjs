@@ -645,13 +645,126 @@ try {
     assert.equal((await db.query('SELECT count(*)::int n FROM public.credit_spend')).rows[0].n, beforeSpends);
   });
 
-  await test('share prompts default on while collection defaults empty', async () => {
-    const rows = (await db.query('SELECT decke_share_prompts FROM public.user_settings ORDER BY user_id')).rows;
+  await test('share prompts default on, always-share defaults off, and collection defaults empty', async () => {
+    const rows = (await db.query('SELECT decke_share_prompts,decke_share_all FROM public.user_settings ORDER BY user_id')).rows;
     assert.equal(rows.length, 5);
     assert.ok(rows.every((row) => row.decke_share_prompts === true));
+    assert.ok(rows.every((row) => row.decke_share_all === false));
     assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_consent')).rows[0].n, 0);
     assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_conversation')).rows[0].n, 0);
   });
+
+  const autoConversation = id(200), autoRequest = id(201);
+  const autoOffConversation = id(210), autoOffRequest = id(211);
+  const autoDeclinedConversation = id(220), autoDeclinedRequest = id(221);
+  const autoRevokedConversation = id(230), autoRevokedRequest = id(231);
+  const autoAskConversation = id(240), autoAskRequest = id(241);
+  await seedConversation({ conversation: autoConversation, request: autoRequest, operation: id(202), suffix: '200' });
+  await seedConversation({ conversation: autoOffConversation, request: autoOffRequest, operation: id(212), suffix: '210' });
+  await seedConversation({ conversation: autoDeclinedConversation, request: autoDeclinedRequest, operation: id(222), suffix: '220' });
+  await seedConversation({ conversation: autoRevokedConversation, request: autoRevokedRequest, operation: id(232), suffix: '230' });
+  await seedConversation({ conversation: autoAskConversation, request: autoAskRequest, operation: id(242), suffix: '240' });
+
+  await test('auto-share skips without the setting and leaves the conversation undecided', async () => {
+    const skipped = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [member, autoOffConversation]));
+    assert.deepEqual(skipped, { status: 'skipped', reason: 'off' });
+    const derived = (await db.query(
+      "SELECT public.decke_improvement_uuid('conversation:',$1) id", [autoOffConversation])).rows[0].id;
+    assert.equal((await db.query(
+      'SELECT count(*)::int n FROM public.decke_improvement_consent WHERE id=$1', [derived])).rows[0].n, 0);
+  });
+
+  let autoShared;
+  await test('auto-share grants an undecided chat with source always and is idempotent', async () => {
+    await session(member, (c) => c.query(
+      'UPDATE public.user_settings SET decke_share_all=true WHERE user_id=auth.uid()'));
+    const shared = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [member, autoConversation]));
+    assert.equal(shared.status, 'shared');
+    assert.equal(shared.source, 'always');
+    assert.equal(shared.backfill.turns[0].asked, 'raw Jos\u00e9 question 200');
+    assert.deepEqual(shared.backfill.requests.map((request) => request.requestId), [autoRequest]);
+    autoShared = shared.conversationId;
+    const consent = (await db.query(
+      'SELECT status,source FROM public.decke_improvement_consent WHERE id=$1', [autoShared])).rows[0];
+    assert.deepEqual(consent, { status: 'shared', source: 'always' });
+    const again = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [member, autoConversation]));
+    assert.deepEqual(again, { status: 'skipped', reason: 'decided' });
+    assert.equal((await db.query(
+      'SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE id=$1', [autoShared])).rows[0].n, 1);
+  });
+
+  await test('always-share suppresses asks and disabling it restores the normal ask rules', async () => {
+    const blocked = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_can_ask($1,$2) data', [member, autoAskConversation]));
+    assert.deepEqual(blocked, { allowed: false, reason: 'share_all_enabled' });
+    await session(member, (c) => c.query(
+      'UPDATE public.user_settings SET decke_share_all=false WHERE user_id=auth.uid()'));
+    const allowed = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_can_ask($1,$2) data', [member, autoAskConversation]));
+    assert.deepEqual(allowed, { allowed: true, reason: 'asked' });
+    assert.equal((await db.query(
+      'SELECT status FROM public.decke_improvement_consent WHERE id=$1', [autoShared])).rows[0].status, 'shared');
+    assert.equal((await db.query(
+      'SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE id=$1', [autoShared])).rows[0].n, 1);
+  });
+
+  await test('auto-share never overrides an explicit decline or revoke', async () => {
+    const declined = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,false,'decke_ask') data", [member, autoDeclinedConversation]));
+    assert.equal(declined.status, 'declined');
+    const initiallyShared = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, autoRevokedConversation]));
+    await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_revoke($1,$2) data', [member, autoRevokedConversation]));
+    await session(member, (c) => c.query(
+      'UPDATE public.user_settings SET decke_share_all=true WHERE user_id=auth.uid()'));
+    const declinedSkip = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [member, autoDeclinedConversation]));
+    const revokedSkip = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [member, autoRevokedConversation]));
+    const revokedAgain = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [member, autoRevokedConversation]));
+    assert.deepEqual(declinedSkip, { status: 'skipped', reason: 'decided' });
+    assert.deepEqual(revokedSkip, { status: 'skipped', reason: 'decided' });
+    assert.deepEqual(revokedAgain, { status: 'skipped', reason: 'decided' });
+    const decisions = (await db.query(
+      'SELECT id,status FROM public.decke_improvement_consent WHERE id=ANY($1::uuid[]) ORDER BY status',
+      [[declined.conversationId, initiallyShared.conversationId]])).rows;
+    assert.deepEqual(decisions.map((row) => row.status), ['declined', 'revoked']);
+    assert.equal((await db.query(
+      'SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE id=$1',
+      [initiallyShared.conversationId])).rows[0].n, 0);
+  });
+
+  await test('auto-share boundary is subject-scoped and unavailable to anon or PUBLIC', async () => {
+    await denied(server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [outsider, autoConversation])));
+    await denied(as(null, { role: 'anon' }, async (c) => {
+      await c.query('RESET ROLE');
+      await c.query('SET LOCAL ROLE anon');
+      return c.query('SELECT public.decke_improvement_auto_share($1,$2)', [member, autoConversation]);
+    }));
+    const privileges = (await db.query(`SELECT
+      has_function_privilege('authenticated','public.decke_improvement_auto_share(text,uuid)','EXECUTE') authenticated,
+      has_function_privilege('anon','public.decke_improvement_auto_share(text,uuid)','EXECUTE') anon,
+      EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE p.oid='public.decke_improvement_auto_share(text,uuid)'::regprocedure
+          AND acl.grantee=0 AND acl.privilege_type='EXECUTE') public`)).rows[0];
+    assert.deepEqual(privileges, { authenticated: true, anon: false, public: false });
+  });
+
+  // Keep the original suite's empty-corpus baseline after the feature cases.
+  await session(member, (c) => c.query(
+    'UPDATE public.user_settings SET decke_share_all=false WHERE user_id=auth.uid()'));
+  const autoFixtures = [autoConversation, autoOffConversation, autoDeclinedConversation,
+    autoRevokedConversation, autoAskConversation];
+  await db.query('DELETE FROM public.decke_conversation WHERE id=ANY($1::uuid[])', [autoFixtures]);
+  await db.query(`DELETE FROM public.decke_improvement_consent WHERE id IN (
+    SELECT public.decke_improvement_uuid('conversation:',raw_id) FROM unnest($1::uuid[]) raw(raw_id)
+  )`, [autoFixtures]);
 
   await test('legacy account-wide sharing is disabled and unshared chats remain metadata-only', async () => {
     const legacy = (await db.query('SELECT enabled FROM public.decke_sharing WHERE user_id=$1', [member])).rows[0];

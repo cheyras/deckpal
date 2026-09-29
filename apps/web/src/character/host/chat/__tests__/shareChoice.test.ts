@@ -10,3 +10,11 @@ test('a share choice can only be answered once', () => {
   assert.equal(state, 'shared')
   assert.equal(shareChoiceReducer(state, { type: 'choose', share: false }), 'shared')
 })
+
+test('sharing all chats follows the same one-answer guard', () => {
+  let state = shareChoiceReducer('open', { type: 'choose', share: true })
+  assert.equal(state, 'sharing')
+  state = shareChoiceReducer(state, { type: 'settled', share: true })
+  assert.equal(state, 'shared')
+  assert.equal(shareChoiceReducer(state, { type: 'choose', share: true }), 'shared')
+})

@@ -12,12 +12,12 @@ export function shareChoiceReducer(status: ShareChoiceStatus, action: ShareChoic
   return action.share ? 'shared' : 'declined'
 }
 
-export function ShareChoice({ onChoose }: { onChoose: (share: boolean) => Promise<void> }) {
+export function ShareChoice({ onChoose }: { onChoose: (share: boolean, shareAll?: boolean) => Promise<void> }) {
   const [status, dispatch] = useReducer(shareChoiceReducer, 'open')
-  const choose = (share: boolean) => {
+  const choose = (share: boolean, shareAll = false) => {
     if (status !== 'open') return
     dispatch({ type: 'choose', share })
-    void onChoose(share).then(
+    void onChoose(share, shareAll).then(
       () => dispatch({ type: 'settled', share }),
       () => dispatch({ type: 'retry' }),
     )
@@ -38,13 +38,17 @@ export function ShareChoice({ onChoose }: { onChoose: (share: boolean) => Promis
         <button type="button" disabled={waiting} onClick={() => choose(true)} className="rounded-[8px] bg-action-primary px-[10px] py-[5px] text-[12px] font-semibold text-action-primary-text disabled:opacity-60">
           Share this chat
         </button>
+        <button type="button" disabled={waiting} onClick={() => choose(true, true)} className="rounded-[8px] border border-border-default px-[10px] py-[5px] text-[12px] font-semibold text-text-body hover:bg-surface-secondary disabled:opacity-60">
+          Share all my chats
+        </button>
         <button type="button" disabled={waiting} onClick={() => choose(false)} className="rounded-[8px] border border-border-default px-[10px] py-[5px] text-[12px] font-semibold text-text-body hover:bg-surface-secondary disabled:opacity-60">
           No thanks
         </button>
       </div>
       <p className="mt-[5px] text-[10.5px] leading-[15px] text-text-muted">
-        Names removed · the DeckPal team can read it for 180 days · <a href="/privacy#deck-e" className="underline underline-offset-2">What’s shared</a>
+        Names are removed where we can · the DeckPal team can read it for 180 days · <a href="/privacy#deck-e" className="underline underline-offset-2">What’s shared</a>
       </p>
+      <p className="mt-[2px] text-[10.5px] leading-[15px] text-text-muted">You can turn off sharing all chats in Profile.</p>
     </div>
   )
 }

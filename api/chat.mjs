@@ -131,7 +131,7 @@ import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { checkDeck } from '../apps/api/dist/decke/deckCheck.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
-import { recordLeg } from '../apps/api/dist/decke/improvement.js'
+import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
@@ -1600,7 +1600,7 @@ async function recordImprovementWithDeadline(db, record) {
   let timer
   try {
     await Promise.race([
-      recordLeg(db, record),
+      autoShareAndRecordLeg(db, record),
       new Promise((resolve) => { timer = setTimeout(() => resolve(false), 1_500) }),
     ])
   } catch {

@@ -475,25 +475,24 @@ export function Privacy() {
                 keeping the chat’s content for that purpose.
               </li>
             </Bullets>
-            <H3>Sharing one chat to improve Deck-E</H3>
+            <H3>Sharing chats to improve Deck-E</H3>
             <P>
-              Nothing from a Deck-E chat is kept for improvement unless you agree to share that particular chat.
-              The retired account-wide sharing switch no longer saves any chat content.
-              Deck-E may ask when something clearly went wrong, or you can tick <strong>Share this chat</strong> with
-              your feedback. You can turn off the <strong>Let Deck-E ask to share chats</strong> setting at any time;
-              it controls whether he may ask, not whether a chat is shared.
+              You can share one chat when Deck-E asks or with your feedback. You can also turn on <strong>Always share
+              my Deck-E chats</strong> in Profile: new chats will then be shared from their first recorded part.
+              Turning it off affects future chats only; chats already shared stay shared until you stop them in History.
+              The <strong>Let Deck-E ask to share chats</strong> setting only matters while always sharing is off.
             </P>
             <P>
               When you share a chat, DeckPal keeps its messages and replies, tool activity with full results,
-              approvals, feedback, animations, timings, model and cost information. We remove your username,
-              display name and email, and do not keep your user ID or IP address in this improvement copy. Things you
-              type about yourself, or a very distinctive collection, could still identify you — this is
+              approvals, feedback, animations, timings, model and cost information. Access is limited to DeckPal
+              administrators and the tools they explicitly authorise, and shared chats are kept for 180 days. We do not
+              keep your account ID in this improvement copy, and make a best effort to remove your username, display
+              name and email wherever they appear, including common encodings. Things you type about yourself, or a
+              very distinctive collection, could still identify you — this is
               pseudonymised, not anonymous.
             </P>
             <P>
-              Shared chats can be read by DeckPal administrators and the tools they authorise to help improve Deck-E.
-              We keep them for 180 days. History marks a shared chat as Shared; choosing Stop sharing there deletes its
-              saved copy.
+              History marks a shared chat as Shared; choosing Stop sharing there deletes its saved copy.
             </P>
           </Section>
 

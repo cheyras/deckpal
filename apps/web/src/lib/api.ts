@@ -1381,6 +1381,7 @@ export interface UserSettings {
   binderAdditionalVariants: 'hide' | 'inline' | 'end'
   deckeHidden: boolean
   deckeSharePrompts: boolean
+  deckeShareAll: boolean
   skin: 'premium' | 'classic' | null
   topbar: 'cover' | 'flat' | null
   seriesSortKey: 'recency' | 'az' | 'pct'
@@ -1741,8 +1742,8 @@ export const api = {
     get<DeckeConversation>(`/decke/history/${encodeURIComponent(id)}`, signal),
   deckeHistoryDelete: (id: string) =>
     send<{ ok: true }>('DELETE', `/decke/history/${encodeURIComponent(id)}`),
-  deckeImprovementConsent: (body: { conversationId: string; share: boolean; source: 'decke_ask' | 'feedback' | 'reader' }) =>
-    send<{ status: 'shared' | 'declined'; source: 'decke_ask' | 'feedback' | 'reader' }>('POST', '/decke/improvement/consent', body),
+  deckeImprovementConsent: (body: { conversationId: string; share: boolean; shareAll?: boolean; source: 'always' | 'decke_ask' | 'feedback' | 'reader' }) =>
+    send<{ status: 'shared' | 'declined'; source: 'always' | 'decke_ask' | 'feedback' | 'reader' }>('POST', '/decke/improvement/consent', body),
   deckeImprovementMine: (signal?: AbortSignal) =>
     get<DeckeImprovementMine>('/decke/improvement/mine', signal),
   deckeFeedbackMine: (conversationId: string, signal?: AbortSignal) =>
