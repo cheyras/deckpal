@@ -210,12 +210,14 @@ function termPattern(term: CanonicalTerm): RegExp {
 
 /** Search one normalized decoded view without rewriting it. */
 /**
- * Case-fold for detection: locale-independent lowercasing, with final sigma
- * folded to σ. Lowercasing is context-sensitive in JS ('ΝΊΚΟΣ' → 'νίκος') but
- * not in PostgreSQL ('νίκοσ'); folding both makes the two layers agree.
+ * Fold for DETECTION, identical to SQL's decke_improvement_fold: lowercase,
+ * decompose, strip combining marks, final sigma → σ. It absorbs where JS and
+ * PostgreSQL lowercasing disagree (U+0130 → 'i' + U+0307 here but 'i' there;
+ * final sigma is contextual only here) and deliberately errs broad: 'Jose'
+ * also matches 'José'.
  */
 function fold(value: string): string {
-  return value.toLowerCase().replaceAll('ς', 'σ')
+  return value.toLowerCase().normalize('NFKD').replace(/\p{M}+/gu, '').replaceAll('ς', 'σ')
 }
 
 function containsIdentity(value: string, terms: readonly CanonicalTerm[]): boolean {

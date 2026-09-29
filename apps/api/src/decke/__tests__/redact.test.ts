@@ -68,6 +68,10 @@ test('Greek final sigma matches in every case and encoding', () => {
     assert.match(redact(input, ['Νίκος']), /\[redacted\]/, input)
   }
   assert.match(redact('%CE%9F%CE%94%CE%A5%CE%A3%CE%A3%CE%95%CE%8E%CE%A3', ['Οδυσσεύς']), /\[redacted\]/)
+  // U+0130 lowercases to 'i' + U+0307 in JS but 'i' in PostgreSQL; the fold absorbs both.
+  for (const input of ['%69%CC%87%70%65%6B', '%C4%B0%70%65%6B', 'ipek', 'İPEK']) {
+    assert.match(redact(input, ['İpek']), /\[redacted\]/, input)
+  }
 })
 
 test('redacts URL, form, HTML-entity and Unicode normalization variants recursively', () => {

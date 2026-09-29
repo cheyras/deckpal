@@ -161,6 +161,18 @@ BEGIN
  RETURN normalize(out_text,NFKC);
 END $$;
 
+-- Case/diacritic fold used only for DETECTION, identical to the API's fold():
+-- lowercase, decompose, strip combining marks, final sigma → σ. It absorbs
+-- where PostgreSQL's per-character lower() and JavaScript's full Unicode
+-- lowercasing disagree (U+0130 lowers to 'i' + U+0307 in JS but 'i' here;
+-- final sigma is contextual in JS only), and it is deliberately broader than
+-- either: 'Jose' also matches 'José', which errs toward redacting.
+CREATE FUNCTION public.decke_improvement_fold(p_text text) RETURNS text
+LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+ SELECT translate(regexp_replace(normalize(lower(normalize(p_text,NFKC) COLLATE "C.utf8"),NFKD),
+   '[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]','','g'),'ς','σ')
+$$;
+
 CREATE OR REPLACE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE literal text; current_view text; candidate text; normalized_view text; term text; lowered_term text;
@@ -193,12 +205,11 @@ BEGIN
  IF total_characters>character_budget THEN RETURN '[redacted]'; END IF;
  WHILE head<=coalesce(cardinality(views),0) LOOP
   current_view=views[head]; current_depth=depths[head];
-  -- lower() is not context-sensitive: an encoded 'ΝΊΚΟΣ' lowers to 'νίκοσ'
-  -- while the stored term is 'νίκος'. Fold final sigma on both sides so SQL
-  -- detection is at least as strict as the API's case-insensitive oracle.
-  normalized_view=translate(lower(normalize(current_view,NFKC) COLLATE "C.utf8"),'ς','σ');
+  -- Both sides through the same fold, so SQL detection is at least as strict
+  -- as the API's (see decke_improvement_fold).
+  normalized_view=public.decke_improvement_fold(current_view);
   FOREACH term IN ARRAY detection_terms LOOP
-   lowered_term=translate(lower(term COLLATE "C.utf8"),'ς','σ');
+   lowered_term=public.decke_improvement_fold(term);
    IF char_length(term)>=3 THEN
     IF strpos(normalized_view,lowered_term)>0 THEN RETURN '[redacted]'; END IF;
    ELSE
@@ -491,6 +502,7 @@ BEGIN
   CONTINUE WHEN principal<>'PUBLIC' AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_run(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_decode(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_fold(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_scalar(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_json_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_html_entities(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
