@@ -31,7 +31,8 @@ const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const owner = id(1), member = id(2), outsider = id(3), newcomer = id(4), plusMember = id(5);
 const slash = String.fromCharCode(92);
 const identityTerms = ['John Smith', 'José', 'jsmith@example.invalid', 'alice+tag@example.invalid'];
-const lenientDecoder = new TextDecoder('utf-8', { fatal: false });
+const unicodeTerms = ['é', 'Иван', 'דוד', 'محمد', '李', '😀'];
+const utf8ClassTerms = ['é', '\u0800', '李', '\uD7E3', '\uE000', '😀', '\u{40000}', '\u{100000}', 'Иван', 'דוד', 'محمد'];
 
 function percentEncode(value) {
   return [...Buffer.from(value, 'utf8')].map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, '0')}`).join('');
@@ -44,37 +45,109 @@ function encodeDepth(value, depth) {
 
 function lenientPercentDecode(value) {
   return value.replace(/(?:%[0-9a-f]{2})+/giu, (run) => {
-    const bytes = Uint8Array.from(run.match(/%[0-9a-f]{2}/giu), (token) => Number.parseInt(token.slice(1), 16));
-    return lenientDecoder.decode(bytes).replaceAll('\u0000', '\uFFFD');
+    const bytes = run.match(/%[0-9a-f]{2}/giu).map((token) => Number.parseInt(token.slice(1), 16));
+    return Buffer.from(bytes).toString('utf8').replaceAll('\u0000', '\uFFFD');
   });
 }
 
-function literalDecode(value) {
-  return value
-    .replace(/\\u([0-9a-f]{4})/giu, (_match, hex) => {
-      const point = Number.parseInt(hex, 16);
+function jsonEscapeDecode(value) {
+  return value.replace(
+    /\\u([dD][89aAbB][0-9a-f]{2})\\u([dD][c-fC-F][0-9a-f]{2})|\\u([0-9a-f]{4})/giu,
+    (_match, highHex, lowHex, scalarHex) => {
+      let point;
+      if (highHex !== undefined) {
+        const high = Number.parseInt(highHex, 16);
+        const low = Number.parseInt(lowHex, 16);
+        point = 0x10000 + ((high - 0xD800) * 0x400) + (low - 0xDC00);
+      } else {
+        point = Number.parseInt(scalarHex, 16);
+      }
       return point === 0 || (point >= 0xD800 && point <= 0xDFFF) ? '\uFFFD' : String.fromCodePoint(point);
-    })
-    .replace(/&(?:commat;|#0*64;|#x0*40;)/giu, '@');
+    },
+  );
 }
 
-function assertIdentitySafe(value, label, terms = identityTerms) {
-  let view = value;
-  for (let depth = 0; depth <= 3; depth++) {
-    for (const form of [false, true]) {
-      const candidate = literalDecode(form ? view.replaceAll('+', ' ') : view).normalize('NFKC').toLocaleLowerCase();
-      for (const term of terms) {
-        for (const expected of [term, term.replaceAll('+', ' ')]) {
-          assert.equal(candidate.includes(expected.normalize('NFKC').toLocaleLowerCase()), false,
-            `${label} leaked ${term} at depth ${depth}${form ? ' form' : ''}: ${value}`);
+function htmlEntityDecode(value) {
+  const named = { commat: '@', quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' };
+  return value.replace(/&#(?:x([0-9a-f]{1,6})|([0-9]{1,7}));|&(commat|quot|apos|lt|gt|amp);/giu,
+    (_match, hex, decimal, entity) => {
+      if (entity !== undefined) return named[entity.toLowerCase()];
+      const point = Number.parseInt(hex ?? decimal, hex === undefined ? 10 : 16);
+      return point === 0 || point > 0x10FFFF || (point >= 0xD800 && point <= 0xDFFF)
+        ? '\uFFFD' : String.fromCodePoint(point);
+    });
+}
+
+// This test oracle deliberately explores the primitive decoders in every
+// order. It does not share the production redactor's fixed-step pipeline.
+function independentlyDecodedViews(value, maxDepth = 5) {
+  const decoders = [lenientPercentDecode, jsonEscapeDecode, htmlEntityDecode, (input) => input.replaceAll('+', ' ')];
+  const seen = new Set([value]);
+  let frontier = [value];
+  for (let depth = 1; depth <= maxDepth; depth++) {
+    const next = [];
+    for (const view of frontier) {
+      for (const decode of decoders) {
+        const candidate = decode(view);
+        if (!seen.has(candidate)) {
+          seen.add(candidate);
+          next.push(candidate);
         }
       }
     }
-    view = lenientPercentDecode(view);
+    frontier = next;
+    if (frontier.length === 0) break;
+  }
+  return seen;
+}
+
+function assertIdentitySafe(value, label, terms = identityTerms) {
+  for (const view of independentlyDecodedViews(value)) {
+    const candidate = view.normalize('NFKC').toLowerCase();
+    for (const term of terms) {
+      for (const expected of [term, term.replaceAll('+', ' ')]) {
+        assert.equal(candidate.includes(expected.normalize('NFKC').toLowerCase()), false,
+          `${label} leaked ${term} after independent decoding: ${value}`);
+      }
+    }
   }
 }
 
-function seededRedactionCorpus(terms = identityTerms, size = 240, seed = 0x268079) {
+function jsonEscapeFirst(value) {
+  const first = String.fromCodePoint(value.codePointAt(0));
+  let escaped = '';
+  for (let index = 0; index < first.length; index++) {
+    escaped += `${slash}u${first.charCodeAt(index).toString(16).padStart(4, '0')}`;
+  }
+  return escaped + value.slice(first.length);
+}
+
+function htmlEncodeFirst(value) {
+  const first = String.fromCodePoint(value.codePointAt(0));
+  return `&#x${first.codePointAt(0).toString(16)};${value.slice(first.length)}`;
+}
+
+function percentEncodeFirst(value) {
+  const first = String.fromCodePoint(value.codePointAt(0));
+  return percentEncode(first) + value.slice(first.length);
+}
+
+function formEncode(value) {
+  return value.replaceAll(' ', '+');
+}
+
+function encodingSequences(maxDepth = 4) {
+  const encoders = [percentEncodeFirst, jsonEscapeFirst, htmlEncodeFirst, formEncode];
+  const sequences = [[]];
+  let frontier = [[]];
+  for (let depth = 1; depth <= maxDepth; depth++) {
+    frontier = frontier.flatMap((sequence) => encoders.map((encode) => [...sequence, encode]));
+    sequences.push(...frontier);
+  }
+  return sequences;
+}
+
+function seededRedactionCorpus(terms = identityTerms, seed = 0x268079) {
   const malformed = ['', '%FF', '%00', '%C3'];
   const separators = [' | ', ' C++ ', ' 100% ', ' 50%off ', ' &amp; '];
   let state = seed >>> 0;
@@ -82,24 +155,32 @@ function seededRedactionCorpus(terms = identityTerms, size = 240, seed = 0x26807
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
     return state;
   };
-  const corpus = [];
-  for (let index = 0; index < size; index++) {
-    const term = terms[index % terms.length];
-    const depth = Math.floor(index / terms.length) % 4;
+  const corpus = encodingSequences().map((encoders, index) => {
+    const term = encoders.includes(formEncode)
+      ? terms.find((candidate) => candidate.includes(' ')) ?? terms[0]
+      : terms[index % terms.length];
     const poison = malformed[Math.floor(index / 16) % malformed.length];
     const separator = separators[next() % separators.length];
-    let representation = encodeDepth(term, depth);
-    if (index % 17 === 0) representation = [...term].map((character) =>
-      `${slash}u${character.charCodeAt(0).toString(16).padStart(4, '0')}`).join('');
-    if (index % 19 === 0 && term.includes('@')) representation = term.replace('@', index % 2 ? '&#64;' : '&commat;');
-    corpus.push(`case-${index}${separator}${poison}${representation}${poison}${separator}tail`);
+    const representation = encoders.reduce((value, encode) => encode(value), term);
+    return `sequence-${index}${separator}${poison}${representation}${poison}${separator}tail`;
+  });
+  for (let index = 0; index < 240; index++) {
+    const separator = separators[next() % separators.length];
+    const pieces = terms.map((term, termIndex) => {
+      const poison = malformed[(index + termIndex) % malformed.length];
+      return poison + encodeDepth(term, (index + termIndex) % 4) + poison;
+    });
+    corpus.push(`mixed-${index}${separator}${pieces.join(separator)}${separator}tail`);
   }
   const exactTerm = terms[0];
+  const escapedPercent = percentEncode(exactTerm).replaceAll('%', `${slash}u0025`);
   corpus.push(
     `%FF${encodeDepth(exactTerm, 1)}%FF`,
     `%00${encodeDepth(exactTerm, 1)}`,
     [1, 2, 3].map((depth) => encodeDepth(exactTerm, depth)).join(' | '),
     terms.map((term, index) => encodeDepth(term, index % 4)).join(' | '),
+    escapedPercent,
+    escapedPercent.replaceAll(slash, '%5C'),
   );
   return corpus;
 }
@@ -242,6 +323,8 @@ try {
   // Seed the exact representations that 078 failed to redact so 079 must
   // repair retained rows, not merely protect new writes.
   const retainedConversation = id(96), retainedRequest = id(97);
+  const escapedPercentJohn = percentEncode('John Smith').replaceAll('%', `${slash}u0025`);
+  const percentEscapedPercentJohn = escapedPercentJohn.replaceAll(slash, '%5C');
   await seedConversation({ conversation: retainedConversation, request: retainedRequest, operation: id(98), suffix: '96' });
   let retainedShared;
   await test('pre-079 corpus fixture contains encoded identities needing repair', async () => {
@@ -255,13 +338,42 @@ try {
           highSurrogate: String.raw`\uD800`, lowSurrogate: String.raw`\uDC00`,
         }] },
       ])]));
+    const retainedTools = [{
+      unsupported: '%5Cu0000', nul: '%00', invalidUtf8: '%FF', encodedSurrogate: '%ED%A0%80',
+      highSurrogate: String.raw`\uD800`, lowSurrogate: String.raw`\uDC00`,
+      escapedPercent: escapedPercentJohn, percentEscapedPercent: percentEscapedPercentJohn,
+    }];
+    // These model values already held by 078, including the review-4 decoder
+    // compositions that its writer could not recognise.
+    await db.query('UPDATE public.decke_improvement_turn SET tools=$1::jsonb WHERE conversation_id=$2',
+      [JSON.stringify(retainedTools), retainedShared]);
     const before = (await db.query('SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedShared])).rows[0];
     assert.equal(before.asked, 'JOS%C3%89');
     assert.equal(before.answered, '%4A%6F%68%6E%20%53%6D%69%74%68');
     assert.deepEqual(before.tools[0], {
       unsupported: '%5Cu0000', nul: '%00', invalidUtf8: '%FF', encodedSurrogate: '%ED%A0%80',
       highSurrogate: String.raw`\uD800`, lowSurrogate: String.raw`\uDC00`,
+      escapedPercent: escapedPercentJohn, percentEscapedPercent: percentEscapedPercentJohn,
     });
+  });
+
+  const retainedUnicodeConversation = id(296), retainedUnicodeRequest = id(297);
+  await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['Иван', plusMember]);
+  await seedConversation({
+    conversation: retainedUnicodeConversation, request: retainedUnicodeRequest,
+    operation: id(298), suffix: '296', user: plusMember,
+  });
+  let retainedUnicodeShared;
+  await test('pre-079 corpus fixture contains case-varied Cyrillic beside malformed bytes', async () => {
+    const answer = await server(plusMember, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [plusMember, retainedUnicodeConversation]));
+    retainedUnicodeShared = answer.conversationId;
+    const encoded = `%FF${percentEncode('ИВАН')}%C3`;
+    await server(plusMember, (c) => data(c,
+      'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) data',
+      [plusMember, retainedUnicodeConversation, JSON.stringify([{ seq: 0, asked: encoded, answered: '', tools: [] }])]));
+    assert.equal((await db.query(
+      'SELECT asked FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedUnicodeShared])).rows[0].asked, encoded);
   });
 
   const retainedFeedbackConversation = id(196), retainedFeedbackRequest = id(197);
@@ -315,11 +427,21 @@ try {
     assert.deepEqual(repaired.tools[0], {
       unsupported: '%5Cu0000', nul: '%00', invalidUtf8: '%FF', encodedSurrogate: '%ED%A0%80',
       highSurrogate: String.raw`\uD800`, lowSurrogate: String.raw`\uDC00`,
+      escapedPercent: '[redacted]', percentEscapedPercent: '[redacted]',
     });
     // Keep the original suite's empty-corpus baseline after exercising the
     // migration repair path.
     await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedConversation]);
     await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [retainedShared]);
+  });
+
+  await test('079 repairs valid Cyrillic UTF-8 surrounded by malformed bytes', async () => {
+    const repaired = (await db.query(
+      'SELECT asked FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedUnicodeShared])).rows[0].asked;
+    assert.equal(repaired, '[redacted]');
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedUnicodeConversation]);
+    await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [retainedUnicodeShared]);
+    await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['Alice Trainer', plusMember]);
   });
 
   await test('079 bounds repaired maximum-length feedback after redaction', async () => {
@@ -385,10 +507,19 @@ try {
       ['John Smith + JOS%25C3%2589 keeps C++'],
     )).rows[0].value;
     assert.equal(mixed, '[redacted]');
+    const unicodeSpellings = ['É', '\u0800', '李', '\uD7E3', '\uE000', '😀', '\u{40000}', '\u{100000}', 'ИВАН', 'דוד', 'محمد'];
+    const unicodeRows = (await db.query(`SELECT ordinality::int index,
+      public.decke_improvement_redact_text('%FF'||value||'%00%C3',$2::text[]) value
+      FROM unnest($1::text[]) WITH ORDINALITY input(value,ordinality) ORDER BY ordinality`,
+    [unicodeSpellings.map(percentEncode), utf8ClassTerms])).rows;
+    unicodeRows.forEach((row, index) =>
+      assertIdentitySafe(row.value, `SQL UTF-8 class ${row.index}`, [utf8ClassTerms[index]]));
   });
 
   await test('near-limit nested percent input redacts within a two-second statement timeout', async () => {
-    const prefix = 'x%2520'.repeat(Math.floor((1024 * 1024 - 20) / 7));
+    const unit = 'x%2520';
+    const prefix = unit.repeat(Math.floor((1024 * 1024) / unit.length));
+    assert.ok(Buffer.byteLength(prefix) >= (1024 * 1024) - unit.length);
     const encoded = prefix + 'JOS%25C3%2589';
     await db.query('BEGIN');
     try {
@@ -627,7 +758,12 @@ try {
     assert.ok(corpus.includes('%FF%4A%6F%68%6E%20%53%6D%69%74%68%FF'));
     assert.ok(corpus.includes('%00%4A%6F%68%6E%20%53%6D%69%74%68'));
     assert.ok(corpus.includes([1, 2, 3].map((depth) => encodeDepth('John Smith', depth)).join(' | ')));
-    const safe = ['C++ is 100% useful', '50%off is prose', '%FF and %00 without a name'];
+    assert.ok(corpus.includes(escapedPercentJohn));
+    assert.ok(corpus.includes(percentEscapedPercentJohn));
+    const safe = [
+      'C++ is 100% useful', '50%off is prose', '%FF and %00 without a name',
+      'Fish &amp; chips', String.raw`literal \u0041 and %2520`,
+    ];
     const keyed = Object.fromEntries(corpus.slice(-4).map((value, index) => [value, index]));
     keyed['C++ key'] = 'unchanged';
     const answer = await server(member, (c) => data(c,
@@ -647,6 +783,19 @@ try {
       [member, propertyConversation, JSON.stringify(rawEvent)]));
     assert.equal(event.recorded, true);
 
+    const unicodeSpellings = ['É', 'ИВАН', 'דוד', 'محمد', '李', '😀'];
+    for (let index = 0; index < unicodeTerms.length; index++) {
+      await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', [unicodeTerms[index], member]);
+      const value = `%FF${percentEncode(unicodeSpellings[index])}%00%C3`;
+      const recorded = await server(member, (c) => data(c,
+        'SELECT public.decke_improvement_record_events($1,$2,0,$3,$4::jsonb) data',
+        [member, propertyConversation, 80 + index, JSON.stringify([{
+          kind: 'notice', at: '2026-09-28T18:00:00Z', payload: { value },
+        }])]));
+      assert.equal(recorded.recorded, true);
+    }
+    await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['John Smith', member]);
+
     const detail = await session(owner, (c) => data(c,
       'SELECT public.decke_improvement_detail($1) data', [answer.conversationId]));
     const apiPayload = detail.turns[0].tools[0];
@@ -661,6 +810,10 @@ try {
     assert.deepEqual(sqlPayload.safe, safe);
     assert.equal(apiPayload.keyed['C++ key'], 'unchanged');
     assert.equal(sqlPayload.keyed['C++ key'], 'unchanged');
+    for (let index = 0; index < unicodeTerms.length; index++) {
+      const payload = detail.turns[0].events.find((item) => item.batch === 80 + index).payload;
+      assertIdentitySafe(payload.value, `SQL Unicode writer ${index}`, [unicodeTerms[index]]);
+    }
 
     // The SQL primitive also receives the complete cross-account term set so
     // this property covers every identity spelling in one deterministic run.

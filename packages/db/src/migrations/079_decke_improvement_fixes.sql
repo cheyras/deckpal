@@ -8,7 +8,7 @@
 -- bytes and PostgreSQL's unsupported NUL scalar to the replacement character.
 CREATE FUNCTION public.decke_improvement_percent_run(p_run text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE token_pattern text:='(%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%[cC][2-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[0-9A-Fa-f]{2})';
+DECLARE token_pattern text:='(%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%(?:[cC][2-9A-Fa-f]|[dD][0-9A-Fa-f])%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[0-9A-Fa-f]{2})';
  decoded text;
 BEGIN
  SELECT string_agg(CASE WHEN lower(m[1])='%00' OR char_length(m[1])=3 AND m[1]!~'^%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])$'
@@ -22,7 +22,7 @@ END $$;
 CREATE FUNCTION public.decke_improvement_percent_decode(p_text text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE pieces text[]; runs text[]; out_text text;
- valid_utf8 text:='^(?:%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%[cC][2-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f])+$';
+ valid_utf8 text:='^(?:%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%(?:[cC][2-9A-Fa-f]|[dD][0-9A-Fa-f])%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f])+$';
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
  pieces=regexp_split_to_array(p_text,'(?:%[0-9A-Fa-f]{2})+');
@@ -65,11 +65,11 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN RETURN chr(65533);
 END $$;
 
--- JSON and numeric-entity scalars use the same split/aggregate shape as
--- percent runs. NUL and unpaired surrogates become the replacement character.
-CREATE FUNCTION public.decke_improvement_decode_escapes(p_text text) RETURNS text
+-- JSON scalars are decoded before HTML entities so one bounded decoding step
+-- has the same order in SQL as it does in the API redactor.
+CREATE FUNCTION public.decke_improvement_decode_json_escapes(p_text text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE pattern text:='(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|&#[xX][0-9A-Fa-f]{1,6};|&#[0-9]{1,7};)';
+DECLARE pattern text:='(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4})';
  pieces text[]; runs text[]; out_text text;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
@@ -78,17 +78,38 @@ BEGIN
  SELECT string_agg(piece||CASE WHEN run IS NULL THEN '' ELSE public.decke_improvement_decode_scalar(run) END,
    '' ORDER BY ordinality)
  INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
- out_text=regexp_replace(coalesce(out_text,''),'&commat;','@','gi');
- out_text=regexp_replace(out_text,'&quot;','"','gi');
- out_text=regexp_replace(out_text,'&apos;','''','gi');
- out_text=regexp_replace(out_text,'&lt;','<','gi');
- out_text=regexp_replace(out_text,'&gt;','>','gi');
- RETURN regexp_replace(out_text,'&amp;','&','gi');
+ RETURN coalesce(out_text,'');
 END $$;
+
+-- Numeric and the small named-entity set emitted by supported clients are
+-- decoded in one scan. Invalid Unicode scalars become U+FFFD and never abort
+-- repair of an already-retained value.
+CREATE FUNCTION public.decke_improvement_decode_html_entities(p_text text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE pattern text:='(&#[xX][0-9A-Fa-f]{1,6};|&#[0-9]{1,7};|&(?:commat|quot|apos|lt|gt|amp);)';
+ pieces text[]; runs text[]; out_text text;
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ pieces=regexp_split_to_array(p_text,pattern,'i');
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'gi') m;
+ SELECT string_agg(piece||CASE
+   WHEN run IS NULL THEN '' WHEN lower(run)='&commat;' THEN '@' WHEN lower(run)='&quot;' THEN '"'
+   WHEN lower(run)='&apos;' THEN '''' WHEN lower(run)='&lt;' THEN '<'
+   WHEN lower(run)='&gt;' THEN '>' WHEN lower(run)='&amp;' THEN '&'
+   ELSE public.decke_improvement_decode_scalar(run) END,'' ORDER BY ordinality)
+ INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
+ RETURN coalesce(out_text,'');
+END $$;
+
+CREATE FUNCTION public.decke_improvement_decode_escapes(p_text text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT public.decke_improvement_decode_html_entities(
+   public.decke_improvement_decode_json_escapes(p_text))
+$$;
 
 CREATE FUNCTION public.decke_improvement_replace_terms(p_text text,p_terms text[]) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE original text:=p_text; out_text text; term text; pattern text; replaced text; changed boolean:=false;
+DECLARE out_text text; term text; pattern text;
  character text; escaped_character text; codepoint integer; high_surrogate integer; low_surrogate integer; character_position integer;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
@@ -120,10 +141,9 @@ BEGIN
    pattern=pattern||escaped_character;
   END LOOP;
   IF char_length(term)<3 THEN pattern='(?<![[:alnum:]_])'||pattern||'(?![[:alnum:]_])'; END IF;
-  replaced=regexp_replace(out_text,pattern,'[redacted]','gi');
-  IF replaced<>out_text THEN changed=true; out_text=replaced; END IF;
+  out_text=regexp_replace(out_text,pattern,'[redacted]','gi');
  END LOOP;
- RETURN CASE WHEN changed THEN out_text ELSE original END;
+ RETURN out_text;
 END $$;
 
 CREATE FUNCTION public.decke_improvement_decode_text(p_text text) RETURNS text
@@ -131,19 +151,20 @@ LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE out_text text:=p_text; next_text text; pass integer;
 BEGIN
  IF out_text IS NULL THEN RETURN NULL; END IF;
- FOR pass IN 1..3 LOOP
-  next_text=public.decke_improvement_percent_decode(out_text);
+ FOR pass IN 1..4 LOOP
+  next_text=public.decke_improvement_decode_escapes(
+    public.decke_improvement_percent_decode(out_text));
   EXIT WHEN next_text=out_text;
   out_text=next_text;
  END LOOP;
  out_text=replace(out_text,'+',' ');
- RETURN normalize(public.decke_improvement_decode_escapes(out_text),NFKC);
+ RETURN normalize(out_text,NFKC);
 END $$;
 
 CREATE OR REPLACE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE literal text; current_view text; candidate text; normalized_view text; term text; lowered_term text;
- detection_pattern text; form_terms text[]; pass integer; form boolean; escaped boolean;
+DECLARE literal text; current_view text; next_view text; candidate text; normalized_view text; term text; lowered_term text;
+ detection_pattern text; form_terms text[]; pass integer; form boolean;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
  -- Literal replacements are precise and each variant scans the value once.
@@ -154,12 +175,11 @@ BEGIN
  FROM (SELECT value FROM unnest(coalesce(p_terms,'{}'::text[])) value
        UNION SELECT replace(value,'+',' ') FROM unnest(coalesce(p_terms,'{}'::text[])) value) variants;
  current_view=literal;
- FOR pass IN 0..3 LOOP
-  IF pass>0 THEN current_view=public.decke_improvement_percent_decode(current_view); END IF;
+ FOR pass IN 1..4 LOOP
+  next_view=public.decke_improvement_decode_escapes(
+    public.decke_improvement_percent_decode(current_view));
   FOREACH form IN ARRAY ARRAY[false,true] LOOP
-   candidate=CASE WHEN form THEN replace(current_view,'+',' ') ELSE current_view END;
-   FOREACH escaped IN ARRAY ARRAY[false,true] LOOP
-    IF escaped THEN candidate=public.decke_improvement_decode_escapes(candidate); END IF;
+   candidate=CASE WHEN form THEN replace(next_view,'+',' ') ELSE next_view END;
     normalized_view=lower(normalize(candidate,NFKC) COLLATE "C.utf8");
     FOR term IN
      SELECT normalized FROM (
@@ -176,8 +196,9 @@ BEGIN
       IF normalized_view~('(?<![[:alnum:]_])'||detection_pattern||'(?![[:alnum:]_])') THEN RETURN '[redacted]'; END IF;
      END IF;
     END LOOP;
-   END LOOP;
   END LOOP;
+  EXIT WHEN next_view=current_view;
+  current_view=next_view;
  END LOOP;
  RETURN literal;
 END $$;
@@ -444,6 +465,8 @@ BEGIN
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_run(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_decode(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_scalar(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_json_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_html_entities(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_replace_terms(text,text[]) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_text(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);

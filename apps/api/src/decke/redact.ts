@@ -45,6 +45,16 @@ const percentDecoder = new TextDecoder('utf-8', { fatal: false })
 const graphemeSegmenter = new Intl.Segmenter('und', { granularity: 'grapheme' })
 const wordCharacter = /[\p{L}\p{N}_]/u
 const identitySyntax = /\\u[0-9a-f]{4}|&(?:commat;|#0*64;|#x0*40;)/iu
+const jsonEscapeSyntax = /\\u[0-9a-f]{4}/iu
+const htmlEntitySyntax = /&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7})|commat|quot|apos|lt|gt|amp);/iu
+const namedHtmlEntities: Readonly<Record<string, string>> = {
+  '&commat;': '@',
+  '&quot;': '"',
+  '&apos;': "'",
+  '&lt;': '<',
+  '&gt;': '>',
+  '&amp;': '&',
+}
 
 function redactCanonical<T>(value: T, terms: readonly CanonicalTerm[]): T {
   if (typeof value === 'string') return redactString(value, terms) as T
@@ -92,11 +102,14 @@ function redactString(value: string, terms: readonly CanonicalTerm[]): string {
   // Decoded representations are detection-only. Emitting a partly decoded
   // view can expose a different identity at another supported encoding depth.
   let decoded = literal
-  for (let pass = 0; pass < 3; pass++) {
-    decoded = percentDecode(decoded)
+  for (let pass = 0; pass < 4; pass++) {
+    const previous = decoded
+    const next = decodeStep(previous)
+    decoded = next
     if (containsIdentity(decoded, terms, false)) return '[redacted]'
     const form = decoded.replaceAll('+', ' ')
     if (containsIdentity(form, terms, true)) return '[redacted]'
+    if (next === previous) break
   }
   return literal
 }
@@ -126,9 +139,11 @@ function redactLiteralTerm(value: string, term: CanonicalTerm): string {
   const pattern = termPattern(term)
   // Avoid normalization/source-map allocation for the overwhelmingly common
   // ASCII path, including large transcripts with many repeated identities.
-  if (/^[\x00-\x7f]*$/.test(value)
-    && /^[\x00-\x7f]*$/.test(term.value)
-    && !identitySyntax.test(value)) {
+  // ASCII input is already NFKC-normalized. The term was normalized when it
+  // was canonicalized, so every term can use the direct global replacement;
+  // requiring an ASCII term needlessly source-mapped ordinary text once per
+  // non-Latin account identity.
+  if (/^[\x00-\x7f]*$/.test(value) && !identitySyntax.test(value)) {
     return value.replace(pattern, '[redacted]')
   }
 
@@ -269,6 +284,50 @@ function normalizeMapped(value: MappedText): MappedText {
     for (let index = 0; index < normalized.length; index++) spans.push({ start: first.start, end: last.end })
   }
   return { text: output.join(''), spans }
+}
+
+/** One bounded detection step composes every supported decoder in order. */
+function decodeStep(value: string): string {
+  return decodeHtmlEntities(decodeJsonEscapes(percentDecode(value)))
+}
+
+/** Decode JSON Unicode escapes, replacing unsupported scalar values. */
+function decodeJsonEscapes(value: string): string {
+  if (!jsonEscapeSyntax.test(value)) return value
+  const output: string[] = []
+  const pattern = /\\u([0-9a-f]{4})/giu
+  let cursor = 0
+  for (let match = pattern.exec(value); match; match = pattern.exec(value)) {
+    const start = match.index
+    output.push(value.slice(cursor, start))
+    const point = Number.parseInt(match[1]!, 16)
+    if (point >= 0xd800 && point <= 0xdbff
+      && /^\\u[dD][c-fC-F][0-9a-fA-F]{2}/iu.test(value.slice(pattern.lastIndex, pattern.lastIndex + 6))) {
+      const low = Number.parseInt(value.slice(pattern.lastIndex + 2, pattern.lastIndex + 6), 16)
+      output.push(String.fromCodePoint(0x10000 + (point - 0xd800) * 0x400 + low - 0xdc00))
+      pattern.lastIndex += 6
+    } else {
+      output.push(point === 0 || point >= 0xd800 && point <= 0xdfff ? '\ufffd' : String.fromCodePoint(point))
+    }
+    cursor = pattern.lastIndex
+  }
+  output.push(value.slice(cursor))
+  return output.join('')
+}
+
+/** Decode numeric and identity-relevant named HTML entities leniently. */
+function decodeHtmlEntities(value: string): string {
+  if (!htmlEntitySyntax.test(value)) return value
+  return value.replace(/&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7})|commat|quot|apos|lt|gt|amp);/giu, (entity) => {
+    const lowered = entity.toLocaleLowerCase()
+    if (lowered in namedHtmlEntities) return namedHtmlEntities[lowered]!
+    const radix = lowered.startsWith('&#x') ? 16 : 10
+    const start = radix === 16 ? 3 : 2
+    const point = Number.parseInt(lowered.slice(start, -1), radix)
+    return point === 0 || point > 0x10ffff || point >= 0xd800 && point <= 0xdfff
+      ? '\ufffd'
+      : String.fromCodePoint(point)
+  })
 }
 
 /** Decode every percent-byte run leniently, replacing invalid UTF-8 and NUL. */
