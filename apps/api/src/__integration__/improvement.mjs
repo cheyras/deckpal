@@ -60,10 +60,17 @@ const denied = (promise) => assert.rejects(promise, (error) => {
   return true;
 });
 
+// Mirrors packages/db/src/migrate.ts: each file in one transaction, recorded in
+// schema_migrations (021 enables RLS on that table, so it must exist). The
+// runner itself cannot stop at 077, and this suite needs rows created before 078.
 async function migration(file) {
   const sql = readFileSync(join(REPO, 'packages/db/src/migrations', file), 'utf8');
   await db.query('BEGIN');
-  try { await db.query(sql); await db.query('COMMIT'); }
+  try {
+    await db.query(sql);
+    await db.query('INSERT INTO schema_migrations(version,checksum) VALUES($1,$2)', [file.replace(/\.sql$/, ''), 'integration']);
+    await db.query('COMMIT');
+  }
   catch (error) { await db.query('ROLLBACK'); throw new Error(`${file}: ${error.message}`, { cause: error }); }
 }
 
@@ -123,6 +130,8 @@ try {
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon,authenticated,service_role;
   `);
 
+  await db.query(`CREATE TABLE schema_migrations (
+    version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`);
   const migrationFiles = readdirSync(join(REPO, 'packages/db/src/migrations'))
     .filter((file) => /^\d+.*\.sql$/.test(file) && Number(file.slice(0, 3)) <= 77)
     .sort();
@@ -154,6 +163,8 @@ try {
 
   await migration('078_decke_improvement.sql');
   await db.query('SELECT public.admin_bootstrap($1,$2,$3)', [owner, [], []]);
+  // Deck-E released, so ordinary accounts hold decke.use (as in production).
+  await db.query("UPDATE public.app_feature SET lifecycle='released' WHERE key='decke'");
   await db.query("INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES($1,'new@example.invalid','{\"username\":\"new-name\"}')", [newcomer]);
 
   await test('SQL redaction decodes JSON Unicode escapes and protects short identity words', async () => {
@@ -247,7 +258,7 @@ try {
     assert.deepEqual(leg, { recorded: false, reason: 'not_shared' });
     assert.deepEqual(events, { recorded: false, reason: 'not_shared' });
     const feedback = await server(member, (c) => data(c,
-      'SELECT public.decke_improvement_record_feedback($1,$2,0,-1,$3,false) data',
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,(-1)::smallint,$3,false) data',
       [member, disabledConversation, 'personal only']));
     assert.equal(feedback.saved, true);
     assert.equal(feedback.copied, false);
@@ -267,7 +278,7 @@ try {
     VALUES($1,$2,'response','chat_turn','fixture/model','fixture','retry','completed',now(),'unknown')`, [id(124), unknownRequest]);
   await db.query(`INSERT INTO public.decke_ai_operation
     (id,request_id,category,tool_key,model_id,provider,operation_key,status,finished_at,cost_source)
-    VALUES($1,$2,'classifier','chat_turn','fixture/model','fixture','unpriced-classifier','completed',now(),'unknown')`, [id(125), sharedRequest]);
+    VALUES($1,$2,'response','jev_reflex','typesafe-ai/jev','typesafe-ai','unpriced-classifier','completed',now(),'unknown')`, [id(125), sharedRequest]);
 
   let derivedShared;
   await test('answer share backfills accounting only and returns raw content for API redaction', async () => {
@@ -331,7 +342,7 @@ try {
   await seedConversation({ conversation: feedbackConversation, request: feedbackRequest, operation: id(132), suffix: '130' });
   await test('feedback can grant sharing, always saves personal feedback, and list_mine maps raw IDs', async () => {
     const saved = await server(member, (c) => data(c,
-      'SELECT public.decke_improvement_record_feedback($1,$2,0,1,$3,true) data',
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,true) data',
       [member, feedbackConversation, 'John+Smith liked this; jsmith%40example.invalid']));
     assert.equal(saved.saved, true);
     assert.equal(saved.shared, true);
@@ -403,7 +414,7 @@ try {
     assert.equal(String(toolOutput.encoded).includes('2026-09-28T18:00:00.250Z'), false);
     assert.doesNotMatch(String(toolOutput.encoded), /John Smith|jsmith@example\.invalid/i);
     assert.match(String(toolOutput.encoded), /\[redacted\]/);
-    const search = await token(owner, tokenId, (c) => data(c, "SELECT public.decke_improvement_search('asked',20) data"));
+    const search = await token(owner, tokenId, (c) => data(c, "SELECT public.decke_improvement_search('search_cards',20) data"));
     assert.ok(search.items.length > 0);
     assert.match(search.items[0].date, /^\d{4}-\d{2}-\d{2}$/);
     assert.equal('updatedAt' in search.items[0], false);
