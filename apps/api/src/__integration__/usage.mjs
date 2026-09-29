@@ -305,8 +305,17 @@ export async function runUsageContracts({db,as,test,id,mode,api,connect}) {
    assert.match(response.headers.get('cache-control')??'',/no-store/);
    return data;
   };
-  const sharing=await http(member,'/me/decke-sharing');
-  await http(member,'/me/decke-sharing',{method:'PUT',body:{enabled:true,expectedRevision:sharing.revision}});
+  // The account-wide HTTP preference is retired (chats are shared one at a
+  // time now): it reads and answers as off and writes nothing. The legacy SQL
+  // it used to call is still exercised directly, as the earlier cases do.
+  const retired={enabled:false,retired:true,mode:'per_chat',explanation:'Deck-E chats are shared one conversation at a time. Use Share this chat or the feedback option.'};
+  const stored=async()=>(await db.query('SELECT enabled,revision FROM public.decke_sharing WHERE user_id=$1',[member])).rows[0];
+  const beforeRetired=await stored();
+  assert.deepEqual(await http(member,'/me/decke-sharing'),retired);
+  assert.deepEqual(await http(member,'/me/decke-sharing',{method:'PUT',body:{enabled:!beforeRetired?.enabled,expectedRevision:beforeRetired?.revision??0}}),retired);
+  assert.deepEqual(await stored(),beforeRetired,'the retired endpoint writes nothing');
+  const sharing=await call(member,'SELECT public.decke_sharing_read() data');
+  if(!sharing.enabled)await call(member,'SELECT public.decke_sharing_save(true,$1) data',[sharing.revision]);
   const conversation=id(860),exchange=id(861),requestId=await begin({conv:conversation,exchange,seq:0,key:'usage-http-owned-exchange',asked:'SERVER_USER_SENTINEL'});
   await db.query("SELECT public.decke_usage_operation_begin($1,$2,'response','chat_turn','fixture/http-model','fixture','chat_turn')",[id(862),requestId]);
   await db.query("UPDATE public.decke_ai_operation SET status='completed',finished_at=now(),input_tokens=12,output_tokens=6,cost_usd=0.00123,cost_source='provider_reported' WHERE id=$1",[id(862)]);
@@ -339,10 +348,10 @@ export async function runUsageContracts({db,as,test,id,mode,api,connect}) {
   assert.equal(conversationDetail.total,1);assert.equal(conversationDetail.items[0].contentStatus,'shared');
   const list=await http(owner,'/admin/ai-usage?conversationId='+conversation);
   assert.equal(list.total,1);assert.equal(JSON.stringify(list).includes('SENTINEL'),false);
-  const preference=await http(member,'/me/decke-sharing');
-  const withdrawn=await http(member,'/me/decke-sharing',{method:'PUT',body:{enabled:false,expectedRevision:preference.revision}});
+  const preference=await call(member,'SELECT public.decke_sharing_read() data');
+  const withdrawn=await call(member,'SELECT public.decke_sharing_save(false,$1) data',[preference.revision]);
   assert.equal(withdrawn.enabled,false);
-  assert.equal((await db.query('SELECT enabled FROM public.decke_sharing WHERE user_id=$1',[member])).rows[0].enabled,false,'successful withdrawal response follows commit');
+  assert.equal((await stored()).enabled,false,'successful withdrawal is committed');
   const hidden=await http(owner,'/admin/ai-usage/requests/'+requestId);
   assert.equal(hidden.content,null);assert.equal(hidden.contentStatus,'revoked');
   assert.equal(hidden.request.id,requestId);assert.equal(Number(hidden.request.cost.usd),0.00123);
