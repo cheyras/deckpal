@@ -51,17 +51,31 @@ const MAX_DECODE_DEPTH = 5
 const MAX_DECODE_VIEWS = 64
 const MIN_DECODE_CHARACTER_BUDGET = 65_536
 const DECODE_CHARACTER_FACTOR = 16
-const identitySyntax = /\\u[0-9a-f]{4}|&(?:commat;|#0*64;|#x0*40;)/iu
+const identitySyntax = /\\[uU][0-9A-Fa-f]{4}|&(?:commat;|#0*64;|#[xX]0*40;)/u
 const jsonEscapeSyntax = /\\u[0-9a-f]{4}/iu
-const htmlEntitySyntax = /&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7})|commat|quot|apos|lt|gt|amp);/iu
-const namedHtmlEntities: Readonly<Record<string, string>> = {
-  '&commat;': '@',
-  '&quot;': '"',
-  '&apos;': "'",
-  '&lt;': '<',
-  '&gt;': '>',
-  '&amp;': '&',
+const htmlEntitySyntax = /&(?:#(?:[xX][0-9A-Fa-f]{1,6}|[0-9]{1,7})|[A-Za-z][A-Za-z0-9]*);/u
+
+const latin1HtmlEntityNames = `nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr
+deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest
+Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig
+agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml`.split(/\s+/)
+
+function entityRange(names: readonly string[], firstCodePoint: number): readonly (readonly [string, string])[] {
+  return names.map((name, index) => [name, String.fromCodePoint(firstCodePoint + index)] as const)
 }
+
+// Keep this HTML 4 table aligned with decke_improvement_decode_html_entities
+// in packages/db/src/migrations/079_decke_improvement_fixes.sql.
+const namedHtmlEntities: Readonly<Record<string, string>> = Object.fromEntries([
+  ...entityRange(latin1HtmlEntityNames, 160),
+  ['OElig', '\u0152'], ['oelig', '\u0153'], ['Scaron', '\u0160'], ['scaron', '\u0161'],
+  ['Yuml', '\u0178'], ['fnof', '\u0192'], ['circ', '\u02c6'], ['tilde', '\u02dc'],
+  ...entityRange('Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi Omicron Pi Rho'.split(' '), 913),
+  ...entityRange('Sigma Tau Upsilon Phi Chi Psi Omega'.split(' '), 931),
+  ...entityRange('alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigmaf sigma tau upsilon phi chi psi omega'.split(' '), 945),
+  ['thetasym', '\u03d1'], ['upsih', '\u03d2'], ['piv', '\u03d6'],
+  ['commat', '@'], ['quot', '"'], ['apos', "'"], ['lt', '<'], ['gt', '>'], ['amp', '&'],
+])
 
 function redactCanonical<T>(value: T, terms: readonly CanonicalTerm[]): T {
   if (typeof value === 'string') return redactString(value, terms) as T
@@ -300,7 +314,7 @@ function decodeLiteralSyntax(value: string): MappedText {
     }
 
     if (value[index] === '&') {
-      const entity = /^(?:&commat;|&#0*64;|&#x0*40;)/iu.exec(value.slice(index))?.[0]
+      const entity = /^(?:&commat;|&#0*64;|&#[xX]0*40;)/u.exec(value.slice(index))?.[0]
       if (entity) {
         append('@', index, index + entity.length)
         index += entity.length
@@ -355,15 +369,14 @@ function decodeJsonEscapes(value: string): string {
   return output.join('')
 }
 
-/** Decode numeric and identity-relevant named HTML entities leniently. */
+/** Decode numeric and standard HTML 4 named entities leniently. */
 function decodeHtmlEntities(value: string): string {
   if (!htmlEntitySyntax.test(value)) return value
-  return value.replace(/&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7})|commat|quot|apos|lt|gt|amp);/giu, (entity) => {
-    const lowered = entity.toLocaleLowerCase()
-    if (lowered in namedHtmlEntities) return namedHtmlEntities[lowered]!
-    const radix = lowered.startsWith('&#x') ? 16 : 10
+  return value.replace(/&(?:#(?:[xX][0-9A-Fa-f]{1,6}|[0-9]{1,7})|[A-Za-z][A-Za-z0-9]*);/gu, (entity) => {
+    if (!entity.startsWith('&#')) return namedHtmlEntities[entity.slice(1, -1)] ?? entity
+    const radix = entity[2]?.toLocaleLowerCase() === 'x' ? 16 : 10
     const start = radix === 16 ? 3 : 2
-    const point = Number.parseInt(lowered.slice(start, -1), radix)
+    const point = Number.parseInt(entity.slice(start, -1), radix)
     return point === 0 || point > 0x10ffff || point >= 0xd800 && point <= 0xdfff
       ? '\ufffd'
       : String.fromCodePoint(point)

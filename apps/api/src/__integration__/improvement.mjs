@@ -951,6 +951,35 @@ try {
     await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [plusConversation]);
   });
 
+  const namedEntityConversation = id(250), namedEntityRequest = id(251);
+  await seedConversation({
+    conversation: namedEntityConversation, request: namedEntityRequest,
+    operation: id(252), suffix: '250',
+  });
+  await test('named HTML entities are redacted by API and SQL writers before admin detail', async () => {
+    await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['Renée', member]);
+    const answer = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, namedEntityConversation]));
+    const backfilled = await server(member, (c) => backfillShared({
+      query: (...args) => c.query(...args), release() {},
+    }, { userId: member, conversationId: namedEntityConversation, backfill: { turns: [{
+      seq: 0, asked: 'ordinary question', answered: 'Ren&eacute;e', tools: [],
+    }], requests: [] } }));
+    assert.equal(backfilled, true);
+    const feedback = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,false,$3) data',
+      [member, namedEntityConversation, 'Ren&eacute;e']));
+    assert.equal(feedback.copied, true);
+    const detail = await session(owner, (c) => data(c,
+      'SELECT public.decke_improvement_detail($1) data', [answer.conversationId]));
+    assert.equal(detail.turns[0].answered, '[redacted]');
+    assert.equal(detail.turns[0].feedbackComment, '[redacted]');
+    assert.doesNotMatch(JSON.stringify(detail), /Ren(?:é|&eacute;)e/i);
+    await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['John Smith', member]);
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [namedEntityConversation]);
+    await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [answer.conversationId]);
+  });
+
   const propertyConversation = id(190), propertyRequest = id(191);
   await seedConversation({ conversation: propertyConversation, request: propertyRequest, operation: id(192), suffix: '190' });
   await test('seeded redaction corpus is safe through API and SQL writers plus admin detail', async () => {

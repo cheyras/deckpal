@@ -20,6 +20,14 @@ export type TelemetryBatch = {
 
 type Sender = (batch: TelemetryBatch) => Promise<unknown>
 
+export type TelemetrySharingOverride = 'shared' | 'declined' | 'stopped' | undefined
+
+/** A conversation-local refusal always wins; an explicit share can enable one chat. */
+export function shouldEnableTelemetry(shareAll: boolean, override: TelemetrySharingOverride): boolean {
+  if (override === 'declined' || override === 'stopped') return false
+  return override === 'shared' || shareAll
+}
+
 function byteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength
 }

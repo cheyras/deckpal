@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ConversationTelemetry, TELEMETRY_BATCH_CAP, TELEMETRY_EVENT_CAP } from '../telemetry.js'
+import { ConversationTelemetry, shouldEnableTelemetry, TELEMETRY_BATCH_CAP, TELEMETRY_EVENT_CAP } from '../telemetry.js'
+
+test('Always-share enables diagnostics unless this conversation was declined or stopped', () => {
+  assert.equal(shouldEnableTelemetry(true, undefined), true)
+  assert.equal(shouldEnableTelemetry(true, 'declined'), false)
+  assert.equal(shouldEnableTelemetry(true, 'stopped'), false)
+  assert.equal(shouldEnableTelemetry(false, 'shared'), true)
+  assert.equal(shouldEnableTelemetry(false, undefined), false)
+})
 
 test('nothing is sent before sharing, then the whole buffer flushes', async () => {
   const sent: unknown[] = []

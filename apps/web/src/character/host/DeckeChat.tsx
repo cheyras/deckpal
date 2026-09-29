@@ -39,6 +39,7 @@
  *   modals  100 / toasts 9999 still paint over him, which is correct and rare.
  */
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '../../components/Icon'
 import { api } from '../../lib/api'
 import type { DeckEInstance } from './runtime'
@@ -57,6 +58,7 @@ import { deepCost, type DeepQuote } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import { ShareChoice } from './chat/ShareChoice'
+import { submitImprovementConsent } from './chat/improvementConsent'
 import { Feedback } from './chat/Feedback'
 import type { FeedbackVote } from './chat/feedbackState'
 import {
@@ -1176,7 +1178,7 @@ export function DeckeChat({
   onOpenDeck?: (id: string) => void
   /** Lets the character react to typing without coupling the composer to the hook. */
   onComposerActivity?: (typing: boolean) => void
-  onConsent?: (share: boolean) => Promise<void>
+  onConsent?: (share: boolean, shareAll?: boolean) => Promise<void>
   onFeedback?: (seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => Promise<void>
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -1225,13 +1227,21 @@ export function DeckeChat({
    */
   const panelRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState('')
+  const queryClient = useQueryClient()
   const lastTypingBeatRef = useRef(0)
   const typingIdleRef = useRef<number | null>(null)
 
-  const saveConsent = useCallback(async (share: boolean) => {
+  const saveConsent = useCallback(async (share: boolean, shareAll = false) => {
     if (!conversationId) throw new Error('No conversation to share')
-    if (onConsent) await onConsent(share)
-    else await api.deckeImprovementConsent({ conversationId, share, source: 'decke_ask' })
+    await submitImprovementConsent({
+      conversationId,
+      share,
+      shareAll,
+      send: onConsent
+        ? async () => onConsent(share, shareAll)
+        : (request) => api.deckeImprovementConsent(request),
+      refreshSettings: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+    })
     try {
       decke?.setState(share ? 'happy' : 'nod_yes', { mode: 'once' })
     } catch {
@@ -1243,7 +1253,7 @@ export function DeckeChat({
     if (share) {
       window.dispatchEvent(new CustomEvent('deckpal:decke-shared', { detail: { conversationId } }))
     }
-  }, [conversationId, decke, onConsent])
+  }, [conversationId, decke, onConsent, queryClient])
 
   const saveFeedback = useCallback(async (seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
     if (!conversationId) throw new Error('No conversation for feedback')

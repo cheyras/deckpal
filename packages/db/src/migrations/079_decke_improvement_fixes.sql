@@ -81,22 +81,57 @@ BEGIN
  RETURN coalesce(out_text,'');
 END $$;
 
--- Numeric and the small named-entity set emitted by supported clients are
--- decoded in one scan. Invalid Unicode scalars become U+FFFD and never abort
--- repair of an already-retained value.
+-- Keep this HTML 4 table aligned with namedHtmlEntities in
+-- apps/api/src/decke/redact.ts. Ordered contiguous ranges make the Latin-1
+-- and Greek mappings auditable without duplicating every code point.
+CREATE FUNCTION public.decke_improvement_decode_named_html_entity(p_name text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ WITH named(entity_name,codepoint) AS (
+  SELECT entity_name,(159+ordinality)::integer
+  FROM unnest(string_to_array(
+   'nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL SELECT * FROM (VALUES
+   ('OElig',338),('oelig',339),('Scaron',352),('scaron',353),
+   ('Yuml',376),('fnof',402),('circ',710),('tilde',732)
+  ) extras(entity_name,codepoint)
+  UNION ALL
+  SELECT entity_name,(912+ordinality)::integer
+  FROM unnest(string_to_array(
+   'Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi Omicron Pi Rho',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL
+  SELECT entity_name,(930+ordinality)::integer
+  FROM unnest(string_to_array('Sigma Tau Upsilon Phi Chi Psi Omega',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL
+  SELECT entity_name,(944+ordinality)::integer
+  FROM unnest(string_to_array(
+   'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigmaf sigma tau upsilon phi chi psi omega',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL SELECT * FROM (VALUES
+   ('thetasym',977),('upsih',978),('piv',982),
+   ('commat',64),('quot',34),('apos',39),('lt',60),('gt',62),('amp',38)
+  ) extras(entity_name,codepoint)
+ )
+ SELECT chr(codepoint) FROM named WHERE entity_name=p_name
+$$;
+
+-- Numeric and standard named entities are decoded in one scan. Invalid
+-- Unicode scalars become U+FFFD and never abort repair of retained values;
+-- unknown or wrongly cased names remain untouched.
 CREATE FUNCTION public.decke_improvement_decode_html_entities(p_text text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE pattern text:='(&#[xX][0-9A-Fa-f]{1,6};|&#[0-9]{1,7};|&(?:commat|quot|apos|lt|gt|amp);)';
+DECLARE pattern text:='(&#[xX][0-9A-Fa-f]{1,6};|&#[0-9]{1,7};|&[A-Za-z][A-Za-z0-9]*;)';
  pieces text[]; runs text[]; out_text text;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
- pieces=regexp_split_to_array(p_text,pattern,'i');
- SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'gi') m;
+ pieces=regexp_split_to_array(p_text,pattern);
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'g') m;
  SELECT string_agg(piece||CASE
-   WHEN run IS NULL THEN '' WHEN lower(run)='&commat;' THEN '@' WHEN lower(run)='&quot;' THEN '"'
-   WHEN lower(run)='&apos;' THEN '''' WHEN lower(run)='&lt;' THEN '<'
-   WHEN lower(run)='&gt;' THEN '>' WHEN lower(run)='&amp;' THEN '&'
-   ELSE public.decke_improvement_decode_scalar(run) END,'' ORDER BY ordinality)
+   WHEN run IS NULL THEN '' WHEN run~'^&#' THEN public.decke_improvement_decode_scalar(run)
+   ELSE coalesce(public.decke_improvement_decode_named_html_entity(
+     substring(run FROM 2 FOR char_length(run)-2)),run) END,'' ORDER BY ordinality)
  INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
  RETURN coalesce(out_text,'');
 END $$;
@@ -536,8 +571,11 @@ DECLARE writer text:=public.admin_actor_id(); terms text[];
 BEGIN
  IF writer IS NOT NULL THEN terms=public.decke_improvement_redaction_terms(writer); END IF;
  UPDATE public.decke_improvement_turn t SET
-   asked=coalesce(x.asked,''),
-   answered=coalesce(CASE WHEN terms IS NULL THEN x.answered ELSE public.decke_improvement_redact_text(x.answered,terms) END,''),
+   -- Legs whose text has not been recorded yet (e.g. shells made at consent)
+   -- contribute nothing; keep the turn's own (already redacted) text rather
+   -- than overwriting it with an empty aggregate.
+   asked=coalesce(x.asked,nullif(t.asked,''),''),
+   answered=coalesce(nullif(CASE WHEN terms IS NULL THEN x.answered ELSE public.decke_improvement_redact_text(x.answered,terms) END,''),nullif(t.answered,''),''),
    finished_at=x.finished_at,
    latency_ms=CASE WHEN x.finished_at IS NULL THEN NULL ELSE greatest(0,floor(extract(epoch FROM (x.finished_at-x.started_at))*1000)::integer) END,
    input_tokens=x.input_tokens,output_tokens=x.output_tokens,cache_read_tokens=x.cache_read_tokens,
@@ -651,6 +689,7 @@ BEGIN
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_finish_reason_guard() FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_scalar(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_json_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_named_html_entity(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_html_entities(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_replace_terms(text,text[]) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);

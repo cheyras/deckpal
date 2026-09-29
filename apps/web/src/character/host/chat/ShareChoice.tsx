@@ -2,6 +2,11 @@ import { useReducer } from 'react'
 
 export type ShareChoiceStatus = 'open' | 'sharing' | 'declining' | 'shared' | 'declined'
 export type ShareChoiceAction = { type: 'choose'; share: boolean } | { type: 'settled'; share: boolean } | { type: 'retry' }
+export type ShareChoiceKind = 'chat' | 'all' | 'decline'
+
+export function shareChoiceValue(choice: ShareChoiceKind): readonly [share: boolean, shareAll: boolean] {
+  return choice === 'all' ? [true, true] : [choice === 'chat', false]
+}
 
 /** A settled choice ignores every later click, including a stale double-click. */
 export function shareChoiceReducer(status: ShareChoiceStatus, action: ShareChoiceAction): ShareChoiceStatus {
@@ -35,13 +40,13 @@ export function ShareChoice({ onChoose }: { onChoose: (share: boolean, shareAll?
   return (
     <div data-decke-consent className="decke-shift max-w-full self-start">
       <div className="flex flex-wrap gap-[6px]">
-        <button type="button" disabled={waiting} onClick={() => choose(true)} className="rounded-[8px] bg-action-primary px-[10px] py-[5px] text-[12px] font-semibold text-action-primary-text disabled:opacity-60">
+        <button type="button" disabled={waiting} onClick={() => choose(...shareChoiceValue('chat'))} className="rounded-[8px] bg-action-primary px-[10px] py-[5px] text-[12px] font-semibold text-action-primary-text disabled:opacity-60">
           Share this chat
         </button>
-        <button type="button" disabled={waiting} onClick={() => choose(true, true)} className="rounded-[8px] border border-border-default px-[10px] py-[5px] text-[12px] font-semibold text-text-body hover:bg-surface-secondary disabled:opacity-60">
+        <button type="button" disabled={waiting} onClick={() => choose(...shareChoiceValue('all'))} className="rounded-[8px] border border-border-default px-[10px] py-[5px] text-[12px] font-semibold text-text-body hover:bg-surface-secondary disabled:opacity-60">
           Share all my chats
         </button>
-        <button type="button" disabled={waiting} onClick={() => choose(false)} className="rounded-[8px] border border-border-default px-[10px] py-[5px] text-[12px] font-semibold text-text-body hover:bg-surface-secondary disabled:opacity-60">
+        <button type="button" disabled={waiting} onClick={() => choose(...shareChoiceValue('decline'))} className="rounded-[8px] border border-border-default px-[10px] py-[5px] text-[12px] font-semibold text-text-body hover:bg-surface-secondary disabled:opacity-60">
           No thanks
         </button>
       </div>

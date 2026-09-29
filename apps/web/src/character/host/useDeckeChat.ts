@@ -40,9 +40,10 @@
  *    tool output that CONTRADICTS the one the server already produced.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { readSession } from '../../lib/authSession'
+import { useAccess } from '../../lib/access'
 import {
   ABANDONED_REASON,
   DECLINED_REASON,
@@ -68,7 +69,7 @@ import {
 import { kindOf } from './chat/toolKinds'
 import { createActivityAnimator, SLEEP_IDLE_MS, TYPING_IDLE_MS, type ActivityRequest } from './activityAnimation'
 import { staleQueries } from './chat/writeRefresh'
-import { ConversationTelemetry } from './chat/telemetry'
+import { ConversationTelemetry, shouldEnableTelemetry, type TelemetrySharingOverride } from './chat/telemetry'
 import {
   MAX_REPLAYED_REFUSALS,
   meterRefusalParts,
@@ -335,6 +336,16 @@ export function useDeckeChat(
 ) {
   /** The page's data cache, so a write he makes reaches the page behind him. */
   const queryClient = useQueryClient()
+  const access = useAccess()
+  const sharingSettings = useQuery({
+    queryKey: ['settings', access.identity],
+    queryFn: ({ signal }) => api.settings(signal),
+    enabled: access.ready && !!access.identity,
+    retry: false,
+  })
+  const shareAll = sharingSettings.data?.settings.deckeShareAll ?? false
+  const shareAllRef = useRef(shareAll)
+  shareAllRef.current = shareAll
   const [messages, setMessages] = useState<ChatMessage[]>([])
   /**
    * The transcript, readable from a callback declared before it.
@@ -357,6 +368,7 @@ export function useDeckeChat(
    */
   const conversationRef = useRef<string>(newConversationId())
   const telemetryRef = useRef<ConversationTelemetry | null>(null)
+  const telemetrySharingRef = useRef<Map<string, TelemetrySharingOverride>>(new Map())
   if (!telemetryRef.current) {
     telemetryRef.current = new ConversationTelemetry(conversationRef.current, (batch) => api.deckeTelemetry(batch))
   }
@@ -364,15 +376,27 @@ export function useDeckeChat(
   useEffect(() => {
     const shared = (event: Event) => {
       const id = (event as CustomEvent<{ conversationId?: string }>).detail?.conversationId
-      if (id === conversationRef.current) void telemetryRef.current?.share()
+      if (id === conversationRef.current) {
+        const prior = telemetrySharingRef.current.get(id)
+        if (prior === 'declined' || prior === 'stopped') return
+        telemetrySharingRef.current.set(id, 'shared')
+        void telemetryRef.current?.share()
+      }
     }
     const stopped = (event: Event) => {
       const id = (event as CustomEvent<{ conversationId?: string }>).detail?.conversationId
-      if (id === conversationRef.current) telemetryRef.current?.stopSharing()
+      if (id === conversationRef.current) {
+        telemetrySharingRef.current.set(id, 'stopped')
+        telemetryRef.current?.stopSharing()
+      }
     }
     const answered = (event: Event) => {
       const detail = (event as CustomEvent<{ conversationId?: string; share?: boolean }>).detail
       if (detail?.conversationId !== conversationRef.current) return
+      if (!detail.share) {
+        telemetrySharingRef.current.set(detail.conversationId, 'declined')
+        telemetryRef.current?.stopSharing()
+      }
       telemetryRef.current?.record(Math.max(0, seqRef.current - 1), 'approval_ui', {
         decision: detail.share ? 'shared' : 'declined',
         surface: 'improvement_consent',
@@ -406,6 +430,11 @@ export function useDeckeChat(
    * would keep marking the previous conversation after a reset.
    */
   const [conversationEpoch, setConversationEpoch] = useState(0)
+  useEffect(() => {
+    const override = telemetrySharingRef.current.get(conversationRef.current)
+    if (shouldEnableTelemetry(shareAll, override)) void telemetryRef.current?.share()
+    else telemetryRef.current?.stopSharing()
+  }, [conversationEpoch, shareAll])
   const [busy, setBusy] = useState(false)
   /**
    * `busy` and `send`, reachable from a callback declared above `send`.
@@ -1916,6 +1945,9 @@ export function useDeckeChat(
     setBusy(false)
     conversationRef.current = newConversationId()
     telemetryRef.current = new ConversationTelemetry(conversationRef.current, (batch) => api.deckeTelemetry(batch))
+    if (shouldEnableTelemetry(shareAllRef.current, telemetrySharingRef.current.get(conversationRef.current))) {
+      void telemetryRef.current.share()
+    }
     seqRef.current = 0
     setConversationEpoch((n) => n + 1)
     setMessages([])

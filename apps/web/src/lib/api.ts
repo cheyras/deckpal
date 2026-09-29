@@ -1389,6 +1389,13 @@ export interface UserSettings {
   seriesGroupOwned: boolean
 }
 
+export type DeckeImprovementConsentRequest = {
+  conversationId: string
+  share: boolean
+  shareAll?: true
+  source: 'always' | 'decke_ask' | 'feedback' | 'reader'
+}
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Billing — the pay-what-you-want tier (migration 053; apps/api/src/billing)
@@ -1742,7 +1749,7 @@ export const api = {
     get<DeckeConversation>(`/decke/history/${encodeURIComponent(id)}`, signal),
   deckeHistoryDelete: (id: string) =>
     send<{ ok: true }>('DELETE', `/decke/history/${encodeURIComponent(id)}`),
-  deckeImprovementConsent: (body: { conversationId: string; share: boolean; shareAll?: boolean; source: 'always' | 'decke_ask' | 'feedback' | 'reader' }) =>
+  deckeImprovementConsent: (body: DeckeImprovementConsentRequest) =>
     send<{ status: 'shared' | 'declined'; source: 'always' | 'decke_ask' | 'feedback' | 'reader' }>('POST', '/decke/improvement/consent', body),
   deckeImprovementMine: (signal?: AbortSignal) =>
     get<DeckeImprovementMine>('/decke/improvement/mine', signal),
