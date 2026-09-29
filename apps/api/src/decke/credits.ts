@@ -197,3 +197,8 @@ export function balanceIsLow(balance: number): boolean {
 export function outOfCreditsText(): string {
   return "I'm out of credits, so I can't take anything new on right now.";
 }
+
+/** A metered leg may continue in a new message, which receives a fresh hold. */
+export function meteredCapText(): string {
+  return "That's as far as I can take this in one go—send me another message and I'll keep going.";
+}

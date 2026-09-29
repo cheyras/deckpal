@@ -44,6 +44,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { readSession } from '../../lib/authSession'
 import { useAccess } from '../../lib/access'
+import { parseCreditHeader } from '../../lib/creditMath'
 import {
   ABANDONED_REASON,
   DECLINED_REASON,
@@ -1389,6 +1390,9 @@ export function useDeckeChat(
           })
           telemetryRef.current?.record(exchangeSeq, 'timing', { mark: 'leg_end', leg, ms: Date.now() - legStartedAt })
           void telemetryRef.current?.flush()
+          // The streaming header was written after the hold, before settlement.
+          // Refresh active wallet readers only once this leg has actually ended.
+          void queryClient.invalidateQueries({ queryKey: ['credits'] })
 
           if (outcome.finishReason) finishReason = outcome.finishReason
           if (outcome.refused) return
@@ -2271,10 +2275,10 @@ async function streamLeg(
   // precisely the turn where the number matters, so reading it only on the happy
   // path would leave the panel unable to say how much is left at the one moment
   // somebody asks.
-  const creditHeader = Number(res.headers.get('x-decke-credits') ?? '-1')
-  const lowAtHeader = Number(res.headers.get('x-decke-credits-low') ?? '-1')
-  if (Number.isFinite(creditHeader) && creditHeader >= 0) {
-    handlers.onCredits(creditHeader, Number.isFinite(lowAtHeader) && lowAtHeader >= 0 ? lowAtHeader : null)
+  const creditHeader = parseCreditHeader(res.headers.get('x-decke-credits'))
+  const lowAtHeader = parseCreditHeader(res.headers.get('x-decke-credits-low'))
+  if (creditHeader !== null && creditHeader >= 0) {
+    handlers.onCredits(creditHeader, lowAtHeader !== null && lowAtHeader >= 0 ? lowAtHeader : null)
   }
 
   if (!res.ok || !res.body) {

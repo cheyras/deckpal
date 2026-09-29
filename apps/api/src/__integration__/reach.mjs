@@ -209,7 +209,8 @@ try {
       });
       assert.deepEqual(charges, [0.2, 0.2, 0.2, 0.2, 0.2]);
       assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, 1);
-      assert.equal(Number((await db.query('SELECT fractional_credits FROM public.decke_import_fix_credit WHERE user_id=$1', [A])).rows[0].fractional_credits), 0);
+      // 081 folds import fixes into the one generic carry; five 0.2 fixes net to zero there.
+      assert.equal(Number((await db.query('SELECT fractional_credits FROM public.decke_metered_credit WHERE user_id=$1', [A])).rows[0].fractional_credits), 0);
       assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_import_fix_settlement WHERE user_id=$1', [A])).rows[0].n, 5);
       const pricing = await asServer(A, async (c) => (await c.query(
         "SELECT public.decke_usage_observations(7,'fixture') AS data",
@@ -230,36 +231,38 @@ try {
       ));
     });
 
-    await test('a fix and chat race for the last credit without double spending', async () => {
-      const balance = (await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance;
-      assert.equal(balance, 1);
-      const chat = new pg.Client(config);
-      await chat.connect();
-      let fix;
-      try {
-        const [fixResult, chatResult] = await Promise.allSettled([
-          asServer(A, async (c) => (await c.query(
-            'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
-            [120, 'import_fix:race-chat', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
-          )).rows[0].data),
-          chat.query('SELECT public.credit_spend_create_effective($1,$2,$3,$4,$5,$6) AS data',
-            [A, 'chatTurn', 1, 0, 'chat:race-import-fix', 'b'.repeat(64)]),
-        ]);
-        if (fixResult.status === 'fulfilled') fix = fixResult.value;
-        else assert.equal(fixResult.reason.code, 'P0001');
-        assert.equal(chatResult.status, 'fulfilled');
-        const chatAllowed = chatResult.value.rows[0].data.allowed;
-        assert.equal(Number(Boolean(fix)) + Number(chatAllowed), 1);
-        assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, 0);
-        assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [A])).rows[0].debt, 0);
-      } finally {
-        await chat.end();
-      }
+    await test('a fix and metered chat race without double spending', async () => {
+      // The prior import settlement leaves a .2-credit liability. Four whole
+      // credits means either the one-credit fix or the >=3-credit chat can win.
+      await db.query("SELECT public.credit_apply_delta($1,3,'grant','Fixture race credits','reach-race-grant')", [A]);
+      const policy = (await db.query('SELECT public.credit_effective_policy($1) data', [A])).rows[0].data;
+      const request = (await db.query(
+        "SELECT public.decke_usage_begin($1,NULL,NULL,NULL,'chat:race-import-fix',$2,'fixture',233,$3,$4,'paid','') data",
+        [A, 'b'.repeat(64), policy.revision, policy.overrideRevision],
+      )).rows[0].data.id;
+      let fix, chatAllowed = false;
+      const [fixResult, chatResult] = await Promise.allSettled([
+        asServer(A, async (c) => (await c.query(
+          'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
+          [120, 'import_fix:race-chat', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
+        )).rows[0].data),
+        asServer(A, async (c) => (await c.query(
+          'SELECT public.decke_metered_begin($1) AS data', [request])).rows[0].data),
+      ]);
+      if (fixResult.status === 'fulfilled') fix = fixResult.value;
+      else assert.equal(fixResult.reason.code, 'P0001');
+      assert.equal(chatResult.status, 'fulfilled');
+      chatAllowed = chatResult.value.allowed;
+      assert.equal(Number(Boolean(fix)) + Number(chatAllowed), 1);
+      assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, chatAllowed ? 0 : 3);
+      assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [A])).rows[0].debt, 0);
       if (fix) await asServer(A, (c) => c.query(
         'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
         [fix.requestId, fix.operationId, 'failed', null, null, null, null, null,
           null, 'unknown', null],
       ));
+      if (chatAllowed) await asServer(A, (c) => c.query(
+        "SELECT public.decke_metered_settle($1,'cancelled')", [request]));
     });
 
     await test('a suspended account settles its admitted fix exactly once', async () => {
@@ -303,11 +306,15 @@ try {
     await test('a wallet read releases an orphaned import hold once', async () => {
       await as('authenticated', A, (c) => rejects(
         c.query('SELECT public.decke_import_fix_recover($1)', [A]), '42501'));
+      const before = await asServer(A, async (c) => (await c.query(
+        'SELECT public.credit_wallet_read(NULL) AS data')).rows[0].data);
+      const beforeWhole = (await db.query(
+        'SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance;
       const started = await asServer(A, async (c) => (await c.query(
         'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) AS data',
         [120, 'import_fix:orphaned', 'a'.repeat(64), 'fixture-model', 'fixture', 233],
       )).rows[0].data);
-      assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, 0);
+      assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [A])).rows[0].balance, beforeWhole - 1);
       await db.query("UPDATE public.decke_ai_request SET started_at=now()-interval '16 minutes' WHERE id=$1",
         [started.requestId]);
       const first = await asServer(A, async (c) => (await c.query(
@@ -316,8 +323,8 @@ try {
       const again = await asServer(A, async (c) => (await c.query(
         'SELECT public.credit_wallet_read(NULL) AS data',
       )).rows[0].data);
-      assert.equal(first.balance, 1);
-      assert.equal(again.balance, 1);
+      assert.equal(first.balance, before.balance);
+      assert.equal(again.balance, before.balance);
       assert.equal((await db.query('SELECT status FROM public.decke_ai_request WHERE id=$1',
         [started.requestId])).rows[0].status, 'abandoned');
       assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_credit_event WHERE ref=$1',

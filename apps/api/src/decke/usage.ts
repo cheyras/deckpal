@@ -3,9 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from 'ai';
 import type { Queryable } from '@deckpal/db';
 import { ApiError, UUID_RE } from '../http.js';
+import { isMetered, type CreditPolicy } from '../credits/policy.js';
 import { buildStamp } from './build.js';
 import { decimalUsd, extractUsage, safeUsageCode, usageCategory, type UsageCategory } from './usageMetadata.js';
-export interface AiRequest {id:string;db:Queryable;pending:Set<Promise<unknown>>;failed:boolean;signal?:AbortSignal;spendId?:string}
+export interface AiRequest {id:string;db:Queryable;pending:Set<Promise<unknown>>;failed:boolean;metered:boolean;meteredStarted:boolean;capReached:boolean;signal?:AbortSignal;spendId?:string}
 const context=new AsyncLocalStorage<{request:AiRequest;tool:string;operationKey:string}>();
 export function runAiUsage<T>(request:AiRequest,fn:()=>T):T {return context.run({request,tool:'chat_turn',operationKey:'chat_turn'},fn)}
 export function runUsageOperation<T>(tool:string,fn:()=>T,operationKey?:string):T {
@@ -14,7 +15,7 @@ export function runUsageOperation<T>(tool:string,fn:()=>T,operationKey?:string):
 function uuid(v:unknown):string|null{return typeof v==='string'&&UUID_RE.test(v)?v:null}
 export async function beginAiRequest(db:Queryable,args:{
  userId:string;conversationId:unknown;exchangeId?:unknown;seq?:unknown;requestKey:string;payloadHash:string;
- quote:{revision:number;overrideRevision?:number;unlimited?:boolean;policy:{enabled:boolean}};messages:unknown;signal?:AbortSignal;
+ quote:{revision:number;overrideRevision?:number;unlimited?:boolean;policy:CreditPolicy};messages:unknown;signal?:AbortSignal;
 }):Promise<AiRequest> {
  const stamp=buildStamp();
  const seq=typeof args.seq==='number'&&Number.isSafeInteger(args.seq)&&args.seq>=0&&args.seq<=10000?args.seq:null;
@@ -24,7 +25,7 @@ export async function beginAiRequest(db:Queryable,args:{
    stamp.buildSha,stamp.buildPr,args.quote.revision,args.quote.overrideRevision??0,
    args.quote.unlimited?'unlimited':args.quote.policy.enabled?'paid':'daily',null]);
   if(!rows[0]?.data?.id) throw new Error('Missing usage record');
-  return {id:String(rows[0].data.id),db,pending:new Set(),failed:false,signal:args.signal};
+  return {id:String(rows[0].data.id),db,pending:new Set(),failed:false,metered:isMetered(args.quote.policy),meteredStarted:false,capReached:false,signal:args.signal};
  }catch(error) {
   const code=(error as {code?:string}).code;
   if(code==='40001') throw new ApiError(409,'operation_replayed','This request was already accepted. Send a new message.');
@@ -46,7 +47,9 @@ export async function beginExternalUsage(tool:string,model:string,provider:strin
   try {
   await request.db.query('SELECT public.decke_usage_external_operation_begin($1,$2,$3,$4,$5,$6,$7)',
    [id,request.id,tool,model.slice(0,160),provider.slice(0,80),operationKey.slice(0,160),request.spendId??null]);
- } catch {
+ } catch (error) {
+  if((error as {code?:string}).code==='DKCAP'){request.capReached=true;throw error;}
+  if(request.metered)throw error;
   console.error('[deck-e] external usage begin unavailable',request.id,tool);return async()=>{};
  }
  let done=false;
@@ -58,24 +61,63 @@ export async function beginExternalUsage(tool:string,model:string,provider:strin
   try{await tracked(request,work);}catch{console.error('[deck-e] external usage finalization unavailable',request.id,tool);}
  };
 }
-export async function finishAiRequest(request:AiRequest,status:'completed'|'failed'|'cancelled',credits?:number):Promise<void> {
+export interface MeteredSettlement {credits:string;wholeCredits:number;knownCostUsd:string;coverage:'complete'|'partial'|'unknown';coveredCredits?:string;balance:string|null}
+export async function finishAiRequest(request:AiRequest,status:'completed'|'failed'|'cancelled',credits?:number):Promise<MeteredSettlement|undefined> {
  await Promise.allSettled([...request.pending]);
+ const finalStatus=request.signal?.aborted?'cancelled':request.failed?'failed':status;
  try {
+  // A metered request settles even when admission looked like it failed: if the
+  // begin committed and only its reply was lost, the hold exists and must be
+  // released. Only "no reservation" (P0002) falls through to the plain finish.
+  if(request.meteredStarted||request.metered){
+   try{
+    const {rows}=await request.db.query('SELECT public.decke_metered_settle($1,$2) AS data',[request.id,finalStatus]);
+    return rows[0]?.data as MeteredSettlement|undefined;
+   }catch(error){
+    if(request.meteredStarted||(error as {code?:string}).code!=='P0002')throw error;
+   }
+  }
   await request.db.query("UPDATE public.decke_ai_request SET status=$2,finished_at=now(),charged_credits=coalesce((SELECT sum(s.credits)::integer FROM public.credit_spend s WHERE s.user_id=decke_ai_request.user_id AND (s.request_key=decke_ai_request.request_key OR starts_with(s.request_key,decke_ai_request.request_key||':deep:')) AND s.refunded_at IS NULL),$3) WHERE id=$1 AND status='started'",
-   [request.id,request.signal?.aborted?'cancelled':request.failed?'failed':status,credits??null]);
+   [request.id,finalStatus,credits??null]);
  }catch{console.error('[deck-e] usage finalization unavailable',request.id);}
+}
+export async function meteredCapReached(request:AiRequest):Promise<boolean> {
+ if(!request.meteredStarted)return false;
+ if(request.capReached)return true;
+ try{
+  const {rows}=await request.db.query('SELECT public.decke_metered_status($1) AS data',[request.id]);
+  request.capReached=rows[0]?.data?.capReached===true;
+  return request.capReached;
+ }catch(error){
+  if((error as {code?:string}).code==='DKCAP'){request.capReached=true;return true;}
+  console.error('[deck-e] metered status unavailable',request.id);return false;
+ }
 }
 export interface ProviderCreditWork {spendId?:string;prepareRefund?:(recover:()=>Promise<void>)=>void;invoke?:<T>(provider:()=>T)=>T}
 export function observeUsageModel(model:LanguageModel,credit?:ProviderCreditWork):LanguageModel {
- const ctx=context.getStore(); if(!ctx||typeof model==='string') return model;
+ const ctx=context.getStore(); if(typeof model==='string') return model;
+ if(!ctx){
+  // Admission belongs at the provider boundary even in callers that do not record a
+  // usage request (tests and deliberately unmetered jobs). Never let missing telemetry
+  // context turn a supplied credit guard into an authorization bypass.
+  if(!credit?.invoke)return model;
+  const admissionOnly:LanguageModelMiddleware={
+   specificationVersion:'v4',
+   wrapGenerate:async({doGenerate})=>credit.invoke!(doGenerate),
+   wrapStream:async({doStream})=>credit.invoke!(doStream),
+  };
+  return wrapLanguageModel({model,middleware:admissionOnly});
+ }
  const {request,tool,operationKey}=ctx; const category=usageCategory(tool);
  const cancelled=(signal?:AbortSignal)=>signal?.aborted||request.signal?.aborted;
  const start=async(modelId:string,provider:string,signal?:AbortSignal)=>{
   if(cancelled(signal)) throw new DOMException('Cancelled','AbortError');
   const id=randomUUID();
   credit?.prepareRefund?.(async()=>{await request.db.query('SELECT public.decke_usage_operation_cancel_uninvoked($1)',[id]);});
-  await request.db.query('SELECT public.decke_usage_operation_begin($1,$2,$3,$4,$5,$6,$7,$8)',
-   [id,request.id,category,tool,modelId.slice(0,160),provider.slice(0,80),operationKey.slice(0,160),credit?.spendId??null]);
+  try{
+   await request.db.query('SELECT public.decke_usage_operation_begin($1,$2,$3,$4,$5,$6,$7,$8)',
+    [id,request.id,category,tool,modelId.slice(0,160),provider.slice(0,80),operationKey.slice(0,160),credit?.spendId??null]);
+  }catch(error){if((error as {code?:string}).code==='DKCAP')request.capReached=true;throw error;}
   return id;
  };
  const end=async(id:string,status:string,usage:unknown,metadata:unknown)=>{

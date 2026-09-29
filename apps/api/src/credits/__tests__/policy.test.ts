@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_POLICY, normalizePolicy, normalizePack, priceFor, pricesFor, operationFor, attemptKey } from '../policy.js';
+import { DEFAULT_POLICY, METERED_CHARGE_NOTICE, METERED_ESTIMATE_NOTICE, chargeNoticeFor, estimateNoticeFor, isMetered, normalizePolicy, normalizePolicyUpdate, normalizePack, priceFor, pricesFor, operationFor, attemptKey, type MeteredPolicy } from '../policy.js';
 import { chatChargeReference, payloadHash } from '../runtime.js';
 
 test('fixed precision usage prices preserve legacy units and round upward once', () => {
@@ -22,6 +22,31 @@ test('economic configuration refuses unknown, unsafe, fractional, and overflowin
  assert.throws(()=>normalizePolicy({...DEFAULT_POLICY,estimatedMicroUsd:{...DEFAULT_POLICY.estimatedMicroUsd,extra:1}}));
  assert.throws(()=>normalizePolicy({...DEFAULT_POLICY,microUsdPerCredit:1,markupBps:100000,estimatedMicroUsd:{chatTurn:1_000_000_000,analysis:1,planDeck:1}}));
  assert.deepEqual(normalizePolicy(DEFAULT_POLICY),DEFAULT_POLICY);
+});
+test('stored policy normalization accepts only the exact legacy or metered shape',()=>{
+ const metered:MeteredPolicy={version:2,enabled:true,microUsdPerCredit:10_000,markupBps:250,lowBalance:100,legHoldCredits:25,legHoldMinCredits:3,overageBufferMaxCredits:2000};
+ assert.deepEqual(normalizePolicy(metered),metered);
+ assert.equal(isMetered(normalizePolicy(metered)),true);
+ assert.equal(isMetered(normalizePolicy(DEFAULT_POLICY)),false);
+ for(const invalid of [
+  {...metered,version:1},
+  {...metered,estimatedMicroUsd:DEFAULT_POLICY.estimatedMicroUsd},
+  {...metered,extra:true},
+  {...metered,legHoldCredits:0},
+  {...metered,legHoldCredits:10_001},
+  {...metered,legHoldMinCredits:26},
+  {...metered,overageBufferMaxCredits:-1},
+  {...metered,overageBufferMaxCredits:10_000_001},
+ ]) assert.throws(()=>normalizePolicy(invalid));
+ assert.equal(chargeNoticeFor(metered),METERED_CHARGE_NOTICE);
+ assert.equal(estimateNoticeFor(metered),METERED_ESTIMATE_NOTICE);
+});
+test('an admin update may edit fields but cannot switch the stored policy version',()=>{
+ const metered:MeteredPolicy={version:2,enabled:true,microUsdPerCredit:10_000,markupBps:0,lowBalance:100,legHoldCredits:25,legHoldMinCredits:3,overageBufferMaxCredits:2000};
+ assert.deepEqual(normalizePolicyUpdate({...metered,legHoldCredits:30},metered),{...metered,legHoldCredits:30});
+ assert.deepEqual(normalizePolicyUpdate({...DEFAULT_POLICY,lowBalance:50},DEFAULT_POLICY),{...DEFAULT_POLICY,lowBalance:50});
+ assert.throws(()=>normalizePolicyUpdate(metered,DEFAULT_POLICY),/version must match/);
+ assert.throws(()=>normalizePolicyUpdate(DEFAULT_POLICY,metered),/version must match/);
 });
 test('pack sale prices are explicit and never automatically marked up',()=>{
  const pack={name:' Small pack ',credits:100,priceCents:250,currency:'usd',active:true};

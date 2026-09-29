@@ -180,6 +180,25 @@ test('a successful empty search alone says it returned no findings', async () =>
   assert.match(output, /^The following was fetched from the open web/);
 });
 
+test('a DKCAP authorization stop is a normal refusal, never a provider error', async () => {
+  const events: Event[] = [];
+  const built = buildDeepTools({
+    ctx: CTX,
+    gateway: gateway([]),
+    charge: async () => ({
+      allowed: true,
+      invoke: () => { throw Object.assign(new Error('metered cap'), { code: 'DKCAP' }); },
+    }),
+    onEvent: (event) => events.push(event as Event),
+  }) as unknown as Record<string, Runnable>;
+  const output = await built.web_research!.execute(
+    { query: 'latest event', topic: 'competitive', purpose: 'Latest event' },
+    { toolCallId: 'r-cap' },
+  );
+  assert.match(output, /^\[\[NO_WORK\]\] NOT RUN \[meter:cap\]/);
+  assert.equal(events.some((event) => event.phase === 'error'), false);
+});
+
 test('a timeout is partial and plainly marks the returned research incomplete', async () => {
   const previous = process.env[DECKE_DEEP_BUDGET_VAR];
   process.env[DECKE_DEEP_BUDGET_VAR] = '20';

@@ -118,13 +118,14 @@ import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/t
 import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
 import { creditWork } from '../apps/api/dist/credits/work.js'
 import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
-import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, safeUsageCode } from '../apps/api/dist/decke/usage.js'
-import { assertDeckeAccess, readPolicy, reserveCredits, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
+import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
+import { assertDeckeAccess, beginMeteredCredits, readPolicy, reserveCredits, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
+import { isMetered } from '../apps/api/dist/credits/policy.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls } from '../apps/api/dist/decke/declined.js'
 import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
-import { outOfCreditsText } from '../apps/api/dist/decke/credits.js'
+import { meteredCapText, outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
@@ -510,6 +511,25 @@ async function serve(request) {
   let quote, reference, meter, usage
   const meterTurn = async (userId, { tier, reason, toolCallId, args }) => {
     await assertDeckeAccess(userId)
+    if (isMetered(quote.policy)) {
+      // One hold belongs to the whole request. Research still receives its own
+      // usage operation, but never creates a second wallet reservation.
+      if (toolCallId) {
+        if (!quote.policy.enabled && !quote.unlimited) return { ...(await charge(userId, tier)), credits: false,
+          ...creditWork(async () => {}, request.signal) }
+        return { allowed: true, credits: quote.policy.enabled && !quote.unlimited,
+          balance: meter?.balance, ...creditWork(async () => {}, request.signal) }
+      }
+      const result = await beginMeteredCredits(chatPool(), userId, usage.id)
+      usage.meteredStarted = result.allowed
+      // Every metered refusal is a credit refusal (the balance, a debt or a payment
+      // hold), never the daily allowance, so it must offer the wallet, not "tomorrow".
+      const admission = { ...result, credits: !result.allowed || result.mode === 'paid', held: result.reason === 'payment_hold',
+        needed: result.needed ?? (result.allowed ? undefined : quote.policy.legHoldMinCredits),
+        ...creditWork(async () => {}, request.signal) }
+      if (!result.allowed || result.mode !== 'daily') return admission
+      return { ...admission, ...(await charge(userId, tier)), credits: false }
+    }
     if (!quote.policy.enabled && !quote.unlimited) return { ...(await charge(userId, tier)), credits: false,
       ...creditWork(async () => {}, request.signal) }
     const tool = reason === 'chat_turn' ? 'chat_turn' : reason.slice(5)
@@ -543,7 +563,7 @@ async function serve(request) {
     // can offer the top-up instead.
     return meter.credits
       ? json(
-          { error: meter.held ? 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.' : outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance, needed: meter.needed, held: meter.held === true } },
+          { error: meter.held ? 'AI credits are on hold while a payment issue is resolved. Open your credit wallet for details.' : outOfCreditsText(), retryAfterDay: false, credits: { balance: meter.balance == null ? meter.balance : Number(meter.balance), needed: meter.needed, held: meter.held === true } },
           429,
         )
       : json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
@@ -566,6 +586,8 @@ async function serve(request) {
   // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
   // above a threshold chosen on a labelled set. See `decke/jev.ts`.
   const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))
+  let capReached = await meteredCapReached(usage)
+  let capLineWritten = false
 
   // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
   //
@@ -716,6 +738,12 @@ async function serve(request) {
       // bug — this deployment has two keys with different billing, and the
       // failure mode is spending the wrong one while believing otherwise.
       const gateway = createGateway({ apiKey: key })
+
+      if (capReached) {
+        writer.write({ type: 'text-delta', id: 'metered-cap', delta: meteredCapText() })
+        capLineWritten = true
+        return
+      }
 
       // ONE PER TURN, shared by every tool in it. What a data tool returns on
       // step one is what `showScreen` may draw on step three — evidence is a
@@ -997,6 +1025,10 @@ async function serve(request) {
           // the note agree on what "too many" means. The `onFinish` note below
           // then explains what happened.
           () => errorBudgetExceeded(guardEvents.map((e) => e.phase)),
+          async () => {
+            capReached = await meteredCapReached(usage)
+            return capReached
+          },
         ],
         // ── WHAT HE CAN SEE, PER STEP ─────────────────────────────────────
         //
@@ -1260,9 +1292,18 @@ async function serve(request) {
       }
 
       try {
+        capReached = capReached || await meteredCapReached(usage)
         const steps = await result.steps
+        // Only when the cap actually cut him off: a reply that finished on its
+        // own ('stop') on the step that crossed the cap is complete, and telling
+        // the reader it was not would be false.
+        if (capReached && !capLineWritten && steps.at(-1)?.finishReason !== 'stop') {
+          writer.write({ type: 'text-delta', id: 'metered-cap', delta: meteredCapText() })
+          capLineWritten = true
+          guardFired = true
+        }
         const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
-        if (!spoke && steps.length >= MAX_STEPS) {
+        if (!capReached && !spoke && steps.length >= MAX_STEPS) {
           console.warn(
             `[deck-e] turn exhausted its ${MAX_STEPS}-step budget without answering; ` +
               'the reader was told rather than left with an empty bubble.',
@@ -1520,7 +1561,7 @@ async function serve(request) {
     stream,
     headers: {
       'x-decke-credits':
-        meter.credits && Number.isFinite(meter.balance) ? String(meter.balance) : '-1',
+        meter.credits && (typeof meter.balance === 'string' && /^-?\d+(?:\.\d+)?$/.test(meter.balance) || Number.isFinite(meter.balance)) ? String(meter.balance) : '-1',
       // The threshold too, so the panel does not carry a second opinion about
       // what "low" means. The server prices the work; it is the only thing that
       // knows whether what is left still buys the expensive one.

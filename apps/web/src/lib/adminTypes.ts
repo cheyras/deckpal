@@ -14,13 +14,18 @@ export interface Permission { key: string; group: string; description: string }
 export interface RoleList { roles: AdminRole[]; permissions: Permission[]; permissionCeilings: Record<string, string[]> }
 export interface PageResult { total: number; limit: number; offset: number }
 export interface AuditEvent { id: string; actorId: string; actorName: string | null; action: string; targetType: string; targetId: string | null; before: unknown; after: unknown; reason: string | null; createdAt: string }
-export interface CreditPolicy { enabled: boolean; microUsdPerCredit: number; markupBps: number; estimatedMicroUsd: { chatTurn: number; analysis: number; planDeck: number }; lowBalance: number }
-export interface CreditSettings { policy: CreditPolicy; revision: number; updatedAt: string; estimateNotice?: string }
+export interface LegacyCreditPolicy { enabled: boolean; microUsdPerCredit: number; markupBps: number; estimatedMicroUsd: { chatTurn: number; analysis: number; planDeck: number }; lowBalance: number }
+export interface MeteredCreditPolicy { version: 2; enabled: boolean; microUsdPerCredit: number; markupBps: number; lowBalance: number; legHoldCredits: number; legHoldMinCredits: number; overageBufferMaxCredits: number }
+export type CreditPolicy = LegacyCreditPolicy | MeteredCreditPolicy
+export interface CreditSettings { policy: CreditPolicy; revision: number; updatedAt: string; estimateNotice?: string; overageBuffer?: { balance: number; coveredTotal: number } }
 export interface CreditPack { id: string; name: string; credits: number; priceCents: number; currency: 'usd'; active: boolean; revision: number }
 export interface CreditEvent { id: string; delta: number; debtDelta?: number; kind: string; reason: string | null; createdAt: string; pricingRevision: number | null }
-export interface Wallet { enabled: boolean; balance: number; debt: number; purchaseHold: boolean; lowAt: number; prices: { chatTurn: number; analysis: number; planDeck: number }; unlimited?: boolean; packs: CreditPack[]; purchasesEnabled: boolean; purchaseUnavailableReason: string | null }
+interface WalletBase { enabled: boolean; balance: number; debt: number; purchaseHold: boolean; lowAt: number; unlimited?: boolean; packs: CreditPack[]; purchasesEnabled: boolean; purchaseUnavailableReason: string | null }
+export interface FlatWallet extends WalletBase { mode: 'flat'; prices: { chatTurn: number; analysis: number; planDeck: number } }
+export interface MeteredWallet extends WalletBase { mode: 'metered'; holdCredits: number; holdMinCredits: number; heldCredits: number; balanceExact: string; /** Legacy quote consumers must narrow on mode before reading this. */ prices: never }
+export type Wallet = FlatWallet | MeteredWallet
 export interface CreditOrder { id: string; status: string; credits: number; priceCents: number; currency: string }
-export interface CreditSummary { days: number; creditsSpent: number; creditsGranted: number; paidOrders: number; grossSalesCents: number; refundedCents: number; pendingOrders: number; heldWallets: number; debtWallets: number; totalDebt: number; estimatedProviderMicroUsd: number; unpricedSpends: number }
+export interface CreditSummary { days: number; creditsSpent: number; creditsGranted: number; paidOrders: number; grossSalesCents: number; refundedCents: number; pendingOrders: number; heldWallets: number; debtWallets: number; totalDebt: number; estimatedProviderMicroUsd: number; unpricedSpends: number; providerCostUsd?: number; overageCoveredCredits?: number; overageBufferCredits?: number }
 export interface AdminCreditOrder { id: string; userId: string; username: string | null; packName: string; credits: number; priceCents: number; currency: string; status: string; refundedCents: number; reversedCredits: number; disputeStatus: string | null; createdAt: string; paidAt: string | null }
 
 export interface SharingPreference { enabled: boolean; revision: number; updatedAt: string | null }

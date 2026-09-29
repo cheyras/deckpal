@@ -81,6 +81,12 @@ test('a balance the server got wrong is not rendered as arithmetic', () => {
   assert.equal(creditState({ remaining: 1, allowance: 0 }), 'low')
 })
 
+test('fractional metered balances remain available and retain four decimal places', () => {
+  assert.equal(creditState({ remaining: 0.0001, allowance: 25 }), 'low')
+  assert.equal(creditHeaderLabel({ remaining: 0.0001, allowance: 25 }), '0.0001 credits left')
+  assert.equal(creditHeaderLabel({ remaining: 12.5, allowance: 100 }), '12.5 credits left')
+})
+
 /**
  * HE SAYS IT, AND HE DOES NOT GROVEL.
  *
