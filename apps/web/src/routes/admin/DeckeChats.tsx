@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { isCloudMode } from '../../lib/supabase'
-import { readSession } from '../../lib/authSession'
-import { ApiError } from '../../lib/api'
+import { api } from '../../lib/api'
 import { useAccess } from '../../lib/access'
 import { Button, DataTable, DataTableToolbar, EmptyState } from '../../components/ui'
 import { Icon } from '../../components/Icon'
@@ -13,23 +11,6 @@ import { costLabel, eventOffset, json, sharingLabel, type Coverage } from './Dec
 type RecordValue = Record<string, unknown>
 interface ChatRow { id: string; startedAt: string; updatedAt: string; buildFirst: string | null; buildLast: string | null; turnCount: number; costUsd: string | null; costCoverage: Coverage; hasError: boolean; source?: string; upCount?: number; downCount?: number }
 interface ChatDetail { conversation: ChatRow; turns: RecordValue[] }
-const base = isCloudMode ? '/api' : '/deckpal/api'
-
-// This reader stays local until the shared client lane publishes these private
-// corpus endpoints. It retains the app's bearer-session convention.
-async function improvement<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const session = isCloudMode ? await readSession() : { session: null }
-  const response = await fetch(base + path, { signal, headers: session.session ? { Authorization: `Bearer ${session.session.access_token}` } : {} })
-  if (!response.ok) throw new ApiError((await response.json().catch(() => ({})) as { error?: { message?: string } }).error?.message ?? `HTTP ${response.status}`, response.status)
-  return response.json() as Promise<T>
-}
-
-async function improvementMarkdown(id: string): Promise<string> {
-  const session = isCloudMode ? await readSession() : { session: null }
-  const response = await fetch(base + '/admin/decke-improvement/' + encodeURIComponent(id) + '?format=markdown', { headers: session.session ? { Authorization: `Bearer ${session.session.access_token}` } : {} })
-  if (!response.ok) throw new Error(`Could not load Markdown (HTTP ${response.status}).`)
-  return response.text()
-}
 
 function text(value: unknown): string { return typeof value === 'string' ? value : 'Not recorded' }
 function array(value: unknown): RecordValue[] { return Array.isArray(value) ? value.filter((item): item is RecordValue => !!item && typeof item === 'object') : [] }
@@ -53,8 +34,8 @@ function TurnWhatHappened({ turn }: { turn: RecordValue }) {
 
 function Detail({ id, close }: { id: string; close: () => void }) {
   const [copyError, setCopyError] = useState('')
-  const query = useQuery({ queryKey: ['admin', 'decke-improvement', id], queryFn: ({ signal }) => improvement<ChatDetail>('/admin/decke-improvement/' + encodeURIComponent(id), signal), retry: false })
-  const copy = async () => { try { await navigator.clipboard.writeText(await improvementMarkdown(id)); setCopyError('') } catch (cause) { setCopyError(cause instanceof Error ? cause.message : 'Could not copy Markdown.') } }
+  const query = useQuery({ queryKey: ['admin', 'decke-improvement', id], queryFn: ({ signal }) => api.adminDeckeImprovement<ChatDetail>(id, signal), retry: false })
+  const copy = async () => { try { await navigator.clipboard.writeText(await api.adminDeckeImprovementMarkdown(id)); setCopyError('') } catch (cause) { setCopyError(cause instanceof Error ? cause.message : 'Could not copy Markdown.') } }
   return <Sheet title="Shared Deck-E chat" size="lg" onClose={close}><div className="space-y-[18px]">{query.error && <p className="text-error">{query.error.message}</p>}{query.isPending && <p role="status">Loading shared chat…</p>}{query.data && <><div className="flex flex-wrap items-center justify-between gap-[12px]"><p className="text-[14px] text-text-muted">Last activity {fmtDate(query.data.conversation.updatedAt)} · {sharingLabel(query.data.conversation.source)}</p><Button variant="ghost" size="sm" onClick={() => void copy()}><Icon name="copy" size={16} /> Copy as Markdown</Button></div>{copyError && <p className="text-error">{copyError}</p>}<div className="space-y-[14px]">{query.data.turns.map((turn, index) => <article key={String(turn.seq ?? index)} className="space-y-[12px] rounded-xl border border-border-default p-[14px]"><h3 className="font-semibold text-text-primary">Turn {Number(turn.seq ?? index) + 1}</h3><div><p className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Question</p><p className="mt-[4px] whitespace-pre-wrap break-words text-text-body">{text(turn.asked)}</p></div><div><p className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Reply</p><p className="mt-[4px] whitespace-pre-wrap break-words text-text-body">{text(turn.answered)}</p></div><TurnWhatHappened turn={turn} /></article>)}</div></>}</div></Sheet>
 }
 
@@ -67,7 +48,7 @@ export function AdminDeckeChats() {
   // unsupported filter that would turn a valid search into a 400.
   const { source, ...readerFilters } = filters
   const params = new URLSearchParams(Object.entries({ ...readerFilters, cursor: cursor ?? '', limit: '50' }).filter(([, value]) => value !== '')).toString()
-  const query = useQuery({ queryKey: ['admin', access.identity, access.revision, 'decke-improvement', params], queryFn: ({ signal }) => improvement<{ items: ChatRow[]; nextCursor: string | null }>('/admin/decke-improvement?' + params, signal), enabled: access.ready && access.permissions.includes('decke.improvement.read'), retry: false })
+  const query = useQuery({ queryKey: ['admin', access.identity, access.revision, 'decke-improvement', params], queryFn: ({ signal }) => api.adminDeckeImprovementList<{ items: ChatRow[]; nextCursor: string | null }>(params, signal), enabled: access.ready && access.permissions.includes('decke.improvement.read'), retry: false })
   if (!access.ready || !access.permissions.includes('decke.improvement.read')) return <EmptyState icon="lock" title="Shared chats unavailable" body="Deck-E improvement access is required." />
   const rows = source ? (query.data?.items ?? []).filter(row => row.source === source) : query.data?.items ?? []
   return <section className="min-w-0 space-y-[20px]"><h2 className="font-display text-[24px] text-text-primary">Shared Deck-E chats</h2><p className="max-w-[760px] text-text-muted">Only chats explicitly shared for improvement appear here. Shared copies expire after 180 days.</p><DataTable label="Shared Deck-E chats" rows={rows} getRowId={row => row.id} loading={query.isPending} refreshing={query.isFetching && !query.isPending} error={query.error?.message} onRetry={() => void query.refetch()} toolbar={<DataTableToolbar label="Filter shared Deck-E chats" onSubmit={() => { setFilters(draft); setCursor(null) }} onReset={() => { setDraft(initial); setFilters(initial); setCursor(null) }}><label>From<input type="date" className={selectClass} value={draft.from} onChange={e => setDraft({ ...draft, from: e.target.value })} /></label><label>To<input type="date" className={selectClass} value={draft.to} onChange={e => setDraft({ ...draft, to: e.target.value })} /></label><label>Build PR<input className={selectClass} value={draft.build_pr} onChange={e => setDraft({ ...draft, build_pr: e.target.value })} /></label><label>Minimum cost<input className={selectClass} value={draft.min_cost} onChange={e => setDraft({ ...draft, min_cost: e.target.value })} /></label><label>Model<input className={selectClass} value={draft.model} onChange={e => setDraft({ ...draft, model: e.target.value })} /></label><label>Tool<input className={selectClass} value={draft.tool} onChange={e => setDraft({ ...draft, tool: e.target.value })} /></label><label>Vote<select className={selectClass} value={draft.vote} onChange={e => setDraft({ ...draft, vote: e.target.value })}><option value="">All votes</option><option value="1">Up</option><option value="-1">Down</option></select></label><label>Error<select className={selectClass} value={draft.has_error} onChange={e => setDraft({ ...draft, has_error: e.target.value })}><option value="">Any</option><option value="true">Has error</option><option value="false">No error</option></select></label><label>Shared via<select className={selectClass} value={draft.source} onChange={e => setDraft({ ...draft, source: e.target.value })}><option value="">All sources</option><option value="decke_ask">Asked</option><option value="feedback">Feedback</option><option value="reader">Reader</option></select></label></DataTableToolbar>} columns={[{ id: 'activity', header: 'Last activity', cell: row => fmtDate(row.updatedAt) }, { id: 'turns', header: 'Turns', cell: row => row.turnCount }, { id: 'cost', header: 'Cost', cell: row => costLabel(row.costUsd, row.costCoverage) }, { id: 'votes', header: 'Votes', cell: row => <span className="inline-flex gap-[10px]"><span aria-label={`${row.upCount ?? 0} thumbs up`}><Icon name="arrow-up" size={15} /> {row.upCount ?? 0}</span><span aria-label={`${row.downCount ?? 0} thumbs down`}><Icon name="arrow-down" size={15} /> {row.downCount ?? 0}</span></span> }, { id: 'errors', header: 'Errors', cell: row => row.hasError ? <Icon name="alert" size={16} className="text-error" /> : 'None' }, { id: 'build', header: 'Build', cell: row => row.buildLast ?? row.buildFirst ?? 'Not recorded' }, { id: 'shared', header: 'Shared via', cell: row => sharingLabel(row.source) }, { id: 'detail', header: 'Transcript', cell: row => <Button variant="ghost" size="sm" onClick={() => setSelected(row.id)}>View</Button> }]} />{query.data?.nextCursor && <Button variant="ghost" onClick={() => setCursor(query.data?.nextCursor ?? null)}>Load more</Button>}{selected && <Detail id={selected} close={() => setSelected(null)} />}</section>

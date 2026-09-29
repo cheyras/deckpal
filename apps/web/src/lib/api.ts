@@ -1930,6 +1930,18 @@ export const api = {
   /** A queued photo's bytes, through the authenticated pipeline for
    *  `scanFlagBlob`'s reason: a browser-initiated `<img>` request carries no
    *  Authorization header and would 403 at the gate. */
+  /** A shared Deck-E chat as Markdown, for pasting into an agent or an issue. */
+  adminDeckeImprovementMarkdown: async (id: string): Promise<string> => {
+    const headers = await authHeaders()
+    const path = `/admin/decke-improvement/${encodeURIComponent(id)}?format=markdown`
+    let res = await fetch(`${BASE}${path}`, { headers })
+    if (res.status === 401) {
+      const retry = await handle401(path, { headers })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    return res.text()
+  },
   scanQueueBlob: async (id: number, signal?: AbortSignal): Promise<Blob> => {
     const headers = await authHeaders()
     const path = `/dev/scan-queue/${id}.jpg`
@@ -2135,6 +2147,11 @@ export const api = {
   adminCostObservations: (params: string, signal?: AbortSignal) => get<CostObservations>('/admin/ai-usage/observations?' + params, signal),
   adminAiUsage: (params: string, signal?: AbortSignal) => get<AiUsagePage>('/admin/ai-usage?' + params, signal),
   adminAiRequest: (id: string, signal?: AbortSignal) => get<AiUsageDetail>('/admin/ai-usage/requests/' + encodeURIComponent(id), signal),
+  /** Content-free cost rollup for every conversation, shared or not. */
+  adminAiConversationCosts: <T>(params: string, signal?: AbortSignal) => get<T>('/admin/ai-usage/conversations?' + params, signal),
+  /** Shared Deck-E chats (pseudonymised), list and one in full. */
+  adminDeckeImprovementList: <T>(params: string, signal?: AbortSignal) => get<T>('/admin/decke-improvement?' + params, signal),
+  adminDeckeImprovement: <T>(id: string, signal?: AbortSignal) => get<T>('/admin/decke-improvement/' + encodeURIComponent(id), signal),
   adminAiConversation: (id: string, params: string, signal?: AbortSignal) => get<{ items: AiUsageDetail[]; total: number; limit: number; offset: number }>('/admin/ai-usage/conversations/' + encodeURIComponent(id) + '?' + params, signal),
   meFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/me/features', signal),
   setMeFeature: (key: string, optedIn: boolean, expectedRevision: number) => send<{ features: FeatureAccess[] }>('PATCH', '/me/features/' + encodeURIComponent(key), { optedIn, expectedRevision }),

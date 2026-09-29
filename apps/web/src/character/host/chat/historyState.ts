@@ -37,7 +37,7 @@
  * and says what it means when you ask it.
  */
 
-import type { DeckeConversationSummary, DeckeHistoryTurn } from '../../../lib/api'
+import type { DeckeConversation, DeckeConversationSummary, DeckeFeedbackMine, DeckeHistoryTurn } from '../../../lib/api'
 import { isShownInTranscript } from './lookupRecord'
 import type { ToolPhase, ToolRowData } from './toolRowState'
 
@@ -409,4 +409,20 @@ export function isGone(e: unknown): boolean {
 export function errorLine(e: unknown): string {
   const m = e instanceof Error ? e.message.trim() : ''
   return m || 'Something went wrong.'
+}
+
+/**
+ * Attach the reader's own votes to the turns they were cast on, by `seq`.
+ * History does not carry them (it must not depend on the shared-chats schema),
+ * so the transcript fetches them separately and merges them here.
+ */
+export function withFeedback(c: DeckeConversation, feedback: DeckeFeedbackMine): DeckeConversation {
+  const bySeq = new Map(feedback.items.map((item) => [item.seq, item]))
+  return {
+    ...c,
+    turns: c.turns.map((t) => {
+      const f = bySeq.get(t.seq)
+      return f ? { ...t, feedback: f.vote, feedbackComment: f.comment } : t
+    }),
+  }
 }

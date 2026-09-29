@@ -6,8 +6,6 @@ import type { AiCost, AiUsageDetail } from '../../lib/adminTypes'
 import { Button, DataTable, DataTableToolbar, EmptyState, Tabs } from '../../components/ui'
 import { Sheet } from '../../components/ui/Sheet'
 import { selectClass, fmtDate } from './shared'
-import { isCloudMode } from '../../lib/supabase'
-import { readSession } from '../../lib/authSession'
 export const costLabel = (cost: AiCost) => cost.usd === null || cost.source === 'unknown' ? 'Unknown cost' : `$${cost.usd} USD${cost.coverage === 'partial' ? ' (partial)' : ''}${cost.source === 'token_rate_estimate' ? ' (estimate)' : ''}`
 const categories: Record<string, string> = { response: 'Standard response', research: 'Research', planning: 'In-depth planning' }
 function ContentProjection({ data }: { data: AiUsageDetail }) {
@@ -50,14 +48,8 @@ function UsageTable() {
 }
 
 interface ConversationCost { conversationId: string; userId: string; firstActivity: string; lastActivity: string; turnCount: number; requestCount: number; operationCount: number; knownCostCount: number; unknownCostCount: number; costUsd: string | null; costCoverage: AiCost['coverage']; models: string[] }
-const usageBase = isCloudMode ? '/api' : '/deckpal/api'
-
-async function conversationCosts(params: string, signal?: AbortSignal): Promise<{ items: ConversationCost[]; nextCursor: string | null }> {
-  const session = isCloudMode ? await readSession() : { session: null }
-  const response = await fetch(`${usageBase}/admin/ai-usage/conversations?${params}`, { signal, headers: session.session ? { Authorization: `Bearer ${session.session.access_token}` } : {} })
-  if (!response.ok) throw new Error(`Could not load conversation costs (HTTP ${response.status}).`)
-  return response.json() as Promise<{ items: ConversationCost[]; nextCursor: string | null }>
-}
+const conversationCosts = (params: string, signal?: AbortSignal) =>
+  api.adminAiConversationCosts<{ items: ConversationCost[]; nextCursor: string | null }>(params, signal)
 
 function ConversationCosts() {
   const access = useAccess(), [cursor, setCursor] = useState<string | null>(null)
