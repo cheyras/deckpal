@@ -63,6 +63,13 @@ test('longest overlapping term wins and matching is case insensitive', () => {
   assert.equal(redact('ANN MARIE met Ann and ann marie.', ['Ann Marie', 'Ann']), '[redacted] met [redacted] and [redacted].')
 })
 
+test('Greek final sigma matches in every case and encoding', () => {
+  for (const input of ['%CE%9D%CE%8A%CE%9A%CE%9F%CE%A3', 'owner ΝΊΚΟΣ here', 'νίκοσ', 'Νίκος']) {
+    assert.match(redact(input, ['Νίκος']), /\[redacted\]/, input)
+  }
+  assert.match(redact('%CE%9F%CE%94%CE%A5%CE%A3%CE%A3%CE%95%CE%8E%CE%A3', ['Οδυσσεύς']), /\[redacted\]/)
+})
+
 test('redacts URL, form, HTML-entity and Unicode normalization variants recursively', () => {
   const decomposed = 'Jose\u0301'
   const input = {

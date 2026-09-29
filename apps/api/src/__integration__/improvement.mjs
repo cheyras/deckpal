@@ -540,6 +540,12 @@ try {
       [`owner=J${slash}u006fhn${slash}u0020Smith`],
     )).rows[0].value;
     assert.equal(escapedText, 'owner=[redacted]');
+    // Final sigma: an encoded 'ΝΊΚΟΣ' lowers to 'νίκοσ' in PostgreSQL but the
+    // stored term lowers to 'νίκος'; detection folds ς to σ on both sides.
+    for (const [input, term] of [['%CE%9D%CE%8A%CE%9A%CE%9F%CE%A3', 'Νίκος'], ['owner ΝΊΚΟΣ here', 'Νίκος'], ['%CE%9F%CE%94%CE%A5%CE%A3%CE%A3%CE%95%CE%8E%CE%A3', 'Οδυσσεύς']]) {
+      const greek = (await db.query('SELECT public.decke_improvement_redact_text($1,ARRAY[$2]) value', [input, term])).rows[0].value;
+      assert.equal(greek.includes('[redacted]'), true, `Greek identity ${term} must not survive in ${input}: ${greek}`);
+    }
     const short = (await db.query(
       "SELECT public.decke_improvement_redact_text($1,ARRAY['Li']) value",
       ["Li's list and lithium; LI wins"],

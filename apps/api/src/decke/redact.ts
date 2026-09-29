@@ -151,12 +151,12 @@ function canonicalTerms(terms: readonly string[]): CanonicalTerm[] {
     const trimmed = raw.trim()
     if (!trimmed) continue
     const value = trimmed.normalize('NFKC')
-    const lowered = value.toLocaleLowerCase()
+    const lowered = fold(value)
     if (!unique.has(lowered)) {
       unique.set(lowered, {
         value,
         lowered,
-        formLowered: value.replaceAll('+', ' ').toLocaleLowerCase(),
+        formLowered: fold(value.replaceAll('+', ' ')),
         wholeWord: [...value].length < 3,
       })
     }
@@ -209,8 +209,17 @@ function termPattern(term: CanonicalTerm): RegExp {
 }
 
 /** Search one normalized decoded view without rewriting it. */
+/**
+ * Case-fold for detection: locale-independent lowercasing, with final sigma
+ * folded to σ. Lowercasing is context-sensitive in JS ('ΝΊΚΟΣ' → 'νίκος') but
+ * not in PostgreSQL ('νίκοσ'); folding both makes the two layers agree.
+ */
+function fold(value: string): string {
+  return value.toLowerCase().replaceAll('ς', 'σ')
+}
+
 function containsIdentity(value: string, terms: readonly CanonicalTerm[]): boolean {
-  const lowered = value.normalize('NFKC').toLocaleLowerCase()
+  const lowered = fold(value.normalize('NFKC'))
   for (const term of terms) {
     if (containsCanonical(lowered, term.lowered, term.wholeWord)) return true
     if (term.formLowered !== term.lowered

@@ -193,9 +193,12 @@ BEGIN
  IF total_characters>character_budget THEN RETURN '[redacted]'; END IF;
  WHILE head<=coalesce(cardinality(views),0) LOOP
   current_view=views[head]; current_depth=depths[head];
-  normalized_view=lower(normalize(current_view,NFKC) COLLATE "C.utf8");
+  -- lower() is not context-sensitive: an encoded 'ΝΊΚΟΣ' lowers to 'νίκοσ'
+  -- while the stored term is 'νίκος'. Fold final sigma on both sides so SQL
+  -- detection is at least as strict as the API's case-insensitive oracle.
+  normalized_view=translate(lower(normalize(current_view,NFKC) COLLATE "C.utf8"),'ς','σ');
   FOREACH term IN ARRAY detection_terms LOOP
-   lowered_term=lower(term COLLATE "C.utf8");
+   lowered_term=translate(lower(term COLLATE "C.utf8"),'ς','σ');
    IF char_length(term)>=3 THEN
     IF strpos(normalized_view,lowered_term)>0 THEN RETURN '[redacted]'; END IF;
    ELSE
