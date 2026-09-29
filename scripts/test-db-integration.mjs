@@ -297,6 +297,27 @@ try {
     }
   }
   await reach('cloud');
+  // The improvement suite applies 001-077, creates pre-078 accounts, then
+  // applies 078 so it can prove per-chat opt-in and backfill on real rows.
+  {
+    assertNoEnvFile();
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c',
+      'CREATE DATABASE deckpal_ci_improvement OWNER deckpal_ci_fixture']);
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-d',
+      'deckpal_ci_improvement', '-c', 'CREATE EXTENSION vector']);
+    const caseFile = join(scratch, 'decke-improvement.json');
+    await run(process.execPath, ['--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      join(REPO, 'apps', 'api', 'src', '__integration__', 'improvement.mjs')], {
+      timeoutMs: 240_000,
+      env: {
+        PGUSER: 'deckpal_ci_fixture', PGDATABASE: 'deckpal_ci_improvement',
+        DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile,
+      },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  }
   result.status = 'passed';
 } catch (error) {
   result.status = 'failed';
