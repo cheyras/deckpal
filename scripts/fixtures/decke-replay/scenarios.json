@@ -1,0 +1,46 @@
+[
+  {
+    "id": "plan-together",
+    "title": "Plan a distinctive Dragapult deck together",
+    "turns": [
+      { "user": "Let's plan out a deck together.", "tags": [] },
+      { "user": "Look at what's doing well and then I'd like to copy a popular approach but make it my own.", "tags": [] },
+      { "user": "Why can't you do research?", "tags": ["complaint"] },
+      { "user": "Tell me generally what the mechanics are of these", "tags": [] },
+      { "user": "Nah man, you had already done research - wouldn't that already be in your context?", "tags": ["complaint"] },
+      { "user": "Let's talk about how to make a really actually original take on the dragapult deck. I wanna make it my own", "tags": [] },
+      { "user": "No I'd like a wholly new kind of deck in my arsenal", "tags": [] },
+      { "user": "Yeah sketch it up and show me so I can take a look at it", "tags": ["expects-deck"] },
+      { "user": "Note for you and for deckE improvement - this would have been a great spot for a more visual chat widget showing the deck idea, rather than just text.", "tags": ["feedback"] },
+      { "user": "Just add this deck to my decks", "tags": ["expects-write"] }
+    ]
+  },
+  {
+    "id": "from-my-cards",
+    "title": "Build a deck from cards already owned",
+    "turns": [
+      { "user": "Suggest a good deck made with cards I already have", "tags": [] },
+      { "user": "Yes I already asked you to build a deck", "tags": ["expects-deck"] },
+      { "user": "You've already looked through my cards, dude. You're making the process annoying rather than fun.", "tags": ["complaint"] },
+      { "user": "It says plan the deck timed out, and then you just gave me a text list rather than an actual built plan", "tags": ["feedback"] }
+    ]
+  },
+  {
+    "id": "slowking-lowdown",
+    "title": "Review and improve the Slowking toolbox deck",
+    "turns": [
+      { "user": "give me the low-down on how things have been going with my slowking toolbox deck", "tags": [] },
+      { "user": "Thanks — logging this for the next improvement pass.", "tags": ["feedback"] },
+      { "user": "I want to do a deep dive into what you're seeing about my actual performance and talk through how I can pilot the deck better", "tags": [] },
+      { "user": "you had already told me about most of these stats - probably didn't need to repeat yourself", "tags": ["complaint"] }
+    ]
+  },
+  {
+    "id": "smalltalk",
+    "title": "Small-talk restraint",
+    "turns": [
+      { "user": "hey!", "tags": ["feedback"] },
+      { "user": "thanks, that's all for now", "tags": ["feedback"] }
+    ]
+  }
+]

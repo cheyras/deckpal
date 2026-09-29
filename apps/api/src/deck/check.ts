@@ -52,6 +52,9 @@ export function buildDeckCheckResult(
   rows: ResolvedCheckLine[],
   validationContext: ValidateContext = {},
 ): DeckCheckResult {
+  // The route builds this from every resolved card so Classic reprints receive
+  // the same legality verdict as saved decks and exports.
+  const { isInFormatByReprint } = validationContext
   const rareCandy = rows.some((row) => row.card && normalizeName(row.card.name) === normalizeName('Rare Candy'))
   const presentNames = new Set(rows.filter((row) => row.card).map((row) => row.card!.normalizedName))
   const evolutionGaps: string[] = []
@@ -93,7 +96,7 @@ export function buildDeckCheckResult(
   const unresolvedIssues = lines
     .filter((line) => !line.resolved)
     .map((line) => `Could not resolve "${line.name}" to a catalogue card.`)
-  const validation = validateDeck({ formatCode: format, entries }, validationContext)
+  const validation = validateDeck({ formatCode: format, entries }, { isInFormatByReprint })
   const sizeIssues = total === 60 ? [] : [`${total} / 60 cards. ${total < 60 ? `Add ${60 - total}.` : `Remove ${total - 60}.`}`]
   const issues = [
     ...sizeIssues,

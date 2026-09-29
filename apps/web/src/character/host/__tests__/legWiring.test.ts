@@ -61,14 +61,42 @@ test('the follow-up message carries what the leg looked up', () => {
     /freshCalls\([\s\S]{0,200}replayedChips\)/,
     'the leg loop stopped asking which calls are new',
   )
-  assert.match(HOOK, /const record = lookupRecord\(send\)/, 'the leg loop stopped building the record')
+  assert.match(HOOK, /toolReplayParts\(calls,/, 'the leg loop stopped replaying full outputs')
+  assert.match(HOOK, /const record = lookupRecord\(replay\.unrecorded\)/, 'legacy chips lost their compact fallback')
   assert.match(HOOK, /parts\.push\(record\)/, 'the record is built and never sent')
+})
+
+test('recent turns replay complete bounded server results', () => {
+  const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
+  assert.match(wire, /replayPlan\(--assistantsRemaining\)/, 'the six-turn plan is not consulted')
+  assert.match(wire, /toolReplayParts\(chips,/, 'recent turns fell back to summaries')
+  assert.match(HOOK, /onToolOutput: \(toolCallId, output\)/, 'SDK outputs are still discarded')
+  assert.match(HOOK, /const bounded = capOutput\(output\)/, 'captured outputs are not bounded')
+})
+
+test('a widget save is shown, refreshed, and queued once for the model', () => {
+  assert.match(HOOK, /const recordDeckSaved = useCallback/)
+  assert.match(HOOK, /savedDeckWireRef\.current = savedDeckRecord/)
+  assert.match(HOOK, /savedDeckWireRef\.current = null/, 'the reader fact would replay forever')
+  assert.match(HOOK, /staleQueries\(\{ name: 'save_deck', phase: 'ok' \}\)/)
+})
+
+test('one activity animator owns host-driven turn events', () => {
+  assert.match(HOOK, /createActivityAnimator\(/)
+  for (const event of ['turnStarted', 'legStarted', 'stepStarted', 'stepFinished', 'textStarted', 'approvalShown', 'approvalAnswered', 'turnEnded', 'composerTyping', 'idleFor']) {
+    assert.match(HOOK, new RegExp(`animatorRef\\.current!\\.${event}\\(`), `${event} is not wired`)
+  }
+})
+
+test('an approval preview title becomes the actual question', () => {
+  assert.match(HOOK, /approvalTitles\.set\(preview\.toolCallId, preview\.title\.trim\(\)\)/)
 })
 
 test('a leg marks only what it actually recorded', () => {
   // Marking on sight would lose an unfinished call for good: it is SEEN on the
   // leg it starts and only becomes evidence on the leg its result lands.
-  assert.match(HOOK, /for \(const id of mark\) replayedChips\.add\(id\)/)
+  assert.match(HOOK, /const recordedIds = new Set\(\[[\s\S]{0,160}\.\.\.replay\.parts\.map/)
+  assert.match(HOOK, /for \(const id of recordedIds\) replayedChips\.add\(id\)/)
 })
 
 test('a movement records where it went', () => {
@@ -109,7 +137,7 @@ test('a panel is a tool call the transcript can see', () => {
   // handed A grounding and the chip emitter — the proxy satisfies both.
   assert.match(
     CHAT,
-    /buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\)\)/,
+    /buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{/,
     'the cosmetic tools stopped emitting chips',
   )
   const tools = code(read('../../../../../api/src/decke/tools.ts'))
@@ -139,11 +167,11 @@ test('an animation is not a tool call the transcript can see', () => {
   const record = code(read('../chat/lookupRecord.ts'))
   assert.match(record, /NOT_SHOWN = new Set\(\['express'\]\)/, 'the client-side guard is gone')
   assert.match(HOOK, /if \(!isShownInTranscript\(chip\.name\)\) return/, 'the hook stopped consulting it')
-  // AND BELOW THE BEAT, not above it. `express` earns no row, but it is still a
-  // real tool boundary and C21's punctuation hangs off exactly that.
+  // AND BELOW the animator event, so filtering a cosmetic chip cannot suppress
+  // the activity policy's boundary handling.
   assert.ok(
-    HOOK.indexOf('const beat = beatForChip') < HOOK.indexOf('if (!isShownInTranscript(chip.name)) return'),
-    'the guard was moved above the beat, which silences C21 as well as the row',
+    HOOK.indexOf('animatorRef.current!.stepFinished') < HOOK.indexOf('if (!isShownInTranscript(chip.name)) return'),
+    'the guard was moved above the activity event',
   )
 })
 
@@ -169,7 +197,7 @@ test("the panel's summary carries the instruction, not just the fact", () => {
 test('the next turn carries what FAILED, not only what was found', () => {
   assert.match(
     HOOK,
-    /for \(const failure of failureParts\(messageTools\(m\)\)\) parts\.push\(failure\)/,
+    /for \(const failure of failureParts\(chips\)\) parts\.push\(failure\)/,
     'messagesToWire stopped replaying failures — the circuit breaker goes blind',
   )
   // In `messagesToWire`, which is the TURN boundary. `freshCalls` covers legs.
@@ -221,7 +249,7 @@ test('the refusal goes in the PREFIX, ahead of the approval answers', () => {
   // The SDK collects approvals from the final parts of the final replay
   // message. A tool result appended after them breaks the signed round trip,
   // so this ordering is load-bearing, not cosmetic.
-  const leg = HOOK.slice(HOOK.indexOf('const record = lookupRecord(send)'))
+  const leg = HOOK.slice(HOOK.indexOf('const record = lookupRecord(replay.unrecorded)'))
   assert.ok(
     leg.indexOf('meterRefusalParts(outcome.refusals)') < leg.indexOf('replayLegParts({'),
     'the refusal is pushed after the approval answers are appended',
@@ -259,10 +287,10 @@ test('a real decline tells him what a repeat decline is already told', () => {
   // SAY NO, THE FIRST THING YOU SAY IS THAT NOTHING CHANGED", and that
   // transcript is what that sentence produced.
   const approval = code(read('../approval.ts'))
-  assert.match(approval, /export const DECLINED_REASON =\s*\r?\n?\s*'\[\[NO_WORK\]\] REFUSED/)
-  // The marker must LEAD — `prompt.ts`'s rule keys on a result starting with it.
-  const prompt = read('../../../../../api/src/decke/prompt.ts')
-  assert.match(prompt, /back starting with .{0,2}\[\[NO_WORK\]\]/)
+  assert.match(approval, /export const DECLINED_REASON =\s*\r?\n?\s*'\[\[NO_WORK\]\] The reader said no/)
+  assert.match(HOOK, /approvalId: a\.approvalId/, 'the declined chip lost the approval identity')
+  assert.match(HOOK, /declineReason: DECLINED_REASON/, 'the declined chip lost the reader reason')
+  assert.match(HOOK, /toolReplayParts\(/, 'declines are not replayed as tool answers')
   // ABANDONED_REASON stays short and distinct: `declined.ts` compares against
   // it exactly, and an unanswered panel is not a refusal.
   assert.match(approval, /export const ABANDONED_REASON = 'the reader did not answer'/)

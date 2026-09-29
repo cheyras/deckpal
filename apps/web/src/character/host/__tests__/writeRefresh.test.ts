@@ -23,7 +23,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { WRITE_REFRESH, staleQueries } from '../chat/writeRefresh'
+import { NON_WRITES, WRITE_REFRESH, staleQueries } from '../chat/writeRefresh'
 
 const TOOLS_DIR = fileURLToPath(new URL('../../../../../../packages/agent-tools/src/tools/', import.meta.url))
 const DEEP_SRC = fileURLToPath(new URL('../../../../../api/src/decke/deep.ts', import.meta.url))
@@ -40,9 +40,12 @@ function askingTools(): string[] {
       if (/readOnlyHint:\s*false/.test(body)) found.push(m[1])
     })
   }
-  const deep = [...readFileSync(DEEP_SRC, 'utf8').matchAll(/name: '([a-z_]+)'/g)].map((m) => m[1])
-  assert.ok(found.length > 5 && deep.length >= 4, 'the scan found too few tools — the scan broke, not the code')
-  return [...new Set([...found, ...deep])]
+  const deepSrc = readFileSync(DEEP_SRC, 'utf8')
+  assert.ok(found.length > 5, 'the scan found too few write tools — the scan broke, not the code')
+  assert.match(deepSrc, /const name = 'web_research'/, 'the research tool scan broke, not the code')
+  assert.match(deepSrc, /needsApproval:\s*\(\)\s*=>\s*false/, 'web research asks for approval')
+  assert.doesNotMatch(deepSrc, /needsApproval:\s*\(\)\s*=>\s*true/, 'a read-only API tool asks for approval')
+  return [...new Set(found)]
 }
 
 /** Every query-key root the app declares: `queryKey: ['root', …]` or `const key = ['root', …]`. */
@@ -93,4 +96,11 @@ test('only a finished call refreshes, and never one the reader declined', () => 
     assert.deepEqual(staleQueries({ name: 'save_deck', phase }), [], `${phase} has written nothing yet`)
   }
   assert.deepEqual(staleQueries({ name: 'decks', phase: 'ok' }), [], 'a read refreshes nothing')
+})
+
+test('new research, checking, and display tools are explicitly non-writes', () => {
+  for (const name of ['check_deck', 'showDeck', 'web_research']) {
+    assert.equal(NON_WRITES.has(name), true, `${name} is not classified`)
+    assert.deepEqual(staleQueries({ name, phase: 'ok' }), [])
+  }
 })

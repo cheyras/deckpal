@@ -61,13 +61,10 @@ export const WRITE_REFRESH: Record<string, readonly QueryRoot[]> = {
   delete_list: LISTS,
   // Undo can reach anything the mutation log records.
   revert: union(COLLECTION, DECK),
-  // The deep tier. Only the guide writer stores anything; the others spend
-  // credits, which the host already re-reads when a turn ends.
-  write_strategy_guide: DECK,
-  plan_deck: [],
-  analyze_collection: [],
-  research_meta: [],
 }
+
+/** Explicit read/display tools: completing one must never imply a cache write. */
+export const NON_WRITES = new Set(['check_deck', 'showDeck', 'web_research'])
 
 /**
  * The query roots to invalidate for this chip, or none.
@@ -81,5 +78,6 @@ export const WRITE_REFRESH: Record<string, readonly QueryRoot[]> = {
  */
 export function staleQueries(chip: { name: string; phase: string }): readonly QueryRoot[] {
   if (chip.phase !== 'ok' && chip.phase !== 'partial' && chip.phase !== 'error') return []
+  if (NON_WRITES.has(chip.name)) return []
   return WRITE_REFRESH[chip.name] ?? []
 }

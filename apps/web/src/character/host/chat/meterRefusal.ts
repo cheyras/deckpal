@@ -1,5 +1,5 @@
 /**
- * A deep call the METER refused, carried to the next leg of the same turn.
+ * A metered call the server refused, carried to the next leg of the same turn.
  *
  * ── WHY THE BROWSER HAS TO DO THIS ──────────────────────────────────────────
  *
@@ -10,9 +10,9 @@
  * `failureParts` replays `output-error`, and the SDK's `tool-output-available`
  * chunk was matched by nothing at all in `streamLeg`.
  *
- * So a guide refused on leg 2 left no trace on leg 3's request, and the next
- * leg raised a second approval card for the identical work and charged the same
- * spent cap again. The server-side ledger was correct and never got its seed.
+ * So a research call refused on leg 2 left no trace on leg 3's request, and the
+ * next leg tried identical work against the same empty balance. The server-side
+ * ledger was correct and never got its seed.
  *
  * ── WHAT IS CARRIED, AND WHAT IS NOT ────────────────────────────────────────
  *

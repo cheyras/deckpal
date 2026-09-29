@@ -119,9 +119,9 @@ import {
  * exists to prevent.
  */
 export type ToolEvent =
-  | { phase: 'start'; id: string; name: string; title: string; args?: Record<string, unknown> }
-  | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number }
-  | { phase: 'ok'; id: string; name: string; title: string; summary: string }
+  | { phase: 'start'; id: string; name: string; title: string; args?: Record<string, unknown>; label?: string }
+  | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number; label?: string; sources?: Array<{ url: string; title: string; host: string }> }
+  | { phase: 'ok'; id: string; name: string; title: string; summary: string; label?: string; sources?: Array<{ url: string; title: string; host: string }> }
   | {
       phase: 'partial';
       id: string;
@@ -129,8 +129,10 @@ export type ToolEvent =
       title: string;
       summary: string;
       reason: 'timeout' | 'truncated';
+      label?: string;
+      sources?: Array<{ url: string; title: string; host: string }>;
     }
-  | { phase: 'error'; id: string; name: string; title: string; summary: string }
+  | { phase: 'error'; id: string; name: string; title: string; summary: string; label?: string }
   /**
    * The reader already refused this exact call earlier in the conversation, so
    * it was neither run nor asked about again. See `declined.ts`.
@@ -141,7 +143,7 @@ export type ToolEvent =
    * without a dialog, so a reader scanning their history sees one kind of row
    * for "this did not happen because I said no", however it was decided.
    */
-  | { phase: 'declined'; id: string; name: string; title: string; summary: string; args?: Record<string, unknown> };
+  | { phase: 'declined'; id: string; name: string; title: string; summary: string; args?: Record<string, unknown>; label?: string };
 
 /**
  * One printing a row could mean, for the picker on the approval card.

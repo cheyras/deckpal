@@ -193,8 +193,8 @@ const TOOL_ROWS: { label: string; note: string; data: ToolRowData }[] = [
     note: 'Out of the transcript history: the record does not say what happened. A dash, never a tick — a tick is an assertion, and there is nothing here to assert.',
     data: row({
       id: '8',
-      name: 'plan_deck',
-      title: 'Building a deck list',
+      name: 'check_deck',
+      title: 'Checking a deck list',
       phase: 'unknown',
       summary: 'Recorded before this app knew the phase',
       recorded: true,
@@ -563,7 +563,7 @@ const RECORD: DeckeConversation = {
       asked: 'actually plan me a deck around it',
       answered: '',
       tools: [
-        { name: 'plan_deck', phase: 'start', title: 'Building a deck list', summary: '' },
+        { name: 'check_deck', phase: 'start', title: 'Checking a deck list', summary: '' },
         { name: 'deck_strategy', phase: 'weird-phase-from-an-older-build', title: 'Writing a strategy guide', summary: '' },
       ],
       buildPr: 78,

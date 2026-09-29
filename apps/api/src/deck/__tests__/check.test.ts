@@ -8,6 +8,7 @@ const energy = mkCard({ id: 2, tcgdexId: 'sve-2', name: 'Fire Energy', category:
 const trainer = mkCard({ id: 3, tcgdexId: 'sv-test-3', name: 'Nest Ball', category: 'Trainer', trainerType: 'Item', regulationMark: 'I' })
 const stage2 = mkCard({ id: 4, tcgdexId: 'sv-test-4', name: 'Charizard', category: 'Pokemon', stage: 'Stage2', evolveFrom: 'Charmeleon', regulationMark: 'I' })
 const candy = mkCard({ id: 5, tcgdexId: 'sv-test-5', name: 'Rare Candy', category: 'Trainer', trainerType: 'Item', regulationMark: 'I' })
+const classicUltraBall = mkCard({ id: 6, tcgdexId: 'tcgc-92', name: 'Ultra Ball', category: 'Trainer', trainerType: 'Item', setTcgdexId: 'tcgc', localId: '92', localIdNumeric: null })
 
 const row = (card: ReturnType<typeof mkCard> | null, quantity: number, over: Partial<ResolvedCheckLine> = {}): ResolvedCheckLine => ({
   card, requestedName: card?.name ?? 'Mystery Card', quantity, owned: 0, unitPriceUsd: 1, ...over,
@@ -60,4 +61,18 @@ test('owned and missing-cost arithmetic caps owned copies and propagates missing
   assert.equal(priced.missing_cost_usd, 3.95)
   const unknown = buildDeckCheckResult('standard', [row(basic, 1), row(energy, 59, { unitPriceUsd: null })])
   assert.equal(unknown.missing_cost_usd, null)
+})
+
+test('GLC validation receives the reprint oracle for a Pokémon TCG Classic reprint', () => {
+  let calls = 0
+  const result = buildDeckCheckResult('glc', [
+    row(basic, 1), row(classicUltraBall, 1), row(energy, 58),
+  ], {
+    isInFormatByReprint: (card) => {
+      calls++
+      return card.tcgdexId === classicUltraBall.tcgdexId
+    },
+  })
+  assert.ok(calls > 0, 'validation must ask the supplied reprint oracle about Classic cards')
+  assert.equal(result.legal, true, result.issues.join('\n'))
 })

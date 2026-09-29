@@ -1,192 +1,35 @@
 /**
- * What he understood the request to be, put back in front of the reader before
- * they authorise it.
+ * Compatibility surface for the approval card.
  *
- * ── WHY THE CARD CANNOT JUST SAY "LET HIM PLAN A DECK?" ──────────────────────
- *
- * Every deep call now asks first, because a deep call is the scarcest thing the
- * account has — a sub-agent with its own model, up to 210 seconds, and under the
- * credit model the only thing a reader can run out of. Measured, on camera: he
- * spent one before the owner had confirmed anything, then spent another.
- *
- * But the argument against asking was real and is not answered by asking louder:
- * *"friction people learn to click through is worse than none."* A dialog that
- * says only "Let him plan a deck?" is exactly that dialog. It carries no
- * information, so the honest response to it is a reflex tap, and a reflex tap is
- * not consent.
- *
- * What makes the tap mean something is HIS RESTATEMENT. The reader asked for "a
- * new deck, doesn't have to be good, I just want to give people at the game
- * store a laugh on Saturday"; what he is about to spend a credit on is
- * `idea: "all-Water Squirtle deck built for comedy over competitiveness"`. Those
- * are not the same sentence, and the gap between them is the entire value of
- * being asked. The owner said as much: *"get their input if they want to put in
- * input."*
- *
- * ── IT READS THE ARGUMENTS AND NEVER INVENTS ─────────────────────────────────
- *
- * Returns `null` rather than a placeholder when there is nothing real to show.
- * A confident-sounding line assembled from an empty object is the failure this
- * whole pass exists to remove, and it would land on the one surface where a
- * reader is being asked to trust what they are reading.
+ * Deck-E no longer asks permission for analysis, research, or planning, so
+ * there is no paid "deep request" to restate or quote on a consent card. The
+ * component still imports these helpers while write approvals use the same UI;
+ * null keeps that obsolete block absent without coupling the presentation lane
+ * to this rollout.
  */
 
-/** Fields worth showing, per deep tool, in the order they read best. */
-const SHAPE: Record<string, readonly string[]> = {
-  plan_deck: ['idea', 'format'],
-  // `deck_strategy`'s real schema field is `deck_id` only — see its inputSchema
-  // in packages/agent-tools/src/tools/deckIntel.ts (deck_id, markdown). `markdown`
-  // is up to 40,000 chars and is not restatement material; `deck_id` (a UUID or
-  // an exact name) is the one field that carries the request. The dead-key bug
-  // fixed for `write_strategy_guide` (deck_name/deck_id → deck/focus) was live
-  // here too: `deck_name` is not a field the tool declares, so every call
-  // resolved `null` and the card rendered no restatement at all.
-  deck_strategy: ['deck_id'],
-  // `deck` and `focus` are the real schema fields — see `write_strategy_guide`'s
-  // inputSchema in apps/api/src/decke/deep.ts (deck, focus, findings, deepest).
-  // `findings` is up to 4,000 chars and is not restatement material; the
-  // no-research fact it implies is rendered from `no_research` below.
-  write_strategy_guide: ['deck', 'focus'],
-  analyze_collection: ['question'],
-  // `query` and `topic` are the real schema fields — see `research_meta`'s
-  // inputSchema in apps/api/src/decke/deep.ts (query, topic).
-  research_meta: ['query', 'topic'],
-};
-
-/** Trim, collapse whitespace, and cut on a word boundary rather than mid-word. */
-function tidy(v: unknown, max: number): string | null {
-  if (typeof v !== 'string') return null;
-  const s = v.replace(/\s+/g, ' ').trim();
-  if (!s) return null;
-  if (s.length <= max) return s;
-  const cut = s.slice(0, max);
-  const sp = cut.lastIndexOf(' ');
-  return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[,;:.\s]+$/, '')}…`;
-}
-
-/**
- * One line describing the work about to be paid for, or `null`.
- *
- * `null` means the card shows its title alone — which is what a tool with no
- * declared shape, or a call with nothing readable in it, honestly amounts to.
- */
-export function deepRequestLine(name: string, input: unknown): string | null {
-  const fields = SHAPE[name];
-  if (!fields) return null;
-  const obj = (input ?? {}) as Record<string, unknown>;
-  const parts: string[] = [];
-  for (const f of fields) {
-    // The FIRST field carries the request and gets the room; the rest are
-    // qualifiers and are short by nature ("Standard", "GLC").
-    const v = tidy(obj[f], parts.length === 0 ? 160 : 40);
-    if (v) parts.push(v);
-  }
-  // The no-research fact, carried in the real signed input. The server injects
-  // `no_research: true` into a `write_strategy_guide` call when `findings` is
-  // absent or trivial (see `needsApproval` in apps/api/src/decke/deep.ts), so
-  // the reader can see — before tapping — that the guide is not backed by
-  // research. This is X2-compliant: it renders a server-computed flag, not
-  // model prose. Fixed text, so it bypasses `tidy`.
-  if (obj.no_research === true) {
-    parts.push('no research behind it this time — the guide will say so');
-  }
-  if (parts.length === 0) return null;
-  return parts.join(' · ');
-}
-
-/** Is this a tool whose call is worth restating? Used to decide the slot. */
-export function isDeepRequest(name: string): boolean {
-  return name in SHAPE;
-}
-
-/**
- * The one sentence that says this costs more, kept OUT of the question.
- *
- * *"External research takes extra usage. Are you okay with me doing research to
- * plan out a good deck or whatever?"*
- *
- * Two facts, deliberately in two places. The headline asks about THEIR deck;
- * this says what it costs us. Folding the second into the first — "Can I spend a
- * deep question building this deck?" — makes the question about our accounting,
- * uses our internal name for the tier, and was the thing he objected to by name.
- *
- * This is now the FALLBACK, for when there is no honest number: credits
- * switched off, an unlimited account, a balance not loaded yet. It used to be
- * the only line, on the argument that a price is not what a reader needs at the
- * moment of saying yes. The 2026-09-13 credit economy ended that argument —
- * credits are bought with money now — and the card proved it: with 40 credits a
- * reader approved a 75-credit guide and was refused a second later (UXD-07).
- * See `deepCostLine`.
- *
- * It does not say "research". On the guide card it sat directly under "no
- * research behind it this time", and the two sentences contradicted each other.
- */
-export const DEEP_COST_NOTE = 'This takes longer and uses more than a normal answer.'
-
-/** What saying yes to a paid deep call will charge, against what the reader has. */
 export type DeepCost = { credits: number; balance: number }
-
-/**
- * The wallet's per-operation prices, exactly as `/me/credits` reports them, and
- * the balance to check them against.
- *
- * `balance` is a wallet read taken AFTER this card went up, or null until one
- * lands (`DeckeHost`'s `heldSince`). Neither older number is safe: the wallet
- * is refetched when a turn ends, and a leg's `x-decke-credits` header predates
- * any deep call that ran inside that leg.
- */
 export type DeepQuote = { analysis: number; planDeck: number; chatTurn: number; balance: number | null }
 
-/**
- * What going ahead will cost, or null when there is no number worth showing.
- *
- * THE PRICE TABLE IS THE SERVER'S. `operationFor` in
- * `apps/api/src/credits/policy.ts` charges `analyze_collection` and
- * `research_meta` at the analysis price and every other deep tool at the deck
- * plan price; `deepRequest.test.ts` reads that function's source so the two
- * cannot drift apart silently. Only the four deep tools are priced at all —
- * `deck_strategy` has a restatement line but is an ordinary write, and showing
- * it a deep-call price would be a number for something that is not charged.
- *
- * PLUS ONE CHAT TURN. Answering the card sends a continuation request, and each
- * request is metered as a turn before the deep call is charged — so a guide
- * priced 75 is refused at a balance of exactly 75 (found in review). The number
- * shown is what "Go ahead" actually costs, which is the only number the reader
- * is deciding about.
- *
- * `quote` is null when credits are switched off or the account is unlimited,
- * and its balance is null until something has reported one. Either way the card
- * falls back to `DEEP_COST_NOTE` rather than printing a guess.
- */
-export function deepCost(name: string, quote: DeepQuote | null | undefined): DeepCost | null {
-  if (!quote || quote.balance == null || !Number.isFinite(quote.balance)) return null;
-  const price =
-    name === 'analyze_collection' || name === 'research_meta'
-      ? quote.analysis
-      : name === 'plan_deck' || name === 'write_strategy_guide'
-        ? quote.planDeck
-        : null;
-  if (price == null || !Number.isFinite(price) || price <= 0) return null;
-  const turn = Number.isFinite(quote.chatTurn) && quote.chatTurn > 0 ? quote.chatTurn : 0;
-  return { credits: price + turn, balance: Math.max(0, Math.floor(quote.balance)) };
+export const DEEP_COST_NOTE = 'This takes longer and uses more than a normal answer.'
+
+export function deepRequestLine(_name: string, _input: unknown): null {
+  return null
 }
 
-/** Would the meter refuse this call as things stand? */
+export function deepCost(_name: string, _quote: DeepQuote | null | undefined): null {
+  return null
+}
+
 export function isShort(cost: DeepCost | null | undefined): boolean {
-  return !!cost && cost.balance < cost.credits;
+  return !!cost && cost.balance < cost.credits
 }
 
-const credits = (n: number) => `${n} credit${n === 1 ? '' : 's'}`;
+const credits = (n: number) => `${n} credit${n === 1 ? '' : 's'}`
 
-/**
- * The price line under the request.
- *
- * Specific when it can be, in the same plain register as the rest of the card:
- * what it takes, and what they have. Short of the price, it says so rather than
- * letting the reader find out from a refusal after they have said yes.
- */
+/** Retained for a legacy non-null prop; new Deck-E approval cards pass null. */
 export function deepCostLine(cost: DeepCost | null | undefined): string {
-  if (!cost) return DEEP_COST_NOTE;
-  if (isShort(cost)) return `This needs ${credits(cost.credits)} and you have ${cost.balance}.`;
-  return `This takes longer than a normal answer and uses ${credits(cost.credits)} of your ${cost.balance}.`;
+  if (!cost) return DEEP_COST_NOTE
+  if (isShort(cost)) return `This needs ${credits(cost.credits)} and you have ${cost.balance}.`
+  return `This takes longer than a normal answer and uses ${credits(cost.credits)} of your ${cost.balance}.`
 }

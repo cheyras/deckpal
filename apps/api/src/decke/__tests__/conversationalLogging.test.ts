@@ -250,7 +250,9 @@ test('declined APPLY calls do not preflight, approve, or execute', async () => {
     const tool = f.build({ declined: new Set([callKey('log_cards', INPUT)]) }).log_cards;
     assert.equal(await tool.needsApproval(INPUT, { toolCallId: 'declined-1' }), false);
     const out = await tool.execute(INPUT, { toolCallId: 'declined-1' });
-    assert.match(out, /already said no/i);
+    assert.match(out, /reader said no/i);
+    assert.match(out, /nothing changed/i);
+    assert.match(out, /do not ask again/i);
     assert.deepEqual(f.counts(), { previews: 0, writeRequests: 0, writes: 0 });
   } finally { f.restore(); }
 });

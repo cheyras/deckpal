@@ -117,6 +117,21 @@ test('a grid caption appears only when the grid is actually cut', () => {
   assert.equal(showingLabel(0, 0), null)
 })
 
+test('a deck compacts to its Pokémon sample while its control names all cards', () => {
+  const deck: Block = {
+    kind: 'deck',
+    sections: [
+      { title: 'Pokémon', count: 20, cards: Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, quantity: 1, owned: 0 })) },
+      { title: 'Trainer', count: 30, cards: Array.from({ length: 30 }, (_, i) => ({ id: `t${i}`, name: `T${i}`, quantity: 1, owned: 0 })) },
+      { title: 'Energy', count: 10, cards: Array.from({ length: 10 }, (_, i) => ({ id: `e${i}`, name: `E${i}`, quantity: 1, owned: 0 })) },
+    ],
+  }
+  const plan = compactPlan(screen(deck))
+  assert.equal(plan.totalCards, 60)
+  assert.equal(plan.shownCards, COMPACT_CARDS)
+  assert.equal(expandLabel(plan), 'Show all 60 cards')
+})
+
 test('an empty or malformed spec does not invent anything', () => {
   const plan = compactPlan({ blocks: [] })
   assert.equal(plan.compactable, false)

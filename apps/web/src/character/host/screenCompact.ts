@@ -86,6 +86,12 @@ function countCards(blocks: readonly Block[], cap: number, dense: boolean): numb
   for (const b of blocks) {
     if (b.kind === 'cardGrid') {
       n += Math.min(b.cards?.length ?? 0, cap)
+    } else if (b.kind === 'deck') {
+      // A compact deck renders only its first section, just like the widget.
+      // Expanded, each section is still subject to the same per-grid cap.
+      const sections = dense ? [] : b.sections ?? []
+      const visibleSections = Number.isFinite(cap) ? sections.slice(0, 1) : sections
+      n += visibleSections.reduce((sum, section) => sum + Math.min(section.cards.length, cap), 0)
     } else if (b.kind === 'group' && !dense) {
       n += countCards(b.left ?? [], cap, true)
       n += countCards(b.right ?? [], cap, true)

@@ -58,6 +58,14 @@ import { messageText, messageTools, type ChatMessage } from './DeckeChat'
 import type { ScreenSpec } from './DeckeScreen'
 import type { DeckEInstance } from './runtime'
 import { failureParts, freshCalls, isShownInTranscript, lookupRecord } from './chat/lookupRecord'
+import {
+  capOutput,
+  replayPlan,
+  savedDeckRecord,
+  toolReplayParts,
+} from './chat/toolReplay'
+import { kindOf } from './chat/toolKinds'
+import { createActivityAnimator, SLEEP_IDLE_MS, TYPING_IDLE_MS, type ActivityRequest } from './activityAnimation'
 import { staleQueries } from './chat/writeRefresh'
 import {
   MAX_REPLAYED_REFUSALS,
@@ -79,7 +87,6 @@ import {
 import { buildEscortSteps, type EscortInput } from './escortPlan'
 import { LOW_FRACTION, type CreditBalance } from './chat/creditState'
 import { httpNotice, type Notice, type RefusalBody } from './chat/httpNotice'
-import { beatForChip } from './thinkingBeat'
 import { runJourney, type JourneyResult, type JourneyStep } from './journey'
 import { api } from '../../lib/api'
 // The same resolver the dev page's `commands.ts` uses to turn a catalog id
@@ -253,6 +260,15 @@ export type ToolChip = {
    * actually lived (`set_id: 'sv3pt5'` nine times, `set_id: 'none'` seven).
    */
   args?: Record<string, unknown>
+  /** Human status for this call, supplied by the server when it has one. */
+  label?: string
+  /** Pages read by web research, for display only. */
+  sources?: { url: string; title: string; host: string }[]
+  /** The bounded SDK result, retained so recent turns can replay real evidence. */
+  output?: string
+  /** The approval answer that produced a declined call. */
+  approvalId?: string
+  declineReason?: string
   /**
    * The METER refused this call, and which limit said no. Set from the
    * server's own `[meter:…]` marker on the call's output, never from prose, so
@@ -374,20 +390,21 @@ export function useDeckeChat(
   // Did the MODEL set a state this turn? If not, the turn boundary has to leave
   // `thinking` itself — see the `finally` below.
   const movedRef = useRef(false)
-  /**
-   * C21's two pieces of memory.
-   *
-   * `lastBeatAtRef` is what makes the cooldown a cooldown, and it deliberately
-   * does NOT reset per turn: a beat is punctuation between events, and two
-   * turns half a second apart should not each get one for the same reason six
-   * fast tool calls should not get six.
-   *
-   * `lastNoteRef` remembers the last progress note per chip id, because a
-   * `progress` chip updates IN PLACE — re-rendering the note it already carried
-   * is not a new event, and without this every repaint would look like one.
-   */
-  const lastBeatAtRef = useRef<number | null>(null)
-  const lastNoteRef = useRef<Map<string, string>>(new Map())
+  /** One policy instance owns every app-driven pose and talk transition. */
+  const animatorRef = useRef<ReturnType<typeof createActivityAnimator> | null>(null)
+  if (!animatorRef.current) {
+    animatorRef.current = createActivityAnimator({
+      now: () => Date.now(),
+      reducedMotion:
+        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+          ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          : false,
+    })
+  }
+  const idleTimerRef = useRef<number | null>(null)
+  const idleSinceRef = useRef(Date.now())
+  const composerTypingRef = useRef(false)
+  const savedDeckWireRef = useRef<ReturnType<typeof savedDeckRecord> | null>(null)
   // HELD IN REFS so `send` keeps a stable identity. `DeckeHost` passes both as
   // fresh arrow functions on every render; naming them as dependencies would
   // hand `DeckeChat` a new `onSend` every frame, which is a re-render treadmill
@@ -435,6 +452,79 @@ export function useDeckeChat(
   onSteppingRef.current = onStepping
   const onTurnStartRef = useRef(onTurnStart)
   onTurnStartRef.current = onTurnStart
+
+  const applyActivity = useCallback((request: ActivityRequest | null) => {
+    if (!request || !decke) return
+    if (request.talk === true) decke.setOverlay('talk', 1)
+    else if (request.talk === false) decke.setOverlay(null)
+    // An explicit `express` is the model's choice for this reply and outranks
+    // the host's generic work poses. Talk remains an overlay, so it still lands.
+    if (!request.state || movedRef.current) return
+    try {
+      decke.setState(request.state, {
+        ...(request.mode ? { mode: request.mode } : {}),
+        ...(request.then ? { then: request.then } : {}),
+        ...(request.durationMs !== undefined ? { durationMs: request.durationMs } : {}),
+      })
+    } catch {
+      /* an unknown state must never take a turn down */
+    }
+  }, [decke])
+
+  /** Sleep only while the hook is idle; composer activity resets the clock. */
+  useEffect(() => {
+    if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
+    if (!decke || busy || composerTypingRef.current) return
+    idleSinceRef.current = Date.now()
+    idleTimerRef.current = window.setTimeout(() => {
+      applyActivity(animatorRef.current!.idleFor(Date.now() - idleSinceRef.current))
+    }, SLEEP_IDLE_MS)
+    return () => {
+      if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = null
+    }
+  }, [applyActivity, busy, decke])
+
+  const composerActivity = useCallback((typing: boolean) => {
+    composerTypingRef.current = typing
+    idleSinceRef.current = Date.now()
+    if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
+    applyActivity(animatorRef.current!.composerTyping(typing))
+    if (!typing && !busyRef.current && decke) {
+      idleTimerRef.current = window.setTimeout(() => {
+        applyActivity(animatorRef.current!.idleFor(Date.now() - idleSinceRef.current))
+        idleTimerRef.current = window.setTimeout(() => {
+          applyActivity(animatorRef.current!.idleFor(Date.now() - idleSinceRef.current))
+        }, Math.max(0, SLEEP_IDLE_MS - TYPING_IDLE_MS))
+      }, TYPING_IDLE_MS)
+    }
+  }, [applyActivity, decke])
+
+  const recordDeckSaved = useCallback(({ id, name, total }: { id: string; name: string; total: number }) => {
+    savedDeckWireRef.current = savedDeckRecord({ id, name, total })
+    setMessages((all) => {
+      let at = all.length - 1
+      while (at >= 0 && all[at]?.role !== 'assistant') at--
+      if (at < 0) return all
+      const next = [...all]
+      const message = next[at]!
+      next[at] = {
+        ...message,
+        parts: [...message.parts, {
+          kind: 'notice' as const,
+          id: nextId(),
+          // DeckeNotice deliberately has no success tone or arbitrary link
+          // action; neutral is its truthful completed-action presentation.
+          tone: 'neutral' as const,
+          title: `Saved “${name}” to your decks · ${total} cards`,
+        }],
+      }
+      return next
+    })
+    for (const queryKey of staleQueries({ name: 'save_deck', phase: 'ok' })) {
+      void queryClient.invalidateQueries({ queryKey })
+    }
+  }, [queryClient])
 
   // ── The approval gate ──────────────────────────────────────────────────────
   //
@@ -494,6 +584,7 @@ export function useDeckeChat(
   const settleAll = useCallback((verdict: Verdict, forId?: string) => {
     const resolve = resolverRef.current
     const list = askingRef.current ?? []
+    if (list.length) applyActivity(animatorRef.current!.approvalAnswered())
     resolverRef.current = null
     askingRef.current = null
     setAsking(null)
@@ -523,7 +614,7 @@ export function useDeckeChat(
         ]),
       ),
     )
-  }, [])
+  }, [applyActivity])
 
   /**
    * Ask the same question again, after something in the answer failed.
@@ -718,7 +809,7 @@ export function useDeckeChat(
     // Present, because the absence is what misled.
     if (a) {
       emitChipRef.current?.({
-        id: `${a.toolCallId}-declined`,
+        id: a.toolCallId,
         name: a.name,
         // `declined`, NOT `ok`. This shipped as `ok`, so the fix for "the
         // transcript did not say it was cancelled" produced a transcript that
@@ -727,13 +818,12 @@ export function useDeckeChat(
         // check mark here and there shouldn't be. That should be like a little
         // red x — nothing was written, you cancelled it."
         //
-        // `toolRowState.ts` has been bridging this by recognising the
-        // `-declined` suffix on the id. Its header says to delete that bridge
-        // when this line lands; the bridge stays for now because it also has to
-        // keep matching `phase === 'ok'`, so it simply stops firing.
         phase: 'declined',
         title: 'Nothing was written',
         summary: 'You left it, so nothing changed.',
+        args: a.input,
+        approvalId: a.approvalId,
+        declineReason: DECLINED_REASON,
       })
     }
     settleAll({ approved: false, reason: DECLINED_REASON }, a?.approvalId)
@@ -805,6 +895,9 @@ export function useDeckeChat(
       const transcriptWire = messagesToWire(currentRef.current)
       const last = transcriptWire[transcriptWire.length - 1]
       const queuedWire = alreadyShown && last?.role === 'user' ? transcriptWire.pop() : undefined
+      const savedDeck = savedDeckWireRef.current
+      savedDeckWireRef.current = null
+      if (savedDeck) transcriptWire.push({ role: 'assistant', parts: [savedDeck] })
       const { messages: priorWire, dropped, evidence } = windowPrior(transcriptWire)
       const tellTrim = dropped > 0 && trimToldRef.current !== exchangeConversation
       if (tellTrim) trimToldRef.current = exchangeConversation
@@ -841,8 +934,9 @@ export function useDeckeChat(
       // ENGINE-DRIVEN, not model-driven: the app knows a request started before
       // the model could possibly say so, and knows it sooner. `thinking` is
       // sustained, so the turn boundary below is responsible for leaving it.
-      decke.setState('thinking')
       movedRef.current = false
+      if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
+      applyActivity(animatorRef.current!.turnStarted())
 
       // What he has actually said this turn, across every leg. Distinct from the
       // user's `text` — conflating the two is how the follow-up request came to
@@ -859,6 +953,7 @@ export function useDeckeChat(
        */
       const askApproval = (list: PendingApproval[]): Promise<Map<string, Verdict>> =>
         new Promise((resolve) => {
+          applyActivity(animatorRef.current!.approvalShown())
           answeredRef.current = false
           const p0 = previewsRef.current.get(list[0]?.toolCallId ?? '')
           setApprovalChoices(p0 ? initialChoices(p0) : new Map())
@@ -941,6 +1036,9 @@ export function useDeckeChat(
         )
       }
 
+      /** Synchronous mirror: React may not render between the last SSE chunks. */
+      const turnChips = new Map<string, ToolChip>()
+
       /**
        * Put one row on the reply, or update the row already there.
        *
@@ -949,48 +1047,22 @@ export function useDeckeChat(
        * which side of the wire a row came from, and because two writers would
        * be two chances to get the update-in-place rule wrong.
        */
-      const emitToolChip = (chip: ToolChip) => {
-        // ── C21: BREAK UP THE ROCKING LOOP, WHEN SOMETHING REALLY HAPPENED ──
-        //
-        // *"he's just kind of stuck in this one thing … when he does little
-        // responses in between, he can kind of show a different emotion for a
-        // sec and then go back to thinking."* [07:43]
-        //
-        // The brief filed C21 as blocked on there being no tool-boundary hook.
-        // This IS that hook — the one writer every real tool event already
-        // passes through — which is exactly why the beat hangs here and not on
-        // a timer. A timer would fire while nothing was happening, which is the
-        // fabricated-status surface X2 exists to forbid.
-        //
-        // Computed BEFORE `setMessages` and never inside the updater: an
-        // updater must stay pure, and React is free to call it twice.
-        const noteIsNew = chip.note !== undefined && lastNoteRef.current.get(chip.id) !== chip.note
-        if (chip.note !== undefined) lastNoteRef.current.set(chip.id, chip.note)
-        const now = Date.now()
-        const beat = beatForChip(
-          { phase: chip.phase, noteIsNew },
-          {
-            lastBeatAt: lastBeatAtRef.current,
-            now,
-            // Read live rather than captured, so turning the preference on
-            // mid-turn stops the beats now.
-            reduced:
-              typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-                ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-                : false,
-          },
-        )
-        if (beat) {
-          lastBeatAtRef.current = now
-          try {
-            // Deliberately does NOT set `movedRef`, for the same reason the
-            // answer-arriving beat does not: this is the app punctuating a real
-            // event, not the model choosing a state, and claiming otherwise
-            // would stop the turn boundary restoring `idle`.
-            decke.setState(beat.state, { mode: beat.mode })
-          } catch {
-            /* an unknown state must never take a turn down */
-          }
+      const emitToolChip = (incoming: ToolChip) => {
+        const remembered = turnChips.get(incoming.id)
+        const chip: ToolChip = remembered ? {
+          ...incoming,
+          ...(!incoming.args && remembered.args ? { args: remembered.args } : {}),
+          ...(!incoming.label && remembered.label ? { label: remembered.label } : {}),
+          ...(!incoming.sources && remembered.sources ? { sources: remembered.sources } : {}),
+          ...(!incoming.output && remembered.output ? { output: remembered.output } : {}),
+          ...(!incoming.approvalId && remembered.approvalId ? { approvalId: remembered.approvalId } : {}),
+          ...(!incoming.declineReason && remembered.declineReason ? { declineReason: remembered.declineReason } : {}),
+        } : incoming
+        turnChips.set(chip.id, chip)
+        const kind = kindOf(chip.name)
+        if (chip.phase === 'start') applyActivity(animatorRef.current!.stepStarted(kind))
+        else if (chip.phase === 'ok' || chip.phase === 'partial' || chip.phase === 'error' || chip.phase === 'declined') {
+          applyActivity(animatorRef.current!.stepFinished(kind, chip.phase, { sources: chip.sources }))
         }
         // ── AND THE PAGE BEHIND HIM FINDS OUT ──────────────────────────────
         //
@@ -1000,12 +1072,10 @@ export function useDeckeChat(
         // later. Above the transcript filter for the same reason as the beat:
         // it is about the write, not the row. See `chat/writeRefresh.ts`.
         for (const queryKey of staleQueries(chip)) void queryClient.invalidateQueries({ queryKey })
-        // ── SOME CALLS ARE NOT SHOWN, AND THE BEAT ABOVE STILL RUNS ────────
+        // ── SOME CALLS ARE NOT SHOWN, AND ACTIVITY STILL RUNS ──────────────
         //
-        // Placed BELOW the beat on purpose. `express` earns no transcript row
-        // — see `NOT_SHOWN` — but it is still a real tool boundary, and C21's
-        // punctuation is about the boundary, not about the row. Filtering at
-        // the top of this function would have taken the beat with it.
+        // `express` earns no transcript row, but it is still a real boundary.
+        // Filtering after the animator keeps presentation out of its policy.
         if (!isShownInTranscript(chip.name)) return
         setMessages((m) =>
           m.map((x) => {
@@ -1017,9 +1087,8 @@ export function useDeckeChat(
               //
               // This row is REPLACED, not merged, which is right for every
               // other field — `ok` supersedes `start`. But `args` is sent
-              // once, on `start`, because it does not change and repeating
-              // it on every beat of a 210-second deep call would put the
-              // same payload on the wire dozens of times.
+              // once, on `start`, because it does not change and repeating it
+              // on every progress event would duplicate the same payload.
               //
               // So it is the one field carried forward. Without this the
               // transcript records arguments only for calls that never
@@ -1027,8 +1096,16 @@ export function useDeckeChat(
               const was = next[at]
               // `findIndex` already proved this is the tool part; the check is
               // what lets the compiler agree, and it costs nothing.
-              const priorArgs = was.kind === 'tool' ? was.chip.args : undefined
-              const merged = !chip.args && priorArgs ? { ...chip, args: priorArgs } : chip
+              const prior = was.kind === 'tool' ? was.chip : undefined
+              const merged = prior ? {
+                ...chip,
+                ...(!chip.args && prior.args ? { args: prior.args } : {}),
+                ...(!chip.label && prior.label ? { label: prior.label } : {}),
+                ...(!chip.sources && prior.sources ? { sources: prior.sources } : {}),
+                ...(!chip.output && prior.output ? { output: prior.output } : {}),
+                ...(!chip.approvalId && prior.approvalId ? { approvalId: prior.approvalId } : {}),
+                ...(!chip.declineReason && prior.declineReason ? { declineReason: prior.declineReason } : {}),
+              } : chip
               next[at] = { kind: 'tool', id: was.id, chip: merged }
               return { ...x, parts: next }
             }
@@ -1066,66 +1143,16 @@ export function useDeckeChat(
         let approvalReplays = 0
         /** Tool call ids already carried into a later leg. See `lookupRecord`. */
         const replayedChips = new Set<string>()
+        /** Results arrive after their chips; keep a synchronous copy for this leg. */
+        const capturedOutputs = new Map<string, string>()
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
+          applyActivity(animatorRef.current!.legStarted())
+          let legTextStarted = false
           const outcome = await streamLeg(wire, evidence, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
             onText: (chunk) => {
-              if (!saidSoFar) {
-                // The talk overlay latches on the FIRST token and is released in
-                // the `finally` below — never on a `done` part, which an aborted
-                // stream never sends. A latch with no guaranteed release is how
-                // he ends up mouthing silently for the life of the page.
-                decke.setOverlay('talk', 1)
-                // ── HE CHANGES WHEN THE ANSWER ARRIVES ─────────────────────
-                //
-                // The owner was cut off mid-sentence at the exact moment
-                // Deck-E stopped thinking and started talking — "I honestly
-                // would have loved him to—" — and when asked to recall it:
-                // *"I think i was about to say I would have liked him to do a
-                // different emotion state or something."* Recorded as a
-                // PROBABLE requirement rather than a certain one, and a close
-                // relative of his other note that he "can kind of show a
-                // different emotion for a sec and then go back to thinking".
-                //
-                // The first token is the transition. Without a beat here he
-                // slides out of a minute of the same rocking loop straight
-                // into speech, and nothing marks the moment the waiting ended
-                // — which is the moment that most wants marking.
-                //
-                // `once`, not sustained: this is punctuation on an event, not
-                // a mood to be left holding. `curious` because the honest
-                // reading of "I have something for you" is interest rather
-                // than delight — `happy` would celebrate answers that are
-                // sometimes bad news, and a character who is pleased about a
-                // timeout is the failure this pass spent its time on.
-                //
-                // It does NOT set `movedRef`: this is the app punctuating a
-                // transition, not the model choosing a state, and claiming
-                // otherwise would stop the turn boundary restoring `idle`.
-                //
-                // ── AND IT YIELDS TO A CHOICE ALREADY MADE ─────────────────
-                //
-                // `movedRef` is set by a successful `express`, and a model that
-                // has already expressed something this turn has said what this
-                // reply feels like — with more information about it than a
-                // transition marker has. Overwriting that was not a small
-                // thing: `curious` is a forward lean at `lean: 0.62`, it fired
-                // on EVERY reply regardless of content, and it is what the
-                // owner was describing when he watched twenty minutes back and
-                // said *"he's kind of just falling back to a few ones that he
-                // uses all the time… leaning in toward the message, and then
-                // also just talking."* The one pose he named as the problem was
-                // this line, not a model choice at all.
-                //
-                // The beat still fires for the ordinary case, which is the case
-                // it was written for: a turn that has expressed nothing yet
-                // still needs the moment the waiting ended to be marked.
-                if (!movedRef.current) {
-                  try {
-                    decke.setState('curious', { mode: 'once' })
-                  } catch {
-                    /* an unknown state must never take a turn down */
-                  }
-                }
+              if (!legTextStarted) {
+                legTextStarted = true
+                applyActivity(animatorRef.current!.textStarted())
               }
               appendText(chunk)
             },
@@ -1179,6 +1206,24 @@ export function useDeckeChat(
               // recent thing rather than the broken one. `start` → `progress`
               // → `ok` is one row changing, in the position it first appeared.
               emitToolChip(chip)
+            },
+            onToolOutput: (toolCallId, output) => {
+              const bounded = capOutput(output)
+              capturedOutputs.set(toolCallId, bounded)
+              const chip = turnChips.get(toolCallId)
+              if (chip) turnChips.set(toolCallId, { ...chip, output: bounded })
+              setMessages((all) => all.map((message) =>
+                message.id === replyId
+                  ? {
+                      ...message,
+                      parts: message.parts.map((part) =>
+                        part.kind === 'tool' && part.chip.id === toolCallId
+                          ? { ...part, chip: { ...part.chip, output: bounded } }
+                          : part,
+                      ),
+                    }
+                  : message,
+              ))
             },
             onMeterRefused: (toolCallId, scope) =>
               // The row already exists — the refusal chip arrives before the
@@ -1350,13 +1395,33 @@ export function useDeckeChat(
           // record on leg 2 and again on leg 3 — the same lookups arriving
           // three times reads as three separate readings, which is precisely
           // the drift this record exists to prevent.
-          const replyNow = messagesRef.current.find((m) => m.id === replyId)
-          const { send, mark } = freshCalls(replyNow ? messageTools(replyNow) : [], replayedChips)
-          const record = lookupRecord(send)
+          const { send, mark } = freshCalls([...turnChips.values()], replayedChips)
+          // A decline answered on THIS leg is appended by replayLegParts as the
+          // final signed approval part. Replaying its stored chip in the prefix
+          // would describe the same answer twice and put a tool part before the
+          // canonical approval reply.
+          const answeredHere = new Set(outcome.approvals.map((approval) => approval.toolCallId))
+          // Meter refusals have their server-authored output replayed below;
+          // do not also turn the chip summary into a conflicting output-error.
+          const meteredHere = new Set(outcome.refusals.map((refusal) => refusal.toolCallId))
+          const calls = send
+            .filter((chip) => !answeredHere.has(chip.id) && !meteredHere.has(chip.id))
+            .map((chip) => chip.output !== undefined || !capturedOutputs.has(chip.id)
+              ? chip
+              : { ...chip, output: capturedOutputs.get(chip.id) })
+          const replay = toolReplayParts(calls, { isServerTool: (name) => !isClientTool(name) })
+          for (const part of replay.parts) parts.push(part)
+          const record = lookupRecord(replay.unrecorded)
           if (record) {
             parts.push(record)
-            for (const id of mark) replayedChips.add(id)
           }
+          const recordedIds = new Set([
+            ...mark,
+            ...answeredHere,
+            ...meteredHere,
+            ...replay.parts.map((part) => part.toolCallId),
+          ])
+          for (const id of recordedIds) replayedChips.add(id)
           // ── AND WHAT THE METER REFUSED, WHICH THE NEXT LEG MUST NOT REDO ──
           //
           // In the PREFIX, so it precedes this leg's browser-tool results and
@@ -1650,7 +1715,7 @@ export function useDeckeChat(
         }
 
         if (abortRef.current === ac) {
-          if (!movedRef.current) decke.setState('idle')
+          applyActivity(animatorRef.current!.turnEnded(movedRef.current))
           decke.setOverlay(null)
           decke.clearOverrides()
           setBusy(false)
@@ -1676,7 +1741,7 @@ export function useDeckeChat(
         }
       }
     },
-    [decke, queryClient],
+    [applyActivity, decke, queryClient],
   )
 
   const stop = useCallback(() => abortRef.current?.abort(), [])
@@ -1784,6 +1849,8 @@ export function useDeckeChat(
     stop,
     close,
     retry,
+    recordDeckSaved,
+    composerActivity,
     asking,
     approve,
     deny,
@@ -1818,6 +1885,8 @@ type LegHandlers = {
   onCommands: (commands: WireCommand[]) => Promise<void>
   onScreen: (screen: ScreenSpec) => void
   onToolChip: (chip: ToolChip) => void
+  /** Complete result for a server tool, retained for bounded replay. */
+  onToolOutput: (toolCallId: string, output: unknown) => void
   /** A refused request, with its JSON body when it had one — see `httpNotice`. */
   onHttpError: (status: number, body: RefusalBody) => void
   /** The meter refused this call. Marks its row so it offers the way out that
@@ -1959,39 +2028,6 @@ const APPROVAL_PHRASE: Record<string, string> = {
   edit_list: 'change this list',
   delete_list: 'delete this list',
   revert: 'undo that change',
-
-  // ── THE DEEP TIER, which asks now too ─────────────────────────────────────
-  //
-  // Every deep call needs approval as of this pass, because it spends the
-  // scarcest thing the account has. Without an entry each of these would reach
-  // a reader de-snake-cased — "Let him plan deck?" — which is the shape that
-  // made this map necessary in the first place.
-  //
-  // They name the WORK rather than the tool, and they say it costs: a reader
-  // being asked to authorise a spend should be able to tell from the sentence
-  // that a spend is what this is.
-  //
-  // `deck_strategy` is NOT repeated here. It is an agent-tools write tool and
-  // already has its phrase above; the deep tier's own guide-writer is
-  // `write_strategy_guide`. Listing it twice is a duplicate key, which is how
-  // this was caught.
-  //
-  // NOT "spend a deep question". That was our internal name for the tier
-  // leaking onto a consent dialog, and the owner caught it: *"I don't know that
-  // I want the wording to be 'can I spend a deep question'. I feel like just
-  // being like — external research takes extra usage, are you okay with me
-  // doing research to plan out a good deck."*
-  //
-  // So these say what the WORK is. That it costs more is a separate sentence on
-  // the card (`deepCostLine`), because it is a different fact and cramming it
-  // into the question makes the question about our accounting rather than about
-  // their deck.
-  plan_deck: 'do the research and build this deck properly',
-  // WRITE, not "save … I just wrote": nothing is written until Go ahead, and
-  // the spend happens then too (UXD-07). The headline said the opposite.
-  write_strategy_guide: 'write a full strategy guide for this deck',
-  analyze_collection: 'dig properly through your whole collection',
-  research_meta: 'go and research what the meta looks like right now',
 }
 
 function titleFor(name: string): string {
@@ -2201,7 +2237,9 @@ async function streamLeg(
         // the SDK: signing genuinely races ahead of the awaited callback under
         // `streamText`. It survives only because the question is asked once the
         // leg has finished draining.
-        handlers.onApprovalPreview(part.data as unknown as ApprovalPreview)
+        const preview = part.data as unknown as ApprovalPreview
+        handlers.onApprovalPreview(preview)
+        if (preview.title?.trim()) approvalTitles.set(preview.toolCallId, preview.title.trim())
       } else if (part.type === 'data-decke-finish' && part.data) {
         // WHY THIS LEG STOPPED. Kept on the outcome and filed with the turn, so
         // "the answer ends mid-word" can be answered with 'length' instead of a
@@ -2242,6 +2280,8 @@ async function streamLeg(
         approvalTitles.set(part.toolCallId, titleFor(String(part.toolName ?? '')))
         approvalInputs.set(part.toolCallId, (part.input ?? {}) as Record<string, unknown>)
       } else if (part.type === 'tool-output-available' && typeof part.toolCallId === 'string') {
+        const outputName = approvalNames.get(part.toolCallId)
+        if (outputName && !isClientTool(outputName)) handlers.onToolOutput(part.toolCallId, part.output)
         // ── A DEEP CALL THE METER REFUSED, WHICH USED TO DIE HERE ───────────
         //
         // This chunk matched NOTHING before. Server results are deliberately
@@ -2305,34 +2345,24 @@ async function streamLeg(
  * function and for the leg loop in `send`.
  */
 function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
-  return msgs
-    .filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0)
+  const visible = msgs.filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0)
+  let assistantsRemaining = visible.filter((m) => m.role === 'assistant').length
+  return visible
     .map((m) => {
       const parts: WirePart[] = []
       const text = messageText(m)
       if (text.trim().length > 0) parts.push({ type: 'text', text })
-      // A PARTIAL RESULT IS STILL EVIDENCE, AND IT IS LABELLED AS PARTIAL.
-      //
-      // Both halves matter. Dropping it would lose the record that turn N read
-      // anything at all, leaving turn N+1 with only prose about it — and prose
-      // is exactly the thing that drifts, which is why this record exists.
-      // Including it unlabelled is worse: he would carry a reading that stopped
-      // half way through the collection forward as a complete one, and quote
-      // its figure again with more confidence than the first time.
-      const record = lookupRecord(messageTools(m))
-      if (record) parts.push(record)
-      // AND WHAT FAILED, WHICH THIS USED TO ERASE.
-      //
-      // `lookupRecord` replays `ok`/`partial` only, so a failure had no way out
-      // of its turn — and the server, which keeps nothing between requests, had
-      // by construction no record that any tool had ever failed. `battle_logs`
-      // 500ed on four turns of one conversation and was re-called on every one
-      // of them, once immediately after promising not to.
-      //
-      // Replayed as the SDK's real `output-error` part rather than as prose, so
-      // it converts back into the failed tool call it was; `decke/failing.ts`
-      // counts them and opens the circuit. Bounded — `MAX_REPLAYED_FAILURES`.
-      for (const failure of failureParts(messageTools(m))) parts.push(failure)
+      const chips = messageTools(m)
+      if (m.role === 'assistant' && replayPlan(--assistantsRemaining) === 'full') {
+        const replay = toolReplayParts(chips, { isServerTool: (name) => !isClientTool(name) })
+        for (const part of replay.parts) parts.push(part)
+        const legacy = lookupRecord(replay.unrecorded)
+        if (legacy) parts.push(legacy)
+      } else {
+        const record = lookupRecord(chips)
+        if (record) parts.push(record)
+        for (const failure of failureParts(chips)) parts.push(failure)
+      }
       // A turn that produced only tool records and no speech still has to be a
       // valid message; the filter above lets it through, so guard the shape.
       return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text }] }

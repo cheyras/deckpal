@@ -32,6 +32,9 @@ import { CARD_ASPECT_RATIO_CSS } from '../../lib/cardGeometry'
 // this file. See `chat/useCardArt.ts`.
 import { useCardArt } from './chat/useCardArt'
 import { COLLAPSE_LABEL, compactPlan, expandLabel, showingLabel } from './screenCompact'
+import { api } from '../../lib/api'
+import { saveDeckFromWidget, type WidgetDeck } from './chat/deckSave'
+import { deckHeader, nextSaveState, ownershipMark, visibleIssues, type SaveState } from './chat/deckWidgetState'
 
 export type Block = {
   kind: string
@@ -46,6 +49,19 @@ export type Block = {
   rows?: string[][]
   left?: Block[]
   right?: Block[]
+  name?: string
+  format?: string
+  total?: number
+  legal?: boolean | null
+  issues?: string[]
+  owned?: number
+  missingCostUsd?: number | null
+  sections?: Array<{
+    title: 'Pokémon' | 'Trainer' | 'Energy' | 'Other'
+    count: number
+    cards: Array<{ id: string; name: string; quantity: number; owned: number }>
+  }>
+  ptcgl?: string
 }
 
 export type ScreenSpec = { title: string; blocks: Block[] }
@@ -93,6 +109,7 @@ export function DeckeScreen({
   spec,
   onRemoveCard,
   onResize,
+  onDeckSaved,
 }: {
   spec: ScreenSpec
   /** Present only when a block asked to be editable — "that one's wrong". */
@@ -108,6 +125,8 @@ export function DeckeScreen({
    * the next scroll nudges it.
    */
   onResize?: () => void
+  /** Lets chat remember a one-tap widget save on its next turn. */
+  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const bodyId = useId()
@@ -134,7 +153,7 @@ export function DeckeScreen({
       <h3 className="text-[15px] font-semibold text-text-primary">{spec.title}</h3>
       <div id={bodyId} className="flex flex-col gap-[12px]">
         {blocks.map((b, i) => (
-          <Block key={i} block={b} cardLimit={cardLimit} onRemoveCard={onRemoveCard} />
+          <Block key={i} block={b} cardLimit={cardLimit} compact={compact} onRemoveCard={onRemoveCard} onDeckSaved={onDeckSaved} />
         ))}
       </div>
       {plan.compactable ? (
@@ -178,13 +197,17 @@ function Block({
   block: b,
   dense = false,
   cardLimit = Number.POSITIVE_INFINITY,
+  compact = false,
   onRemoveCard,
+  onDeckSaved,
 }: {
   block: Block
   dense?: boolean
   /** How many cards a grid may draw. `Infinity` once the screen is expanded. */
   cardLimit?: number
+  compact?: boolean
   onRemoveCard?: (id: string) => void
+  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
 }) {
   switch (b.kind) {
     case 'heading':
@@ -201,6 +224,9 @@ function Block({
       return (
         <CardGrid block={b} dense={dense} cardLimit={cardLimit} onRemoveCard={onRemoveCard} />
       )
+
+    case 'deck':
+      return <DeckWidget block={b} cardLimit={cardLimit} compact={compact} onDeckSaved={onDeckSaved} />
 
     case 'statTile':
       return (
@@ -317,7 +343,9 @@ function Block({
                     block={inner}
                     dense
                     cardLimit={cardLimit}
+                    compact={compact}
                     onRemoveCard={onRemoveCard}
+                    onDeckSaved={onDeckSaved}
                   />
                 ))}
               </div>
@@ -332,6 +360,148 @@ function Block({
       // block that somehow arrives unvalidated still cannot draw anything.
       return null
   }
+}
+
+/** The saved-list widget is intentionally a block, so it remains in chat history. */
+function DeckWidget({
+  block,
+  cardLimit,
+  compact,
+  onDeckSaved,
+}: {
+  block: Block
+  cardLimit: number
+  compact: boolean
+  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+}) {
+  const [issuesOpen, setIssuesOpen] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
+  const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saved, setSaved] = useState<{ id: string; name: string; total: number } | null>(null)
+  const total = block.total ?? 0
+  const header = deckHeader({
+    total,
+    legal: block.legal ?? null,
+    owned: block.owned ?? 0,
+    missingCostUsd: block.missingCostUsd ?? null,
+  })
+  const issueList = visibleIssues(block.issues ?? [])
+  const sections = compact ? (block.sections ?? []).slice(0, 1) : (block.sections ?? [])
+
+  async function copyList() {
+    if (!block.ptcgl || !navigator.clipboard) return
+    try {
+      await navigator.clipboard.writeText(block.ptcgl)
+      setCopyState('copied')
+      window.setTimeout(() => setCopyState('idle'), 1600)
+    } catch {
+      // Clipboard permission is a browser concern; keeping the deck visible is
+      // more useful than replacing it with a transient failure message.
+    }
+  }
+
+  async function save() {
+    if (saveState === 'saving' || saveState === 'saved') return
+    if (saveState === 'error') setSaveState(nextSaveState(saveState, 'retry'))
+    setSaveError(null)
+    setSaveState('saving')
+    const result = await saveDeckFromWidget(block as WidgetDeck, api)
+    if (!result.ok) {
+      setSaveState('error')
+      setSaveError(result.message)
+      return
+    }
+    setSaveState('saved')
+    setSaved(result)
+    onDeckSaved?.(result)
+  }
+
+  return (
+    <div className="flex flex-col gap-[10px] rounded-xl border border-border-default bg-surface-primary p-[12px]">
+      <div className="flex flex-wrap items-center gap-[6px]">
+        <h4 className="mr-auto font-display text-[16px] font-bold text-text-primary">{block.name ?? 'Deck idea'}</h4>
+        <DeckChip tone="neutral">{block.format ?? 'standard'}</DeckChip>
+        <DeckChip tone={header.countTone}>{header.count}</DeckChip>
+        <DeckChip tone={header.legalityTone}>{header.legality}</DeckChip>
+      </div>
+      <p className="text-[12px] tabular-nums text-text-muted">{header.ownership}</p>
+
+      {issueList.visible.length ? (
+        <div className="flex flex-col gap-[4px]" aria-label="Deck issues">
+          {(issuesOpen ? block.issues : issueList.visible).map((issue, index) => (
+            <p key={`${issue}-${index}`} className="flex gap-[5px] text-[12px] leading-[17px] text-text-body">
+              <Icon name="alert" size={13} className="mt-[2px] shrink-0 text-icon-muted" />{issue}
+            </p>
+          ))}
+          {issueList.hidden ? (
+            <button type="button" onClick={() => setIssuesOpen((open) => !open)} className="self-start text-[12px] font-semibold text-text-muted hover:text-text-primary">
+              {issuesOpen ? 'Show fewer issues' : `+${issueList.hidden} more`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {sections.map((section) => (
+        <DeckSection key={section.title} section={section} cardLimit={cardLimit} />
+      ))}
+
+      <div className="flex flex-wrap gap-[8px] border-t border-border-default pt-[10px]">
+        {saved ? (
+          <a href={`/decks/${encodeURIComponent(saved.id)}`} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
+            Open in deck builder
+          </a>
+        ) : (
+          <button type="button" disabled={saveState === 'saving'} onClick={() => void save()} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground disabled:opacity-60">
+            {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Try saving again' : 'Save to my decks'}
+          </button>
+        )}
+        <button type="button" disabled={!block.ptcgl} onClick={() => void copyList()} className="rounded-lg border border-border-default px-[10px] py-[7px] text-[12px] font-semibold text-text-body disabled:opacity-50">
+          {copyState === 'copied' ? 'Copied' : 'Copy list'}
+        </button>
+      </div>
+      {saveError ? <p role="alert" className="text-[12px] text-error">{saveError}</p> : null}
+    </div>
+  )
+}
+
+function DeckChip({ tone, children }: { tone: 'neutral' | 'good' | 'warn' | 'bad'; children: string }) {
+  const colours = {
+    neutral: 'bg-surface-secondary text-text-muted',
+    good: 'bg-action-primary/15 text-action-primary',
+    warn: 'bg-surface-secondary text-text-body',
+    bad: 'bg-error/15 text-error',
+  }
+  return <span className={`rounded-full px-[7px] py-[3px] text-[11px] font-semibold ${colours[tone]}`}>{children}</span>
+}
+
+function DeckSection({ section, cardLimit }: { section: NonNullable<Block['sections']>[number]; cardLimit: number }) {
+  const cards = Number.isFinite(cardLimit) ? section.cards.slice(0, cardLimit) : section.cards
+  const art = useCardArt(cards.map((card) => card.id))
+  const caption = showingLabel(cards.length, section.cards.length)
+  return (
+    <div className="flex flex-col gap-[6px]">
+      <h5 className="text-[12px] font-semibold text-text-secondary">{section.title} · {section.count}</h5>
+      <ul className="grid grid-cols-3 gap-[8px] nav:grid-cols-4">
+        {cards.map((card) => {
+          const found = art[card.id]
+          const mark = ownershipMark(card.owned, card.quantity)
+          return (
+            <li key={card.id} className={`relative ${mark.kind === 'missing' ? 'opacity-55' : ''}`}>
+              {found ? <CardImage low={found.front} high={found.frontLarge ?? found.front} alt={card.name} radius={6} /> : (
+                <div className="flex w-full items-center justify-center rounded-md bg-surface-secondary p-[6px] text-center" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }}>
+                  <span className="text-[10px] leading-[14px] text-text-body">{card.name}</span>
+                </div>
+              )}
+              <span className="absolute bottom-[3px] right-[3px] rounded-full bg-surface-primary/90 px-[5px] text-[10px] font-bold text-text-primary">×{card.quantity}</span>
+              <span aria-label={mark.label} className="absolute left-[3px] top-[3px] rounded-full bg-surface-primary/90 px-[4px] text-[10px] font-semibold text-text-primary">{mark.text}</span>
+            </li>
+          )
+        })}
+      </ul>
+      {caption ? <span className="text-[11px] tabular-nums text-text-muted">{caption}</span> : null}
+    </div>
+  )
 }
 
 /**
