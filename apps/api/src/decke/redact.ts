@@ -332,17 +332,39 @@ function decodeLiteralSyntax(value: string): MappedText {
 
 /** NFKC-normalize graphemes while retaining their source range for replacement. */
 function normalizeMapped(value: MappedText): MappedText {
+  // NFKC leaves ASCII unchanged, so the source map already fits.
+  if (/^[\x00-\x7f]*$/.test(value.text)) return value
   const output: string[] = []
   const spans: SourceSpan[] = []
-  for (const part of graphemeSegmenter.segment(value.text)) {
-    const normalized = part.segment.normalize('NFKC')
-    const first = value.spans[part.index]
-    const last = value.spans[part.index + part.segment.length - 1]
-    if (!first || !last) continue
-    output.push(normalized)
-    for (let index = 0; index < normalized.length; index++) spans.push({ start: first.start, end: last.end })
+  // Intl.Segmenter is quadratic over long strings in older V8 (Node 20: a
+  // 446 KB value took ~2 minutes). Segment in chunks cut only between two
+  // ASCII characters (never CR+LF) — always a grapheme boundary — so each
+  // chunk segments exactly as the whole string would.
+  for (const [offset, chunk] of graphemeSafeChunks(value.text, 2048)) {
+    for (const part of graphemeSegmenter.segment(chunk)) {
+      const normalized = part.segment.normalize('NFKC')
+      const first = value.spans[offset + part.index]
+      const last = value.spans[offset + part.index + part.segment.length - 1]
+      if (!first || !last) continue
+      output.push(normalized)
+      for (let index = 0; index < normalized.length; index++) spans.push({ start: first.start, end: last.end })
+    }
   }
   return { text: output.join(''), spans }
+}
+
+/** Split text into roughly `size`-long pieces at boundaries no grapheme cluster can span. */
+function* graphemeSafeChunks(text: string, size: number): Generator<[number, string]> {
+  let start = 0
+  while (text.length - start > size) {
+    let cut = start + size
+    while (cut < text.length && !(text.charCodeAt(cut - 1) < 0x80 && text.charCodeAt(cut) < 0x80
+      && !(text.charCodeAt(cut - 1) === 13 && text.charCodeAt(cut) === 10))) cut++
+    if (cut >= text.length) break
+    yield [start, text.slice(start, cut)]
+    start = cut
+  }
+  yield [start, text.slice(start)]
 }
 
 /** Decode JSON Unicode escapes, replacing unsupported scalar values. */
