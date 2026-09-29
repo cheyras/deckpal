@@ -199,7 +199,8 @@ async function checkWriteRefresh(page, server, width, out) {
  * his view. Then the server answers 413, and the reader must see a sentence
  * rather than a generic failure.
  */
-const WINDOW_MESSAGES = 24
+// MIRRORS apps/web/src/character/host/chat/wireWindow.ts (40 since the 2026-09-28 overhaul).
+const WINDOW_MESSAGES = 40
 async function checkBounds(page, server, width, out) {
   const bodies = []
   let status = 200
@@ -674,7 +675,9 @@ export async function checkDeckeStates(browser, server, out, engine) {
       const activity = panel.locator('[data-decke-activity]')
       assert.equal(await activity.count(), 1, 'consecutive tools stacked instead of sharing one activity line')
       await activity.getByText("1 step didn't work · 0s", { exact: true }).waitFor()
-      assert.equal(await activity.getByText('The checker could not finish.', { exact: true }).count(), 0,
+      // The step list is in the DOM but `hidden` while collapsed — assert what
+      // the reader can SEE, not what the DOM contains.
+      assert.equal(await activity.getByText('The checker could not finish.', { exact: true }).isVisible(), false,
         'collapsed activity exposed every step')
       await activity.getByRole('button').first().click()
       await activity.getByText('The checker could not finish.', { exact: true }).waitFor()
