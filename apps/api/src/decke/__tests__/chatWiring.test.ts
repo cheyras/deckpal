@@ -215,7 +215,8 @@ test('a credit refusal says whether the wallet is HELD, as a flag rather than pr
 
 test('the reflex read runs after the meter, from the built module, with the turn\'s abort', () => {
   assert.match(SRC, /import \{ readReflex \} from '\.\.\/apps\/api\/dist\/decke\/reflex\.js'/);
-  const read = CODE.indexOf('const reflex = await readReflex(messages, route, { key, signal: request.signal })');
+  // Wrapped in runAiUsage so Jev's own model call is metered on this request.
+  const read = CODE.indexOf('const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))');
   assert.ok(read > 0, 'readReflex is no longer called with the validated messages, the key and the signal');
   // A Gateway call: nothing reaches the Gateway unpaid.
   assert.ok(CODE.indexOf('meter = await meterTurn(') < read, 'the reflex read runs before the meter');
