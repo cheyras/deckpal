@@ -260,7 +260,13 @@ function mockModel() {
 function readUsage(usage, metadata) {
   const input = usage?.inputTokens ?? usage?.promptTokens ?? {}
   const output = usage?.outputTokens ?? usage?.completionTokens ?? {}
-  const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : 0
+  // The Gateway reports cost as a decimal STRING ("0.0123"), exactly as
+  // apps/api/src/decke/usageMetadata.ts reads it; a numbers-only parse read every
+  // cost as 0 and left --budget-usd unenforced.
+  const number = (value) => {
+    const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+    return typeof n === 'number' && Number.isFinite(n) ? n : 0
+  }
   const gateway = metadata?.gateway ?? {}
   return {
     output_tokens: number(output.total ?? output),
@@ -355,12 +361,9 @@ async function loadRuntime(world, writes) {
   return { buildSystemPrompt, tools, dataToolList }
 }
 
+// Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
 function cacheTools(modelId, tools) {
-  if (!modelId.startsWith('anthropic/')) return tools
-  return Object.fromEntries(Object.entries(tools).map(([name, value]) => [name, {
-    ...value,
-    providerOptions: { ...(value.providerOptions ?? {}), anthropic: { cacheControl: { type: 'ephemeral' } } },
-  }]))
+  return tools
 }
 
 async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, scenarioTurn, budget }) {
@@ -443,12 +446,23 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     cacheWriteTokens += measured.cache_write_tokens
     const finalGeneration = legMetadata?.gateway?.generationId
     if (finalGeneration) generationIds.add(finalGeneration)
+    // Per-step Gateway cost (providerMetadata.gateway.cost) is the primary figure.
+    // The generation-info lookup is best-effort: usage events are eventually
+    // consistent and answer 404 "Usage event not found" for a few seconds after
+    // a call, which used to abort the whole run.
+    measured.cost_usd = Math.max(measured.cost_usd, observedStepCost)
     if (gateway && generationIds.size && typeof gateway.getGenerationInfo === 'function') {
-      measured.cost_usd = 0
+      let looked = 0
+      let complete = true
       for (const id of generationIds) {
-        const info = await gateway.getGenerationInfo({ id })
-        measured.cost_usd += Number(info.totalCost ?? info.usage) || 0
+        try {
+          const info = await gateway.getGenerationInfo({ id })
+          looked += Number(info.totalCost ?? info.usage) || 0
+        } catch {
+          complete = false
+        }
       }
+      if (complete && looked > 0) measured.cost_usd = looked
     }
     budget.spent += measured.cost_usd - observedStepCost
     turnCost += measured.cost_usd
