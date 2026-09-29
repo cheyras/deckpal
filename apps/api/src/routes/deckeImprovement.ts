@@ -285,9 +285,15 @@ export function createDeckeImprovementRouter(
       // corpus gets this redacted copy (which SQL redacts again).
       const comment = typeof body.comment === 'string' ? body.comment : null;
       // Redaction can lengthen text ('Q' → '[redacted]'); the corpus column holds
-      // 500 characters, so bound the copy here (by code point, like SQL's left()).
-      const corpusComment = comment === null ? null
-        : [...(deps.clean(comment, await deps.terms(db, userId)) as string)].slice(0, 500).join('');
+      // 500 characters, so bound the copy (by code point, like SQL's left()).
+      // Cutting can complete an identity the dropped tail had broken up, so the
+      // value actually sent is checked again and withheld whole if it is not clean.
+      let corpusComment: string | null = null;
+      if (comment !== null) {
+        const terms = await deps.terms(db, userId);
+        const bounded = [...(deps.clean(comment, terms) as string)].slice(0, 500).join('');
+        corpusComment = deps.clean(bounded, terms) === bounded ? bounded : '[redacted]';
+      }
       return call<JsonObject>(db, 'SELECT public.decke_improvement_record_feedback($1,$2,$3,$4,$5,$6,$7) AS data', [userId, conversationId, seq, body.vote, comment, share, corpusComment]);
     });
     res.json(result);

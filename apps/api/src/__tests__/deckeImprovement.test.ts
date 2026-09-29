@@ -244,6 +244,22 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
     });
   });
 
+  it('a cut that completes an identity withholds the whole corpus copy', async () => {
+    // Review 11: expansion pushes '%C9%A4%62x' (decodes to 'ɤbx', not a
+    // whole-word match) past 500; cutting the final 'x' leaves encoded 'ɤb'.
+    const { deps, state } = fakeDeps();
+    deps.terms = async () => ['Ɤb', 'Q@example.invalid', 'Q'];
+    await serve(deps, async (request) => {
+      const comment = 'Q ' + 'x'.repeat(479) + ' ' + '%C9%A4%62x';
+      const { response } = await request('/decke/feedback', post({ conversationId: CHAT, seq: 0, vote: 1, comment, share: false }, 'PUT'));
+      assert.equal(response.status, 200);
+      const write = state.calls.find(({ sql }) => sql.includes('decke_improvement_record_feedback'));
+      assert.ok(write);
+      assert.equal(write.params[4], comment, 'personal feedback is untouched');
+      assert.equal(write.params[6], '[redacted]');
+    });
+  });
+
   it('fails and rolls back consent or feedback when a required backfill fails', async () => {
     const { deps, state } = fakeDeps({ backfillFails: true });
     await serve(deps, async (request) => {

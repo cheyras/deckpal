@@ -1024,6 +1024,32 @@ try {
     await server(member, (c) => data(c, 'SELECT public.decke_improvement_revoke($1,$2) data', [member, finishConversation]));
   });
 
+  await test('a turn assembled from legs cannot synthesise an identity across the boundary', async () => {
+    // Review 11: each leg is clean alone, but 078 joined answers with nothing.
+    // '%4A%6F%68%6E%20' + '%53%6D%69%74%68' would decode to 'John Smith'.
+    const conversation = id(9160), first = id(9161), second = id(9163);
+    await seedConversation({ conversation, request: first, operation: id(9162), suffix: '171' });
+    await db.query(`INSERT INTO public.decke_ai_request
+      (id,user_id,conversation_id,exchange_id,seq,request_key,payload_hash,charge_mode,status,finished_at,build_sha,build_pr)
+      VALUES($1,$2,$3,$4,0,'improvement-171-request-b',$5,'daily','completed',now(),'fixture-sha',278)`,
+    [second, member, conversation, id(9164), 'c'.repeat(64)]);
+    const answer = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, conversation]));
+    for (const [request, leg, text] of [[first, 0, '%4A%6F%68%6E%20'], [second, 1, '%53%6D%69%74%68']]) {
+      const recorded = await server(member, (c) => data(c,
+        'SELECT public.decke_improvement_record_leg($1,$2,0,$3,$4,$5::jsonb) data',
+        [member, conversation, request, leg, JSON.stringify(validLeg(text))]));
+      assert.equal(recorded.recorded, true);
+    }
+    const answered = (await db.query('SELECT answered FROM public.decke_improvement_turn WHERE conversation_id=$1 AND seq=0',
+      [answer.conversationId])).rows[0].answered;
+    assert.equal(answered.includes('\n\n'), true, `legs are separated: ${JSON.stringify(answered)}`);
+    let view = answered;
+    for (let depth = 0; depth < 3; depth++) view = view.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    assert.doesNotMatch(view, /john\s?smith/i, `no identity forms across legs: ${JSON.stringify(answered)}`);
+    await server(member, (c) => data(c, 'SELECT public.decke_improvement_revoke($1,$2) data', [member, conversation]));
+  });
+
   let tokenId;
   await test('only eligible admins can grant token and OAuth improvement capabilities', async () => {
     const memberToken = (await db.query(

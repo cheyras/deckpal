@@ -522,6 +522,66 @@ CREATE TRIGGER decke_improvement_leg_finish_reason
 UPDATE public.decke_improvement_turn SET finish_reason=finish_reason WHERE finish_reason IS NOT NULL;
 UPDATE public.decke_improvement_leg SET finish_reason=finish_reason WHERE finish_reason IS NOT NULL;
 
+-- A turn's text is assembled from its legs. 078 joined them with nothing, so
+-- 'John' in one leg and 'Smith' in the next — each clean on its own — became
+-- 'JohnSmith' in the stored turn with no redaction of the joined value. Legs
+-- are now joined with a blank line, and the assembled text is redacted with the
+-- writer's identity terms. Every caller is a corpus writer that has already
+-- passed decke_improvement_require_writer, so admin_actor_id() is the verified
+-- owner; without a request subject (e.g. this migration) only the separator
+-- applies.
+CREATE OR REPLACE FUNCTION public.decke_improvement_recompute(p_conversation uuid,p_seq integer) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE writer text:=public.admin_actor_id(); terms text[];
+BEGIN
+ IF writer IS NOT NULL THEN terms=public.decke_improvement_redaction_terms(writer); END IF;
+ UPDATE public.decke_improvement_turn t SET
+   asked=coalesce(x.asked,''),
+   answered=coalesce(CASE WHEN terms IS NULL THEN x.answered ELSE public.decke_improvement_redact_text(x.answered,terms) END,''),
+   finished_at=x.finished_at,
+   latency_ms=CASE WHEN x.finished_at IS NULL THEN NULL ELSE greatest(0,floor(extract(epoch FROM (x.finished_at-x.started_at))*1000)::integer) END,
+   input_tokens=x.input_tokens,output_tokens=x.output_tokens,cache_read_tokens=x.cache_read_tokens,
+   cache_write_tokens=x.cache_write_tokens,reasoning_tokens=x.reasoning_tokens,
+   cost_usd=x.cost_usd,cost_coverage=x.coverage,build_sha=x.build_sha,build_pr=x.build_pr,
+   finish_reason=x.finish_reason,has_error=x.has_error
+ FROM (
+  SELECT min(started_at) started_at,
+   CASE WHEN count(finished_at)=count(*) THEN max(finished_at) END finished_at,
+   (array_agg(asked ORDER BY leg) FILTER(WHERE asked<>''))[1] asked,
+   string_agg(nullif(answered,''),E'\n\n' ORDER BY leg) answered,
+   sum(input_tokens) input_tokens,sum(output_tokens) output_tokens,sum(cache_read_tokens) cache_read_tokens,
+   sum(cache_write_tokens) cache_write_tokens,sum(reasoning_tokens) reasoning_tokens,
+   sum(cost_usd) cost_usd,
+   CASE WHEN count(cost_usd)=0 THEN 'unknown' WHEN bool_and(cost_coverage='complete') THEN 'complete' ELSE 'partial' END coverage,
+   (array_agg(build_sha ORDER BY leg DESC) FILTER(WHERE build_sha IS NOT NULL))[1] build_sha,
+   (array_agg(build_pr ORDER BY leg DESC) FILTER(WHERE build_pr IS NOT NULL))[1] build_pr,
+   (array_agg(finish_reason ORDER BY leg DESC) FILTER(WHERE finish_reason IS NOT NULL))[1] finish_reason,
+   bool_or(error IS NOT NULL OR status='failed') OR EXISTS(
+    SELECT 1 FROM public.decke_improvement_event e WHERE e.conversation_id=p_conversation AND e.seq=p_seq AND e.kind='error') has_error
+  FROM public.decke_improvement_leg
+  WHERE conversation_id=p_conversation AND seq=p_seq
+ ) x WHERE t.conversation_id=p_conversation AND t.seq=p_seq;
+
+ UPDATE public.decke_improvement_conversation c SET
+   started_at=x.started_at,updated_at=x.updated_at,build_first=x.build_first,build_last=x.build_last,
+   cost_usd=x.cost_usd,cost_coverage=x.coverage,has_error=x.has_error
+ FROM (
+  SELECT least(min(turns.started_at),coalesce((SELECT min(e.at) FROM public.decke_improvement_event e
+    WHERE e.conversation_id=p_conversation),min(turns.started_at))) started_at,
+   greatest(max(coalesce(turns.finished_at,turns.started_at)),now()) updated_at,
+   (array_agg(build_sha ORDER BY seq) FILTER(WHERE build_sha IS NOT NULL))[1] build_first,
+   (array_agg(build_sha ORDER BY seq DESC) FILTER(WHERE build_sha IS NOT NULL))[1] build_last,
+   (SELECT sum(l.cost_usd) FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation) cost_usd,
+   CASE
+    WHEN NOT EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation AND l.cost_usd IS NOT NULL) THEN 'unknown'
+    WHEN NOT EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation AND l.cost_coverage<>'complete') THEN 'complete'
+    ELSE 'partial'
+   END coverage,
+   bool_or(has_error) has_error
+  FROM public.decke_improvement_turn turns WHERE conversation_id=p_conversation
+ ) x WHERE c.id=p_conversation;
+END $$;
+
 -- Feedback with the API's redacted copy of the comment. The 078 signature let
 -- a shared comment reach the corpus with SQL redaction alone, and SQL's case
 -- folding is bounded by the database's Unicode tables (a name using a
