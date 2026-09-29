@@ -1173,6 +1173,22 @@ If the API loses settlement after admitting a fix, it retries; a wallet read
 releases an unsettled hold after 15 minutes with the provider cost marked
 unknown. No scheduled cleanup service is required.
 
+Deck-E's actual-cost credits arrive with `079_decke_metered_credits.sql`, and
+unlike most migrations it is applied **after** the code that uses it ships. The
+API decides flat versus metered solely from the policy version a request froze:
+until 079 runs, every policy is v1 and chat is charged exactly as before. 079
+adds the reservation/settlement tables and server-only functions, replaces the
+wallet, statement and quote readers, folds import-fix's fractional carry into
+the single generic carry, and inserts a new current policy revision in the v2
+shape (`legHoldCredits` 25, `legHoldMinCredits` 3, everything else preserved).
+From the next request on, a paid reply holds up to 25 credits, is charged its
+Gateway cost, and returns the rest. Apply it with the numbered runner after 078;
+there is no environment variable or infrastructure setting. To confirm:
+`GET /me/credits` reports `mode: "metered"`, and a finished reply's statement
+row shows a fractional amount. To return to flat prices, save a new v1-shaped
+policy revision with SQL (the validator accepts both shapes; the admin editor
+deliberately keeps whichever version is stored) — the tables stay and do no harm.
+
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its
 wallet/economy functions also support the current UUID self-host account.
