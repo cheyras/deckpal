@@ -5,6 +5,17 @@
 > the models to use it well, and a body that actually moves. Implementation
 > agents follow this exactly. Deviations get recorded here and in `DECISIONS.md`.
 
+## Revision 2026-09-28 — the chat overhaul
+
+The diagnosis and implementation plan in
+`roadmap/plans/decke-chat-overhaul/PLAN.md` found that Deck-E lost tool evidence
+between turns, delegated the useful work to slow sub-agents, and made routine
+research feel like a permission interruption. The chat now uses Claude Sonnet 5
+to plan in its own tool loop; recent tool outputs, denied writes, source display,
+deck checking and the live activity view make that work inspectable and available
+to the next turn. The sections below preserve the earlier decisions and mark the
+specific assumptions this revision replaces.
+
 **Status:** IMPLEMENTED, rev 2, 2026-08-22 (PR #74). Author: Claude (Opus 5).
 Owner sign-off taken on §14 before implementation began.
 
@@ -195,6 +206,13 @@ history**, not a cheap step. Budget it as such.
 
 ### 2.3 History is text-only
 
+**Superseded 2026-09-28:** the wire now replays full finished tool outputs as
+real tool parts for the six newest assistant messages, capped at 12,000
+characters per result; older messages retain one-line lookup records. Declined
+calls replay as `output-denied` on every turn. The bounded window is 40 messages
+and 160,000 prior characters, while the current turn is capped at 240,000
+characters.
+
 `messagesToWire()` strips every non-text part; screens and chips are transient.
 Turn *N+1* has no record that turn *N* read 604 cards or wrote anything — only its
 own prose. That re-creates §1's pathology in a new form: he asserts from his own
@@ -251,6 +269,11 @@ plan. **The tool layer (§5–§7) and the model routing (§8) are one deliverab
 Neither ships alone.
 
 ## 4. Access control and metering — before anything expensive
+
+**Superseded 2026-09-28:** credits still settle as flat charges per leg in this
+PR, including `web_research` at the existing `analysis` price. Settling against
+actual provider cost is the next PR's work; its intended schema is migration
+078, which has not yet been written. See `roadmap/plans/decke-chat-overhaul/PLAN.md`.
 
 **`/api/chat` has no server-side entitlement, no rate limit, and no spend cap.**
 `userFromRequest` (`api/chat.mjs:73-79`) checks only that the Supabase JWT is
@@ -407,6 +430,10 @@ The tool layer moves the **data**. It does not move the intelligence (§3.1).
 
 ### 8.1 One model cannot do this job
 
+**Superseded 2026-09-28:** Deck-E's chat model is Claude Sonnet 5 and plans with
+its normal tools itself. `plan_deck`, `analyze_collection`, and
+`write_strategy_guide` are no longer offered to the chat model.
+
 `models.ts` already has a `Job` enum with an `analysis` tier pinned to Claude;
 `api/chat.mjs` hardcodes `MODELS.chat` and never uses it.
 
@@ -422,6 +449,10 @@ Both Claude models verified present on the existing `DECKE_VERCEL_AI_GATEWAY_KEY
 (live Gateway, 2026-08-22). No new credential.
 
 ### 8.2 Escalation is a tool, not a router
+
+**Superseded 2026-09-28:** there is no deep-tier escalation tool. Deck planning,
+collection analysis, and guide drafting stay in the main agent's streamed loop;
+saving a guide remains the approval-gated `deck_strategy` write.
 
 **Rejected:** a classifier turn before every message — it taxes the 90% that do not
 need it, and a misroute is invisible.
@@ -441,6 +472,11 @@ thing that thinks, and it calls them. Every sub-agent honours the abort signal
 (§6.2) and counts against the deep-tier cap (§4).
 
 ### 8.3 External research
+
+**Superseded 2026-09-28:** `web_research` is the Perplexity-backed read tool. It
+takes a short reader-visible `purpose`, requires no approval card, charges as an
+`analysis` operation, and sends its HTTPS source URLs only to the browser for
+display; the model receives source hosts, never those URLs.
 
 Verified against the live Gateway 2026-08-22: `perplexity/sonar`, `sonar-pro`,
 `sonar-reasoning-pro`, `openai/o3-deep-research`,
@@ -466,6 +502,11 @@ Not optional:
   a write tool.**
 
 ### 8.4 The 60-second wall — and the decision it reverses
+
+**Superseded 2026-09-28:** planning is no longer a nested sub-agent with a
+separate wall-clock budget. The capable chat model performs the work in the
+ordinary streamed tool loop, so the former deep-tool timeout rationale does not
+describe this path.
 
 `api/chat.mjs` is `maxDuration: 60`. A research-plus-synthesis turn will exceed it.
 
@@ -618,6 +659,11 @@ caption per `cardGrid`**, and **a higher block cap**.
 
 ## 10. Writes — a real control, not a prompt
 
+**Superseded 2026-09-28:** approval is now only for writes and deletes; reads,
+research, planning, and analysis do not raise a permission card. A deck proposed
+through the deck widget saves through the transactional import from its own Save
+button and reports that save back to the conversation.
+
 `log_cards` already defaults to `dry_run: true`, previews current → new quantities,
 carries an idempotency key, applies 1–250 items atomically, and reports
 unresolvable items individually.
@@ -646,6 +692,11 @@ The protocol:
 **A write he did not make is never described as made.**
 
 ## 11. Showing the work
+
+**Superseded 2026-09-28:** one live activity line represents a run of calls,
+with per-tool icons and an expandable step list, rather than a stack of rows.
+Research exposes a source section, checked lists render as a deck widget, and
+Deck-E's animation follows the current activity while work is running.
 
 Work is currently indistinguishable from theatre — `thinking` is driven by request
 latency, so a fabricated answer and a real one look identical.

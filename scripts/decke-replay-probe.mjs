@@ -45,7 +45,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     replay,
     budgetUsd,
     n,
-    models: argvValue(argv, 'models', mock ? 'mock' : 'anthropic/claude-sonnet-5').split(',').filter(Boolean),
+    models: argvValue(argv, 'models', mock ? 'mock' : 'anthropic/claude-sonnet-5.5').split(',').filter(Boolean),
     scenarios: argvValue(argv, 'scenarios', '').split(',').filter(Boolean),
     out: resolve(argvValue(argv, 'out', resolve(REPO, 'tmp/decke-replay-probe'))),
   }

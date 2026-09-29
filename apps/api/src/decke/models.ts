@@ -50,9 +50,11 @@ export const MODELS: Record<Job, ModelChoice> = {
    * Sonnet owns conversation, planning and tool orchestration in one context.
    * Grok 4.20 non-reasoning held this job until 2026-09-28; it was reliable at
    * tool syntax but could not do the planning and recovery the chat now owns.
+   * Sonnet 5.5 rather than 5: same Gateway price ($2 / $10 per M tokens,
+   * $0.20 cached reads), newer model — the owner's call, 2026-09-28.
    */
   chat: {
-    id: 'anthropic/claude-sonnet-5',
+    id: 'anthropic/claude-sonnet-5.5',
     // Cross-lab fallback retained: Gemini's tool arguments were clean in the
     // shipped bake-off, so a provider outage still leaves a working tool caller.
     fallback: 'google/gemini-2.5-flash',

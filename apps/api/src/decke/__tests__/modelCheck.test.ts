@@ -32,12 +32,12 @@ test('every configured id is checked — primary, fallback AND escalate', () => 
   assert.ok(ids.includes('perplexity/sonar'), 'the research fallback');
   assert.ok(ids.includes('anthropic/claude-opus-5'), 'an escalate target');
   assert.ok(ids.includes('typesafe-ai/jev'), 'the judgment model, which fails open and so fails silently');
-  assert.ok(ids.includes('anthropic/claude-sonnet-5'), 'the chat primary');
+  assert.ok(ids.includes('anthropic/claude-sonnet-5.5'), 'the chat primary');
   assert.equal(new Set(ids).size, ids.length, 'ids are deduplicated');
 });
 
 test('chat has room to plan and emit a complete deck', () => {
-  assert.equal(MODELS.chat.id, 'anthropic/claude-sonnet-5');
+  assert.equal(MODELS.chat.id, 'anthropic/claude-sonnet-5.5');
   assert.equal(MODELS.chat.fallback, 'google/gemini-2.5-flash');
   assert.equal(MODELS.chat.maxOutputTokens, 8_000);
 });

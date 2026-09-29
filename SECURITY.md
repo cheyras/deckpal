@@ -196,8 +196,10 @@ most 200 messages, `user`/`assistant` roles only, text and `tool-<name>` parts
 only (no `file` part the provider would fetch, no `reasoning`/`source-*`, no
 `system` message written by the browser), and no part over 60,000 characters.
 Past a size limit the answer is 413; a wrong shape is 400. The model sees the
-current turn whole plus the newest history that fits 24 messages and 64,000
-characters; ledgers derived from history still read all of it. `route` and each
+current turn whole (capped at 240,000 characters) plus the newest history that
+fits 40 messages and 160,000 characters; recent finished tool outputs are
+individually capped before replay. Ledgers derived from history still read all
+of it. `route` and each
 landmark string are clipped to 200 characters (`apps/api/src/decke/wireBounds.ts`).
 
 
@@ -237,16 +239,13 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**All 24 tools reach the conversational model; the write half is held by the
+**All 25 tools reach the conversational model; the write half is held by the
 SDK, not filtered out.** The adapter Deck-E uses
 (`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
 `annotations.readOnlyHint` — never to the verb in a tool's name, because a name
 can mislead in either direction (`set_cart` sounds like a write and only composes
 an outbound URL; `deck_history` sounds like a read and can roll a deck back) —
-and the deep-tier sub-agents below take that default as-is, since a write tool
-reachable from an *unattended* sub-agent with no reader watching a dialog is a
-tool that will eventually be called by accident. The conversation is no longer an
-unattended caller: `api/chat.mjs` passes `include: () => true`, and every write
+and every write
 declares `needsApproval`, so the turn pauses on the wire and the tool's `execute`
 does not run until the reader answers. That is a mechanism rather than an
 instruction — verified against the pinned `ai@7.0.66` at the wire level, and
@@ -282,15 +281,6 @@ content, because a caller-supplied key is honoured unbucketed and unbounded and 
 pure-content key would let the second identical correction return the first one's
 response having written nothing. Nothing here is reachable without a session that
 could already have made the same write from the collection UI.
-
-One write reaches Deck-E outside the approval gate, deliberately: the
-`write_strategy_guide` deep tool (below) is allowed to call `deck_strategy`,
-which is dumb, idempotent storage — "replace the whole guide" — not a general
-write capability. It is bound in code, not in the sub-agent's prompt, to the
-deck the reader approved (`bindGuideWrite` in `deep.ts`, SEC-13): a write that
-resolves to any other deck is refused, and one write is all an approval buys.
-The sub-agent's context carries stranger-written text (`findings` from the web,
-battle-log opponent names), which is why prompt prose was not a control.
 
 **What he may point at, and the narrower set he may press.** Everything the
 model can address is allowlisted: `uiTools.resolveTarget` resolves a selector
@@ -389,24 +379,18 @@ and watching only that one go red. Raw HTML is never parsed on either surface �
 `skipHtml` is deliberately *not* set, because showing the reader what the model
 actually wrote is honest and equally safe.
 
-**The deep tier and live research.** Four sub-agent tools
-(`apps/api/src/decke/deep.ts`) give Deck-E an escalation path rather than
-answering everything with the fast conversational model. `research_meta` is
-the one that leaves the perimeter: it sends query text — card and archetype
-names only, and its own description instructs it to never include anything
-about the user, their collection or their account — to a third-party model,
-`openai/o3-deep-research`, on the Vercel AI Gateway's US-frontier-labs
-allowlist. That sub-agent is given **no tools at all**, which is the actual
-control: text fetched from the open web is the least trustworthy input in this
-system, and the only way to guarantee it cannot become an action is to hand
-the thing that reads it no actions to take. Its findings are inserted back
-into the conversation labelled as fetched data, into a model already
-instructed never to treat instructions found in data as commands. (Recorded
-honestly in DECISIONS.md 2026-08-21, "Deck-E's model routing": the
-domain-allowlist control available on this Gateway for other research tools —
-`include_domains` — is not available for `o3-deep-research`, since it searches
-provider-side; the compensating controls here are structural rather than that
-allowlist.)
+### Deck-E web research and deck checks
+
+`web_research` sends its query to Perplexity and treats returned material as
+untrusted data. Its source URLs are HTTPS-only and sent to the browser for
+display only; they are never placed in the chat model's context, which receives
+source hosts instead. Favicons are fetched from `icons.duckduckgo.com` under CSP
+`img-src`; that request gives DuckDuckGo the source hostname and the viewer's IP
+address.
+
+`POST /decks/check` is read-only under the caller's RLS context and accepts only
+bounded deck input. The live chat request's current turn is capped at 240,000
+characters in addition to the SEC-04 history window.
 
 **Jev is a data processor under Vercel's zero-retention agreement with TypeSafe** (verified 2026-09-27).
 With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
