@@ -527,6 +527,16 @@ export async function main(argv = process.argv.slice(2)) {
   const gateway = opts.mock ? null : createGateway({ apiKey: process.env.DECKE_VERCEL_AI_GATEWAY_KEY || process.env.AI_GATEWAY_API_KEY })
   const budget = { spent: 0, limit: opts.budgetUsd }
   const runs = []
+  // Written after EVERY completed conversation and again on a budget stop, so a
+  // run that hits --budget-usd keeps what it already paid for.
+  const save = (stopped) => {
+    const rows = aggregateRows(runs)
+    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, rows, runs, writes }
+    writeFileSync(resolve(opts.out, 'results.json'), `${JSON.stringify(result, null, 2)}
+`)
+    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows))
+  }
+  try {
   for (const modelId of opts.models) {
     const model = opts.mock ? mockModel() : gateway(modelId)
     for (const scenario of selected) {
@@ -536,14 +546,19 @@ export async function main(argv = process.argv.slice(2)) {
           priorTurns.push(await runTurn({ model, modelId, gateway, runtime, priorTurns, replay: opts.replay, scenarioTurn, budget }))
         }
         runs.push({ model: modelId, replay: opts.replay, scenario: scenario.id, sample, turns: annotateTurnMetrics(priorTurns) })
-        process.stdout.write(`completed ${modelId} / ${scenario.id} / ${sample}\n`)
+        process.stdout.write(`completed ${modelId} / ${scenario.id} / ${sample}
+`)
+        save()
       }
     }
   }
-  const rows = aggregateRows(runs)
-  const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), metrics: METRIC_COLUMNS, rows, runs, writes }
-  writeFileSync(resolve(opts.out, 'results.json'), `${JSON.stringify(result, null, 2)}\n`)
-  writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows))
+  } catch (error) {
+    if (!/Budget exceeded/.test(String(error?.message))) throw error
+    save(String(error.message))
+    process.stdout.write(`stopped: ${error.message}; kept ${runs.length} completed conversation(s)
+`)
+  }
+  save()
   process.stdout.write(`wrote ${resolve(opts.out, 'summary.md')} and results.json; cost $${budget.spent.toFixed(6)}\n`)
 }
 
