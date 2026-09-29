@@ -260,7 +260,13 @@ function mockModel() {
 function readUsage(usage, metadata) {
   const input = usage?.inputTokens ?? usage?.promptTokens ?? {}
   const output = usage?.outputTokens ?? usage?.completionTokens ?? {}
-  const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : 0
+  // The Gateway reports cost as a decimal STRING ("0.0123"), exactly as
+  // apps/api/src/decke/usageMetadata.ts reads it; a numbers-only parse read every
+  // cost as 0 and left --budget-usd unenforced.
+  const number = (value) => {
+    const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+    return typeof n === 'number' && Number.isFinite(n) ? n : 0
+  }
   const gateway = metadata?.gateway ?? {}
   return {
     output_tokens: number(output.total ?? output),
@@ -355,12 +361,9 @@ async function loadRuntime(world, writes) {
   return { buildSystemPrompt, tools, dataToolList }
 }
 
+// Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
 function cacheTools(modelId, tools) {
-  if (!modelId.startsWith('anthropic/')) return tools
-  return Object.fromEntries(Object.entries(tools).map(([name, value]) => [name, {
-    ...value,
-    providerOptions: { ...(value.providerOptions ?? {}), anthropic: { cacheControl: { type: 'ephemeral' } } },
-  }]))
+  return tools
 }
 
 async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, scenarioTurn, budget }) {
@@ -443,25 +446,38 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     cacheWriteTokens += measured.cache_write_tokens
     const finalGeneration = legMetadata?.gateway?.generationId
     if (finalGeneration) generationIds.add(finalGeneration)
+    // Per-step Gateway cost (providerMetadata.gateway.cost) is the primary figure.
+    // The generation-info lookup is best-effort: usage events are eventually
+    // consistent and answer 404 "Usage event not found" for a few seconds after
+    // a call, which used to abort the whole run.
+    measured.cost_usd = Math.max(measured.cost_usd, observedStepCost)
     if (gateway && generationIds.size && typeof gateway.getGenerationInfo === 'function') {
-      measured.cost_usd = 0
+      let looked = 0
+      let complete = true
       for (const id of generationIds) {
-        const info = await gateway.getGenerationInfo({ id })
-        measured.cost_usd += Number(info.totalCost ?? info.usage) || 0
+        try {
+          const info = await gateway.getGenerationInfo({ id })
+          looked += Number(info.totalCost ?? info.usage) || 0
+        } catch {
+          complete = false
+        }
       }
+      if (complete && looked > 0) measured.cost_usd = looked
     }
     budget.spent += measured.cost_usd - observedStepCost
     turnCost += measured.cost_usd
     if (budget.spent > budget.limit + 1e-9) throw new Error(`Budget exceeded after a model call: $${budget.spent.toFixed(6)} > $${budget.limit.toFixed(6)}`)
     const resumedMessage = resumedResults.length ? { role: 'tool', content: resumedResults } : null
     if (resumedMessage) modelMessages.push(resumedMessage)
-    modelMessages.push(...(response.messages ?? []))
-    const approvals = (response.messages ?? []).flatMap((message) => Array.isArray(message.content) ? message.content : [])
+    // ai@7: `response.messages` is the FINAL step only; each step carries its own.
+    const legResponseMessages = steps.flatMap((step) => step.response?.messages ?? [])
+    modelMessages.push(...legResponseMessages)
+    const approvals = legResponseMessages.flatMap((message) => Array.isArray(message.content) ? message.content : [])
       .filter((part) => part.type === 'tool-approval-request')
     if (!approvals.length) break
     const answer = { role: 'tool', content: approvals.map((part) => ({ type: 'tool-approval-response', approvalId: part.approvalId, approved: true, reason: 'approved by the fixture reader' })) }
     modelMessages.push(answer)
-    legMessages = [...legMessages, ...(resumedMessage ? [resumedMessage] : []), ...(response.messages ?? []), answer]
+    legMessages = [...legMessages, ...(resumedMessage ? [resumedMessage] : []), ...legResponseMessages, answer]
     pendingApprovedCalls = new Set(approvals.map((part) => part.toolCallId))
     if (approvalRound === 7) throw new Error('Write approval loop exceeded 8 rounds')
   }
@@ -511,6 +527,16 @@ export async function main(argv = process.argv.slice(2)) {
   const gateway = opts.mock ? null : createGateway({ apiKey: process.env.DECKE_VERCEL_AI_GATEWAY_KEY || process.env.AI_GATEWAY_API_KEY })
   const budget = { spent: 0, limit: opts.budgetUsd }
   const runs = []
+  // Written after EVERY completed conversation and again on a budget stop, so a
+  // run that hits --budget-usd keeps what it already paid for.
+  const save = (stopped) => {
+    const rows = aggregateRows(runs)
+    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, rows, runs, writes }
+    writeFileSync(resolve(opts.out, 'results.json'), `${JSON.stringify(result, null, 2)}
+`)
+    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows))
+  }
+  try {
   for (const modelId of opts.models) {
     const model = opts.mock ? mockModel() : gateway(modelId)
     for (const scenario of selected) {
@@ -520,14 +546,19 @@ export async function main(argv = process.argv.slice(2)) {
           priorTurns.push(await runTurn({ model, modelId, gateway, runtime, priorTurns, replay: opts.replay, scenarioTurn, budget }))
         }
         runs.push({ model: modelId, replay: opts.replay, scenario: scenario.id, sample, turns: annotateTurnMetrics(priorTurns) })
-        process.stdout.write(`completed ${modelId} / ${scenario.id} / ${sample}\n`)
+        process.stdout.write(`completed ${modelId} / ${scenario.id} / ${sample}
+`)
+        save()
       }
     }
   }
-  const rows = aggregateRows(runs)
-  const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), metrics: METRIC_COLUMNS, rows, runs, writes }
-  writeFileSync(resolve(opts.out, 'results.json'), `${JSON.stringify(result, null, 2)}\n`)
-  writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows))
+  } catch (error) {
+    if (!/Budget exceeded/.test(String(error?.message))) throw error
+    save(String(error.message))
+    process.stdout.write(`stopped: ${error.message}; kept ${runs.length} completed conversation(s)
+`)
+  }
+  save()
   process.stdout.write(`wrote ${resolve(opts.out, 'summary.md')} and results.json; cost $${budget.spent.toFixed(6)}\n`)
 }
 

@@ -1,6 +1,28 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { deckHeader, nextSaveState, ownershipMark, visibleIssues } from '../deckWidgetState'
+import { DECK_COMPACT_CARDS, deckDisclosure, deckHeader, nextSaveState, ownershipMark, visibleIssues } from '../deckWidgetState'
+
+test('deck disclosure uses the real total and expands every section', () => {
+  const sections = [
+    { cards: Array.from({ length: 20 }) },
+    { cards: Array.from({ length: 30 }) },
+    { cards: Array.from({ length: 10 }) },
+  ]
+  assert.deepEqual(deckDisclosure(sections, 60, false), {
+    compactable: true,
+    compact: true,
+    sectionLimit: 1,
+    cardLimit: DECK_COMPACT_CARDS,
+    label: 'Show all 60 cards',
+  })
+  assert.deepEqual(deckDisclosure(sections, 60, true), {
+    compactable: true,
+    compact: false,
+    sectionLimit: 3,
+    cardLimit: Number.POSITIVE_INFINITY,
+    label: 'Show less',
+  })
+})
 
 test('deck header makes legality, count and missing cost readable', () => {
   assert.deepEqual(deckHeader({ total: 60, legal: true, owned: 41, missingCostUsd: 12.4 }), {

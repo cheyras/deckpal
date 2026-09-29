@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 /**
  * Probe the UI-message histories Deck-E sends when a browser continuation
  * starts a fresh request. Anthropic thinking is intentionally not replayed by
@@ -84,12 +86,9 @@ function fakeTools() {
   }
 }
 
-function cachedTools(modelId, tools) {
-  if (!modelId.startsWith('anthropic/')) return tools
-  return Object.fromEntries(Object.entries(tools).map(([name, value]) => [name, {
-    ...value,
-    providerOptions: { ...(value.providerOptions ?? {}), anthropic: { cacheControl: { type: 'ephemeral' } } },
-  }]))
+// Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
+function cachedTools(_modelId, tools) {
+  return tools
 }
 
 function mockModel() {
@@ -187,4 +186,4 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 
-if (import.meta.url === new URL(process.argv[1], 'file:').href) await main()
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main()

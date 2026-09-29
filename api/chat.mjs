@@ -59,33 +59,16 @@ const ANTHROPIC_CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } }
 const isAnthropic = (choice) => choice.id.startsWith('anthropic/')
 
 /**
- * ai@7 accepts provider options on both SystemModelMessage and Tool. The replay
- * probe verifies that the Gateway preserves this breakpoint via cache_read in
- * provider metadata; an unrecognised provider option remains advisory.
+ * ONE cache breakpoint, on the system prompt. Anthropic caches the prefix in
+ * the order tools → system → messages, so this single breakpoint also covers
+ * every tool definition. Anthropic allows at most four breakpoints per request;
+ * marking each tool as well (≈30 of them) got all but four ignored, with a
+ * Gateway warning — measured by scripts/decke-leg-smoke.mjs, 2026-09-28.
  */
 function cachedInstructions(choice, content) {
   return isAnthropic(choice)
     ? { role: 'system', content, providerOptions: ANTHROPIC_CACHE }
     : content
-}
-
-function cachedTools(choice, tools) {
-  if (!isAnthropic(choice)) return tools
-  return Object.fromEntries(
-    Object.entries(tools).map(([name, tool]) => [
-      name,
-      {
-        ...tool,
-        providerOptions: {
-          ...(tool.providerOptions ?? {}),
-          anthropic: {
-            ...(tool.providerOptions?.anthropic ?? {}),
-            cacheControl: { type: 'ephemeral' },
-          },
-        },
-      },
-    ]),
-  )
 }
 
 /** Gateway-native cross-model failover; no second application-level charge or retry loop. */
@@ -780,7 +763,7 @@ async function serve(request) {
       // turn. AT MOST ONE guard step per turn — never stacked.
       let guardFired = false
 
-      const allDeckeTools = cachedTools(choice, {
+      const allDeckeTools = {
         // `emitToolEvent` here too, so a panel becomes a row like every data
         // lookup already does. Without it `showScreen` and `express` were
         // absent from the transcript entirely — and, worse, absent from the
@@ -863,7 +846,7 @@ async function serve(request) {
           refusals: deepRefusals,
           onEvent: emitToolEvent(writer),
         }),
-      })
+      }
 
       // THE MODEL SEES A WINDOW; EVERYTHING ELSE SEES THE WHOLE. Declines,
       // failures, what he already said, the paste and the charge hash above all
@@ -1470,7 +1453,10 @@ async function serve(request) {
               model: observeUsageModel(gateway(choice.id), meter),
               providerOptions: chatProviderOptions(choice),
               instructions: cachedInstructions(choice, `${systemPrompt}\n\n${correctiveInstruction(corrective)}`),
-              messages: [...preparedMessages, ...(await result.response).messages],
+              // EVERY step's messages, not `result.response.messages`: in ai@7 that is the
+              // FINAL step only, so the correction ran without the turn's earlier tool
+              // calls and results (measured 2026-09-28, scripts/decke-replay-probe.mjs).
+              messages: [...preparedMessages, ...(await result.steps).flatMap((step) => step.response.messages)],
               tools: correctiveApplyTools(allDeckeTools, corrective),
               toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: corrective },
               stopWhen: stepCountIs(1),

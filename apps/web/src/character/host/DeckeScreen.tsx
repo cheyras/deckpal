@@ -25,18 +25,16 @@
  * `deckpal-web` cannot import `deckpal-api` to share the type.
  */
 import { useEffect, useId, useLayoutEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { Icon } from '../../components/Icon'
 import { CardImage } from '../../components/CardImage'
 import { CARD_ASPECT_RATIO_CSS } from '../../lib/cardGeometry'
 // SHARED WITH THE APPROVAL CARD, which is the point of it having moved out of
 // this file. See `chat/useCardArt.ts`.
 import { useCardArt } from './chat/useCardArt'
-import { COLLAPSE_LABEL, compactPlan, expandLabel, showingLabel } from './screenCompact'
+import { COLLAPSE_LABEL, compactPlan, expandLabel, isDeckOnlyScreen, showingLabel } from './screenCompact'
 import { api } from '../../lib/api'
 import { saveDeckFromWidget, type WidgetDeck } from './chat/deckSave'
-import { deckHeader, nextSaveState, ownershipMark, visibleIssues, type SaveState } from './chat/deckWidgetState'
-import { DECK_SEARCH_DEFAULTS } from '../../routes/deckSearch'
+import { deckDisclosure, deckHeader, nextSaveState, ownershipMark, visibleIssues, type SaveState } from './chat/deckWidgetState'
 
 export type Block = {
   kind: string
@@ -112,6 +110,7 @@ export function DeckeScreen({
   onRemoveCard,
   onResize,
   onDeckSaved,
+  onOpenDeck,
 }: {
   spec: ScreenSpec
   /** Present only when a block asked to be editable — "that one's wrong". */
@@ -129,6 +128,8 @@ export function DeckeScreen({
   onResize?: () => void
   /** Lets chat remember a one-tap widget save on its next turn. */
   onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  /** Router-neutral handoff; history views intentionally omit it. */
+  onOpenDeck?: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const bodyId = useId()
@@ -138,6 +139,7 @@ export function DeckeScreen({
   const compact = plan.compactable && !expanded
   const blocks = compact ? spec.blocks.slice(0, plan.blockLimit) : spec.blocks
   const cardLimit = compact ? plan.cardLimit : Number.POSITIVE_INFINITY
+  const deckOnly = isDeckOnlyScreen(spec)
 
   // BEFORE PAINT, for the reason the transcript's own scroll pass gives: the
   // attribute this ends up setting is animated by CSS, so re-solving it after
@@ -147,6 +149,17 @@ export function DeckeScreen({
     onResize?.()
   }, [expanded, onResize])
 
+  if (deckOnly) {
+    return (
+      <Block
+        block={spec.blocks[0]!}
+        onDeckSaved={onDeckSaved}
+        onOpenDeck={onOpenDeck}
+        onResize={onResize}
+      />
+    )
+  }
+
   return (
     <section
       aria-label={spec.title}
@@ -155,7 +168,7 @@ export function DeckeScreen({
       <h3 className="text-[15px] font-semibold text-text-primary">{spec.title}</h3>
       <div id={bodyId} className="flex flex-col gap-[12px]">
         {blocks.map((b, i) => (
-          <Block key={i} block={b} cardLimit={cardLimit} compact={compact} onRemoveCard={onRemoveCard} onDeckSaved={onDeckSaved} />
+          <Block key={i} block={b} cardLimit={cardLimit} onRemoveCard={onRemoveCard} onDeckSaved={onDeckSaved} onOpenDeck={onOpenDeck} onResize={onResize} />
         ))}
       </div>
       {plan.compactable ? (
@@ -199,17 +212,19 @@ function Block({
   block: b,
   dense = false,
   cardLimit = Number.POSITIVE_INFINITY,
-  compact = false,
   onRemoveCard,
   onDeckSaved,
+  onOpenDeck,
+  onResize,
 }: {
   block: Block
   dense?: boolean
   /** How many cards a grid may draw. `Infinity` once the screen is expanded. */
   cardLimit?: number
-  compact?: boolean
   onRemoveCard?: (id: string) => void
   onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onOpenDeck?: (id: string) => void
+  onResize?: () => void
 }) {
   switch (b.kind) {
     case 'heading':
@@ -228,7 +243,7 @@ function Block({
       )
 
     case 'deck':
-      return <DeckWidget block={b} cardLimit={cardLimit} compact={compact} onDeckSaved={onDeckSaved} />
+      return <DeckWidget block={b} onDeckSaved={onDeckSaved} onOpenDeck={onOpenDeck} onResize={onResize} />
 
     case 'statTile':
       return (
@@ -345,9 +360,10 @@ function Block({
                     block={inner}
                     dense
                     cardLimit={cardLimit}
-                    compact={compact}
                     onRemoveCard={onRemoveCard}
                     onDeckSaved={onDeckSaved}
+                    onOpenDeck={onOpenDeck}
+                    onResize={onResize}
                   />
                 ))}
               </div>
@@ -367,15 +383,16 @@ function Block({
 /** The saved-list widget is intentionally a block, so it remains in chat history. */
 function DeckWidget({
   block,
-  cardLimit,
-  compact,
   onDeckSaved,
+  onOpenDeck,
+  onResize,
 }: {
   block: Block
-  cardLimit: number
-  compact: boolean
   onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onOpenDeck?: (id: string) => void
+  onResize?: () => void
 }) {
+  const [expanded, setExpanded] = useState(false)
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -390,7 +407,13 @@ function DeckWidget({
   })
   const issues = block.issues ?? []
   const issueList = visibleIssues(issues)
-  const sections = compact ? (block.sections ?? []).slice(0, 1) : (block.sections ?? [])
+  const allSections = block.sections ?? []
+  const disclosure = deckDisclosure(allSections, total, expanded)
+  const sections = allSections.slice(0, disclosure.sectionLimit)
+
+  useLayoutEffect(() => {
+    onResize?.()
+  }, [expanded, onResize])
 
   async function copyList() {
     if (!block.ptcgl || !navigator.clipboard) return
@@ -446,14 +469,30 @@ function DeckWidget({
       ) : null}
 
       {sections.map((section) => (
-        <DeckSection key={section.title} section={section} cardLimit={cardLimit} />
+        <DeckSection key={section.title} section={section} cardLimit={disclosure.cardLimit} />
       ))}
+
+      {disclosure.compactable ? (
+        <button
+          type="button"
+          aria-expanded={!disclosure.compact}
+          onClick={() => setExpanded((value) => !value)}
+          className="flex items-center justify-center gap-[6px] rounded-xl border border-border-default bg-surface-secondary px-[10px] py-[7px] text-[12px] font-semibold text-text-body hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+        >
+          <span>{disclosure.label}</span>
+          <Icon name="chevron-down" size={14} className={`shrink-0 text-icon-muted motion-safe:transition-transform motion-safe:duration-200 ${disclosure.compact ? '' : 'rotate-180'}`} />
+        </button>
+      ) : null}
 
       <div className="flex flex-wrap gap-[8px] border-t border-border-default pt-[10px]">
         {saved ? (
-          <Link to="/decks/$id" params={{ id: saved.id }} search={DECK_SEARCH_DEFAULTS} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
-            Open in deck builder
-          </Link>
+          onOpenDeck ? (
+            <button type="button" onClick={() => onOpenDeck(saved.id)} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
+              Open in deck builder
+            </button>
+          ) : (
+            <span className="self-center text-[12px] text-text-muted">Saved to your decks</span>
+          )
         ) : (
           <button type="button" disabled={saveState === 'saving'} onClick={() => void save()} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground disabled:opacity-60">
             {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Try saving again' : 'Save to my decks'}
@@ -481,7 +520,6 @@ function DeckChip({ tone, children }: { tone: 'neutral' | 'good' | 'warn' | 'bad
 function DeckSection({ section, cardLimit }: { section: NonNullable<Block['sections']>[number]; cardLimit: number }) {
   const cards = Number.isFinite(cardLimit) ? section.cards.slice(0, cardLimit) : section.cards
   const art = useCardArt(cards.map((card) => card.id))
-  const caption = showingLabel(cards.length, section.cards.length)
   return (
     <div className="flex flex-col gap-[6px]">
       <h5 className="text-[12px] font-semibold text-text-secondary">{section.title} · {section.count}</h5>
@@ -497,12 +535,11 @@ function DeckSection({ section, cardLimit }: { section: NonNullable<Block['secti
                 </div>
               )}
               <span className="absolute bottom-[3px] right-[3px] rounded-full bg-surface-primary/90 px-[5px] text-[10px] font-bold text-text-primary">×{card.quantity}</span>
-              <span aria-label={mark.label} className="absolute left-[3px] top-[3px] rounded-full bg-surface-primary/90 px-[4px] text-[10px] font-semibold text-text-primary">{mark.text}</span>
+              <span aria-label={mark.label} className="absolute bottom-[3px] left-[3px] rounded-full bg-surface-primary/90 px-[4px] text-[10px] font-semibold text-text-primary">{mark.text}</span>
             </li>
           )
         })}
       </ul>
-      {caption ? <span className="text-[11px] tabular-nums text-text-muted">{caption}</span> : null}
     </div>
   )
 }

@@ -1078,6 +1078,7 @@ export function DeckeChat({
   onNewChat,
   onTopUp,
   onDeckSaved,
+  onOpenDeck,
   onComposerActivity,
   onConsent,
   onFeedback,
@@ -1171,6 +1172,8 @@ export function DeckeChat({
   onTopUp?: () => void
   /** Records a one-tap widget save in the next conversational wire. */
   onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  /** Opens a saved widget deck through the host's router-neutral navigator. */
+  onOpenDeck?: (id: string) => void
   /** Lets the character react to typing without coupling the composer to the hook. */
   onComposerActivity?: (typing: boolean) => void
   onConsent?: (share: boolean) => Promise<void>
@@ -3099,7 +3102,7 @@ export function DeckeChat({
                     // a column of one card.
                     return (
                       <div key={part.id} className="decke-figure">
-                        <DeckeScreen spec={part.spec} onResize={placePark} onDeckSaved={onDeckSaved} />
+                        <DeckeScreen spec={part.spec} onResize={placePark} onDeckSaved={onDeckSaved} onOpenDeck={onOpenDeck} />
                       </div>
                     )
                   })}

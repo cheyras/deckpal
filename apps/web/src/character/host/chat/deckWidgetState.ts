@@ -2,6 +2,27 @@
 
 export type DeckLegality = boolean | null
 
+export const DECK_COMPACT_CARDS = 6
+
+export type DeckSectionShape = { cards: readonly unknown[] }
+
+/** The deck, rather than its containing screen, owns this disclosure state. */
+export function deckDisclosure(
+  sections: readonly DeckSectionShape[],
+  total: number,
+  expanded: boolean,
+): { compactable: boolean; compact: boolean; sectionLimit: number; cardLimit: number; label: string } {
+  const compactable = sections.length > 1 || (sections[0]?.cards.length ?? 0) > DECK_COMPACT_CARDS
+  const compact = compactable && !expanded
+  return {
+    compactable,
+    compact,
+    sectionLimit: compact ? 1 : sections.length,
+    cardLimit: compact ? DECK_COMPACT_CARDS : Number.POSITIVE_INFINITY,
+    label: compact ? `Show all ${total} cards` : 'Show less',
+  }
+}
+
 export type DeckHeader = {
   count: string
   countTone: 'good' | 'warn'

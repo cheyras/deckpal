@@ -21,6 +21,7 @@ test('a read-only connection sees exactly the tools marked readOnlyHint', () => 
   const reads = allTools().filter((t) => t.annotations.readOnlyHint).map((t) => t.name);
   assert.deepEqual(registered({ readOnly: true }), reads);
   assert.equal(reads.length, 14, 'the ordinary catalogue is 14 reads before capability-gated tools');
+  assert.ok(reads.includes('check_deck'), 'deck checking must remain available on read-only connections');
 });
 
 test('no tool that writes or deletes reaches a read-only connection', () => {

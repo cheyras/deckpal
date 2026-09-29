@@ -16,63 +16,46 @@ async function set(page, patch) {
  * request bodies below are the ones the production transport actually builds:
  * real SSE parsing, real approval round trip, real leg accumulation.
  *
- * The scenario is the measured bug. Leg 1 asks to write a strategy guide. Leg 2
- * executes it, the meter refuses for lack of credits, and the same leg hands
- * the browser a client tool to run AND an unrelated write to sign for — so the
- * turn continues into leg 3, on a fresh server with no memory. Leg 3's body is
- * the one that used to arrive with no trace of the refusal at all.
+ * The scenario is the measured bug, ported to approval-free web research. Leg
+ * 1's meter refuses the research, then hands the browser a client tool to run
+ * AND an unrelated write to sign for — so the turn continues into leg 2, on a
+ * fresh server with no memory. Leg 2's body is the one that used to arrive with
+ * no trace of the refusal at all.
  *
  * Page-level routes are used deliberately: they take precedence over the
  * harness's own catch-all, so no fixture-server mutation policy is involved and
  * `server.unexpected` stays empty.
  */
-const NO_WORK_TAIL =
-  'There is NO result. Do not describe, summarise, continue from or refer to work that did not happen. ' +
-  'Do not say "let\'s build", do not list cards, do not give counts. ' +
-  'Say plainly that it did not happen and why, and stop.'
 /** Byte-identical to `deepRefused('…','credits')`; `meterReplayProof.mts` pins it. */
-const GUIDE_REFUSAL =
-  '[[NO_WORK]] REFUSED [meter:credits] — this tool did not run. ' +
-  'this needs 2 credits and only 0 are left. ' + NO_WORK_TAIL
-const GUIDE_CALL = 'guide-call-1'
-/**
- * What `needsApproval` leaves on the input before the card is drawn — the
- * server injects `no_research` on an unbacked guide, so this, not the model's
- * `{deck_id, findings}`, is what rides the wire. `meterReplayProof.mts` then
- * replays the model's plain object: the two must fingerprint the same.
- */
-const GUIDE_INPUT_INJECTED = { deck_id: 'deck-browser', findings: '', no_research: true }
+const RESEARCH_REFUSAL =
+  '[[NO_WORK]] NOT RUN [meter:credits] — research did not run because there are not enough credits — ' +
+  '2 needed, 0 left. Nothing came back. Answer from what you already know and say so, or try again later.'
+const RESEARCH_CALL = 'research-call-1'
+const RESEARCH_INPUT = {
+  query: 'What decks are winning current Pokémon TCG tournaments?',
+  topic: 'competitive',
+  purpose: 'Current tournament-winning decks',
+}
 const sse = (...chunks) =>
   chunks.map(c => 'data: ' + JSON.stringify(c) + '\n\n').join('') + 'data: [DONE]\n\n'
 const LEGS = [
-  // 1. He proposes the guide and stops for consent.
-  sse(
-    { type: 'text-delta', delta: 'I can write that guide for you.' },
-    { type: 'tool-input-available', toolCallId: GUIDE_CALL, toolName: 'write_strategy_guide',
-      input: GUIDE_INPUT_INJECTED },
-    { type: 'tool-approval-request', approvalId: 'ap-guide', toolCallId: GUIDE_CALL, signature: 'sig-guide' },
-  ),
-  // 2. Approved, executed, refused by the meter — and the turn does not end,
+  // 1. Research needs no approval. The meter refuses it, but the turn does not end,
   //    because a browser tool and a second, unrelated consent are still open.
-  //
-  //    NO SECOND `tool-input-available` FOR THE GUIDE. That is the real SDK's
-  //    shape on an approval continuation — measured by the driver's
-  //    `probe-approved-refusal-stream.mts` — and repeating the input here would
-  //    hide the bug it exists to catch: the refusal arrives with an id and
-  //    nothing to name it, so identity has to come from the outgoing wire.
   sse(
-    { type: 'data-decke-tool', data: { id: GUIDE_CALL, name: 'write_strategy_guide',
-      title: 'Writing a strategy guide', phase: 'error', summary: 'not enough credits — 2 needed, 0 left' } },
-    { type: 'tool-output-available', toolCallId: GUIDE_CALL, output: GUIDE_REFUSAL },
-    { type: 'text-delta', delta: ' I could not write it.' },
+    { type: 'tool-input-available', toolCallId: RESEARCH_CALL, toolName: 'web_research', input: RESEARCH_INPUT },
+    { type: 'data-decke-tool', data: { id: RESEARCH_CALL, name: 'web_research',
+      title: 'Research the web', phase: 'error',
+      summary: 'research did not run because there are not enough credits — 2 needed, 0 left' } },
+    { type: 'tool-output-available', toolCallId: RESEARCH_CALL, output: RESEARCH_REFUSAL },
+    { type: 'text-delta', delta: ' I could not research that.' },
     { type: 'tool-input-available', toolCallId: 'scroll-1', toolName: 'scrollToMe', input: {} },
     { type: 'tool-input-available', toolCallId: 'log-1', toolName: 'log_cards',
       input: { cards: [{ name: 'Pikachu', quantity: 1 }] } },
     { type: 'tool-approval-request', approvalId: 'ap-log', toolCallId: 'log-1', signature: 'sig-log' },
   ),
-  // 3. The leg under test. Its REQUEST is the artefact; the reply just ends.
+  // 2. The leg under test. Its REQUEST is the artefact; the reply just ends.
   sse({ type: 'text-delta', delta: ' Logged the card instead.' }),
-  // 4. A new user message — a new turn, which must be able to ask again.
+  // 3. A new user message — a new turn, which must be able to run again.
   sse({ type: 'text-delta', delta: 'Still nothing, sorry.' }),
 ]
 async function checkMeterReplay(page, server, width, out) {
@@ -89,49 +72,45 @@ async function checkMeterReplay(page, server, width, out) {
   await page.goto(server.origin + '/fixture.html?meter', { waitUntil: 'networkidle' })
   const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
   await panel.waitFor({ state: 'visible' })
-  await page.evaluate(() => window.meterChat.send('Write me a strategy guide for that deck.'))
+  await page.evaluate(() => window.meterChat.send('Research the decks winning tournaments right now.'))
 
-  // CONSENT IS GIVEN THROUGH THE REAL CARD, twice, so the signed round trip and
-  // its ordering are exercised rather than simulated.
+  // Research is approval-free. Consent is given only for the unrelated write,
+  // so its signed round trip and ordering are still exercised rather than simulated.
   const card = panel.getByRole('alertdialog', { name: 'Deck-E is asking permission' })
   await card.waitFor()
   await page.screenshot({ path: path.join(out, 'meter-approval-' + width + '.png'), fullPage: true })
   await card.getByRole('button', { name: 'Go ahead' }).click()
-  await page.waitForFunction(() => window.meterChat.busy === false || document
-    .querySelector('[role="dialog"]')?.textContent?.includes('could not write'))
-  await card.waitFor()
-  await card.getByRole('button', { name: 'Go ahead' }).click()
   await page.waitForFunction(() => window.meterChat.busy === false)
   await panel.getByText('Logged the card instead.', { exact: false }).waitFor()
-  assert.equal(bodies.length, 3, 'the refusal turn must reach a third leg')
+  assert.equal(bodies.length, 2, 'the refusal turn must reach a second leg')
 
-  // A NEW USER TURN. The refusal must NOT survive it — a top-up or a daily
-  // reset can only land if the reader's next message re-asks the meter.
+  // A NEW USER TURN. Recent tool output remains on the wire, but it now sits
+  // before the latest user message, so the server ledger must let work run again.
   await page.evaluate(() => window.meterChat.send('Any change now?'))
   await page.waitForFunction(() => window.meterChat.busy === false)
-  assert.equal(bodies.length, 4)
+  assert.equal(bodies.length, 3)
   await page.screenshot({ path: path.join(out, 'meter-' + width + '.png'), fullPage: true })
 
-  const replayed = bodies[2].messages.flatMap(m => m.parts)
-    .filter(p => p.type === 'tool-write_strategy_guide' && p.state === 'output-available')
-  assert.equal(replayed.length, 1, 'the next request carried no refused guide')
-  assert.deepEqual(replayed[0].input, GUIDE_INPUT_INJECTED, 'the original input must ride along')
+  const replayed = bodies[1].messages.flatMap(m => m.parts)
+    .filter(p => p.type === 'tool-web_research' && p.state === 'output-available')
+  assert.equal(replayed.length, 1, 'the next request carried no refused research')
+  assert.deepEqual(replayed[0].input, RESEARCH_INPUT, 'the original input must ride along')
   // ORDERING: the AI SDK collects approvals from the final parts of the final
   // message, so nothing may follow them. The refusal is in the prefix.
-  const last = bodies[2].messages[bodies[2].messages.length - 1].parts
+  const last = bodies[1].messages[bodies[1].messages.length - 1].parts
   assert.equal(last[last.length - 1].state, 'approval-responded', 'consent must stay last on the wire')
   assert.equal(last[last.length - 1].approval.signature, 'sig-log', 'the signature must survive')
-  assert.ok(last.findIndex(p => p.state === 'output-available' && p.type === 'tool-write_strategy_guide')
+  assert.ok(last.findIndex(p => p.state === 'output-available' && p.type === 'tool-web_research')
     < last.length - 1, 'the refusal must precede the approval answer')
-  assert.equal(bodies[3].messages.flatMap(m => m.parts)
-    .filter(p => p.type === 'tool-write_strategy_guide' && p.state === 'output-available').length, 0,
-    'a new user turn must not replay the refusal')
+  // A meter refusal is terminal for its TURN only. On a new user turn it is
+  // not replayed as a result — the refused call was an error, not findings — so
+  // the server's ledger starts empty and research may run again.
+  assert.equal(bodies[2].messages.flatMap(m => m.parts)
+    .filter(p => p.type === 'tool-web_research' && p.state === 'output-available').length, 0,
+    'a new user turn must not replay the refusal as a result')
 
-  const captured = { legs: bodies.slice(0, 3), newTurn: bodies[2],
-    refusal: { toolCallId: GUIDE_CALL, input: GUIDE_INPUT_INJECTED } }
-  // The new turn as the SERVER would see it: leg 3's body with the reader's
-  // next message appended, which is what `messagesToWire` produced on leg 4.
-  captured.newTurn = bodies[3]
+  const captured = { legs: bodies.slice(0, 2), newTurn: bodies[2],
+    refusal: { toolCallId: RESEARCH_CALL, input: RESEARCH_INPUT } }
   const wirePath = path.join(out, 'meter-wire-' + width + '.json')
   fs.writeFileSync(wirePath, JSON.stringify(captured, null, 2))
   const proofPath = path.join(out, 'meter-proof-' + width + '.json')
@@ -141,7 +120,7 @@ async function checkMeterReplay(page, server, width, out) {
   await page.unroute('**/api/chat')
   await page.unroute('**/decke/history')
   return { case: 'meter-refusal-replay', width, legs: bodies.length,
-    refusalReplayed: true, consentLast: true, newTurnReset: true,
+    refusalReplayed: true, consentLast: true, researchApprovalFree: true, newTurnReset: true,
     proof: JSON.parse(fs.readFileSync(proofPath, 'utf8')) }
 }
 
@@ -462,17 +441,20 @@ export async function checkChat(browser, server, out) {
       assert.equal(await page.evaluate(() => window.fixture.events.closes), 1, 'A plain background click must dismiss')
 
       await set(page, { messages: [{ id: 'tools', role: 'assistant', parts: [
-        { kind: 'tool', id: 'refusal', chip: { id: 'call-declined', name: 'collection_add', title: 'Adding fixture cards', phase: 'ok' } },
+        { kind: 'tool', id: 'refusal', chip: { id: 'call-declined', name: 'collection_add', title: 'Adding fixture cards', phase: 'declined' } },
         { kind: 'tool', id: 'failure', chip: { id: 'retry-call', name: 'collection_get', title: 'Reading fixture cards', phase: 'error', summary: 'Fixture read failed' } },
       ] }] })
-      await panel.getByText('Cancelled', { exact: true }).waitFor()
+      // One activity line for the run: the failure tints its summary, and the
+      // steps (the declined write included) are one tap away.
+      await panel.getByRole('button', { name: /step didn.t work/ }).click()
+      await panel.getByText('Skipped that change', { exact: true }).waitFor()
       await panel.getByRole('button', { name: 'Try Reading fixture cards again' }).click()
       assert.deepEqual(await page.evaluate(() => window.fixture.events.retries), ['retry-call'])
       await set(page, { credits: { remaining: 0, allowance: 100 } })
       assert.equal(await panel.getByRole('textbox', { name: 'Message Deck-E' }).count(), 0, 'Spent credits replace the composer')
       await panel.getByText('Out of credits', { exact: true }).waitFor()
       await panel.getByText("I'm out of credits, so I can't take anything new on right now.", { exact: true }).waitFor()
-      await panel.getByText('Cancelled', { exact: true }).waitFor()
+      await panel.getByText('Skipped that change', { exact: true }).waitFor()
       await page.screenshot({ path: path.join(out, 'chat-' + width + '.png'), fullPage: true })
 
       // Reopening exercises the real persisted opener history rather than a

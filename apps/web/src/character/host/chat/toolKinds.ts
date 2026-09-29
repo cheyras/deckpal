@@ -96,6 +96,11 @@ export function iconFor(kind: ToolKind): IconName {
   return ICONS[kind]
 }
 
+/** Approval waiting is a user decision, not more work by the active tool. */
+export function activityIconFor(kind: ToolKind, waiting: boolean): IconName {
+  return waiting ? 'check-circle' : iconFor(kind)
+}
+
 export function motionFor(kind: ToolKind): (typeof MOTION)[ToolKind] {
   return MOTION[kind]
 }

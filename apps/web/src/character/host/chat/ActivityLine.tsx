@@ -9,7 +9,7 @@ import {
   stepLabel,
   type ActivityStep,
 } from './activityState'
-import { iconFor, kindOf, motionFor } from './toolKinds'
+import { activityIconFor, iconFor, kindOf, motionFor } from './toolKinds'
 import { mergeSources, type Source } from './sourcesState'
 
 export type { ActivityStep } from './activityState'
@@ -137,7 +137,7 @@ export function ActivityLine({
         className="flex h-[28px] min-w-0 items-center gap-[7px] rounded-sm text-left hover:text-text-primary"
       >
         <Icon
-          name={iconFor(kind)}
+          name={activityIconFor(kind, waiting)}
           size={14}
           className={[busy && !waiting ? motionFor(kind) : '', 'shrink-0 text-action-primary'].join(' ')}
         />
