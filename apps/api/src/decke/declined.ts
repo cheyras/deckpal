@@ -1,4 +1,8 @@
-/** Conversation-long memory of exact tool calls the reader declined. */
+/**
+ * Conversation-long memory of exact tool calls the reader declined. On 2026-09-28
+ * spoken declines and name-level suppression were removed: browser replay now
+ * carries real denials, so exact calls are the only durable, non-overbroad memory.
+ */
 import { callKey } from './repeat.js'
 import { NO_WORK } from './deepOutcome.js'
 
@@ -9,6 +13,7 @@ const ABANDONED_REASON = 'the reader did not answer'
  * Every exact (tool, arguments) pair explicitly denied anywhere on the wire.
  * The browser now replays denials as `output-denied`; accepting the older
  * approval shape as well keeps in-flight conversations valid during rollout.
+ * Exact matching prevents one declined write from suppressing a different request.
  */
 export function declinedCalls(messages: unknown): Set<string> {
   const declined = new Set<string>()
@@ -26,7 +31,7 @@ export function declinedCalls(messages: unknown): Set<string> {
   return declined
 }
 
-/** Research provenance survives turn boundaries through replayed tool parts. */
+/** Research provenance survives turn boundaries through replayed tool parts, not a fragile spoken summary. */
 export function researchRanInConversation(messages: unknown): boolean {
   if (!Array.isArray(messages)) return false
   for (const message of messages) {
