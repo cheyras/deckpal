@@ -478,6 +478,7 @@ export function Privacy() {
             <H3>Sharing one chat to improve Deck-E</H3>
             <P>
               Nothing from a Deck-E chat is kept for improvement unless you agree to share that particular chat.
+              The retired account-wide sharing switch no longer saves any chat content.
               Deck-E may ask when something clearly went wrong, or you can tick <strong>Share this chat</strong> with
               your feedback. You can turn off the <strong>Let Deck-E ask to share chats</strong> setting at any time;
               it controls whether he may ask, not whether a chat is shared.

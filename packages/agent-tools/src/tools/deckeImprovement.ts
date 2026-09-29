@@ -18,7 +18,7 @@ function listLine(raw: unknown): string {
   const item = object(raw);
   return [
     value(item.id),
-    `${value(item.startedAt)} → ${value(item.updatedAt)}`,
+    `${value(item.date)} UTC | last activity +${value(item.updatedOffsetMs)} ms`,
     `${value(item.turnCount)} turn(s)`,
     `build ${value(item.buildFirst)} → ${value(item.buildLast)}`,
     `cost ${value(item.costUsd)} USD (${value(item.costCoverage)})`,
@@ -60,8 +60,8 @@ function renderDetail(raw: unknown, fromTurn: number, limit: number): string {
   const turns = allTurns.filter((rawTurn) => Number(object(rawTurn).seq) >= fromTurn).slice(0, limit);
   const lines = [
     `conversation ${value(conversation.id)}`,
-    `started ${value(conversation.startedAt)} | updated ${value(conversation.updatedAt)} | build ${value(conversation.buildFirst)} → ${value(conversation.buildLast)}`,
-    `cost ${value(conversation.costUsd)} USD (${value(conversation.costCoverage)}) | ${conversation.hasError === true ? 'HAS ERROR' : 'no recorded error'}`,
+    `date ${value(conversation.date)} UTC | last activity +${value(conversation.updatedOffsetMs)} ms | build ${value(conversation.buildFirst)} → ${value(conversation.buildLast)}`,
+    `cost bucket ${value(conversation.costUsd)} USD (${value(conversation.costCoverage)}) | ${conversation.hasError === true ? 'HAS ERROR' : 'no recorded error'}`,
   ];
   for (const rawTurn of turns) {
     const turn = object(rawTurn);
@@ -69,18 +69,18 @@ function renderDetail(raw: unknown, fromTurn: number, limit: number): string {
     if (turn.feedback !== null && turn.feedback !== undefined) {
       lines.push(`Feedback: ${Number(turn.feedback) > 0 ? 'thumbs up' : 'thumbs down'}${turn.feedbackComment ? ` — ${value(turn.feedbackComment)}` : ''}`);
     }
-    if (turn.tokens) lines.push(`Tokens: ${JSON.stringify(turn.tokens)} | turn cost ${value(turn.costUsd)} USD (${value(turn.costCoverage)}) | latency ${value(turn.latencyMs)} ms`);
+    if (turn.tokens) lines.push(`Token buckets: ${JSON.stringify(turn.tokens)} | turn cost bucket ${value(turn.costUsd)} USD (${value(turn.costCoverage)}) | duration bucket ${value(turn.durationMs)} ms`);
     const historyTools = Array.isArray(turn.tools) ? turn.tools : [];
     if (historyTools.length > 0) lines.push(`History tools: ${JSON.stringify(historyTools)}`);
     const legs = Array.isArray(turn.legs) ? turn.legs : [];
     for (const rawLeg of legs) {
       const leg = object(rawLeg);
       lines.push(
-        `Leg ${value(leg.leg)} | ${value(leg.provider)}/${value(leg.modelId ?? leg.model_id)} | ${value(leg.status)} | ` +
-        `${value(leg.latencyMs ?? leg.latency_ms)} ms | ${value(leg.costUsd ?? leg.cost_usd)} USD | ` +
-        `tokens in/out/cache-read/cache-write/reasoning ${value(leg.input_tokens)}/${value(leg.output_tokens)}/${value(leg.cache_read_tokens)}/${value(leg.cache_write_tokens)}/${value(leg.reasoning_tokens)}`,
+        `Leg ${value(leg.leg)} | ${value(leg.provider)}/${value(leg.modelId)} | ${value(leg.status)} | ` +
+        `starts +${value(leg.startedOffsetMs)} ms | duration bucket ${value(leg.durationMs)} ms | cost bucket ${value(leg.costUsd)} USD | ` +
+        `token buckets ${JSON.stringify(leg.tokens ?? {})}`,
       );
-      const calls = Array.isArray(leg.toolCalls) ? leg.toolCalls : Array.isArray(leg.tool_calls) ? leg.tool_calls : [];
+      const calls = Array.isArray(leg.toolCalls) ? leg.toolCalls : [];
       for (const call of calls) lines.push(`  tool ${JSON.stringify(call)}`);
       if (leg.error) lines.push(`  error ${JSON.stringify(leg.error)}`);
     }
@@ -132,7 +132,7 @@ const list = defineTool({
 const read = defineTool({
   name: 'decke_improvement_read',
   title: 'Read one shared Deck-E conversation',
-  description: 'Read a compact transcript with turns, full tool arguments and outputs, model legs, errors, timings, costs, feedback, approvals and animation/browser events. Results are paged by turn to keep agent context bounded.',
+  description: 'Read a compact transcript with turns, full redacted tool arguments and outputs, model legs, errors, relative timing, bucketed costs/tokens, feedback, approvals and animation/browser events. Results are paged by turn to keep agent context bounded.',
   inputSchema: z.object({
     id: z.string().uuid().describe('Pseudonymous conversation id from list or search.'),
     from_turn: z.number().int().nonnegative().default(0).describe('First turn sequence to include.'),

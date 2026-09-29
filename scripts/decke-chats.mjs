@@ -91,7 +91,7 @@ function markdownList(items, heading = 'Deck-E shared conversations') {
   for (const item of items) {
     const id = item.id ?? item.conversationId;
     const snippet = item.askedSnippet || item.answeredSnippet ? ` — ${[item.askedSnippet, item.answeredSnippet].filter(Boolean).join(' … ')}` : '';
-    lines.push(`- **${id}** — ${item.updatedAt ?? item.startedAt ?? 'unknown date'}; ${item.turnCount ?? '?'} turns; ${item.costUsd ?? '—'} USD${item.hasError ? '; error recorded' : ''}${snippet}`);
+    lines.push(`- **${id}** — ${item.date ?? 'unknown date'} UTC, last activity +${item.updatedOffsetMs ?? '?'} ms; ${item.turnCount ?? '?'} turns; ${item.costUsd ?? '—'} USD bucket${item.hasError ? '; error recorded' : ''}${snippet}`);
   }
   if (items.length === 0) lines.push('_No matches._');
   return `${lines.join('\n')}\n`;

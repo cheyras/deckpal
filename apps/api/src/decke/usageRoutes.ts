@@ -1,19 +1,15 @@
 import { Router } from 'express';
 import { ApiError, asyncHandler, clampInt, UUID_RE } from '../http.js';
-import { currentUserId } from '../identity.js';
-import { commitRequestTx } from '../db.js';
-import { integer, object } from '../credits/policy.js';
 import { privateSession, sessionCall } from '../credits/session.js';
 export const selfSharingRouter:Router=Router();
 export const adminUsageRouter:Router=Router();
 selfSharingRouter.use(privateSession);adminUsageRouter.use(privateSession);
-selfSharingRouter.get('/',asyncHandler(async(_req,res)=>{res.json(await sessionCall('SELECT public.decke_sharing_read() AS data'));}));
-selfSharingRouter.put('/',asyncHandler(async(req,res)=>{
- const body=object(req.body,['enabled','expectedRevision'],'sharing');
- if(typeof body.enabled!=='boolean')throw new ApiError(400,'invalid_input','enabled must be a boolean');
- const result=await sessionCall('SELECT public.decke_sharing_save($1,$2) AS data',[body.enabled,integer(body.expectedRevision,0,Number.MAX_SAFE_INTEGER,'expectedRevision')]);
- await commitRequestTx(currentUserId(req));res.json(result);
-}));
+export const retiredSharing=()=>({
+ enabled:false,retired:true,mode:'per_chat',
+ explanation:'Deck-E chats are shared one conversation at a time. Use Share this chat or the feedback option.',
+});
+selfSharingRouter.get('/',asyncHandler(async(_req,res)=>{res.json(retiredSharing());}));
+selfSharingRouter.put('/',asyncHandler(async(_req,res)=>{res.json(retiredSharing());}));
 export function usageFilters(query:Record<string,unknown>):Record<string,string|number> {
  const f:Record<string,string|number>={};
  for(const key of ['userId','conversationId','category','status','from','to','buildSha','buildPr','modelId','costSource']){

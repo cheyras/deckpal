@@ -134,8 +134,8 @@ export function renderImprovementMarkdown(detail: JsonObject): string {
   const lines = [
     '# Deck-E shared conversation',
     '',
-    `- Started: ${markdownValue(conversation.startedAt)}`,
-    `- Updated: ${markdownValue(conversation.updatedAt)}`,
+    `- Date (UTC): ${markdownValue(conversation.date)}`,
+    `- Last activity: +${markdownValue(conversation.updatedOffsetMs)} ms`,
     `- Build: ${markdownValue(conversation.buildFirst)} → ${markdownValue(conversation.buildLast)}`,
     `- Cost: ${markdownValue(conversation.costUsd)} USD (${markdownValue(conversation.costCoverage)})`,
     '',
@@ -149,7 +149,7 @@ export function renderImprovementMarkdown(detail: JsonObject): string {
     const legs = Array.isArray(turn.legs) ? turn.legs : [];
     for (const rawLeg of legs) {
       const leg = bodyObject(rawLeg);
-      lines.push(`### Model leg ${markdownValue(leg.leg)}`, '', `Model: ${markdownValue(leg.model_id ?? leg.modelId)}; status: ${markdownValue(leg.status)}; cost: ${markdownValue(leg.cost_usd ?? leg.costUsd)} USD`, '');
+      lines.push(`### Model leg ${markdownValue(leg.leg)}`, '', `Model: ${markdownValue(leg.modelId)}; status: ${markdownValue(leg.status)}; cost bucket: ${markdownValue(leg.costUsd)} USD; starts +${markdownValue(leg.startedOffsetMs)} ms; duration bucket ${markdownValue(leg.durationMs)} ms`, '');
       const tools = Array.isArray(leg.tool_calls) ? leg.tool_calls : Array.isArray(leg.toolCalls) ? leg.toolCalls : [];
       if (tools.length) lines.push('Tool calls:', '```json', JSON.stringify(tools, null, 2), '```', '');
       if (leg.error) lines.push('Error:', '```json', JSON.stringify(leg.error, null, 2), '```', '');

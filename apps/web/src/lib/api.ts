@@ -1,4 +1,4 @@
-import type { ActorCapabilities, FeatureAccess, RoleRef, SharingPreference, AiOverride, AiUsagePage, AiUsageDetail, CostObservations } from './adminTypes'
+import type { ActorCapabilities, FeatureAccess, RoleRef, AiOverride, AiUsagePage, AiUsageDetail, CostObservations } from './adminTypes'
 // API client — consumes deckpal-api (read-only contract, API.md).
 // Cloud: /api (Vercel). Self-host: /deckpal/api (behind nginx proxy).
 //
@@ -2120,8 +2120,6 @@ export const api = {
     send<{ deleted: number }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
-  deckeSharing: (signal?: AbortSignal) => get<SharingPreference>('/me/decke-sharing', signal),
-  setDeckeSharing: (enabled: boolean, expectedRevision: number) => send<SharingPreference>('PUT', '/me/decke-sharing', { enabled, expectedRevision }),
   adminAiOverride: (id: string, signal?: AbortSignal) => get<AiOverride>('/admin/users/' + encodeURIComponent(id) + '/ai-override', signal),
   adminSetAiOverride: (id: string, body: { expectedRevision: number; unlimited: boolean; markupBps: number | null; reason: string }) => send<AiOverride>('PUT', '/admin/users/' + encodeURIComponent(id) + '/ai-override', body),
   adminCostObservations: (params: string, signal?: AbortSignal) => get<CostObservations>('/admin/ai-usage/observations?' + params, signal),

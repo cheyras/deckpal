@@ -31,8 +31,10 @@ usage accounting, or account tables.
   `decke_improvement_conversation.updated_at`.
   `decke_improvement_purge_expired()` is the scheduled cleanup contract;
   improvement readers also attempt a bounded purge.
-- Migration 071's `decke_sharing` and `decke_ai_content` are not this corpus.
-  They remain temporarily for deployed-code compatibility.
+- Migration 071's account-wide `decke_sharing` switch and `decke_ai_content`
+  excerpts are retired by migration 078. Existing switches are disabled,
+  existing excerpts are deleted, compatibility writers are metadata-only, and
+  the legacy reader always returns no content.
 
 The HMAC key is database state, never deployment configuration:
 
@@ -49,8 +51,10 @@ username, display-name, IP, and History-title values are not stored as corpus
 identifiers. `decke_turn_feedback` is personal data and is not a corpus table.
 
 The API must redact username, display name, email, email local part, and any
-self-identification before calling a content writer. SQL also performs a
-defence-in-depth replacement of known account terms and recursively removes raw
+self-identification before calling a content writer. Both API and SQL cover
+case-insensitive NFC/NFD Unicode forms, percent/form encodings, and HTML-entity
+escaped `@` in email addresses, including recursively nested JSON keys, values,
+and JSON encoded inside strings. SQL also recursively removes raw
 user/conversation/request/exchange identifiers from JSON keys and values.
 
 ## Tables
@@ -179,8 +183,10 @@ Internal, fully revoked functions are:
 - `decke_improvement_uuid(text, uuid) -> uuid`
 - `decke_improvement_owner_key(text) -> bytea`
 - `decke_improvement_redaction_terms(text) -> text[]`
+- `decke_improvement_redaction_variants(text[]) -> text[]`
 - `decke_improvement_redact_text(text, text[]) -> text`
 - `decke_improvement_redact_json_identifiers(jsonb, text[]) -> jsonb`
+- `decke_improvement_reader_json(jsonb, timestamptz) -> jsonb`
 - `decke_improvement_require_writer(text) -> bytea`
 - `decke_improvement_require_reader() -> text`
 - `decke_improvement_recompute(uuid, integer) -> void`
@@ -343,22 +349,30 @@ boolean claim is never trusted.
 
 Limit is 1–100. Filters are `from`, `to`, `build_sha`, `build_pr`, `vote`,
 `min_cost`, `max_cost`, `has_error`, `model`, and `tool`. Cursor order is
-`(updated_at DESC, id DESC)`. Result:
+`(updated_at DESC, id DESC)`. The opaque cursor is the last pseudonymous
+conversation UUID; SQL resolves its private timestamp internally. Result:
 
 ```json
-{"items":[{"id":"derived-uuid","startedAt":"...","updatedAt":"...","buildFirst":"abc","buildLast":"def","turnCount":3,"costUsd":0.0042,"costCoverage":"partial","hasError":false}],"nextCursor":null}
+{"items":[{"id":"derived-uuid","date":"2026-09-28","updatedOffsetMs":42000,"buildFirst":"abc","buildLast":"def","turnCount":3,"costUsd":0.01,"costCoverage":"partial","hasError":false}],"nextCursor":null}
 ```
 
 ### `decke_improvement_detail(uuid) -> jsonb`
 
 Returns `{conversation, turns}`. Turns are ordered by `seq` and expose all turn
 content including the History `tools` snapshot, ordered legs, and ordered
-events. No response contains `owner_key`.
+events. No response contains `owner_key`, raw request/generation IDs, or an
+absolute timestamp. The conversation exposes only its UTC `date`; all later
+times are millisecond offsets from its first event, and durations are bucketed
+to 100 ms. Token counts are rounded to the nearest 100 and costs to the nearest
+$0.01 while cost coverage remains exact. The same projection applies inside
+nested tool/error/event JSON and to JSON, Markdown, NDJSON, MCP, and script
+readers.
 
 ### `decke_improvement_search(text, integer) -> jsonb`
 
 Query length is 2–100 and limit 1–50. Literal case-insensitive search covers
-asked/answered text and tool-call names and returns bounded snippets.
+asked/answered text and tool-call names and returns bounded snippets plus only
+the conversation UTC date and relative updated offset.
 
 ## All-chat conversation costs
 

@@ -27,7 +27,7 @@ function model(options:{fail?:boolean;unpriced?:boolean;neverEnd?:boolean}={}):L
   }
  } as LanguageModel;
 }
-test('real SDK stream persists one provider attempt with cache/reasoning and safe excerpt',async()=>{
+test('real SDK stream persists usage metadata without any prompt or answer content',async()=>{
  const f=fixture();
  await runAiUsage(f.request,async()=>{
   const result=streamText({model:observeUsageModel(model()),prompt:'PRIVATE_INPUT_SENTINEL',maxRetries:0});
@@ -39,7 +39,8 @@ test('real SDK stream persists one provider attempt with cache/reasoning and saf
  assert.equal(inserts.length,1);assert.equal(updates.length,1);
  assert.deepEqual(updates[0]!.args.slice(2,9),[12,6,7,0,2,'0.000123','provider_reported']);
  assert.equal(JSON.stringify(f.records).includes('PRIVATE_INPUT_SENTINEL'),false);
- assert.equal(f.records.filter(x=>x.sql.includes('content_append')).length,1);
+ assert.equal(JSON.stringify(f.records).includes('Visible answer'),false);
+ assert.equal(f.records.filter(x=>x.sql.includes('content_append')).length,0);
 });
 test('nested web research calls keep distinct operation keys without tool content',async()=>{
  const f=fixture();
@@ -88,6 +89,7 @@ test('old client request correlation is metadata-only and build authority stays 
    quote:{revision:2,policy:{enabled:false}},messages:[{role:'user',content:'current'}]});
   const args=f.records[0]!.args;
   assert.equal(args[1],null);assert.equal(args[2],null);assert.equal(args[3],null);assert.equal(args[6],'a'.repeat(40));assert.equal(args[10],'daily');
+  assert.equal(args[11],null);
  }finally{if(old===undefined)delete process.env.VERCEL_GIT_COMMIT_SHA;else process.env.VERCEL_GIT_COMMIT_SHA=old;}
 });
 test('database initialization failure prevents model invocation and replay maps to conflict',async()=>{

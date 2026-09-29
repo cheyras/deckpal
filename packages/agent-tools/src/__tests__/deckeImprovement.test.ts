@@ -15,18 +15,19 @@ function context(get: (path: string) => unknown): Ctx & { paths: string[] } {
 }
 
 test('decke_improvement_list sends every contract filter and renders the cursor', async () => {
-  const ctx = context(() => ({ items: [{ id: 'c1', startedAt: 'start', updatedAt: 'end', turnCount: 2, costUsd: 0.3, costCoverage: 'partial', hasError: true }], nextCursor: 'next|id' }));
-  const result = await tool('decke_improvement_list').handler({ build_pr: 42, vote: '-1', has_error: true, cursor: 'old|id', limit: 17 }, ctx);
+  const ctx = context(() => ({ items: [{ id: 'c1', date: '2026-09-28', updatedOffsetMs: 1200, turnCount: 2, costUsd: 0.3, costCoverage: 'partial', hasError: true }], nextCursor: '11111111-1111-4111-8111-111111111111' }));
+  const result = await tool('decke_improvement_list').handler({ build_pr: 42, vote: '-1', has_error: true, cursor: '22222222-2222-4222-8222-222222222222', limit: 17 }, ctx);
   assert.match(ctx.paths[0]!, /build_pr=42/);
   assert.match(ctx.paths[0]!, /vote=-1/);
   assert.match(ctx.paths[0]!, /has_error=true/);
   assert.match(result.text, /c1.*HAS ERROR/);
-  assert.match(result.text, /next_cursor: next\|id/);
+  assert.match(result.text, /2026-09-28 UTC/);
+  assert.match(result.text, /next_cursor: 11111111-1111-4111-8111-111111111111/);
 });
 
 test('decke_improvement_read keeps full tool payloads but pages turns', async () => {
   const ctx = context(() => ({
-    conversation: { id: '11111111-1111-4111-8111-111111111111', costUsd: 0.01, costCoverage: 'complete' },
+    conversation: { id: '11111111-1111-4111-8111-111111111111', date: '2026-09-28', updatedOffsetMs: 1000, costUsd: 0.01, costCoverage: 'complete' },
     turns: [
       { seq: 0, asked: 'skip me', answered: 'old' },
       { seq: 1, asked: 'Why?', answered: 'Because', legs: [{ leg: 0, toolCalls: [{ name: 'lookup', args: { id: 7 }, output: { full: 'answer' } }] }], events: [{ kind: 'animation', payload: { state: 'thinking' } }] },

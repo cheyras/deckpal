@@ -13,7 +13,7 @@ import {
 } from '../routes/deckeImprovement.js';
 import { shapeSettings, strictBoolean, type SettingsRow } from '../routes/me.js';
 import { closePool } from '../db.js';
-import { conversationCostFilters } from '../decke/usageRoutes.js';
+import { conversationCostFilters, retiredSharing } from '../decke/usageRoutes.js';
 
 after(async () => { await closePool(); });
 
@@ -117,15 +117,15 @@ function post(body: unknown, method = 'POST'): LocalInit {
 
 function sampleDetail(): Record<string, unknown> {
   return {
-    conversation: { id: CORPUS, startedAt: '2026-09-28T10:00:00Z', updatedAt: '2026-09-28T10:01:00Z', buildFirst: 'abc', buildLast: 'def', costUsd: 0.0042, costCoverage: 'complete' },
+    conversation: { id: CORPUS, date: '2026-09-28', updatedOffsetMs: 60_000, buildFirst: 'abc', buildLast: 'def', costUsd: 0.01, costCoverage: 'complete' },
     turns: [{
       seq: 0,
       asked: 'Why did this fail?',
       answered: 'The lookup failed.',
       feedback: -1,
       feedbackComment: 'Wrong card',
-      legs: [{ leg: 0, model_id: 'openai/gpt', status: 'failed', cost_usd: 0.0042, tool_calls: [{ name: 'card_lookup', args: { id: 'x' }, output: { error: 'missing' } }] }],
-      events: [{ ordinal: 0, kind: 'animation', payload: { state: 'confused' } }],
+      legs: [{ leg: 0, modelId: 'openai/gpt', status: 'failed', costUsd: 0.01, startedOffsetMs: 100, durationMs: 900, toolCalls: [{ name: 'card_lookup', args: { id: 'x' }, output: { error: 'missing' } }] }],
+      events: [{ ordinal: 0, offsetMs: 500, kind: 'animation', payload: { state: 'confused' } }],
     }],
   };
 }
@@ -218,8 +218,29 @@ describe('Deck-E improvement administration', () => {
     assert.match(markdown, /Why did this fail\?/);
     assert.match(markdown, /card_lookup/);
     assert.match(markdown, /confused/);
-    assert.match(markdown, /0\.0042 USD/);
+    assert.match(markdown, /0\.01 USD/);
+    assert.match(markdown, /2026-09-28/);
+    assert.doesNotMatch(markdown, /2026-09-28T/);
     assert.match(markdown, /thumbs down — Wrong card/);
+  });
+
+  it('keeps encoded identities redacted in Markdown and NDJSON serialization', () => {
+    const cleaned = redact({
+      conversation: { id: CORPUS, date: '2026-09-28', updatedOffsetMs: 500, costUsd: 0, costCoverage: 'complete' },
+      turns: [{
+        seq: 0,
+        asked: 'John%20Smith',
+        answered: 'John+Smith',
+        feedbackComment: 'jsmith%40example.com',
+        legs: [{ leg: 0, toolCalls: [{ args: { owner: 'Jose\u0301' } }] }],
+      }],
+    }, ['John Smith', 'jsmith@example.com', 'jsmith', 'Jos\u00e9']);
+    const markdown = renderImprovementMarkdown(cleaned);
+    const ndjson = JSON.stringify(cleaned) + '\n';
+    for (const output of [markdown, ndjson]) {
+      assert.doesNotMatch(output, /John(?:%20|\+| )Smith|jsmith(?:%40|@)example\.com|Jose\u0301|José/i);
+      assert.match(output, /\[redacted\]/);
+    }
   });
 });
 
@@ -235,6 +256,15 @@ describe('Deck-E share-prompt preference', () => {
     assert.equal(shapeSettings({ ...base, decke_share_prompts: false }).deckeSharePrompts, false);
     assert.equal(strictBoolean('deckeSharePrompts', false), false);
     assert.throws(() => strictBoolean('deckeSharePrompts', 'false'), /must be a boolean/);
+  });
+
+  it('keeps the retired account-wide endpoint disabled and points old clients to per-chat sharing', () => {
+    assert.deepEqual(retiredSharing(), {
+      enabled: false,
+      retired: true,
+      mode: 'per_chat',
+      explanation: 'Deck-E chats are shared one conversation at a time. Use Share this chat or the feedback option.',
+    });
   });
 });
 

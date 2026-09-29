@@ -72,8 +72,8 @@ async function seedConversation({ conversation, request, operation, seq = 0, cos
   await db.query(`INSERT INTO public.decke_turn
     (conversation_id,user_id,seq,asked,answered,tools,build_sha,build_pr,finish_reason,exchange_id)
     VALUES($1,$2,$3,$4,$5,$6::jsonb,'fixture-sha',278,'stop',$7)`, [
-    conversation, member, seq, `raw member-name question ${suffix}`,
-    `raw Member Name answer member@example.invalid ${suffix}`,
+    conversation, member, seq, `raw Jos\u00e9 question ${suffix}`,
+    `raw John Smith answer jsmith@example.invalid ${suffix}`,
     JSON.stringify([{ name: 'search_cards', phase: 'ok', title: 'private', summary: suffix }]), id(700 + Number(suffix)),
   ]);
   await db.query(`INSERT INTO public.decke_ai_request
@@ -84,7 +84,7 @@ async function seedConversation({ conversation, request, operation, seq = 0, cos
   await db.query(`INSERT INTO public.decke_ai_operation
     (id,request_id,category,tool_key,model_id,provider,operation_key,status,finished_at,
      input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,cost_usd,cost_source)
-    VALUES($1,$2,'response','chat_turn','fixture/model','fixture','chat_turn','completed',now(),100,20,4,2,3,$3,$4)`, [
+    VALUES($1,$2,'response','chat_turn','fixture/model','fixture','chat_turn','completed',now(),123,27,44,62,13,$3,$4)`, [
     operation, request, cost, cost === null ? 'unknown' : 'provider_reported',
   ]);
 }
@@ -92,10 +92,14 @@ async function seedConversation({ conversation, request, operation, seq = 0, cos
 const validLeg = (answer = 'redacted answer') => ({
   asked: 'redacted question', answered: answer, model_id: 'fixture/model', provider: 'fixture',
   started_at: '2026-09-28T18:00:00.000Z', finished_at: '2026-09-28T18:00:01.000Z', latency_ms: 1000,
-  input_tokens: 100, output_tokens: 20, cache_read_tokens: 4, cache_write_tokens: 2, reasoning_tokens: 3,
-  cost_usd: 0.001, cost_coverage: 'complete', cost_source: 'provider_reported', status: 'completed', finish_reason: 'stop',
-  build_sha: 'fixture-sha', build_pr: 278, error: null,
-  tool_calls: [{ id: 'tool-1', name: 'search_cards', args: { query: 'redacted' }, output: { ok: true }, phase: 'completed' }],
+  input_tokens: 123, output_tokens: 27, cache_read_tokens: 44, cache_write_tokens: 62, reasoning_tokens: 13,
+  cost_usd: 0.00137, cost_coverage: 'complete', cost_source: 'provider_reported', status: 'completed', finish_reason: 'stop',
+  build_sha: 'fixture-sha', build_pr: 278, error: { owner: 'John%20Smith' },
+  tool_calls: [{ id: 'tool-1', name: 'search_cards', args: { person: 'John+Smith', email: 'jsmith%40example.invalid' }, output: {
+    owner: 'Jose\u0301', requestedAt: '2026-09-28T18:00:00.250Z', requestId: id(121), generationId: 'generation-secret',
+    inputTokens: 123, costUsd: 0.00137,
+    encoded: JSON.stringify({ owner: 'John%20Smith', requestId: id(121), generationId: 'generation-secret', inputTokens: 123, costUsd: 0.00137, startedAt: '2026-09-28T18:00:00.250Z' }),
+  }, phase: 'completed' }],
 });
 
 try {
@@ -127,10 +131,10 @@ try {
     if (file.startsWith('021_')) {
       await db.query(`INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES
         ($1,'owner@example.invalid','{"username":"owner-name"}'),
-        ($2,'member@example.invalid','{"username":"member-name"}'),
+        ($2,'jsmith@example.invalid','{"username":"José"}'),
         ($3,'outsider@example.invalid','{"username":"outsider-name"}')`, [owner, member, outsider]);
       await db.query(`UPDATE public.user_profile SET display_name=CASE user_id::text
-        WHEN $1 THEN 'Owner Name' WHEN $2 THEN 'Member Name' WHEN $3 THEN 'Outsider Name' END
+        WHEN $1 THEN 'Owner Name' WHEN $2 THEN 'John Smith' WHEN $3 THEN 'Outsider Name' END
         WHERE user_id::text=ANY($4::text[])`, [owner, member, outsider, [owner, member, outsider]]);
     }
   }
@@ -139,6 +143,13 @@ try {
     const count = await db.query("SELECT count(*)::int n FROM information_schema.columns WHERE table_schema='public' AND table_name='user_settings' AND column_name='decke_share_prompts'");
     assert.equal(count.rows[0].n, 0);
   });
+
+  const legacyRequest = id(90);
+  await db.query("INSERT INTO public.decke_sharing(user_id,enabled,revision) VALUES($1,true,7)", [member]);
+  await db.query(`INSERT INTO public.decke_ai_request
+    (id,user_id,exchange_id,request_key,payload_hash,charge_mode)
+    VALUES($1,$2,$3,'legacy-before-078',$4,'daily')`, [legacyRequest, member, id(91), '9'.repeat(64)]);
+  await db.query("INSERT INTO public.decke_ai_content(request_id,asked,answered) VALUES($1,'legacy private question','legacy private answer')", [legacyRequest]);
 
   await migration('078_decke_improvement.sql');
   await db.query('SELECT public.admin_bootstrap($1,$2,$3)', [owner, [], []]);
@@ -150,6 +161,23 @@ try {
     assert.ok(rows.every((row) => row.decke_share_prompts === true));
     assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_consent')).rows[0].n, 0);
     assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_conversation')).rows[0].n, 0);
+  });
+
+  await test('legacy account-wide sharing is disabled and unshared chats remain metadata-only', async () => {
+    const legacy = (await db.query('SELECT enabled FROM public.decke_sharing WHERE user_id=$1', [member])).rows[0];
+    assert.equal(legacy.enabled, false);
+    assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_ai_content')).rows[0].n, 0);
+    const unsharedConversation = id(92);
+    const begun = (await db.query(
+      'SELECT public.decke_usage_begin($1,$2,$3,0,$4,$5,NULL,NULL,0,0,\'daily\',$6) data',
+      [member, unsharedConversation, id(93), 'metadata-only-request', '8'.repeat(64), 'PRIVATE UNCONSENTED QUESTION'],
+    )).rows[0].data;
+    await db.query('SELECT public.decke_usage_content_append($1,$2)', [begun.id, 'PRIVATE UNCONSENTED ANSWER']);
+    assert.equal(begun.consentEpoch, null);
+    assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_ai_content')).rows[0].n, 0);
+    const usage = await session(owner, (c) => data(c, 'SELECT public.decke_usage_detail($1) data', [begun.id]));
+    assert.equal(usage.contentStatus, 'retired');
+    assert.equal(usage.content, null);
   });
 
   const declinedConversation = id(100), declinedRequest = id(101);
@@ -209,7 +237,7 @@ try {
     const answer = await server(member, (c) => data(c,
       "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, sharedConversation]));
     assert.equal(answer.status, 'shared');
-    assert.equal(answer.backfill.turns[0].asked, 'raw member-name question 120');
+    assert.equal(answer.backfill.turns[0].asked, 'raw Jos\u00e9 question 120');
     assert.equal(answer.backfill.requests.length, 2);
     derivedShared = answer.conversationId;
     for (const raw of [member, sharedConversation, sharedRequest, unknownRequest]) assert.notEqual(derivedShared, raw);
@@ -224,12 +252,12 @@ try {
     assert.equal(legs[1].cost_usd, null);
     const backfill = await server(member, (c) => data(c,
       'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) data', [member, sharedConversation, JSON.stringify([
-        { seq: 0, asked: 'API redacted question', answered: 'API redacted answer', tools: [{ name: 'search_cards', phase: 'ok' }] },
+        { seq: 0, asked: 'John%20Smith asked', answered: 'John+Smith answered', tools: [{ name: 'search_cards', phase: 'ok', args: { email: 'jsmith%40example.invalid', owner: 'Jose\u0301' } }] },
       ])]));
     assert.equal(backfill.recorded, true);
     const stored = (await db.query('SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1', [derivedShared])).rows[0];
-    assert.equal(stored.asked, 'API redacted question');
-    assert.doesNotMatch(JSON.stringify(stored), /member-name|Member Name|member@example\.invalid/i);
+    assert.equal(stored.asked, '[redacted] asked');
+    assert.doesNotMatch(JSON.stringify(stored), /John(?:%20|\+| )Smith|jsmith(?:%40|&#64;|@)example\.invalid|Jose\u0301|José/i);
   });
 
   await test('shared writers capture full legs/events and preserve pseudonymous IDs', async () => {
@@ -238,7 +266,7 @@ try {
       [member, sharedConversation, sharedRequest, JSON.stringify(validLeg())]));
     assert.equal(recorded.recorded, true);
     assert.notEqual(recorded.legId, sharedRequest);
-    const events = [{ kind: 'error', at: '2026-09-28T18:00:00.500Z', payload: { message: 'redacted failure' } }];
+    const events = [{ kind: 'error', at: '2026-09-28T18:00:00.500Z', payload: { message: 'John%20Smith at jsmith&#64;example.invalid', requestId: sharedRequest } }];
     const first = await server(member, (c) => data(c,
       'SELECT public.decke_improvement_record_events($1,$2,0,7,$3::jsonb) data', [member, sharedConversation, JSON.stringify(events)]));
     const replay = await server(member, (c) => data(c,
@@ -258,8 +286,8 @@ try {
     assert.equal(leg.cost_coverage, 'partial');
     assert.equal(turn.cost_coverage, 'partial');
     assert.equal(conversation.cost_coverage, 'partial');
-    assert.equal(Number(turn.cost_usd), 0.001);
-    assert.equal(Number(conversation.cost_usd), 0.001);
+    assert.equal(Number(turn.cost_usd), 0.00137);
+    assert.equal(Number(conversation.cost_usd), 0.00137);
   });
 
   const feedbackConversation = id(130), feedbackRequest = id(131);
@@ -267,7 +295,7 @@ try {
   await test('feedback can grant sharing, always saves personal feedback, and list_mine maps raw IDs', async () => {
     const saved = await server(member, (c) => data(c,
       'SELECT public.decke_improvement_record_feedback($1,$2,0,1,$3,true) data',
-      [member, feedbackConversation, 'Member Name liked this']));
+      [member, feedbackConversation, 'John+Smith liked this; jsmith%40example.invalid']));
     assert.equal(saved.saved, true);
     assert.equal(saved.shared, true);
     assert.equal(saved.copied, true);
@@ -307,9 +335,35 @@ try {
     const list = await token(owner, tokenId, (c) => data(c, "SELECT public.decke_improvement_list('{}',NULL,20) data"));
     assert.equal(list.items.length, 2);
     assert.equal(JSON.stringify(list).includes('owner_key'), false);
+    assert.match(list.items[0].date, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal('startedAt' in list.items[0], false);
+    assert.equal('updatedAt' in list.items[0], false);
     const detail = await token(owner, tokenId, (c) => data(c, 'SELECT public.decke_improvement_detail($1) data', [derivedShared]));
     assert.equal(detail.turns[0].tools[0].name, 'search_cards');
     assert.equal(JSON.stringify(detail).includes('owner_key'), false);
+    const accountingRequest = (await db.query('SELECT started_at,finished_at FROM public.decke_ai_request WHERE id=$1', [sharedRequest])).rows[0];
+    const accountingOperation = (await db.query('SELECT input_tokens,output_tokens,cost_usd FROM public.decke_ai_operation WHERE request_id=$1 ORDER BY started_at LIMIT 1', [sharedRequest])).rows[0];
+    const rendered = JSON.stringify(detail);
+    assert.doesNotMatch(rendered, /John(?:%20|\+| )Smith|jsmith(?:%40|&#64;|@)example\.invalid|Jose\u0301|José/i);
+    assert.equal(rendered.includes(new Date(accountingRequest.started_at).toISOString()), false);
+    if (accountingRequest.finished_at) assert.equal(rendered.includes(new Date(accountingRequest.finished_at).toISOString()), false);
+    assert.equal(detail.conversation.costUsd, 0);
+    assert.notEqual(detail.conversation.costUsd, Number(accountingOperation.cost_usd));
+    assert.equal(detail.turns[0].legs[0].tokens.input, 100);
+    assert.notEqual(detail.turns[0].legs[0].tokens.input, Number(accountingOperation.input_tokens));
+    assert.notEqual(detail.turns[0].legs[0].tokens.output, Number(accountingOperation.output_tokens));
+    assert.equal(rendered.includes('generation-secret'), false);
+    assert.equal(rendered.includes(sharedRequest), false);
+    const toolOutput = detail.turns[0].legs[0].toolCalls[0].output;
+    assert.equal('requestId' in toolOutput, false);
+    assert.equal(toolOutput.inputTokens, 100);
+    assert.equal(toolOutput.costUsd, 0);
+    assert.equal(String(toolOutput.encoded).includes('generation-secret'), false);
+    assert.equal(String(toolOutput.encoded).includes('2026-09-28T18:00:00.250Z'), false);
+    const search = await token(owner, tokenId, (c) => data(c, "SELECT public.decke_improvement_search('asked',20) data"));
+    assert.ok(search.items.length > 0);
+    assert.match(search.items[0].date, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal('updatedAt' in search.items[0], false);
     await db.query('UPDATE public.api_token SET revoked_at=now() WHERE id=$1', [tokenId]);
     await denied(token(owner, tokenId, (c) => data(c, "SELECT public.decke_improvement_list('{}',NULL,20) data")));
   });
