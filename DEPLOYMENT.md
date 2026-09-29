@@ -1180,9 +1180,13 @@ until 081 runs, every policy is v1 and chat is charged exactly as before. 081
 adds the reservation/settlement tables and server-only functions, replaces the
 wallet, statement and quote readers, folds import-fix's fractional carry into
 the single generic carry, and inserts a new current policy revision in the v2
-shape (`legHoldCredits` 25, `legHoldMinCredits` 3, everything else preserved).
+shape (`legHoldCredits` 25, `legHoldMinCredits` 3, `overageBufferMaxCredits`
+2000, everything else preserved), and seeds the overage buffer at 2,000 credits.
 From the next request on, a paid reply holds up to 25 credits, is charged its
-Gateway cost, and returns the rest. Apply it with the numbered runner after 080;
+Gateway cost, and returns the rest; a reply that costs more than the wallet has
+left still finishes, and the buffer covers the difference (never the reader's
+debt). Admin → Settings shows the buffer and edits its maximum. Apply it with the
+numbered runner after 080;
 there is no environment variable or infrastructure setting. To confirm:
 `GET /me/credits` reports `mode: "metered"`, and a finished reply's statement
 row shows a fractional amount. To return to flat prices, save a new v1-shaped

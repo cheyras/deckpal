@@ -166,8 +166,10 @@ try {
     const current = (await db.query('SELECT public.credit_policy_read() data')).rows[0].data;
     assert.deepEqual(current.policy, {
       version: 2, enabled: true, microUsdPerCredit: 10000, markupBps: 0,
-      lowBalance: 100, legHoldCredits: 25, legHoldMinCredits: 3,
+      lowBalance: 100, legHoldCredits: 25, legHoldMinCredits: 3, overageBufferMaxCredits: 2000,
     });
+    assert.equal((await db.query('SELECT balance::text value FROM public.credit_overage_buffer')).rows[0].value, '2000.000000000000');
+    assert.equal((await db.query("SELECT count(*)::int n FROM public.credit_overage_buffer_event WHERE kind='seed'")).rows[0].n, 1);
     assert.deepEqual((await db.query('SELECT policy FROM public.credit_policy_revision WHERE revision=$1', [v1.revision])).rows[0].policy, v1.policy);
     assert.equal((await db.query('SELECT charged_credits::text value FROM public.decke_ai_request WHERE id=$1', [legacyRequest])).rows[0].value, '1.000000000000');
     assert.equal((await db.query('SELECT fractional_credits::text value FROM public.decke_metered_credit WHERE user_id=$1', [paid])).rows[0].value, '0.400000000000');
@@ -266,14 +268,22 @@ try {
     )), 'DKCAP');
   });
 
-  await test('provider overrun becomes debt and never a negative wallet', async () => {
+  const bufferNow = async () => Number((await db.query('SELECT balance FROM public.credit_overage_buffer')).rows[0].balance);
+
+  await test('a whole-credit overrun is covered by the overage buffer, never debt or a negative wallet', async () => {
     await wallet(race, 3);
+    const before = await bufferNow();
     const request = await beginRequest(race, 'paid', 'overrun'); await meteredBegin(race, request);
     await operation(race, request, 'chat_turn', '0.050');
     const result = await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [request]));
-    assert.equal(result.credits, '5.000000000000');
+    assert.deepEqual([result.credits, result.coveredCredits], ['3.000000000000', '2.000000000000']);
     assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [race])).rows[0].balance, 0);
-    assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [race])).rows[0].debt, 2);
+    assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [race])).rows[0].debt, 0);
+    assert.equal(await bufferNow(), before - 2);
+    assert.equal((await db.query('SELECT charged_credits::text value FROM public.decke_ai_request WHERE id=$1', [request])).rows[0].value, '3.000000000000');
+    const replay = await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [request]));
+    assert.deepEqual([replay.credits, replay.coveredCredits], ['3.000000000000', '2.000000000000']);
+    assert.equal(await bufferNow(), before - 2, 'a replayed settlement never covers twice');
   });
 
   await test('wallet read recovers a stale reservation after fifteen minutes using known cost', async () => {
@@ -348,58 +358,88 @@ try {
     await rejects(server(ten, (c) => c.query('SELECT public.decke_metered_begin($1)', [other])), '42501');
   });
 
-  await test('a fractional overrun is owed as debt, never a negative balance, and never rounded up', async () => {
+  await test('a fractional overrun is covered, never owed, and a fraction never outlives an emptied wallet', async () => {
     await wallet(race, 3);
+    const before = await bufferNow();
     const request = await beginRequest(race, 'paid', 'fraction'); await meteredBegin(race, request);
     await operation(race, request, 'chat_turn', '0.035');
     const settled = await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [request]));
-    assert.equal(settled.credits, '3.500000000000');
-    assert.equal(Number(settled.balance), 0);
+    assert.deepEqual([settled.credits, settled.coveredCredits, Number(settled.balance)], ['3.000000000000', '0.500000000000', 0]);
     const read = await walletRead(race);
-    assert.equal(Number(read.balance), 0);
-    assert.equal(read.debt, 0.5);
-    assert.equal(await carryOf(race), '0.500000000000');
+    assert.deepEqual([Number(read.balance), read.debt], [0, 0]);
+    assert.equal(await carryOf(race), '0.000000000000');
+    assert.equal(await bufferNow(), before - 0.5);
     const refused = await meteredBegin(race, await beginRequest(race, 'paid', 'fraction-next'));
-    assert.deepEqual([refused.allowed, refused.reason, refused.debt, Number(refused.balance)], [false, 'debt', 0.5, 0]);
+    assert.deepEqual([refused.allowed, refused.reason], [false, 'insufficient']);
     await db.query("SELECT public.credit_apply_delta($1,10,'grant','Metered fixture','metered-fraction-topup')", [race]);
     const topped = await walletRead(race);
-    assert.deepEqual([topped.balance, topped.debt], ['9.500000000000', 0]);
+    assert.deepEqual([topped.balance, topped.debt], ['10.000000000000', 0]);
   });
 
-  await test('prior carry: the hold covers it, and whole plus fractional overrun both become debt', async () => {
+  await test('prior carry: the wallet pays exactly what it had, the buffer the rest, and the statement shows the payment', async () => {
     await wallet(race, 4, '0.5');
-    const covered = await beginRequest(race, 'paid', 'carry-covered');
-    const begun = await meteredBegin(race, covered);
+    const before = await bufferNow();
+    const exact = await beginRequest(race, 'paid', 'carry-covered');
+    const begun = await meteredBegin(race, exact);
     assert.deepEqual([begun.heldCredits, begun.capCredits, Number(begun.balance)], [4, '3.500000000000', 0]);
-    await operation(race, covered, 'chat_turn', '0.036');
-    await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [covered]));
+    await operation(race, exact, 'chat_turn', '0.036');
+    const first = await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [exact]));
+    assert.deepEqual([first.credits, first.coveredCredits], ['3.500000000000', '0.100000000000']);
     let read = await walletRead(race);
-    assert.deepEqual([Number(read.balance), read.debt], [0, 0.1]);
+    assert.deepEqual([Number(read.balance), read.debt], [0, 0]);
     await wallet(race, 5, '0.5');
     const over = await beginRequest(race, 'paid', 'carry-over'); await meteredBegin(race, over);
     await operation(race, over, 'chat_turn', '0.062');
     const settled = await server(race, (c) => value(c, "SELECT public.decke_metered_settle($1,'completed') data", [over]));
-    assert.equal(settled.credits, '6.200000000000');
-    assert.equal(Number(settled.balance), 0);
-    assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [race])).rows[0].debt, 1);
+    assert.deepEqual([settled.credits, settled.coveredCredits, Number(settled.balance)], ['4.500000000000', '1.700000000000', 0]);
+    assert.equal((await db.query('SELECT debt FROM public.credit_wallet_control WHERE user_id=$1', [race])).rows[0].debt, 0);
     read = await walletRead(race);
-    assert.deepEqual([Number(read.balance), read.debt], [0, 1.7]);
-    assert.equal(await carryOf(race), '0.700000000000');
+    assert.deepEqual([Number(read.balance), read.debt], [0, 0]);
+    assert.equal(await carryOf(race), '0.000000000000');
+    assert.equal(Math.round((before - await bufferNow()) * 1e6) / 1e6, 1.8);
+    const statement = await session(race, (c) => value(c, 'SELECT public.credit_events_read(NULL,10,0) data'));
+    const line = statement.events.find((event) => event.id === over);
+    assert.equal(Number(line.delta), -4.5, 'the statement shows what the reader paid, not what DeckPal covered');
   });
 
-  await test('the import-fix path shares the carry and the same owed-not-negative invariant', async () => {
+  await test('the import-fix path shares the carry and the same covered-never-owed rule', async () => {
     await wallet(ten, 1, '0.9');
+    const before = await bufferNow();
     const charged = await server(ten, async (c) => {
       const start = await value(c, 'SELECT public.decke_import_fix_begin($1,$2,$3,$4,$5,$6) data',
         [120, 'import_fix:metered-fraction', hash('b'), 'fixture-model', 'fixture', 233]);
       return value(c, 'SELECT public.decke_import_fix_finish($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) data',
         [start.requestId, start.operationId, 'completed', 1000, 100, 0, 0, 0, '0.005', 'provider_reported', 'fixture-fraction']);
     });
-    assert.equal(Number(charged.credits), 0.5);
+    assert.deepEqual([Number(charged.credits), Number(charged.coveredCredits)], [0.1, 0.4]);
     assert.equal((await db.query('SELECT balance FROM public.decke_credit_balance WHERE user_id=$1', [ten])).rows[0].balance, 0);
     const read = await walletRead(ten);
-    assert.deepEqual([Number(read.balance), read.debt], [0, 0.4]);
-    assert.equal(await carryOf(ten), '0.400000000000');
+    assert.deepEqual([Number(read.balance), read.debt], [0, 0]);
+    assert.equal(await carryOf(ten), '0.000000000000');
+    assert.equal(Math.round((before - await bufferNow()) * 1e6) / 1e6, 0.4);
+  });
+
+  await test('admin reporting: holds are not spending, the buffer is visible, and web roles cannot touch it', async () => {
+    const events = (await db.query("SELECT coalesce(sum(-delta),0)::numeric covered FROM public.credit_overage_buffer_event WHERE kind='overage'")).rows[0].covered;
+    assert.equal((await db.query('SELECT (2000-balance)=$1::numeric same FROM public.credit_overage_buffer', [events])).rows[0].same, true,
+      'every covered credit is one buffer event');
+    const summary = await session(owner, (c) => value(c, 'SELECT public.credit_admin_summary(7) data'));
+    const settledCharged = Number((await db.query('SELECT sum(credits-covered_credits) n FROM public.decke_metered_settlement')).rows[0].n);
+    const plainSpent = Number((await db.query(`SELECT coalesce(sum(-delta),0) n FROM public.decke_credit_event
+      WHERE delta<0 AND (ref IS NULL OR (ref NOT LIKE 'metered-%' AND ref NOT LIKE 'import-fix-%'))`)).rows[0].n);
+    assert.equal(Math.round(Number(summary.creditsSpent) * 1e6), Math.round((settledCharged + plainSpent) * 1e6));
+    assert.equal(Number(summary.overageCoveredCredits), Number(events));
+    assert.equal(Number(summary.overageBufferCredits), await bufferNow());
+    assert.ok(Number(summary.providerCostUsd) > 0);
+    const settings = await session(owner, (c) => value(c, 'SELECT public.credit_policy_admin_read() data'));
+    assert.equal(Number(settings.overageBuffer.balance), await bufferNow());
+    assert.equal(Number(settings.overageBuffer.coveredTotal), Number(events));
+    for (const table of ['credit_overage_buffer', 'credit_overage_buffer_event']) {
+      for (const role of ['anon', 'authenticated']) {
+        assert.equal((await db.query('SELECT has_table_privilege($1,$2,$3) allowed', [role, `public.${table}`, 'SELECT'])).rows[0].allowed, false);
+      }
+    }
+    await rejects(session(spare, (c) => c.query("SELECT public.credit_overage_cover($1,1,'forged',NULL)", [spare])), '42501');
   });
 
   results.status = 'passed';

@@ -61,14 +61,21 @@ export async function beginExternalUsage(tool:string,model:string,provider:strin
   try{await tracked(request,work);}catch{console.error('[deck-e] external usage finalization unavailable',request.id,tool);}
  };
 }
-export interface MeteredSettlement {credits:string;wholeCredits:number;knownCostUsd:string;coverage:'complete'|'partial'|'unknown';balance:string|null}
+export interface MeteredSettlement {credits:string;wholeCredits:number;knownCostUsd:string;coverage:'complete'|'partial'|'unknown';coveredCredits?:string;balance:string|null}
 export async function finishAiRequest(request:AiRequest,status:'completed'|'failed'|'cancelled',credits?:number):Promise<MeteredSettlement|undefined> {
  await Promise.allSettled([...request.pending]);
  const finalStatus=request.signal?.aborted?'cancelled':request.failed?'failed':status;
  try {
-  if(request.meteredStarted){
-   const {rows}=await request.db.query('SELECT public.decke_metered_settle($1,$2) AS data',[request.id,finalStatus]);
-   return rows[0]?.data as MeteredSettlement|undefined;
+  // A metered request settles even when admission looked like it failed: if the
+  // begin committed and only its reply was lost, the hold exists and must be
+  // released. Only "no reservation" (P0002) falls through to the plain finish.
+  if(request.meteredStarted||request.metered){
+   try{
+    const {rows}=await request.db.query('SELECT public.decke_metered_settle($1,$2) AS data',[request.id,finalStatus]);
+    return rows[0]?.data as MeteredSettlement|undefined;
+   }catch(error){
+    if(request.meteredStarted||(error as {code?:string}).code!=='P0002')throw error;
+   }
   }
   await request.db.query("UPDATE public.decke_ai_request SET status=$2,finished_at=now(),charged_credits=coalesce((SELECT sum(s.credits)::integer FROM public.credit_spend s WHERE s.user_id=decke_ai_request.user_id AND (s.request_key=decke_ai_request.request_key OR starts_with(s.request_key,decke_ai_request.request_key||':deep:')) AND s.refunded_at IS NULL),$3) WHERE id=$1 AND status='started'",
    [request.id,finalStatus,credits??null]);

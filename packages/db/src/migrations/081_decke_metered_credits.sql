@@ -28,8 +28,31 @@ CREATE TABLE public.decke_metered_settlement (
   unknown_operations integer NOT NULL CHECK (unknown_operations>=0),
   coverage text NOT NULL CHECK (coverage IN ('complete','partial','unknown')),
   status text NOT NULL CHECK (status IN ('completed','failed','cancelled','abandoned')),
+  covered_credits numeric(24,12) NOT NULL DEFAULT 0 CHECK (covered_credits>=0),
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- A reply that runs past what the wallet can pay is finished anyway and the
+-- difference comes out of DeckPal's overage buffer: users are never billed for
+-- an overshoot. Inflows (expired credits, contributions) arrive in later work
+-- and stop at the policy's overageBufferMaxCredits; an overshoot is covered
+-- even when the buffer is empty, which then shows as a negative balance.
+CREATE TABLE public.credit_overage_buffer (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  balance numeric(24,12) NOT NULL DEFAULT 0,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE public.credit_overage_buffer_event (
+  id bigserial PRIMARY KEY,
+  kind text NOT NULL CHECK (kind IN ('seed','overage','expiry','contribution','adjust')),
+  delta numeric(24,12) NOT NULL,
+  user_id text,
+  request_id uuid,
+  ref text NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX credit_overage_buffer_event_created ON public.credit_overage_buffer_event(created_at);
+ALTER TABLE public.credit_overage_buffer ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.credit_overage_buffer_event ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.decke_metered_credit ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.decke_metered_reservation ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.decke_metered_settlement ENABLE ROW LEVEL SECURITY;
@@ -49,12 +72,12 @@ DECLARE k text; e jsonb; n numeric; v2 boolean;
 BEGIN
  v2=jsonb_typeof(p)='object' AND p->>'version'='2';
  IF v2 THEN
-  IF p-ARRAY['version','enabled','microUsdPerCredit','markupBps','lowBalance','legHoldCredits','legHoldMinCredits']<>'{}'::jsonb
-    OR NOT p ?& ARRAY['version','enabled','microUsdPerCredit','markupBps','lowBalance','legHoldCredits','legHoldMinCredits']
+  IF p-ARRAY['version','enabled','microUsdPerCredit','markupBps','lowBalance','legHoldCredits','legHoldMinCredits','overageBufferMaxCredits']<>'{}'::jsonb
+    OR NOT p ?& ARRAY['version','enabled','microUsdPerCredit','markupBps','lowBalance','legHoldCredits','legHoldMinCredits','overageBufferMaxCredits']
     OR jsonb_typeof(p->'version')<>'number' OR jsonb_typeof(p->'enabled')<>'boolean' THEN
    RAISE EXCEPTION 'Invalid credit policy' USING ERRCODE='22023';
   END IF;
-  FOREACH k IN ARRAY ARRAY['microUsdPerCredit','markupBps','lowBalance','legHoldCredits','legHoldMinCredits'] LOOP
+  FOREACH k IN ARRAY ARRAY['microUsdPerCredit','markupBps','lowBalance','legHoldCredits','legHoldMinCredits','overageBufferMaxCredits'] LOOP
    IF jsonb_typeof(p->k)<>'number' OR (p->>k)!~'^[0-9]+$' THEN
     RAISE EXCEPTION 'Invalid integer policy field: %',k USING ERRCODE='22023';
    END IF;
@@ -64,7 +87,8 @@ BEGIN
     OR (p->>'lowBalance')::numeric NOT BETWEEN 0 AND 1000000
     OR (p->>'legHoldMinCredits')::numeric<1
     OR (p->>'legHoldMinCredits')::numeric>(p->>'legHoldCredits')::numeric
-    OR (p->>'legHoldCredits')::numeric>10000 THEN
+    OR (p->>'legHoldCredits')::numeric>10000
+    OR (p->>'overageBufferMaxCredits')::numeric>10000000 THEN
    RAISE EXCEPTION 'Credit policy out of range' USING ERRCODE='22023';
   END IF;
   RETURN;
@@ -114,7 +138,7 @@ BEGIN
  IF EXISTS(SELECT 1 FROM public.credit_policy_current) THEN RETURN; END IF;
  INSERT INTO public.credit_policy_revision(policy) VALUES(jsonb_build_object(
   'version',2,'enabled',p_enabled,'microUsdPerCredit',10000,'markupBps',0,'lowBalance',100,
-  'legHoldCredits',25,'legHoldMinCredits',3)) RETURNING revision INTO r;
+  'legHoldCredits',25,'legHoldMinCredits',3,'overageBufferMaxCredits',2000)) RETURNING revision INTO r;
  INSERT INTO public.credit_policy_current VALUES(true,r);
 END $$;
 
@@ -132,11 +156,16 @@ BEGIN
    'markupBps',(old_policy->>'markupBps')::integer,
    'lowBalance',(old_policy->>'lowBalance')::integer,
    'legHoldCredits',25,
-   'legHoldMinCredits',3
+   'legHoldMinCredits',3,
+   'overageBufferMaxCredits',2000
   )) RETURNING revision INTO next_revision;
   UPDATE public.credit_policy_current SET revision=next_revision WHERE singleton;
  END IF;
 END $policy_upgrade$;
+
+-- The buffer starts full at the default maximum ($20 at 1 credit = 1 cent).
+INSERT INTO public.credit_overage_buffer(singleton,balance) VALUES(true,2000);
+INSERT INTO public.credit_overage_buffer_event(kind,delta,ref) VALUES('seed',2000,'seed:081');
 
 CREATE FUNCTION public.decke_metered_actor(p_require_active boolean DEFAULT true) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -194,15 +223,25 @@ END $$;
 
 -- The carry is a fraction of a credit already used but not yet taken from the
 -- whole-credit balance. While the balance covers it, the spendable balance is
--- balance minus carry; once an overrun has emptied the balance, the uncovered
--- fraction is owed like any other debt instead of showing a negative wallet.
--- It is never rounded up: the next whole credit that arrives settles it.
+-- balance minus carry. Settlement never leaves a carry the balance cannot
+-- cover (the overage buffer takes it), so the floor only guards the refund
+-- clawback path, where a reversed purchase can empty the balance under a carry.
 CREATE FUNCTION public.decke_metered_spendable(p_balance integer,p_carry numeric) RETURNS numeric
 LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
  SELECT round(greatest(0::numeric,coalesce(p_balance,0)-coalesce(p_carry,0)),12) $$;
-CREATE FUNCTION public.decke_metered_owed(p_debt integer,p_balance integer,p_carry numeric) RETURNS numeric
-LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
- SELECT trim_scale(coalesce(p_debt,0)+greatest(0::numeric,coalesce(p_carry,0)-coalesce(p_balance,0))) $$;
+
+-- Draw an overshoot from the buffer. Idempotent per ref, so a replayed
+-- settlement never covers twice; the buffer may go below zero (see above).
+CREATE FUNCTION public.credit_overage_cover(p_user text,p_credits numeric,p_ref text,p_request uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF p_credits IS NULL OR p_credits<=0 THEN RETURN; END IF;
+ INSERT INTO public.credit_overage_buffer_event(kind,delta,user_id,request_id,ref)
+  VALUES('overage',-p_credits,p_user,p_request,p_ref) ON CONFLICT(ref) DO NOTHING;
+ IF FOUND THEN
+  UPDATE public.credit_overage_buffer SET balance=balance-p_credits,updated_at=now() WHERE singleton;
+ END IF;
+END $$;
 
 CREATE FUNCTION public.decke_metered_begin(p_request uuid) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -267,10 +306,9 @@ BEGIN
   RETURN jsonb_build_object('allowed',false,'mode','paid','reason','payment_hold',
    'balance',public.decke_metered_spendable(balance_now,carry)::text);
  END IF;
- IF debt_now>0 OR carry>balance_now THEN
+ IF debt_now>0 THEN
   RETURN jsonb_build_object('allowed',false,'mode','paid','reason','debt',
-   'balance',public.decke_metered_spendable(balance_now,carry)::text,
-   'debt',public.decke_metered_owed(debt_now,balance_now,carry));
+   'balance',public.decke_metered_spendable(balance_now,carry)::text,'debt',debt_now);
  END IF;
  IF available<(policy->>'legHoldMinCredits')::integer THEN
   RETURN jsonb_build_object('allowed',false,'mode','paid','reason','insufficient',
@@ -419,6 +457,7 @@ DECLARE r public.decke_ai_request; reservation public.decke_metered_reservation;
  known_usd numeric(24,12):=0; amount numeric(24,12):=0; carried numeric(20,12):=0;
  whole integer:=0; operation_count integer:=0; unknown_count integer:=0;
  coverage text; balance_now integer; final_balance numeric(24,12);
+ payable integer:=0; paid integer:=0; next_carry numeric(20,12):=0; covered numeric(24,12):=0;
 BEGIN
  IF p_status NOT IN ('completed','failed','cancelled','abandoned') THEN
   RAISE EXCEPTION 'Invalid metered settlement' USING ERRCODE='22023';
@@ -432,14 +471,17 @@ BEGIN
    INTO final_balance FROM (SELECT 1) x
    LEFT JOIN public.decke_credit_balance b ON b.user_id::text=r.user_id
    LEFT JOIN public.decke_metered_credit c ON c.user_id=r.user_id;
-  RETURN jsonb_build_object('credits',settled.credits::text,
+  RETURN jsonb_build_object('credits',(settled.credits-settled.covered_credits)::text,
    'wholeCredits',settled.whole_credits,'knownCostUsd',settled.known_cost_usd::text,
-   'coverage',settled.coverage,'balance',final_balance::text);
+   'coverage',settled.coverage,'coveredCredits',settled.covered_credits::text,
+   'balance',final_balance::text);
  END IF;
  IF r.status<>'started' THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
  SELECT * INTO reservation FROM public.decke_metered_reservation
   WHERE request_id=p_request AND user_id=r.user_id FOR UPDATE;
- IF NOT FOUND THEN RAISE EXCEPTION 'Metered reservation unavailable' USING ERRCODE='42501'; END IF;
+ -- P0002, not 42501: the API reads it as "this request never reserved" and
+ -- finishes it plainly (a refused admission), anything else it must settle.
+ IF NOT FOUND THEN RAISE EXCEPTION 'Metered reservation unavailable' USING ERRCODE='P0002'; END IF;
  SELECT count(*)::integer,count(*) FILTER(WHERE cost_usd IS NULL)::integer,coalesce(sum(cost_usd),0)
   INTO operation_count,unknown_count,known_usd
   FROM public.decke_ai_operation WHERE request_id=p_request;
@@ -455,31 +497,40 @@ BEGIN
     /((policy->>'microUsdPerCredit')::numeric*10000),12);
   INSERT INTO public.credit_wallet_control(user_id) VALUES(r.user_id) ON CONFLICT DO NOTHING;
   PERFORM 1 FROM public.credit_wallet_control WHERE user_id=r.user_id FOR UPDATE;
-  PERFORM 1 FROM public.decke_credit_balance WHERE user_id::text=r.user_id FOR UPDATE;
+  SELECT balance INTO balance_now FROM public.decke_credit_balance WHERE user_id::text=r.user_id FOR UPDATE;
   INSERT INTO public.decke_metered_credit(user_id) VALUES(r.user_id) ON CONFLICT DO NOTHING;
   SELECT fractional_credits INTO carried FROM public.decke_metered_credit WHERE user_id=r.user_id FOR UPDATE;
   whole=floor(carried+amount)::integer;
-  UPDATE public.decke_metered_credit SET fractional_credits=carried+amount-whole WHERE user_id=r.user_id;
-  IF whole<reservation.held_credits THEN
-   PERFORM public.credit_apply_delta(r.user_id,reservation.held_credits-whole,'grant','Unused Deck-E chat hold',
+  -- The wallet pays what it can: the hold plus whatever is left beside it.
+  -- Anything past that, and a fraction that would outlive an emptied wallet,
+  -- is covered by the overage buffer rather than becoming debt.
+  payable=reservation.held_credits+coalesce(balance_now,0);
+  paid=least(whole,payable);
+  covered=whole-paid;
+  next_carry=carried+amount-whole;
+  IF paid=payable AND next_carry>0 THEN covered=covered+next_carry; next_carry=0; END IF;
+  UPDATE public.decke_metered_credit SET fractional_credits=next_carry WHERE user_id=r.user_id;
+  IF paid<reservation.held_credits THEN
+   PERFORM public.credit_apply_delta(r.user_id,reservation.held_credits-paid,'grant','Unused Deck-E chat hold',
     'metered-release:'||p_request::text,r.pricing_revision,
     jsonb_build_object('costUsd',known_usd,'credits',amount,'coverage',coverage));
-  ELSIF whole>reservation.held_credits THEN
-   PERFORM public.credit_apply_delta(r.user_id,reservation.held_credits-whole,'spend','Deck-E chat excess',
+  ELSIF paid>reservation.held_credits THEN
+   PERFORM public.credit_apply_delta(r.user_id,reservation.held_credits-paid,'spend','Deck-E chat excess',
     'metered-excess:'||p_request::text,r.pricing_revision,
     jsonb_build_object('costUsd',known_usd,'credits',amount,'coverage',coverage));
   END IF;
+  PERFORM public.credit_overage_cover(r.user_id,covered,'metered:'||p_request::text,p_request);
  END IF;
  INSERT INTO public.decke_metered_settlement(
-  request_id,user_id,known_cost_usd,credits,whole_credits,unknown_operations,coverage,status
- ) VALUES(p_request,r.user_id,known_usd,amount,whole,unknown_count,coverage,p_status);
- UPDATE public.decke_ai_request SET status=p_status,finished_at=now(),charged_credits=amount WHERE id=p_request;
+  request_id,user_id,known_cost_usd,credits,whole_credits,unknown_operations,coverage,status,covered_credits
+ ) VALUES(p_request,r.user_id,known_usd,amount,paid,unknown_count,coverage,p_status,covered);
+ UPDATE public.decke_ai_request SET status=p_status,finished_at=now(),charged_credits=amount-covered WHERE id=p_request;
  SELECT public.decke_metered_spendable(b.balance,c.fractional_credits)
   INTO final_balance FROM (SELECT 1) x
   LEFT JOIN public.decke_credit_balance b ON b.user_id::text=r.user_id
   LEFT JOIN public.decke_metered_credit c ON c.user_id=r.user_id;
- RETURN jsonb_build_object('credits',amount::text,'wholeCredits',whole,
-  'knownCostUsd',known_usd::text,'coverage',coverage,
+ RETURN jsonb_build_object('credits',(amount-covered)::text,'wholeCredits',paid,
+  'knownCostUsd',known_usd::text,'coverage',coverage,'coveredCredits',covered::text,
   'balance',final_balance::text);
 END $$;
 
@@ -579,7 +630,7 @@ BEGIN
     SELECT 1 FROM public.decke_import_fix_settlement s WHERE s.request_id=h.request_id)
  ) holds;
  RETURN jsonb_build_object('balance',public.decke_metered_spendable(b,carry)::text,
-  'heldCredits',open_holds,'debt',public.decke_metered_owed(d,b,carry),'purchaseHold',payment_hold);
+  'heldCredits',open_holds,'debt',coalesce(d,0),'purchaseHold',payment_hold);
 END $$;
 
 CREATE OR REPLACE FUNCTION public.credit_events_read(p_user text,p_limit integer,p_offset integer) RETURNS jsonb
@@ -602,7 +653,7 @@ BEGIN
    (e.ref NOT LIKE 'metered-reserve:%' AND e.ref NOT LIKE 'metered-release:%'
     AND e.ref NOT LIKE 'metered-excess:%'))
   UNION ALL
-  SELECT s.request_id::text,-s.credits,'spend'::text,'Deck-E chat'::text,s.created_at,
+  SELECT s.request_id::text,-(s.credits-s.covered_credits),'spend'::text,'Deck-E chat'::text,s.created_at,
    r.pricing_revision,
    CASE WHEN can_see_policy THEN public.credit_effective_policy(r.user_id,r.pricing_revision,r.override_revision) ELSE NULL END,
    0
@@ -625,6 +676,7 @@ CREATE OR REPLACE FUNCTION public.decke_import_fix_finish(p_request uuid,p_opera
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE actor text; claims jsonb; r public.decke_ai_request; price_policy jsonb;
  amount numeric(24,12):=0; carried numeric(20,12); whole integer:=0; held integer;
+ balance_now integer; paid integer:=0; next_carry numeric(20,12):=0; covered numeric(24,12):=0;
 BEGIN
  claims=coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb,'{}'::jsonb);
  actor=public.admin_actor_id();
@@ -658,7 +710,7 @@ BEGIN
  IF r.charge_mode='paid' THEN
   INSERT INTO public.credit_wallet_control(user_id) VALUES(actor) ON CONFLICT DO NOTHING;
   PERFORM 1 FROM public.credit_wallet_control WHERE user_id=actor FOR UPDATE;
-  PERFORM 1 FROM public.decke_credit_balance WHERE user_id::text=actor FOR UPDATE;
+  SELECT balance INTO balance_now FROM public.decke_credit_balance WHERE user_id::text=actor FOR UPDATE;
   price_policy=public.credit_effective_policy(actor,r.pricing_revision,r.override_revision)->'policy';
   IF p_usd IS NOT NULL THEN
    amount=round(p_usd*1000000*(10000+(price_policy->>'markupBps')::numeric)
@@ -667,21 +719,28 @@ BEGIN
   INSERT INTO public.decke_metered_credit(user_id) VALUES(actor) ON CONFLICT DO NOTHING;
   SELECT fractional_credits INTO carried FROM public.decke_metered_credit WHERE user_id=actor FOR UPDATE;
   whole=floor(carried+amount)::integer;
-  UPDATE public.decke_metered_credit SET fractional_credits=carried+amount-whole WHERE user_id=actor;
-  IF whole<held THEN
-   PERFORM public.credit_apply_delta(actor,held-whole,'grant','Unused Deck-E import fix hold',
+  -- Same rule as chat settlement: the wallet pays what it can, the overage
+  -- buffer covers the rest, and nothing becomes debt.
+  paid=least(whole,held+coalesce(balance_now,0));
+  covered=whole-paid;
+  next_carry=carried+amount-whole;
+  IF paid=held+coalesce(balance_now,0) AND next_carry>0 THEN covered=covered+next_carry; next_carry=0; END IF;
+  UPDATE public.decke_metered_credit SET fractional_credits=next_carry WHERE user_id=actor;
+  IF paid<held THEN
+   PERFORM public.credit_apply_delta(actor,held-paid,'grant','Unused Deck-E import fix hold',
     'import-fix-release:'||p_request::text,r.pricing_revision,
     jsonb_build_object('costUsd',p_usd,'credits',amount,'operation','importFix'));
-  ELSIF whole>held THEN
-   PERFORM public.credit_apply_delta(actor,held-whole,'spend','Deck-E import fix excess',
+  ELSIF paid>held THEN
+   PERFORM public.credit_apply_delta(actor,held-paid,'spend','Deck-E import fix excess',
     'import-fix-excess:'||p_request::text,r.pricing_revision,
     jsonb_build_object('costUsd',p_usd,'credits',amount,'operation','importFix'));
   END IF;
+  PERFORM public.credit_overage_cover(actor,covered,'import-fix:'||p_request::text,p_request);
  END IF;
  INSERT INTO public.decke_import_fix_settlement(request_id,user_id,cost_usd,credits,whole_credits)
-  VALUES(p_request,actor,p_usd,amount,whole);
- UPDATE public.decke_ai_request SET status=p_status,finished_at=now(),charged_credits=amount WHERE id=p_request;
- RETURN jsonb_build_object('credits',amount,'wholeCredits',whole,'duplicate',false);
+  VALUES(p_request,actor,p_usd,amount-covered,paid);
+ UPDATE public.decke_ai_request SET status=p_status,finished_at=now(),charged_credits=amount-covered WHERE id=p_request;
+ RETURN jsonb_build_object('credits',amount-covered,'wholeCredits',paid,'coveredCredits',covered,'duplicate',false);
 END $$;
 
 CREATE OR REPLACE FUNCTION public.credit_spend_create_effective(
@@ -740,11 +799,55 @@ BEGIN
  RETURN result||jsonb_build_object('allowed',true,'spent',cost,'spendId',sid,'unlimited',mode='unlimited');
 END $$;
 
+-- Holds are plumbing: a reply's hold and its release are not spending. The
+-- summary counts what settled replies actually charged, what the overage
+-- buffer covered, and the provider cost DeckPal actually paid.
+CREATE OR REPLACE FUNCTION public.credit_admin_summary(p_days integer) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE result jsonb; since timestamptz;
+BEGIN
+ PERFORM public.admin_require_permission('credits.read');
+ IF p_days IS NULL OR p_days NOT IN (7,30,90) THEN RAISE EXCEPTION 'Choose 7, 30, or 90 days' USING ERRCODE='22023'; END IF;
+ since=now()-make_interval(days=>p_days);
+ SELECT jsonb_build_object('days',p_days,
+ 'creditsSpent',coalesce(sum(-delta) FILTER(WHERE delta<0),0),
+ 'creditsGranted',coalesce(sum(delta) FILTER(WHERE delta>0),0),
+ 'estimatedProviderMicroUsd',coalesce(sum((coalesce(pricing_snapshot->'policy',pricing_snapshot)->'estimatedMicroUsd'->>reason)::numeric) FILTER(WHERE kind='spend' AND reason IN ('chatTurn','analysis','planDeck')),0),
+ 'unpricedSpends',count(*) FILTER(WHERE kind='spend' AND (coalesce(pricing_snapshot->'policy',pricing_snapshot)->'estimatedMicroUsd'->>reason) IS NULL)) INTO result
+ FROM public.decke_credit_event WHERE created_at>=since
+  AND (ref IS NULL OR (ref NOT LIKE 'metered-%' AND ref NOT LIKE 'import-fix-%'));
+ RETURN jsonb_set(result,'{creditsSpent}',to_jsonb(trim_scale((result->>'creditsSpent')::numeric
+   +coalesce((SELECT sum(credits-covered_credits) FROM public.decke_metered_settlement WHERE created_at>=since),0))))
+ ||jsonb_build_object(
+ 'providerCostUsd',(SELECT trim_scale(coalesce(sum(known_cost_usd),0)) FROM public.decke_metered_settlement WHERE created_at>=since),
+ 'overageCoveredCredits',(SELECT trim_scale(coalesce(sum(-delta),0)) FROM public.credit_overage_buffer_event WHERE kind='overage' AND created_at>=since),
+ 'overageBufferCredits',(SELECT trim_scale(balance) FROM public.credit_overage_buffer WHERE singleton),
+ 'paidOrders',(SELECT count(*) FROM public.credit_order WHERE granted_at>=since),
+ 'grossSalesCents',(SELECT coalesce(sum(price_cents),0) FROM public.credit_order WHERE granted_at>=since),
+ 'refundedCents',(SELECT coalesce(sum(refunded_cents),0) FROM public.credit_order WHERE granted_at>=since),
+ 'pendingOrders',(SELECT count(*) FROM public.credit_order WHERE status='pending'),
+ 'heldWallets',(SELECT count(DISTINCT user_id) FROM public.credit_order WHERE pending_refund_cents>0 OR dispute_status IN ('needs_response','under_review','warning_needs_response','warning_under_review','lost')),
+ 'debtWallets',(SELECT count(*) FROM public.credit_wallet_control WHERE debt>0),
+ 'totalDebt',(SELECT coalesce(sum(debt),0) FROM public.credit_wallet_control));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.credit_policy_admin_read() RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ PERFORM public.admin_require_permission('credits.read');
+ RETURN public.credit_policy_read()||jsonb_build_object('overageBuffer',(
+  SELECT jsonb_build_object('balance',trim_scale(b.balance),
+   'coveredTotal',(SELECT trim_scale(coalesce(sum(-delta),0)) FROM public.credit_overage_buffer_event WHERE kind='overage'))
+  FROM public.credit_overage_buffer b WHERE b.singleton));
+END $$;
+
 -- Creation defaults in Supabase grant broadly. Close every new object and all
 -- replaced internals before restoring only the guarded application RPCs.
-REVOKE ALL ON public.decke_metered_credit,public.decke_metered_reservation,public.decke_metered_settlement FROM PUBLIC;
+REVOKE ALL ON public.decke_metered_credit,public.decke_metered_reservation,public.decke_metered_settlement,
+ public.credit_overage_buffer,public.credit_overage_buffer_event FROM PUBLIC;
+REVOKE ALL ON SEQUENCE public.credit_overage_buffer_event_id_seq FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.decke_metered_actor(boolean),public.decke_metered_authorize(text,boolean),public.decke_metered_spendable(integer,numeric),
- public.decke_metered_owed(integer,integer,numeric),public.decke_metered_known_credits(uuid),
+ public.credit_overage_cover(text,numeric,text,uuid),public.decke_metered_known_credits(uuid),
  public.decke_metered_begin(uuid),public.decke_metered_status(uuid),
  public.decke_metered_settle_core(uuid,text),public.decke_metered_settle(uuid,text),
  public.decke_metered_recover(text) FROM PUBLIC;
@@ -754,11 +857,12 @@ BEGIN
  FOREACH principal IN ARRAY ARRAY['anon','authenticated'] LOOP
   IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal) THEN CONTINUE; END IF;
   grantee_sql=quote_ident(principal);
-  EXECUTE format('REVOKE ALL ON public.decke_metered_credit,public.decke_metered_reservation,public.decke_metered_settlement FROM %s',grantee_sql);
+  EXECUTE format('REVOKE ALL ON public.decke_metered_credit,public.decke_metered_reservation,public.decke_metered_settlement,public.credit_overage_buffer,public.credit_overage_buffer_event FROM %s',grantee_sql);
+  EXECUTE format('REVOKE ALL ON SEQUENCE public.credit_overage_buffer_event_id_seq FROM %s',grantee_sql);
   FOREACH signature IN ARRAY ARRAY[
    'credit_validate_policy(jsonb)','credit_policy_initialize(boolean)',
    'decke_metered_actor(boolean)','decke_metered_authorize(text,boolean)','decke_metered_spendable(integer,numeric)',
-   'decke_metered_owed(integer,integer,numeric)','decke_metered_known_credits(uuid)',
+   'credit_overage_cover(text,numeric,text,uuid)','decke_metered_known_credits(uuid)',
    'decke_metered_begin(uuid)','decke_metered_status(uuid)',
    'decke_metered_settle_core(uuid,text)','decke_metered_settle(uuid,text)',
    'decke_metered_recover(text)','decke_usage_operation_begin(uuid,uuid,text,text,text,text,text,uuid)',

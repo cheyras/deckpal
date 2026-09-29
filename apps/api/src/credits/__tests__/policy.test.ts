@@ -24,7 +24,7 @@ test('economic configuration refuses unknown, unsafe, fractional, and overflowin
  assert.deepEqual(normalizePolicy(DEFAULT_POLICY),DEFAULT_POLICY);
 });
 test('stored policy normalization accepts only the exact legacy or metered shape',()=>{
- const metered:MeteredPolicy={version:2,enabled:true,microUsdPerCredit:10_000,markupBps:250,lowBalance:100,legHoldCredits:25,legHoldMinCredits:3};
+ const metered:MeteredPolicy={version:2,enabled:true,microUsdPerCredit:10_000,markupBps:250,lowBalance:100,legHoldCredits:25,legHoldMinCredits:3,overageBufferMaxCredits:2000};
  assert.deepEqual(normalizePolicy(metered),metered);
  assert.equal(isMetered(normalizePolicy(metered)),true);
  assert.equal(isMetered(normalizePolicy(DEFAULT_POLICY)),false);
@@ -35,12 +35,14 @@ test('stored policy normalization accepts only the exact legacy or metered shape
   {...metered,legHoldCredits:0},
   {...metered,legHoldCredits:10_001},
   {...metered,legHoldMinCredits:26},
+  {...metered,overageBufferMaxCredits:-1},
+  {...metered,overageBufferMaxCredits:10_000_001},
  ]) assert.throws(()=>normalizePolicy(invalid));
  assert.equal(chargeNoticeFor(metered),METERED_CHARGE_NOTICE);
  assert.equal(estimateNoticeFor(metered),METERED_ESTIMATE_NOTICE);
 });
 test('an admin update may edit fields but cannot switch the stored policy version',()=>{
- const metered:MeteredPolicy={version:2,enabled:true,microUsdPerCredit:10_000,markupBps:0,lowBalance:100,legHoldCredits:25,legHoldMinCredits:3};
+ const metered:MeteredPolicy={version:2,enabled:true,microUsdPerCredit:10_000,markupBps:0,lowBalance:100,legHoldCredits:25,legHoldMinCredits:3,overageBufferMaxCredits:2000};
  assert.deepEqual(normalizePolicyUpdate({...metered,legHoldCredits:30},metered),{...metered,legHoldCredits:30});
  assert.deepEqual(normalizePolicyUpdate({...DEFAULT_POLICY,lowBalance:50},DEFAULT_POLICY),{...DEFAULT_POLICY,lowBalance:50});
  assert.throws(()=>normalizePolicyUpdate(metered,DEFAULT_POLICY),/version must match/);

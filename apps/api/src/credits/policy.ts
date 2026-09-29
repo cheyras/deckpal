@@ -15,6 +15,7 @@ export interface MeteredPolicy {
   lowBalance: number;
   legHoldCredits: number;
   legHoldMinCredits: number;
+  overageBufferMaxCredits: number;
 }
 export type CreditPolicy = LegacyPolicy | MeteredPolicy;
 export interface PolicyRevision { policy: CreditPolicy; revision: number; updatedAt: string; unlimited?: boolean; overrideRevision?: number }
@@ -44,7 +45,7 @@ export function normalizePolicy(value: unknown): CreditPolicy {
     ? value as Record<string, unknown>
     : null;
   if (candidate?.version === 2) {
-    const p = object(value, ['version', 'enabled', 'microUsdPerCredit', 'markupBps', 'lowBalance', 'legHoldCredits', 'legHoldMinCredits'], 'policy');
+    const p = object(value, ['version', 'enabled', 'microUsdPerCredit', 'markupBps', 'lowBalance', 'legHoldCredits', 'legHoldMinCredits', 'overageBufferMaxCredits'], 'policy');
     if (typeof p.enabled !== 'boolean') throw badRequest('enabled must be a boolean');
     const policy: MeteredPolicy = {
       version: 2,
@@ -54,6 +55,7 @@ export function normalizePolicy(value: unknown): CreditPolicy {
       lowBalance: integer(p.lowBalance, 0, 1_000_000, 'lowBalance'),
       legHoldCredits: integer(p.legHoldCredits, 1, 10_000, 'legHoldCredits'),
       legHoldMinCredits: integer(p.legHoldMinCredits, 1, 10_000, 'legHoldMinCredits'),
+      overageBufferMaxCredits: integer(p.overageBufferMaxCredits, 0, 10_000_000, 'overageBufferMaxCredits'),
     };
     if (policy.legHoldMinCredits > policy.legHoldCredits) {
       throw badRequest('legHoldMinCredits cannot exceed legHoldCredits');

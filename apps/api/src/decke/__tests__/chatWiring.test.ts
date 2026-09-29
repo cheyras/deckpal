@@ -243,7 +243,7 @@ test('a credit refusal says whether the wallet is HELD, as a flag rather than pr
   // between "Top up credits" and "Open credit wallet". `httpNotice.ts` reads it.
   assert.match(
     SRC,
-    /credits: \{ balance: meter\.balance, needed: meter\.needed, held: meter\.held === true \}/,
+    /credits: \{ balance: meter\.balance == null \? meter\.balance : Number\(meter\.balance\), needed: meter\.needed, held: meter\.held === true \}/,
     'the 429 body no longer carries `held` — a held wallet will be told to top up',
   );
 });

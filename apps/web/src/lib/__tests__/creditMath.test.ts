@@ -27,9 +27,12 @@ test('wallet view model keeps flat prices and gives metered holds their actual-c
 })
 
 test('metered admin policy requires a whole-credit minimum no larger than its hold', () => {
-  const valid = { legHoldCredits: '25', legHoldMinCredits: '3', denomination: '0.01', markup: '25', lowBalance: '5' }
+  const valid = { legHoldCredits: '25', legHoldMinCredits: '3', denomination: '0.01', markup: '25', lowBalance: '5', overageBufferMaxCredits: '2000' }
   assert.equal(meteredPolicyValid(valid), true)
   assert.equal(meteredPolicyValid({ ...valid, legHoldMinCredits: '0' }), false)
   assert.equal(meteredPolicyValid({ ...valid, legHoldMinCredits: '26' }), false)
   assert.equal(meteredPolicyValid({ ...valid, legHoldCredits: '10001' }), false)
+  assert.equal(meteredPolicyValid({ ...valid, overageBufferMaxCredits: '0' }), true)
+  assert.equal(meteredPolicyValid({ ...valid, overageBufferMaxCredits: '10000001' }), false)
+  assert.equal(meteredPolicyValid({ ...valid, overageBufferMaxCredits: '-1' }), false)
 })

@@ -41,14 +41,14 @@ export function walletViewModel(wallet: { mode: 'flat' | 'metered'; holdCredits?
   if (wallet.mode === 'metered') return {
     mode: 'metered',
     usageTitle: 'How metered usage works',
-    usageDetail: `You pay what the AI model actually costs. Each reply briefly sets aside up to ${formatCreditDecimal(wallet.holdCredits ?? 0)} credits and returns what it didn't use.`,
+    usageDetail: `You pay what the AI model actually costs. Each reply briefly sets aside up to ${formatCreditDecimal(wallet.holdCredits ?? 0)} credits and returns what it didn't use. If a reply runs a little past what you have left, it still finishes and DeckPal covers the difference.`,
     heldDetail: wallet.heldCredits ? `${formatCreditDecimal(wallet.heldCredits)} credits currently set aside for an active reply.` : null,
   }
   return { mode: 'flat', usageTitle: 'Usage prices', usageDetail: '', heldDetail: null }
 }
 
-export function meteredPolicyValid(policy: { legHoldCredits: string; legHoldMinCredits: string; denomination: string; markup: string; lowBalance: string }): boolean {
+export function meteredPolicyValid(policy: { legHoldCredits: string; legHoldMinCredits: string; denomination: string; markup: string; lowBalance: string; overageBufferMaxCredits: string }): boolean {
   const hold = Number(policy.legHoldCredits), min = Number(policy.legHoldMinCredits)
   const denomination = decimalUnits(policy.denomination, 6), markup = decimalUnits(policy.markup, 2)
-  return /^\d+$/.test(policy.legHoldCredits) && /^\d+$/.test(policy.legHoldMinCredits) && Number.isSafeInteger(hold) && Number.isSafeInteger(min) && min >= 1 && min <= hold && hold <= 10_000 && denomination !== null && denomination > 0 && markup !== null && /^\d+$/.test(policy.lowBalance) && Number.isSafeInteger(Number(policy.lowBalance))
+  return /^\d+$/.test(policy.legHoldCredits) && /^\d+$/.test(policy.legHoldMinCredits) && Number.isSafeInteger(hold) && Number.isSafeInteger(min) && min >= 1 && min <= hold && hold <= 10_000 && denomination !== null && denomination > 0 && markup !== null && /^\d+$/.test(policy.lowBalance) && Number.isSafeInteger(Number(policy.lowBalance)) && /^\d+$/.test(policy.overageBufferMaxCredits) && Number(policy.overageBufferMaxCredits) <= 10_000_000
 }

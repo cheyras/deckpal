@@ -33,3 +33,23 @@ migrates after. Balances and statements show up to four decimals. Import-fix's
 separate fractional carry is folded into the one generic carry, so a user has a
 single sub-credit liability. The hold size and minimum are policy settings the
 owner can change in admin without a release.
+
+**Overshoot is never the reader's debt (owner ruling, same day).** The cap is
+checked before each model call, so the last call can carry a reply a few cents
+past what a small wallet has left. The first build turned that into debt; the
+owner rejected it: *"I don't want it to be like an 'owed' thing. Especially for
+1 or 2 cents, that's lame. I've never had an app tell me I owed on an overage."*
+Research agreed — consumer credit products (Lovable, Manus, Figma Make) let the
+crossing step finish and absorb it; only developer APIs (OpenAI, Anthropic)
+carry a negative balance into the next purchase. So the wallet pays what it
+can, and the rest — whole credits and any fraction left on an emptied wallet —
+comes out of an overage buffer that DeckPal keeps: 2,000 credits ($20) by
+default, seeded full, its maximum an admin setting. Exposure is small by
+construction: an overshoot needs a wallet below the hold, is at most one model
+call, and leaves the wallet at zero, below the 3-credit minimum, so the next
+overshoot needs a new top-up. The buffer is covered even when empty (it then
+reads negative, which is the owner's signal). Refund and dispute clawbacks
+still create debt; that is a payment reversal, not usage. The owner also wants
+unused credits to expire into the buffer up to its maximum, and contributions
+that fall short of Deck-E use to feed it; both wait for the pricing work that
+sets expiry periods and that threshold.

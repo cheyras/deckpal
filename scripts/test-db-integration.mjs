@@ -297,8 +297,8 @@ try {
     }
   }
   await reach('cloud');
-  // Metered credits apply 001-078, plant legacy policy/carry/request state,
-  // then apply 079 so upgrade behavior is exercised rather than only fresh DBs.
+  // Metered credits apply 001-080, plant legacy policy/carry/request state,
+  // then apply 081 so upgrade behavior is exercised rather than only fresh DBs.
   {
     assertNoEnvFile();
     await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c',

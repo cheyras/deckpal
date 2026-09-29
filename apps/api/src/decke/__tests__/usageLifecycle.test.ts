@@ -244,3 +244,22 @@ test('metered cap status is durable and then cached on the request',async()=>{
  assert.equal(await meteredCapReached(request),true);
  assert.equal(calls,1);
 });
+
+test('a metered request whose begin reply was lost still settles its hold; one that never reserved finishes plainly',async()=>{
+ const seen:string[]=[];
+ const committed={query:async(sql:string)=>{seen.push(sql);return {rows:[{data:{credits:'0.000000000000',wholeCredits:0,knownCostUsd:'0',coverage:'unknown',balance:'30.000000000000'}}]};}} as unknown as Queryable;
+ const lost:AiRequest={id:'00000000-0000-4000-8000-000000000099',db:committed,pending:new Set(),failed:false,metered:true,meteredStarted:false,capReached:false};
+ assert.equal((await finishAiRequest(lost,'failed'))?.balance,'30.000000000000');
+ assert.deepEqual(seen.map(sql=>sql.includes('decke_metered_settle')),[true]);
+
+ const plain:string[]=[];
+ const refused={query:async(sql:string)=>{
+  plain.push(sql);
+  if(sql.includes('decke_metered_settle'))throw Object.assign(new Error('Metered reservation unavailable'),{code:'P0002'});
+  return {rows:[]};
+ }} as unknown as Queryable;
+ const never:AiRequest={id:'00000000-0000-4000-8000-000000000098',db:refused,pending:new Set(),failed:false,metered:true,meteredStarted:false,capReached:false};
+ assert.equal(await finishAiRequest(never,'failed',0),undefined);
+ assert.equal(plain.length,2);
+ assert.match(plain[1]!,/^UPDATE public\.decke_ai_request/);
+});

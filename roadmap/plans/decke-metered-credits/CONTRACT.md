@@ -56,7 +56,7 @@ Entry points (exact names/signatures):
   Lock order governance → wallet control → balance (as 070/077).
   - request `charge_mode` `paid` + v2 frozen policy:
     `available = balance − carry`. Payment hold ⇒
-    `{allowed:false, mode:'paid', reason:'payment_hold', balance}`; debt, including a carry the balance no longer covers, ⇒
+    `{allowed:false, mode:'paid', reason:'payment_hold', balance}`; refund debt ⇒
     `{allowed:false, mode:'paid', reason:'debt', balance, debt}`; `available <
     legHoldMinCredits` ⇒ `{allowed:false, mode:'paid', reason:'insufficient', balance,
     needed: legHoldMinCredits}`. Else debit
@@ -79,12 +79,25 @@ Entry points (exact names/signatures):
   over ALL of the request's operations (chat steps, research, Jev); converts
   with the request's FROZEN policy + override revisions
   (`credit_effective_policy(user, revision, override)` — never current policy);
-  adds to the carry; retains whole credits from the hold, releases the rest;
-  cost beyond the hold goes through `credit_apply_delta` so an overrun becomes
-  debt, never a negative wallet. Operations without a cost count as unknown ⇒
+  adds to the carry; the wallet pays what it can (the hold plus any balance
+  beside it) and every unused held credit is released. **An overshoot is never
+  the reader's debt:** whole credits the wallet cannot pay, and a leftover
+  fraction when the wallet ends at zero, are covered by DeckPal's overage buffer
+  (`credit_overage_buffer`, one idempotent `overage` event per request). The
+  reply still finishes. Operations without a cost count as unknown ⇒
   coverage `partial`/`unknown`; unknown cost is never guessed. Writes
-  `charged_credits` (exact). Returns `{credits, wholeCredits, knownCostUsd,
-  coverage, balance}`.
+  `charged_credits` = what the reader paid (exact) and the settlement's
+  `covered_credits`. Returns `{credits (paid by the reader), wholeCredits,
+  knownCostUsd, coverage, coveredCredits, balance}`. A missing reservation
+  raises `P0002` so the API can tell "never reserved" from anything it must
+  settle.
+- **Overage buffer.** One row (`credit_overage_buffer.balance`) and an event
+  log (`seed`/`overage`/`expiry`/`contribution`/`adjust`). 081 seeds it at the
+  policy's `overageBufferMaxCredits` (default 2,000 = $20). Overshoots draw it
+  down and are covered even when it is empty (it then reads negative, which is
+  the signal to act). Inflows arrive later — expired credits and contributions
+  that do not reach Deck-E use — and stop at the maximum. Admin sees the
+  balance and the total covered.
 - `decke_metered_recover(p_user text) RETURNS integer` — settles reservations
   older than 15 minutes with no settlement as `abandoned` (known cost only);
   internal, invoked by `credit_wallet_read`, not granted to clients.
@@ -92,11 +105,14 @@ Entry points (exact names/signatures):
   `credit_quote_read` (v2: `{enabled, lowAt, mode:'metered', holdCredits,
   holdMinCredits, pricingRevision, unlimited, overrideRevision}`; v1 unchanged
   plus `mode:'flat'`), `credit_wallet_read` (recover first; `balance` exact
-  string = max(0, integer balance − carry); `debt` = whole debt plus any carry the balance no longer covers, a fraction owed rather than a negative balance and never rounded up; `heldCredits` = open holds; the same reading applies to every returned balance, since chat and import fixes share the carry),
+  string = max(0, integer balance − carry), the floor only mattering after a refund clawback; `debt` = refund/dispute debt only, never usage; `heldCredits` = open holds),
   `credit_events_read` (internal hold/release rows hidden; one "Deck-E chat"
   row per settled leg with its exact fractional delta),
   `decke_import_fix_finish` (use the generic carry; migrate existing
-  `decke_import_fix_credit` fractions into it so there is one liability).
+  `decke_import_fix_credit` fractions into it so there is one liability; the
+  same overage-buffer rule), `credit_admin_summary` (holds and releases are not
+  spending; adds settled charges, actual provider cost, buffer coverage and
+  balance) and `credit_policy_admin_read` (adds `overageBuffer`).
 - `credit_spend_create_effective` under a v2 frozen policy raises `22023`
   ("flat pricing retired") — nothing may call it once metered.
 
@@ -134,13 +150,14 @@ Entry points (exact names/signatures):
 - Chat: decimal `x-decke-credits`; refetch `/me/credits` when a reply
   finishes (headers are written before settlement).
 - Admin Settings: edits v2 fields (hold, minimum, rate, markup, low balance,
-  enabled) when the stored policy is v2; v1 editor unchanged otherwise.
+  overage buffer maximum, enabled) when the stored policy is v2, and shows the
+  buffer's balance and total covered; v1 editor unchanged otherwise.
 
 ## 4. Verification
 
 - SQL: real Postgres 16 (`~/pg16`, see the DB lane spec): begin race for the
   last credits, replayed begin/settle, chat+research+Jev sum, abort before and
-  after invocation, partial/unknown cost, overrun to debt, cap refusal
+  after invocation, partial/unknown cost, whole and fractional overshoot covered by the buffer (never debt), cap refusal
   (`DKCAP`), stale recovery, frozen revision, import-fix carry migration,
   grants/RLS, wallet/statement decimals, and v1 behaviour intact before 081.
 - The full `scripts/test-db-integration.mjs` run passes.
