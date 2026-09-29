@@ -96,14 +96,20 @@ function publicConsent(result: JsonObject): JsonObject {
   return { status: result.status, source: result.source };
 }
 
-function listFilters(query: Record<string, unknown>): JsonObject {
+export function listFilters(query: Record<string, unknown>): JsonObject {
   const filters: JsonObject = {};
   for (const [key, value] of Object.entries(query)) {
     if (key === 'cursor' || key === 'limit' || value === undefined || value === '') continue;
     if (!LIST_FILTERS.has(key) || typeof value !== 'string' || value.length > 160) throw invalid('Invalid improvement filter.');
     if ((key === 'from' || key === 'to') && !isUtcDay(value)) throw invalid(`${key} must be a YYYY-MM-DD UTC day.`);
-    if ((key === 'min_cost' || key === 'max_cost') && !/^\d+(?:\.\d{1,2})?$/.test(value)) {
-      throw invalid(`${key} must be a non-negative USD amount with at most 2 decimal places.`);
+    if (key === 'min_cost' || key === 'max_cost') {
+      if (!/^\d+(?:\.\d{1,2})?$/.test(value)) {
+        throw invalid(`${key} must be a non-negative USD amount with at most 2 decimal places.`);
+      }
+      const cost = Number(value);
+      if (!Number.isFinite(cost)) throw invalid(`${key} must be a finite USD amount.`);
+      filters[key] = cost;
+      continue;
     }
     if (key === 'has_error' && value !== 'true' && value !== 'false') throw invalid('has_error must be true or false.');
     if (key === 'vote' && value !== '-1' && value !== '1') throw invalid('vote must be -1 or 1.');

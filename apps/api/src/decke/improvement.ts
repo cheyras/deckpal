@@ -61,17 +61,16 @@ export async function canAskToShare(
 
 /** Identity is exposed only through the subject-checked database boundary. */
 export async function loadIdentityTerms(db: Queryable, userId: string): Promise<string[]> {
-  const { rows } = await db.query<{ terms: Array<string | null> | null }>(
+  const { rows } = await db.query<{ terms: RedactionIdentity | null }>(
     'SELECT public.decke_improvement_identity_terms($1) AS terms',
     [userId],
   )
-  const [username, displayName, email] = rows[0]?.terms ?? []
-  const identity: RedactionIdentity = {
-    username: username ?? null,
-    displayName: displayName ?? null,
-    email: email ?? null,
-  }
-  return redactionTerms(identity)
+  const identity = rows[0]?.terms
+  return redactionTerms({
+    username: identity?.username ?? null,
+    displayName: identity?.displayName ?? null,
+    email: identity?.email ?? null,
+  })
 }
 
 /** Preserve unknown provider prices; a missing cost is never converted to zero. */
@@ -142,7 +141,7 @@ export async function backfillShared(
 async function recordLegInner(db: Queryable, record: LegRecord): Promise<boolean> {
   if (!await isShared(db, record.userId, record.conversationId)) return false
   const terms = await loadIdentityTerms(db, record.userId)
-  const telemetry = await requestTelemetry(db, record.requestId)
+  const telemetry = await requestTelemetry(db, record.userId, record.requestId)
   const actualLeg = typeof telemetry.leg_no === 'number' ? telemetry.leg_no : record.leg
   const { leg_no: _legNo, ...fields } = telemetry
   const payload = boundPayload(redact({ ...record.payload, ...fields }, terms))
@@ -180,70 +179,21 @@ async function asWriter<T>(db: Queryable, userId: string, work: (client: Queryab
 }
 
 async function isShared(db: Queryable, userId: string, conversationId: string): Promise<boolean> {
-  const { rows } = await db.query<{ owner: unknown }>(
-    'SELECT public.decke_improvement_shared_owner($1,$2) AS owner',
+  const { rows } = await db.query<{ shared: boolean }>(
+    'SELECT public.decke_improvement_is_shared($1,$2) AS shared',
     [userId, conversationId],
   )
-  return rows[0]?.owner != null
+  return rows[0]?.shared === true
 }
 
-async function requestTelemetry(db: Queryable, requestId: string): Promise<Record<string, unknown>> {
-  const requestResult = await db.query<{
-    started_at: Date | string
-    finished_at: Date | string | null
-    status: string
-    build_sha: string | null
-    build_pr: number | null
-    leg_no: number
-  }>(
-    `SELECT r.started_at, r.finished_at, r.status, r.build_sha, r.build_pr,
-            (SELECT count(*)::integer - 1 FROM public.decke_ai_request prior
-              WHERE prior.user_id = r.user_id AND prior.conversation_id = r.conversation_id
-                AND prior.seq = r.seq AND (prior.started_at, prior.id) <= (r.started_at, r.id)) AS leg_no
-       FROM public.decke_ai_request r WHERE r.id = $1`,
-    [requestId],
+async function requestTelemetry(db: Queryable, userId: string, requestId: string): Promise<Record<string, unknown>> {
+  const { rows } = await db.query<{ data: Record<string, unknown> | null }>(
+    'SELECT public.decke_improvement_request_telemetry($1,$2) AS data',
+    [userId, requestId],
   )
-  const operationResult = await db.query<{
-    model_id: string
-    provider: string
-    input_tokens: string | number | null
-    output_tokens: string | number | null
-    cache_read_tokens: string | number | null
-    cache_write_tokens: string | number | null
-    reasoning_tokens: string | number | null
-    cost_usd: string | number | null
-    cost_source: string
-  }>(
-    `SELECT model_id, provider, input_tokens, output_tokens, cache_read_tokens,
-            cache_write_tokens, reasoning_tokens, cost_usd, cost_source
-       FROM public.decke_ai_operation WHERE request_id = $1 ORDER BY started_at, id`,
-    [requestId],
-  )
-  const request = requestResult.rows[0]
-  if (!request) throw new Error('request_unavailable')
-  const operations = operationResult.rows
-  const costs = summarizeCosts(operations)
-  const started = new Date(request.started_at)
-  const finished = request.finished_at == null ? null : new Date(request.finished_at)
-  return {
-    leg_no: request.leg_no,
-    model_id: oneOrMixed(operations.map((operation) => operation.model_id)),
-    provider: oneOrMixed(operations.map((operation) => operation.provider)),
-    started_at: started.toISOString(),
-    finished_at: finished?.toISOString() ?? null,
-    latency_ms: finished ? Math.max(0, finished.getTime() - started.getTime()) : null,
-    input_tokens: sumNullable(operations.map((operation) => operation.input_tokens)),
-    output_tokens: sumNullable(operations.map((operation) => operation.output_tokens)),
-    cache_read_tokens: sumNullable(operations.map((operation) => operation.cache_read_tokens)),
-    cache_write_tokens: sumNullable(operations.map((operation) => operation.cache_write_tokens)),
-    reasoning_tokens: sumNullable(operations.map((operation) => operation.reasoning_tokens)),
-    cost_usd: costs.costUsd,
-    cost_source: costs.costSource,
-    cost_coverage: costs.costCoverage,
-    status: request.status,
-    build_sha: request.build_sha,
-    build_pr: request.build_pr,
-  }
+  const telemetry = rows[0]?.data
+  if (!telemetry) throw new Error('request_unavailable')
+  return telemetry
 }
 
 function backfillTranscript(seq: number, turns: BackfillTurn[]): Record<string, unknown> {
@@ -253,16 +203,6 @@ function backfillTranscript(seq: number, turns: BackfillTurn[]): Record<string, 
     answered: turn?.answered ?? '',
     tool_calls: [],
   }
-}
-
-function oneOrMixed(values: string[]): string | null {
-  const unique = [...new Set(values.filter(Boolean))]
-  return unique.length === 0 ? null : unique.length === 1 ? unique[0]! : 'mixed'
-}
-
-function sumNullable(values: Array<string | number | null>): number | null {
-  const present = values.filter((value): value is string | number => value !== null)
-  return present.length ? present.reduce<number>((sum, value) => sum + Number(value), 0) : null
 }
 
 function boundPayload(payload: Record<string, unknown>): Record<string, unknown> {

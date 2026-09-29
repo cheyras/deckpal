@@ -3,140 +3,105 @@
 -- Migration 078 is already deployed.  Keep its public signatures stable while
 -- replacing the affected functions and repairing retained corpus rows in place.
 
--- Decode representations before matching.  Encoding identity terms cannot
--- cover case changes inside UTF-8 bytes (for example JOS%C3%89 versus Jos%C3%A9).
--- Three passes handle ordinary nested encodings without making malformed input
--- an unbounded parser; invalid byte runs and entities remain literal text.
-CREATE FUNCTION public.decke_improvement_decode_text(p_text text) RETURNS text
+-- Each percent run is decoded atomically.  Invalid UTF-8 and PostgreSQL's
+-- unsupported NUL scalar stay byte-for-byte encoded instead of aborting a
+-- writer or the retained-data repair below.
+CREATE FUNCTION public.decke_improvement_percent_run(p_run text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE out_text text:=p_text; matched text[]; decoded text; bytes bytea;
- at_pos integer; relative_pos integer; search_from integer; pass integer; codepoint integer;
- escaped text[]; low_escape text; low_point integer; consumed integer;
- first_byte integer; sequence_bytes integer; encoded_prefix text;
+DECLARE bytes bytea; decoded text;
 BEGIN
- IF out_text IS NULL THEN RETURN NULL; END IF;
- FOR pass IN 1..3 LOOP
-  -- JSON Unicode escapes can be exposed by a preceding percent decode.
-  search_from=1;
-  LOOP
-   SELECT regexp_match(substring(out_text FROM search_from),'(\\u([0-9A-Fa-f]{4}))') INTO escaped;
-   EXIT WHEN escaped IS NULL;
-   relative_pos=strpos(lower(substring(out_text FROM search_from)),lower(escaped[1]));
-   at_pos=search_from+relative_pos-1;
-   codepoint=get_byte(decode(escaped[2],'hex'),0)*256+get_byte(decode(escaped[2],'hex'),1);
-   consumed=6;
-   IF codepoint BETWEEN 55296 AND 56319 THEN
-    low_escape=substring(out_text FROM at_pos+6 FOR 6);
-    IF low_escape~'^\\u[dD][c-fC-F][0-9A-Fa-f]{2}$' THEN
-     low_point=get_byte(decode(substring(low_escape FROM 3 FOR 4),'hex'),0)*256
-       +get_byte(decode(substring(low_escape FROM 3 FOR 4),'hex'),1);
-     codepoint=65536+(codepoint-55296)*1024+(low_point-56320);
-     consumed=12;
-    ELSE
-     search_from=at_pos+6;
-     CONTINUE;
-    END IF;
-   ELSIF codepoint BETWEEN 56320 AND 57343 THEN
-    search_from=at_pos+6;
-    CONTINUE;
-   END IF;
-   out_text=overlay(out_text placing chr(codepoint) from at_pos for consumed);
-   search_from=at_pos+1;
-  END LOOP;
-
-  -- Decode complete percent-byte runs together so multibyte UTF-8 survives.
-  -- A malformed UTF-8 run is skipped rather than aborting a telemetry write.
-  search_from=1;
-  LOOP
-   SELECT regexp_match(substring(out_text FROM search_from),'((?:%[0-9A-Fa-f]{2})+)') INTO matched;
-   EXIT WHEN matched IS NULL;
-   relative_pos=strpos(substring(out_text FROM search_from),matched[1]);
-   at_pos=search_from+relative_pos-1;
-   BEGIN
-    bytes=decode(replace(matched[1],'%',''),'hex');
-    decoded=convert_from(bytes,'UTF8');
-    out_text=overlay(out_text placing decoded from at_pos for char_length(matched[1]));
-    search_from=at_pos+char_length(decoded);
-   EXCEPTION WHEN OTHERS THEN
-    -- One malformed byte must not shield an adjacent valid UTF-8 identity.
-    -- Decode a valid leading scalar when possible; otherwise advance exactly
-    -- one triplet and let the next loop reconsider the remaining run.
-    first_byte=get_byte(decode(substring(matched[1] FROM 2 FOR 2),'hex'),0);
-    sequence_bytes=CASE WHEN first_byte<128 THEN 1 WHEN first_byte BETWEEN 194 AND 223 THEN 2
-      WHEN first_byte BETWEEN 224 AND 239 THEN 3 WHEN first_byte BETWEEN 240 AND 244 THEN 4 ELSE 0 END;
-    IF sequence_bytes>0 AND char_length(matched[1])>=sequence_bytes*3 THEN
-     encoded_prefix=substring(matched[1] FROM 1 FOR sequence_bytes*3);
-     BEGIN
-      decoded=convert_from(decode(replace(encoded_prefix,'%',''),'hex'),'UTF8');
-      out_text=overlay(out_text placing decoded from at_pos for char_length(encoded_prefix));
-      search_from=at_pos+char_length(decoded);
-     EXCEPTION WHEN OTHERS THEN search_from=at_pos+3;
-     END;
-    ELSE
-     search_from=at_pos+3;
-    END IF;
-   END;
-  END LOOP;
-  out_text=replace(out_text,'+',' ');
-
-  -- Decode the small named-entity set emitted by clients, followed by bounded
-  -- numeric entities.  Invalid Unicode scalar values are left untouched.
-  out_text=regexp_replace(out_text,'&commat;','@','gi');
-  out_text=regexp_replace(out_text,'&quot;','"','gi');
-  out_text=regexp_replace(out_text,'&apos;','''','gi');
-  out_text=regexp_replace(out_text,'&lt;','<','gi');
-  out_text=regexp_replace(out_text,'&gt;','>','gi');
-  out_text=regexp_replace(out_text,'&amp;','&','gi');
-  search_from=1;
-  LOOP
-   SELECT regexp_match(substring(out_text FROM search_from),'(&#[xX]([0-9A-Fa-f]{1,6});)') INTO matched;
-   EXIT WHEN matched IS NULL;
-   relative_pos=strpos(substring(out_text FROM search_from),matched[1]);
-   at_pos=search_from+relative_pos-1;
-   BEGIN
-    bytes=decode(lpad(matched[2],6,'0'),'hex');
-    codepoint=get_byte(bytes,0)*65536+get_byte(bytes,1)*256+get_byte(bytes,2);
-    IF codepoint=0 OR codepoint>1114111 OR codepoint BETWEEN 55296 AND 57343 THEN RAISE EXCEPTION 'invalid scalar'; END IF;
-    out_text=overlay(out_text placing chr(codepoint) from at_pos for char_length(matched[1]));
-    search_from=at_pos+1;
-   EXCEPTION WHEN OTHERS THEN search_from=at_pos+char_length(matched[1]);
-   END;
-  END LOOP;
-  search_from=1;
-  LOOP
-   SELECT regexp_match(substring(out_text FROM search_from),'(&#([0-9]{1,7});)') INTO matched;
-   EXIT WHEN matched IS NULL;
-   relative_pos=strpos(substring(out_text FROM search_from),matched[1]);
-   at_pos=search_from+relative_pos-1;
-   BEGIN
-    codepoint=matched[2]::integer;
-    IF codepoint=0 OR codepoint>1114111 OR codepoint BETWEEN 55296 AND 57343 THEN RAISE EXCEPTION 'invalid scalar'; END IF;
-    out_text=overlay(out_text placing chr(codepoint) from at_pos for char_length(matched[1]));
-    search_from=at_pos+1;
-   EXCEPTION WHEN OTHERS THEN search_from=at_pos+char_length(matched[1]);
-   END;
-  END LOOP;
- END LOOP;
- RETURN normalize(out_text,NFC);
+ bytes=decode(replace(p_run,'%',''),'hex');
+ IF position(decode('00','hex') IN bytes)>0 THEN RETURN p_run; END IF;
+ decoded=convert_from(bytes,'UTF8');
+ RETURN decoded;
+EXCEPTION WHEN OTHERS THEN RETURN p_run;
 END $$;
 
-CREATE OR REPLACE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
+-- Splitting once and aggregating once avoids repeatedly copying/searching the
+-- remaining suffix for inputs containing hundreds of thousands of runs.
+CREATE FUNCTION public.decke_improvement_percent_decode(p_text text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE out_text text:=public.decke_improvement_decode_text(p_text); term text;
+DECLARE pieces text[]; runs text[]; out_text text;
+ valid_utf8 text:='^(?:%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%[cC][2-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f])+$';
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ pieces=regexp_split_to_array(p_text,'(?:%[0-9A-Fa-f]{2})+');
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs
+ FROM regexp_matches(p_text,'((?:%[0-9A-Fa-f]{2})+)','g') m;
+ SELECT string_agg(piece||CASE WHEN run IS NULL THEN ''
+   WHEN lower(run)='%25' THEN '%'
+   WHEN lower(run)='%20' THEN ' '
+   WHEN run~valid_utf8 THEN convert_from(decode(replace(run,'%',''),'hex'),'UTF8')
+   ELSE public.decke_improvement_percent_run(run) END,'' ORDER BY ordinality)
+ INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
+ RETURN coalesce(out_text,'');
+END $$;
+
+CREATE FUNCTION public.decke_improvement_decode_scalar(p_escape text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE codepoint integer; low_point integer; bytes bytea; hex_value text;
+BEGIN
+ IF p_escape~'^\\u' THEN
+  codepoint=get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),0)*256
+    +get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),1);
+  IF codepoint BETWEEN 55296 AND 56319 THEN
+   IF char_length(p_escape)<>12 THEN RETURN p_escape; END IF;
+   low_point=get_byte(decode(substring(p_escape FROM 9 FOR 4),'hex'),0)*256
+     +get_byte(decode(substring(p_escape FROM 9 FOR 4),'hex'),1);
+   IF low_point NOT BETWEEN 56320 AND 57343 THEN RETURN p_escape; END IF;
+   codepoint=65536+(codepoint-55296)*1024+(low_point-56320);
+  ELSIF codepoint BETWEEN 56320 AND 57343 THEN
+   RETURN p_escape;
+  END IF;
+ ELSIF p_escape~'^&#[xX]' THEN
+  hex_value=substring(p_escape FROM 4 FOR char_length(p_escape)-4);
+  bytes=decode(lpad(hex_value,6,'0'),'hex');
+  codepoint=get_byte(bytes,0)*65536+get_byte(bytes,1)*256+get_byte(bytes,2);
+ ELSE
+  codepoint=substring(p_escape FROM 3 FOR char_length(p_escape)-3)::integer;
+ END IF;
+ IF codepoint=0 OR codepoint>1114111 OR codepoint BETWEEN 55296 AND 57343 THEN RETURN p_escape; END IF;
+ RETURN chr(codepoint);
+EXCEPTION WHEN OTHERS THEN RETURN p_escape;
+END $$;
+
+-- JSON and numeric-entity scalars use the same split/aggregate shape as
+-- percent runs.  A NUL or unpaired surrogate is retained as written.
+CREATE FUNCTION public.decke_improvement_decode_escapes(p_text text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE pattern text:='(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|&#[xX][0-9A-Fa-f]{1,6};|&#[0-9]{1,7};)';
+ pieces text[]; runs text[]; out_text text;
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ pieces=regexp_split_to_array(p_text,pattern);
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'g') m;
+ SELECT string_agg(piece||CASE WHEN run IS NULL THEN '' ELSE public.decke_improvement_decode_scalar(run) END,
+   '' ORDER BY ordinality)
+ INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
+ out_text=regexp_replace(coalesce(out_text,''),'&commat;','@','gi');
+ out_text=regexp_replace(out_text,'&quot;','"','gi');
+ out_text=regexp_replace(out_text,'&apos;','''','gi');
+ out_text=regexp_replace(out_text,'&lt;','<','gi');
+ out_text=regexp_replace(out_text,'&gt;','>','gi');
+ RETURN regexp_replace(out_text,'&amp;','&','gi');
+END $$;
+
+CREATE FUNCTION public.decke_improvement_replace_terms(p_text text,p_terms text[]) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE original text:=p_text; out_text text; term text; changed boolean:=false;
  at_pos integer; relative_pos integer; search_from integer; before_char text; after_char text;
 BEGIN
- IF out_text IS NULL THEN RETURN NULL; END IF;
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ out_text=normalize(p_text,NFKC);
  FOR term IN
   SELECT normalized FROM (
-   SELECT DISTINCT normalize(btrim(value),NFC) normalized
+   SELECT DISTINCT normalize(btrim(value),NFKC) normalized
    FROM unnest(coalesce(p_terms,'{}'::text[])) value
    WHERE value IS NOT NULL AND char_length(btrim(value))>=1
   ) candidates ORDER BY char_length(normalized) DESC,normalized COLLATE "C"
  LOOP
   search_from=1;
   LOOP
-   -- C.utf8 supplies Unicode-aware casing even when the cluster itself was
-   -- initialised with the bytewise C locale, as the integration runner is.
    relative_pos=strpos(substring(lower(out_text COLLATE "C.utf8") FROM search_from),lower(term COLLATE "C.utf8"));
    EXIT WHEN relative_pos=0;
    at_pos=search_from+relative_pos-1;
@@ -150,16 +115,83 @@ BEGIN
    END IF;
    out_text=overlay(out_text placing '[redacted]' from at_pos for char_length(term));
    search_from=at_pos+char_length('[redacted]');
+   changed=true;
   END LOOP;
  END LOOP;
- RETURN out_text;
+ RETURN CASE WHEN changed THEN out_text ELSE original END;
+END $$;
+
+CREATE FUNCTION public.decke_improvement_decode_text(p_text text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE out_text text:=p_text; next_text text; pass integer;
+BEGIN
+ IF out_text IS NULL THEN RETURN NULL; END IF;
+ FOR pass IN 1..3 LOOP
+  next_text=public.decke_improvement_percent_decode(out_text);
+  EXIT WHEN next_text=out_text;
+  out_text=next_text;
+ END LOOP;
+ out_text=replace(out_text,'+',' ');
+ RETURN normalize(public.decke_improvement_decode_escapes(out_text),NFKC);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE literal text; current_view text:=p_text; next_view text; escaped_view text; redacted text;
+ form_terms text[]; pass integer; exposed integer; view_count integer;
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ -- Literal variants win so an unrelated '+' or '%' is never decoded merely
+ -- because it occurs in the same field as an identity.
+ literal=public.decke_improvement_replace_terms(p_text,public.decke_improvement_redaction_variants(p_terms));
+ exposed=((char_length(literal)-char_length(replace(literal,'[redacted]','')))
+   -(char_length(p_text)-char_length(replace(p_text,'[redacted]',''))))/10;
+ -- JSON/entity escapes are another literal representation.  Return their
+ -- decoded view only when decoding is what exposes an identity.
+ escaped_view=public.decke_improvement_decode_escapes(current_view);
+ redacted=public.decke_improvement_replace_terms(escaped_view,p_terms);
+ view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
+   -(char_length(escaped_view)-char_length(replace(escaped_view,'[redacted]',''))))/10;
+ IF view_count>exposed THEN RETURN redacted; END IF;
+ exposed=greatest(exposed,view_count);
+ FOR pass IN 1..3 LOOP
+  next_view=public.decke_improvement_percent_decode(current_view);
+  EXIT WHEN next_view=current_view;
+  current_view=next_view;
+  redacted=public.decke_improvement_replace_terms(current_view,p_terms);
+  view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
+    -(char_length(current_view)-char_length(replace(current_view,'[redacted]',''))))/10;
+  IF view_count>exposed THEN RETURN redacted; END IF;
+  exposed=greatest(exposed,view_count);
+  escaped_view=public.decke_improvement_decode_escapes(current_view);
+  redacted=public.decke_improvement_replace_terms(escaped_view,p_terms);
+  view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
+    -(char_length(escaped_view)-char_length(replace(escaped_view,'[redacted]',''))))/10;
+  IF view_count>exposed THEN RETURN redacted; END IF;
+  exposed=greatest(exposed,view_count);
+ END LOOP;
+ SELECT coalesce(array_agg(value),'{}'::text[]) INTO form_terms
+ FROM (SELECT value FROM unnest(coalesce(p_terms,'{}'::text[])) value
+       UNION SELECT replace(value,'+',' ') FROM unnest(coalesce(p_terms,'{}'::text[])) value) variants;
+ next_view=replace(current_view,'+',' ');
+ redacted=public.decke_improvement_replace_terms(next_view,form_terms);
+ view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
+   -(char_length(next_view)-char_length(replace(next_view,'[redacted]',''))))/10;
+ IF view_count>exposed THEN RETURN redacted; END IF;
+ exposed=greatest(exposed,view_count);
+ escaped_view=public.decke_improvement_decode_escapes(next_view);
+ redacted=public.decke_improvement_replace_terms(escaped_view,form_terms);
+ view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
+   -(char_length(escaped_view)-char_length(replace(escaped_view,'[redacted]',''))))/10;
+ IF view_count>exposed THEN RETURN redacted; END IF;
+ RETURN literal;
 END $$;
 
 -- The API may obtain only its own identity terms through the request subject.
 -- Direct auth.users access remains unavailable to browser/request roles.
-CREATE FUNCTION public.decke_improvement_identity_terms(p_user text) RETURNS text[]
+CREATE FUNCTION public.decke_improvement_identity_terms(p_user text) RETURNS jsonb
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE actor text; username text; display_name text; email text; terms text[];
+DECLARE actor text; username text; display_name text; email text;
 BEGIN
  actor=auth.uid()::text;
  IF actor IS NULL OR p_user IS NULL OR actor<>p_user THEN
@@ -171,10 +203,61 @@ BEGIN
  LEFT JOIN auth.users a ON a.id=u.id
  WHERE u.id::text=p_user;
  IF NOT FOUND THEN RAISE EXCEPTION 'Account is unavailable' USING ERRCODE='P0002'; END IF;
- SELECT coalesce(array_agg(value ORDER BY char_length(value) DESC,value),'{}'::text[]) INTO terms
- FROM (SELECT DISTINCT btrim(value) value FROM unnest(ARRAY[username,display_name,email]) value
-       WHERE value IS NOT NULL AND char_length(btrim(value))>=1) candidates;
- RETURN terms;
+ RETURN jsonb_build_object('username',username,'displayName',display_name,'email',email);
+END $$;
+
+CREATE FUNCTION public.decke_improvement_is_shared(p_user text,p_conversation uuid) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; consent_owner bytea; conversation uuid;
+BEGIN
+ IF p_conversation IS NULL THEN RAISE EXCEPTION 'Conversation is required' USING ERRCODE='22023'; END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ SELECT owner_key INTO consent_owner FROM public.decke_improvement_consent
+ WHERE id=conversation AND status='shared';
+ IF NOT FOUND THEN RETURN false; END IF;
+ IF consent_owner<>owner THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+ RETURN true;
+END $$;
+
+CREATE FUNCTION public.decke_improvement_request_telemetry(p_user text,p_request uuid) RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE request_started timestamptz; request_finished timestamptz; request_status text;
+ request_build_sha text; request_build_pr integer; request_leg integer;
+ operation_count integer; priced_count integer; model text; provider text;
+ input_tokens bigint; output_tokens bigint; cache_read_tokens bigint; cache_write_tokens bigint; reasoning_tokens bigint;
+ cost_usd numeric; cost_source text; cost_coverage text; latency_ms bigint;
+BEGIN
+ PERFORM public.decke_improvement_require_writer(p_user);
+ IF p_request IS NULL THEN RAISE EXCEPTION 'Request is required' USING ERRCODE='22023'; END IF;
+ SELECT r.started_at,r.finished_at,r.status,r.build_sha,r.build_pr,
+   (SELECT count(*)::integer-1 FROM public.decke_ai_request prior
+    WHERE prior.user_id=r.user_id AND prior.conversation_id=r.conversation_id AND prior.seq=r.seq
+      AND (prior.started_at,prior.id)<=(r.started_at,r.id))
+ INTO request_started,request_finished,request_status,request_build_sha,request_build_pr,request_leg
+ FROM public.decke_ai_request r WHERE r.id=p_request AND r.user_id=p_user;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Request is unavailable' USING ERRCODE='42501'; END IF;
+ SELECT count(*)::integer,count(o.cost_usd)::integer,
+   CASE count(DISTINCT nullif(o.model_id,'')) WHEN 0 THEN NULL WHEN 1 THEN min(nullif(o.model_id,'')) ELSE 'mixed' END,
+   CASE count(DISTINCT nullif(o.provider,'')) WHEN 0 THEN NULL WHEN 1 THEN min(nullif(o.provider,'')) ELSE 'mixed' END,
+   sum(o.input_tokens),sum(o.output_tokens),sum(o.cache_read_tokens),sum(o.cache_write_tokens),sum(o.reasoning_tokens),sum(o.cost_usd),
+   CASE WHEN count(o.cost_usd)=0 THEN 'unknown'
+     WHEN bool_or(o.cost_usd IS NOT NULL AND o.cost_source='token_rate_estimate') THEN 'token_rate_estimate'
+     ELSE 'provider_reported' END
+ INTO operation_count,priced_count,model,provider,input_tokens,output_tokens,cache_read_tokens,
+   cache_write_tokens,reasoning_tokens,cost_usd,cost_source
+ FROM public.decke_ai_operation o WHERE o.request_id=p_request;
+ cost_coverage=CASE WHEN priced_count=0 THEN 'unknown' WHEN priced_count=operation_count THEN 'complete' ELSE 'partial' END;
+ latency_ms=CASE WHEN request_finished IS NULL THEN NULL ELSE greatest(0,
+   floor(extract(epoch FROM request_finished)*1000)::bigint-floor(extract(epoch FROM request_started)*1000)::bigint) END;
+ RETURN jsonb_build_object(
+  'leg_no',request_leg,'model_id',model,'provider',provider,
+  'started_at',to_char(request_started AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+  'finished_at',CASE WHEN request_finished IS NULL THEN NULL ELSE to_char(request_finished AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END,
+  'latency_ms',latency_ms,'input_tokens',input_tokens,'output_tokens',output_tokens,
+  'cache_read_tokens',cache_read_tokens,'cache_write_tokens',cache_write_tokens,'reasoning_tokens',reasoning_tokens,
+  'cost_usd',cost_usd,'cost_source',cost_source,'cost_coverage',cost_coverage,
+  'status',request_status,'build_sha',request_build_sha,'build_pr',request_build_pr);
 END $$;
 
 -- History deletion and corpus withdrawal are one transaction.  Updating only
@@ -237,8 +320,8 @@ BEGIN
  END IF;
  IF (filters?'from' AND (jsonb_typeof(filters->'from')<>'string' OR filters->>'from'!~'^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
     OR (filters?'to' AND (jsonb_typeof(filters->'to')<>'string' OR filters->>'to'!~'^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
-    OR (filters?'min_cost' AND (jsonb_typeof(filters->'min_cost')<>'number' OR filters->>'min_cost'!~'^[0-9]+(?:[.][0-9]{1,2})?$'))
-    OR (filters?'max_cost' AND (jsonb_typeof(filters->'max_cost')<>'number' OR filters->>'max_cost'!~'^[0-9]+(?:[.][0-9]{1,2})?$')) THEN
+    OR (filters?'min_cost' AND (jsonb_typeof(filters->'min_cost') NOT IN ('number','string') OR filters->>'min_cost'!~'^[0-9]+(?:[.][0-9]{1,2})?$'))
+    OR (filters?'max_cost' AND (jsonb_typeof(filters->'max_cost') NOT IN ('number','string') OR filters->>'max_cost'!~'^[0-9]+(?:[.][0-9]{1,2})?$')) THEN
   RAISE EXCEPTION 'List date filters must be UTC days and costs must be whole cents' USING ERRCODE='22023';
  END IF;
  IF filters?'from' THEN from_day=(filters->>'from')::date; END IF;
@@ -359,19 +442,31 @@ DROP TABLE pg_temp.decke_improvement_079_map;
 DO $acl$
 DECLARE principal text;
 BEGIN
+ -- Keep decoder and raw matching machinery private; only the three narrow
+ -- subject-scoped boundaries below are callable by the request role.
  FOREACH principal IN ARRAY ARRAY['PUBLIC','anon','authenticated','service_role'] LOOP
   CONTINUE WHEN principal<>'PUBLIC' AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal);
-  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_text(text) FROM %s',
-   CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
-  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_identity_terms(text) FROM %s',
-   CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
-  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_withdraw_history() FROM %s',
-   CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_run(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_decode(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_scalar(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_replace_terms(text,text[]) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_text(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_identity_terms(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_is_shared(text,uuid) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_request_telemetry(text,uuid) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_withdraw_history() FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
  END LOOP;
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
-  GRANT EXECUTE ON FUNCTION public.decke_improvement_identity_terms(text) TO authenticated;
+  GRANT EXECUTE ON FUNCTION public.decke_improvement_identity_terms(text),
+   public.decke_improvement_is_shared(text,uuid),
+   public.decke_improvement_request_telemetry(text,uuid) TO authenticated;
  END IF;
 END $acl$;
 
 COMMENT ON FUNCTION public.decke_improvement_identity_terms(text) IS
  'Returns the calling authenticated subject identity terms for API-side improvement redaction.';
+COMMENT ON FUNCTION public.decke_improvement_is_shared(text,uuid) IS
+ 'Reports subject-owned sharing state without exposing the corpus owner HMAC.';
+COMMENT ON FUNCTION public.decke_improvement_request_telemetry(text,uuid) IS
+ 'Returns accounting metadata for one subject-owned request without chat content.';

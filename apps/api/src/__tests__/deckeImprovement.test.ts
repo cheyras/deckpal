@@ -8,6 +8,7 @@ import { errorMiddleware, ApiError } from '../http.js';
 import {
   createDeckeImprovementAdminRouter,
   createDeckeImprovementRouter,
+  listFilters,
   renderImprovementMarkdown,
   type ImprovementRouteDeps,
 } from '../routes/deckeImprovement.js';
@@ -230,6 +231,10 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
 });
 
 describe('Deck-E improvement administration', () => {
+  it('builds cost filters as JSON numbers', () => {
+    assert.deepEqual(listFilters({ min_cost: '0.01', max_cost: '2.00' }), { min_cost: 0.01, max_cost: 2 });
+  });
+
   it('refuses an unauthorized administrator', async () => {
     const { deps } = fakeDeps({ deny: true });
     await serve(deps, async (request) => {
@@ -246,7 +251,7 @@ describe('Deck-E improvement administration', () => {
       assert.equal(response.status, 200);
       const call = state.calls.find((candidate) => candidate.sql.includes('decke_improvement_list('));
       assert(call);
-      assert.deepEqual(JSON.parse(String(call.params[0])), { from: '2026-09-01', to: '2026-09-28', min_cost: '0.10', max_cost: '2', build_sha: 'abc', vote: '-1', has_error: 'true' });
+      assert.deepEqual(JSON.parse(String(call.params[0])), { from: '2026-09-01', to: '2026-09-28', min_cost: 0.10, max_cost: 2, build_sha: 'abc', vote: '-1', has_error: 'true' });
       assert.equal(call.params[1], 'next|cursor');
       assert.equal(call.params[2], 17);
       assert.equal(state.calls.some((candidate) => candidate.sql.includes('purge_expired')), false);

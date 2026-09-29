@@ -64,7 +64,22 @@ test('decodes case-insensitive percent and form encodings before identity matchi
   assert.equal(redact('owner=JOS%C3%89', ['Jos\u00e9']), 'owner=[redacted]')
   assert.equal(redact('owner=%4A%6F%68%6E%20%53%6D%69%74%68', ['John Smith']), 'owner=[redacted]')
   assert.equal(redact('owner=%4a%6F%68%6e%20%53%6d%69%74%68', ['John Smith']), 'owner=[redacted]')
+  assert.equal(redact('owner=%254A%256F%2568%256E%2520%2553%256D%2569%2574%2568', ['John Smith']), 'owner=[redacted]')
+  assert.equal(redact('owner=%25254A%25256F%252568%25256E%252520%252553%25256D%252569%252574%252568', ['John Smith']), 'owner=[redacted]')
   assert.equal(redact('owner=John+Smith', ['John Smith']), 'owner=[redacted]')
+})
+
+test('redacts plus-addressed email literals before form decoding and encoded variants after percent decoding', () => {
+  const term = 'alice+tag@example.invalid'
+  assert.equal(redact(`owner=${term}`, [term]), 'owner=[redacted]')
+  assert.equal(redact('owner=alice%2Btag%40example.invalid', [term]), 'owner=[redacted]')
+  assert.equal(redact('owner=alice+tag%40example.invalid', [term]), 'owner=[redacted]')
+})
+
+test('preserves ordinary plus, percent, and escape text when decoding exposes no identity', () => {
+  assert.equal(redact('C++ costs 100% today', ['John Smith']), 'C++ costs 100% today')
+  assert.equal(redact('safe=%2520 and literal=\\u0041', ['John Smith']), 'safe=%2520 and literal=\\u0041')
+  assert.equal(redact('John Smith writes C++ and keeps x%20', ['John Smith']), '[redacted] writes C++ and keeps x%20')
 })
 
 test('decodes encoded identities inside nested JSON strings', () => {
@@ -77,4 +92,21 @@ test('decodes encoded identities inside nested JSON strings', () => {
 
 test('retains malformed UTF-8 percent sequences without throwing', () => {
   assert.equal(redact('broken=%E0%A4&owner=John+Smith', ['John Smith']), 'broken=%E0%A4&owner=[redacted]')
+  assert.equal(redact('owner=%FF%4A%6F%68%6E%20%53%6D%69%74%68', ['John Smith']), 'owner=%FF%4A%6F%68%6E%20%53%6D%69%74%68')
+})
+
+test('retains percent NUL, malformed UTF-8, JSON NUL, and unpaired surrogate escapes', () => {
+  const input = String.raw`percent=%00 malformed=%FF nul=\u0000 high=\uD800 low=\uDC00 encoded=%5Cu0000`
+  assert.equal(redact(input, ['John Smith']), input)
+})
+
+test('uses NFKC matching while preserving unrelated literal text', () => {
+  assert.equal(redact('badge=① owner=Ｊｏｈｎ Smith', ['John Smith']), 'badge=① owner=[redacted]')
+})
+
+test('decodes many separate percent runs in linear time', () => {
+  const input = 'x%2520'.repeat(Math.ceil(1_048_576 / 6)).slice(0, 1_048_576)
+  const started = performance.now()
+  assert.equal(redact(input, ['John Smith']), input)
+  assert.ok(performance.now() - started < 1_000, 'near-1 MiB percent decoding should finish in under one second')
 })

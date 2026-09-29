@@ -7,6 +7,8 @@ import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } fr
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { backfillShared, recordLeg } from '../decke/improvement.js';
+import * as improvementRoute from '../routes/deckeImprovement.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '../../../..');
@@ -26,7 +28,7 @@ const config = { host: process.env.PGHOST, port: 55432, user: process.env.PGUSER
 const db = new pg.Client(config);
 const results = { name: 'decke-improvement', status: 'running', cases: [] };
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const owner = id(1), member = id(2), outsider = id(3), newcomer = id(4);
+const owner = id(1), member = id(2), outsider = id(3), newcomer = id(4), plusMember = id(5);
 const slash = String.fromCharCode(92);
 
 async function test(name, fn) {
@@ -142,10 +144,11 @@ try {
       await db.query(`INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES
         ($1,'owner@example.invalid','{"username":"owner-name"}'),
         ($2,'jsmith@example.invalid','{"username":"José"}'),
-        ($3,'outsider@example.invalid','{"username":"outsider-name"}')`, [owner, member, outsider]);
+        ($3,'outsider@example.invalid','{"username":"outsider-name"}'),
+        ($4,'alice+tag@example.invalid','{"username":"alice-user"}')`, [owner, member, outsider, plusMember]);
       await db.query(`UPDATE public.user_profile SET display_name=CASE user_id::text
-        WHEN $1 THEN 'Owner Name' WHEN $2 THEN 'John Smith' WHEN $3 THEN 'Outsider Name' END
-        WHERE user_id::text=ANY($4::text[])`, [owner, member, outsider, [owner, member, outsider]]);
+        WHEN $1 THEN 'Owner Name' WHEN $2 THEN 'John Smith' WHEN $3 THEN 'Outsider Name' WHEN $4 THEN 'Alice Trainer' END
+        WHERE user_id::text=ANY($5::text[])`, [owner, member, outsider, plusMember, [owner, member, outsider, plusMember]]);
     }
   }
 
@@ -174,11 +177,18 @@ try {
     retainedShared = answer.conversationId;
     await server(member, (c) => data(c,
       'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) data', [member, retainedConversation, JSON.stringify([
-        { seq: 0, asked: 'JOS%C3%89', answered: '%4A%6F%68%6E%20%53%6D%69%74%68', tools: [] },
+        { seq: 0, asked: 'JOS%C3%89', answered: '%4A%6F%68%6E%20%53%6D%69%74%68', tools: [{
+          unsupported: '%5Cu0000', nul: '%00', invalidUtf8: '%FF', encodedSurrogate: '%ED%A0%80',
+          highSurrogate: String.raw`\uD800`, lowSurrogate: String.raw`\uDC00`,
+        }] },
       ])]));
-    const before = (await db.query('SELECT asked,answered FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedShared])).rows[0];
+    const before = (await db.query('SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedShared])).rows[0];
     assert.equal(before.asked, 'JOS%C3%89');
     assert.equal(before.answered, '%4A%6F%68%6E%20%53%6D%69%74%68');
+    assert.deepEqual(before.tools[0], {
+      unsupported: '%5Cu0000', nul: '%00', invalidUtf8: '%FF', encodedSurrogate: '%ED%A0%80',
+      highSurrogate: String.raw`\uD800`, lowSurrogate: String.raw`\uDC00`,
+    });
   });
 
   const orphanConversation = id(99), orphanRequest = id(199);
@@ -199,8 +209,13 @@ try {
   await db.query("INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES($1,'new@example.invalid','{\"username\":\"new-name\"}')", [newcomer]);
 
   await test('079 repairs encoded identities already retained by the corpus', async () => {
-    const repaired = (await db.query('SELECT asked,answered FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedShared])).rows[0];
-    assert.deepEqual(repaired, { asked: '[redacted]', answered: '[redacted]' });
+    const repaired = (await db.query('SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedShared])).rows[0];
+    assert.equal(repaired.asked, '[redacted]');
+    assert.equal(repaired.answered, '[redacted]');
+    assert.deepEqual(repaired.tools[0], {
+      unsupported: '%5Cu0000', nul: '%00', invalidUtf8: '%FF', encodedSurrogate: '%ED%A0%80',
+      highSurrogate: String.raw`\uD800`, lowSurrogate: String.raw`\uDC00`,
+    });
     // Keep the original suite's empty-corpus baseline after exercising the
     // migration repair path.
     await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedConversation]);
@@ -214,9 +229,9 @@ try {
   });
 
   await test('identity helper returns only the calling subject terms', async () => {
-    const terms = await session(member, async (c) => (await c.query(
+    const identity = await session(member, async (c) => (await c.query(
       'SELECT public.decke_improvement_identity_terms($1) terms', [member])).rows[0].terms);
-    assert.deepEqual(new Set(terms), new Set(['José', 'John Smith', 'jsmith@example.invalid']));
+    assert.deepEqual(identity, { username: 'José', displayName: 'John Smith', email: 'jsmith@example.invalid' });
     await denied(session(member, (c) => c.query('SELECT public.decke_improvement_identity_terms($1)', [owner])));
     await denied(as(null, { role: 'anon' }, async (c) => {
       await c.query('RESET ROLE');
@@ -250,6 +265,34 @@ try {
       ["Li's list and lithium; LI wins"],
     )).rows[0].value;
     assert.equal(short, "[redacted]'s list and lithium; [redacted] wins");
+    const literal = (await db.query(
+      "SELECT public.decke_improvement_redact_text($1,ARRAY['alice+tag@example.invalid']) value",
+      ['C++ is 100% useful; alice+tag@example.invalid and alice%2Btag%40example.invalid'],
+    )).rows[0].value;
+    assert.equal(literal, 'C++ is 100% useful; [redacted] and [redacted]');
+    const mixed = (await db.query(
+      "SELECT public.decke_improvement_redact_text($1,ARRAY['John Smith','José']) value",
+      ['John Smith + JOS%25C3%2589 keeps C++'],
+    )).rows[0].value;
+    assert.equal(mixed, '[redacted] + [redacted] keeps C++');
+  });
+
+  await test('near-limit nested percent input redacts within a two-second statement timeout', async () => {
+    const prefix = 'x%2520'.repeat(Math.floor((1024 * 1024 - 20) / 7));
+    const encoded = prefix + 'JOS%25C3%2589';
+    await db.query('BEGIN');
+    try {
+      await db.query("SET LOCAL statement_timeout='2s'");
+      const result = (await db.query(
+        "SELECT public.decke_improvement_redact_text($1,ARRAY['José']) value", [encoded],
+      )).rows[0].value;
+      assert.ok(result.endsWith('[redacted]'));
+      assert.ok(result.startsWith('x '));
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK').catch(() => {});
+      throw error;
+    }
   });
 
   await test('Jev reflex and audit create uncharged operations on the current chat request', async () => {
@@ -271,7 +314,7 @@ try {
 
   await test('share prompts default on while collection defaults empty', async () => {
     const rows = (await db.query('SELECT decke_share_prompts FROM public.user_settings ORDER BY user_id')).rows;
-    assert.equal(rows.length, 4);
+    assert.equal(rows.length, 5);
     assert.ok(rows.every((row) => row.decke_share_prompts === true));
     assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_consent')).rows[0].n, 0);
     assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_conversation')).rows[0].n, 0);
@@ -372,6 +415,94 @@ try {
     const stored = (await db.query('SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1', [derivedShared])).rows[0];
     assert.equal(stored.asked, '[redacted] and [redacted] asked');
     assert.doesNotMatch(JSON.stringify(stored), /John(?:%20|\+| )Smith|%4A%6F%68%6E|jsmith(?:%40|&#64;|@)example\.invalid|JOS%C3%89|Jose\u0301|José/i);
+  });
+
+  await test('subject-scoped metadata helpers work only for the production request subject', async () => {
+    assert.equal(await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_is_shared($1,$2) data', [member, sharedConversation])), true);
+    const telemetry = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_request_telemetry($1,$2) data', [member, sharedRequest]));
+    assert.equal(telemetry.leg_no, 0);
+    assert.equal(telemetry.model_id, 'mixed');
+    assert.equal(telemetry.provider, 'mixed');
+    assert.equal(telemetry.input_tokens, 123);
+    assert.equal(telemetry.output_tokens, 27);
+    assert.equal(Number(telemetry.cost_usd), 0.001);
+    assert.equal(telemetry.cost_coverage, 'partial');
+    assert.equal(telemetry.cost_source, 'provider_reported');
+    assert.match(telemetry.started_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    await denied(server(member, (c) => c.query(
+      'SELECT public.decke_improvement_request_telemetry($1,$2)', [owner, sharedRequest])));
+    await denied(server(outsider, (c) => c.query(
+      'SELECT public.decke_improvement_request_telemetry($1,$2)', [outsider, sharedRequest])));
+    await denied(server(outsider, (c) => c.query(
+      'SELECT public.decke_improvement_is_shared($1,$2)', [outsider, sharedConversation])));
+    await denied(session(member, (c) => c.query(
+      'SELECT public.decke_improvement_request_telemetry($1,$2)', [member, sharedRequest])));
+    await denied(session(member, (c) => c.query(
+      'SELECT public.decke_improvement_is_shared($1,$2)', [member, sharedConversation])));
+    await denied(as(null, { role: 'anon' }, async (c) => {
+      await c.query('RESET ROLE');
+      await c.query('SET LOCAL ROLE anon');
+      return c.query('SELECT public.decke_improvement_is_shared($1,$2)', [member, sharedConversation]);
+    }));
+    const privileges = (await db.query(`SELECT
+      has_function_privilege('authenticated','public.decke_improvement_is_shared(text,uuid)','EXECUTE') shared_authenticated,
+      has_function_privilege('anon','public.decke_improvement_is_shared(text,uuid)','EXECUTE') shared_anon,
+      has_function_privilege('authenticated','public.decke_improvement_request_telemetry(text,uuid)','EXECUTE') telemetry_authenticated,
+      has_function_privilege('anon','public.decke_improvement_request_telemetry(text,uuid)','EXECUTE') telemetry_anon,
+      EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE p.oid IN ('public.decke_improvement_is_shared(text,uuid)'::regprocedure,
+                        'public.decke_improvement_request_telemetry(text,uuid)'::regprocedure)
+          AND acl.grantee=0 AND acl.privilege_type='EXECUTE') public`)).rows[0];
+    assert.deepEqual(privileges, {
+      shared_authenticated: true, shared_anon: false,
+      telemetry_authenticated: true, telemetry_anon: false, public: false,
+    });
+  });
+
+  await test('real TypeScript backfill records non-empty request legs under authenticated', async () => {
+    const answer = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, sharedConversation]));
+    assert.ok(answer.backfill.requests.length > 0);
+    const recorded = await server(member, (c) => backfillShared({
+      query: (...args) => c.query(...args),
+      release() {},
+    }, { userId: member, conversationId: sharedConversation, backfill: answer.backfill }));
+    assert.equal(recorded, true);
+    assert.ok((await db.query(
+      'SELECT count(*)::int n FROM public.decke_improvement_leg WHERE conversation_id=$1', [derivedShared])).rows[0].n > 0);
+  });
+
+  const plusConversation = id(180), plusRequest = id(181);
+  await seedConversation({ conversation: plusConversation, request: plusRequest, operation: id(182), suffix: '180', user: plusMember });
+  await test('plus-addressed email is redacted through writers and admin reader without changing prose', async () => {
+    const answer = await server(plusMember, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [plusMember, plusConversation]));
+    const backfilled = await server(plusMember, (c) => backfillShared({
+      query: (...args) => c.query(...args), release() {},
+    }, { userId: plusMember, conversationId: plusConversation, backfill: { turns: [{
+      seq: 0,
+      asked: 'C++ is 100%; alice+tag@example.invalid',
+      answered: 'alice%2Btag%40example.invalid keeps C++ at 100%',
+      tools: [{ name: 'search_cards', phase: 'ok', args: { email: 'alice+tag@example.invalid' } }],
+    }], requests: [] } }));
+    assert.equal(backfilled, true);
+    const leg = await server(plusMember, (c) => recordLeg({
+      query: (...args) => c.query(...args), release() {},
+    }, { userId: plusMember, conversationId: plusConversation, seq: 0, requestId: plusRequest, leg: 0,
+      payload: { ...validLeg('alice%2Btag%40example.invalid and 100%'), asked: 'C++ by alice+tag@example.invalid' } }));
+    assert.equal(leg, true);
+    await server(plusMember, (c) => data(c,
+      'SELECT public.decke_improvement_record_events($1,$2,0,0,$3::jsonb) data', [plusMember, plusConversation,
+        JSON.stringify([{ kind: 'notice', at: '2026-09-28T18:00:00Z', payload: { prose: 'C++ 100%', email: 'alice%2Btag%40example.invalid' } }])]));
+    const detail = await session(owner, (c) => data(c,
+      'SELECT public.decke_improvement_detail($1) data', [answer.conversationId]));
+    const rendered = JSON.stringify(detail);
+    assert.doesNotMatch(rendered, /alice(?:\+|%2B| )tag(?:@|%40)example\.invalid/i);
+    assert.match(rendered, /C\+\+/);
+    assert.match(rendered, /100%/);
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [plusConversation]);
   });
 
   await test('shared writers capture full legs/events and preserve pseudonymous IDs', async () => {
@@ -502,6 +633,15 @@ try {
       'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ from: day, to: nextDay })]));
     assert.ok(dayBucket.items.length > 1);
     assert.ok(dayBucket.items.some((item) => item.id === derivedShared));
+    assert.equal(typeof improvementRoute.listFilters, 'function');
+    const routeFilters = improvementRoute.listFilters({ min_cost: '0.01', max_cost: '2.00' });
+    assert.deepEqual(routeFilters, { min_cost: 0.01, max_cost: 2 });
+    const routeBucket = await token(owner, tokenId, (c) => data(c,
+      'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify(routeFilters)]));
+    assert.ok(Array.isArray(routeBucket.items));
+    const stringCostBucket = await token(owner, tokenId, (c) => data(c,
+      'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ min_cost: '0.01', max_cost: '2.00' })]));
+    assert.ok(Array.isArray(stringCostBucket.items));
     await assert.rejects(token(owner, tokenId, (c) => data(c,
       'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ min_cost: 0.00137, max_cost: 0.00137 })])),
     (error) => error.code === '22023');
