@@ -59,3 +59,22 @@ test('redacts URL, form, HTML-entity and Unicode normalization variants recursiv
     },
   })
 })
+
+test('decodes case-insensitive percent and form encodings before identity matching', () => {
+  assert.equal(redact('owner=JOS%C3%89', ['Jos\u00e9']), 'owner=[redacted]')
+  assert.equal(redact('owner=%4A%6F%68%6E%20%53%6D%69%74%68', ['John Smith']), 'owner=[redacted]')
+  assert.equal(redact('owner=%4a%6F%68%6e%20%53%6d%69%74%68', ['John Smith']), 'owner=[redacted]')
+  assert.equal(redact('owner=John+Smith', ['John Smith']), 'owner=[redacted]')
+})
+
+test('decodes encoded identities inside nested JSON strings', () => {
+  assert.deepEqual(redact({
+    output: '{"nested":{"owner":"JOS%C3%89","display":"John+Smith"}}',
+  }, ['Jos\u00e9', 'John Smith']), {
+    output: '{"nested":{"owner":"[redacted]","display":"[redacted]"}}',
+  })
+})
+
+test('retains malformed UTF-8 percent sequences without throwing', () => {
+  assert.equal(redact('broken=%E0%A4&owner=John+Smith', ['John Smith']), 'broken=%E0%A4&owner=[redacted]')
+})

@@ -5,6 +5,18 @@ import { errText } from '../shared.js';
 
 type JsonObject = Record<string, unknown>;
 
+function isUtcDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+const utcDay = z.string().refine(isUtcDay, 'Expected a YYYY-MM-DD UTC day.');
+const costBucket = z.number().nonnegative().refine(
+  (amount) => Number(amount.toFixed(2)) === amount,
+  'Expected a USD amount with at most 2 decimal places.',
+);
+
 function object(value: unknown): JsonObject {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 }
@@ -100,13 +112,13 @@ const list = defineTool({
   title: 'List shared Deck-E conversations',
   description: 'List explicitly shared, pseudonymised Deck-E conversations available to improvement readers. Filter by date, build, feedback, cost, errors, model or tool. Use next_cursor to continue.',
   inputSchema: z.object({
-    from: z.string().optional().describe('Updated at or after this ISO 8601 timestamp.'),
-    to: z.string().optional().describe('Updated before this ISO 8601 timestamp.'),
+    from: utcDay.optional().describe('UTC day (YYYY-MM-DD).'),
+    to: utcDay.optional().describe('UTC day (YYYY-MM-DD).'),
     build_sha: z.string().optional(),
     build_pr: z.number().int().optional(),
     vote: z.enum(['-1', '1']).optional(),
-    min_cost: z.number().nonnegative().optional(),
-    max_cost: z.number().nonnegative().optional(),
+    min_cost: costBucket.optional(),
+    max_cost: costBucket.optional(),
     has_error: z.boolean().optional(),
     model: z.string().optional(),
     tool: z.string().optional(),

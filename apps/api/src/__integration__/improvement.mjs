@@ -162,10 +162,76 @@ try {
   await db.query("INSERT INTO public.decke_ai_content(request_id,asked,answered) VALUES($1,'legacy private question','legacy private answer')", [legacyRequest]);
 
   await migration('078_decke_improvement.sql');
+
+  // Seed the exact representations that 078 failed to redact so 079 must
+  // repair retained rows, not merely protect new writes.
+  const retainedConversation = id(96), retainedRequest = id(97);
+  await seedConversation({ conversation: retainedConversation, request: retainedRequest, operation: id(98), suffix: '96' });
+  let retainedShared;
+  await test('pre-079 corpus fixture contains encoded identities needing repair', async () => {
+    const answer = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, retainedConversation]));
+    retainedShared = answer.conversationId;
+    await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) data', [member, retainedConversation, JSON.stringify([
+        { seq: 0, asked: 'JOS%C3%89', answered: '%4A%6F%68%6E%20%53%6D%69%74%68', tools: [] },
+      ])]));
+    const before = (await db.query('SELECT asked,answered FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedShared])).rows[0];
+    assert.equal(before.asked, 'JOS%C3%89');
+    assert.equal(before.answered, '%4A%6F%68%6E%20%53%6D%69%74%68');
+  });
+
+  const orphanConversation = id(99), orphanRequest = id(199);
+  await seedConversation({ conversation: orphanConversation, request: orphanRequest, operation: id(299), suffix: '99' });
+  let orphanShared;
+  await test('pre-079 History deletion fixture leaves an existing corpus orphan', async () => {
+    const answer = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, orphanConversation]));
+    orphanShared = answer.conversationId;
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [orphanConversation]);
+    assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE id=$1', [orphanShared])).rows[0].n, 1);
+  });
+
+  await migration('079_decke_improvement_fixes.sql');
   await db.query('SELECT public.admin_bootstrap($1,$2,$3)', [owner, [], []]);
   // Deck-E released, so ordinary accounts hold decke.use (as in production).
   await db.query("UPDATE public.app_feature SET lifecycle='released' WHERE key='decke'");
   await db.query("INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES($1,'new@example.invalid','{\"username\":\"new-name\"}')", [newcomer]);
+
+  await test('079 repairs encoded identities already retained by the corpus', async () => {
+    const repaired = (await db.query('SELECT asked,answered FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedShared])).rows[0];
+    assert.deepEqual(repaired, { asked: '[redacted]', answered: '[redacted]' });
+    // Keep the original suite's empty-corpus baseline after exercising the
+    // migration repair path.
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedConversation]);
+    await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [retainedShared]);
+  });
+
+  await test('079 removes existing History orphans and preserves revoked consent', async () => {
+    assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE id=$1', [orphanShared])).rows[0].n, 0);
+    assert.equal((await db.query('SELECT status FROM public.decke_improvement_consent WHERE id=$1', [orphanShared])).rows[0].status, 'revoked');
+    await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [orphanShared]);
+  });
+
+  await test('identity helper returns only the calling subject terms', async () => {
+    const terms = await session(member, async (c) => (await c.query(
+      'SELECT public.decke_improvement_identity_terms($1) terms', [member])).rows[0].terms);
+    assert.deepEqual(new Set(terms), new Set(['José', 'John Smith', 'jsmith@example.invalid']));
+    await denied(session(member, (c) => c.query('SELECT public.decke_improvement_identity_terms($1)', [owner])));
+    await denied(as(null, { role: 'anon' }, async (c) => {
+      await c.query('RESET ROLE');
+      await c.query('SET LOCAL ROLE anon');
+      return c.query('SELECT public.decke_improvement_identity_terms($1)', [member]);
+    }));
+    const privileges = (await db.query(`SELECT
+      has_function_privilege('authenticated','public.decke_improvement_identity_terms(text)','EXECUTE') authenticated,
+      has_function_privilege('anon','public.decke_improvement_identity_terms(text)','EXECUTE') anon,
+      EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+        WHERE p.oid='public.decke_improvement_identity_terms(text)'::regprocedure
+          AND acl.grantee=0 AND acl.privilege_type='EXECUTE') public`)).rows[0];
+    assert.deepEqual(privileges, { authenticated: true, anon: false, public: false });
+    await denied(session(member, (c) => c.query('SELECT public.decke_improvement_purge_expired()')));
+  });
 
   await test('SQL redaction decodes JSON Unicode escapes and protects short identity words', async () => {
     const encoded = `{"mail":"j${slash}u0073mith${slash}u0040example.invalid","owner":"J${slash}u006fhn${slash}u0020Smith"}`;
@@ -300,12 +366,12 @@ try {
     assert.equal(legs[1].cost_usd, null);
     const backfill = await server(member, (c) => data(c,
       'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) data', [member, sharedConversation, JSON.stringify([
-        { seq: 0, asked: 'John%20Smith asked', answered: 'John+Smith answered', tools: [{ name: 'search_cards', phase: 'ok', args: { email: 'jsmith%40example.invalid', owner: 'Jose\u0301' } }] },
+        { seq: 0, asked: 'JOS%C3%89 and %4A%6F%68%6E%20%53%6D%69%74%68 asked', answered: 'John+Smith answered', tools: [{ name: 'search_cards', phase: 'ok', args: { email: 'jsmith%40example.invalid', owner: 'Jose\u0301' } }] },
       ])]));
     assert.equal(backfill.recorded, true);
     const stored = (await db.query('SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1', [derivedShared])).rows[0];
-    assert.equal(stored.asked, '[redacted] asked');
-    assert.doesNotMatch(JSON.stringify(stored), /John(?:%20|\+| )Smith|jsmith(?:%40|&#64;|@)example\.invalid|Jose\u0301|José/i);
+    assert.equal(stored.asked, '[redacted] and [redacted] asked');
+    assert.doesNotMatch(JSON.stringify(stored), /John(?:%20|\+| )Smith|%4A%6F%68%6E|jsmith(?:%40|&#64;|@)example\.invalid|JOS%C3%89|Jose\u0301|José/i);
   });
 
   await test('shared writers capture full legs/events and preserve pseudonymous IDs', async () => {
@@ -347,6 +413,13 @@ try {
     assert.equal(saved.saved, true);
     assert.equal(saved.shared, true);
     assert.equal(saved.copied, true);
+    // The bucket-isolation regression below needs two chats in the same public
+    // UTC day. Record both through the fixed-time leg fixture so the test does
+    // not depend on which calendar day the PostgreSQL runner happens to start.
+    const recorded = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_leg($1,$2,0,$3,0,$4::jsonb) data',
+      [member, feedbackConversation, feedbackRequest, JSON.stringify(validLeg('feedback answer'))]));
+    assert.equal(recorded.recorded, true);
     const ownCount = await session(member, async (c) => (await c.query('SELECT count(*)::int n FROM public.decke_turn_feedback')).rows[0].n);
     const otherCount = await session(outsider, async (c) => (await c.query('SELECT count(*)::int n FROM public.decke_turn_feedback')).rows[0].n);
     assert.equal(ownCount, 2);
@@ -392,7 +465,7 @@ try {
     const accountingRequest = (await db.query('SELECT started_at,finished_at FROM public.decke_ai_request WHERE id=$1', [sharedRequest])).rows[0];
     const accountingOperation = (await db.query('SELECT input_tokens,output_tokens,cost_usd FROM public.decke_ai_operation WHERE request_id=$1 ORDER BY started_at LIMIT 1', [sharedRequest])).rows[0];
     const rendered = JSON.stringify(detail);
-    assert.doesNotMatch(rendered, /John(?:%20|\+| )Smith|jsmith(?:%40|&#64;|@)example\.invalid|Jose\u0301|José/i);
+    assert.doesNotMatch(rendered, /John(?:%20|\+| )Smith|%4A%6F%68%6E|jsmith(?:%40|&#64;|@)example\.invalid|JOS%C3%89|Jose\u0301|José/i);
     assert.equal(rendered.includes(new Date(accountingRequest.started_at).toISOString()), false);
     if (accountingRequest.finished_at) assert.equal(rendered.includes(new Date(accountingRequest.finished_at).toISOString()), false);
     assert.equal(detail.turns[0].offsetSeconds % 10, 0);
@@ -418,6 +491,23 @@ try {
     assert.ok(search.items.length > 0);
     assert.match(search.items[0].date, /^\d{4}-\d{2}-\d{2}$/);
     assert.equal('updatedAt' in search.items[0], false);
+
+    const centBucket = await token(owner, tokenId, (c) => data(c,
+      'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ min_cost: 0, max_cost: 0 })]));
+    assert.ok(centBucket.items.length > 1);
+    assert.ok(centBucket.items.some((item) => item.id === derivedShared));
+    const day = list.items.find((item) => item.id === derivedShared).date;
+    const nextDay = new Date(Date.parse(day + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10);
+    const dayBucket = await token(owner, tokenId, (c) => data(c,
+      'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ from: day, to: nextDay })]));
+    assert.ok(dayBucket.items.length > 1);
+    assert.ok(dayBucket.items.some((item) => item.id === derivedShared));
+    await assert.rejects(token(owner, tokenId, (c) => data(c,
+      'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ min_cost: 0.00137, max_cost: 0.00137 })])),
+    (error) => error.code === '22023');
+    await assert.rejects(token(owner, tokenId, (c) => data(c,
+      'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ from: new Date(accountingRequest.started_at).toISOString() })])),
+    (error) => error.code === '22023');
     await db.query('UPDATE public.api_token SET revoked_at=now() WHERE id=$1', [tokenId]);
     await denied(token(owner, tokenId, (c) => data(c, "SELECT public.decke_improvement_list('{}',NULL,20) data")));
   });
@@ -436,6 +526,23 @@ try {
     assert.equal(JSON.stringify(costs).includes('asked'), false);
   });
 
+  await test('History deletion revokes and removes corpus while revoke stays idempotent', async () => {
+    const feedbackShared = (await db.query(
+      "SELECT public.decke_improvement_uuid('conversation:',$1) id", [feedbackConversation])).rows[0].id;
+    await session(member, (c) => c.query('DELETE FROM public.decke_conversation WHERE id=$1 AND user_id=auth.uid()', [feedbackConversation]));
+    assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE id=$1', [feedbackShared])).rows[0].n, 0);
+    assert.equal((await db.query('SELECT status FROM public.decke_improvement_consent WHERE id=$1', [feedbackShared])).rows[0].status, 'revoked');
+    const revoked = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_revoke($1,$2) data', [member, feedbackConversation]));
+    assert.equal(revoked.revoked, true);
+    assert.deepEqual(revoked.deleted, { conversations: 0, turns: 0, legs: 0, events: 0 });
+    await db.query('INSERT INTO public.decke_conversation(id,user_id,title,turns) VALUES($1,$2,\'recreated fixture\',0)', [feedbackConversation, member]);
+    const ask = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_can_ask($1,$2) data', [member, feedbackConversation]));
+    assert.deepEqual(ask, { allowed: false, reason: 'already_revoked' });
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [feedbackConversation]);
+  });
+
   await test('revoke deletes one corpus, keeps personal state, and blocks later writers', async () => {
     const revoked = await server(member, (c) => data(c,
       'SELECT public.decke_improvement_revoke($1,$2) data', [member, sharedConversation]));
@@ -451,7 +558,7 @@ try {
     const ask = await server(member, (c) => data(c, 'SELECT public.decke_improvement_can_ask($1,$2) data', [member, sharedConversation]));
     assert.deepEqual(ask, { allowed: false, reason: 'already_revoked' });
     const mine = await server(member, (c) => data(c, 'SELECT public.decke_improvement_list_mine($1) data', [member]));
-    assert.deepEqual(mine.items.map((item) => item.conversationId), [feedbackConversation]);
+    assert.deepEqual(mine.items, []);
   });
 
   const oldConversation = id(140), oldRequest = id(141);

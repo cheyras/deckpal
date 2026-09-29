@@ -60,7 +60,10 @@ function redactString(value: string, terms: readonly CanonicalTerm[]): string {
       // through and redact it as text when it is not actually encoded JSON.
     }
   }
-  output = decodeUnicodeEscapes(output)
+  // Decode once before normalising so percent hex casing, form spaces and
+  // decomposed Unicode cannot turn the same identity into distinct variants.
+  // Malformed percent bytes are preserved by decodePercentRun.
+  output = decodeEntities(decodePercentAndForm(decodeUnicodeEscapes(output))).normalize('NFC')
   for (const term of terms) {
     const escaped = escapeRegExp(term.value)
     const pattern = term.wholeWord
@@ -84,24 +87,57 @@ function canonicalVariants(terms: readonly string[]): CanonicalTerm[] {
     const trimmed = raw.trim()
     if (!trimmed) continue
     const wholeWord = [...trimmed].length < 3
-    for (const normalized of new Set([trimmed.normalize('NFC'), trimmed.normalize('NFD')])) {
-      add(normalized, wholeWord)
-      const percentEncoded = encodeURIComponent(normalized)
-      add(percentEncoded, wholeWord && percentEncoded === normalized)
-      const formEncoded = new URLSearchParams([['value', normalized]]).toString().slice('value='.length)
-      add(formEncoded, wholeWord && formEncoded === normalized)
-      if (normalized.includes('@')) {
-        add(normalized.replaceAll('@', '&#64;'), false)
-        add(normalized.replaceAll('@', '&#x40;'), false)
-        add(normalized.replaceAll('@', '&commat;'), false)
-      }
-    }
+    add(trimmed.normalize('NFC'), wholeWord)
   }
   return [...unique.values()].sort((a, b) => b.value.length - a.value.length || a.value.localeCompare(b.value))
 }
 
 function decodeUnicodeEscapes(value: string): string {
   return value.replace(/\\u([0-9a-f]{4})/giu, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+}
+
+function decodePercentAndForm(value: string): string {
+  return value.replaceAll('+', ' ').replace(/(?:%[0-9a-f]{2})+/giu, decodePercentRun)
+}
+
+/** Decode one percent run in linear time while retaining malformed UTF-8 bytes. */
+function decodePercentRun(run: string): string {
+  const tokens = run.match(/%[0-9a-f]{2}/giu) ?? []
+  const bytes = tokens.map((token) => Number.parseInt(token.slice(1), 16))
+  let output = ''
+  for (let index = 0; index < bytes.length;) {
+    const first = bytes[index]!
+    if (first < 0x80) {
+      output += String.fromCodePoint(first)
+      index++
+      continue
+    }
+    const width = first >= 0xc2 && first <= 0xdf ? 2
+      : first >= 0xe0 && first <= 0xef ? 3
+        : first >= 0xf0 && first <= 0xf4 ? 4
+          : 0
+    const continuation = width > 0 && index + width <= bytes.length
+      && bytes.slice(index + 1, index + width).every((byte) => byte >= 0x80 && byte <= 0xbf)
+    const second = bytes[index + 1]
+    const validRange = width !== 3 || first !== 0xe0 || second! >= 0xa0
+    const outsideSurrogates = width !== 3 || first !== 0xed || second! <= 0x9f
+    const validPlane = width !== 4
+      || (first !== 0xf0 || second! >= 0x90) && (first !== 0xf4 || second! <= 0x8f)
+    if (!continuation || !validRange || !outsideSurrogates || !validPlane) {
+      output += tokens[index]!
+      index++
+      continue
+    }
+    let point = first & (0x7f >> width)
+    for (let offset = 1; offset < width; offset++) point = (point << 6) | (bytes[index + offset]! & 0x3f)
+    output += String.fromCodePoint(point)
+    index += width
+  }
+  return output
+}
+
+function decodeEntities(value: string): string {
+  return value.replace(/&#(?:0*64|x0*40);|&commat;/giu, '@')
 }
 
 function escapeRegExp(value: string): string {

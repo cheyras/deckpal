@@ -1,3 +1,5 @@
+import type { DeckeImprovementTokens } from '../../lib/api'
+
 export type Coverage = 'complete' | 'partial' | 'unknown'
 
 export function costLabel(cost: string | number | null, coverage: Coverage): string {
@@ -5,15 +7,19 @@ export function costLabel(cost: string | number | null, coverage: Coverage): str
   return `$${cost} USD${coverage === 'partial' ? ' (partial)' : ''}`
 }
 
-export function sharingLabel(source: string | null | undefined): string {
-  return ({ decke_ask: 'Asked', feedback: 'Feedback', reader: 'Reader' } as Record<string, string>)[source ?? ''] ?? 'Not recorded'
+export function tokenLabel(tokens: DeckeImprovementTokens): string {
+  const known = Object.entries(tokens)
+    .filter(([, value]) => value !== null)
+    .map(([name, value]) => `${name.replace(/[A-Z]/g, letter => ` ${letter.toLowerCase()}`)} ${value}`)
+  return known.length ? known.join(' · ') : 'Tokens not recorded'
 }
 
-export function eventOffset(event: Record<string, unknown>, startedAt?: string | null): string {
-  const at = typeof event.at === 'string' ? Date.parse(event.at) : NaN
-  const started = startedAt ? Date.parse(startedAt) : NaN
-  if (!Number.isFinite(at) || !Number.isFinite(started)) return 'Time not recorded'
-  return `+${Math.max(0, at - started)} ms`
+export function turnOffset(seconds: number): string {
+  return seconds === 0 ? 'At chat start' : `+${seconds}s`
+}
+
+export function eventLabel(event: { ordinal: number; batch: number; batchOrdinal: number; legId: string | null }): string {
+  return `Event ${event.ordinal} · batch ${event.batch}.${event.batchOrdinal}${event.legId === null ? '' : ` · leg ${event.legId}`}`
 }
 
 export function json(value: unknown): string { return JSON.stringify(value ?? null, null, 2) }

@@ -11,7 +11,7 @@ type JsonObject = Record<string, unknown>;
 
 export interface ImprovementRouteDeps {
   run<T>(req: Request, work: (db: Queryable) => Promise<T>): Promise<T>;
-  backfill(db: Queryable, input: { userId: string; conversationId: string; backfill: SharedBackfill }): Promise<unknown>;
+  backfill(db: Queryable, input: { userId: string; conversationId: string; backfill: SharedBackfill }): Promise<boolean>;
   terms(db: Queryable, userId: string): Promise<string[]>;
   clean(value: unknown, terms: readonly string[]): unknown;
 }
@@ -101,12 +101,31 @@ function listFilters(query: Record<string, unknown>): JsonObject {
   for (const [key, value] of Object.entries(query)) {
     if (key === 'cursor' || key === 'limit' || value === undefined || value === '') continue;
     if (!LIST_FILTERS.has(key) || typeof value !== 'string' || value.length > 160) throw invalid('Invalid improvement filter.');
-    if ((key === 'from' || key === 'to') && !Number.isFinite(Date.parse(value))) throw invalid(`Invalid ${key} date.`);
+    if ((key === 'from' || key === 'to') && !isUtcDay(value)) throw invalid(`${key} must be a YYYY-MM-DD UTC day.`);
+    if ((key === 'min_cost' || key === 'max_cost') && !/^\d+(?:\.\d{1,2})?$/.test(value)) {
+      throw invalid(`${key} must be a non-negative USD amount with at most 2 decimal places.`);
+    }
     if (key === 'has_error' && value !== 'true' && value !== 'false') throw invalid('has_error must be true or false.');
     if (key === 'vote' && value !== '-1' && value !== '1') throw invalid('vote must be -1 or 1.');
     filters[key] = value;
   }
   return filters;
+}
+
+function isUtcDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+async function requireBackfill(
+  deps: ImprovementRouteDeps,
+  db: Queryable,
+  input: { userId: string; conversationId: string; backfill: SharedBackfill },
+): Promise<void> {
+  // Throw inside deps.run so its transaction rolls the consent/feedback write
+  // back instead of acknowledging an empty shared transcript.
+  if (!await deps.backfill(db, input)) throw new Error('Deck-E improvement backfill failed');
 }
 
 function boundedLimit(value: unknown, fallback: number, max: number): number {
@@ -174,7 +193,7 @@ export function createDeckeImprovementRouter(
     const userId = currentUserId(req);
     const result = await deps.run(req, async (db) => {
       const answer = await call<JsonObject>(db, 'SELECT public.decke_improvement_answer($1,$2,$3,$4) AS data', [userId, conversationId, body.share, body.source]);
-      if (body.share) await deps.backfill(db, { userId, conversationId, backfill: (answer.backfill ?? {}) as SharedBackfill });
+      if (body.share) await requireBackfill(deps, db, { userId, conversationId, backfill: (answer.backfill ?? {}) as SharedBackfill });
       return answer;
     });
     res.json(publicConsent(result));
@@ -253,7 +272,7 @@ export function createDeckeImprovementRouter(
       // the trusted helper sees the raw rows before feedback is copied.
       if (share) {
         const answer = await call<JsonObject>(db, 'SELECT public.decke_improvement_answer($1,$2,true,\'feedback\') AS data', [userId, conversationId]);
-        await deps.backfill(db, { userId, conversationId, backfill: (answer.backfill ?? {}) as SharedBackfill });
+        await requireBackfill(deps, db, { userId, conversationId, backfill: (answer.backfill ?? {}) as SharedBackfill });
       }
       return call<JsonObject>(db, 'SELECT public.decke_improvement_record_feedback($1,$2,$3,$4,$5,$6) AS data', [userId, conversationId, seq, body.vote, body.comment ?? null, share]);
     });
@@ -290,12 +309,7 @@ export function createDeckeImprovementAdminRouter(deps: ImprovementRouteDeps = d
     const filters = listFilters(req.query);
     const cursor = scalar(req.query.cursor, 'cursor', 300);
     const limit = boundedLimit(req.query.limit, 50, 100);
-    const result = await deps.run(req, async (db) => {
-      // The list reader also purges, but keeping this explicit makes the API's
-      // bounded-cleanup obligation visible and harmlessly idempotent.
-      await db.query('SELECT public.decke_improvement_purge_expired()');
-      return call<{ items: unknown[]; nextCursor: string | null }>(db, 'SELECT public.decke_improvement_list($1::jsonb,$2,$3) AS data', [JSON.stringify(filters), cursor, limit]);
-    });
+    const result = await deps.run(req, (db) => call<{ items: unknown[]; nextCursor: string | null }>(db, 'SELECT public.decke_improvement_list($1::jsonb,$2,$3) AS data', [JSON.stringify(filters), cursor, limit]));
     if (req.accepts(['json', 'application/x-ndjson']) === 'application/x-ndjson') {
       res.type('application/x-ndjson');
       for (const item of result.items) res.write(JSON.stringify(item) + '\n');

@@ -38,7 +38,7 @@ export interface CostSummary {
 }
 
 interface PoolClientLike extends Queryable { release(): void }
-interface PoolLike extends Queryable { connect?: () => Promise<PoolClientLike> }
+interface PoolLike extends Queryable { connect(): Promise<PoolClientLike> }
 
 export async function canAskToShare(
   db: Queryable,
@@ -59,30 +59,17 @@ export async function canAskToShare(
   }
 }
 
-/** Identity comes from the same account/profile/auth sources as migration 064. */
+/** Identity is exposed only through the subject-checked database boundary. */
 export async function loadIdentityTerms(db: Queryable, userId: string): Promise<string[]> {
-  const { rows } = await db.query<{ username: string | null; display_name: string | null }>(
-    `SELECT u.username, p.display_name
-       FROM public.app_user u
-       LEFT JOIN public.user_profile p ON p.user_id = u.id
-      WHERE u.id::text = $1`,
+  const { rows } = await db.query<{ terms: Array<string | null> | null }>(
+    'SELECT public.decke_improvement_identity_terms($1) AS terms',
     [userId],
   )
-  let email: string | null = null
-  const authRelation = await db.query<{ exists: boolean }>(
-    "SELECT to_regclass('auth.users') IS NOT NULL AS exists",
-  )
-  if (authRelation.rows[0]?.exists) {
-    const auth = await db.query<{ email: string | null }>(
-      'SELECT email FROM auth.users WHERE id::text = $1',
-      [userId],
-    )
-    email = auth.rows[0]?.email ?? null
-  }
+  const [username, displayName, email] = rows[0]?.terms ?? []
   const identity: RedactionIdentity = {
-    username: rows[0]?.username ?? null,
-    displayName: rows[0]?.display_name ?? null,
-    email,
+    username: username ?? null,
+    displayName: displayName ?? null,
+    email: email ?? null,
   }
   return redactionTerms(identity)
 }
@@ -167,8 +154,11 @@ async function recordLegInner(db: Queryable, record: LegRecord): Promise<boolean
 }
 
 async function asWriter<T>(db: Queryable, userId: string, work: (client: Queryable) => Promise<T>): Promise<T> {
+  const candidate = db as Partial<PoolLike & PoolClientLike>
+  // A checked-out PoolClient also exposes connect() through pg.Client. Its
+  // release method is the reliable signal that the caller owns its transaction.
+  if (typeof candidate.release === 'function' || typeof candidate.connect !== 'function') return work(db)
   const pool = db as PoolLike
-  if (typeof pool.connect !== 'function') return work(db)
   const client = await pool.connect()
   try {
     await client.query('BEGIN')

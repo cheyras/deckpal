@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 const DEFAULT_BASE = 'https://deckpal.app/api';
 const COMMANDS = new Set(['list', 'read', 'search', 'dump']);
-const VALUE_FLAGS = new Set(['from', 'to', 'vote', 'build-pr', 'limit', 'format', 'out', 'since']);
+const VALUE_FLAGS = new Set(['from', 'to', 'vote', 'build-pr', 'min-cost', 'max-cost', 'limit', 'format', 'out', 'since']);
 
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -39,10 +39,24 @@ export function parseArgs(argv) {
   const limit = options.limit === undefined ? undefined : Number(options.limit);
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) throw new Error('--limit must be an integer from 1 to 100');
   if (limit !== undefined) options.limit = limit;
+  for (const key of ['from', 'to']) {
+    if (options[key] !== undefined && !isUtcDay(options[key])) throw new Error(`--${key} must be a YYYY-MM-DD UTC day`);
+  }
+  for (const key of ['minCost', 'maxCost']) {
+    if (options[key] !== undefined && !/^\d+(?:\.\d{1,2})?$/.test(options[key])) {
+      throw new Error(`--${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} must be a non-negative USD amount with at most 2 decimal places`);
+    }
+  }
   if (command === 'read' && positional.length !== 1) throw new Error('read needs one conversation id');
   if (command === 'search' && positional.length < 1) throw new Error('search needs a query');
   if ((command === 'list' || command === 'dump') && positional.length > 0) throw new Error(`${command} takes no positional arguments`);
   return { command, id: command === 'read' ? positional[0] : undefined, query: command === 'search' ? positional.join(' ') : undefined, options };
+}
+
+function isUtcDay(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function sinceDate(value, now = Date.now()) {
@@ -50,7 +64,7 @@ function sinceDate(value, now = Date.now()) {
   if (!match) throw new Error('--since must look like 12h, 7d, or 2w');
   const amount = Number(match[1]);
   const unit = { h: 3_600_000, d: 86_400_000, w: 604_800_000 }[match[2]];
-  return new Date(now - amount * unit).toISOString();
+  return new Date(now - amount * unit).toISOString().slice(0, 10);
 }
 
 function endpoint(base, path, params = {}) {
@@ -81,6 +95,8 @@ function listParams(options, cursor) {
     vote: options.vote,
     has_error: options.hasError,
     build_pr: options.buildPr,
+    min_cost: options.minCost,
+    max_cost: options.maxCost,
     limit: options.limit ?? 50,
     cursor,
   };

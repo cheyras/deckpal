@@ -25,10 +25,12 @@ interface FakeState {
   calls: Array<{ sql: string; params: unknown[] }>;
   backfills: Array<{ userId: string; conversationId: string; backfill: unknown }>;
   events: unknown[];
+  commits: number;
+  rollbacks: number;
 }
 
-function fakeDeps(options: { deny?: boolean; detail?: Record<string, unknown> } = {}): { deps: ImprovementRouteDeps; state: FakeState } {
-  const state: FakeState = { calls: [], backfills: [], events: [] };
+function fakeDeps(options: { deny?: boolean; detail?: Record<string, unknown>; backfillFails?: boolean } = {}): { deps: ImprovementRouteDeps; state: FakeState } {
+  const state: FakeState = { calls: [], backfills: [], events: [], commits: 0, rollbacks: 0 };
   const db: Queryable = {
     async query(sql: string, params: unknown[] = []) {
       state.calls.push({ sql, params });
@@ -58,9 +60,16 @@ function fakeDeps(options: { deny?: boolean; detail?: Record<string, unknown> } 
     deps: {
       async run(_req, work) {
         if (options.deny) throw new ApiError(403, 'forbidden', 'No improvement access.');
-        return work(db);
+        try {
+          const result = await work(db);
+          state.commits++;
+          return result;
+        } catch (error) {
+          state.rollbacks++;
+          throw error;
+        }
       },
-      async backfill(_db, input) { state.backfills.push(input); return true; },
+      async backfill(_db, input) { state.backfills.push(input); return options.backfillFails !== true; },
       async terms() { return ['alice@example.com', 'Alice']; },
       clean: redact,
     },
@@ -202,6 +211,22 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
       assert.match(sql, /decke_improvement_record_feedback/);
     });
   });
+
+  it('fails and rolls back consent or feedback when a required backfill fails', async () => {
+    const { deps, state } = fakeDeps({ backfillFails: true });
+    await serve(deps, async (request) => {
+      const consent = await request('/decke/improvement/consent', post({ conversationId: CHAT, share: true, source: 'reader' }));
+      assert.equal(consent.response.status, 500);
+      assert.equal(state.commits, 0);
+      assert.equal(state.rollbacks, 1);
+
+      const feedback = await request('/decke/feedback', post({ conversationId: CHAT, seq: 0, vote: 1, share: true }, 'PUT'));
+      assert.equal(feedback.response.status, 500);
+      assert.equal(state.commits, 0);
+      assert.equal(state.rollbacks, 2);
+      assert.equal(state.calls.some(({ sql }) => sql.includes('decke_improvement_record_feedback')), false);
+    });
+  });
 });
 
 describe('Deck-E improvement administration', () => {
@@ -214,16 +239,34 @@ describe('Deck-E improvement administration', () => {
     });
   });
 
-  it('passes list filters, cursor, and limit to the SQL reader', async () => {
+  it('passes bucketed list filters, cursor, and limit directly to the SQL reader', async () => {
     const { deps, state } = fakeDeps();
     await serve(deps, async (request) => {
-      const { response } = await request('/admin/decke-improvement?build_sha=abc&vote=-1&has_error=true&cursor=next%7Ccursor&limit=17');
+      const { response } = await request('/admin/decke-improvement?from=2026-09-01&to=2026-09-28&min_cost=0.10&max_cost=2&build_sha=abc&vote=-1&has_error=true&cursor=next%7Ccursor&limit=17');
       assert.equal(response.status, 200);
       const call = state.calls.find((candidate) => candidate.sql.includes('decke_improvement_list('));
       assert(call);
-      assert.deepEqual(JSON.parse(String(call.params[0])), { build_sha: 'abc', vote: '-1', has_error: 'true' });
+      assert.deepEqual(JSON.parse(String(call.params[0])), { from: '2026-09-01', to: '2026-09-28', min_cost: '0.10', max_cost: '2', build_sha: 'abc', vote: '-1', has_error: 'true' });
       assert.equal(call.params[1], 'next|cursor');
       assert.equal(call.params[2], 17);
+      assert.equal(state.calls.some((candidate) => candidate.sql.includes('purge_expired')), false);
+    });
+  });
+
+  it('rejects exact-cost and timestamp-shaped list filters before database work', async () => {
+    const { deps, state } = fakeDeps();
+    await serve(deps, async (request) => {
+      for (const query of [
+        'min_cost=0.001',
+        'max_cost=1e-3',
+        'from=2026-09-01T00%3A00%3A00Z',
+        'to=2026-02-30',
+      ]) {
+        const before = state.calls.length;
+        const { response } = await request(`/admin/decke-improvement?${query}`);
+        assert.equal(response.status, 400, query);
+        assert.equal(state.calls.length, before, query);
+      }
     });
   });
 

@@ -25,6 +25,17 @@ test('decke_improvement_list sends every contract filter and renders the cursor'
   assert.match(result.text, /next_cursor: 11111111-1111-4111-8111-111111111111/);
 });
 
+test('decke_improvement_list accepts only UTC day and cent-precision cost buckets', () => {
+  const schema = tool('decke_improvement_list').inputSchema!;
+  assert.equal(schema.safeParse({ from: '2026-09-01', to: '2026-09-28', min_cost: 0.01, max_cost: 2 }).success, true);
+  for (const input of [
+    { from: '2026-09-01T00:00:00Z' },
+    { to: '2026-02-30' },
+    { min_cost: 0.001 },
+    { max_cost: 1.234 },
+  ]) assert.equal(schema.safeParse(input).success, false, JSON.stringify(input));
+});
+
 test('decke_improvement_read keeps full tool payloads but pages turns', async () => {
   const ctx = context(() => ({
     conversation: { id: '11111111-1111-4111-8111-111111111111', date: '2026-09-28', costUsd: 0.01, costCoverage: 'complete' },

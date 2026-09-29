@@ -21,6 +21,17 @@ import type { PriceGrain, PriceHistoryPoint } from './priceGrain'
 import type { AppDefaults, AdminUser, PageResult, RoleList, AuditEvent, CreditSettings, CreditPolicy, CreditPack, CreditEvent, Wallet, CreditOrder, CreditSummary, AdminCreditOrder } from './adminTypes'
 import type { Goal } from '../routes/setSearch'
 
+/** Public, pseudonymised shapes returned by the Deck-E improvement readers. */
+export type DeckeImprovementCoverage = 'complete' | 'partial' | 'unknown'
+export interface DeckeImprovementTokens { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; reasoning: number | null }
+export interface DeckeImprovementConversation { id: string; date: string; buildFirst: string | null; buildLast: string | null; costUsd: number | null; costCoverage: DeckeImprovementCoverage; hasError: boolean }
+export interface DeckeImprovementListItem extends DeckeImprovementConversation { turnCount: number }
+export interface DeckeImprovementList { items: DeckeImprovementListItem[]; nextCursor: string | null }
+export interface DeckeImprovementLeg { id: string; leg: number; asked: string | null; answered: string | null; modelId: string | null; provider: string | null; tokens: DeckeImprovementTokens; costUsd: number | null; costCoverage: DeckeImprovementCoverage; costSource: string | null; status: string | null; finishReason: string | null; buildSha: string | null; buildPr: number | null; error: unknown; toolCalls: unknown }
+export interface DeckeImprovementEvent { ordinal: number; batch: number; batchOrdinal: number; legId: string | null; kind: string; payload: unknown }
+export interface DeckeImprovementTurn { seq: number; asked: string; answered: string; tools: unknown; feedback: number | null; feedbackComment: string | null; offsetSeconds: number; tokens: DeckeImprovementTokens; costUsd: number | null; costCoverage: DeckeImprovementCoverage; buildSha: string | null; buildPr: number | null; finishReason: string | null; hasError: boolean; legs: DeckeImprovementLeg[]; events: DeckeImprovementEvent[] }
+export interface DeckeImprovementDetail { conversation: DeckeImprovementConversation; turns: DeckeImprovementTurn[] }
+
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
 
 // EVERY request in the app went through an unbounded `getSession()` here, which
@@ -2149,9 +2160,9 @@ export const api = {
   adminAiRequest: (id: string, signal?: AbortSignal) => get<AiUsageDetail>('/admin/ai-usage/requests/' + encodeURIComponent(id), signal),
   /** Content-free cost rollup for every conversation, shared or not. */
   adminAiConversationCosts: <T>(params: string, signal?: AbortSignal) => get<T>('/admin/ai-usage/conversations?' + params, signal),
-  /** Shared Deck-E chats (pseudonymised), list and one in full. */
-  adminDeckeImprovementList: <T>(params: string, signal?: AbortSignal) => get<T>('/admin/decke-improvement?' + params, signal),
-  adminDeckeImprovement: <T>(id: string, signal?: AbortSignal) => get<T>('/admin/decke-improvement/' + encodeURIComponent(id), signal),
+  /** Shared Deck-E chats (pseudonymised), using the SQL reader's bucketed shape. */
+  adminDeckeImprovementList: (params: string, signal?: AbortSignal) => get<DeckeImprovementList>('/admin/decke-improvement?' + params, signal),
+  adminDeckeImprovement: (id: string, signal?: AbortSignal) => get<DeckeImprovementDetail>('/admin/decke-improvement/' + encodeURIComponent(id), signal),
   adminAiConversation: (id: string, params: string, signal?: AbortSignal) => get<{ items: AiUsageDetail[]; total: number; limit: number; offset: number }>('/admin/ai-usage/conversations/' + encodeURIComponent(id) + '?' + params, signal),
   meFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/me/features', signal),
   setMeFeature: (key: string, optedIn: boolean, expectedRevision: number) => send<{ features: FeatureAccess[] }>('PATCH', '/me/features/' + encodeURIComponent(key), { optedIn, expectedRevision }),

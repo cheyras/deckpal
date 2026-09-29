@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import pg from 'pg'
 import type { Queryable } from '@deckpal/db'
-import { recordLeg, summarizeCosts } from '../improvement.js'
+import { backfillShared, loadIdentityTerms, recordLeg, summarizeCosts } from '../improvement.js'
 
 const record = {
   userId: 'user-1',
@@ -21,9 +22,7 @@ function fixture(options: { shared?: boolean; writerFails?: boolean } = {}) {
   const db = { query: async (sql: string, params: unknown[] = []) => {
     calls.push({ sql, params })
     if (sql.includes('shared_owner')) return { rows: [{ owner: options.shared === false ? null : 'owner' }] }
-    if (sql.includes('FROM public.app_user')) return { rows: [{ username: 'Ash', display_name: 'Ash Ketchum' }] }
-    if (sql.includes("to_regclass('auth.users')")) return { rows: [{ exists: true }] }
-    if (sql.includes('FROM auth.users')) return { rows: [{ email: 'ash@example.com' }] }
+    if (sql.includes('decke_improvement_identity_terms')) return { rows: [{ terms: ['Ash', 'Ash Ketchum', 'ash@example.com'] }] }
     if (sql.includes('FROM public.decke_ai_request r WHERE r.id')) return { rows: [{
       started_at: '2026-09-28T18:00:00.000Z', finished_at: '2026-09-28T18:00:01.000Z',
       status: 'completed', build_sha: 'abc', build_pr: 123, leg_no: 0,
@@ -73,4 +72,41 @@ test('unshared chats stop at the cheap check without loading identity', async ()
 test('a failing corpus writer never throws into chat', async () => {
   const { db } = fixture({ writerFails: true })
   assert.equal(await recordLeg(db, record), false)
+})
+
+test('identity terms come through the subject-checked helper without direct auth reads', async () => {
+  const { db, calls } = fixture()
+  assert.deepEqual(await loadIdentityTerms(db, record.userId), ['ash@example.com', 'Ash Ketchum', 'Ash'])
+  assert.equal(calls.length, 1)
+  assert.match(calls[0]!.sql, /decke_improvement_identity_terms/)
+  assert.doesNotMatch(calls[0]!.sql, /auth\.users|app_user/)
+})
+
+test('backfill reuses a checked-out pg client without reconnecting or opening a transaction', async () => {
+  const client = new pg.Client()
+  const calls: Array<{ sql: string; params: unknown[] }> = []
+  let reconnects = 0
+  Object.defineProperties(client, {
+    connect: { value: async () => { reconnects++; throw new Error('already connected') } },
+    release: { value: () => undefined },
+    query: { value: async (sql: string, params: unknown[] = []) => {
+      calls.push({ sql, params })
+      if (sql.includes('decke_improvement_identity_terms')) {
+        return { rows: [{ terms: ['Ash', 'Ash Ketchum', 'ash@example.com'] }] }
+      }
+      if (sql.includes('decke_improvement_record_backfill')) return { rows: [{ data: { recorded: true } }] }
+      throw new Error(`Unexpected SQL: ${sql}`)
+    } },
+  })
+
+  assert.equal(await backfillShared(client as unknown as Queryable, {
+    userId: record.userId,
+    conversationId: record.conversationId,
+    backfill: { turns: [{ seq: 0, asked: 'Ash asks', answered: 'ok', tools: [] }], requests: [] },
+  }), true)
+  assert.equal(reconnects, 0)
+  assert.equal(calls.some(({ sql }) => sql === 'BEGIN' || sql === 'COMMIT'), false)
+  const writer = calls.find(({ sql }) => sql.includes('decke_improvement_record_backfill'))
+  assert.ok(writer)
+  assert.match(String(writer.params[2]), /\[redacted\] asks/)
 })
