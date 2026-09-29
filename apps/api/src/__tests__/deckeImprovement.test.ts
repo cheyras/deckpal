@@ -40,6 +40,7 @@ function fakeDeps(options: { deny?: boolean; detail?: Record<string, unknown> } 
           : { status: 'declined', source: params[3], conversationId: CORPUS } }] } as never;
       }
       if (sql.includes('decke_improvement_revoke')) return { rows: [{ data: { revoked: true, conversationId: CHAT, deleted: { conversations: 1 } } }] } as never;
+      if (sql.includes('FROM public.decke_turn_feedback')) return { rows: [{ seq: 0, vote: 1, comment: 'Nice' }, { seq: 2, vote: null, comment: 'Meh' }] } as never;
       if (sql.includes('decke_improvement_list_mine')) return { rows: [{ data: { items: [{ conversationId: CHAT }] } }] } as never;
       if (sql.includes('decke_improvement_record_events')) {
         state.events = JSON.parse(String(params[4]));
@@ -174,6 +175,18 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
       const tooLarge = await request('/decke/telemetry', post({ conversationId: CHAT, seq: 0, batch: 2, events: [{ kind: 'notice', at: '2026-09-28T10:00:00Z', payload: { text: 'x'.repeat(525_000) } }] }));
       assert.equal(tooLarge.response.status, 413);
       assert.equal(state.calls.length, calls);
+    });
+  });
+
+  it('reads the caller\'s own votes for one conversation', async () => {
+    const { deps, state } = fakeDeps();
+    await serve(deps, async (request) => {
+      const { response, body } = await request(`/decke/feedback/${CHAT}`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(body.items, [{ seq: 0, vote: 1, comment: 'Nice' }, { seq: 2, vote: null, comment: 'Meh' }]);
+      assert.deepEqual(state.calls.at(-1)?.params, [USER, CHAT]);
+      const bad = await request('/decke/feedback/not-a-uuid');
+      assert.equal(bad.response.status, 400);
     });
   });
 

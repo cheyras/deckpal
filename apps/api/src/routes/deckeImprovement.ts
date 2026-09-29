@@ -217,6 +217,26 @@ export function createDeckeImprovementRouter(
     res.status(202).json({ recorded: result.recorded === true });
   }));
 
+  // The reader's own votes for one conversation, for their read-only History
+  // transcript. Served here rather than joined into /decke/history so personal
+  // History does not depend on the improvement schema; RLS limits the rows to
+  // the caller's own feedback.
+  router.get('/feedback/:conversationId', asyncHandler(async (req, res) => {
+    const conversationId = uuid(req.params.conversationId);
+    const userId = currentUserId(req);
+    const rows = await deps.run(req, async (db) => (await db.query<{ seq: number; vote: number | null; comment: string | null }>(
+      'SELECT seq,vote,comment FROM public.decke_turn_feedback WHERE user_id=$1 AND conversation_id=$2 ORDER BY seq',
+      [userId, conversationId],
+    )).rows);
+    res.json({
+      items: rows.map((row) => ({
+        seq: Number(row.seq),
+        vote: row.vote === null ? null : Number(row.vote),
+        comment: row.comment ?? null,
+      })),
+    });
+  }));
+
   router.put('/feedback', asyncHandler(async (req, res) => {
     const body = bodyObject(req.body);
     const conversationId = uuid(body.conversationId);

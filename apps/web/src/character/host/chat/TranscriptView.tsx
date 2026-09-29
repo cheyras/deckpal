@@ -53,7 +53,7 @@
 
 import { useEffect, useState } from 'react'
 import { Icon } from '../../../components/Icon'
-import { api, type DeckeConversation } from '../../../lib/api'
+import { api, type DeckeConversation, type DeckeFeedbackMine } from '../../../lib/api'
 import { ActivityLine } from './ActivityLine'
 import { ChatMarkdown } from './ChatMarkdown'
 import { BuildStampChip } from './HistoryMenu'
@@ -85,6 +85,18 @@ export type TranscriptLoad =
   | { state: 'gone' }
   | { state: 'failed'; message: string }
 
+/** Attach the reader's own votes to the turns they were cast on, by `seq`. */
+export function withFeedback(c: DeckeConversation, feedback: DeckeFeedbackMine): DeckeConversation {
+  const bySeq = new Map(feedback.items.map((item) => [item.seq, item]))
+  return {
+    ...c,
+    turns: c.turns.map((t) => {
+      const f = bySeq.get(t.seq)
+      return f ? { ...t, feedback: f.vote, feedbackComment: f.comment } : t
+    }),
+  }
+}
+
 /**
  * The head band and the scroller, together; the exit bar is its own export.
  *
@@ -106,12 +118,15 @@ export function TranscriptPane({ id, onBack }: { id: string; onBack: () => void 
   useEffect(() => {
     const ac = new AbortController()
     setLoad({ state: 'loading' })
+    // Sharing state and votes are extras: if either read fails the record still
+    // opens, just without the badge or the "Good reply" lines.
     Promise.all([
       api.deckeHistoryOne(id, ac.signal),
       api.deckeImprovementMine(ac.signal).catch(() => ({ items: [] })),
+      api.deckeFeedbackMine(id, ac.signal).catch(() => ({ items: [] })),
     ])
-      .then(([c, mine]) => {
-        if (!ac.signal.aborted) setLoad({ state: 'ready', conversation: c })
+      .then(([c, mine, feedback]) => {
+        if (!ac.signal.aborted) setLoad({ state: 'ready', conversation: withFeedback(c, feedback) })
         if (!ac.signal.aborted) setShared(mine.items.some((item) => item.conversationId === id))
       })
       .catch((e: unknown) => {

@@ -117,6 +117,9 @@ export function showFixture(mount, admin) {
       return { raw: sse(legs.shift() ?? [say('')]), type: 'text/event-stream', headers: { 'x-decke-credits': '500', 'cache-control': 'no-cache' } }
     }
     if (rel === '/api/decke/history' && req.method === 'POST') return { body: { ok: true, recorded: false } }
+    // History's extras: which chats are shared, and the reader's own votes.
+    if (rel === '/api/decke/improvement/mine' && req.method === 'GET') return { body: { items: [] } }
+    if (rel.startsWith('/api/decke/feedback/') && req.method === 'GET') return { body: { items: [] } }
     return null
   }
   const allowMutation = (pathname, method) => method === 'POST' && ['/api/chat', '/api/decke/history'].includes(pathname.slice(mount.length))

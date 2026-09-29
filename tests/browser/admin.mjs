@@ -29,7 +29,7 @@ export function adminFixture(mount) {
   initFeedback(state, PERMISSIONS)
   const allowMutation = (pathname, method) => {
     const rel = pathname.slice(mount.length)
-    return ['POST','PUT','PATCH','DELETE'].includes(method) && ((state.chatProbe && ['/api/chat','/api/decke/history'].includes(rel)) || /^\/api\/(?:me\/(?:features\/[^/]+|decke-sharing)|admin\/(?:features\/[^/]+|users\/[^/]+\/(?:role|ai-override)))$/.test(rel) || /^\/api\/admin\/(roles(?:\/[^/]+)?|settings|users\/[^/]+\/(roles|status|revoke-tokens)|credits\/(settings|packs(?:\/[^/]+)?|users\/[^/]+\/(adjustments|resolve-hold)))$/.test(rel) || rel === '/api/me/credits/checkout' || (method === 'POST' && rel === '/api/me/billing/visit'))
+    return ['POST','PUT','PATCH','DELETE'].includes(method) && ((state.chatProbe && ['/api/chat','/api/decke/history'].includes(rel)) || /^\/api\/(?:me\/(?:features\/[^/]+|decke-sharing|settings)|admin\/(?:features\/[^/]+|users\/[^/]+\/(?:role|ai-override)))$/.test(rel) || /^\/api\/admin\/(roles(?:\/[^/]+)?|settings|users\/[^/]+\/(roles|status|revoke-tokens)|credits\/(settings|packs(?:\/[^/]+)?|users\/[^/]+\/(adjustments|resolve-hold)))$/.test(rel) || rel === '/api/me/credits/checkout' || (method === 'POST' && rel === '/api/me/billing/visit'))
   }
   const response = (rel, url, req = { method: 'GET' }) => {
     const { method, body } = req
@@ -53,7 +53,8 @@ export function adminFixture(mount) {
     if (/^\/api\/cards\/base1-[1-5]$/.test(rel)) return { status: 404, body: { error: { message: 'Fictional gallery card has no live detail.' } } }
     if (rel === '/api/public-config') return { body: { defaults: state.defaults.settings, mode: mount ? 'self-host' : 'cloud', bugReportsPublic: !mount } }
     if (rel === '/api/me') return state.signedOut ? { status: 401, body: { error: { message: 'Signed out' } } } : ok({ id: state.actor === 'owner' ? OWNER : USER, username: state.actor, permissions: state.permissions, roles: state.actor === 'owner' ? [{ id: 'super-role', name: 'Super administrator' }] : [], adminReady: true, owner: state.actor === 'owner', decke: state.permissions.includes('decke.use') })
-    if (rel === '/api/me/settings') return ok({ settings: { defaultGoal: 'complete', displayCurrency: 'USD', pricingEnabled: true, showCollectionValue: true, binderPocketSize: 9, binderStackVariants: true, binderAdditionalVariants: 'hide', deckeHidden: false, skin: null, topbar: null, seriesSortKey: 'recency', seriesSortDir: 'desc', seriesGroupOwned: false }, defaults: state.defaults.settings })
+    if (rel === '/api/me/settings' && method === 'PATCH') { assert.deepEqual(Object.keys(body), ['deckeSharePrompts']); assert.equal(typeof body.deckeSharePrompts, 'boolean'); state.sharePrompts = body.deckeSharePrompts }
+    if (rel === '/api/me/settings') return ok({ settings: { deckeSharePrompts: state.sharePrompts ?? true, defaultGoal: 'complete', displayCurrency: 'USD', pricingEnabled: true, showCollectionValue: true, binderPocketSize: 9, binderStackVariants: true, binderAdditionalVariants: 'hide', deckeHidden: false, skin: null, topbar: null, seriesSortKey: 'recency', seriesSortDir: 'desc', seriesGroupOwned: false }, defaults: state.defaults.settings })
     // Shape pinned to apps/api/src/routes/insights.ts's actual response (mirrored client-side as
     // InsightsOverview / ValueResponse in apps/web/src/lib/api.ts) -- not the endpoint's name, which
     // is easy to eyeball-match while the fields drift. `collection`/`tcg`/`completion`/`value` were

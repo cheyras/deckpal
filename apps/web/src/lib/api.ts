@@ -1646,7 +1646,10 @@ export interface DeckeHistoryTurn {
   buildPr: number | null
   buildSha: string | null
   at: string
-  /** The reader's private vote, present in their own read-only transcript. */
+  /**
+   * The reader's private vote. Not part of the History response: the transcript
+   * merges it in from `/decke/feedback/:id` (see `withFeedback`).
+   */
   feedback?: -1 | 1 | null
   feedbackComment?: string | null
 }
@@ -1660,6 +1663,11 @@ export interface DeckeConversation {
 
 export interface DeckeImprovementMine {
   items: { conversationId: string; sharedAt: string }[]
+}
+
+/** The reader's own thumbs for one conversation, keyed by turn `seq`. */
+export interface DeckeFeedbackMine {
+  items: { seq: number; vote: -1 | 1 | null; comment: string | null }[]
 }
 
 export const api = {
@@ -1726,6 +1734,8 @@ export const api = {
     send<{ status: 'shared' | 'declined'; source: 'decke_ask' | 'feedback' | 'reader' }>('POST', '/decke/improvement/consent', body),
   deckeImprovementMine: (signal?: AbortSignal) =>
     get<DeckeImprovementMine>('/decke/improvement/mine', signal),
+  deckeFeedbackMine: (conversationId: string, signal?: AbortSignal) =>
+    get<DeckeFeedbackMine>(`/decke/feedback/${encodeURIComponent(conversationId)}`, signal),
   deckeImprovementRevoke: (conversationId: string) =>
     send<{ revoked: true }>('DELETE', `/decke/improvement/consent/${encodeURIComponent(conversationId)}`),
   deckeFeedback: (body: { conversationId: string; seq: number; vote: -1 | 1 | null; comment: string; share: boolean }) =>
