@@ -41,7 +41,7 @@ CREATE FUNCTION public.decke_improvement_decode_scalar(p_escape text) RETURNS te
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE codepoint integer; low_point integer; bytes bytea; hex_value text;
 BEGIN
- IF p_escape~'^\\u' THEN
+ IF p_escape~*'^\\u' THEN
   codepoint=get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),0)*256
     +get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),1);
   IF codepoint BETWEEN 55296 AND 56319 THEN
@@ -73,8 +73,8 @@ DECLARE pattern text:='(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{
  pieces text[]; runs text[]; out_text text;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
- pieces=regexp_split_to_array(p_text,pattern);
- SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'g') m;
+ pieces=regexp_split_to_array(p_text,pattern,'i');
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'gi') m;
  SELECT string_agg(piece||CASE WHEN run IS NULL THEN '' ELSE public.decke_improvement_decode_scalar(run) END,
    '' ORDER BY ordinality)
  INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
@@ -163,42 +163,66 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE literal text; current_view text; next_view text; candidate text; normalized_view text; term text; lowered_term text;
- detection_pattern text; form_terms text[]; pass integer; form boolean;
+DECLARE literal text; current_view text; candidate text; normalized_view text; term text; lowered_term text;
+ detection_pattern text; detection_terms text[]; views text[]; depths smallint[]; seen text[];
+ head integer:=1; decoder integer; view_count integer; current_depth smallint;
+ total_characters bigint; character_budget bigint;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
  -- Literal replacements are precise and each variant scans the value once.
  -- Decoded representations below are detection-only: if decoding exposes an
  -- identity, the whole uncommon encoded field is safer to discard.
  literal=public.decke_improvement_replace_terms(p_text,public.decke_improvement_redaction_variants(p_terms));
- SELECT coalesce(array_agg(value),'{}'::text[]) INTO form_terms
- FROM (SELECT value FROM unnest(coalesce(p_terms,'{}'::text[])) value
-       UNION SELECT replace(value,'+',' ') FROM unnest(coalesce(p_terms,'{}'::text[])) value) variants;
- current_view=literal;
- FOR pass IN 1..4 LOOP
-  next_view=public.decke_improvement_decode_escapes(
-    public.decke_improvement_percent_decode(current_view));
-  FOREACH form IN ARRAY ARRAY[false,true] LOOP
-   candidate=CASE WHEN form THEN replace(next_view,'+',' ') ELSE next_view END;
-    normalized_view=lower(normalize(candidate,NFKC) COLLATE "C.utf8");
-    FOR term IN
-     SELECT normalized FROM (
-      SELECT DISTINCT normalize(btrim(value),NFKC) normalized
-      FROM unnest(CASE WHEN form THEN form_terms ELSE coalesce(p_terms,'{}'::text[]) END) value
-      WHERE value IS NOT NULL AND char_length(btrim(value))>=1
-     ) candidates ORDER BY char_length(normalized) DESC,normalized COLLATE "C"
-    LOOP
-     lowered_term=lower(term COLLATE "C.utf8");
-     IF char_length(term)>=3 THEN
-      IF strpos(normalized_view,lowered_term)>0 THEN RETURN '[redacted]'; END IF;
-     ELSE
-      detection_pattern=regexp_replace(lowered_term,'([\\.^$|()\[\]{}*+?])','\\\1','g');
-      IF normalized_view~('(?<![[:alnum:]_])'||detection_pattern||'(?![[:alnum:]_])') THEN RETURN '[redacted]'; END IF;
-     END IF;
-    END LOOP;
+ SELECT coalesce(array_agg(normalized ORDER BY char_length(normalized) DESC,normalized COLLATE "C"),'{}'::text[])
+ INTO detection_terms
+ FROM (
+  SELECT DISTINCT normalize(btrim(value),NFKC) normalized
+  FROM (
+   SELECT value FROM unnest(coalesce(p_terms,'{}'::text[])) value
+   UNION
+   SELECT replace(value,'+',' ') FROM unnest(coalesce(p_terms,'{}'::text[])) value
+  ) variants
+ WHERE value IS NOT NULL AND char_length(btrim(value))>=1
+ ) candidates;
+ -- Every edge applies exactly one primitive decoder.  Keeping all distinct
+ -- intermediate views prevents a later decoder from erasing a name that an
+ -- earlier view exposed (for example percent-decoded "&AMP;").
+ views=ARRAY[literal]; depths=ARRAY[0::smallint]; seen=ARRAY[literal];
+ total_characters=char_length(literal)::bigint;
+ character_budget=greatest(65536::bigint,16::bigint*char_length(p_text)::bigint);
+ IF total_characters>character_budget THEN RETURN '[redacted]'; END IF;
+ WHILE head<=coalesce(cardinality(views),0) LOOP
+  current_view=views[head]; current_depth=depths[head];
+  normalized_view=lower(normalize(current_view,NFKC) COLLATE "C.utf8");
+  FOREACH term IN ARRAY detection_terms LOOP
+   lowered_term=lower(term COLLATE "C.utf8");
+   IF char_length(term)>=3 THEN
+    IF strpos(normalized_view,lowered_term)>0 THEN RETURN '[redacted]'; END IF;
+   ELSE
+    detection_pattern=regexp_replace(lowered_term,'([\\.^$|()\[\]{}*+?])','\\\1','g');
+    IF normalized_view~('(?<![[:alnum:]_])'||detection_pattern||'(?![[:alnum:]_])') THEN RETURN '[redacted]'; END IF;
+   END IF;
   END LOOP;
-  EXIT WHEN next_view=current_view;
-  current_view=next_view;
+  IF current_depth<5 THEN
+   FOR decoder IN 1..4 LOOP
+    candidate=CASE decoder
+     WHEN 1 THEN CASE WHEN current_view~'%[0-9A-Fa-f]{2}'
+       THEN public.decke_improvement_percent_decode(current_view) ELSE current_view END
+     WHEN 2 THEN CASE WHEN current_view~*'\\u[0-9A-Fa-f]{4}'
+       THEN public.decke_improvement_decode_json_escapes(current_view) ELSE current_view END
+     WHEN 3 THEN CASE WHEN strpos(current_view,'&')>0
+       THEN public.decke_improvement_decode_html_entities(current_view) ELSE current_view END
+     ELSE replace(current_view,'+',' ') END;
+    CONTINUE WHEN candidate=current_view OR array_position(seen,candidate) IS NOT NULL;
+    total_characters=total_characters+char_length(candidate)::bigint;
+    view_count=coalesce(cardinality(views),0);
+    IF total_characters>character_budget OR view_count>=64 THEN RETURN '[redacted]'; END IF;
+    views=array_append(views,candidate);
+    depths=array_append(depths,(current_depth+1)::smallint);
+    seen=array_append(seen,candidate);
+   END LOOP;
+  END IF;
+  head=head+1;
  END LOOP;
  RETURN literal;
 END $$;

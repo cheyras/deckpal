@@ -12,6 +12,14 @@ const PROPERTY_TERMS = [
   '\u0645\u062d\u0645\u062f',
   '\u674e',
   '\ud83d\ude00',
+  'Amp',
+  'Ada',
+  'Lt',
+  'Quot',
+  'Nbsp',
+  'Face',
+  'Bead',
+  'Dead',
 ] as const
 
 type Codec = 'percent' | 'json' | 'html' | 'form'
@@ -87,6 +95,24 @@ test('composes percent, JSON-escape, and HTML-entity decoding across four steps'
   }
 })
 
+test('checks syntax-overlapping identities in every intermediate decoder view', () => {
+  const cases = [
+    ['Amp', '%26%41%4D%50%3B'],
+    ['Ada', '%5C%75%30%41%44%41'],
+    ['Lt', '%26%4C%54%3B'],
+    ['Quot', '%26%51%55%4F%54%3B'],
+    ['Nbsp', '%26%4E%42%53%50%3B'],
+    ['Face', '%5C%75%46%41%43%45'],
+    ['Bead', '%5C%75%42%45%41%44'],
+    ['Dead', '%5C%75%44%45%41%44'],
+  ] as const
+  for (const [term, encoded] of cases) {
+    const output = redact(encoded, [term])
+    assert.equal(output, '[redacted]', term)
+    assertNoIdentityInOracleViews(output, [term], `syntax-overlapping name ${term}`)
+  }
+})
+
 test('decodes case-insensitive percent and form encodings before identity matching', () => {
   assert.equal(redact('owner=JOS%C3%89', ['Jos\u00e9']), '[redacted]')
   assert.equal(redact('owner=%4A%6F%68%6E%20%53%6D%69%74%68', ['John Smith']), '[redacted]')
@@ -144,6 +170,14 @@ test('RFC 3629 lead-byte classes decode beside malformed bytes without shielding
   }
 })
 
+test('preserves an RFC 3629 BOM scalar at the start of a percent run during detection', () => {
+  const term = `X\ufeffAda`
+  const input = 'owner=X%EF%BB%BF%41%64%61'
+  const output = redact(input, [term])
+  assert.equal(output, '[redacted]')
+  assertNoIdentityInOracleViews(output, [term], 'embedded BOM identity')
+})
+
 test('retains percent NUL, malformed UTF-8, JSON NUL, and unpaired surrogate escapes without an identity', () => {
   const input = String.raw`percent=%00 malformed=%FF nul=\u0000 high=\uD800 low=\uDC00 encoded=%5Cu0000`
   assert.equal(redact(input, ['John Smith']), input)
@@ -164,7 +198,7 @@ test('review-3 mixed depths and malformed neighbours redact the whole recoverabl
 test('2,500 seeded mixed strings satisfy an independent breadth-first decoding oracle', () => {
   const malformed = ['', '%FF', '%00', '%C3']
   const separators = [' | ', '/', '?next=', ' :: ', '&value=']
-  const prose = ['C++', '100%', '50%off', 'safe=%2520', 'entity=&amp;', String.raw`literal=\u0041`]
+  const prose = ['C++', '100%', '50%off', 'safe=%2520', 'entity=&#65;', String.raw`literal=\u0041`]
   const random = seededRandom(0x268_04)
   const codecs: readonly Codec[] = ['percent', 'json', 'html', 'form']
 
@@ -185,6 +219,15 @@ test('2,500 seeded mixed strings satisfy an independent breadth-first decoding o
     const harmless = `${prose[random() % prose.length]} item-${sample} ${separators[random() % separators.length]}`
     assert.equal(redact(harmless, PROPERTY_TERMS), harmless, `harmless seeded sample ${sample}`)
   }
+})
+
+test('fails closed quickly when the decoder-view budget is exhausted', () => {
+  const branching = codecSequences(4)
+    .map((sequence, index) => encodeSequence(`safe-${index}`, sequence))
+    .join('|')
+  const started = performance.now()
+  assert.equal(redact(branching, ['identity-never-present']), '[redacted]')
+  assert.ok(performance.now() - started < 1_000, 'budget exhaustion should finish in under one second')
 })
 
 test('decodes one MiB of separate percent runs in linear time', () => {
@@ -266,11 +309,8 @@ function assertNoIdentityInOracleViews(output: string, terms: readonly string[],
       for (const term of terms) {
         const canonical = term.normalize('NFKC').toLocaleLowerCase()
         const form = canonical.replaceAll('+', ' ')
-        assert.equal(
-          lowered.includes(canonical) || lowered.includes(form),
-          false,
-          `${message}: ${term} survives oracle depth ${depth}`,
-        )
+        assert.equal(oracleContains(lowered, canonical) || oracleContains(lowered, form), false,
+          `${message}: ${term} survives oracle depth ${depth}`)
       }
     }
     if (depth === 5) break
@@ -286,6 +326,12 @@ function assertNoIdentityInOracleViews(output: string, terms: readonly string[],
     }
     frontier = next
   }
+}
+
+function oracleContains(value: string, term: string): boolean {
+  if ([...term].length >= 3) return value.includes(term)
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'u').test(value)
 }
 
 function oraclePercentDecode(value: string): string {

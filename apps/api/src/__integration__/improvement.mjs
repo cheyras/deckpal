@@ -376,6 +376,31 @@ try {
       'SELECT asked FROM public.decke_improvement_turn WHERE conversation_id=$1', [retainedUnicodeShared])).rows[0].asked, encoded);
   });
 
+  const retainedSyntaxConversation = id(396), retainedSyntaxRequest = id(397);
+  await db.query('UPDATE public.app_user SET username=$1 WHERE id=$2', ['Ada', outsider]);
+  await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['Amp', outsider]);
+  await seedConversation({
+    conversation: retainedSyntaxConversation, request: retainedSyntaxRequest,
+    operation: id(398), suffix: '396', user: outsider,
+  });
+  let retainedSyntaxShared;
+  await test('pre-079 corpus fixture contains identities in intermediate decoder views', async () => {
+    const answer = await server(outsider, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [outsider, retainedSyntaxConversation]));
+    retainedSyntaxShared = answer.conversationId;
+    const amp = '%26%41%4D%50%3B';
+    const ada = '%5C%75%30%41%44%41';
+    await server(outsider, (c) => data(c,
+      'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) data', [outsider, retainedSyntaxConversation,
+        JSON.stringify([{ seq: 0, asked: amp, answered: ada, tools: [{ first: amp, second: ada }] }])]));
+    const before = (await db.query(
+      'SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1',
+      [retainedSyntaxShared])).rows[0];
+    assert.equal(before.asked, amp);
+    assert.equal(before.answered, ada);
+    assert.deepEqual(before.tools[0], { first: amp, second: ada });
+  });
+
   const retainedFeedbackConversation = id(196), retainedFeedbackRequest = id(197);
   await seedConversation({
     conversation: retainedFeedbackConversation, request: retainedFeedbackRequest,
@@ -442,6 +467,29 @@ try {
     await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedUnicodeConversation]);
     await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [retainedUnicodeShared]);
     await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['Alice Trainer', plusMember]);
+  });
+
+  await test('079 repairs and live writers reject identities in intermediate decoder views', async () => {
+    const repaired = (await db.query(
+      'SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1',
+      [retainedSyntaxShared])).rows[0];
+    assert.equal(repaired.asked, '[redacted]');
+    assert.equal(repaired.answered, '[redacted]');
+    assert.deepEqual(repaired.tools[0], { first: '[redacted]', second: '[redacted]' });
+    const recorded = await server(outsider, (c) => data(c,
+      'SELECT public.decke_improvement_record_events($1,$2,0,79,$3::jsonb) data', [outsider, retainedSyntaxConversation,
+        JSON.stringify([{ kind: 'notice', at: '2026-09-28T18:00:00Z', payload: {
+          first: '%26%41%4D%50%3B', second: '%5C%75%30%41%44%41',
+        } }])]));
+    assert.equal(recorded.recorded, true);
+    const detail = await session(owner, (c) => data(c,
+      'SELECT public.decke_improvement_detail($1) data', [retainedSyntaxShared]));
+    const payload = detail.turns[0].events.find((item) => item.batch === 79).payload;
+    assert.deepEqual(payload, { first: '[redacted]', second: '[redacted]' });
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedSyntaxConversation]);
+    await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [retainedSyntaxShared]);
+    await db.query('UPDATE public.app_user SET username=$1 WHERE id=$2', ['outsider-name', outsider]);
+    await db.query('UPDATE public.user_profile SET display_name=$1 WHERE user_id=$2', ['Outsider Name', outsider]);
   });
 
   await test('079 bounds repaired maximum-length feedback after redaction', async () => {
@@ -514,6 +562,24 @@ try {
     [unicodeSpellings.map(percentEncode), utf8ClassTerms])).rows;
     unicodeRows.forEach((row, index) =>
       assertIdentitySafe(row.value, `SQL UTF-8 class ${row.index}`, [utf8ClassTerms[index]]));
+    const syntaxCases = [
+      ['Amp', '%26%41%4D%50%3B'],
+      ['Ada', '%5C%75%30%41%44%41'],
+      ['Lt', '%26%4C%54%3B'],
+      ['Quot', '%26%51%55%4F%54%3B'],
+      ['Nbsp', '%26%4E%42%53%50%3B'],
+      ['Face', '%26%23%78%46%41%43%45%3B'],
+      ['Bead', '%26%23%78%42%45%41%44%3B'],
+      ['BEEF', '%5C%75%42%45%45%46'],
+    ];
+    const syntaxRows = (await db.query(`SELECT ordinality::int index,
+      public.decke_improvement_redact_text(value,ARRAY[term]) value
+      FROM unnest($1::text[],$2::text[]) WITH ORDINALITY input(term,value,ordinality)
+      ORDER BY ordinality`, [syntaxCases.map(([term]) => term), syntaxCases.map(([, value]) => value)])).rows;
+    syntaxRows.forEach((row, index) => {
+      assert.equal(row.value, '[redacted]', `syntax-overlapping identity ${syntaxCases[index][0]}`);
+      assertIdentitySafe(row.value, `SQL syntax-overlap ${row.index}`, [syntaxCases[index][0]]);
+    });
   });
 
   await test('near-limit nested percent input redacts within a two-second statement timeout', async () => {
@@ -532,6 +598,16 @@ try {
         "SELECT public.decke_improvement_redact_text(repeat('John Smith ',10000),ARRAY['John Smith']) value",
       )).rows[0].value;
       assert.equal(repeated, '[redacted] '.repeat(10000));
+      const repeatedEncoded = (await db.query(
+        "SELECT public.decke_improvement_redact_text(repeat('%4A%6F%68%6E%20%53%6D%69%74%68 ',10000),ARRAY['John Smith']) value",
+      )).rows[0].value;
+      assert.equal(repeatedEncoded, '[redacted]');
+      const budgetProbe = encodingSequences().map((encoders, index) =>
+        encoders.reduce((value, encode) => encode(value), `Z Z${index}`)).join(' | ');
+      const exhausted = (await db.query(
+        "SELECT public.decke_improvement_redact_text($1,ARRAY['identity-not-present']) value", [budgetProbe],
+      )).rows[0].value;
+      assert.equal(exhausted, '[redacted]');
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK').catch(() => {});

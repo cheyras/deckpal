@@ -41,9 +41,16 @@ interface MappedText {
   spans: SourceSpan[]
 }
 
-const percentDecoder = new TextDecoder('utf-8', { fatal: false })
+// A BOM inside a field is data, not a transport prefix. `ignoreBOM: true`
+// keeps U+FEFF in the decoded view so our RFC 3629 model matches Buffer and
+// cannot erase part of an identity merely because a percent run starts there.
+const percentDecoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true })
 const graphemeSegmenter = new Intl.Segmenter('und', { granularity: 'grapheme' })
 const wordCharacter = /[\p{L}\p{N}_]/u
+const MAX_DECODE_DEPTH = 5
+const MAX_DECODE_VIEWS = 64
+const MIN_DECODE_CHARACTER_BUDGET = 65_536
+const DECODE_CHARACTER_FACTOR = 16
 const identitySyntax = /\\u[0-9a-f]{4}|&(?:commat;|#0*64;|#x0*40;)/iu
 const jsonEscapeSyntax = /\\u[0-9a-f]{4}/iu
 const htmlEntitySyntax = /&(?:#(?:x[0-9a-f]{1,6}|[0-9]{1,7})|commat|quot|apos|lt|gt|amp);/iu
@@ -99,19 +106,42 @@ function redactString(value: string, terms: readonly CanonicalTerm[]): string {
   let literal = value
   for (const term of terms) literal = redactLiteralTerm(literal, term)
 
-  // Decoded representations are detection-only. Emitting a partly decoded
-  // view can expose a different identity at another supported encoding depth.
-  let decoded = literal
-  for (let pass = 0; pass < 4; pass++) {
-    const previous = decoded
-    const next = decodeStep(previous)
-    decoded = next
-    if (containsIdentity(decoded, terms, false)) return '[redacted]'
-    const form = decoded.replaceAll('+', ' ')
-    if (containsIdentity(form, terms, true)) return '[redacted]'
-    if (next === previous) break
-  }
+  // Decoded representations are detection-only. Every intermediate view is
+  // checked because a later decoder can consume identity-shaped syntax.
+  if (decodedViewContainsIdentity(literal, value.length, terms)) return '[redacted]'
   return literal
+}
+
+/** Explore all single-decoder orderings with explicit fail-closed bounds. */
+function decodedViewContainsIdentity(
+  value: string,
+  inputLength: number,
+  terms: readonly CanonicalTerm[],
+): boolean {
+  const decoders = [percentDecode, decodeJsonEscapes, decodeHtmlEntities, decodeForm] as const
+  const characterBudget = Math.max(MIN_DECODE_CHARACTER_BUDGET, DECODE_CHARACTER_FACTOR * inputLength)
+  const seen = new Set<string>([value])
+  let characterCount = value.length
+  let frontier = [value]
+
+  if (containsIdentity(value, terms)) return true
+  for (let depth = 0; depth < MAX_DECODE_DEPTH; depth++) {
+    const next: string[] = []
+    for (const current of frontier) {
+      for (const decode of decoders) {
+        const decoded = decode(current)
+        if (decoded === current || seen.has(decoded)) continue
+        if (seen.size >= MAX_DECODE_VIEWS || characterCount + decoded.length > characterBudget) return true
+        seen.add(decoded)
+        characterCount += decoded.length
+        if (containsIdentity(decoded, terms)) return true
+        next.push(decoded)
+      }
+    }
+    if (next.length === 0) break
+    frontier = next
+  }
+  return false
 }
 
 function canonicalTerms(terms: readonly string[]): CanonicalTerm[] {
@@ -178,15 +208,12 @@ function termPattern(term: CanonicalTerm): RegExp {
   return new RegExp(pattern, 'giu')
 }
 
-/** Search a normalized decoded view without rewriting or rescanning it per match. */
-function containsIdentity(value: string, terms: readonly CanonicalTerm[], form: boolean): boolean {
-  // Source spans are necessary for literal replacement but wasteful for these
-  // read-only views, especially at the one-megabyte payload boundary.
-  const syntax = identitySyntax.test(value) ? decodeLiteralSyntax(value).text : value
-  const lowered = syntax.normalize('NFKC').toLocaleLowerCase()
+/** Search one normalized decoded view without rewriting it. */
+function containsIdentity(value: string, terms: readonly CanonicalTerm[]): boolean {
+  const lowered = value.normalize('NFKC').toLocaleLowerCase()
   for (const term of terms) {
     if (containsCanonical(lowered, term.lowered, term.wholeWord)) return true
-    if (form && term.formLowered !== term.lowered
+    if (term.formLowered !== term.lowered
       && containsCanonical(lowered, term.formLowered, term.wholeWord)) return true
   }
   return false
@@ -286,11 +313,6 @@ function normalizeMapped(value: MappedText): MappedText {
   return { text: output.join(''), spans }
 }
 
-/** One bounded detection step composes every supported decoder in order. */
-function decodeStep(value: string): string {
-  return decodeHtmlEntities(decodeJsonEscapes(percentDecode(value)))
-}
-
 /** Decode JSON Unicode escapes, replacing unsupported scalar values. */
 function decodeJsonEscapes(value: string): string {
   if (!jsonEscapeSyntax.test(value)) return value
@@ -339,6 +361,10 @@ function percentDecode(value: string): string {
     }
     return percentDecoder.decode(bytes).replaceAll('\u0000', '\ufffd')
   })
+}
+
+function decodeForm(value: string): string {
+  return value.includes('+') ? value.replaceAll('+', ' ') : value
 }
 
 function escapeRegExp(value: string): string {
