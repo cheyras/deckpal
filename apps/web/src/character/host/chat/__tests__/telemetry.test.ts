@@ -10,6 +10,21 @@ test('Always-share enables diagnostics unless this conversation was declined or 
   assert.equal(shouldEnableTelemetry(false, undefined), false)
 })
 
+test('an explicit share after a decline restarts diagnostics for that chat', async () => {
+  // useDeckeChat records the override 'shared' on every explicit share event
+  // (consent card or feedback-with-share), replacing an earlier 'declined'.
+  const sent: unknown[] = []
+  const recorder = new ConversationTelemetry('00000000-0000-4000-8000-000000000001', async (batch) => { sent.push(batch) })
+  let override: 'shared' | 'declined' | 'stopped' | undefined = 'declined'
+  recorder.record(0, 'animation', { state: 'nod_yes' })
+  assert.equal(shouldEnableTelemetry(false, override), false)
+  override = 'shared'
+  assert.equal(shouldEnableTelemetry(false, override), true)
+  await recorder.share()
+  await recorder.flush()
+  assert.equal(sent.length > 0, true, 'buffered events are sent once the chat is explicitly shared')
+})
+
 test('nothing is sent before sharing, then the whole buffer flushes', async () => {
   const sent: unknown[] = []
   const recorder = new ConversationTelemetry('conversation', async (batch) => { sent.push(batch) })

@@ -377,8 +377,10 @@ export function useDeckeChat(
     const shared = (event: Event) => {
       const id = (event as CustomEvent<{ conversationId?: string }>).detail?.conversationId
       if (id === conversationRef.current) {
-        const prior = telemetrySharingRef.current.get(id)
-        if (prior === 'declined' || prior === 'stopped') return
+        // This event only follows a successful EXPLICIT share (the consent card
+        // or feedback-with-share), which supersedes an earlier No or Stop for
+        // this chat. The refusal guard belongs to automatic enabling from the
+        // Always-share setting (shouldEnableTelemetry), not here.
         telemetrySharingRef.current.set(id, 'shared')
         void telemetryRef.current?.share()
       }
