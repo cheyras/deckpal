@@ -35,11 +35,18 @@ export function stepLabel(step: ActivityStep): string {
 
 export function activitySummary(steps: readonly ActivityStep[], elapsedSeconds: number): string {
   const relevant = steps.filter((step) => !MOVE_TOOLS.has(step.name) && step.phase !== 'declined')
+  const declined = steps.filter((step) => !MOVE_TOOLS.has(step.name) && step.phase === 'declined').length
   const failures = relevant.filter(isFailure).length
   const elapsed = `${Math.max(0, Math.floor(elapsedSeconds))}s`
+  const skipped = declined
+    ? `, skipped ${declined === 1 ? '1 change' : `${declined} changes`}`
+    : ''
 
-  if (failures) return `${failures} step${failures === 1 ? '' : 's'} didn't work · ${elapsed}`
-  return `Looked at ${relevant.length} thing${relevant.length === 1 ? '' : 's'} · ${elapsed}`
+  if (!relevant.length && declined) {
+    return `${declined === 1 ? 'Skipped that change' : `Skipped ${declined} changes`} · ${elapsed}`
+  }
+  if (failures) return `${failures} step${failures === 1 ? '' : 's'} didn't work${skipped} · ${elapsed}`
+  return `Looked at ${relevant.length} thing${relevant.length === 1 ? '' : 's'}${skipped} · ${elapsed}`
 }
 
 export function sourceFavicons(sources: readonly Source[]): { urls: string[]; more: number } {
