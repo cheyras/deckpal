@@ -440,6 +440,7 @@ try {
   });
 
   await migration('079_decke_improvement_fixes.sql');
+  await migration('080_decke_improvement_followups.sql');
   await db.query('SELECT public.admin_bootstrap($1,$2,$3)', [owner, [], []]);
   // Deck-E released, so ordinary accounts hold decke.use (as in production).
   await db.query("UPDATE public.app_feature SET lifecycle='released' WHERE key='decke'");
@@ -694,6 +695,11 @@ try {
     assert.deepEqual(again, { status: 'skipped', reason: 'decided' });
     assert.equal((await db.query(
       'SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE id=$1', [autoShared])).rows[0].n, 1);
+    // 080: a brand-new chat's first leg arrives before its History row; that is
+    // a quiet skip, not an error logged on every new conversation.
+    const pending = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_auto_share($1,$2) data', [member, id(9170)]));
+    assert.deepEqual(pending, { status: 'skipped', reason: 'pending' });
   });
 
   await test('always-share suppresses asks and disabling it restores the normal ask rules', async () => {
