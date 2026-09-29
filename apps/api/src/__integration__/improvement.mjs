@@ -93,7 +93,7 @@ const validLeg = (answer = 'redacted answer') => ({
   asked: 'redacted question', answered: answer, model_id: 'fixture/model', provider: 'fixture',
   started_at: '2026-09-28T18:00:00.000Z', finished_at: '2026-09-28T18:00:01.000Z', latency_ms: 1000,
   input_tokens: 100, output_tokens: 20, cache_read_tokens: 4, cache_write_tokens: 2, reasoning_tokens: 3,
-  cost_usd: 0.001, cost_source: 'provider_reported', status: 'completed', finish_reason: 'stop',
+  cost_usd: 0.001, cost_coverage: 'complete', cost_source: 'provider_reported', status: 'completed', finish_reason: 'stop',
   build_sha: 'fixture-sha', build_pr: 278, error: null,
   tool_calls: [{ id: 'tool-1', name: 'search_cards', args: { query: 'redacted' }, output: { ok: true }, phase: 'completed' }],
 });
@@ -200,6 +200,9 @@ try {
   await db.query(`INSERT INTO public.decke_ai_operation
     (id,request_id,category,tool_key,model_id,provider,operation_key,status,finished_at,cost_source)
     VALUES($1,$2,'response','chat_turn','fixture/model','fixture','retry','completed',now(),'unknown')`, [id(124), unknownRequest]);
+  await db.query(`INSERT INTO public.decke_ai_operation
+    (id,request_id,category,tool_key,model_id,provider,operation_key,status,finished_at,cost_source)
+    VALUES($1,$2,'classifier','chat_turn','fixture/model','fixture','unpriced-classifier','completed',now(),'unknown')`, [id(125), sharedRequest]);
 
   let derivedShared;
   await test('answer share backfills accounting only and returns raw content for API redaction', async () => {
@@ -215,6 +218,10 @@ try {
     assert.equal(beforeContent.answered, '');
     assert.equal(Number(beforeContent.cost_usd), 0.001);
     assert.equal(beforeContent.cost_coverage, 'partial');
+    const legs = (await db.query('SELECT leg,cost_usd,cost_coverage FROM public.decke_improvement_leg WHERE conversation_id=$1 ORDER BY leg', [derivedShared])).rows;
+    assert.deepEqual(legs.map((leg) => leg.cost_coverage), ['partial', 'unknown']);
+    assert.equal(Number(legs[0].cost_usd), 0.001);
+    assert.equal(legs[1].cost_usd, null);
     const backfill = await server(member, (c) => data(c,
       'SELECT public.decke_improvement_record_backfill($1,$2,$3::jsonb) data', [member, sharedConversation, JSON.stringify([
         { seq: 0, asked: 'API redacted question', answered: 'API redacted answer', tools: [{ name: 'search_cards', phase: 'ok' }] },
@@ -240,6 +247,21 @@ try {
     assert.equal(replay.duplicate, true);
   });
 
+  await test('recorded partial leg coverage survives turn and conversation rollups', async () => {
+    const partial = { ...validLeg('partially priced answer'), cost_coverage: 'partial' };
+    await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_leg($1,$2,0,$3,0,$4::jsonb) data',
+      [member, sharedConversation, sharedRequest, JSON.stringify(partial)]));
+    const leg = (await db.query('SELECT cost_usd,cost_coverage FROM public.decke_improvement_leg WHERE conversation_id=$1 AND leg=0', [derivedShared])).rows[0];
+    const turn = (await db.query('SELECT cost_usd,cost_coverage FROM public.decke_improvement_turn WHERE conversation_id=$1 AND seq=0', [derivedShared])).rows[0];
+    const conversation = (await db.query('SELECT cost_usd,cost_coverage FROM public.decke_improvement_conversation WHERE id=$1', [derivedShared])).rows[0];
+    assert.equal(leg.cost_coverage, 'partial');
+    assert.equal(turn.cost_coverage, 'partial');
+    assert.equal(conversation.cost_coverage, 'partial');
+    assert.equal(Number(turn.cost_usd), 0.001);
+    assert.equal(Number(conversation.cost_usd), 0.001);
+  });
+
   const feedbackConversation = id(130), feedbackRequest = id(131);
   await seedConversation({ conversation: feedbackConversation, request: feedbackRequest, operation: id(132), suffix: '130' });
   await test('feedback can grant sharing, always saves personal feedback, and list_mine maps raw IDs', async () => {
@@ -259,6 +281,22 @@ try {
   });
 
   let tokenId;
+  await test('only eligible admins can grant token and OAuth improvement capabilities', async () => {
+    const memberToken = (await db.query(
+      "INSERT INTO public.api_token(user_id,name,token_hash,prefix) VALUES($1,'member fixture',$2,'dsk_member00') RETURNING id",
+      [member, 'e'.repeat(64)])).rows[0].id;
+    await denied(session(member, (c) => data(c, 'SELECT public.decke_improvement_token_capability($1,true) data', [memberToken])));
+    await db.query("INSERT INTO public.oauth_client(client_id,client_name,redirect_uris) VALUES('fixture-client','Fixture',ARRAY['https://example.invalid/callback'])");
+    await db.query(`INSERT INTO public.oauth_code
+      (code,client_id,user_id,redirect_uri,code_challenge,code_challenge_method,expires_at)
+      VALUES('fixture-code','fixture-client',$1,'https://example.invalid/callback','challenge','S256',now()+interval '5 minutes')`, [member]);
+    await denied(session(member, (c) => data(c, "SELECT public.decke_improvement_oauth_capability('fixture-code',true) data")));
+    const memberCredentials = await db.query(
+      "SELECT (SELECT decke_improvement_read FROM public.api_token WHERE id=$1) token_capability, (SELECT decke_improvement_read FROM public.oauth_code WHERE code='fixture-code') oauth_capability",
+      [memberToken]);
+    assert.deepEqual(memberCredentials.rows[0], { token_capability: false, oauth_capability: false });
+  });
+
   await test('improvement readers require permission and live token capability', async () => {
     await denied(session(member, (c) => data(c, "SELECT public.decke_improvement_list('{}',NULL,20) data")));
     tokenId = (await db.query(

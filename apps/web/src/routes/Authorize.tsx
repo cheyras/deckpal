@@ -146,7 +146,7 @@ export function Authorize() {
         resource,
         scope: client && supportsScopedConsent(client) ? scope : 'full',
         deckeImprovementRead: grantImprovement,
-      } as Parameters<typeof api.oauthDecision>[0] & { deckeImprovementRead: boolean })
+      })
       window.location.href = redirectTo
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Something went wrong. Try again.')
@@ -235,7 +235,7 @@ export function Authorize() {
           </div>
         </fieldset>
 
-        {(client as OAuthClientInfo & { canGrantDeckeImprovementRead?: boolean }).canGrantDeckeImprovementRead && (
+        {client.canGrantDeckeImprovementRead && (
           <label className="mb-[16px] flex cursor-pointer items-start gap-[10px] rounded-[12px] border border-action-ghost-border bg-surface-tertiary p-[12px]">
             <input
               type="checkbox"

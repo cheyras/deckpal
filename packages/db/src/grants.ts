@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { generateToken, hashToken, tokenPrefix, type Queryable, type TokenScope } from './tokens.js';
+import { generateToken, hashToken, improvementCapabilityReady, tokenPrefix, type Queryable, type TokenScope } from './tokens.js';
 
 /**
  * OAuth connections (migration 075, security audit SEC-07).
@@ -58,6 +58,8 @@ export interface NewConnection {
   clientId: string;
   redirectUri: string;
   scope: TokenScope;
+  /** Copied from the single-use authorization code onto the durable connection. */
+  deckeImprovementRead: boolean;
 }
 
 /**
@@ -67,11 +69,18 @@ export interface NewConnection {
  */
 export async function openConnection(db: Queryable, input: NewConnection): Promise<IssuedTokens> {
   const sealed = generateToken();
+  const improvement = await improvementCapabilityReady(db);
   const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO api_token (user_id, name, token_hash, prefix, expires_at, scope, oauth_client_id, oauth_redirect_uri)
-     VALUES ($1, $2, $3, $4, now() + make_interval(days => $5), $6, $7, $8)
-     RETURNING id`,
-    [input.userId, input.name, hashToken(sealed), tokenPrefix(sealed), REFRESH_TOKEN_TTL_DAYS, input.scope, input.clientId, input.redirectUri],
+    improvement
+      ? `INSERT INTO api_token (user_id, name, token_hash, prefix, expires_at, scope, oauth_client_id, oauth_redirect_uri, decke_improvement_read)
+         VALUES ($1, $2, $3, $4, now() + make_interval(days => $5), $6, $7, $8, $9)
+         RETURNING id`
+      : `INSERT INTO api_token (user_id, name, token_hash, prefix, expires_at, scope, oauth_client_id, oauth_redirect_uri)
+         VALUES ($1, $2, $3, $4, now() + make_interval(days => $5), $6, $7, $8)
+         RETURNING id`,
+    improvement
+      ? [input.userId, input.name, hashToken(sealed), tokenPrefix(sealed), REFRESH_TOKEN_TTL_DAYS, input.scope, input.clientId, input.redirectUri, input.deckeImprovementRead]
+      : [input.userId, input.name, hashToken(sealed), tokenPrefix(sealed), REFRESH_TOKEN_TTL_DAYS, input.scope, input.clientId, input.redirectUri],
   );
   const row = rows[0];
   if (!row) throw new Error('api_token insert returned no row');

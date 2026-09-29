@@ -76,6 +76,7 @@ describe('Profile → Agent access', () => {
     createdAt: '2026-09-01T00:00:00Z',
     lastUsedAt: null,
     revokedAt: null,
+    deckeImprovementRead: false,
   }
 
   test('a hand-made token, or any token from before expiry existed, has none', () => {

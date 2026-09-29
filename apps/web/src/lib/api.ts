@@ -328,6 +328,8 @@ export interface ApiTokenRow {
   scope?: 'full' | 'read'
   /** Set only on an OAuth connection. */
   redirect?: RedirectIdentity | null
+  /** Explicit, server-owned access to shared Deck-E improvement chats. */
+  deckeImprovementRead: boolean
 }
 
 /** GET /oauth/client — the consent screen's facts. Fields past redirectUri are absent from an older server. */
@@ -337,6 +339,7 @@ export interface OAuthClientInfo {
   redirectHost?: string
   trust?: RedirectTrust
   verifiedName?: string | null
+  canGrantDeckeImprovementRead?: boolean
 }
 
 // ── Money ──────────────────────────────────────────────────────
@@ -1366,6 +1369,7 @@ export interface UserSettings {
   binderStackVariants: boolean
   binderAdditionalVariants: 'hide' | 'inline' | 'end'
   deckeHidden: boolean
+  deckeSharePrompts: boolean
   skin: 'premium' | 'classic' | null
   topbar: 'cover' | 'flat' | null
   seriesSortKey: 'recency' | 'az' | 'pct'
@@ -2262,8 +2266,9 @@ export const api = {
 
   // Personal access tokens (Profile → Agent access). `secret` comes back on
   // create and NOWHERE else — the server stores only a hash of it.
-  apiTokens: (signal?: AbortSignal) => get<{ tokens: ApiTokenRow[] }>('/tokens', signal),
-  createApiToken: (name: string) => send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name }),
+  apiTokens: (signal?: AbortSignal) => get<{ tokens: ApiTokenRow[]; canGrantDeckeImprovementRead: boolean }>('/tokens', signal),
+  createApiToken: (name: string, deckeImprovementRead = false) =>
+    send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name, deckeImprovementRead }),
   revokeApiToken: (id: string) => send<{ token: ApiTokenRow }>('DELETE', `/tokens/${encodeURIComponent(id)}`),
 
   // OAuth "Connect" flow (/authorize consent screen). See apps/api/src/routes/oauth.ts.
@@ -2281,6 +2286,7 @@ export const api = {
     state?: string
     resource?: string
     scope?: 'full' | 'read'
+    deckeImprovementRead?: boolean
   }) => send<{ redirectTo: string }>('POST', '/oauth/authorize/decision', body),
 
   // Profile photo. The server stores a 256×256 WebP re-encoded from whatever

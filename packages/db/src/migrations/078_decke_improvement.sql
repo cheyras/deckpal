@@ -105,6 +105,7 @@ CREATE TABLE public.decke_improvement_leg (
   cache_write_tokens bigint CHECK (cache_write_tokens IS NULL OR cache_write_tokens >= 0),
   reasoning_tokens bigint CHECK (reasoning_tokens IS NULL OR reasoning_tokens >= 0),
   cost_usd numeric(24,12) CHECK (cost_usd IS NULL OR cost_usd >= 0),
+  cost_coverage text NOT NULL DEFAULT 'unknown' CHECK (cost_coverage IN ('complete','partial','unknown')),
   cost_source text NOT NULL DEFAULT 'unknown' CHECK (cost_source IN ('provider_reported','token_rate_estimate','unknown')),
   status text NOT NULL CHECK (status IN ('started','completed','failed','cancelled','abandoned')),
   finish_reason text,
@@ -312,7 +313,7 @@ BEGIN
    sum(input_tokens) input_tokens,sum(output_tokens) output_tokens,sum(cache_read_tokens) cache_read_tokens,
    sum(cache_write_tokens) cache_write_tokens,sum(reasoning_tokens) reasoning_tokens,
    sum(cost_usd) cost_usd,
-   CASE WHEN count(cost_usd)=0 THEN 'unknown' WHEN count(cost_usd)=count(*) THEN 'complete' ELSE 'partial' END coverage,
+   CASE WHEN count(cost_usd)=0 THEN 'unknown' WHEN bool_and(cost_coverage='complete') THEN 'complete' ELSE 'partial' END coverage,
    (array_agg(build_sha ORDER BY leg DESC) FILTER(WHERE build_sha IS NOT NULL))[1] build_sha,
    (array_agg(build_pr ORDER BY leg DESC) FILTER(WHERE build_pr IS NOT NULL))[1] build_pr,
    (array_agg(finish_reason ORDER BY leg DESC) FILTER(WHERE finish_reason IS NOT NULL))[1] finish_reason,
@@ -329,8 +330,12 @@ BEGIN
   SELECT min(started_at) started_at,greatest(max(coalesce(finished_at,started_at)),now()) updated_at,
    (array_agg(build_sha ORDER BY seq) FILTER(WHERE build_sha IS NOT NULL))[1] build_first,
    (array_agg(build_sha ORDER BY seq DESC) FILTER(WHERE build_sha IS NOT NULL))[1] build_last,
-   sum(cost_usd) cost_usd,
-   CASE WHEN count(cost_usd)=0 THEN 'unknown' WHEN bool_and(cost_coverage='complete') THEN 'complete' ELSE 'partial' END coverage,
+   (SELECT sum(l.cost_usd) FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation) cost_usd,
+   CASE
+    WHEN NOT EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation AND l.cost_usd IS NOT NULL) THEN 'unknown'
+    WHEN NOT EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation AND l.cost_coverage<>'complete') THEN 'complete'
+    ELSE 'partial'
+   END coverage,
    bool_or(has_error) has_error
   FROM public.decke_improvement_turn WHERE conversation_id=p_conversation
  ) x WHERE c.id=p_conversation;
@@ -453,11 +458,13 @@ BEGIN
   INSERT INTO public.decke_improvement_leg(
    id,conversation_id,seq,leg,model_id,provider,started_at,finished_at,
    input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,
-   cost_usd,cost_source,status,finish_reason,build_sha,build_pr,error,tool_calls)
+   cost_usd,cost_coverage,cost_source,status,finish_reason,build_sha,build_pr,error,tool_calls)
   VALUES(public.decke_improvement_uuid('request:',request_row.id),conversation,request_row.seq,request_row.leg_no,
    request_row.model_id,request_row.provider,request_row.started_at,request_row.finished_at,
    request_row.input_tokens,request_row.output_tokens,request_row.cache_read_tokens,
    request_row.cache_write_tokens,request_row.reasoning_tokens,request_row.cost_usd,
+   CASE WHEN request_row.known_costs=0 THEN 'unknown'
+        WHEN request_row.known_costs=request_row.operation_count THEN 'complete' ELSE 'partial' END,
    CASE WHEN request_row.known_costs=0 THEN 'unknown'
         WHEN request_row.has_estimate THEN 'token_rate_estimate' ELSE 'provider_reported' END,
    request_row.status,
@@ -467,7 +474,7 @@ BEGIN
    model_id=EXCLUDED.model_id,provider=EXCLUDED.provider,started_at=EXCLUDED.started_at,
    finished_at=EXCLUDED.finished_at,input_tokens=EXCLUDED.input_tokens,output_tokens=EXCLUDED.output_tokens,
    cache_read_tokens=EXCLUDED.cache_read_tokens,cache_write_tokens=EXCLUDED.cache_write_tokens,
-   reasoning_tokens=EXCLUDED.reasoning_tokens,cost_usd=EXCLUDED.cost_usd,cost_source=EXCLUDED.cost_source,
+   reasoning_tokens=EXCLUDED.reasoning_tokens,cost_usd=EXCLUDED.cost_usd,cost_coverage=EXCLUDED.cost_coverage,cost_source=EXCLUDED.cost_source,
    status=EXCLUDED.status,finish_reason=EXCLUDED.finish_reason,build_sha=EXCLUDED.build_sha,build_pr=EXCLUDED.build_pr
   WHERE public.decke_improvement_leg.conversation_id=EXCLUDED.conversation_id
     AND public.decke_improvement_leg.seq=EXCLUDED.seq AND public.decke_improvement_leg.leg=EXCLUDED.leg;
@@ -576,7 +583,7 @@ BEGIN
     OR (p_payload ? 'error' AND jsonb_typeof(p_payload->'error') NOT IN ('object','null'))
     OR jsonb_typeof(p_payload->'started_at')<>'string'
     OR (p_payload ? 'finished_at' AND jsonb_typeof(p_payload->'finished_at') NOT IN ('string','null'))
-    OR EXISTS(SELECT 1 FROM unnest(ARRAY['model_id','provider','cost_source','status','finish_reason','build_sha']) k
+    OR EXISTS(SELECT 1 FROM unnest(ARRAY['model_id','provider','cost_coverage','cost_source','status','finish_reason','build_sha']) k
       WHERE p_payload ? k AND jsonb_typeof(p_payload->k) NOT IN ('string','null'))
     OR EXISTS(SELECT 1 FROM unnest(ARRAY['latency_ms','input_tokens','output_tokens','cache_read_tokens','cache_write_tokens','reasoning_tokens','cost_usd','build_pr']) k
       WHERE p_payload ? k AND jsonb_typeof(p_payload->k) NOT IN ('number','null')) THEN
@@ -619,8 +626,12 @@ BEGIN
  EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'Invalid leg timestamp' USING ERRCODE='22023'; END;
  IF started IS NULL OR (finished IS NOT NULL AND finished<started) THEN RAISE EXCEPTION 'Invalid leg timing' USING ERRCODE='22023'; END IF;
  source=coalesce(clean->>'cost_source','unknown'); leg_status=coalesce(clean->>'status','completed');
- IF source NOT IN ('provider_reported','token_rate_estimate','unknown') OR leg_status NOT IN ('started','completed','failed','cancelled','abandoned')
-    OR ((clean->>'cost_usd') IS NULL)<>(source='unknown') THEN RAISE EXCEPTION 'Invalid leg cost or status' USING ERRCODE='22023'; END IF;
+ IF coalesce(clean->>'cost_coverage','') NOT IN ('complete','partial','unknown')
+    OR source NOT IN ('provider_reported','token_rate_estimate','unknown') OR leg_status NOT IN ('started','completed','failed','cancelled','abandoned')
+    OR ((clean->>'cost_usd') IS NULL)<>(source='unknown')
+    OR ((clean->>'cost_usd') IS NULL)<>(clean->>'cost_coverage'='unknown') THEN
+  RAISE EXCEPTION 'Invalid leg cost or status' USING ERRCODE='22023';
+ END IF;
  conversation=public.decke_improvement_uuid('conversation:',p_conversation);
  leg_id=public.decke_improvement_uuid('request:',p_request);
  INSERT INTO public.decke_improvement_conversation(id,owner_key,started_at,updated_at)
@@ -635,17 +646,17 @@ BEGIN
   asked=CASE WHEN public.decke_improvement_turn.asked='' THEN EXCLUDED.asked ELSE public.decke_improvement_turn.asked END,
   started_at=least(public.decke_improvement_turn.started_at,EXCLUDED.started_at);
  INSERT INTO public.decke_improvement_leg(id,conversation_id,seq,leg,asked,answered,model_id,provider,started_at,finished_at,latency_ms,
-  input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,cost_usd,cost_source,status,finish_reason,build_sha,build_pr,error,tool_calls)
+  input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,cost_usd,cost_coverage,cost_source,status,finish_reason,build_sha,build_pr,error,tool_calls)
  VALUES(leg_id,conversation,p_seq,p_leg,coalesce(clean->>'asked',''),coalesce(clean->>'answered',''),clean->>'model_id',clean->>'provider',started,finished,
   (clean->>'latency_ms')::integer,(clean->>'input_tokens')::bigint,(clean->>'output_tokens')::bigint,(clean->>'cache_read_tokens')::bigint,
-  (clean->>'cache_write_tokens')::bigint,(clean->>'reasoning_tokens')::bigint,(clean->>'cost_usd')::numeric,source,leg_status,
+  (clean->>'cache_write_tokens')::bigint,(clean->>'reasoning_tokens')::bigint,(clean->>'cost_usd')::numeric,clean->>'cost_coverage',source,leg_status,
   clean->>'finish_reason',clean->>'build_sha',(clean->>'build_pr')::integer,
   CASE WHEN clean->'error'='null'::jsonb THEN NULL ELSE clean->'error' END,coalesce(clean->'tool_calls','[]'::jsonb))
  ON CONFLICT(id) DO UPDATE SET
   asked=EXCLUDED.asked,answered=EXCLUDED.answered,model_id=EXCLUDED.model_id,provider=EXCLUDED.provider,
   started_at=EXCLUDED.started_at,finished_at=EXCLUDED.finished_at,latency_ms=EXCLUDED.latency_ms,input_tokens=EXCLUDED.input_tokens,
   output_tokens=EXCLUDED.output_tokens,cache_read_tokens=EXCLUDED.cache_read_tokens,cache_write_tokens=EXCLUDED.cache_write_tokens,
-  reasoning_tokens=EXCLUDED.reasoning_tokens,cost_usd=EXCLUDED.cost_usd,cost_source=EXCLUDED.cost_source,status=EXCLUDED.status,
+  reasoning_tokens=EXCLUDED.reasoning_tokens,cost_usd=EXCLUDED.cost_usd,cost_coverage=EXCLUDED.cost_coverage,cost_source=EXCLUDED.cost_source,status=EXCLUDED.status,
   finish_reason=EXCLUDED.finish_reason,build_sha=EXCLUDED.build_sha,build_pr=EXCLUDED.build_pr,error=EXCLUDED.error,tool_calls=EXCLUDED.tool_calls
  WHERE public.decke_improvement_leg.conversation_id=EXCLUDED.conversation_id
    AND public.decke_improvement_leg.seq=EXCLUDED.seq AND public.decke_improvement_leg.leg=EXCLUDED.leg;

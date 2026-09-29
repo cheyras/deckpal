@@ -150,7 +150,7 @@ function TokenRow({ token: t, revoking, onRevoke }: { token: ApiTokenRow; revoki
           {live && t.scope === 'read' && (
             <span className={`${BADGE} border border-action-ghost-border text-text-secondary`}>Read only</span>
           )}
-          {live && (t as ApiTokenRow & { deckeImprovementRead?: boolean }).deckeImprovementRead && (
+          {live && t.deckeImprovementRead && (
             <span className={`${BADGE} border border-action-ghost-border text-text-secondary`}>Deck-E research</span>
           )}
           {!live && <span className={`${BADGE} bg-halo-error text-error`}>{state === 'revoked' ? 'Revoked' : 'Expired'}</span>}
@@ -193,7 +193,7 @@ export function AgentAccess() {
 
   async function refresh() {
     try {
-      const res = await api.apiTokens() as Awaited<ReturnType<typeof api.apiTokens>> & { canGrantDeckeImprovementRead?: boolean }
+      const res = await api.apiTokens()
       setTokens(res.tokens)
       setCanGrantImprovement(res.canGrantDeckeImprovementRead === true)
       setLoadError(null)
@@ -219,13 +219,7 @@ export function AgentAccess() {
     setFormError(null)
     setCreating(true)
     try {
-      // The API client overload is supplied by the shared web transport lane;
-      // the server independently rejects this capability for an ineligible user.
-      const createWithCapability = api.createApiToken as unknown as (
-        tokenName: string,
-        deckeImprovementRead: boolean,
-      ) => ReturnType<typeof api.createApiToken>
-      const res = await createWithCapability(trimmed, grantImprovement)
+      const res = await api.createApiToken(trimmed, grantImprovement)
       setSecret({ raw: res.secret, name: res.token.name })
       setName('')
       setGrantImprovement(false)

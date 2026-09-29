@@ -6,11 +6,11 @@ import { FormAlert } from './ui'
 export function ConversationSharing() {
   const access = useAccess(), client = useQueryClient(), [saving, setSaving] = useState(false), [error, setError] = useState('')
   const query = useQuery({ queryKey: ['settings', access.identity], queryFn: ({ signal }) => api.settings(signal), enabled: access.ready && !!access.identity, retry: false, gcTime: 0, refetchOnWindowFocus: true })
-  const enabled = (query.data?.settings as { deckeSharePrompts?: boolean } | undefined)?.deckeSharePrompts ?? true
+  const enabled = query.data?.settings.deckeSharePrompts ?? true
   const change = async (next: boolean) => {
     setSaving(true); setError('')
     try {
-      await api.updateSettings({ deckeSharePrompts: next } as never)
+      await api.updateSettings({ deckeSharePrompts: next })
       await client.invalidateQueries({ queryKey: ['settings', access.identity] })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save your Deck-E preference.')
