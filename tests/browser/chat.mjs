@@ -102,10 +102,12 @@ async function checkMeterReplay(page, server, width, out) {
   assert.equal(last[last.length - 1].approval.signature, 'sig-log', 'the signature must survive')
   assert.ok(last.findIndex(p => p.state === 'output-available' && p.type === 'tool-web_research')
     < last.length - 1, 'the refusal must precede the approval answer')
-  const newTurnReplay = bodies[2].messages.flatMap(m => m.parts)
-    .filter(p => p.type === 'tool-web_research' && p.state === 'output-available')
-  assert.equal(newTurnReplay.length, 1, 'recent research output must remain on the new-turn wire')
-  assert.equal(newTurnReplay[0].output, RESEARCH_REFUSAL, 'the new-turn replay changed the refusal')
+  // A meter refusal is terminal for its TURN only. On a new user turn it is
+  // not replayed as a result — the refused call was an error, not findings — so
+  // the server's ledger starts empty and research may run again.
+  assert.equal(bodies[2].messages.flatMap(m => m.parts)
+    .filter(p => p.type === 'tool-web_research' && p.state === 'output-available').length, 0,
+    'a new user turn must not replay the refusal as a result')
 
   const captured = { legs: bodies.slice(0, 2), newTurn: bodies[2],
     refusal: { toolCallId: RESEARCH_CALL, input: RESEARCH_INPUT } }
