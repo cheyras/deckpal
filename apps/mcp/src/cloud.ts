@@ -383,7 +383,10 @@ export function createCloudApp(): Express {
             api: makeApi(base, raw),
             userId: resolved.userId,
           };
-          const handler = createMcpHandler(() => buildServer(ctx, { readOnly }), {
+          const handler = createMcpHandler(() => buildServer(ctx, {
+            readOnly,
+            deckeImprovementRead: resolved.deckeImprovementRead,
+          }), {
             onerror: (err) => console.error(`[deckpal-mcp] mcp handler error: ${err.message}`),
           });
           try {
@@ -393,7 +396,7 @@ export function createCloudApp(): Express {
           } finally {
             await handler.close();
           }
-        }, { readOnly });
+        }, { readOnly, tokenId: resolved.tokenId });
       } catch (err) {
         console.error('[deckpal-mcp] request failed:', (err as Error).message);
         if (!res.headersSent) {

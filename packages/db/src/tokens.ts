@@ -63,12 +63,15 @@ export interface ApiTokenRow {
   /** Set only on a connection approved through OAuth; NULL on a hand-made token. */
   oauthClientId: string | null;
   oauthRedirectUri: string | null;
+  /** Explicit access to the pseudonymised Deck-E improvement collection. */
+  deckeImprovementRead: boolean;
 }
 
 export interface ResolvedToken {
   tokenId: string;
   userId: string;
   scope: TokenScope;
+  deckeImprovementRead: boolean;
 }
 
 /** `dsk_` + 32 bytes of CSPRNG output, base64url — 256 bits of entropy. */
@@ -102,6 +105,7 @@ export function looksLikeApiToken(raw: string): boolean {
 // a pre-075 form, chosen by one cheap check. Only `true` is cached: the moment
 // the migration lands, the next request sees it.
 const grantsReady = new WeakMap<Queryable, true>();
+const improvementReady = new WeakMap<Queryable, true>();
 let warnedPending = false;
 
 export async function grantSchemaReady(db: Queryable): Promise<boolean> {
@@ -123,6 +127,20 @@ export async function grantSchemaReady(db: Queryable): Promise<boolean> {
   return false;
 }
 
+/** Migration 078 is deliberately detected separately from OAuth migration 075. */
+export async function improvementCapabilityReady(db: Queryable): Promise<boolean> {
+  if (improvementReady.has(db)) return true;
+  const { rows } = await db.query<{ ready: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'api_token'
+          AND column_name = 'decke_improvement_read'
+     ) AS ready`,
+  );
+  if (rows[0]?.ready) improvementReady.set(db, true);
+  return rows[0]?.ready === true;
+}
+
 /**
  * Resolve a raw bearer token to its owner, or null when it is unknown,
  * revoked or expired. Returns null (never throws) for any malformed input.
@@ -140,9 +158,11 @@ export async function grantSchemaReady(db: Queryable): Promise<boolean> {
 export async function resolveToken(db: Queryable, raw: string): Promise<ResolvedToken | null> {
   if (!looksLikeApiToken(raw)) return null;
   const hash = hashToken(raw);
-  const { rows } = (await grantSchemaReady(db))
-    ? await db.query<{ id: string; user_id: string; scope: TokenScope; token_hash: string }>(
-        `SELECT t.id, t.user_id, t.scope, h.token_hash
+  const grants = await grantSchemaReady(db);
+  const improvement = grants && await improvementCapabilityReady(db);
+  const { rows } = grants
+    ? await db.query<{ id: string; user_id: string; scope: TokenScope; token_hash: string; decke_improvement_read: boolean }>(
+        `SELECT t.id, t.user_id, t.scope, h.token_hash, ${improvement ? 't.decke_improvement_read' : 'false'} AS decke_improvement_read
            FROM (SELECT id AS token_id, token_hash FROM api_token WHERE token_hash = $1
                  UNION ALL
                  SELECT token_id, token_hash FROM oauth_token
@@ -153,8 +173,8 @@ export async function resolveToken(db: Queryable, raw: string): Promise<Resolved
             AND public.admin_account_active(t.user_id::text)`,
         [hash],
       )
-    : await db.query<{ id: string; user_id: string; scope: TokenScope; token_hash: string }>(
-        `SELECT id, user_id, 'full' AS scope, token_hash
+    : await db.query<{ id: string; user_id: string; scope: TokenScope; token_hash: string; decke_improvement_read: boolean }>(
+        `SELECT id, user_id, 'full' AS scope, token_hash, false AS decke_improvement_read
            FROM api_token
           WHERE token_hash = $1 AND revoked_at IS NULL
             AND public.admin_account_active(user_id::text)`,
@@ -165,7 +185,7 @@ export async function resolveToken(db: Queryable, raw: string): Promise<Resolved
   const a = Buffer.from(row.token_hash, 'utf8');
   const b = Buffer.from(hash, 'utf8');
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return { tokenId: row.id, userId: row.user_id, scope: row.scope };
+  return { tokenId: row.id, userId: row.user_id, scope: row.scope, deckeImprovementRead: row.decke_improvement_read === true };
 }
 
 /**
@@ -189,7 +209,8 @@ const COLUMNS = `${LEGACY_COLUMNS}, expires_at, scope, oauth_client_id, oauth_re
 
 /** The columns a row is read back with. `token_hash` is never among them. */
 async function columns(db: Queryable): Promise<string> {
-  return (await grantSchemaReady(db)) ? COLUMNS : LEGACY_COLUMNS;
+  if (!(await grantSchemaReady(db))) return LEGACY_COLUMNS;
+  return `${COLUMNS}, ${(await improvementCapabilityReady(db)) ? 'decke_improvement_read' : 'false AS decke_improvement_read'}`;
 }
 
 function shape(r: {
@@ -203,6 +224,7 @@ function shape(r: {
   scope?: TokenScope;
   oauth_client_id?: string | null;
   oauth_redirect_uri?: string | null;
+  decke_improvement_read?: boolean;
 }): ApiTokenRow {
   return {
     id: r.id,
@@ -215,6 +237,7 @@ function shape(r: {
     scope: r.scope ?? 'full',
     oauthClientId: r.oauth_client_id ?? null,
     oauthRedirectUri: r.oauth_redirect_uri ?? null,
+    deckeImprovementRead: r.decke_improvement_read === true,
   };
 }
 

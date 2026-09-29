@@ -51,6 +51,7 @@
  * Deck-E's.
  */
 import { EVALUATION } from './models.js'
+import { beginExternalUsage } from './usage.js'
 
 /** On, off, or a value nobody meant. Read per call, so a redeploy is enough. */
 export const JEV_VAR = 'DECKE_JEV'
@@ -157,9 +158,14 @@ export async function evaluate<K extends string>(
   // an answer that came back in a fifth of it.
   const timer = setTimeout(() => ac.abort(), timeoutMs)
   const started = Date.now()
+  const tool = opts.label.startsWith('audit') ? 'jev_audit' : 'jev_reflex'
+  const finishUsage = await beginExternalUsage(tool, EVALUATION.id, 'typesafe-ai', opts.label)
   let outcome = 'error'
   let result: Judgment<K> | null = null
+  let usage: { inputTokens?: unknown; outputTokens?: unknown } | undefined
+  let reportedCost: unknown
   try {
+    if (ac.signal.aborted) throw new DOMException('aborted', 'AbortError')
     const res = await (opts.fetchImpl ?? fetch)(EVALUATE_URL, {
       method: 'POST',
       signal: ac.signal,
@@ -179,6 +185,8 @@ export async function evaluate<K extends string>(
         usage?: { inputTokens?: unknown }
         providerMetadata?: { gateway?: { cost?: unknown }; typesafe?: { confidence?: Record<string, unknown> } }
       }
+      usage = body.usage
+      reportedCost = body.providerMetadata?.gateway?.cost
       const answers = readAnswers(questions, body)
       if (answers) {
         outcome = 'ok'
@@ -199,6 +207,12 @@ export async function evaluate<K extends string>(
   } finally {
     clearTimeout(timer)
     opts.signal?.removeEventListener('abort', onAbort)
+    await finishUsage({
+      status: ac.signal.aborted ? 'cancelled' : outcome === 'ok' ? 'completed' : 'failed',
+      inputTokens: typeof usage?.inputTokens === 'number' && Number.isSafeInteger(usage.inputTokens) ? usage.inputTokens : null,
+      outputTokens: typeof usage?.outputTokens === 'number' && Number.isSafeInteger(usage.outputTokens) ? usage.outputTokens : null,
+      costUsd: typeof reportedCost === 'string' || typeof reportedCost === 'number' ? reportedCost : null,
+    })
   }
   console.info(
     `[deck-e] jev ${opts.label} ${outcome} ${Date.now() - started}ms` +

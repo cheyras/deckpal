@@ -77,3 +77,15 @@ test('the prompt keeps its security boundary and removed deep tools stay absent'
     assert.equal(p.includes(removed), false, `${removed} survived the rewrite`)
   }
 })
+
+test('the natural share ask keeps its load-bearing limits', () => {
+  const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
+  for (const phrase of [
+    'Then — and only then — ask, in your own words and in the moment',
+    'call\n`ask_to_share_chat` in the same reply',
+    'Own the problem first when it is yours',
+    'Ask at most once in a conversation; the buttons do the asking',
+    'Never ask when things are going fine, never ask twice',
+    '"No thanks" is a fine answer',
+  ]) assert.ok(p.includes(phrase), `missing: ${phrase}`)
+})

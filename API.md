@@ -453,7 +453,8 @@ when the account never chose — the app default applies.
                 "pricingEnabled": true, "showCollectionValue": true,
                 "binderPocketSize": 9, "binderStackVariants": true,
                 "binderAdditionalVariants": "inline",
-                "deckeHidden": false, "skin": null, "topbar": null,
+                "deckeHidden": false, "deckeSharePrompts": true,
+                "skin": null, "topbar": null,
                 "seriesSortKey": "recency", "seriesSortDir": "desc",
                 "seriesGroupOwned": true } }
 ```
@@ -463,7 +464,8 @@ Any subset of the fields above; returns the full updated row in the same
 shape. Unknown values are a `400` (never a silent reset to the default);
 `displayCurrency` is validated against the `currency` table; `skin`/`topbar`
 accept `null` to mean "follow the app default". A body with no known field is
-a `400`.
+a `400`. `deckeSharePrompts` is a strict boolean (default `true`) controlling
+whether Deck-E may ask to share a chat; it does not itself share any content.
 
 ### GET /deckpal/api/me/showcase
 The profile's featured cards in slot order (`user_showcase`, slots 1-based,
@@ -1827,10 +1829,19 @@ database Checkout quotas remain60 requests/hour and10 new orders/hour.
 | GET `/admin/ai-usage` | `{items,total,limit,offset,aggregate:{knownUsd,knownCount,unknownCount}}`; filters `userId,conversationId,category,status,from,to,modelId,buildSha,buildPr,costSource`. |
 | GET `/admin/ai-usage/requests/:id` | `{request,operations,contentStatus,content}`. |
 | GET `/admin/ai-usage/conversations/:id` | Bounded `{items:requestDetails[],total,limit,offset}`. |
+| GET `/admin/ai-usage/conversations` | Cursor-paged all-chat cost rollup with no transcript content; filters `from,to,userId,model`, limit max 100. |
 | GET `/admin/ai-usage/observations` | `days=7|30|90` and optional `buildSha`; grouped complete/unknown sample counts, mean/p95 microUSD, model/build and notice. |
 | POST `/decke/history` | Existing personal `asked,answered,tools,finishReason` plus `conversationId,seq,exchangeId`. Supplied exchange must match an owned accepted request; duplicate position remains immutable. |
-| GET `/decke/history/:id` | Own turns add `exchangeId` and `usage:AiUsageRow[]` for exact accepted correlation. Legacy/unlinked usage is empty and generation build unknown. |
+| GET `/decke/history/:id` | Own turns add `exchangeId`, `usage:AiUsageRow[]`, personal `vote`/`comment`, and conversation `shared`. Legacy/unlinked usage is empty and generation build unknown. |
 | DELETE `/decke/history/:id` | Deletes own history and optional administrative excerpts; usage metadata remains. |
+| POST `/decke/improvement/consent` | `{conversationId,share,source}` grants or declines one-chat sharing; a grant backfills available redacted history. |
+| DELETE `/decke/improvement/consent/:conversationId` | Stops sharing and deletes that conversation's saved improvement copy. |
+| GET `/decke/improvement/mine` | Own raw conversation ids currently shared, for History badges. |
+| POST `/decke/telemetry` | Shared-chat event batch (1–200, max 512 KiB); returns `202 {recorded}` and otherwise stores nothing. |
+| PUT `/decke/feedback` | `{conversationId,seq,vote,comment?,share?}`; feedback stays personal and an explicit `share:true` grants one-chat consent. |
+| GET `/admin/decke-improvement` | Admin/capable-token corpus list; contract filters, cursor, limit max 100, JSON or NDJSON. |
+| GET `/admin/decke-improvement/:id` | Full pseudonymous detail; `?format=markdown` renders a readable transcript and telemetry timeline. |
+| GET `/admin/decke-improvement/search?q=` | Literal corpus search, query length 2–100 and limit max 50. |
 
 Usage list/conversation page sizes default 25/max 100, offset max1000000.
 Categories are `response|research|planning`; status is

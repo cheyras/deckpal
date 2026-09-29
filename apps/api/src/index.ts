@@ -37,6 +37,7 @@ import { deckCheckRouter } from './routes/deckCheck.js';
 import { insightsRouter, publicPokedexRouter } from './routes/insights.js';
 import { meRouter } from './routes/me.js';
 import { deckeHistoryRouter } from './routes/deckeHistory.js';
+import { deckeImprovementAdminRouter, deckeImprovementRouter } from './routes/deckeImprovement.js';
 import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { warnOnPrintedSetCodeDivergence } from './scan/catalogPort.js';
@@ -349,7 +350,18 @@ export function createApp(): express.Express {
   api.use('/oauth', requireSession, oauthRateLimit);
   // Shared /admin parent counts its credit subtree once; wallet polling has
   // an independent budget. Reject before RLS obtains a request connection.
-  api.use('/admin', requireSession, adminRateLimit);
+  const adminSessionOrImprovementToken: express.RequestHandler = (req, res, next) => {
+    // PATs remain forbidden from every administrative surface except this one
+    // collection reader. Its SQL checks the live token row's dedicated
+    // `decke_improvement_read` capability in addition to the owner's admin
+    // tier and permissions, so no broad admin authority is inferred here.
+    if (req.authKind === 'token' && /^\/decke-improvement(?:\/|$)/.test(req.path)) {
+      next();
+      return;
+    }
+    requireSession(req, res, next);
+  };
+  api.use('/admin', adminSessionOrImprovementToken, adminRateLimit);
   api.use('/me/credits', requireSession, creditWalletRateLimit);
   api.use(['/me/features','/me/decke-sharing'], requireSession, adminRateLimit);
   // What a connector token reaches is what the consent screen says it does:
@@ -385,7 +397,7 @@ export function createApp(): express.Express {
     api.use((req, res, next) => {
       // Legacy self-host handlers retain their established direct-pool shape.
       // Only the new session-derived SQL surfaces need a request transaction.
-      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$)|decks\/import\/fix$)/.test(req.path)) {
+      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|decke(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$)|decks\/import\/fix$)/.test(req.path)) {
         next();
         return;
       }
@@ -703,6 +715,7 @@ export function createApp(): express.Express {
   administration.use('/credits', adminCreditRouter);
   administration.use('/features', adminFeatureRouter);
   administration.use('/ai-usage', adminUsageRouter);
+  administration.use('/decke-improvement', deckeImprovementAdminRouter);
   administration.use('/users/:id/ai-override', userAiOverrideRouter);
   administration.use(adminRouter);
   api.use('/admin', administration);
@@ -735,6 +748,9 @@ export function createApp(): express.Express {
   // belongs beside the queries it protects. Connector tokens were already
   // turned away above, with /me/showcase and /me/settings.
   api.use('/decke', deckeHistoryRouter);
+  // Per-conversation consent, feedback, and opt-in telemetry share the same
+  // session-only `/decke` boundary as personal History.
+  api.use('/decke', deckeImprovementRouter);
 
   // PDF export routes carry full paths (/decks/:id/pdf, /lists/:id/pdf,
   // /sets/:setId/checklist.pdf) and are mounted first so they resolve here rather

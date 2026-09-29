@@ -431,6 +431,40 @@ into the parsed, signed tool input before the approval card is issued. The
 write still executes only after that signed approval is replayed; ordinary
 calls keep their preview default.
 
+### Deck-E improvement chats (migration 078)
+
+The improvement corpus is deliberately narrower than Deck-E History: no chat is
+copied unless its reader explicitly shares that one conversation. The risks here
+are unusually content-heavy: a name can appear in nested tool output; a reader's
+collection can itself be identifying; a mistaken administrator role or token
+capability could expose the corpus; telemetry can become an unbounded shadow
+transcript; and a model that asks too often can turn a nominal choice into a bad
+experience.
+
+The controls are correspondingly at the collection boundary, not in the model
+prompt. The database atomically permits `ask_to_share_chat` at most once per
+conversation and only when the reader has left prompts enabled; every answer,
+including decline and revoke, prevents another ask in that conversation.
+Writers use HMAC pseudonyms derived with a database-held key, retain no raw
+user/conversation/request IDs, and recursively redact account terms and raw
+identifiers from text and JSON before a corpus write. The corpus tables have
+RLS and `REVOKE ALL`; their security-definer reader functions require an active
+administrator with `decke.improvement.read`. A token reader additionally needs
+an explicitly admin-granted, live `decke_improvement_read` capability — it is
+never silently added to a token or trusted from a caller claim.
+
+Telemetry payloads are bounded and collection writes are rate-limited. The
+daily `decke_improvement_purge_expired()` job removes corpus conversations after
+180 days; stopping sharing removes that conversation's saved copy immediately.
+
+This does not make shared chats anonymous. A reader can type identifying facts,
+and an unusual collection or tool result can identify them despite redaction.
+It also cannot protect against an authorised administrator or authorised agent
+misusing information they are permitted to read, a compromised database-held
+HMAC key, or copies an authorised reader makes outside DeckPal. Those are why
+access is intentionally limited to administrators and tools they explicitly
+authorise, rather than general staff or anonymous analytics.
+
 **Server-side request forgery — where the server is allowed to fetch from.**
 Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
 `js/request-forgery` code-scanning alerts):

@@ -5,8 +5,8 @@ import type { Queryable } from '@deckpal/db';
 import { ApiError, UUID_RE } from '../http.js';
 import { createNarrationFilter } from './narration.js';
 import { buildStamp } from './build.js';
-import { currentUserText, extractUsage, safeUsageCode, usageCategory, type UsageCategory } from './usageMetadata.js';
-export interface AiRequest {id:string;db:Queryable;pending:Set<Promise<unknown>>;failed:boolean;signal?:AbortSignal}
+import { currentUserText, decimalUsd, extractUsage, safeUsageCode, usageCategory, type UsageCategory } from './usageMetadata.js';
+export interface AiRequest {id:string;db:Queryable;pending:Set<Promise<unknown>>;failed:boolean;signal?:AbortSignal;spendId?:string}
 const context=new AsyncLocalStorage<{request:AiRequest;tool:string;operationKey:string}>();
 export function runAiUsage<T>(request:AiRequest,fn:()=>T):T {return context.run({request,tool:'chat_turn',operationKey:'chat_turn'},fn)}
 export function runUsageOperation<T>(tool:string,fn:()=>T,operationKey?:string):T {
@@ -36,6 +36,28 @@ export async function beginAiRequest(db:Queryable,args:{
 async function tracked(request:AiRequest,work:Promise<unknown>):Promise<void> {
  request.pending.add(work);
  try{await work;}finally{request.pending.delete(work);}
+}
+export interface ExternalUsageResult {
+ status:'completed'|'failed'|'cancelled';inputTokens?:number|null;outputTokens?:number|null;costUsd?:string|number|null;
+}
+/** Meter a provider call that does not travel through an AI SDK LanguageModel. */
+export async function beginExternalUsage(tool:string,model:string,provider:string,operationKey:string):Promise<(result:ExternalUsageResult)=>Promise<void>> {
+ const ctx=context.getStore();if(!ctx)return async()=>{};
+ const {request}=ctx;const id=randomUUID();
+  try {
+  await request.db.query('SELECT public.decke_usage_operation_begin($1,$2,$3,$4,$5,$6,$7,$8)',
+   [id,request.id,'response',tool,model.slice(0,160),provider.slice(0,80),operationKey.slice(0,160),request.spendId??null]);
+ } catch {
+  console.error('[deck-e] external usage begin unavailable',request.id,tool);return async()=>{};
+ }
+ let done=false;
+ return async(result)=>{
+  if(done)return;done=true;
+  const cost=decimalUsd(result.costUsd);
+  const work=request.db.query("UPDATE public.decke_ai_operation SET status=$2,finished_at=now(),input_tokens=$3,output_tokens=$4,cost_usd=$5,cost_source=$6,error_code=$7 WHERE id=$1 AND status='started'",
+   [id,result.status,result.inputTokens??null,result.outputTokens??null,cost,cost===null?'unknown':'provider_reported',result.status==='failed'?'provider_error':null]);
+  try{await tracked(request,work);}catch{console.error('[deck-e] external usage finalization unavailable',request.id,tool);}
+ };
 }
 export async function finishAiRequest(request:AiRequest,status:'completed'|'failed'|'cancelled',credits?:number):Promise<void> {
  await Promise.allSettled([...request.pending]);

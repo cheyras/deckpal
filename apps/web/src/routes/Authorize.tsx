@@ -85,6 +85,7 @@ export function Authorize() {
   const [session, setSession] = useState<Session | null | undefined>(isCloudMode ? undefined : null)
   const [client, setClient] = useState<OAuthClientInfo | null>(null)
   const [scope, setScope] = useState<ConsentScope>('full')
+  const [grantImprovement, setGrantImprovement] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'allow' | 'deny' | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -144,7 +145,8 @@ export function Authorize() {
         state,
         resource,
         scope: client && supportsScopedConsent(client) ? scope : 'full',
-      })
+        deckeImprovementRead: grantImprovement,
+      } as Parameters<typeof api.oauthDecision>[0] & { deckeImprovementRead: boolean })
       window.location.href = redirectTo
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Something went wrong. Try again.')
@@ -232,6 +234,22 @@ export function Authorize() {
             ))}
           </div>
         </fieldset>
+
+        {(client as OAuthClientInfo & { canGrantDeckeImprovementRead?: boolean }).canGrantDeckeImprovementRead && (
+          <label className="mb-[16px] flex cursor-pointer items-start gap-[10px] rounded-[12px] border border-action-ghost-border bg-surface-tertiary p-[12px]">
+            <input
+              type="checkbox"
+              checked={grantImprovement}
+              disabled={busy !== null}
+              onChange={(event) => setGrantImprovement(event.target.checked)}
+              className="mt-[3px] h-[16px] w-[16px] shrink-0 accent-[var(--color-action-primary)]"
+            />
+            <span className="min-w-0">
+              <span className="block text-[14px] font-bold text-text-primary">Read the anonymised Deck-E chat collection</span>
+              <span className="block text-[14px] leading-[1.5] text-text-body">Optional and off by default. Only conversations readers explicitly shared are included.</span>
+            </span>
+          </label>
+        )}
 
         <p className="mb-[20px] text-[14px] leading-[1.55] text-text-muted">
           {scopedConsent

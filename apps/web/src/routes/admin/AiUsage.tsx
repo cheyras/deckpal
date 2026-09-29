@@ -3,9 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
 import { useAccess } from '../../lib/access'
 import type { AiCost, AiUsageDetail } from '../../lib/adminTypes'
-import { Button, DataTable, DataTableToolbar, EmptyState } from '../../components/ui'
+import { Button, DataTable, DataTableToolbar, EmptyState, Tabs } from '../../components/ui'
 import { Sheet } from '../../components/ui/Sheet'
 import { selectClass, fmtDate } from './shared'
+import { isCloudMode } from '../../lib/supabase'
+import { readSession } from '../../lib/authSession'
 export const costLabel = (cost: AiCost) => cost.usd === null || cost.source === 'unknown' ? 'Unknown cost' : `$${cost.usd} USD${cost.coverage === 'partial' ? ' (partial)' : ''}${cost.source === 'token_rate_estimate' ? ' (estimate)' : ''}`
 const categories: Record<string, string> = { response: 'Standard response', research: 'Research', planning: 'In-depth planning' }
 function ContentProjection({ data }: { data: AiUsageDetail }) {
@@ -46,4 +48,27 @@ function UsageTable() {
     { id: 'date', header: 'Started', cell: row => fmtDate(row.startedAt) }, { id: 'user', header: 'User', className: 'min-w-[200px] max-w-[260px]', cell: row => row.userId }, { id: 'category', header: 'Category', cell: row => categories[row.category] }, { id: 'status', header: 'Status', cell: row => row.status }, { id: 'cost', header: 'Observed cost', className: 'min-w-[180px]', cell: row => costLabel(row.cost) }, { id: 'build', header: 'Build / PR', className: 'min-w-[220px] max-w-[280px] break-all', cell: row => <>{row.buildSha ?? 'Build not recorded'}<p className="mt-[4px]">{row.buildPr === null ? 'PR not recorded' : `PR #${row.buildPr}`}</p></> }, { id: 'actions', header: 'Details', className: 'min-w-[260px]', cell: row => <div className="flex gap-[8px]"><Button variant="ghost" size="sm" aria-label={`Request ${row.id}`} onClick={() => setSelected({ id: row.id, conversation: false })}>Request</Button><Button variant="ghost" size="sm" disabled={!row.conversationId} aria-label={row.conversationId ? `Conversation ${row.conversationId}` : 'Conversation not recorded'} onClick={() => { if (row.conversationId) setSelected({ id: row.conversationId, conversation: true }) }}>Conversation</Button></div> },
   ]} />{selected && <UsageDetail key={`${selected.id}:${selected.conversation}`} selected={selected} close={() => setSelected(null)} />}</section>
 }
-export function AdminAiUsage() { const access = useAccess(); return access.actorCapabilities.canReadSharedConversations ? <UsageTable key={`${access.identity}:${access.revision}`} /> : <EmptyState icon="lock" title="AI usage unavailable" body="Administrative usage access is required." /> }
+
+interface ConversationCost { conversationId: string; userId: string; firstActivity: string; lastActivity: string; turnCount: number; requestCount: number; operationCount: number; knownCostCount: number; unknownCostCount: number; costUsd: string | null; costCoverage: AiCost['coverage']; models: string[] }
+const usageBase = isCloudMode ? '/api' : '/deckpal/api'
+
+async function conversationCosts(params: string, signal?: AbortSignal): Promise<{ items: ConversationCost[]; nextCursor: string | null }> {
+  const session = isCloudMode ? await readSession() : { session: null }
+  const response = await fetch(`${usageBase}/admin/ai-usage/conversations?${params}`, { signal, headers: session.session ? { Authorization: `Bearer ${session.session.access_token}` } : {} })
+  if (!response.ok) throw new Error(`Could not load conversation costs (HTTP ${response.status}).`)
+  return response.json() as Promise<{ items: ConversationCost[]; nextCursor: string | null }>
+}
+
+function ConversationCosts() {
+  const access = useAccess(), [cursor, setCursor] = useState<string | null>(null)
+  const initial = { from: '', to: '', userId: '', model: '' }, [draft, setDraft] = useState(initial), [filters, setFilters] = useState(initial)
+  const params = new URLSearchParams(Object.entries({ ...filters, cursor: cursor ?? '', limit: '50' }).filter(([, value]) => value !== '')).toString()
+  const query = useQuery({ queryKey: ['admin', access.identity, access.revision, 'ai-usage-conversations', params], queryFn: ({ signal }) => conversationCosts(params, signal), enabled: access.ready && access.actorCapabilities.canReadSharedConversations, retry: false, staleTime: 0 })
+  return <section className="min-w-0 space-y-[20px]"><p className="max-w-[760px] text-text-muted">Cost rollup for every conversation. This view never includes chat content, tool calls, feedback, or sharing status.</p><DataTable label="AI usage by conversation" rows={query.data?.items ?? []} getRowId={row => row.conversationId} loading={query.isPending} refreshing={query.isFetching && !query.isPending} error={query.error?.message} onRetry={() => void query.refetch()} toolbar={<DataTableToolbar label="Filter conversation costs" onSubmit={() => { setFilters(draft); setCursor(null) }} onReset={() => { setDraft(initial); setFilters(initial); setCursor(null) }}><label className="text-[14px] font-semibold text-text-secondary">From<input type="date" className={selectClass} value={draft.from} onChange={e => setDraft({ ...draft, from: e.target.value })} /></label><label className="text-[14px] font-semibold text-text-secondary">To<input type="date" className={selectClass} value={draft.to} onChange={e => setDraft({ ...draft, to: e.target.value })} /></label><label className="text-[14px] font-semibold text-text-secondary">User ID<input className={selectClass} value={draft.userId} onChange={e => setDraft({ ...draft, userId: e.target.value })} /></label><label className="text-[14px] font-semibold text-text-secondary">Model<input className={selectClass} value={draft.model} onChange={e => setDraft({ ...draft, model: e.target.value })} /></label></DataTableToolbar>} columns={[{ id: 'last', header: 'Last activity', cell: row => fmtDate(row.lastActivity) }, { id: 'first', header: 'First activity', cell: row => fmtDate(row.firstActivity) }, { id: 'turns', header: 'Turns', cell: row => row.turnCount }, { id: 'cost', header: 'Cost', cell: row => row.costUsd === null || row.costCoverage === 'unknown' ? 'Unknown cost' : `$${row.costUsd} USD${row.costCoverage === 'partial' ? ' (partial)' : ''}` }, { id: 'coverage', header: 'Coverage', cell: row => `${row.knownCostCount} known / ${row.unknownCostCount} unknown` }, { id: 'models', header: 'Models', className: 'min-w-[200px] break-all', cell: row => row.models.length ? row.models.join(', ') : 'Not recorded' }]} />{query.data?.nextCursor && <Button variant="ghost" onClick={() => setCursor(query.data?.nextCursor ?? null)}>Load more</Button>}</section>
+}
+
+export function AdminAiUsage() {
+  const access = useAccess(), [tab, setTab] = useState('requests')
+  if (!access.actorCapabilities.canReadSharedConversations) return <EmptyState icon="lock" title="AI usage unavailable" body="Administrative usage access is required." />
+  return <section className="space-y-[20px]"><Tabs value={tab} items={[{ key: 'requests', label: 'Requests' }, { key: 'conversations', label: 'By conversation' }]} onChange={setTab} />{tab === 'requests' ? <UsageTable key={`${access.identity}:${access.revision}`} /> : <ConversationCosts key={`${access.identity}:${access.revision}`} />}</section>
+}

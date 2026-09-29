@@ -1214,6 +1214,29 @@ until that account opts in from Profile → Feature preferences. `/admin/feature
 can release it (`released`) or switch it off everywhere (`disabled`) without a
 deploy. DECISIONS.md 2026-09-26 records the design.
 
+### Deck-E per-chat improvement log (078)
+
+Migration `078_decke_improvement.sql` is an owner-run rollout. Apply it with the
+normal numbered migration runner before deploying the API and web changes that
+offer per-chat sharing:
+
+```bash
+pnpm --filter @deckpal/db build
+pnpm --filter @deckpal/db migrate:status
+pnpm --filter @deckpal/db migrate
+pnpm --filter @deckpal/db migrate:status
+```
+
+It creates the pseudonymised, opt-in improvement corpus, its consent and reader
+functions, and the all-chat usage-cost rollup. It does not require a new
+environment variable: the pseudonym HMAC key is database state, and the daily
+purge workflow uses the existing `SUPABASE_DB_*` Actions secrets documented in
+the sync setup below. Enable `.github/workflows/decke-improvement-purge.yml`
+after 078 is applied; it calls `decke_improvement_purge_expired()` once a day
+and logs the deleted count. Do not grant table access directly: administrator
+and explicitly capable-token reads must continue through the migration's
+security-definer functions.
+
 ### Review the canonical-role conversion
 
 Inspect current roles, assignments, suspension state and the trusted bootstrap

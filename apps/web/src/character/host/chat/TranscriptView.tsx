@@ -97,6 +97,8 @@ export type TranscriptLoad =
  */
 export function TranscriptPane({ id, onBack }: { id: string; onBack: () => void }) {
   const [load, setLoad] = useState<TranscriptLoad>({ state: 'loading' })
+  const [shared, setShared] = useState(false)
+  const [stopping, setStopping] = useState(false)
   // Bumped by "Try again". A counter rather than a callback because the fetch
   // lives in an effect keyed on the id, and a retry is the same fetch again.
   const [attempt, setAttempt] = useState(0)
@@ -104,10 +106,13 @@ export function TranscriptPane({ id, onBack }: { id: string; onBack: () => void 
   useEffect(() => {
     const ac = new AbortController()
     setLoad({ state: 'loading' })
-    api
-      .deckeHistoryOne(id, ac.signal)
-      .then((c) => {
+    Promise.all([
+      api.deckeHistoryOne(id, ac.signal),
+      api.deckeImprovementMine(ac.signal).catch(() => ({ items: [] })),
+    ])
+      .then(([c, mine]) => {
         if (!ac.signal.aborted) setLoad({ state: 'ready', conversation: c })
+        if (!ac.signal.aborted) setShared(mine.items.some((item) => item.conversationId === id))
       })
       .catch((e: unknown) => {
         if (ac.signal.aborted) return
@@ -126,9 +131,21 @@ export function TranscriptPane({ id, onBack }: { id: string; onBack: () => void 
     return () => ac.abort()
   }, [id, attempt])
 
+  const stopSharing = async () => {
+    if (!window.confirm('Stop sharing this chat and delete the saved improvement copy?')) return
+    setStopping(true)
+    try {
+      await api.deckeImprovementRevoke(id)
+      setShared(false)
+      window.dispatchEvent(new CustomEvent('deckpal:decke-sharing-stopped', { detail: { conversationId: id } }))
+    } finally {
+      setStopping(false)
+    }
+  }
+
   return (
     <>
-      <TranscriptHead load={load} onBack={onBack} />
+      <TranscriptHead load={load} onBack={onBack} shared={shared} stopping={stopping} onStopSharing={stopSharing} />
       {/*
         THE SCROLLER IS THE PANE AND THE MEASURE IS INSIDE IT — the same split
         the live transcript makes, for the same reason: a scrollbar drawn down
@@ -156,7 +173,7 @@ export function TranscriptPane({ id, onBack }: { id: string; onBack: () => void 
  * the top. It is also where the conversation's build RANGE lives, so a
  * maintainer can see `#77→78` before reading a word.
  */
-export function TranscriptHead({ load, onBack }: { load: TranscriptLoad; onBack: () => void }) {
+export function TranscriptHead({ load, onBack, shared = false, stopping = false, onStopSharing }: { load: TranscriptLoad; onBack: () => void; shared?: boolean; stopping?: boolean; onStopSharing?: () => void }) {
   const c = load.state === 'ready' ? load.conversation : null
   const prs = c ? c.turns.map((t) => t.buildPr).filter((p): p is number => p != null) : []
   const stamp = prs.length ? buildStamp(Math.min(...prs), Math.max(...prs)) : buildStamp(null, null)
@@ -195,7 +212,13 @@ export function TranscriptHead({ load, onBack }: { load: TranscriptLoad; onBack:
             </p>
           ) : null}
         </div>
-        {c ? <BuildStampChip stamp={stamp} className="mt-[12px]" /> : null}
+        {shared ? (
+          <div className="mt-[2px] flex shrink-0 flex-col items-end gap-[2px]">
+            <span className="rounded-full border border-action-primary/35 px-[6px] py-[1px] text-[10px] font-semibold text-action-primary">Shared</span>
+            {onStopSharing ? <button type="button" disabled={stopping} onClick={onStopSharing} className="text-[10.5px] text-text-muted underline underline-offset-2 hover:text-text-primary disabled:opacity-60">{stopping ? 'Stopping…' : 'Stop sharing'}</button> : null}
+            {c ? <BuildStampChip stamp={stamp} /> : null}
+          </div>
+        ) : c ? <BuildStampChip stamp={stamp} className="mt-[12px]" /> : null}
       </div>
     </div>
   )
@@ -293,6 +316,12 @@ export function TranscriptBody({ load, onRetry }: { load: TranscriptLoad; onRetr
             {t.answered ? (
               <div className="decke-bubble decke-shift self-start rounded-[14px] bg-surface-secondary px-[12px] py-[8px] text-[14px] leading-[21px] text-text-body">
                 <ChatMarkdown text={t.answered} tone="transcript" />
+              </div>
+            ) : null}
+            {t.feedback ? (
+              <div className="decke-shift text-[11px] leading-[16px] text-text-muted">
+                {t.feedback === 1 ? 'Good reply' : 'Bad reply'}
+                {t.feedbackComment ? ` · ${t.feedbackComment}` : ''}
               </div>
             ) : null}
           </li>

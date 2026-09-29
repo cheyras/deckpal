@@ -1642,6 +1642,9 @@ export interface DeckeHistoryTurn {
   buildPr: number | null
   buildSha: string | null
   at: string
+  /** The reader's private vote, present in their own read-only transcript. */
+  feedback?: -1 | 1 | null
+  feedbackComment?: string | null
 }
 
 export interface DeckeConversation {
@@ -1649,6 +1652,10 @@ export interface DeckeConversation {
   title: string
   startedAt: string
   turns: DeckeHistoryTurn[]
+}
+
+export interface DeckeImprovementMine {
+  items: { conversationId: string; sharedAt: string }[]
 }
 
 export const api = {
@@ -1711,6 +1718,20 @@ export const api = {
     get<DeckeConversation>(`/decke/history/${encodeURIComponent(id)}`, signal),
   deckeHistoryDelete: (id: string) =>
     send<{ ok: true }>('DELETE', `/decke/history/${encodeURIComponent(id)}`),
+  deckeImprovementConsent: (body: { conversationId: string; share: boolean; source: 'decke_ask' | 'feedback' | 'reader' }) =>
+    send<{ status: 'shared' | 'declined'; source: 'decke_ask' | 'feedback' | 'reader' }>('POST', '/decke/improvement/consent', body),
+  deckeImprovementMine: (signal?: AbortSignal) =>
+    get<DeckeImprovementMine>('/decke/improvement/mine', signal),
+  deckeImprovementRevoke: (conversationId: string) =>
+    send<{ revoked: true }>('DELETE', `/decke/improvement/consent/${encodeURIComponent(conversationId)}`),
+  deckeFeedback: (body: { conversationId: string; seq: number; vote: -1 | 1 | null; comment: string; share: boolean }) =>
+    send<{ saved: true; shared: boolean }>('PUT', '/decke/feedback', body),
+  deckeTelemetry: (body: {
+    conversationId: string
+    seq: number
+    batch: number
+    events: { at: string; kind: string; payload: Record<string, unknown> }[]
+  }) => send<{ recorded: boolean }> ('POST', '/decke/telemetry', body),
 
   series: (signal?: AbortSignal) => get<SeriesIndexResponse>('/series', signal),
   seriesDetail: (slug: string, signal?: AbortSignal) =>

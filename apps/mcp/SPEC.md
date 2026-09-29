@@ -113,7 +113,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
 ## 3b. Cloud mode — multi-user, per-token (added 2026-08-10)
 
 Everything above describes the **self-host** server: one long-lived process, one user, one shared
-`x-brain-key`. The cloud deployment serves the *same 24 tools* to any signed-up user from a single
+`x-brain-key`. The cloud deployment serves the ordinary tool catalogue to any signed-up user from a single
 Vercel function. Only the way the context is built differs; no tool was rewritten.
 
 | Thing | Self-host (`src/index.ts`) | Cloud (`src/cloud.ts` → `api/mcp.mjs`) |
@@ -178,6 +178,14 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   `verifiedName`; `POST /oauth/authorize/decision` accepts `scope: "full" | "read"` (absent = full,
   anything else 400; 503 until 075 is applied); `GET /tokens` rows add `expiresAt`, `scope`,
   `oauthClientId`, `oauthRedirectUri` and `redirect` (`{ host, trust, verifiedName }` or null).
+- **Deck-E improvement capability (migration 078, 2026-09-28).** PATs and OAuth authorization
+  codes carry `decke_improvement_read`, default false. An eligible signed-in administrator must
+  explicitly tick **Read the anonymised Deck-E chat collection** when creating or approving the
+  credential; existing credentials are not upgraded. The OAuth exchange copies the approved bit
+  onto its `api_token` row. `resolveToken()` returns the live bit, the cloud server registers the
+  three improvement tools only when it is true, and the RLS claims include the verified token id.
+  The SQL reader then re-checks that live token row, the owner's current tier, `admin.access`, and
+  `decke.improvement.read` on every call. A boolean supplied by a client is never trusted.
 - `MCP_ALLOWED_HOSTS` still gates the `Host` header; the cloud default is
   `deckpal.app,www.deckpal.app,localhost,127.0.0.1` plus any `*.vercel.app` alias.
 - The REST base is derived from the (already validated) request host — `https://<host>/api` — so
@@ -345,9 +353,22 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (25 tools + 1 resource)
+## 5. Tool surface (25 ordinary tools + 3 capability-gated tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
+
+Credentials carrying `decke_improvement_read` additionally see these read-only tools; nobody else
+sees them in `tools/list`:
+
+- **`decke_improvement_list`** — contract filters (`from`, `to`, `build_sha`, `build_pr`, `vote`,
+  `min_cost`, `max_cost`, `has_error`, `model`, `tool`), cursor and limit. Returns compact corpus
+  metadata and a continuation cursor.
+- **`decke_improvement_read`** — one pseudonymous conversation as an agent-oriented transcript:
+  visible turns and feedback, full tool arguments/outputs, model legs, errors, timings, costs,
+  approval/browser events and animation timeline. `from_turn` plus a maximum 25-turn page bounds
+  context; the response tells the caller how to continue.
+- **`decke_improvement_search`** — a 2–100 character literal query and limit, returning bounded
+  snippets, turn sequence numbers and pseudonymous conversation ids.
 
 1. **`health`** — no args. DB ok + API ok **with round-trip latency for each**, catalog counts
    (cards/variants/sets), owned totals, last `sync_run` per job (+status), price freshness
@@ -731,9 +752,10 @@ there.
 
 ## Administration, features and personal-account boundary (2026-09-15)
 
-The shared MCP catalog remains 24 tools (13 read/11 write); no administrative tools
-were added. Owner and Superadmin are distinct browser-session authorities, and
-neither expands a connector token's scope. PAT/OAuth tokens cannot call admin,
+The ordinary MCP catalog remains separate from administrative authority. The three Deck-E
+improvement readers are the sole capability-gated exception and only reach the pseudonymised,
+explicitly shared collection endpoints. Owner and Superadmin are distinct browser-session authorities, and
+neither expands a connector token's scope without explicit consent. PAT/OAuth tokens cannot call other admin,
 wallet/purchase, feature-preference or conversation-sharing APIs. Connector
 collection/deck access remains scoped to its account and current suspension.
 

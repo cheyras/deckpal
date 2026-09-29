@@ -150,6 +150,9 @@ function TokenRow({ token: t, revoking, onRevoke }: { token: ApiTokenRow; revoki
           {live && t.scope === 'read' && (
             <span className={`${BADGE} border border-action-ghost-border text-text-secondary`}>Read only</span>
           )}
+          {live && (t as ApiTokenRow & { deckeImprovementRead?: boolean }).deckeImprovementRead && (
+            <span className={`${BADGE} border border-action-ghost-border text-text-secondary`}>Deck-E research</span>
+          )}
           {!live && <span className={`${BADGE} bg-halo-error text-error`}>{state === 'revoked' ? 'Revoked' : 'Expired'}</span>}
         </div>
         <div className="mt-[2px] break-words text-[14px] text-text-muted">
@@ -182,14 +185,17 @@ export function AgentAccess() {
   const [nameError, setNameError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [canGrantImprovement, setCanGrantImprovement] = useState(false)
+  const [grantImprovement, setGrantImprovement] = useState(false)
   const [secret, setSecret] = useState<{ raw: string; name: string } | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [showHelp, setShowHelp] = useState(false)
 
   async function refresh() {
     try {
-      const res = await api.apiTokens()
+      const res = await api.apiTokens() as Awaited<ReturnType<typeof api.apiTokens>> & { canGrantDeckeImprovementRead?: boolean }
       setTokens(res.tokens)
+      setCanGrantImprovement(res.canGrantDeckeImprovementRead === true)
       setLoadError(null)
     } catch (err) {
       setLoadError((err as Error).message)
@@ -213,9 +219,16 @@ export function AgentAccess() {
     setFormError(null)
     setCreating(true)
     try {
-      const res = await api.createApiToken(trimmed)
+      // The API client overload is supplied by the shared web transport lane;
+      // the server independently rejects this capability for an ineligible user.
+      const createWithCapability = api.createApiToken as unknown as (
+        tokenName: string,
+        deckeImprovementRead: boolean,
+      ) => ReturnType<typeof api.createApiToken>
+      const res = await createWithCapability(trimmed, grantImprovement)
       setSecret({ raw: res.secret, name: res.token.name })
       setName('')
+      setGrantImprovement(false)
       setOpen(false)
       // Reveal the connection steps with the token: the two are useless apart.
       setShowHelp(true)
@@ -329,6 +342,21 @@ export function AgentAccess() {
               if (nameError) setNameError(null)
             }}
           />
+          {canGrantImprovement && (
+            <label className="mb-[14px] flex cursor-pointer items-start gap-[10px] text-[14px] text-text-body">
+              <input
+                type="checkbox"
+                checked={grantImprovement}
+                disabled={creating}
+                onChange={(event) => setGrantImprovement(event.target.checked)}
+                className="mt-[3px] h-[16px] w-[16px] shrink-0 accent-[var(--color-action-primary)]"
+              />
+              <span>
+                <span className="block font-semibold text-text-primary">Read the anonymised Deck-E chat collection</span>
+                <span className="block text-text-muted">Off by default. Only explicitly shared chats are included.</span>
+              </span>
+            </label>
+          )}
           <Button type="submit" loading={creating} className="ls-cta">
             {creating ? 'Creating…' : 'Create token'}
           </Button>

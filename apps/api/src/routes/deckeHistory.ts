@@ -242,6 +242,16 @@ async function caller(req: Parameters<Parameters<typeof asyncHandler>[0]>[0]): P
   return userId;
 }
 
+async function sharedConversationIds(userId: string): Promise<Set<string>> {
+  const row = await q1<{ data: { items?: Array<{ conversationId?: string }> } }>(
+    'SELECT public.decke_improvement_list_mine($1) AS data',
+    [userId],
+  );
+  return new Set((row?.data.items ?? []).flatMap((item) =>
+    typeof item.conversationId === 'string' ? [item.conversationId] : [],
+  ));
+}
+
 /**
  * POST /decke/history — record one exchange.
  *
@@ -368,6 +378,7 @@ deckeHistoryRouter.get(
   asyncHandler(async (req, res) => {
     const userId = await caller(req);
     const limit = clampInt(req.query.limit, 40, 1, 200);
+    const shared = await sharedConversationIds(userId);
     const rows = await q(
       `SELECT c.id, c.title, c.turns, c.started_at, c.updated_at,
               min(t.build_pr) AS build_pr_min,
@@ -396,6 +407,7 @@ deckeHistoryRouter.get(
         buildPrMin: r.build_pr_min === null ? null : Number(r.build_pr_min),
         buildPrMax: r.build_pr_max === null ? null : Number(r.build_pr_max),
         buildSha: r.build_sha ?? null,
+        shared: shared.has(String(r.id)),
       })),
     });
   }),
@@ -416,8 +428,15 @@ deckeHistoryRouter.get(
     // A 403 here would confirm the id exists, which is a fact about another
     // account's data.
     if (!head) throw notFound('No such conversation.');
+    const shared = (await sharedConversationIds(userId)).has(id);
     const turns = await q(
-      'SELECT seq,asked,answered,tools,build_pr,build_sha,finish_reason,created_at,exchange_id FROM decke_turn WHERE conversation_id=$1 AND user_id=$2 ORDER BY seq',
+      `SELECT t.seq,t.asked,t.answered,t.tools,t.build_pr,t.build_sha,t.finish_reason,t.created_at,t.exchange_id,
+              f.vote,f.comment AS feedback_comment
+         FROM decke_turn t
+         LEFT JOIN decke_turn_feedback f
+           ON f.user_id=t.user_id AND f.conversation_id=t.conversation_id AND f.seq=t.seq
+        WHERE t.conversation_id=$1 AND t.user_id=$2
+        ORDER BY t.seq`,
       [id,userId],
     );
     const usageRows = await pool.query<{ seq: number; exchange_id: string; usage: unknown }>(
@@ -428,6 +447,7 @@ deckeHistoryRouter.get(
       id: head.id,
       title: head.title,
       startedAt: head.started_at,
+      shared,
       turns: turns.map((t) => ({
         seq: Number(t.seq),
         exchangeId: t.exchange_id ?? null,
@@ -435,6 +455,8 @@ deckeHistoryRouter.get(
         asked: t.asked,
         answered: t.answered,
         tools: t.tools ?? [],
+        vote: t.vote === null || t.vote === undefined ? null : Number(t.vote),
+        comment: t.feedback_comment ?? null,
         buildPr: t.build_pr === null ? null : Number(t.build_pr),
         buildSha: t.build_sha ?? null,
         // NULL is "not reported", never "finished cleanly" — see migration 046.

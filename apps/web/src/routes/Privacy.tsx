@@ -471,11 +471,29 @@ export function Privacy() {
                 credit meter works.
               </li>
               <li>
-                Conversation sharing is off unless you turn it on in your profile. While it is on, DeckPal’s
-                administrators can read your new messages and Deck-E’s replies, to improve him. Turning it off takes
-                that access away again.
+                Cost per conversation is also recorded for every Deck-E chat as part of usage accounting, without
+                keeping the chat’s content for that purpose.
               </li>
             </Bullets>
+            <H3>Sharing one chat to improve Deck-E</H3>
+            <P>
+              Nothing from a Deck-E chat is kept for improvement unless you agree to share that particular chat.
+              Deck-E may ask when something clearly went wrong, or you can tick <strong>Share this chat</strong> with
+              your feedback. You can turn off the <strong>Let Deck-E ask to share chats</strong> setting at any time;
+              it controls whether he may ask, not whether a chat is shared.
+            </P>
+            <P>
+              When you share a chat, DeckPal keeps its messages and replies, tool activity with full results,
+              approvals, feedback, animations, timings, model and cost information. We remove your username,
+              display name and email, and do not keep your user ID or IP address in this improvement copy. Things you
+              type about yourself, or a very distinctive collection, could still identify you — this is
+              pseudonymised, not anonymous.
+            </P>
+            <P>
+              Shared chats can be read by DeckPal administrators and the tools they authorise to help improve Deck-E.
+              We keep them for 180 days. History marks a shared chat as Shared; choosing Stop sharing there deletes its
+              saved copy.
+            </P>
           </Section>
 
           <Section id="bug-reports">
@@ -516,7 +534,7 @@ export function Privacy() {
                 Deleted lists and decks: kept in Recently deleted until you choose Delete forever, so you can bring
                 them back.
               </li>
-              <li>Deck-E conversations: until you delete them.</li>
+              <li>Deck-E conversations: until you delete them. A copy you explicitly share to improve Deck-E: 180 days, unless you Stop sharing sooner.</li>
               <li>
                 Payment records and Deck-E usage records:{' '}
                 <ToDecide>how long these are kept (tax rules may set a minimum)</ToDecide>
@@ -534,7 +552,7 @@ export function Privacy() {
               <li>See and change what you have stored at any time in the app.</li>
               <li>Delete lists and decks for good from Recently deleted.</li>
               <li>Delete Deck-E conversations from his history.</li>
-              <li>Turn conversation sharing on or off in your profile.</li>
+              <li>Turn Let Deck-E ask to share chats on or off in your profile, or Stop sharing a shared chat from History.</li>
               <li>Remove your profile photo.</li>
               <li>Disconnect an assistant by revoking its access in your profile, under Agent access.</li>
               <li>Leave the screenshot out of a bug report.</li>

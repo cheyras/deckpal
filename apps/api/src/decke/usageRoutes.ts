@@ -30,10 +30,27 @@ export function usageFilters(query:Record<string,unknown>):Record<string,string|
  return f;
 }
 const id=(value:unknown)=>{if(typeof value!=='string'||!UUID_RE.test(value))throw new ApiError(400,'invalid_input','Invalid identifier');return value;};
+export function conversationCostFilters(query:Record<string,unknown>):Record<string,string> {
+ const filters:Record<string,string>={};
+ for(const key of ['from','to','userId','model']){
+  const value=query[key];if(value===undefined||value==='')continue;
+  if(typeof value!=='string'||value.length>160)throw new ApiError(400,'invalid_input','Invalid conversation cost filter');
+  if((key==='from'||key==='to')&&!Number.isFinite(Date.parse(value)))throw new ApiError(400,'invalid_input','Invalid date');
+  filters[key]=value;
+ }
+ return filters;
+}
 adminUsageRouter.get('/',asyncHandler(async(req,res)=>{
  res.json(await sessionCall('SELECT public.decke_usage_list($1::jsonb,$2,$3) AS data',[JSON.stringify(usageFilters(req.query)),clampInt(req.query.limit,25,1,100),clampInt(req.query.offset,0,0,1000000)]));
 }));
 adminUsageRouter.get('/requests/:id',asyncHandler(async(req,res)=>{res.json(await sessionCall('SELECT public.decke_usage_detail($1) AS data',[id(req.params.id)]));}));
+adminUsageRouter.get('/conversations',asyncHandler(async(req,res)=>{
+ const cursor=typeof req.query.cursor==='string'&&req.query.cursor!==''?req.query.cursor:null;
+ if(cursor!==null&&cursor.length>300)throw new ApiError(400,'invalid_input','Invalid cursor');
+ res.json(await sessionCall('SELECT public.decke_usage_conversation_costs($1::jsonb,$2,$3) AS data',[
+  JSON.stringify(conversationCostFilters(req.query)),cursor,clampInt(req.query.limit,50,1,100),
+ ]));
+}));
 adminUsageRouter.get('/conversations/:id',asyncHandler(async(req,res)=>{res.json(await sessionCall('SELECT public.decke_usage_conversation($1,$2,$3) AS data',[id(req.params.id),clampInt(req.query.limit,25,1,100),clampInt(req.query.offset,0,0,1000000)]));}));
 
 adminUsageRouter.get('/observations',asyncHandler(async(req,res)=>{

@@ -81,6 +81,11 @@ function strictOneOf<T extends string>(field: string, v: unknown, allowed: reado
   throw badRequest(`${field} must be one of: ${allowed.join('|')}`);
 }
 
+export function strictBoolean(field: string, value: unknown): boolean {
+  if (typeof value !== 'boolean') throw badRequest(`${field} must be a boolean`);
+  return value;
+}
+
 const GOAL_VALUES = ['complete', 'master', 'grandmaster'] as const;
 const POCKET_SIZES = [4, 9, 12, 16] as const;
 const AV_VALUES = ['hide', 'inline', 'end'] as const;
@@ -89,7 +94,7 @@ const TOPBAR_VALUES = ['cover', 'flat'] as const;
 const SERIES_SORT_KEYS = ['recency', 'az', 'pct'] as const;
 const SORT_DIRS = ['asc', 'desc'] as const;
 
-interface SettingsRow {
+export interface SettingsRow {
   default_goal: string;
   display_currency: string;
   pricing_enabled: boolean;
@@ -98,6 +103,7 @@ interface SettingsRow {
   binder_stack_variants: boolean;
   binder_additional_variants: string;
   decke_hidden: boolean;
+  decke_share_prompts: boolean;
   skin: string | null;
   topbar: string | null;
   series_sort_key: string;
@@ -107,9 +113,9 @@ interface SettingsRow {
 
 const SETTINGS_COLS = `default_goal, display_currency, pricing_enabled, show_collection_value,
        binder_pocket_size, binder_stack_variants, binder_additional_variants,
-       decke_hidden, skin, topbar, series_sort_key, series_sort_dir, series_group_owned`;
+       decke_hidden, decke_share_prompts, skin, topbar, series_sort_key, series_sort_dir, series_group_owned`;
 
-function shapeSettings(r: SettingsRow) {
+export function shapeSettings(r: SettingsRow) {
   return {
     defaultGoal: r.default_goal,
     displayCurrency: r.display_currency.trim(),
@@ -119,6 +125,7 @@ function shapeSettings(r: SettingsRow) {
     binderStackVariants: r.binder_stack_variants,
     binderAdditionalVariants: r.binder_additional_variants,
     deckeHidden: r.decke_hidden,
+    deckeSharePrompts: r.decke_share_prompts,
     skin: r.skin,
     topbar: r.topbar,
     seriesSortKey: r.series_sort_key,
@@ -180,6 +187,9 @@ meRouter.patch(
       push('display_currency', cur);
     }
     if (body.deckeHidden !== undefined) push('decke_hidden', Boolean(body.deckeHidden));
+    if (body.deckeSharePrompts !== undefined) {
+      push('decke_share_prompts', strictBoolean('deckeSharePrompts', body.deckeSharePrompts));
+    }
     // skin/topbar accept null: "no explicit choice — follow the app default".
     if (body.skin !== undefined) push('skin', body.skin === null ? null : strictOneOf('skin', body.skin, SKIN_VALUES));
     if (body.topbar !== undefined) push('topbar', body.topbar === null ? null : strictOneOf('topbar', body.topbar, TOPBAR_VALUES));

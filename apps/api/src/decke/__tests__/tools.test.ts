@@ -14,6 +14,7 @@ import { test } from 'node:test'
 import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute } from '../tools.js'
 import { ROUTE_SHAPE_LINES } from '../prompt.js'
 import { createGrounding } from '../grounding.js'
+import type { Queryable } from '@deckpal/db'
 
 /** `buildTools` only ever calls `write`; nothing here needs a real stream. */
 const noopWriter = { write: () => {} }
@@ -51,6 +52,35 @@ test('SERVER_TOOLS is exactly the set of tools that DO have an execute', () => {
     'a tool with an `execute` runs on the server whether or not it is listed. ' +
       'Without an execute it would be forwarded to a browser that cannot run it.',
   )
+})
+
+test('ask_to_share_chat draws one transient choice only when SQL allows it', async () => {
+  const writes: Array<{ type: string; data: unknown; transient?: boolean }> = []
+  const db = { query: async () => ({ rows: [{ data: { allowed: true } }] }) } as unknown as Queryable
+  const tools = buildTools(
+    { write: (part) => writes.push(part) }, undefined, undefined, undefined,
+    { db, userId: 'user', conversationId: 'conversation' },
+  ) as unknown as Record<string, { execute: (input: unknown) => Promise<string> }>
+  const output = await tools.ask_to_share_chat!.execute({ reason: 'failure' })
+  assert.match(output, /Share \/ No thanks buttons/)
+  assert.deepEqual(writes, [{
+    type: 'data-decke-consent', data: { conversationId: 'conversation', reason: 'failure' }, transient: true,
+  }])
+})
+
+test('ask_to_share_chat draws nothing on refusal or can_ask error, including unsaved first turns', async () => {
+  for (const query of [
+    async () => ({ rows: [{ data: { allowed: false, reason: 'prompts_disabled' } }] }),
+    async () => { throw Object.assign(new Error('Conversation is unavailable'), { code: 'P0002' }) },
+  ]) {
+    const writes: unknown[] = []
+    const tools = buildTools(
+      { write: (part) => writes.push(part) }, undefined, undefined, undefined,
+      { db: { query } as unknown as Queryable, userId: 'user', conversationId: 'conversation' },
+    ) as unknown as Record<string, { execute: (input: unknown) => Promise<string> }>
+    assert.equal(await tools.ask_to_share_chat!.execute({ reason: 'frustrated' }), "Don't ask about sharing in this chat.")
+    assert.deepEqual(writes, [])
+  }
 })
 
 test('showDeck checks and writes a deck screen with the contracted summary', async () => {

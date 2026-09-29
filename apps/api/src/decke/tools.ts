@@ -33,6 +33,8 @@ import type { Grounding } from './grounding.js'
 import type { ToolEvent } from './adapters/aisdk.js'
 import { briefArgs } from './toolArgs.js'
 import { NO_WORK } from './deepOutcome.js'
+import type { Queryable } from '@deckpal/db'
+import { canAskToShare } from './improvement.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -575,6 +577,9 @@ export function buildTools(
   onEvent?: (e: ToolEvent) => void,
   opts?: {
     checkDeck?: (input: { format?: string; cards: { card_id: string; quantity: number }[] }) => Promise<DeckCheckResult>
+    db?: Queryable
+    userId?: string
+    conversationId?: string
   },
 ): ToolSet {
   /** `start` now, and the matching `ok` when the work is done. */
@@ -1015,6 +1020,25 @@ export function buildTools(
         return dropped.length ? `${line} (${dropped.join('; ')})` : line
       },
     }),
+
+    ask_to_share_chat: tool({
+      description:
+        'Offer the reader the one-conversation improvement consent choice. Use only after frustration, direct feedback that you should work differently, or a clear failure, and only alongside your own situational words.',
+      inputSchema: z.object({
+        reason: z.enum(['frustrated', 'should_work_differently', 'failure', 'feedback']),
+      }),
+      execute: async ({ reason }) => {
+        const unavailable = "Don't ask about sharing in this chat."
+        if (!opts?.db || !opts.userId || !opts.conversationId) return unavailable
+        if (!await canAskToShare(opts.db, { userId: opts.userId, conversationId: opts.conversationId })) return unavailable
+        writer.write({
+          type: 'data-decke-consent',
+          data: { conversationId: opts.conversationId, reason },
+          transient: true,
+        })
+        return "The Share / No thanks buttons are under your message. Don't mention sharing again in this chat; carry on."
+      },
+    }),
   }
 }
 
@@ -1037,7 +1061,7 @@ export const CLIENT_TOOLS = [
  * half is not a union. `tools.test.ts` pins both halves against the structural
  * property that actually decides it — whether the tool has an `execute`.
  */
-export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck'] as const
+export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_chat'] as const
 
 /**
  * EVERY tool `buildTools` exposes: the character's own vocabulary.

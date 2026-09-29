@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { adminError } from '../admin/access.js';
+import { adminError, getAccessForUser, hasPermission } from '../admin/access.js';
 import { pool, rlsStore, withTx, commitRequestTx } from '../db.js';
 import { asyncHandler, badRequest, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
@@ -44,11 +44,16 @@ tokensRouter.get(
     res.setHeader('Cache-Control','no-store');
     const userId = currentUserId(req);
     const tokens = await listTokens(db(), userId);
+    const access = await getAccessForUser(userId);
     res.json({
       tokens: tokens.map((t) => ({
         ...t,
         redirect: t.oauthRedirectUri ? classifyRedirect(t.oauthRedirectUri) : null,
       })),
+      canGrantDeckeImprovementRead:
+        hasPermission(access, 'admin.access') &&
+        hasPermission(access, 'decke.improvement.read') &&
+        (access.role?.tier ?? 0) >= 40,
     });
   }),
 );
@@ -57,10 +62,14 @@ tokensRouter.get(
 tokensRouter.post(
   '/',
   asyncHandler(async (req, res) => {
-    const body = (req.body ?? {}) as { name?: unknown };
+    const body = (req.body ?? {}) as { name?: unknown; deckeImprovementRead?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) throw badRequest('name is required');
     if (name.length > MAX_NAME_LEN) throw badRequest(`name must be ${MAX_NAME_LEN} characters or fewer`);
+    if (body.deckeImprovementRead !== undefined && typeof body.deckeImprovementRead !== 'boolean') {
+      throw badRequest('deckeImprovementRead must be a boolean');
+    }
+    const deckeImprovementRead = body.deckeImprovementRead === true;
 
     const userId = currentUserId(req);
     const created = await withTx(async client => {
@@ -70,7 +79,14 @@ tokensRouter.post(
       if ((await countActiveTokens(client, userId)) >= MAX_ACTIVE_TOKENS) {
         throw badRequest(`You already have ${MAX_ACTIVE_TOKENS} active tokens. Revoke one first.`);
       }
-      return createToken(client, userId, name);
+      const token = await createToken(client, userId, name);
+      if (deckeImprovementRead) {
+        // The security-definer RPC re-checks current tier and both permissions;
+        // this route being session-only is not treated as sufficient authority.
+        await client.query('SELECT public.decke_improvement_token_capability($1,true)', [token.token.id]);
+        token.token.deckeImprovementRead = true;
+      }
+      return token;
     }).catch(error=>{throw adminError(error);});
     // Never hand out the only copy of a secret before its row is durable.
     await commitRequestTx(userId);

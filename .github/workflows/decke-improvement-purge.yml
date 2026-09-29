@@ -1,0 +1,62 @@
+# Daily retention cleanup for the pseudonymised, per-chat Deck-E improvement
+# corpus. Migration 078 owns the retention rule; this workflow only invokes its
+# bounded database function, so it cannot invent a second deletion policy.
+name: Deck-E improvement retention
+
+on:
+  schedule:
+    # Off the hour because GitHub schedules are best-effort and queue hardest then.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+# Queue instead of cancelling: each call deletes a bounded batch and a cancelled
+# run would leave ambiguous logs while a second runner is starting.
+concurrency:
+  group: decke-improvement-retention
+  cancel-in-progress: false
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PGHOST: ${{ secrets.SUPABASE_DB_HOST }}
+      PGPORT: ${{ secrets.SUPABASE_DB_PORT || '5432' }}
+      PGDATABASE: ${{ secrets.SUPABASE_DB_NAME }}
+      PGUSER: ${{ secrets.SUPABASE_DB_USER }}
+      PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PGSSLMODE: require
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Match the existing database workflows: report absent configuration by
+      # secret name before libpq turns it into a misleading connection error.
+      - name: Preflight — credentials present
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${PGHOST:-}" ]     || missing+=(SUPABASE_DB_HOST)
+          [ -n "${PGDATABASE:-}" ] || missing+=(SUPABASE_DB_NAME)
+          [ -n "${PGUSER:-}" ]     || missing+=(SUPABASE_DB_USER)
+          [ -n "${PGPASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Deck-E improvement retention is not configured::Missing repository secret(s): ${missing[*]}. See DEPLOYMENT.md migration 078 rollout."
+            exit 1
+          fi
+          echo "credentials present for ${PGUSER}@${PGHOST}:${PGPORT}/${PGDATABASE}"
+
+      - name: Purge expired shared chats
+        run: |
+          set -euo pipefail
+          deleted="$(psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+            --command='SELECT decke_improvement_purge_expired();')"
+          case "$deleted" in
+            ''|*[!0-9]*)
+              echo "::error title=Unexpected retention result::decke_improvement_purge_expired() returned: $deleted"
+              exit 1
+              ;;
+          esac
+          echo "Deck-E improvement retention deleted $deleted expired conversation(s)."
+          echo "deleted=$deleted" >> "$GITHUB_STEP_SUMMARY"

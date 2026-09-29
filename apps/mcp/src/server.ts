@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
 import { summaryText, type Ctx } from '@deckpal/agent-tools';
-import { registerAllTools } from './adapters/mcp.js';
+import { registerAllTools, type ToolVisibility } from './adapters/mcp.js';
 
 // package.json sits beside dist/ in the repo, but a serverless bundler only
 // ships files it can see being read. If it did not make the bundle, advertise a
@@ -42,7 +42,7 @@ const iconDataUri: string | null = (() => {
  * `ctx` and never from module state, which is what makes the same tool set
  * safe to serve to one user or to thousands.
  */
-export function buildServer(ctx: Ctx, options: { readOnly?: boolean } = {}): McpServer {
+export function buildServer(ctx: Ctx, options: ToolVisibility = {}): McpServer {
   const server = new McpServer({
     name: 'deckpal-mcp',
     version,
