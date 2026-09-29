@@ -159,7 +159,17 @@ export async function evaluate<K extends string>(
   const timer = setTimeout(() => ac.abort(), timeoutMs)
   const started = Date.now()
   const tool = opts.label.startsWith('audit') ? 'jev_audit' : 'jev_reflex'
-  const finishUsage = await beginExternalUsage(tool, EVALUATION.id, 'typesafe-ai', opts.label)
+  let finishUsage: Awaited<ReturnType<typeof beginExternalUsage>>
+  try {
+    finishUsage = await beginExternalUsage(tool, EVALUATION.id, 'typesafe-ai', opts.label)
+  } catch {
+    // On metered credits a call that cannot be recorded (or would pass the
+    // reply's cost cap) must not be made, and Jev is advisory: skip him rather
+    // than fail the reader's reply over a classifier.
+    clearTimeout(timer)
+    opts.signal?.removeEventListener('abort', onAbort)
+    return null
+  }
   let outcome = 'error'
   let result: Judgment<K> | null = null
   let usage: { inputTokens?: unknown; outputTokens?: unknown } | undefined

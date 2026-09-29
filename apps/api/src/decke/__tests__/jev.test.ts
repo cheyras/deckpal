@@ -173,7 +173,7 @@ test('reflex and audit evaluations become operations on the current request', as
     return { rows: [] }
   } } as unknown as Queryable
   const request: AiRequest = {
-    id: '00000000-0000-4000-8000-000000000099', db, pending: new Set(), failed: false,
+    id: '00000000-0000-4000-8000-000000000099', db, pending: new Set(), failed: false, metered: false, meteredStarted: false, capReached: false,
     spendId: '00000000-0000-4000-8000-000000000098',
   }
   await runAiUsage(request, async () => {
@@ -187,4 +187,23 @@ test('reflex and audit evaluations become operations on the current request', as
     ['completed', 420, 20, '0.00001764', 'provider_reported'],
     ['completed', 420, 20, '0.00001764', 'provider_reported'],
   ])
+})
+
+test('on metered credits, an unrecordable or capped Jev call is skipped, never made and never fatal', async () => {
+  for (const code of ['DKCAP', '08006']) {
+    let calls = 0
+    const db = { query: async (sql: string) => {
+      if (sql.includes('external_operation_begin')) throw Object.assign(new Error('refused'), { code })
+      return { rows: [] }
+    } } as unknown as Queryable
+    const request: AiRequest = {
+      id: '00000000-0000-4000-8000-000000000099', db, pending: new Set(), failed: false, metered: true, meteredStarted: true, capReached: false,
+    }
+    const judged = await runAiUsage(request, () => evaluate({}, QUESTIONS, {
+      key: 'k', label: 'reflex', force: true,
+      fetchImpl: (async (...args: Parameters<typeof fetch>) => { calls += 1; return reply(GOOD)(...args) }) as typeof fetch,
+    }))
+    assert.equal(judged, null, `${code}: Jev answers nothing rather than throwing`)
+    assert.equal(calls, 0, `${code}: no provider call is made without a usage record`)
+  }
 })

@@ -3,12 +3,13 @@ import { test } from 'node:test';
 import { APICallError, streamText, type LanguageModel } from 'ai';
 import type { Queryable } from '@deckpal/db';
 import { creditWork } from '../../credits/work.js';
-import { beginAiRequest, finishAiRequest, observeUsageModel, runAiUsage, runUsageOperation, type AiRequest } from '../usage.js';
+import { DEFAULT_POLICY } from '../../credits/policy.js';
+import { beginAiRequest, finishAiRequest, meteredCapReached, observeUsageModel, runAiUsage, runUsageOperation, type AiRequest } from '../usage.js';
 const usage={inputTokens:{total:12,noCache:5,cacheRead:7,cacheWrite:0},outputTokens:{total:6,text:4,reasoning:2}};
 function fixture() {
  const records:{sql:string;args:unknown[]}[]=[];
  const db={query:async(sql:string,args:unknown[]=[])=>{records.push({sql,args});return {rows:[{data:{id:'00000000-0000-4000-8000-000000000099'}}]};}} as unknown as Queryable;
- const request:AiRequest={id:'00000000-0000-4000-8000-000000000099',db,pending:new Set(),failed:false};
+ const request:AiRequest={id:'00000000-0000-4000-8000-000000000099',db,pending:new Set(),failed:false,metered:false,meteredStarted:false,capReached:false};
  return {records,db,request};
 }
 function model(options:{fail?:boolean;unpriced?:boolean;neverEnd?:boolean}={}):LanguageModel {
@@ -86,7 +87,7 @@ test('old client request correlation is metadata-only and build authority stays 
  const old=process.env.VERCEL_GIT_COMMIT_SHA;process.env.VERCEL_GIT_COMMIT_SHA='a'.repeat(40);
  try{
   await beginAiRequest(f.db,{userId:'user',conversationId:'legacy-conversation',requestKey:'request-key',payloadHash:'b'.repeat(64),
-   quote:{revision:2,policy:{enabled:false}},messages:[{role:'user',content:'current'}]});
+   quote:{revision:2,policy:{...DEFAULT_POLICY,enabled:false}},messages:[{role:'user',content:'current'}]});
   const args=f.records[0]!.args;
   assert.equal(args[1],null);assert.equal(args[2],null);assert.equal(args[3],null);assert.equal(args[6],'a'.repeat(40));assert.equal(args[10],'daily');
   assert.equal(args[11],null);
@@ -96,7 +97,7 @@ test('database initialization failure prevents model invocation and replay maps 
  let calls=0;
  const db={query:async()=>{throw Object.assign(new Error('request accepted'),{code:'40001'});}} as unknown as Queryable;
  await assert.rejects(async()=>{
-  await beginAiRequest(db,{userId:'u',conversationId:null,requestKey:'request-key',payloadHash:'b'.repeat(64),quote:{revision:1,policy:{enabled:true}},messages:[]});calls++;
+  await beginAiRequest(db,{userId:'u',conversationId:null,requestKey:'request-key',payloadHash:'b'.repeat(64),quote:{revision:1,policy:{...DEFAULT_POLICY,enabled:true}},messages:[]});calls++;
  },(e:unknown)=>(e as {status:number}).status===409);
  assert.equal(calls,0);
 });
@@ -215,4 +216,31 @@ test('a lost operation acknowledgement is compensated from the uninvoked creditW
   await assert.rejects(async()=>await wrapped.doStream({prompt:[]} as never),{code:'08006'});
  });
  await work.refund();assert.equal(calls,0);assert.equal(refunded,true);
+});
+
+test('metered finalization waits for pending usage and records the exact SQL settlement',async()=>{
+ const records:{sql:string;args:unknown[]}[]=[];let release!:()=>void;
+ const pending=new Promise<void>(resolve=>{release=resolve;});
+ const db={query:async(sql:string,args:unknown[]=[])=>{
+  records.push({sql,args});
+  return {rows:[{data:{credits:'1.234567890123',wholeCredits:1,knownCostUsd:'0.012345678901',coverage:'complete',balance:'23.765432109877'}}]};
+ }} as unknown as Queryable;
+ const request:AiRequest={id:'00000000-0000-4000-8000-000000000099',db,pending:new Set([pending]),failed:false,metered:true,meteredStarted:true,capReached:false};
+ let settled=false;
+ const finishing=finishAiRequest(request,'completed').then(result=>{settled=true;return result;});
+ await Promise.resolve();assert.equal(settled,false);assert.equal(records.length,0);
+ release();
+ assert.equal((await finishing)?.credits,'1.234567890123');
+ assert.match(records[0]!.sql,/decke_metered_settle/);
+ assert.deepEqual(records[0]!.args,[request.id,'completed']);
+ assert.equal(records.some(record=>record.sql.includes('credit_spend')),false);
+});
+
+test('metered cap status is durable and then cached on the request',async()=>{
+ let calls=0;
+ const db={query:async()=>{calls++;return {rows:[{data:{knownCredits:'25.1',capCredits:'25',capReached:true}}]};}} as unknown as Queryable;
+ const request:AiRequest={id:'00000000-0000-4000-8000-000000000099',db,pending:new Set(),failed:false,metered:true,meteredStarted:true,capReached:false};
+ assert.equal(await meteredCapReached(request),true);
+ assert.equal(await meteredCapReached(request),true);
+ assert.equal(calls,1);
 });

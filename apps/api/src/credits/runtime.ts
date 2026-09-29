@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Queryable } from '@deckpal/db';
 import { ApiError } from '../http.js';
 import { getAccessForUser } from '../admin/access.js';
-import { normalizePolicy, operationFor, type PolicyRevision } from './policy.js';
+import { normalizePolicy, operationFor, type LegacyPolicy, type PolicyRevision } from './policy.js';
 
 export async function readPolicy(db: Queryable, userId?: string): Promise<PolicyRevision> {
   const { rows } = await db.query(userId ? 'SELECT public.credit_effective_policy($1) AS data' : 'SELECT public.credit_policy_read() AS data', userId ? [userId] : []);
@@ -33,9 +33,19 @@ export async function assertDeckeAccess(userId: string): Promise<void> {
   if (access.suspended || !access.permissions.includes('decke.use')) throw new ApiError(403, 'forbidden', 'Deck-E is not available on this account.');
 }
 export interface SpendResult {
-  allowed: boolean; balance: number; spent?: number; needed?: number; debt?: number; held?: boolean; spendId?: string; unlimited?: boolean;
+  allowed: boolean; balance: number | string; spent?: number; needed?: number; debt?: number | string; held?: boolean; spendId?: string; unlimited?: boolean;
 }
-export async function reserveCredits(db: Queryable, userId: string, tool: string, quote: PolicyRevision, key: string, hash: string): Promise<SpendResult> {
+export interface MeteredBeginResult {
+  allowed: boolean;
+  mode?: 'paid' | 'unlimited' | 'daily';
+  reason?: 'payment_hold' | 'debt' | 'insufficient';
+  balance?: string;
+  heldCredits?: number;
+  capCredits?: string | null;
+  needed?: number;
+  debt?: number | string;
+}
+export async function reserveCredits(db: Queryable, userId: string, tool: string, quote: Omit<PolicyRevision, 'policy'> & { policy: LegacyPolicy }, key: string, hash: string): Promise<SpendResult> {
   await assertDeckeAccess(userId);
   try {
     const { rows } = await db.query('SELECT public.credit_spend_create_effective($1,$2,$3,$4,$5,$6) AS data',
@@ -46,6 +56,13 @@ export async function reserveCredits(db: Queryable, userId: string, tool: string
     if ((error as { code?: string }).code === '40001') throw new ApiError(409, 'operation_replayed', 'This operation was already accepted. Send a new message to continue.');
     throw error;
   }
+}
+export async function beginMeteredCredits(db: Queryable, userId: string, requestId: string): Promise<MeteredBeginResult> {
+  await assertDeckeAccess(userId);
+  const { rows } = await db.query('SELECT public.decke_metered_begin($1) AS data', [requestId]);
+  const result = rows[0]?.data as MeteredBeginResult | undefined;
+  if (!result) throw new Error('Missing metered accounting result');
+  return result;
 }
 export async function startCreditWork(db: Queryable, userId: string, spendId?: string): Promise<void> {
   await assertDeckeAccess(userId);

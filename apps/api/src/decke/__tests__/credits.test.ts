@@ -25,8 +25,14 @@ import {
   creditVerdictFrom,
   creditsEnabled,
   deepCost,
+  meteredCapText,
   outOfCreditsText,
 } from '../credits.js';
+
+test('metered cap close is one short Deck-E line that offers a new leg', () => {
+  assert.equal(meteredCapText(), "That's as far as I can take this in one go—send me another message and I'll keep going.");
+  assert.equal(meteredCapText().split('\n').length, 1);
+});
 
 test('IT IS OFF BY DEFAULT, which is what keeps 041 from locking everyone out', () => {
   // Migration 041 creates every balance at ZERO. Switching credits on before

@@ -126,6 +126,42 @@ test('chat sends correlation into the server acceptance boundary before metering
   assert.match(CODE, /userId: user.id, conversationId, exchangeId, seq/);
 });
 
+test('the frozen policy version is the only flat-versus-metered chat gate', () => {
+  assert.match(SRC, /import \{ isMetered \} from '\.\.\/apps\/api\/dist\/credits\/policy\.js'/);
+  assert.match(CODE, /if \(isMetered\(quote\.policy\)\)/);
+  assert.match(CODE, /beginMeteredCredits\(chatPool\(\), userId, usage\.id\)/);
+  assert.match(CODE, /const result = await reserveCredits\(chatPool\(\), userId, tool, quote, spendKey, hash\)/);
+  assert.ok(CODE.indexOf('if (isMetered(quote.policy))') < CODE.indexOf('const result = await reserveCredits('));
+  assert.doesNotMatch(CODE, /DECKE_METERED|METERED_CREDITS_ENABLED/);
+});
+
+test('metered research uses the leg hold and never starts another reservation', () => {
+  const research = CODE.slice(CODE.indexOf('if (toolCallId)'), CODE.indexOf('const result = await beginMeteredCredits'));
+  assert.match(research, /if \(toolCallId\)/);
+  assert.match(research, /allowed: true/);
+  assert.doesNotMatch(research, /reserveCredits|beginMeteredCredits/);
+});
+
+test('the model loop checks the durable cap and closes in Deck-E voice once', () => {
+  assert.match(CODE, /async \(\) => \{\s*capReached = await meteredCapReached\(usage\)\s*return capReached/);
+  assert.match(CODE, /id: 'metered-cap', delta: meteredCapText\(\)/);
+  assert.match(SRC, /import \{ meteredCapText, outOfCreditsText \}/);
+  assert.match(CODE, /capLineWritten = true/);
+  // A reply that finished on its own is complete: no "as far as I can take it".
+  assert.match(CODE, /capReached && !capLineWritten && steps\.at\(-1\)\?\.finishReason !== 'stop'/);
+});
+
+test('metered settlement remains after provider work and before improvement capture', () => {
+  const finish = CODE.indexOf("finishAiRequest(usage, 'completed', meter.spent)");
+  assert.ok(finish > CODE.indexOf('await meter.refund()'));
+  assert.ok(finish < CODE.indexOf('recordImprovementWithDeadline(chatPool(),'));
+});
+
+test('metered admission exposes the minimum and the header preserves a decimal balance string', () => {
+  assert.match(CODE, /needed: result\.needed \?\? \(result\.allowed \? undefined : quote\.policy\.legHoldMinCredits\)/);
+  assert.match(CODE, /typeof meter\.balance === 'string'[\s\S]*String\(meter\.balance\) : '-1'/);
+});
+
 // ── THE METER-REFUSAL LEDGER ────────────────────────────────────────────────
 //
 // `meteredRefusals.ts` can be perfect and change nothing: the retry loop it

@@ -43,6 +43,8 @@
  * says nothing at all rather than assuming a healthy one.
  */
 
+import { formatCreditDecimal } from '../../../lib/creditMath'
+
 /** What the panel knows about the balance. `null` means "not loaded". */
 export type CreditBalance = {
   /** Credits left. Never negative on the wire; clamped here anyway. */
@@ -75,13 +77,13 @@ export const LOW_FLOOR = 5
 
 export function creditState(balance: CreditBalance | null): CreditState {
   if (!balance) return 'unknown'
-  const remaining = Math.max(0, Math.floor(balance.remaining))
+  const remaining = Math.max(0, balance.remaining)
   if (remaining === 0) return 'empty'
   // The server's threshold wins when it has sent one — see `lowAt`.
   if (typeof balance.lowAt === 'number' && Number.isFinite(balance.lowAt)) {
-    return remaining <= Math.max(0, Math.floor(balance.lowAt)) ? 'low' : 'ok'
+    return remaining <= Math.max(0, balance.lowAt) ? 'low' : 'ok'
   }
-  const allowance = Math.max(1, Math.floor(balance.allowance))
+  const allowance = Math.max(1, balance.allowance)
   if (remaining <= LOW_FLOOR) return 'low'
   return remaining / allowance <= LOW_FRACTION ? 'low' : 'ok'
 }
@@ -96,9 +98,10 @@ export function creditState(balance: CreditBalance | null): CreditState {
 export function creditHeaderLabel(balance: CreditBalance | null): string {
   const state = creditState(balance)
   if (state === 'ok' || state === 'unknown' || !balance) return ''
-  const remaining = Math.max(0, Math.floor(balance.remaining))
+  const remaining = Math.max(0, balance.remaining)
   if (remaining === 0) return 'Out of credits'
-  return remaining === 1 ? '1 credit left' : `${remaining} credits left`
+  const display = formatCreditDecimal(remaining)
+  return remaining === 1 ? '1 credit left' : `${display} credits left`
 }
 
 /**

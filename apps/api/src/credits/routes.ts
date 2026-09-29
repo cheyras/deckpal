@@ -5,8 +5,9 @@ import { currentUserId } from '../identity.js';
 import { commitRequestTx, rlsStore, withTx } from '../db.js';
 import { ApiError, asyncHandler, clampInt, UUID_RE } from '../http.js';
 import { creditStripeClient, stripeMode } from '../billing/stripe.js';
-import { CHARGE_NOTICE, ESTIMATE_NOTICE, attemptKey, integer, normalizePack, normalizePolicy, object, reasonText } from './policy.js';
+import { CHARGE_NOTICE, METERED_CHARGE_NOTICE, attemptKey, chargeNoticeFor, estimateNoticeFor, integer, normalizePack, normalizePolicy, normalizePolicyUpdate, object, reasonText } from './policy.js';
 import { checkoutParameters, ensureCreditCustomer, paymentStatus, trustedCreditOrigin, type FrozenOrder } from './payments.js';
+import { shapeWalletAccounting, type CreditQuote } from './view.js';
 
 const creditActor = new AsyncLocalStorage<string>();
 export const adminCreditRouter: Router = Router();
@@ -39,19 +40,24 @@ async function call<T = Record<string, unknown>>(sql: string, args: unknown[] = 
   }
 }
 async function wallet(userId: string | null) {
-  return call<{ balance: number; debt: number; purchaseHold: boolean }>('SELECT public.credit_wallet_read($1) AS data', [userId]);
+  return call<{ balance: number | string; debt: number; purchaseHold: boolean; heldCredits?: number }>('SELECT public.credit_wallet_read($1) AS data', [userId]);
 }
 adminCreditRouter.get('/settings', requireAdminPermission('credits.read'), asyncHandler(async (_req, res) => {
-  const data=await call<{policy:{estimatedMicroUsd:{chatTurn:number}}}>('SELECT public.credit_policy_admin_read() AS data');
-  res.json({ ...data, estimateNotice: data.policy.estimatedMicroUsd.chatTurn===143 ? ESTIMATE_NOTICE : null, chargeNotice: CHARGE_NOTICE });
+  const data=await call<{policy:unknown}>('SELECT public.credit_policy_admin_read() AS data');
+  const policy=normalizePolicy(data.policy);
+  res.json({ ...data, policy, estimateNotice: estimateNoticeFor(policy), chargeNotice: chargeNoticeFor(policy) });
 }));
 adminCreditRouter.put('/settings', requireAdminPermission('credits.manage'), asyncHandler(async (req, res) => {
   const body = object(req.body, ['policy', 'expectedRevision'], 'settings');
+  // The optimistic SQL revision closes the read/save race; this read prevents
+  // an API caller from being the actor that switches the rollout gate.
+  const current=await call<{policy:unknown}>('SELECT public.credit_policy_admin_read() AS data');
+  const policy=normalizePolicyUpdate(body.policy,normalizePolicy(current.policy));
   const data = await call('SELECT public.credit_policy_save($1::jsonb,$2) AS data', [
-    JSON.stringify(normalizePolicy(body.policy)), integer(body.expectedRevision, 1, Number.MAX_SAFE_INTEGER, 'expectedRevision'),
+    JSON.stringify(policy), integer(body.expectedRevision, 1, Number.MAX_SAFE_INTEGER, 'expectedRevision'),
   ]);
   await commitRequestTx(currentUserId(req));
-  res.json({ ...data, estimateNotice: normalizePolicy(body.policy).estimatedMicroUsd.chatTurn===143 ? ESTIMATE_NOTICE : null, chargeNotice: CHARGE_NOTICE });
+  res.json({ ...data, estimateNotice: estimateNoticeFor(policy), chargeNotice: chargeNoticeFor(policy) });
 }));
 adminCreditRouter.get('/packs', requireAdminPermission('credits.read'), asyncHandler(async (_req, res) => {
   res.json(await call('SELECT public.credit_packs_read(true) AS data'));
@@ -94,7 +100,7 @@ adminCreditRouter.post('/users/:id/resolve-hold', requireAdminPermission('credit
   await commitRequestTx(currentUserId(req)); res.json(result);
 }));
 meCreditRouter.get('/', asyncHandler(async (req, res) => {
-  const quote = await call<{enabled:boolean;lowAt:number;prices:Record<string,number>;pricingRevision:number;unlimited:boolean;overrideRevision:number}>('SELECT public.credit_quote_read() AS data');
+  const quote = await call<CreditQuote>('SELECT public.credit_quote_read() AS data');
   const state = await wallet(currentUserId(req));
   const canUse = (await getAccessForUser(currentUserId(req))).permissions.includes('decke.use');
   const packs = await call<{ packs: unknown[] }>('SELECT public.credit_packs_read(false) AS data');
@@ -105,9 +111,10 @@ meCreditRouter.get('/', asyncHandler(async (req, res) => {
     : !packs.packs.length ? 'No credit packs are available yet.'
     : setup?.reason ?? null;
   await commitRequestTx(currentUserId(req));
-  res.json({ ...state, enabled: quote.enabled, lowAt: quote.lowAt,
-    prices: quote.prices, unlimited: quote.unlimited, overrideRevision: quote.overrideRevision, ...packs, purchasesEnabled: !!setup?.ready, purchaseUnavailableReason: reason,
-    pricingRevision: quote.pricingRevision, chargeNotice: CHARGE_NOTICE });
+  const accounting=shapeWalletAccounting(quote,state);
+  res.json({ ...accounting, enabled: quote.enabled, lowAt: quote.lowAt,
+    unlimited: quote.unlimited, overrideRevision: quote.overrideRevision, ...packs, purchasesEnabled: !!setup?.ready, purchaseUnavailableReason: reason,
+    pricingRevision: quote.pricingRevision, chargeNotice: quote.mode==='metered'?METERED_CHARGE_NOTICE:CHARGE_NOTICE });
 }));
 meCreditRouter.get('/events', asyncHandler(async (req, res) => {
   const result=await call('SELECT public.credit_events_read(NULL,$1,$2) AS data', [

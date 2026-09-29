@@ -140,6 +140,16 @@ function logRealFailure(modelId: string, err: unknown): void {
   );
 }
 
+/** The AI SDK may surface a model middleware refusal as either the error itself or a wrapped cause. */
+function isMeteredCapError(error: unknown): boolean {
+  let current = error;
+  for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth += 1) {
+    if ((current as { code?: unknown }).code === 'DKCAP') return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 async function runResearch(opts: {
   gateway: GatewayProvider;
   choice: ModelChoice;
@@ -217,6 +227,9 @@ async function runResearch(opts: {
           finishReason = part.finishReason;
           break;
         case 'error':
+          // A metered admission stop is a normal leg boundary. Let execute() turn it into
+          // a scoped refusal instead of misreporting it as a research-provider failure.
+          if (isMeteredCapError(part.error)) throw part.error;
           failure = safeToolError(part.error);
           logRealFailure(opts.modelId, part.error);
           break;
@@ -225,6 +238,7 @@ async function runResearch(opts: {
       }
     }
   } catch (err) {
+    if (isMeteredCapError(err)) throw err;
     if (!timedOut && !opts.signal?.aborted) {
       failure = safeToolError(err);
       logRealFailure(opts.modelId, err);
@@ -410,6 +424,13 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
           } else emitResearchEvent(opts.onEvent, { phase: 'ok', ...terminal });
           return outcome.text;
         } catch (err) {
+          if (isMeteredCapError(err)) {
+            // The leg hold is a normal boundary, not a failed research service.
+            // The outer chat loop will add Deck-E's one reader-facing close.
+            refusals.note(name, args, 'cap');
+            const summary = 'this reply reached its credit limit; a new message can continue';
+            return deepRefused(summary, 'cap');
+          }
           const message = safeToolError(err);
           emitResearchEvent(opts.onEvent, { phase: 'error', ...chip, summary: message });
           return deepFailed(message);
