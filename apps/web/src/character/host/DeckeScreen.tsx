@@ -25,7 +25,6 @@
  * `deckpal-web` cannot import `deckpal-api` to share the type.
  */
 import { useEffect, useId, useLayoutEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { Icon } from '../../components/Icon'
 import { CardImage } from '../../components/CardImage'
 import { CARD_ASPECT_RATIO_CSS } from '../../lib/cardGeometry'
@@ -36,7 +35,6 @@ import { COLLAPSE_LABEL, compactPlan, expandLabel, isDeckOnlyScreen, showingLabe
 import { api } from '../../lib/api'
 import { saveDeckFromWidget, type WidgetDeck } from './chat/deckSave'
 import { deckDisclosure, deckHeader, nextSaveState, ownershipMark, visibleIssues, type SaveState } from './chat/deckWidgetState'
-import { DECK_SEARCH_DEFAULTS } from '../../routes/deckSearch'
 
 export type Block = {
   kind: string
@@ -112,6 +110,7 @@ export function DeckeScreen({
   onRemoveCard,
   onResize,
   onDeckSaved,
+  onOpenDeck,
 }: {
   spec: ScreenSpec
   /** Present only when a block asked to be editable — "that one's wrong". */
@@ -129,6 +128,8 @@ export function DeckeScreen({
   onResize?: () => void
   /** Lets chat remember a one-tap widget save on its next turn. */
   onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  /** Router-neutral handoff; history views intentionally omit it. */
+  onOpenDeck?: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const bodyId = useId()
@@ -153,6 +154,7 @@ export function DeckeScreen({
       <Block
         block={spec.blocks[0]!}
         onDeckSaved={onDeckSaved}
+        onOpenDeck={onOpenDeck}
         onResize={onResize}
       />
     )
@@ -166,7 +168,7 @@ export function DeckeScreen({
       <h3 className="text-[15px] font-semibold text-text-primary">{spec.title}</h3>
       <div id={bodyId} className="flex flex-col gap-[12px]">
         {blocks.map((b, i) => (
-          <Block key={i} block={b} cardLimit={cardLimit} onRemoveCard={onRemoveCard} onDeckSaved={onDeckSaved} onResize={onResize} />
+          <Block key={i} block={b} cardLimit={cardLimit} onRemoveCard={onRemoveCard} onDeckSaved={onDeckSaved} onOpenDeck={onOpenDeck} onResize={onResize} />
         ))}
       </div>
       {plan.compactable ? (
@@ -212,6 +214,7 @@ function Block({
   cardLimit = Number.POSITIVE_INFINITY,
   onRemoveCard,
   onDeckSaved,
+  onOpenDeck,
   onResize,
 }: {
   block: Block
@@ -220,6 +223,7 @@ function Block({
   cardLimit?: number
   onRemoveCard?: (id: string) => void
   onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onOpenDeck?: (id: string) => void
   onResize?: () => void
 }) {
   switch (b.kind) {
@@ -239,7 +243,7 @@ function Block({
       )
 
     case 'deck':
-      return <DeckWidget block={b} onDeckSaved={onDeckSaved} onResize={onResize} />
+      return <DeckWidget block={b} onDeckSaved={onDeckSaved} onOpenDeck={onOpenDeck} onResize={onResize} />
 
     case 'statTile':
       return (
@@ -358,6 +362,7 @@ function Block({
                     cardLimit={cardLimit}
                     onRemoveCard={onRemoveCard}
                     onDeckSaved={onDeckSaved}
+                    onOpenDeck={onOpenDeck}
                     onResize={onResize}
                   />
                 ))}
@@ -379,10 +384,12 @@ function Block({
 function DeckWidget({
   block,
   onDeckSaved,
+  onOpenDeck,
   onResize,
 }: {
   block: Block
   onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onOpenDeck?: (id: string) => void
   onResize?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -479,9 +486,13 @@ function DeckWidget({
 
       <div className="flex flex-wrap gap-[8px] border-t border-border-default pt-[10px]">
         {saved ? (
-          <Link to="/decks/$id" params={{ id: saved.id }} search={DECK_SEARCH_DEFAULTS} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
-            Open in deck builder
-          </Link>
+          onOpenDeck ? (
+            <button type="button" onClick={() => onOpenDeck(saved.id)} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
+              Open in deck builder
+            </button>
+          ) : (
+            <span className="self-center text-[12px] text-text-muted">Saved to your decks</span>
+          )
         ) : (
           <button type="button" disabled={saveState === 'saving'} onClick={() => void save()} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground disabled:opacity-60">
             {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Try saving again' : 'Save to my decks'}

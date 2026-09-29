@@ -120,11 +120,15 @@ test('sources accumulate, dedupe and cap at 12 on chip events only', async () =>
   assert.equal(terminal.phase, 'ok');
   assert.equal(terminal.sources?.length, 12);
   assert.equal(new Set(terminal.sources?.map((source) => source.url)).size, 12);
+  assert.deepEqual(
+    terminal.sources?.map((source) => source.url),
+    Array.from({ length: 12 }, (_, i) => `https://source${i}.example/article`),
+  );
   assert.deepEqual(terminal.sources?.[0], {
     url: 'https://source0.example/article', title: 'Tournament report', host: 'source0.example',
   });
   assert.ok(events.some((event) => event.phase === 'progress' && event.sources?.length === 1));
-  assert.equal(output.includes('https://source0.example/article'), false, 'full URL leaked to model text');
+  assert.deepEqual(output.match(/https?:\/\/[^\s)]+/g) ?? [], [], 'full URL leaked to model text');
   assert.match(output, /Dragapult ex \(source0\.example\)/);
   assert.match(output, /\[1\] source0\.example/);
 });

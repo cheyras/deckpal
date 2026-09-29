@@ -895,13 +895,13 @@ export default function ChatUi() {
               note="Checked deck ideas remain interactive blocks in chat. Counts, ownership, cost and card art are fixtures; Save is the product button and this gallery only logs its callback."
             >
               <Specimen label="legal, mostly owned" note="60 cards, 41 owned, about $12.40 remaining; the compact first look limits the Pokémon grid">
-                <DeckeScreen spec={DECK_SCREENS[0]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} />
+                <DeckeScreen spec={DECK_SCREENS[0]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} onOpenDeck={(id) => console.info('fixture deck opened', id)} />
               </Specimen>
               <Specimen label="not legal" note="65 cards, four issues, a five-copy card and a broken evolution line">
-                <DeckeScreen spec={DECK_SCREENS[1]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} />
+                <DeckeScreen spec={DECK_SCREENS[1]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} onOpenDeck={(id) => console.info('fixture deck opened', id)} />
               </Specimen>
               <Specimen label="unchecked" note="a first draft before a deck check can judge legality">
-                <DeckeScreen spec={DECK_SCREENS[2]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} />
+                <DeckeScreen spec={DECK_SCREENS[2]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} onOpenDeck={(id) => console.info('fixture deck opened', id)} />
               </Specimen>
             </Section>
 

@@ -91,7 +91,7 @@ test('consecutive tool parts share one activity line without moving text', () =>
 
 test('research sources, deck saves, and composer activity reach their shared UI boundaries', () => {
   assert.match(PANEL, /<SourcesList sources=\{messageSources\(m\)\}/)
-  assert.match(PANEL, /<DeckeScreen spec=\{part\.spec\} onResize=\{placePark\} onDeckSaved=\{onDeckSaved\} \/>/)
+  assert.match(PANEL, /<DeckeScreen spec=\{part\.spec\} onResize=\{placePark\} onDeckSaved=\{onDeckSaved\} onOpenDeck=\{onOpenDeck\} \/>/)
   assert.match(PANEL, /onComposerActivity\?\.\(true\)/)
   assert.match(PANEL, /window\.setTimeout\(endComposerActivity, 4000\)/)
   assert.match(PANEL, /onBlur=\{endComposerActivity\}/)
