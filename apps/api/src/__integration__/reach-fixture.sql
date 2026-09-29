@@ -63,6 +63,7 @@ BEGIN
 
  INSERT INTO decke_conversation (id, user_id) VALUES (conversation_id, a);
  INSERT INTO decke_turn (conversation_id, user_id, seq) VALUES (conversation_id, a, 0);
+ INSERT INTO decke_turn_feedback (user_id, conversation_id, seq, vote) VALUES (a, conversation_id, 0, 1);
  INSERT INTO decke_usage (user_id, day) VALUES (a, CURRENT_DATE);
  INSERT INTO decke_credit_balance (user_id) VALUES (a);
  INSERT INTO decke_credit_event (user_id, delta, kind, reason) VALUES (a, 1, 'grant', 'fixture');

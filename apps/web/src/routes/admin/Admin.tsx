@@ -12,6 +12,7 @@ export const ADMIN_SECTIONS = [
   { key: 'settings', label: 'Settings', to: '/admin/settings', permission: 'settings.read' },
   { key: 'audit', label: 'Audit', to: '/admin/audit', permission: 'audit.read' },
   { key: 'usage', label: 'AI usage', to: '/admin/usage', permission: 'admin.access' },
+  { key: 'decke-chats', label: 'Deck-E chats', to: '/admin/decke-chats', permission: 'decke.improvement.read' },
   { key: 'features', label: 'Features', to: '/admin/features', permission: 'roles.manage' },
 ]
 export default function Admin() {

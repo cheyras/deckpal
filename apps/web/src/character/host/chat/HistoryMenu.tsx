@@ -143,6 +143,7 @@ export function HistoryMenu({ viewingId, liveId, onNewChat, onOpenConversation, 
   /** The row whose delete is actually in flight. */
   const [deleting, setDeleting] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+  const [sharedIds, setSharedIds] = useState<Set<string>>(new Set())
   const [dx, setDx] = useState(0)
 
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -152,14 +153,17 @@ export function HistoryMenu({ viewingId, liveId, onNewChat, onOpenConversation, 
 
   const fetchList = useCallback((signal?: AbortSignal) => {
     setLoad({ state: 'loading' })
-    api
-      .deckeHistoryList(signal)
-      .then((r) => {
+    Promise.all([
+      api.deckeHistoryList(signal),
+      api.deckeImprovementMine(signal).catch(() => ({ items: [] })),
+    ])
+      .then(([r, mine]) => {
         if (signal?.aborted) return
         // The clock is re-read on every load, not captured at mount. A panel
         // left open across midnight would otherwise file this morning's chat
         // under "Yesterday".
         now.current = new Date()
+        setSharedIds(new Set(mine.items.map((item) => item.conversationId)))
         setLoad({ state: 'ready', items: r.conversations })
       })
       .catch((e: unknown) => {
@@ -300,6 +304,7 @@ export function HistoryMenu({ viewingId, liveId, onNewChat, onOpenConversation, 
             confirming={confirming}
             deleting={deleting}
             rowError={rowError}
+            sharedIds={sharedIds}
             onRetryList={() => fetchList()}
             onOpen={(id) => {
               setOpen(false)
@@ -340,6 +345,7 @@ export function HistorySheet({
   confirming,
   deleting,
   rowError,
+  sharedIds,
   onOpen,
   onRetryList,
   onAskDelete,
@@ -356,6 +362,7 @@ export function HistorySheet({
   confirming: string | null
   deleting: string | null
   rowError: { id: string; message: string } | null
+  sharedIds?: ReadonlySet<string>
   onOpen: (id: string) => void
   onRetryList: () => void
   onAskDelete: (id: string) => void
@@ -448,6 +455,7 @@ export function HistorySheet({
                     confirming={confirming === c.id}
                     deleting={deleting === c.id}
                     error={rowError?.id === c.id ? rowError.message : null}
+                    shared={sharedIds?.has(c.id) ?? false}
                     onOpen={() => onOpen(c.id)}
                     onAskDelete={() => onAskDelete(c.id)}
                     onCancelDelete={onCancelDelete}
@@ -492,6 +500,7 @@ function HistoryRow({
   confirming,
   deleting,
   error,
+  shared,
   onOpen,
   onAskDelete,
   onCancelDelete,
@@ -505,6 +514,7 @@ function HistoryRow({
   confirming: boolean
   deleting: boolean
   error: string | null
+  shared: boolean
   onOpen: () => void
   onAskDelete: () => void
   onCancelDelete: () => void
@@ -568,6 +578,7 @@ function HistoryRow({
               answer.
             */}
             {!viewing && live ? <span className="text-text-muted"> · now</span> : null}
+            {shared ? <span className="ml-[4px] rounded-full border border-action-primary/35 px-[5px] py-px text-[10px] font-semibold text-action-primary">Shared</span> : null}
           </span>
           {/* A spacer rather than `ml-auto` on the chip, so the meta text
               truncates instead of shoving the stamp out of its column. */}

@@ -39,7 +39,9 @@
  *   modals  100 / toasts 9999 still paint over him, which is correct and rare.
  */
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '../../components/Icon'
+import { api } from '../../lib/api'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
@@ -55,6 +57,10 @@ import type { NoticeAction } from './chat/httpNotice'
 import { deepCost, type DeepQuote } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
+import { ShareChoice } from './chat/ShareChoice'
+import { submitImprovementConsent } from './chat/improvementConsent'
+import { Feedback } from './chat/Feedback'
+import type { FeedbackVote } from './chat/feedbackState'
 import {
   creditHeaderLabel,
   creditState,
@@ -937,6 +943,7 @@ export type ChatPart =
   | { kind: 'text'; id: string; text: string }
   | { kind: 'tool'; id: string; chip: ToolChip }
   | { kind: 'screen'; id: string; spec: ScreenSpec }
+  | { kind: 'consent'; id: string }
   /**
    * A refusal, and it is a PART KIND rather than a string for one reason.
    *
@@ -960,6 +967,8 @@ export type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   parts: ChatPart[]
+  /** The persisted turn position. Present on live assistant replies. */
+  seq?: number
 }
 
 /**
@@ -1073,6 +1082,8 @@ export function DeckeChat({
   onDeckSaved,
   onOpenDeck,
   onComposerActivity,
+  onConsent,
+  onFeedback,
 }: {
   open: boolean
   /** He has gone out onto the page; the transcript gets out of the way. */
@@ -1167,6 +1178,8 @@ export function DeckeChat({
   onOpenDeck?: (id: string) => void
   /** Lets the character react to typing without coupling the composer to the hook. */
   onComposerActivity?: (typing: boolean) => void
+  onConsent?: (share: boolean, shareAll?: boolean) => Promise<void>
+  onFeedback?: (seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => Promise<void>
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
@@ -1214,8 +1227,42 @@ export function DeckeChat({
    */
   const panelRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState('')
+  const queryClient = useQueryClient()
   const lastTypingBeatRef = useRef(0)
   const typingIdleRef = useRef<number | null>(null)
+
+  const saveConsent = useCallback(async (share: boolean, shareAll = false) => {
+    if (!conversationId) throw new Error('No conversation to share')
+    await submitImprovementConsent({
+      conversationId,
+      share,
+      shareAll,
+      send: onConsent
+        ? async () => onConsent(share, shareAll)
+        : (request) => api.deckeImprovementConsent(request),
+      refreshSettings: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+    })
+    try {
+      decke?.setState(share ? 'happy' : 'nod_yes', { mode: 'once' })
+    } catch {
+      /* A missing animation must not turn a recorded consent into a retry. */
+    }
+    window.dispatchEvent(new CustomEvent('deckpal:decke-consent-answered', {
+      detail: { conversationId, share },
+    }))
+    if (share) {
+      window.dispatchEvent(new CustomEvent('deckpal:decke-shared', { detail: { conversationId } }))
+    }
+  }, [conversationId, decke, onConsent, queryClient])
+
+  const saveFeedback = useCallback(async (seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
+    if (!conversationId) throw new Error('No conversation for feedback')
+    if (onFeedback) await onFeedback(seq, value)
+    else await api.deckeFeedback({ conversationId, seq, ...value })
+    if (value.share) {
+      window.dispatchEvent(new CustomEvent('deckpal:decke-shared', { detail: { conversationId } }))
+    }
+  }, [conversationId, onFeedback])
 
   const endComposerActivity = useCallback(() => {
     if (typingIdleRef.current !== null) window.clearTimeout(typingIdleRef.current)
@@ -3057,6 +3104,9 @@ export function DeckeChat({
                         </div>
                       )
                     }
+                    if (part.kind === 'consent') {
+                      return <ShareChoice key={part.id} onChoose={saveConsent} />
+                    }
                     // Full width rather than inside a bubble: a panel is a
                     // figure, and an 85%-wide column with a card grid in it is
                     // a column of one card.
@@ -3091,7 +3141,12 @@ export function DeckeChat({
                     </div>
                   ) : null}
                   {m.role === 'assistant' && !(busy && m.id === lastAssistantId) ? (
-                    <SourcesList sources={messageSources(m)} />
+                    <>
+                      <SourcesList sources={messageSources(m)} />
+                      {m.seq !== undefined ? (
+                        <Feedback onSave={(value) => saveFeedback(m.seq as number, value)} />
+                      ) : null}
+                    </>
                   ) : null}
                   {/* His latest response ended in a widget: he stands BELOW it,
                       in a footprint of his own, never over it. */}

@@ -217,6 +217,7 @@ export function mountOAuthServer(app: Express): void {
                     clientId,
                     redirectUri: consumed.redirectUri,
                     scope: consumed.scope,
+                    deckeImprovementRead: consumed.deckeImprovementRead,
                   });
                   return { tokens };
                 });

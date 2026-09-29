@@ -29,8 +29,21 @@ import {
   shortSha,
   turnStamp,
   whenLabel,
+  withFeedback,
 } from '../historyState'
-import type { DeckeConversationSummary } from '../../../../lib/api'
+import type { DeckeConversation, DeckeConversationSummary } from '../../../../lib/api'
+
+test('votes land on the turn they were cast on, and only there', () => {
+  const turn = (seq: number) => ({ seq, asked: 'q' + seq, answered: 'a' + seq, tools: [], buildPr: null, buildSha: null, at: '2026-09-29T00:00:00Z' })
+  const c: DeckeConversation = { id: 'c', title: 't', startedAt: '2026-09-29T00:00:00Z', turns: [turn(0), turn(1), turn(2)] }
+  const merged = withFeedback(c, { items: [{ seq: 2, vote: -1, comment: 'Wrong set' }, { seq: 9, vote: 1, comment: null }] })
+  assert.equal(merged.turns[0].feedback, undefined)
+  assert.equal(merged.turns[1].feedback, undefined)
+  assert.equal(merged.turns[2].feedback, -1)
+  assert.equal(merged.turns[2].feedbackComment, 'Wrong set')
+  assert.equal(c.turns[2].feedback, undefined, 'the fetched record is not mutated')
+  assert.deepEqual(withFeedback(c, { items: [] }), c)
+})
 
 const conv = (over: Partial<DeckeConversationSummary> = {}): DeckeConversationSummary => ({
   id: 'c1',

@@ -1,5 +1,5 @@
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
-import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
+import { allTools, deckeImprovementTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
 
 /**
  * The MCP adapter — the ONLY place in DeckPal that knows the tool layer is
@@ -85,12 +85,27 @@ export function toCallToolResult(result: ToolResult): CallToolResult {
  * zod object and the same annotations record the tools have always declared —
  * so the advertised schema in `tools/list` is unchanged by the move.
  */
-export function registerAllTools(server: McpServer, ctx: Ctx, { readOnly = false }: { readOnly?: boolean } = {}): void {
-  for (const tool of allTools()) {
+export interface ToolVisibility {
+  readOnly?: boolean;
+  deckeImprovementRead?: boolean;
+}
+
+const IMPROVEMENT_TOOLS = new Set([
+  'decke_improvement_list',
+  'decke_improvement_read',
+  'decke_improvement_search',
+]);
+
+export function registerAllTools(server: McpServer, ctx: Ctx, { readOnly = false, deckeImprovementRead = false }: ToolVisibility = {}): void {
+  for (const tool of [...allTools(), ...deckeImprovementTools]) {
     // A read-only connection (migration 075) is never shown a tool that
     // writes, so a model cannot even try one. `readOnlyHint` is required on
     // every definition (registry.ts), so nothing slips through by omission.
     if (readOnly && !tool.annotations.readOnlyHint) continue;
+    // This is an advertised-surface gate only. The API/SQL reader independently
+    // checks the live token row on every call, so revoking the capability takes
+    // effect even for a client holding a previously cached tool catalogue.
+    if (IMPROVEMENT_TOOLS.has(tool.name) && !deckeImprovementRead) continue;
     register(server, ctx, tool);
   }
 }

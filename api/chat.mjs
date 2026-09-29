@@ -130,7 +130,8 @@ import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { checkDeck } from '../apps/api/dist/decke/deckCheck.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
-import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
+import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
+import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
@@ -547,6 +548,7 @@ async function serve(request) {
         )
       : json({ error: refusalText('chat_turns', meter.cap), retryAfterDay: true }, 429)
   }
+  usage.spendId = meter.spendId
 
   try {
   // ── THE REFLEX READ ───────────────────────────────────────────────────────
@@ -563,7 +565,7 @@ async function serve(request) {
   // LLM turn in front of every message. This is a typed evaluation — no
   // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
   // above a threshold chosen on a labelled set. See `decke/jev.ts`.
-  const reflex = await readReflex(messages, route, { key, signal: request.signal })
+  const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))
 
   // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
   //
@@ -655,8 +657,10 @@ async function serve(request) {
   // Declared in `serve` scope (before `emitToolEvent`) so the sink here can push
   // to it; read inside `execute` by the guard block. One per request.
   const guardEvents = []
+  const improvementEvents = []
   const emitToolEvent = (writer) => (event) => {
     guardEvents.push(event)
+    improvementEvents.push({ ...event, at: new Date().toISOString() })
     try {
       writer.write({ type: 'data-decke-tool', data: event, transient: true })
     } catch {
@@ -700,6 +704,8 @@ async function serve(request) {
   const choice = MODELS.chat
   const stream = createUIMessageStream({
     execute: async ({ writer }) => runAiUsage(usage, async () => {
+      let result
+      let improvementError = null
       try {
       // EXPLICIT PROVIDER, EXPLICIT KEY.
       //
@@ -766,6 +772,9 @@ async function serve(request) {
         // panel existed and narrated its contents a second time.
         ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
           checkDeck: (input) => checkDeck(toolCtx, input),
+          db: chatPool(),
+          userId: user.id,
+          conversationId,
         }),
         // READS AND WRITES, because the approval round-trip now exists.
         //
@@ -861,7 +870,7 @@ async function serve(request) {
         // every turn offering to look things up with no tool that could look.
         dataTools: dataToolSummary({ include: () => true, conversationalLogging: true }),
       })
-      const result = streamText({
+      result = streamText({
         model: observeUsageModel(gateway(choice.id), meter),
         providerOptions: chatProviderOptions(choice),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
@@ -1473,9 +1482,25 @@ async function serve(request) {
       }
       } catch (error) {
         usage.failed = true
+        improvementError = { code: safeUsageCode(error) }
         throw error
       } finally {
-        try { await meter.refund() } finally { await finishAiRequest(usage, 'completed', meter.spent) }
+        try {
+          await meter.refund()
+        } finally {
+          await finishAiRequest(usage, 'completed', meter.spent)
+          if (typeof conversationId === 'string' && Number.isSafeInteger(seq) && seq >= 0) {
+            const payload = await improvementPayload(messages, result, improvementEvents, improvementError)
+            await recordImprovementWithDeadline(chatPool(), {
+              userId: user.id,
+              conversationId,
+              seq,
+              requestId: usage.id,
+              leg: 0,
+              payload,
+            })
+          }
+        }
       }
     }),
   })
@@ -1505,6 +1530,84 @@ async function serve(request) {
   } catch (error) {
     await meter.refund()
     throw error
+  }
+}
+
+async function improvementPayload(messages, result, events, error) {
+  const steps = result ? await result.steps.catch(() => []) : []
+  const finishReason = result ? await result.finishReason.catch(() => null) : null
+  const filter = createNarrationFilter()
+  const rawAnswer = steps.map((step) => step.text ?? '').join('')
+  const answered = filter.push(rawAnswer) + filter.end()
+  const results = new Map()
+  for (const step of steps) {
+    for (const toolResult of step.toolResults ?? []) {
+      results.set(toolResult.toolCallId, toolResult.output)
+    }
+  }
+  const eventByCall = new Map()
+  for (const event of events) {
+    const current = eventByCall.get(event.id) ?? {}
+    eventByCall.set(event.id, {
+      started_at: current.started_at ?? event.at,
+      finished_at: event.phase === 'start' || event.phase === 'progress' ? current.finished_at : event.at,
+      phase: event.phase,
+    })
+  }
+  const toolCalls = []
+  for (const step of steps) {
+    for (const call of step.toolCalls ?? []) {
+      const timing = eventByCall.get(call.toolCallId) ?? {}
+      toolCalls.push({
+        id: String(call.toolCallId),
+        name: String(call.toolName),
+        args: call.input ?? call.args ?? null,
+        output: results.has(call.toolCallId) ? results.get(call.toolCallId) : null,
+        phase: timing.phase ?? (results.has(call.toolCallId) ? 'ok' : 'pending'),
+        ...(approvalFor(messages, call.toolCallId) ?? {}),
+        ...(timing.started_at ? { started_at: timing.started_at } : {}),
+        ...(timing.finished_at ? { finished_at: timing.finished_at } : {}),
+      })
+    }
+  }
+  return {
+    asked: latestUserText(messages),
+    answered,
+    finish_reason: finishReason == null ? null : String(finishReason).slice(0, 80),
+    error,
+    tool_calls: toolCalls,
+  }
+}
+
+function approvalFor(messages, toolCallId) {
+  for (const message of messages) {
+    for (const part of Array.isArray(message?.parts) ? message.parts : []) {
+      if (part?.toolCallId !== toolCallId) continue
+      const approved = part.approval?.approved ?? part.approved
+      if (typeof approved !== 'boolean') continue
+      return {
+        approval: {
+          approved,
+          ...(typeof part.approval?.reason === 'string' ? { reason: part.approval.reason } : {}),
+        },
+      }
+    }
+  }
+  return null
+}
+
+async function recordImprovementWithDeadline(db, record) {
+  let timer
+  try {
+    await Promise.race([
+      autoShareAndRecordLeg(db, record),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(false), 1_500) }),
+    ])
+  } catch {
+    // Collection is observational. It must never turn a completed reply into
+    // a failed chat response.
+  } finally {
+    clearTimeout(timer)
   }
 }
 

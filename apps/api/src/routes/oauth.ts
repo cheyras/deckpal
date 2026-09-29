@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { q1, q, withTx, commitRequestTx, pool, rlsStore } from '../db.js';
-import { adminError } from '../admin/access.js';
+import { adminError, getAccessForUser, hasPermission } from '../admin/access.js';
 import { ApiError, asyncHandler, badRequest, notFound } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { randomBytes } from 'node:crypto';
@@ -54,7 +54,18 @@ oauthRouter.get(
       throw badRequest('redirect_uri does not match what this client registered.');
     }
     const { host, trust, verifiedName } = classifyRedirect(redirectUri);
-    res.json({ clientName: client.clientName, redirectUri, redirectHost: host, trust, verifiedName });
+    const access = await getAccessForUser(currentUserId(req));
+    res.json({
+      clientName: client.clientName,
+      redirectUri,
+      redirectHost: host,
+      trust,
+      verifiedName,
+      canGrantDeckeImprovementRead:
+        hasPermission(access, 'admin.access') &&
+        hasPermission(access, 'decke.improvement.read') &&
+        (access.role?.tier ?? 0) >= 40,
+    });
   }),
 );
 
@@ -68,6 +79,7 @@ interface DecisionBody {
   state?: unknown;
   resource?: unknown;
   scope?: unknown;
+  deckeImprovementRead?: unknown;
 }
 
 /** Append `code`/`error` + `state` onto redirectUri without clobbering a query string it may already carry. */
@@ -106,6 +118,10 @@ oauthRouter.post(
     // Absent means full, which is what every approval meant before the choice
     // existed; anything else present is a mistake, not a default.
     const scope = (str(body.scope) || 'full') as TokenScope;
+    if (body.deckeImprovementRead !== undefined && typeof body.deckeImprovementRead !== 'boolean') {
+      throw badRequest('deckeImprovementRead must be a boolean');
+    }
+    const deckeImprovementRead = body.deckeImprovementRead === true;
 
     if (decision !== 'allow' && decision !== 'deny') throw badRequest('decision must be "allow" or "deny"');
     if (scope !== 'full' && scope !== 'read') throw badRequest('scope must be "full" or "read"');
@@ -141,7 +157,12 @@ oauthRouter.post(
     }
     const code='dsac_'+randomBytes(32).toString('base64url');
     try {
-      await withTx(async()=>{await q('SELECT public.admin_connector_issue($1,$2,$3,$4,$5,$6)',[code,clientId,redirectUri,codeChallenge,resource??null,scope]);});
+      await withTx(async()=>{
+        await q('SELECT public.admin_connector_issue($1,$2,$3,$4,$5,$6)',[code,clientId,redirectUri,codeChallenge,resource??null,scope]);
+        if (deckeImprovementRead) {
+          await q('SELECT public.decke_improvement_oauth_capability($1,true)', [code]);
+        }
+      });
       await commitRequestTx(userId);
     } catch(error) { throw adminError(error); }
     res.setHeader('Cache-Control','no-store');

@@ -39,7 +39,7 @@ export async function withUserContext<T>(
   pool: pg.Pool,
   userId: string,
   fn: (client: pg.PoolClient) => Promise<T>,
-  { readOnly = false }: { readOnly?: boolean } = {},
+  { readOnly = false, tokenId }: { readOnly?: boolean; tokenId?: string } = {},
 ): Promise<T> {
   const client = await pool.connect();
 
@@ -54,7 +54,12 @@ export async function withUserContext<T>(
   }
 
   try {
-    const claims = client.escapeLiteral(JSON.stringify({ sub: userId, role: 'authenticated', deckpal_auth_kind: 'token' }));
+    const claims = client.escapeLiteral(JSON.stringify({
+      sub: userId,
+      role: 'authenticated',
+      deckpal_auth_kind: 'token',
+      ...(tokenId ? { deckpal_token_id: tokenId } : {}),
+    }));
     // A read-only connection's transaction is READ ONLY as well, so Postgres
     // itself refuses a write even if a tool that makes one were ever served to it.
     await client.query(

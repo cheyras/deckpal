@@ -1,0 +1,934 @@
+-- 079 · Privacy and lifecycle fixes for the Deck-E improvement corpus.
+--
+-- Migration 078 is already deployed.  Keep its public signatures stable while
+-- replacing the affected functions and repairing retained corpus rows in place.
+
+-- Valid percent runs keep the fast native decoder.  The fallback tokenises an
+-- invalid run once, preserving valid neighbouring UTF-8 while mapping invalid
+-- bytes and PostgreSQL's unsupported NUL scalar to the replacement character.
+CREATE FUNCTION public.decke_improvement_percent_run(p_run text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE token_pattern text:='(%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%(?:[cC][2-9A-Fa-f]|[dD][0-9A-Fa-f])%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[0-9A-Fa-f]{2})';
+ decoded text;
+BEGIN
+ SELECT string_agg(CASE WHEN lower(m[1])='%00' OR char_length(m[1])=3 AND m[1]!~'^%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])$'
+   THEN chr(65533) ELSE convert_from(decode(replace(m[1],'%',''),'hex'),'UTF8') END,'' ORDER BY ordinality)
+ INTO decoded FROM regexp_matches(p_run,token_pattern,'g') WITH ORDINALITY matched(m,ordinality);
+ RETURN coalesce(decoded,'');
+END $$;
+
+-- Splitting once and aggregating once avoids repeatedly copying/searching the
+-- remaining suffix for inputs containing hundreds of thousands of runs.
+CREATE FUNCTION public.decke_improvement_percent_decode(p_text text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE pieces text[]; runs text[]; out_text text;
+ valid_utf8 text:='^(?:%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%(?:[cC][2-9A-Fa-f]|[dD][0-9A-Fa-f])%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f])+$';
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ pieces=regexp_split_to_array(p_text,'(?:%[0-9A-Fa-f]{2})+');
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs
+ FROM regexp_matches(p_text,'((?:%[0-9A-Fa-f]{2})+)','g') m;
+ SELECT string_agg(piece||CASE WHEN run IS NULL THEN ''
+   WHEN lower(run)='%25' THEN '%'
+   WHEN lower(run)='%20' THEN ' '
+   WHEN run~valid_utf8 THEN convert_from(decode(replace(run,'%',''),'hex'),'UTF8')
+   ELSE public.decke_improvement_percent_run(run) END,'' ORDER BY ordinality)
+ INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
+ RETURN coalesce(out_text,'');
+END $$;
+
+CREATE FUNCTION public.decke_improvement_decode_scalar(p_escape text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE codepoint integer; low_point integer; bytes bytea; hex_value text;
+BEGIN
+ IF p_escape~*'^\\u' THEN
+  codepoint=get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),0)*256
+    +get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),1);
+  IF codepoint BETWEEN 55296 AND 56319 THEN
+   IF char_length(p_escape)<>12 THEN RETURN chr(65533); END IF;
+   low_point=get_byte(decode(substring(p_escape FROM 9 FOR 4),'hex'),0)*256
+     +get_byte(decode(substring(p_escape FROM 9 FOR 4),'hex'),1);
+   IF low_point NOT BETWEEN 56320 AND 57343 THEN RETURN chr(65533); END IF;
+   codepoint=65536+(codepoint-55296)*1024+(low_point-56320);
+  ELSIF codepoint BETWEEN 56320 AND 57343 THEN
+   RETURN chr(65533);
+  END IF;
+ ELSIF p_escape~'^&#[xX]' THEN
+  hex_value=substring(p_escape FROM 4 FOR char_length(p_escape)-4);
+  bytes=decode(lpad(hex_value,6,'0'),'hex');
+  codepoint=get_byte(bytes,0)*65536+get_byte(bytes,1)*256+get_byte(bytes,2);
+ ELSE
+  codepoint=substring(p_escape FROM 3 FOR char_length(p_escape)-3)::integer;
+ END IF;
+ IF codepoint=0 OR codepoint>1114111 OR codepoint BETWEEN 55296 AND 57343 THEN RETURN chr(65533); END IF;
+ RETURN chr(codepoint);
+EXCEPTION WHEN OTHERS THEN RETURN chr(65533);
+END $$;
+
+-- JSON scalars are decoded before HTML entities so one bounded decoding step
+-- has the same order in SQL as it does in the API redactor.
+CREATE FUNCTION public.decke_improvement_decode_json_escapes(p_text text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE pattern text:='(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4})';
+ pieces text[]; runs text[]; out_text text;
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ pieces=regexp_split_to_array(p_text,pattern,'i');
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'gi') m;
+ SELECT string_agg(piece||CASE WHEN run IS NULL THEN '' ELSE public.decke_improvement_decode_scalar(run) END,
+   '' ORDER BY ordinality)
+ INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
+ RETURN coalesce(out_text,'');
+END $$;
+
+-- Keep this HTML 4 table aligned with namedHtmlEntities in
+-- apps/api/src/decke/redact.ts. Ordered contiguous ranges make the Latin-1
+-- and Greek mappings auditable without duplicating every code point.
+CREATE FUNCTION public.decke_improvement_decode_named_html_entity(p_name text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ WITH named(entity_name,codepoint) AS (
+  SELECT entity_name,(159+ordinality)::integer
+  FROM unnest(string_to_array(
+   'nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL SELECT * FROM (VALUES
+   ('OElig',338),('oelig',339),('Scaron',352),('scaron',353),
+   ('Yuml',376),('fnof',402),('circ',710),('tilde',732)
+  ) extras(entity_name,codepoint)
+  UNION ALL
+  SELECT entity_name,(912+ordinality)::integer
+  FROM unnest(string_to_array(
+   'Alpha Beta Gamma Delta Epsilon Zeta Eta Theta Iota Kappa Lambda Mu Nu Xi Omicron Pi Rho',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL
+  SELECT entity_name,(930+ordinality)::integer
+  FROM unnest(string_to_array('Sigma Tau Upsilon Phi Chi Psi Omega',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL
+  SELECT entity_name,(944+ordinality)::integer
+  FROM unnest(string_to_array(
+   'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigmaf sigma tau upsilon phi chi psi omega',' ')
+  ) WITH ORDINALITY entities(entity_name,ordinality)
+  UNION ALL SELECT * FROM (VALUES
+   ('thetasym',977),('upsih',978),('piv',982),
+   ('commat',64),('quot',34),('apos',39),('lt',60),('gt',62),('amp',38)
+  ) extras(entity_name,codepoint)
+ )
+ SELECT chr(codepoint) FROM named WHERE entity_name=p_name
+$$;
+
+-- Numeric and standard named entities are decoded in one scan. Invalid
+-- Unicode scalars become U+FFFD and never abort repair of retained values;
+-- unknown or wrongly cased names remain untouched.
+CREATE FUNCTION public.decke_improvement_decode_html_entities(p_text text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE pattern text:='(&#[xX][0-9A-Fa-f]{1,6};|&#[0-9]{1,7};|&[A-Za-z][A-Za-z0-9]*;)';
+ pieces text[]; runs text[]; out_text text;
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ pieces=regexp_split_to_array(p_text,pattern);
+ SELECT coalesce(array_agg(m[1]),'{}'::text[]) INTO runs FROM regexp_matches(p_text,pattern,'g') m;
+ SELECT string_agg(piece||CASE
+   WHEN run IS NULL THEN '' WHEN run~'^&#' THEN public.decke_improvement_decode_scalar(run)
+   ELSE coalesce(public.decke_improvement_decode_named_html_entity(
+     substring(run FROM 2 FOR char_length(run)-2)),run) END,'' ORDER BY ordinality)
+ INTO out_text FROM unnest(pieces,runs) WITH ORDINALITY decoded(piece,run,ordinality);
+ RETURN coalesce(out_text,'');
+END $$;
+
+CREATE FUNCTION public.decke_improvement_decode_escapes(p_text text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT public.decke_improvement_decode_html_entities(
+   public.decke_improvement_decode_json_escapes(p_text))
+$$;
+
+CREATE FUNCTION public.decke_improvement_replace_terms(p_text text,p_terms text[]) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE out_text text; term text; pattern text;
+ character text; escaped_character text; codepoint integer; high_surrogate integer; low_surrogate integer; character_position integer;
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ out_text=normalize(p_text,NFKC);
+ FOR term IN
+  SELECT normalized FROM (
+   SELECT DISTINCT normalize(btrim(value),NFKC) normalized
+   FROM unnest(coalesce(p_terms,'{}'::text[])) value
+   WHERE value IS NOT NULL AND char_length(btrim(value))>=1
+ ) candidates ORDER BY char_length(normalized) DESC,normalized COLLATE "C"
+ LOOP
+  pattern='';
+  FOR character_position IN 1..char_length(term) LOOP
+   character=substring(term FROM character_position FOR 1);
+   escaped_character=regexp_replace(character,'([\\.^$|()\[\]{}*+?])','\\\1','g');
+   codepoint=ascii(character);
+   IF codepoint<=65535 THEN
+    escaped_character='(?:'||escaped_character||'|\\u'||lpad(to_hex(codepoint),4,'0')||')';
+   ELSE
+    high_surrogate=55296+((codepoint-65536)/1024);
+    low_surrogate=56320+((codepoint-65536)%1024);
+    escaped_character='(?:'||escaped_character||'|\\u'||lpad(to_hex(high_surrogate),4,'0')
+      ||'\\u'||lpad(to_hex(low_surrogate),4,'0')||')';
+   END IF;
+   IF character='@' THEN
+    escaped_character=substring(escaped_character FROM 1 FOR char_length(escaped_character)-1)
+      ||'|&commat;|&#0*64;|&#x0*40;)';
+   END IF;
+   pattern=pattern||escaped_character;
+  END LOOP;
+  IF char_length(term)<3 THEN pattern='(?<![[:alnum:]_])'||pattern||'(?![[:alnum:]_])'; END IF;
+  out_text=regexp_replace(out_text,pattern,'[redacted]','gi');
+ END LOOP;
+ RETURN out_text;
+END $$;
+
+CREATE FUNCTION public.decke_improvement_decode_text(p_text text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE out_text text:=p_text; next_text text; pass integer;
+BEGIN
+ IF out_text IS NULL THEN RETURN NULL; END IF;
+ FOR pass IN 1..4 LOOP
+  next_text=public.decke_improvement_decode_escapes(
+    public.decke_improvement_percent_decode(out_text));
+  EXIT WHEN next_text=out_text;
+  out_text=next_text;
+ END LOOP;
+ out_text=replace(out_text,'+',' ');
+ RETURN normalize(out_text,NFKC);
+END $$;
+
+-- Case/diacritic fold used only for DETECTION, identical to the API's fold():
+-- lowercase, decompose, strip combining marks, final sigma → σ. It absorbs
+-- where PostgreSQL's per-character lower() and JavaScript's full Unicode
+-- lowercasing disagree (U+0130 lowers to 'i' + U+0307 in JS but 'i' here;
+-- final sigma is contextual in JS only), and it is deliberately broader than
+-- either: 'Jose' also matches 'José', which errs toward redacting.
+CREATE FUNCTION public.decke_improvement_fold(p_text text) RETURNS text
+LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+ SELECT translate(regexp_replace(normalize(lower(normalize(p_text,NFKC) COLLATE "C.utf8"),NFKD),
+   '[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]','','g'),'ς','σ')
+$$;
+
+CREATE OR REPLACE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE literal text; current_view text; candidate text; normalized_view text; term text; lowered_term text;
+ detection_pattern text; detection_terms text[]; views text[]; depths smallint[]; seen text[];
+ head integer:=1; decoder integer; view_count integer; current_depth smallint;
+ total_characters bigint; character_budget bigint;
+BEGIN
+ IF p_text IS NULL THEN RETURN NULL; END IF;
+ -- Literal replacements are precise and each variant scans the value once.
+ -- Decoded representations below are detection-only: if decoding exposes an
+ -- identity, the whole uncommon encoded field is safer to discard.
+ literal=public.decke_improvement_replace_terms(p_text,public.decke_improvement_redaction_variants(p_terms));
+ SELECT coalesce(array_agg(normalized ORDER BY char_length(normalized) DESC,normalized COLLATE "C"),'{}'::text[])
+ INTO detection_terms
+ FROM (
+  SELECT DISTINCT normalize(btrim(value),NFKC) normalized
+  FROM (
+   SELECT value FROM unnest(coalesce(p_terms,'{}'::text[])) value
+   UNION
+   SELECT replace(value,'+',' ') FROM unnest(coalesce(p_terms,'{}'::text[])) value
+  ) variants
+ WHERE value IS NOT NULL AND char_length(btrim(value))>=1
+ ) candidates;
+ -- Every edge applies exactly one primitive decoder.  Keeping all distinct
+ -- intermediate views prevents a later decoder from erasing a name that an
+ -- earlier view exposed (for example percent-decoded "&AMP;").
+ views=ARRAY[literal]; depths=ARRAY[0::smallint]; seen=ARRAY[literal];
+ total_characters=char_length(literal)::bigint;
+ character_budget=greatest(65536::bigint,16::bigint*char_length(p_text)::bigint);
+ IF total_characters>character_budget THEN RETURN '[redacted]'; END IF;
+ WHILE head<=coalesce(cardinality(views),0) LOOP
+  current_view=views[head]; current_depth=depths[head];
+  -- Both sides through the same fold, so SQL detection is at least as strict
+  -- as the API's (see decke_improvement_fold).
+  normalized_view=public.decke_improvement_fold(current_view);
+  FOREACH term IN ARRAY detection_terms LOOP
+   lowered_term=public.decke_improvement_fold(term);
+   -- A term of combining marks alone folds to ''; strpos('') would match
+   -- every view. It is not a detection signal; the literal pass covers it.
+   CONTINUE WHEN coalesce(lowered_term,'')='';
+   IF char_length(term)>=3 THEN
+    IF strpos(normalized_view,lowered_term)>0 THEN RETURN '[redacted]'; END IF;
+   ELSE
+    detection_pattern=regexp_replace(lowered_term,'([\\.^$|()\[\]{}*+?])','\\\1','g');
+    IF normalized_view~('(?<![[:alnum:]_])'||detection_pattern||'(?![[:alnum:]_])') THEN RETURN '[redacted]'; END IF;
+   END IF;
+  END LOOP;
+  IF current_depth<5 THEN
+   FOR decoder IN 1..4 LOOP
+    candidate=CASE decoder
+     WHEN 1 THEN CASE WHEN current_view~'%[0-9A-Fa-f]{2}'
+       THEN public.decke_improvement_percent_decode(current_view) ELSE current_view END
+     WHEN 2 THEN CASE WHEN current_view~*'\\u[0-9A-Fa-f]{4}'
+       THEN public.decke_improvement_decode_json_escapes(current_view) ELSE current_view END
+     WHEN 3 THEN CASE WHEN strpos(current_view,'&')>0
+       THEN public.decke_improvement_decode_html_entities(current_view) ELSE current_view END
+     ELSE replace(current_view,'+',' ') END;
+    CONTINUE WHEN candidate=current_view OR array_position(seen,candidate) IS NOT NULL;
+    total_characters=total_characters+char_length(candidate)::bigint;
+    view_count=coalesce(cardinality(views),0);
+    IF total_characters>character_budget OR view_count>=64 THEN RETURN '[redacted]'; END IF;
+    views=array_append(views,candidate);
+    depths=array_append(depths,(current_depth+1)::smallint);
+    seen=array_append(seen,candidate);
+   END LOOP;
+  END IF;
+  head=head+1;
+ END LOOP;
+ RETURN literal;
+END $$;
+
+-- The API may obtain only its own identity terms through the request subject.
+-- Direct auth.users access remains unavailable to browser/request roles.
+CREATE FUNCTION public.decke_improvement_identity_terms(p_user text) RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE actor text; username text; display_name text; email text;
+BEGIN
+ actor=auth.uid()::text;
+ IF actor IS NULL OR p_user IS NULL OR actor<>p_user THEN
+  RAISE EXCEPTION 'Identity terms are available only to their subject' USING ERRCODE='42501';
+ END IF;
+ SELECT u.username,p.display_name,a.email INTO username,display_name,email
+ FROM public.app_user u
+ LEFT JOIN public.user_profile p ON p.user_id=u.id
+ LEFT JOIN auth.users a ON a.id=u.id
+ WHERE u.id::text=p_user;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Account is unavailable' USING ERRCODE='P0002'; END IF;
+ RETURN jsonb_build_object('username',username,'displayName',display_name,'email',email);
+END $$;
+
+CREATE FUNCTION public.decke_improvement_is_shared(p_user text,p_conversation uuid) RETURNS boolean
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; consent_owner bytea; conversation uuid;
+BEGIN
+ IF p_conversation IS NULL THEN RAISE EXCEPTION 'Conversation is required' USING ERRCODE='22023'; END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ SELECT owner_key INTO consent_owner FROM public.decke_improvement_consent
+ WHERE id=conversation AND status='shared';
+ IF NOT FOUND THEN RETURN false; END IF;
+ IF consent_owner<>owner THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+ RETURN true;
+END $$;
+
+CREATE FUNCTION public.decke_improvement_request_telemetry(p_user text,p_request uuid) RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE request_started timestamptz; request_finished timestamptz; request_status text;
+ request_build_sha text; request_build_pr integer; request_leg integer;
+ operation_count integer; priced_count integer; model text; provider text;
+ input_tokens bigint; output_tokens bigint; cache_read_tokens bigint; cache_write_tokens bigint; reasoning_tokens bigint;
+ cost_usd numeric; cost_source text; cost_coverage text; latency_ms bigint;
+BEGIN
+ PERFORM public.decke_improvement_require_writer(p_user);
+ IF p_request IS NULL THEN RAISE EXCEPTION 'Request is required' USING ERRCODE='22023'; END IF;
+ SELECT r.started_at,r.finished_at,r.status,r.build_sha,r.build_pr,
+   (SELECT count(*)::integer-1 FROM public.decke_ai_request prior
+    WHERE prior.user_id=r.user_id AND prior.conversation_id=r.conversation_id AND prior.seq=r.seq
+      AND (prior.started_at,prior.id)<=(r.started_at,r.id))
+ INTO request_started,request_finished,request_status,request_build_sha,request_build_pr,request_leg
+ FROM public.decke_ai_request r WHERE r.id=p_request AND r.user_id=p_user;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Request is unavailable' USING ERRCODE='42501'; END IF;
+ SELECT count(*)::integer,count(o.cost_usd)::integer,
+   CASE count(DISTINCT nullif(o.model_id,'')) WHEN 0 THEN NULL WHEN 1 THEN min(nullif(o.model_id,'')) ELSE 'mixed' END,
+   CASE count(DISTINCT nullif(o.provider,'')) WHEN 0 THEN NULL WHEN 1 THEN min(nullif(o.provider,'')) ELSE 'mixed' END,
+   sum(o.input_tokens),sum(o.output_tokens),sum(o.cache_read_tokens),sum(o.cache_write_tokens),sum(o.reasoning_tokens),sum(o.cost_usd),
+   CASE WHEN count(o.cost_usd)=0 THEN 'unknown'
+     WHEN bool_or(o.cost_usd IS NOT NULL AND o.cost_source='token_rate_estimate') THEN 'token_rate_estimate'
+     ELSE 'provider_reported' END
+ INTO operation_count,priced_count,model,provider,input_tokens,output_tokens,cache_read_tokens,
+   cache_write_tokens,reasoning_tokens,cost_usd,cost_source
+ FROM public.decke_ai_operation o WHERE o.request_id=p_request;
+ cost_coverage=CASE WHEN priced_count=0 THEN 'unknown' WHEN priced_count=operation_count THEN 'complete' ELSE 'partial' END;
+ latency_ms=CASE WHEN request_finished IS NULL THEN NULL ELSE greatest(0,
+   floor(extract(epoch FROM request_finished)*1000)::bigint-floor(extract(epoch FROM request_started)*1000)::bigint) END;
+ RETURN jsonb_build_object(
+  'leg_no',request_leg,'model_id',model,'provider',provider,
+  'started_at',to_char(request_started AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+  'finished_at',CASE WHEN request_finished IS NULL THEN NULL ELSE to_char(request_finished AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') END,
+  'latency_ms',latency_ms,'input_tokens',input_tokens,'output_tokens',output_tokens,
+  'cache_read_tokens',cache_read_tokens,'cache_write_tokens',cache_write_tokens,'reasoning_tokens',reasoning_tokens,
+  'cost_usd',cost_usd,'cost_source',cost_source,'cost_coverage',cost_coverage,
+  'status',request_status,'build_sha',request_build_sha,'build_pr',request_build_pr);
+END $$;
+
+-- History deletion and corpus withdrawal are one transaction.  Updating only
+-- an existing consent also prevents an app_user cascade from recreating rows
+-- after the account-deletion trigger has removed that owner's corpus state.
+CREATE FUNCTION public.decke_improvement_withdraw_history() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; changed integer;
+BEGIN
+ owner=public.decke_improvement_owner_key(OLD.user_id::text);
+ conversation=public.decke_improvement_uuid('conversation:',OLD.id);
+ UPDATE public.decke_improvement_consent SET status='revoked',answered_at=now(),updated_at=now()
+ WHERE id=conversation AND owner_key=owner;
+ GET DIAGNOSTICS changed=ROW_COUNT;
+ IF changed>0 THEN
+  DELETE FROM public.decke_improvement_conversation WHERE id=conversation AND owner_key=owner;
+ END IF;
+ RETURN OLD;
+END $$;
+
+DROP TRIGGER IF EXISTS decke_improvement_withdraw_history ON public.decke_conversation;
+CREATE TRIGGER decke_improvement_withdraw_history
+AFTER DELETE ON public.decke_conversation
+FOR EACH ROW EXECUTE FUNCTION public.decke_improvement_withdraw_history();
+
+CREATE OR REPLACE FUNCTION public.decke_improvement_revoke(p_user text,p_conversation uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; consent_owner bytea;
+ turns integer:=0; legs integer:=0; events integer:=0; conversations integer:=0;
+BEGIN
+ IF p_conversation IS NULL THEN RAISE EXCEPTION 'Conversation is required' USING ERRCODE='22023'; END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ SELECT owner_key INTO consent_owner FROM public.decke_improvement_consent WHERE id=conversation FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Improvement consent is unavailable' USING ERRCODE='P0002'; END IF;
+ IF consent_owner<>owner THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+ SELECT count(*)::integer INTO conversations FROM public.decke_improvement_conversation WHERE id=conversation;
+ SELECT count(*)::integer INTO turns FROM public.decke_improvement_turn WHERE conversation_id=conversation;
+ SELECT count(*)::integer INTO legs FROM public.decke_improvement_leg WHERE conversation_id=conversation;
+ SELECT count(*)::integer INTO events FROM public.decke_improvement_event WHERE conversation_id=conversation;
+ DELETE FROM public.decke_ai_content legacy USING public.decke_ai_request request
+  WHERE legacy.request_id=request.id AND request.user_id=p_user AND request.conversation_id=p_conversation;
+ DELETE FROM public.decke_improvement_conversation WHERE id=conversation AND owner_key=owner;
+ UPDATE public.decke_improvement_consent SET status='revoked',answered_at=now(),updated_at=now()
+  WHERE id=conversation;
+ RETURN jsonb_build_object('revoked',true,'conversationId',p_conversation,'deleted',jsonb_build_object(
+  'conversations',conversations,'turns',turns,'legs',legs,'events',events));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.decke_improvement_list(p_filters jsonb DEFAULT '{}'::jsonb,p_cursor text DEFAULT NULL,p_limit integer DEFAULT 50) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE cursor_time timestamptz; cursor_id uuid; items jsonb; next_cursor text; filters jsonb:=coalesce(p_filters,'{}'::jsonb);
+ min_cost numeric; max_cost numeric; from_day date; to_day date;
+BEGIN
+ PERFORM public.decke_improvement_require_reader();
+ BEGIN PERFORM public.decke_improvement_purge_expired(); EXCEPTION WHEN read_only_sql_transaction THEN NULL; END;
+ IF jsonb_typeof(filters)<>'object' OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 100
+    OR filters-ARRAY['from','to','build_sha','build_pr','vote','min_cost','max_cost','has_error','model','tool']<>'{}'::jsonb THEN
+  RAISE EXCEPTION 'Invalid list filters' USING ERRCODE='22023';
+ END IF;
+ IF (filters?'from' AND (jsonb_typeof(filters->'from')<>'string' OR filters->>'from'!~'^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+    OR (filters?'to' AND (jsonb_typeof(filters->'to')<>'string' OR filters->>'to'!~'^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+    OR (filters?'min_cost' AND (jsonb_typeof(filters->'min_cost') NOT IN ('number','string') OR filters->>'min_cost'!~'^[0-9]+(?:[.][0-9]{1,2})?$'))
+    OR (filters?'max_cost' AND (jsonb_typeof(filters->'max_cost') NOT IN ('number','string') OR filters->>'max_cost'!~'^[0-9]+(?:[.][0-9]{1,2})?$')) THEN
+  RAISE EXCEPTION 'List date filters must be UTC days and costs must be whole cents' USING ERRCODE='22023';
+ END IF;
+ IF filters?'from' THEN from_day=(filters->>'from')::date; END IF;
+ IF filters?'to' THEN to_day=(filters->>'to')::date; END IF;
+ IF filters?'min_cost' THEN min_cost=(filters->>'min_cost')::numeric; END IF;
+ IF filters?'max_cost' THEN max_cost=(filters->>'max_cost')::numeric; END IF;
+ IF p_cursor IS NOT NULL THEN
+  BEGIN
+   cursor_id=p_cursor::uuid;
+   SELECT updated_at INTO cursor_time FROM public.decke_improvement_conversation WHERE id=cursor_id;
+   IF NOT FOUND THEN RAISE EXCEPTION 'Invalid cursor' USING ERRCODE='22023'; END IF;
+  EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'Invalid cursor' USING ERRCODE='22023'; END;
+ END IF;
+ WITH selected AS (
+  SELECT c.*,(SELECT count(*) FROM public.decke_improvement_turn t WHERE t.conversation_id=c.id) turn_count
+  FROM public.decke_improvement_conversation c WHERE
+   c.updated_at>=now()-interval '180 days'
+   AND (cursor_time IS NULL OR (c.updated_at,c.id)<(cursor_time,cursor_id))
+   AND (from_day IS NULL OR (c.started_at AT TIME ZONE 'UTC')::date>=from_day)
+   AND (to_day IS NULL OR (c.started_at AT TIME ZONE 'UTC')::date<to_day)
+   AND (NOT(filters?'has_error') OR c.has_error=(filters->>'has_error')::boolean)
+   AND (min_cost IS NULL OR round(c.cost_usd,2)>=min_cost)
+   AND (max_cost IS NULL OR round(c.cost_usd,2)<=max_cost)
+   AND (NOT(filters?'build_sha') OR EXISTS(SELECT 1 FROM public.decke_improvement_turn t WHERE t.conversation_id=c.id AND t.build_sha=filters->>'build_sha'))
+   AND (NOT(filters?'build_pr') OR EXISTS(SELECT 1 FROM public.decke_improvement_turn t WHERE t.conversation_id=c.id AND t.build_pr=(filters->>'build_pr')::integer))
+   AND (NOT(filters?'vote') OR EXISTS(SELECT 1 FROM public.decke_improvement_turn t WHERE t.conversation_id=c.id AND t.feedback=(filters->>'vote')::smallint))
+   AND (NOT(filters?'model') OR EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=c.id AND l.model_id=filters->>'model'))
+   AND (NOT(filters?'tool') OR EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=c.id
+     AND l.tool_calls @> jsonb_build_array(jsonb_build_object('name',filters->>'tool'))))
+  ORDER BY c.updated_at DESC,c.id DESC LIMIT p_limit+1
+ ), page AS (SELECT * FROM selected ORDER BY updated_at DESC,id DESC LIMIT p_limit)
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'date',to_char(started_at AT TIME ZONE 'UTC','YYYY-MM-DD'),
+   'buildFirst',build_first,'buildLast',build_last,'turnCount',turn_count,
+   'costUsd',CASE WHEN cost_usd IS NULL THEN NULL ELSE round(cost_usd,2) END,
+   'costCoverage',cost_coverage,'hasError',has_error) ORDER BY updated_at DESC,id DESC),'[]'::jsonb),
+   CASE WHEN (SELECT count(*) FROM selected)>p_limit THEN (SELECT id::text FROM page ORDER BY updated_at,id LIMIT 1) END
+ INTO items,next_cursor FROM page;
+ RETURN jsonb_build_object('items',items,'nextCursor',next_cursor);
+EXCEPTION WHEN invalid_text_representation OR invalid_datetime_format OR datetime_field_overflow OR numeric_value_out_of_range THEN
+ RAISE EXCEPTION 'Invalid list filter value' USING ERRCODE='22023';
+END $$;
+
+-- Repair shared rows whose personal History record disappeared before this
+-- trigger existed, then re-run the stronger redactor over every retained field.
+-- Materialising the HMAC mapping once avoids a corpus-by-History nested scan on
+-- production data; the table is dropped again before this migration finishes.
+CREATE TEMP TABLE decke_improvement_079_map AS
+SELECT d.id raw_id,d.user_id::text p_user,
+ public.decke_improvement_uuid('conversation:',d.id) corpus_id,
+ public.decke_improvement_owner_key(d.user_id::text) owner_key
+FROM public.decke_conversation d;
+CREATE UNIQUE INDEX decke_improvement_079_map_corpus_idx
+ ON decke_improvement_079_map(corpus_id,owner_key);
+
+UPDATE public.decke_improvement_consent x SET status='revoked',answered_at=now(),updated_at=now()
+WHERE x.status='shared'
+ AND EXISTS(SELECT 1 FROM public.decke_improvement_conversation c WHERE c.id=x.id AND c.owner_key=x.owner_key)
+ AND NOT EXISTS(
+  SELECT 1 FROM pg_temp.decke_improvement_079_map m
+  WHERE m.corpus_id=x.id AND m.owner_key=x.owner_key
+ );
+
+DELETE FROM public.decke_improvement_conversation c
+WHERE NOT EXISTS(
+ SELECT 1 FROM pg_temp.decke_improvement_079_map m
+ WHERE m.corpus_id=c.id AND m.owner_key=c.owner_key
+);
+
+-- This migration-only helper reconstructs every identity term available to
+-- the live writers, including raw UUIDs that were never retained in corpus
+-- ownership columns.  Drop it before commit so it cannot become a reader API.
+CREATE FUNCTION public.decke_improvement_repair_terms(p_user text,p_conversation uuid) RETURNS text[]
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ SELECT public.decke_improvement_redaction_terms(p_user)
+   ||ARRAY[p_user,p_conversation::text]
+   ||coalesce(array_agg(r.id::text),'{}'::text[])
+   ||coalesce(array_agg(r.exchange_id::text),'{}'::text[])
+ FROM public.decke_ai_request r
+ WHERE r.user_id=p_user AND r.conversation_id=p_conversation
+$$;
+
+WITH identities AS MATERIALIZED (
+ SELECT c.id,public.decke_improvement_repair_terms(m.p_user,m.raw_id) terms
+ FROM public.decke_improvement_conversation c JOIN pg_temp.decke_improvement_079_map m
+  ON m.corpus_id=c.id AND m.owner_key=c.owner_key
+)
+UPDATE public.decke_improvement_turn t SET
+ asked=public.decke_improvement_redact_text(t.asked,i.terms),
+ answered=public.decke_improvement_redact_text(t.answered,i.terms),
+ tools=public.decke_improvement_redact_json_identifiers(t.tools,i.terms),
+ feedback_comment=left(public.decke_improvement_redact_text(t.feedback_comment,i.terms),500)
+FROM identities i WHERE t.conversation_id=i.id;
+
+WITH identities AS MATERIALIZED (
+ SELECT c.id,public.decke_improvement_repair_terms(m.p_user,m.raw_id) terms
+ FROM public.decke_improvement_conversation c JOIN pg_temp.decke_improvement_079_map m
+  ON m.corpus_id=c.id AND m.owner_key=c.owner_key
+)
+UPDATE public.decke_improvement_leg l SET
+ asked=public.decke_improvement_redact_text(l.asked,i.terms),
+ answered=public.decke_improvement_redact_text(l.answered,i.terms),
+ error=public.decke_improvement_redact_json_identifiers(l.error,i.terms),
+ tool_calls=public.decke_improvement_redact_json_identifiers(l.tool_calls,i.terms)
+FROM identities i WHERE l.conversation_id=i.id;
+
+WITH identities AS MATERIALIZED (
+ SELECT c.id,public.decke_improvement_repair_terms(m.p_user,m.raw_id) terms
+ FROM public.decke_improvement_conversation c JOIN pg_temp.decke_improvement_079_map m
+  ON m.corpus_id=c.id AND m.owner_key=c.owner_key
+)
+UPDATE public.decke_improvement_event e SET
+ payload=public.decke_improvement_redact_json_identifiers(e.payload,i.terms)
+FROM identities i WHERE e.conversation_id=i.id;
+
+DROP FUNCTION public.decke_improvement_repair_terms(text,uuid);
+DROP TABLE pg_temp.decke_improvement_079_map;
+
+-- History's finish_reason is reader-supplied free text (up to 40 characters,
+-- migration 046), and consent copies it into turn and leg shells without either
+-- redaction layer. The corpus keeps only the SDK's closed vocabulary; anything
+-- else becomes 'other'. A trigger, so every writer — present or future — is
+-- covered, not only the paths reviewed today.
+CREATE FUNCTION public.decke_improvement_finish_reason(p_reason text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT CASE WHEN p_reason IS NULL THEN NULL
+  WHEN lower(p_reason) IN ('stop','length','content-filter','tool-calls','error','other','unknown') THEN lower(p_reason)
+  ELSE 'other' END
+$$;
+CREATE FUNCTION public.decke_improvement_finish_reason_guard() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ NEW.finish_reason=public.decke_improvement_finish_reason(NEW.finish_reason);
+ RETURN NEW;
+END $$;
+CREATE TRIGGER decke_improvement_turn_finish_reason
+ BEFORE INSERT OR UPDATE OF finish_reason ON public.decke_improvement_turn
+ FOR EACH ROW EXECUTE FUNCTION public.decke_improvement_finish_reason_guard();
+CREATE TRIGGER decke_improvement_leg_finish_reason
+ BEFORE INSERT OR UPDATE OF finish_reason ON public.decke_improvement_leg
+ FOR EACH ROW EXECUTE FUNCTION public.decke_improvement_finish_reason_guard();
+UPDATE public.decke_improvement_turn SET finish_reason=finish_reason WHERE finish_reason IS NOT NULL;
+UPDATE public.decke_improvement_leg SET finish_reason=finish_reason WHERE finish_reason IS NOT NULL;
+
+-- A turn's text is assembled from its legs. 078 joined them with nothing, so
+-- 'John' in one leg and 'Smith' in the next — each clean on its own — became
+-- 'JohnSmith' in the stored turn with no redaction of the joined value. Legs
+-- are now joined with a blank line, and the assembled text is redacted with the
+-- writer's identity terms. Every caller is a corpus writer that has already
+-- passed decke_improvement_require_writer, so admin_actor_id() is the verified
+-- owner; without a request subject (e.g. this migration) only the separator
+-- applies.
+CREATE OR REPLACE FUNCTION public.decke_improvement_recompute(p_conversation uuid,p_seq integer) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE writer text:=public.admin_actor_id(); terms text[];
+BEGIN
+ IF writer IS NOT NULL THEN terms=public.decke_improvement_redaction_terms(writer); END IF;
+ UPDATE public.decke_improvement_turn t SET
+   -- Legs whose text has not been recorded yet (e.g. shells made at consent)
+   -- contribute nothing; keep the turn's own (already redacted) text rather
+   -- than overwriting it with an empty aggregate.
+   asked=coalesce(x.asked,nullif(t.asked,''),''),
+   answered=coalesce(nullif(CASE WHEN terms IS NULL THEN x.answered ELSE public.decke_improvement_redact_text(x.answered,terms) END,''),nullif(t.answered,''),''),
+   finished_at=x.finished_at,
+   latency_ms=CASE WHEN x.finished_at IS NULL THEN NULL ELSE greatest(0,floor(extract(epoch FROM (x.finished_at-x.started_at))*1000)::integer) END,
+   input_tokens=x.input_tokens,output_tokens=x.output_tokens,cache_read_tokens=x.cache_read_tokens,
+   cache_write_tokens=x.cache_write_tokens,reasoning_tokens=x.reasoning_tokens,
+   cost_usd=x.cost_usd,cost_coverage=x.coverage,build_sha=x.build_sha,build_pr=x.build_pr,
+   finish_reason=x.finish_reason,has_error=x.has_error
+ FROM (
+  SELECT min(started_at) started_at,
+   CASE WHEN count(finished_at)=count(*) THEN max(finished_at) END finished_at,
+   (array_agg(asked ORDER BY leg) FILTER(WHERE asked<>''))[1] asked,
+   string_agg(nullif(answered,''),E'\n\n' ORDER BY leg) answered,
+   sum(input_tokens) input_tokens,sum(output_tokens) output_tokens,sum(cache_read_tokens) cache_read_tokens,
+   sum(cache_write_tokens) cache_write_tokens,sum(reasoning_tokens) reasoning_tokens,
+   sum(cost_usd) cost_usd,
+   CASE WHEN count(cost_usd)=0 THEN 'unknown' WHEN bool_and(cost_coverage='complete') THEN 'complete' ELSE 'partial' END coverage,
+   (array_agg(build_sha ORDER BY leg DESC) FILTER(WHERE build_sha IS NOT NULL))[1] build_sha,
+   (array_agg(build_pr ORDER BY leg DESC) FILTER(WHERE build_pr IS NOT NULL))[1] build_pr,
+   (array_agg(finish_reason ORDER BY leg DESC) FILTER(WHERE finish_reason IS NOT NULL))[1] finish_reason,
+   bool_or(error IS NOT NULL OR status='failed') OR EXISTS(
+    SELECT 1 FROM public.decke_improvement_event e WHERE e.conversation_id=p_conversation AND e.seq=p_seq AND e.kind='error') has_error
+  FROM public.decke_improvement_leg
+  WHERE conversation_id=p_conversation AND seq=p_seq
+ ) x WHERE t.conversation_id=p_conversation AND t.seq=p_seq;
+
+ UPDATE public.decke_improvement_conversation c SET
+   started_at=x.started_at,updated_at=x.updated_at,build_first=x.build_first,build_last=x.build_last,
+   cost_usd=x.cost_usd,cost_coverage=x.coverage,has_error=x.has_error
+ FROM (
+  SELECT least(min(turns.started_at),coalesce((SELECT min(e.at) FROM public.decke_improvement_event e
+    WHERE e.conversation_id=p_conversation),min(turns.started_at))) started_at,
+   greatest(max(coalesce(turns.finished_at,turns.started_at)),now()) updated_at,
+   (array_agg(build_sha ORDER BY seq) FILTER(WHERE build_sha IS NOT NULL))[1] build_first,
+   (array_agg(build_sha ORDER BY seq DESC) FILTER(WHERE build_sha IS NOT NULL))[1] build_last,
+   (SELECT sum(l.cost_usd) FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation) cost_usd,
+   CASE
+    WHEN NOT EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation AND l.cost_usd IS NOT NULL) THEN 'unknown'
+    WHEN NOT EXISTS(SELECT 1 FROM public.decke_improvement_leg l WHERE l.conversation_id=p_conversation AND l.cost_coverage<>'complete') THEN 'complete'
+    ELSE 'partial'
+   END coverage,
+   bool_or(has_error) has_error
+  FROM public.decke_improvement_turn turns WHERE conversation_id=p_conversation
+ ) x WHERE c.id=p_conversation;
+END $$;
+
+-- Feedback with the API's redacted copy of the comment. The 078 signature let
+-- a shared comment reach the corpus with SQL redaction alone, and SQL's case
+-- folding is bounded by the database's Unicode tables (a name using a
+-- character newer than them folds differently than in the API). The reader's
+-- own feedback keeps the comment as written; the corpus receives the
+-- API-redacted copy, redacted again here as defence in depth.
+CREATE FUNCTION public.decke_improvement_record_feedback(
+ p_user text,p_conversation uuid,p_seq integer,p_vote smallint,p_comment text,p_share boolean,p_corpus_comment text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; clean_comment text; copied boolean:=false; identity_terms text[]; shared boolean:=false;
+BEGIN
+ IF p_conversation IS NULL OR p_seq IS NULL OR p_seq<0 OR p_share IS NULL
+    OR (p_vote IS NOT NULL AND p_vote NOT IN(-1,1)) OR char_length(p_comment)>500
+    OR char_length(p_corpus_comment)>2000 THEN
+  RAISE EXCEPTION 'Invalid feedback' USING ERRCODE='22023';
+ END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ IF NOT EXISTS(SELECT 1 FROM public.decke_turn t WHERE t.conversation_id=p_conversation
+   AND t.seq=p_seq AND t.user_id::text=p_user) THEN
+  RAISE EXCEPTION 'Personal history turn is unavailable' USING ERRCODE='P0002';
+ END IF;
+ IF p_vote IS NULL THEN p_comment=NULL; p_corpus_comment=NULL; END IF;
+ -- No separate copy supplied means nothing reaches the corpus but a vote.
+ IF p_comment IS NOT NULL AND p_corpus_comment IS NULL THEN p_corpus_comment='[redacted]'; END IF;
+ SELECT ARRAY[p_user,p_conversation::text]
+   ||coalesce(array_agg(r.id::text),'{}'::text[])
+   ||coalesce(array_agg(r.exchange_id::text),'{}'::text[])
+ INTO identity_terms FROM public.decke_ai_request r
+ WHERE r.user_id=p_user AND r.conversation_id=p_conversation AND r.seq=p_seq;
+ clean_comment=left(public.decke_improvement_redact_text(
+   public.decke_improvement_redact_text(p_corpus_comment,identity_terms),
+   public.decke_improvement_redaction_terms(p_user)),500);
+ INSERT INTO public.decke_turn_feedback(user_id,conversation_id,seq,vote,comment,updated_at)
+ VALUES(p_user::uuid,p_conversation,p_seq,p_vote,p_comment,now())
+ ON CONFLICT(user_id,conversation_id,seq) DO UPDATE SET vote=EXCLUDED.vote,comment=EXCLUDED.comment,updated_at=now();
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ SELECT status='shared' INTO shared FROM public.decke_improvement_consent
+  WHERE id=conversation AND owner_key=owner FOR SHARE;
+ shared=coalesce(shared,false);
+ IF p_share AND NOT shared THEN
+  PERFORM public.decke_improvement_answer(p_user,p_conversation,true,'feedback');
+  shared=true;
+ END IF;
+ IF shared THEN
+  UPDATE public.decke_improvement_turn SET feedback=p_vote,feedback_comment=clean_comment
+   WHERE conversation_id=conversation AND seq=p_seq
+     AND EXISTS(SELECT 1 FROM public.decke_improvement_conversation c WHERE c.id=conversation AND c.owner_key=owner);
+  copied=FOUND;
+  IF copied AND EXISTS(SELECT 1 FROM public.decke_improvement_leg WHERE conversation_id=conversation AND seq=p_seq) THEN
+   PERFORM public.decke_improvement_recompute(conversation,p_seq);
+  END IF;
+ END IF;
+ RETURN jsonb_build_object('saved',true,'copied',copied,'shared',shared,'vote',p_vote,'comment',p_comment);
+END $$;
+
+DO $acl$
+DECLARE principal text;
+BEGIN
+ -- Keep decoder and raw matching machinery private; only the three narrow
+ -- subject-scoped boundaries below are callable by the request role.
+ FOREACH principal IN ARRAY ARRAY['PUBLIC','anon','authenticated','service_role'] LOOP
+  CONTINUE WHEN principal<>'PUBLIC' AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_run(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_decode(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_fold(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_finish_reason(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_finish_reason_guard() FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_scalar(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_json_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_named_html_entity(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_html_entities(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_replace_terms(text,text[]) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_text(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_identity_terms(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_is_shared(text,uuid) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_request_telemetry(text,uuid) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_withdraw_history() FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_record_feedback(text,uuid,integer,smallint,text,boolean,text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  -- Retire 078's six-argument writer: it put comments in the corpus with SQL
+  -- redaction alone. Nothing may write a comment without the API's copy.
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_record_feedback(text,uuid,integer,smallint,text,boolean) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
+  GRANT EXECUTE ON FUNCTION public.decke_improvement_identity_terms(text),
+   public.decke_improvement_is_shared(text,uuid),
+   public.decke_improvement_request_telemetry(text,uuid),
+   public.decke_improvement_record_feedback(text,uuid,integer,smallint,text,boolean,text) TO authenticated;
+ END IF;
+END $acl$;
+
+COMMENT ON FUNCTION public.decke_improvement_identity_terms(text) IS
+ 'Returns the calling authenticated subject identity terms for API-side improvement redaction.';
+COMMENT ON FUNCTION public.decke_improvement_is_shared(text,uuid) IS
+ 'Reports subject-owned sharing state without exposing the corpus owner HMAC.';
+COMMENT ON FUNCTION public.decke_improvement_request_telemetry(text,uuid) IS
+ 'Returns accounting metadata for one subject-owned request without chat content.';
+
+-- Always-share is a separate, default-off choice. Existing per-chat consent
+-- rows remain authoritative, so changing this preference never rewrites them.
+ALTER TABLE public.user_settings
+ ADD COLUMN decke_share_all boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.decke_improvement_consent
+ DROP CONSTRAINT decke_improvement_consent_source_check,
+ ADD CONSTRAINT decke_improvement_consent_source_check
+  CHECK (source IN ('decke_ask','feedback','reader','always'));
+
+-- Keep 078's answer transaction intact while admitting the server-only source
+-- used when the reader has enabled always-share.
+CREATE OR REPLACE FUNCTION public.decke_improvement_answer(
+ p_user text,p_conversation uuid,p_share boolean,p_source text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; consent_owner bytea; prior_status text; started timestamptz;
+ raw_turns jsonb; raw_requests jsonb; request_row record; affected integer;
+BEGIN
+ IF p_conversation IS NULL OR p_share IS NULL OR p_source NOT IN ('decke_ask','feedback','reader','always') THEN
+  RAISE EXCEPTION 'Invalid improvement answer' USING ERRCODE='22023';
+ END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ PERFORM 1 FROM public.decke_conversation
+  WHERE id=p_conversation AND user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation is unavailable' USING ERRCODE='P0002'; END IF;
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ INSERT INTO public.decke_improvement_consent(id,owner_key,status,source,asked_at,answered_at,updated_at)
+ VALUES(conversation,owner,CASE WHEN p_share THEN 'shared' ELSE 'declined' END,p_source,
+   CASE WHEN p_source='decke_ask' THEN now() END,now(),now())
+ ON CONFLICT(id) DO NOTHING;
+ SELECT owner_key,status INTO consent_owner,prior_status
+  FROM public.decke_improvement_consent WHERE id=conversation FOR UPDATE;
+ IF consent_owner<>owner THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+ IF NOT p_share AND prior_status IN ('shared','revoked') THEN
+  RAISE EXCEPTION 'Stop sharing through revoke' USING ERRCODE='22023';
+ END IF;
+ UPDATE public.decke_improvement_consent SET
+  status=CASE WHEN p_share THEN 'shared' ELSE 'declined' END,
+  source=p_source,answered_at=now(),updated_at=now()
+ WHERE id=conversation;
+ IF NOT p_share THEN
+  RETURN jsonb_build_object('status','declined','source',p_source,'conversationId',conversation);
+ END IF;
+
+ SELECT coalesce(min(at),now()) INTO started FROM (
+  SELECT created_at at FROM public.decke_turn WHERE conversation_id=p_conversation AND user_id::text=p_user
+  UNION ALL
+  SELECT started_at FROM public.decke_ai_request WHERE conversation_id=p_conversation AND user_id=p_user
+ ) available;
+ INSERT INTO public.decke_improvement_conversation(id,owner_key,started_at,updated_at)
+ VALUES(conversation,owner,started,now())
+ ON CONFLICT(id) DO UPDATE SET updated_at=greatest(public.decke_improvement_conversation.updated_at,EXCLUDED.updated_at)
+ WHERE public.decke_improvement_conversation.owner_key=EXCLUDED.owner_key;
+ GET DIAGNOSTICS affected=ROW_COUNT;
+ IF affected=0 THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+
+ -- Create empty turn shells for every History row.  No transcript text crosses
+ -- this boundary; the returned backfill is redacted by the API before writing.
+ INSERT INTO public.decke_improvement_turn(conversation_id,seq,started_at,build_sha,build_pr,finish_reason)
+ SELECT conversation,t.seq,t.created_at,t.build_sha,t.build_pr,t.finish_reason
+ FROM public.decke_turn t WHERE t.conversation_id=p_conversation AND t.user_id::text=p_user
+ ON CONFLICT(conversation_id,seq) DO UPDATE SET
+  started_at=least(public.decke_improvement_turn.started_at,EXCLUDED.started_at),
+  build_sha=coalesce(EXCLUDED.build_sha,public.decke_improvement_turn.build_sha),
+  build_pr=coalesce(EXCLUDED.build_pr,public.decke_improvement_turn.build_pr),
+  finish_reason=coalesce(EXCLUDED.finish_reason,public.decke_improvement_turn.finish_reason);
+
+ -- One improvement leg represents one metered request.  Operation values are
+ -- aggregated; raw request/conversation IDs are used only while deriving HMACs.
+ FOR request_row IN
+  SELECT r.*,
+   (row_number() OVER(PARTITION BY r.seq ORDER BY r.started_at,r.id)-1)::integer leg_no,
+   a.operation_count,a.known_costs,a.input_tokens,a.output_tokens,a.cache_read_tokens,
+   a.cache_write_tokens,a.reasoning_tokens,a.cost_usd,a.has_estimate,a.model_id,a.provider
+  FROM public.decke_ai_request r
+  CROSS JOIN LATERAL (
+   SELECT count(*)::integer operation_count,count(o.cost_usd)::integer known_costs,
+    sum(o.input_tokens) input_tokens,sum(o.output_tokens) output_tokens,
+    sum(o.cache_read_tokens) cache_read_tokens,sum(o.cache_write_tokens) cache_write_tokens,
+    sum(o.reasoning_tokens) reasoning_tokens,sum(o.cost_usd) cost_usd,
+    bool_or(o.cost_source='token_rate_estimate') has_estimate,
+    CASE WHEN count(DISTINCT o.model_id)=1 THEN min(o.model_id)
+         WHEN count(DISTINCT o.model_id)>1 THEN 'mixed' END model_id,
+    CASE WHEN count(DISTINCT o.provider)=1 THEN min(o.provider)
+         WHEN count(DISTINCT o.provider)>1 THEN 'mixed' END provider
+   FROM public.decke_ai_operation o WHERE o.request_id=r.id
+  ) a
+  WHERE r.conversation_id=p_conversation AND r.user_id=p_user AND r.seq IS NOT NULL
+  ORDER BY r.seq,r.started_at,r.id
+ LOOP
+  INSERT INTO public.decke_improvement_turn(conversation_id,seq,started_at,build_sha,build_pr,finish_reason)
+  VALUES(conversation,request_row.seq,request_row.started_at,request_row.build_sha,request_row.build_pr,
+    (SELECT finish_reason FROM public.decke_turn WHERE conversation_id=p_conversation AND seq=request_row.seq AND user_id::text=p_user))
+  ON CONFLICT(conversation_id,seq) DO UPDATE SET
+   started_at=least(public.decke_improvement_turn.started_at,EXCLUDED.started_at),
+   build_sha=coalesce(EXCLUDED.build_sha,public.decke_improvement_turn.build_sha),
+   build_pr=coalesce(EXCLUDED.build_pr,public.decke_improvement_turn.build_pr),
+   finish_reason=coalesce(EXCLUDED.finish_reason,public.decke_improvement_turn.finish_reason);
+  INSERT INTO public.decke_improvement_leg(
+   id,conversation_id,seq,leg,model_id,provider,started_at,finished_at,
+   input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,reasoning_tokens,
+   cost_usd,cost_coverage,cost_source,status,finish_reason,build_sha,build_pr,error,tool_calls)
+  VALUES(public.decke_improvement_uuid('request:',request_row.id),conversation,request_row.seq,request_row.leg_no,
+   request_row.model_id,request_row.provider,request_row.started_at,request_row.finished_at,
+   request_row.input_tokens,request_row.output_tokens,request_row.cache_read_tokens,
+   request_row.cache_write_tokens,request_row.reasoning_tokens,request_row.cost_usd,
+   CASE WHEN request_row.known_costs=0 THEN 'unknown'
+        WHEN request_row.known_costs=request_row.operation_count THEN 'complete' ELSE 'partial' END,
+   CASE WHEN request_row.known_costs=0 THEN 'unknown'
+        WHEN request_row.has_estimate THEN 'token_rate_estimate' ELSE 'provider_reported' END,
+   request_row.status,
+   (SELECT finish_reason FROM public.decke_turn WHERE conversation_id=p_conversation AND seq=request_row.seq AND user_id::text=p_user),
+   request_row.build_sha,request_row.build_pr,NULL,'[]'::jsonb)
+  ON CONFLICT(id) DO UPDATE SET
+   model_id=EXCLUDED.model_id,provider=EXCLUDED.provider,started_at=EXCLUDED.started_at,
+   finished_at=EXCLUDED.finished_at,input_tokens=EXCLUDED.input_tokens,output_tokens=EXCLUDED.output_tokens,
+   cache_read_tokens=EXCLUDED.cache_read_tokens,cache_write_tokens=EXCLUDED.cache_write_tokens,
+   reasoning_tokens=EXCLUDED.reasoning_tokens,cost_usd=EXCLUDED.cost_usd,cost_coverage=EXCLUDED.cost_coverage,cost_source=EXCLUDED.cost_source,
+   status=EXCLUDED.status,finish_reason=EXCLUDED.finish_reason,build_sha=EXCLUDED.build_sha,build_pr=EXCLUDED.build_pr
+  WHERE public.decke_improvement_leg.conversation_id=EXCLUDED.conversation_id
+    AND public.decke_improvement_leg.seq=EXCLUDED.seq AND public.decke_improvement_leg.leg=EXCLUDED.leg;
+  PERFORM public.decke_improvement_recompute(conversation,request_row.seq);
+ END LOOP;
+
+ SELECT coalesce(jsonb_agg(jsonb_build_object(
+  'seq',t.seq,'asked',t.asked,'answered',t.answered,'tools',t.tools,
+  'buildSha',t.build_sha,'buildPr',t.build_pr,'finishReason',t.finish_reason,
+  'createdAt',t.created_at) ORDER BY t.seq),'[]'::jsonb)
+ INTO raw_turns FROM public.decke_turn t
+ WHERE t.conversation_id=p_conversation AND t.user_id::text=p_user;
+ SELECT coalesce(jsonb_agg(jsonb_build_object(
+  'requestId',r.id,'seq',r.seq,'leg',r.leg_no) ORDER BY r.seq,r.started_at,r.id),'[]'::jsonb)
+ INTO raw_requests FROM (
+  SELECT q.id,q.seq,q.started_at,
+   (row_number() OVER(PARTITION BY q.seq ORDER BY q.started_at,q.id)-1)::integer leg_no
+  FROM public.decke_ai_request q
+  WHERE q.conversation_id=p_conversation AND q.user_id=p_user AND q.seq IS NOT NULL
+ ) r;
+ RETURN jsonb_build_object('status','shared','source',p_source,'conversationId',conversation,
+  'backfill',jsonb_build_object('turns',raw_turns,'requests',raw_requests));
+END $$;
+
+-- A global sharing choice suppresses prompts before the one-per-conversation
+-- insert, while all original prompt and prior-decision rules remain unchanged.
+CREATE OR REPLACE FUNCTION public.decke_improvement_can_ask(p_user text,p_conversation uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; prompts boolean; share_all boolean; inserted integer; existing_status text;
+BEGIN
+ IF p_conversation IS NULL THEN RAISE EXCEPTION 'Conversation is required' USING ERRCODE='22023'; END IF;
+ owner=public.decke_improvement_require_writer(p_user);
+ PERFORM 1 FROM public.decke_conversation
+  WHERE id=p_conversation AND user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation is unavailable' USING ERRCODE='P0002'; END IF;
+ SELECT decke_share_prompts,decke_share_all INTO prompts,share_all FROM public.user_settings
+  WHERE user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Settings row is unavailable' USING ERRCODE='P0002'; END IF;
+ IF share_all THEN
+  RETURN jsonb_build_object('allowed',false,'reason','share_all_enabled');
+ END IF;
+ IF NOT prompts THEN
+  RETURN jsonb_build_object('allowed',false,'reason','prompts_disabled');
+ END IF;
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ INSERT INTO public.decke_improvement_consent(id,owner_key,status,source,asked_at,updated_at)
+ VALUES(conversation,owner,'asked','decke_ask',now(),now()) ON CONFLICT(id) DO NOTHING;
+ GET DIAGNOSTICS inserted=ROW_COUNT;
+ IF inserted=1 THEN RETURN jsonb_build_object('allowed',true,'reason','asked'); END IF;
+ SELECT status INTO existing_status FROM public.decke_improvement_consent
+  WHERE id=conversation AND owner_key=owner;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation pseudonym belongs to another owner' USING ERRCODE='42501'; END IF;
+ RETURN jsonb_build_object('allowed',false,'reason','already_'||existing_status);
+END $$;
+
+-- Locking the owned History conversation serialises the absent-row decision
+-- with prompt and answer writers. A prior decision can therefore never be
+-- replaced by an automatic grant, including under concurrent requests.
+CREATE FUNCTION public.decke_improvement_auto_share(p_user text,p_conversation uuid) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE owner bytea; conversation uuid; share_all boolean;
+BEGIN
+ owner=public.decke_improvement_require_writer(p_user);
+ IF p_conversation IS NULL THEN RAISE EXCEPTION 'Conversation is required' USING ERRCODE='22023'; END IF;
+ PERFORM 1 FROM public.decke_conversation
+  WHERE id=p_conversation AND user_id::text=p_user FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Conversation is unavailable' USING ERRCODE='P0002'; END IF;
+ SELECT decke_share_all INTO share_all FROM public.user_settings
+  WHERE user_id::text=p_user FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Settings row is unavailable' USING ERRCODE='P0002'; END IF;
+ IF NOT share_all THEN
+  RETURN jsonb_build_object('status','skipped','reason','off');
+ END IF;
+ conversation=public.decke_improvement_uuid('conversation:',p_conversation);
+ IF EXISTS(SELECT 1 FROM public.decke_improvement_consent
+   WHERE id=conversation AND owner_key=owner) THEN
+  RETURN jsonb_build_object('status','skipped','reason','decided');
+ END IF;
+ RETURN public.decke_improvement_answer(p_user,p_conversation,true,'always');
+END $$;
+
+DO $always_share_acl$
+DECLARE principal text;
+BEGIN
+ FOREACH principal IN ARRAY ARRAY['PUBLIC','anon','authenticated','service_role'] LOOP
+  CONTINUE WHEN principal<>'PUBLIC' AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=principal);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_auto_share(text,uuid) FROM %s',
+   CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
+  GRANT EXECUTE ON FUNCTION public.decke_improvement_auto_share(text,uuid) TO authenticated;
+ END IF;
+END $always_share_acl$;
+
+COMMENT ON FUNCTION public.decke_improvement_auto_share(text,uuid) IS
+ 'Shares one undecided subject-owned conversation only while the reader always-share setting is enabled.';

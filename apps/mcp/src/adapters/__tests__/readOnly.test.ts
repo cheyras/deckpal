@@ -7,10 +7,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { McpServer } from '@modelcontextprotocol/server';
-import { allTools, type Ctx } from '@deckpal/agent-tools';
+import { allTools, deckeImprovementTools, type Ctx } from '@deckpal/agent-tools';
 import { registerAllTools } from '../mcp.js';
 
-function registered(options?: { readOnly?: boolean }): string[] {
+function registered(options?: { readOnly?: boolean; deckeImprovementRead?: boolean }): string[] {
   const names: string[] = [];
   const server = { registerTool: (name: string) => names.push(name) } as unknown as McpServer;
   registerAllTools(server, {} as Ctx, options);
@@ -20,7 +20,7 @@ function registered(options?: { readOnly?: boolean }): string[] {
 test('a read-only connection sees exactly the tools marked readOnlyHint', () => {
   const reads = allTools().filter((t) => t.annotations.readOnlyHint).map((t) => t.name);
   assert.deepEqual(registered({ readOnly: true }), reads);
-  assert.equal(reads.length, 14, 'the catalogue is 14 reads and 11 writes (SPEC §5)');
+  assert.equal(reads.length, 14, 'the ordinary catalogue is 14 reads before capability-gated tools');
   assert.ok(reads.includes('check_deck'), 'deck checking must remain available on read-only connections');
 });
 
@@ -32,6 +32,14 @@ test('no tool that writes or deletes reaches a read-only connection', () => {
 });
 
 test('a full connection still sees every tool, in catalogue order', () => {
-  assert.deepEqual(registered(), allTools().map((t) => t.name));
-  assert.deepEqual(registered({ readOnly: false }), allTools().map((t) => t.name));
+  const ordinary = allTools().map((t) => t.name);
+  assert.deepEqual(registered(), ordinary);
+  assert.deepEqual(registered({ readOnly: false }), ordinary);
+});
+
+test('only a credential carrying decke_improvement_read sees the collection tools', () => {
+  const names = deckeImprovementTools.map((tool) => tool.name);
+  assert.deepEqual(registered().filter((name) => names.includes(name)), []);
+  assert.deepEqual(registered({ deckeImprovementRead: true }).filter((name) => names.includes(name)), names);
+  assert.deepEqual(registered({ readOnly: true, deckeImprovementRead: true }).filter((name) => names.includes(name)), names);
 });

@@ -760,7 +760,14 @@ describe('production ingress and session limits over real HTTP', () => {
     // Self-host identity resolves before limits; public routes also resolve it later.
     const local = apiMounts.find(mount => mount.args === 'resolveOptionalIdentity')?.position;
     assert.ok(local !== undefined, 'optional identity middleware exists');
-    const admin = once("'/admin',requireSession,adminRateLimit");
+    // /admin admits one token-authenticated path (the shared-chat reader, whose
+    // SQL checks the token's own capability); every other request still passes
+    // requireSession before the limiter.
+    const admin = once("'/admin',adminSessionOrImprovementToken,adminRateLimit");
+    const gate = (source.match(/const adminSessionOrImprovementToken\b[\s\S]*?\n {2}\};/)?.[0] ?? '').replace(/\s+/g, '');
+    assert.ok(gate.includes("if(req.authKind==='token'&&/^\\/decke-improvement(?:\\/|$)/.test(req.path)){next();return;}"),
+      'only token requests under /admin/decke-improvement skip the session gate');
+    assert.ok(gate.endsWith('requireSession(req,res,next);};'), 'everything else falls through to requireSession');
     const wallet = once("'/me/credits',requireSession,creditWalletRateLimit");
     const preferences = once("['/me/features','/me/decke-sharing'],requireSession,adminRateLimit");
     const database = source.indexOf('pool.connect()');
@@ -770,7 +777,7 @@ describe('production ingress and session limits over real HTTP', () => {
       assert.ok(local < gate && gate < database, 'session limiter precedes RLS connection acquisition');
     }
     assert.deepEqual(mounts.filter(({ args }) => /\badminRateLimit\b/.test(args)).map(({ args }) => args), [
-      "'/admin',requireSession,adminRateLimit",
+      "'/admin',adminSessionOrImprovementToken,adminRateLimit",
       "['/me/features','/me/decke-sharing'],requireSession,adminRateLimit",
     ], 'one admin subtree limiter and one shared preferences limiter, with no nested duplicate');
     assert.deepEqual(mounts.filter(({ args }) => /\bcreditWalletRateLimit\b/.test(args)).map(({ args }) => args), [
@@ -781,6 +788,7 @@ describe('production ingress and session limits over real HTTP', () => {
       "'/credits',adminCreditRouter",
       "'/features',adminFeatureRouter",
       "'/ai-usage',adminUsageRouter",
+      "'/decke-improvement',deckeImprovementAdminRouter",
       "'/users/:id/ai-override',userAiOverrideRouter",
       'adminRouter',
     ], 'all administration routers are registered once without additional limiters');
@@ -789,7 +797,7 @@ describe('production ingress and session limits over real HTTP', () => {
       assert.ok(database < position && position < adminRouterMount);
     }
     assert.deepEqual(apiMounts.filter(({ args }) => /^'\/admin(?:\/|')/.test(args)).map(({ args }) => args), [
-      "'/admin',requireSession,adminRateLimit",
+      "'/admin',adminSessionOrImprovementToken,adminRateLimit",
       "'/admin',administration",
     ], 'admin subtrees cannot bypass or duplicate the parent limiter');
     for (const args of [

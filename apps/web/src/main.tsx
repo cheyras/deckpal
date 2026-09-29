@@ -89,6 +89,7 @@ const AdminSettings = lazyRoute('./routes/admin/Settings', () => import('./route
 const AdminAudit = lazyRoute('./routes/admin/Audit', () => import('./routes/admin/Audit'), 'AdminAudit')
 const AdminFeatures = lazyRoute('./routes/admin/Features', () => import('./routes/admin/Features'), 'AdminFeatures')
 const AdminAiUsage = lazyRoute('./routes/admin/AiUsage', () => import('./routes/admin/AiUsage'), 'AdminAiUsage')
+const AdminDeckeChats = lazyRoute('./routes/admin/DeckeChats', () => import('./routes/admin/DeckeChats'), 'AdminDeckeChats')
 
 // The two things `RootComponent` mounts on every page and almost nobody sees:
 // Deck-E's host (two accounts) and the support prompt (signed in, cloud only).
@@ -818,6 +819,7 @@ const quadHarvestRoute = createRoute({
 const adminRoute = createRoute({ getParentRoute: () => rootRoute, path: '/admin', beforeLoad: () => requireCapability('admin.access'), component: Admin })
 const adminFeaturesRoute = createRoute({ getParentRoute: () => adminRoute, path: '/features', component: AdminFeatures })
 const adminUsageRoute = createRoute({ getParentRoute: () => adminRoute, path: '/usage', component: AdminAiUsage })
+const adminDeckeChatsRoute = createRoute({ getParentRoute: () => adminRoute, path: '/decke-chats', beforeLoad: () => requireCapability('decke.improvement.read'), component: AdminDeckeChats })
 const adminIndexRoute = createRoute({ getParentRoute: () => adminRoute, path: '/', component: AdminOverview })
 const adminUsersRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users', beforeLoad: () => requireCapability('users.read'), component: AdminUsers })
 const adminUserRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users/$userId', beforeLoad: () => requireCapability('users.read'), component: AdminUserDetail })
@@ -836,7 +838,7 @@ const creditsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/cred
 
 const routeTree = rootRoute.addChildren([
   devtoolsRoute, adminToolsRoute,
-  adminRoute.addChildren([adminFeaturesRoute, adminUsageRoute, adminIndexRoute, adminUsersRoute, adminUserRoute, adminRolesRoute, adminSettingsRoute, adminAuditRoute]),
+  adminRoute.addChildren([adminFeaturesRoute, adminUsageRoute, adminDeckeChatsRoute, adminIndexRoute, adminUsersRoute, adminUserRoute, adminRolesRoute, adminSettingsRoute, adminAuditRoute]),
   creditsRoute,
   ...coreRoutes,
   designRoute,

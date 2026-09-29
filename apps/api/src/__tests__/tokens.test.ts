@@ -38,6 +38,7 @@ interface Row {
   // Migration 075. A pre-075 database has none of these.
   expires_at?: string | null;
   scope?: 'full' | 'read';
+  decke_improvement_read?: boolean;
 }
 
 /** An OAuth access token in `oauth_token` (075), resolving through its row. */
@@ -61,7 +62,7 @@ function fakeDb(
   { migrated = true, secrets = [] as Secret[] }: { migrated?: boolean; secrets?: Secret[] } = {},
 ): Queryable & { rows: Row[] } {
   let seq = rows.length;
-  const out = (r: Row) => (migrated ? { expires_at: null, scope: 'full', oauth_client_id: null, oauth_redirect_uri: null, ...r } : r);
+  const out = (r: Row) => (migrated ? { expires_at: null, scope: 'full', oauth_client_id: null, oauth_redirect_uri: null, decke_improvement_read: false, ...r } : r);
   const db = {
     rows,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,6 +75,9 @@ function fakeDb(
       if (sql.startsWith("SELECT to_regclass('public.oauth_token')")) {
         return { rows: [{ ready: migrated }] };
       }
+      if (sql.includes('information_schema.columns')) {
+        return { rows: [{ ready: migrated }] };
+      }
       if (sql.startsWith('SELECT t.id, t.user_id, t.scope, h.token_hash')) {
         const [hash] = params as [string];
         const own = rows.filter((r) => r.token_hash === hash);
@@ -81,7 +85,7 @@ function fakeDb(
           .filter((x) => x.token_hash === hash && Date.parse(x.expires_at) > Date.now())
           .map((x) => ({ ...rows.find((r) => r.id === x.token_id)!, token_hash: x.token_hash }));
         return {
-          rows: [...own, ...viaSecret].filter(live).map((r) => ({ id: r.id, user_id: r.user_id, scope: r.scope ?? 'full', token_hash: r.token_hash })),
+          rows: [...own, ...viaSecret].filter(live).map((r) => ({ id: r.id, user_id: r.user_id, scope: r.scope ?? 'full', token_hash: r.token_hash, decke_improvement_read: r.decke_improvement_read ?? false })),
         };
       }
       if (sql.startsWith("SELECT id, user_id, 'full' AS scope, token_hash")) {
@@ -262,7 +266,7 @@ describe('tokens across migration 075', () => {
     // What a pre-075 row looks like once 075 adds its columns: NULL expiry, default scope.
     delete db.rows[0]!.expires_at;
     delete db.rows[0]!.scope;
-    assert.deepEqual(await resolveToken(db, raw), { tokenId: db.rows[0]!.id, userId: USER_A, scope: 'full' });
+    assert.deepEqual(await resolveToken(db, raw), { tokenId: db.rows[0]!.id, userId: USER_A, scope: 'full', deckeImprovementRead: false });
     const [listed] = await listTokens(db, USER_A);
     assert.equal(listed?.expiresAt, null);
     assert.equal(listed?.scope, 'full');
@@ -306,7 +310,7 @@ describe('tokens across migration 075', () => {
     const { token } = await createToken(db, USER_A, 'Claude (OAuth · claude.ai)');
     db.rows[0]!.scope = 'read';
     secrets.push({ token_hash: hashToken(access), token_id: token.id, expires_at: soon });
-    assert.deepEqual(await resolveToken(db, access), { tokenId: token.id, userId: USER_A, scope: 'read' });
+    assert.deepEqual(await resolveToken(db, access), { tokenId: token.id, userId: USER_A, scope: 'read', deckeImprovementRead: false });
     // An hour later the access token is gone; the connection is not, so a refresh can issue another.
     secrets[0]!.expires_at = new Date(Date.now() - 1).toISOString();
     assert.equal(await resolveToken(db, access), null);

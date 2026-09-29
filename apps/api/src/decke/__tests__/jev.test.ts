@@ -6,6 +6,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { EVALUATION } from '../models.js'
+import type { Queryable } from '@deckpal/db'
+import { runAiUsage, type AiRequest } from '../usage.js'
 import {
   JEV_TIMEOUT_DEFAULT_MS,
   JEV_VAR,
@@ -159,3 +161,30 @@ test('the log line carries no reader text and no answer', () =>
     assert.match(lines[1]!, /^\[deck-e\] jev reflex http_500 \d+ms$/)
     for (const l of lines) assert.doesNotMatch(l, /Charizard|secret|0\.93|choice/)
   }))
+
+test('reflex and audit evaluations become operations on the current request', async () => {
+  const records: Array<{ sql: string; args: unknown[] }> = []
+  const db = { query: async (sql: string, args: unknown[] = []) => {
+    if (sql.includes('external_operation_begin')) {
+      assert.equal(args[1], '00000000-0000-4000-8000-000000000099', 'Jev must use the current chat request')
+      assert.equal(args[6], '00000000-0000-4000-8000-000000000098', 'Jev must reuse the chat spend without another reservation')
+    }
+    records.push({ sql, args })
+    return { rows: [] }
+  } } as unknown as Queryable
+  const request: AiRequest = {
+    id: '00000000-0000-4000-8000-000000000099', db, pending: new Set(), failed: false,
+    spendId: '00000000-0000-4000-8000-000000000098',
+  }
+  await runAiUsage(request, async () => {
+    await evaluate({}, QUESTIONS, { key: 'k', label: 'reflex', fetchImpl: reply(GOOD), force: true })
+    await evaluate({}, QUESTIONS, { key: 'k', label: 'audit', fetchImpl: reply(GOOD), force: true })
+  })
+  const starts = records.filter((record) => record.sql.includes('decke_usage_external_operation_begin'))
+  assert.deepEqual(starts.map((record) => record.args[2]), ['jev_reflex', 'jev_audit'])
+  const finishes = records.filter((record) => record.sql.startsWith('UPDATE public.decke_ai_operation'))
+  assert.deepEqual(finishes.map((record) => record.args.slice(1, 6)), [
+    ['completed', 420, 20, '0.00001764', 'provider_reported'],
+    ['completed', 420, 20, '0.00001764', 'provider_reported'],
+  ])
+})

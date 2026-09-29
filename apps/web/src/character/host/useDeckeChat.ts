@@ -40,9 +40,10 @@
  *    tool output that CONTRADICTS the one the server already produced.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { readSession } from '../../lib/authSession'
+import { useAccess } from '../../lib/access'
 import {
   ABANDONED_REASON,
   DECLINED_REASON,
@@ -68,6 +69,7 @@ import {
 import { kindOf } from './chat/toolKinds'
 import { createActivityAnimator, SLEEP_IDLE_MS, TYPING_IDLE_MS, type ActivityRequest } from './activityAnimation'
 import { staleQueries } from './chat/writeRefresh'
+import { ConversationTelemetry, shouldEnableTelemetry, type TelemetrySharingOverride } from './chat/telemetry'
 import {
   MAX_REPLAYED_REFUSALS,
   meterRefusalParts,
@@ -334,6 +336,16 @@ export function useDeckeChat(
 ) {
   /** The page's data cache, so a write he makes reaches the page behind him. */
   const queryClient = useQueryClient()
+  const access = useAccess()
+  const sharingSettings = useQuery({
+    queryKey: ['settings', access.identity],
+    queryFn: ({ signal }) => api.settings(signal),
+    enabled: access.ready && !!access.identity,
+    retry: false,
+  })
+  const shareAll = sharingSettings.data?.settings.deckeShareAll ?? false
+  const shareAllRef = useRef(shareAll)
+  shareAllRef.current = shareAll
   const [messages, setMessages] = useState<ChatMessage[]>([])
   /**
    * The transcript, readable from a callback declared before it.
@@ -355,6 +367,58 @@ export function useDeckeChat(
    * it means rather than "everything since the tab opened".
    */
   const conversationRef = useRef<string>(newConversationId())
+  const telemetryRef = useRef<ConversationTelemetry | null>(null)
+  const telemetrySharingRef = useRef<Map<string, TelemetrySharingOverride>>(new Map())
+  if (!telemetryRef.current) {
+    telemetryRef.current = new ConversationTelemetry(conversationRef.current, (batch) => api.deckeTelemetry(batch))
+  }
+  /** Consent is chosen in the transcript component; the event avoids routing it through the host. */
+  useEffect(() => {
+    const shared = (event: Event) => {
+      const id = (event as CustomEvent<{ conversationId?: string }>).detail?.conversationId
+      if (id === conversationRef.current) {
+        // This event only follows a successful EXPLICIT share (the consent card
+        // or feedback-with-share), which supersedes an earlier No or Stop for
+        // this chat. The refusal guard belongs to automatic enabling from the
+        // Always-share setting (shouldEnableTelemetry), not here.
+        telemetrySharingRef.current.set(id, 'shared')
+        void telemetryRef.current?.share()
+      }
+    }
+    const stopped = (event: Event) => {
+      const id = (event as CustomEvent<{ conversationId?: string }>).detail?.conversationId
+      if (id === conversationRef.current) {
+        telemetrySharingRef.current.set(id, 'stopped')
+        telemetryRef.current?.stopSharing()
+      }
+    }
+    const answered = (event: Event) => {
+      const detail = (event as CustomEvent<{ conversationId?: string; share?: boolean }>).detail
+      if (detail?.conversationId !== conversationRef.current) return
+      if (!detail.share) {
+        telemetrySharingRef.current.set(detail.conversationId, 'declined')
+        telemetryRef.current?.stopSharing()
+      }
+      telemetryRef.current?.record(Math.max(0, seqRef.current - 1), 'approval_ui', {
+        decision: detail.share ? 'shared' : 'declined',
+        surface: 'improvement_consent',
+      })
+      telemetryRef.current?.record(Math.max(0, seqRef.current - 1), 'animation', {
+        operation: 'setState',
+        state: detail.share ? 'happy' : 'nod_yes',
+        mode: 'once',
+        source: 'consent',
+      })
+    }
+    window.addEventListener('deckpal:decke-shared', shared)
+    window.addEventListener('deckpal:decke-sharing-stopped', stopped)
+    window.addEventListener('deckpal:decke-consent-answered', answered)
+    return () => {
+      window.removeEventListener('deckpal:decke-shared', shared)
+      window.removeEventListener('deckpal:decke-sharing-stopped', stopped)
+      window.removeEventListener('deckpal:decke-consent-answered', answered)
+    }
+  }, [])
   /** The conversation the reader was last told has outgrown the window. Once
    *  per conversation — see the trim in `send`. */
   const trimToldRef = useRef<string | null>(null)
@@ -368,6 +432,11 @@ export function useDeckeChat(
    * would keep marking the previous conversation after a reset.
    */
   const [conversationEpoch, setConversationEpoch] = useState(0)
+  useEffect(() => {
+    const override = telemetrySharingRef.current.get(conversationRef.current)
+    if (shouldEnableTelemetry(shareAll, override)) void telemetryRef.current?.share()
+    else telemetryRef.current?.stopSharing()
+  }, [conversationEpoch, shareAll])
   const [busy, setBusy] = useState(false)
   /**
    * `busy` and `send`, reachable from a callback declared above `send`.
@@ -456,12 +525,22 @@ export function useDeckeChat(
 
   const applyActivity = useCallback((request: ActivityRequest | null) => {
     if (!request || !decke) return
-    if (request.talk === true) decke.setOverlay('talk', 1)
-    else if (request.talk === false) decke.setOverlay(null)
+    const activeSeq = Math.max(0, seqRef.current - 1)
+    if (request.talk === true) {
+      telemetryRef.current?.record(activeSeq, 'animation', { operation: 'overlay', state: 'talk', source: 'animator' })
+      decke.setOverlay('talk', 1)
+    } else if (request.talk === false) {
+      telemetryRef.current?.record(activeSeq, 'animation', { operation: 'overlay', state: null, source: 'animator' })
+      decke.setOverlay(null)
+    }
     // An explicit `express` is the model's choice for this reply and outranks
     // the host's generic work poses. Talk remains an overlay, so it still lands.
     if (!request.state || movedRef.current) return
     try {
+      telemetryRef.current?.record(activeSeq, 'animation', {
+        operation: 'setState', state: request.state, mode: request.mode, then: request.then,
+        durationMs: request.durationMs, source: 'animator',
+      })
       decke.setState(request.state, {
         ...(request.mode ? { mode: request.mode } : {}),
         ...(request.then ? { then: request.then } : {}),
@@ -558,6 +637,7 @@ export function useDeckeChat(
    *  settle a denial while the batch is on its way. */
   const answeredRef = useRef(false)
   const committingRef = useRef(false)
+  const approvalShownAtRef = useRef(0)
 
   /**
    * Settle everything being asked with one verdict, once, and clear the prompt.
@@ -706,6 +786,9 @@ export function useDeckeChat(
   const approve = useCallback(async () => {
     const a = askingRef.current?.[0]
     if (!a || committingRef.current) return
+    telemetryRef.current?.record(Math.max(0, seqRef.current - 1), 'approval_ui', {
+      decision: 'approved', tool: a.name, ms: Math.max(0, Date.now() - approvalShownAtRef.current),
+    })
     const preview = previewsRef.current.get(a.toolCallId)
     // No preview, or one the server marked un-editable: this is the plain
     // dialog, and the plain dialog's yes is the signed path. The card and this
@@ -809,6 +892,9 @@ export function useDeckeChat(
     // page. `ok`, not `error`: nothing broke. Quiet, because nothing went wrong.
     // Present, because the absence is what misled.
     if (a) {
+      telemetryRef.current?.record(Math.max(0, seqRef.current - 1), 'approval_ui', {
+        decision: 'declined', tool: a.name, ms: Math.max(0, Date.now() - approvalShownAtRef.current),
+      })
       emitChipRef.current?.({
         id: a.toolCallId,
         name: a.name,
@@ -908,6 +994,7 @@ export function useDeckeChat(
         {
           id: replyId,
           role: 'assistant',
+          seq: exchangeSeq,
           parts: tellTrim
             ? [{
                 kind: 'notice' as const,
@@ -919,6 +1006,7 @@ export function useDeckeChat(
         },
       ])
       setBusy(true)
+      telemetryRef.current?.record(exchangeSeq, 'timing', { mark: 'sent' })
 
       // One turn at a time. A second send while the first is streaming would
       // interleave two command streams into one body — the exact race the
@@ -955,6 +1043,7 @@ export function useDeckeChat(
       const askApproval = (list: PendingApproval[]): Promise<Map<string, Verdict>> =>
         new Promise((resolve) => {
           applyActivity(animatorRef.current!.approvalShown())
+          approvalShownAtRef.current = Date.now()
           answeredRef.current = false
           const p0 = previewsRef.current.get(list[0]?.toolCallId ?? '')
           setApprovalChoices(p0 ? initialChoices(p0) : new Map())
@@ -1022,6 +1111,7 @@ export function useDeckeChat(
        * which read the transcript for HIS words.
        */
       const noticeInstead = (n: Notice) => {
+        telemetryRef.current?.record(exchangeSeq, 'notice', { tone: n.tone, title: n.title, detail: n.detail, action: n.action })
         setMessages((m) =>
           m.map((x) =>
             x.id === replyId
@@ -1151,6 +1241,7 @@ export function useDeckeChat(
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
           applyActivity(animatorRef.current!.legStarted())
           let legTextStarted = false
+          const legStartedAt = Date.now()
           const requestWire = fitCurrentTurn(wire, {
             isServerTool: (name) => !isClientTool(name),
             summaryFor: (toolCallId) => currentTurnSummaries.get(toolCallId),
@@ -1159,11 +1250,21 @@ export function useDeckeChat(
             onText: (chunk) => {
               if (!legTextStarted) {
                 legTextStarted = true
+                telemetryRef.current?.record(exchangeSeq, 'timing', { mark: 'first_token', leg, ms: Date.now() - legStartedAt })
                 applyActivity(animatorRef.current!.textStarted())
               }
               appendText(chunk)
             },
             onCommands: async (commands) => {
+              for (const command of commands) {
+                telemetryRef.current?.record(exchangeSeq, 'animation', {
+                  operation: command.op,
+                  state: command.value,
+                  mode: command.mode,
+                  durationMs: command.durationMs,
+                  source: 'apply',
+                })
+              }
               // AWAITED, not fired and forgotten. `apply`'s own header
               // explains why at length; the short version is that resolving
               // named card art is a catalog lookup, and the one thing that
@@ -1199,6 +1300,13 @@ export function useDeckeChat(
                     : x,
                 ),
               )
+            },
+            onConsent: () => {
+              setMessages((all) => all.map((message) =>
+                message.id === replyId && !message.parts.some((part) => part.kind === 'consent')
+                  ? { ...message, parts: [...message.parts, { kind: 'consent' as const, id: nextId() }] }
+                  : message,
+              ))
             },
             onToolChip: (chip) => {
               // Held on the MESSAGE, like the screen, so the record of what he
@@ -1274,10 +1382,13 @@ export function useDeckeChat(
               // the rest — which top-up, or a retry, or nothing. `httpNotice`
               // reads the refusal body for which one; see its header.
               noticeInstead(httpNotice(status, body))
+              telemetryRef.current?.record(exchangeSeq, 'error', { source: 'http', status, body })
               decke.setState('alert_error', { mode: 'once' })
               movedRef.current = true
             },
           })
+          telemetryRef.current?.record(exchangeSeq, 'timing', { mark: 'leg_end', leg, ms: Date.now() - legStartedAt })
+          void telemetryRef.current?.flush()
 
           if (outcome.finishReason) finishReason = outcome.finishReason
           if (outcome.refused) return
@@ -1476,6 +1587,14 @@ export function useDeckeChat(
                 : call.name === 'escort'
                   ? buildEscortSteps(call.input as EscortInput)
                   : null
+            if (journeySteps || call.name === 'flyTo' || call.name === 'goTo' || call.name === 'scrollToMe') {
+              telemetryRef.current?.record(exchangeSeq, 'animation', {
+                operation: 'flight',
+                source: 'browser_tool',
+                tool: call.name,
+                args: call.input,
+              })
+            }
             const result: UiToolResult | JourneyResult =
               journeySteps
                 ? await runJourney(
@@ -1494,6 +1613,13 @@ export function useDeckeChat(
                     call.name,
                     call.input,
                   )
+            telemetryRef.current?.record(exchangeSeq, 'browser_tool', {
+              name: call.name,
+              args: call.input,
+              result,
+              ok: result.ok,
+              ms: Date.now() - legStartedAt,
+            })
             // A BARE `goTo` THAT WORKED is an arrival. `journeySteps` is null on
             // this branch by construction, so a hop inside a walk cannot reach
             // here — see `navigatedAwayRef`. It must have SUCCEEDED: closing the
@@ -1645,6 +1771,7 @@ export function useDeckeChat(
         }
       } catch (e) {
         if ((e as Error)?.name !== 'AbortError') {
+          telemetryRef.current?.record(exchangeSeq, 'error', { source: 'client', message: String((e as Error)?.message ?? e) })
           // THROUGH A REPLACEMENT PART, and this was silently broken.
           //
           // It wrote `{ ...x, text }` — a field a message no longer HAS, since
@@ -1667,6 +1794,8 @@ export function useDeckeChat(
           decke.setState('alert_error', { mode: 'once' })
         }
       } finally {
+        telemetryRef.current?.record(exchangeSeq, 'timing', { mark: 'turn_end' })
+        void telemetryRef.current?.flush()
         // TURN BOUNDARY. All three must happen on every exit path including an
         // abort: an un-released `talk` overlay chatters forever, a channel
         // override left pinned permanently deforms him, and `thinking` is a
@@ -1817,6 +1946,10 @@ export function useDeckeChat(
     queuedRef.current = null
     setBusy(false)
     conversationRef.current = newConversationId()
+    telemetryRef.current = new ConversationTelemetry(conversationRef.current, (batch) => api.deckeTelemetry(batch))
+    if (shouldEnableTelemetry(shareAllRef.current, telemetrySharingRef.current.get(conversationRef.current))) {
+      void telemetryRef.current.share()
+    }
     seqRef.current = 0
     setConversationEpoch((n) => n + 1)
     setMessages([])
@@ -1894,6 +2027,7 @@ type LegHandlers = {
    *  ordered against the rest of the stream rather than fire-and-forget. */
   onCommands: (commands: WireCommand[]) => Promise<void>
   onScreen: (screen: ScreenSpec) => void
+  onConsent: () => void
   onToolChip: (chip: ToolChip) => void
   /** Complete result for a server tool, retained for bounded replay. */
   onToolOutput: (toolCallId: string, output: unknown) => void
@@ -2212,6 +2346,8 @@ async function streamLeg(
       } else if (part.type === 'data-decke-screen' && part.data?.screen) {
         out.screen = part.data.screen
         handlers.onScreen(part.data.screen)
+      } else if (part.type === 'data-decke-consent') {
+        handlers.onConsent()
       } else if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
         // ── A CALL THAT WAS NEVER ALLOWED TO RUN ────────────────────────────
         //

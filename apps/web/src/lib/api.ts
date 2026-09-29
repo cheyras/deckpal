@@ -1,4 +1,4 @@
-import type { ActorCapabilities, FeatureAccess, RoleRef, SharingPreference, AiOverride, AiUsagePage, AiUsageDetail, CostObservations } from './adminTypes'
+import type { ActorCapabilities, FeatureAccess, RoleRef, AiOverride, AiUsagePage, AiUsageDetail, CostObservations } from './adminTypes'
 // API client — consumes deckpal-api (read-only contract, API.md).
 // Cloud: /api (Vercel). Self-host: /deckpal/api (behind nginx proxy).
 //
@@ -20,6 +20,17 @@ import type { ValueRangeKey } from './insightsCaption'
 import type { PriceGrain, PriceHistoryPoint } from './priceGrain'
 import type { AppDefaults, AdminUser, PageResult, RoleList, AuditEvent, CreditSettings, CreditPolicy, CreditPack, CreditEvent, Wallet, CreditOrder, CreditSummary, AdminCreditOrder } from './adminTypes'
 import type { Goal } from '../routes/setSearch'
+
+/** Public, pseudonymised shapes returned by the Deck-E improvement readers. */
+export type DeckeImprovementCoverage = 'complete' | 'partial' | 'unknown'
+export interface DeckeImprovementTokens { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; reasoning: number | null }
+export interface DeckeImprovementConversation { id: string; date: string; buildFirst: string | null; buildLast: string | null; costUsd: number | null; costCoverage: DeckeImprovementCoverage; hasError: boolean }
+export interface DeckeImprovementListItem extends DeckeImprovementConversation { turnCount: number }
+export interface DeckeImprovementList { items: DeckeImprovementListItem[]; nextCursor: string | null }
+export interface DeckeImprovementLeg { id: string; leg: number; asked: string | null; answered: string | null; modelId: string | null; provider: string | null; tokens: DeckeImprovementTokens; costUsd: number | null; costCoverage: DeckeImprovementCoverage; costSource: string | null; status: string | null; finishReason: string | null; buildSha: string | null; buildPr: number | null; error: unknown; toolCalls: unknown }
+export interface DeckeImprovementEvent { ordinal: number; batch: number; batchOrdinal: number; legId: string | null; kind: string; payload: unknown }
+export interface DeckeImprovementTurn { seq: number; asked: string; answered: string; tools: unknown; feedback: number | null; feedbackComment: string | null; offsetSeconds: number; tokens: DeckeImprovementTokens; costUsd: number | null; costCoverage: DeckeImprovementCoverage; buildSha: string | null; buildPr: number | null; finishReason: string | null; hasError: boolean; legs: DeckeImprovementLeg[]; events: DeckeImprovementEvent[] }
+export interface DeckeImprovementDetail { conversation: DeckeImprovementConversation; turns: DeckeImprovementTurn[] }
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
 
@@ -328,6 +339,8 @@ export interface ApiTokenRow {
   scope?: 'full' | 'read'
   /** Set only on an OAuth connection. */
   redirect?: RedirectIdentity | null
+  /** Explicit, server-owned access to shared Deck-E improvement chats. */
+  deckeImprovementRead: boolean
 }
 
 /** GET /oauth/client — the consent screen's facts. Fields past redirectUri are absent from an older server. */
@@ -337,6 +350,7 @@ export interface OAuthClientInfo {
   redirectHost?: string
   trust?: RedirectTrust
   verifiedName?: string | null
+  canGrantDeckeImprovementRead?: boolean
 }
 
 // ── Money ──────────────────────────────────────────────────────
@@ -1366,11 +1380,20 @@ export interface UserSettings {
   binderStackVariants: boolean
   binderAdditionalVariants: 'hide' | 'inline' | 'end'
   deckeHidden: boolean
+  deckeSharePrompts: boolean
+  deckeShareAll: boolean
   skin: 'premium' | 'classic' | null
   topbar: 'cover' | 'flat' | null
   seriesSortKey: 'recency' | 'az' | 'pct'
   seriesSortDir: 'asc' | 'desc'
   seriesGroupOwned: boolean
+}
+
+export type DeckeImprovementConsentRequest = {
+  conversationId: string
+  share: boolean
+  shareAll?: true
+  source: 'always' | 'decke_ask' | 'feedback' | 'reader'
 }
 
 
@@ -1642,6 +1665,12 @@ export interface DeckeHistoryTurn {
   buildPr: number | null
   buildSha: string | null
   at: string
+  /**
+   * The reader's private vote. Not part of the History response: the transcript
+   * merges it in from `/decke/feedback/:id` (see `withFeedback`).
+   */
+  feedback?: -1 | 1 | null
+  feedbackComment?: string | null
 }
 
 export interface DeckeConversation {
@@ -1649,6 +1678,15 @@ export interface DeckeConversation {
   title: string
   startedAt: string
   turns: DeckeHistoryTurn[]
+}
+
+export interface DeckeImprovementMine {
+  items: { conversationId: string; sharedAt: string }[]
+}
+
+/** The reader's own thumbs for one conversation, keyed by turn `seq`. */
+export interface DeckeFeedbackMine {
+  items: { seq: number; vote: -1 | 1 | null; comment: string | null }[]
 }
 
 export const api = {
@@ -1711,6 +1749,22 @@ export const api = {
     get<DeckeConversation>(`/decke/history/${encodeURIComponent(id)}`, signal),
   deckeHistoryDelete: (id: string) =>
     send<{ ok: true }>('DELETE', `/decke/history/${encodeURIComponent(id)}`),
+  deckeImprovementConsent: (body: DeckeImprovementConsentRequest) =>
+    send<{ status: 'shared' | 'declined'; source: 'always' | 'decke_ask' | 'feedback' | 'reader' }>('POST', '/decke/improvement/consent', body),
+  deckeImprovementMine: (signal?: AbortSignal) =>
+    get<DeckeImprovementMine>('/decke/improvement/mine', signal),
+  deckeFeedbackMine: (conversationId: string, signal?: AbortSignal) =>
+    get<DeckeFeedbackMine>(`/decke/feedback/${encodeURIComponent(conversationId)}`, signal),
+  deckeImprovementRevoke: (conversationId: string) =>
+    send<{ revoked: true }>('DELETE', `/decke/improvement/consent/${encodeURIComponent(conversationId)}`),
+  deckeFeedback: (body: { conversationId: string; seq: number; vote: -1 | 1 | null; comment: string; share: boolean }) =>
+    send<{ saved: true; shared: boolean }>('PUT', '/decke/feedback', body),
+  deckeTelemetry: (body: {
+    conversationId: string
+    seq: number
+    batch: number
+    events: { at: string; kind: string; payload: Record<string, unknown> }[]
+  }) => send<{ recorded: boolean }> ('POST', '/decke/telemetry', body),
 
   series: (signal?: AbortSignal) => get<SeriesIndexResponse>('/series', signal),
   seriesDetail: (slug: string, signal?: AbortSignal) =>
@@ -1895,6 +1949,18 @@ export const api = {
   /** A queued photo's bytes, through the authenticated pipeline for
    *  `scanFlagBlob`'s reason: a browser-initiated `<img>` request carries no
    *  Authorization header and would 403 at the gate. */
+  /** A shared Deck-E chat as Markdown, for pasting into an agent or an issue. */
+  adminDeckeImprovementMarkdown: async (id: string): Promise<string> => {
+    const headers = await authHeaders()
+    const path = `/admin/decke-improvement/${encodeURIComponent(id)}?format=markdown`
+    let res = await fetch(`${BASE}${path}`, { headers })
+    if (res.status === 401) {
+      const retry = await handle401(path, { headers })
+      if (retry) res = retry
+    }
+    if (!res.ok) throw await apiError(res)
+    return res.text()
+  },
   scanQueueBlob: async (id: number, signal?: AbortSignal): Promise<Blob> => {
     const headers = await authHeaders()
     const path = `/dev/scan-queue/${id}.jpg`
@@ -2095,13 +2161,16 @@ export const api = {
     send<{ deleted: number }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
-  deckeSharing: (signal?: AbortSignal) => get<SharingPreference>('/me/decke-sharing', signal),
-  setDeckeSharing: (enabled: boolean, expectedRevision: number) => send<SharingPreference>('PUT', '/me/decke-sharing', { enabled, expectedRevision }),
   adminAiOverride: (id: string, signal?: AbortSignal) => get<AiOverride>('/admin/users/' + encodeURIComponent(id) + '/ai-override', signal),
   adminSetAiOverride: (id: string, body: { expectedRevision: number; unlimited: boolean; markupBps: number | null; reason: string }) => send<AiOverride>('PUT', '/admin/users/' + encodeURIComponent(id) + '/ai-override', body),
   adminCostObservations: (params: string, signal?: AbortSignal) => get<CostObservations>('/admin/ai-usage/observations?' + params, signal),
   adminAiUsage: (params: string, signal?: AbortSignal) => get<AiUsagePage>('/admin/ai-usage?' + params, signal),
   adminAiRequest: (id: string, signal?: AbortSignal) => get<AiUsageDetail>('/admin/ai-usage/requests/' + encodeURIComponent(id), signal),
+  /** Content-free cost rollup for every conversation, shared or not. */
+  adminAiConversationCosts: <T>(params: string, signal?: AbortSignal) => get<T>('/admin/ai-usage/conversations?' + params, signal),
+  /** Shared Deck-E chats (pseudonymised), using the SQL reader's bucketed shape. */
+  adminDeckeImprovementList: (params: string, signal?: AbortSignal) => get<DeckeImprovementList>('/admin/decke-improvement?' + params, signal),
+  adminDeckeImprovement: (id: string, signal?: AbortSignal) => get<DeckeImprovementDetail>('/admin/decke-improvement/' + encodeURIComponent(id), signal),
   adminAiConversation: (id: string, params: string, signal?: AbortSignal) => get<{ items: AiUsageDetail[]; total: number; limit: number; offset: number }>('/admin/ai-usage/conversations/' + encodeURIComponent(id) + '?' + params, signal),
   meFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/me/features', signal),
   setMeFeature: (key: string, optedIn: boolean, expectedRevision: number) => send<{ features: FeatureAccess[] }>('PATCH', '/me/features/' + encodeURIComponent(key), { optedIn, expectedRevision }),
@@ -2241,8 +2310,9 @@ export const api = {
 
   // Personal access tokens (Profile → Agent access). `secret` comes back on
   // create and NOWHERE else — the server stores only a hash of it.
-  apiTokens: (signal?: AbortSignal) => get<{ tokens: ApiTokenRow[] }>('/tokens', signal),
-  createApiToken: (name: string) => send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name }),
+  apiTokens: (signal?: AbortSignal) => get<{ tokens: ApiTokenRow[]; canGrantDeckeImprovementRead: boolean }>('/tokens', signal),
+  createApiToken: (name: string, deckeImprovementRead = false) =>
+    send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name, deckeImprovementRead }),
   revokeApiToken: (id: string) => send<{ token: ApiTokenRow }>('DELETE', `/tokens/${encodeURIComponent(id)}`),
 
   // OAuth "Connect" flow (/authorize consent screen). See apps/api/src/routes/oauth.ts.
@@ -2260,6 +2330,7 @@ export const api = {
     state?: string
     resource?: string
     scope?: 'full' | 'read'
+    deckeImprovementRead?: boolean
   }) => send<{ redirectTo: string }>('POST', '/oauth/authorize/decision', body),
 
   // Profile photo. The server stores a 256×256 WebP re-encoded from whatever

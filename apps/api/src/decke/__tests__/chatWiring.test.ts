@@ -215,7 +215,8 @@ test('a credit refusal says whether the wallet is HELD, as a flag rather than pr
 
 test('the reflex read runs after the meter, from the built module, with the turn\'s abort', () => {
   assert.match(SRC, /import \{ readReflex \} from '\.\.\/apps\/api\/dist\/decke\/reflex\.js'/);
-  const read = CODE.indexOf('const reflex = await readReflex(messages, route, { key, signal: request.signal })');
+  // Wrapped in runAiUsage so Jev's own model call is metered on this request.
+  const read = CODE.indexOf('const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))');
   assert.ok(read > 0, 'readReflex is no longer called with the validated messages, the key and the signal');
   // A Gateway call: nothing reaches the Gateway unpaid.
   assert.ok(CODE.indexOf('meter = await meterTurn(') < read, 'the reflex read runs before the meter');
@@ -286,3 +287,13 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   assert.match(CODE, /checkDeck: \(input\) => checkDeck\(toolCtx, input\)/);
   assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
 });
+
+test('improvement capture receives identity, correlation and runs after usage finalization', () => {
+  assert.match(SRC, /import \{ autoShareAndRecordLeg \} from '\.\.\/apps\/api\/dist\/decke\/improvement\.js'/)
+  assert.match(CODE, /db: chatPool\(\),\s*userId: user\.id,\s*conversationId,/)
+  assert.match(CODE, /requestId: usage\.id,\s*leg: 0,\s*payload,/)
+  assert.ok(CODE.indexOf("finishAiRequest(usage, 'completed', meter.spent)") < CODE.indexOf('recordImprovementWithDeadline(chatPool(),'))
+  assert.match(CODE, /autoShareAndRecordLeg\(db, record\)/)
+  assert.match(CODE, /toolResult\.output/)
+  assert.match(CODE, /createNarrationFilter\(\)/)
+})

@@ -83,6 +83,7 @@ export { needDeck } from './entities.js';
  * and a resource is not a tool — it needs the function, not the definition.
  */
 export { summaryText } from './tools/collection.js';
+export { deckeImprovementTools } from './tools/deckeImprovement.js';
 export {
   checkDeck, checkDeckInputSchema, renderDeckCheck,
   type CheckDeckInput, type DeckCheckLine, type DeckCheckResult,

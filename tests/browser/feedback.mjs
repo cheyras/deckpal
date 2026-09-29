@@ -298,19 +298,22 @@ export async function checkFeedback(browser, server, mount, label, out, fixture,
       await page.getByRole('button',{name:'Opt out of Deck-E',exact:true}).waitFor()
       assert.ok(state.requests.slice(start).every(r=>!r.rel.startsWith('/api/admin/')),'Contributor emitted a forbidden administrative API request: '+JSON.stringify(state.requests.slice(start).filter(r=>r.rel.startsWith('/api/admin/'))))
       assert.ok(state.requests.slice(start).some(r=>r.rel==='/api/me/credits'),'Opted-in Deck-E retains ordinary self-service wallet access')
-      const sharing=page.getByRole('button',{name:'Turn on conversation sharing',exact:true})
-      await sharing.click()
-      await page.getByRole('button',{name:'Turn off conversation sharing',exact:true}).waitFor()
-      state.sharingConflict=true
-      await page.getByRole('button',{name:'Turn off conversation sharing',exact:true}).click()
-      await page.getByText('Sharing preference changed. Reload the current preference before trying again.',{exact:true}).waitFor()
-      state.sharingConflict=false
+      // Account-wide sharing is retired: the profile only says whether Deck-E
+      // may ASK to share a chat, and each chat is shared on its own yes.
+      assert.equal(await page.getByRole('button',{name:/conversation sharing/}).count(),0,'the retired account-wide sharing toggle is gone')
+      const prompts=page.getByRole('switch',{name:'Let Deck-E ask to share chats',exact:true})
+      const settled=on=>page.waitForFunction(v=>{const s=document.querySelector('[aria-label="Let Deck-E ask to share chats"]');return !!s&&s.checked===v&&!s.disabled},on)
+      await settled(true)
+      await prompts.click()
+      await settled(false)
+      assert.equal(state.sharePrompts,false,'turning the switch off is saved')
       state.featureCatalog[1].lifecycle='disabled';state.accessRevision++
       await focus(page)
-      await page.getByRole('button',{name:'Turn off conversation sharing',exact:true}).click()
-      await page.getByRole('button',{name:'Turn on conversation sharing',exact:true}).waitFor()
-      assert.equal(state.sharing.enabled,false)
-      await screenshot(page,'profile-withdrawal',width)
+      await prompts.click()
+      await settled(true)
+      assert.equal(state.sharePrompts,true,'turning it back on is saved')
+      assert.ok(state.requests.slice(start).every(r=>r.rel!=='/api/me/decke-sharing'),'the profile never calls the retired sharing endpoint')
+      await screenshot(page,'profile-share-prompts',width)
       results.push({case:'feedback-contributor-devtools-no-admin-requests-selfservice-sharing-withdrawal',label,width})
     } catch(error) {
       await page.screenshot({path:path.join(out,label+'-feedback-failure-'+width+'.png'),fullPage:true})

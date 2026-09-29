@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import type { Queryable, TokenScope } from './tokens.js';
+import { improvementCapabilityReady, type Queryable, type TokenScope } from './tokens.js';
 
 /**
  * OAuth 2.1 + PKCE + Dynamic Client Registration (`oauth_client` / `oauth_code`,
@@ -207,6 +207,8 @@ export interface AuthCodeRow {
   resource: string | null;
   /** What the person chose on the consent screen (migration 075). */
   scope: TokenScope;
+  /** Explicit capability approved for this one connection (migration 078). */
+  deckeImprovementRead: boolean;
 }
 
 /** `dsac_` + 32 bytes CSPRNG, base64url. A short, recognisable, single-use secret. */
@@ -235,6 +237,7 @@ export async function createAuthCode(
  * the first `UPDATE` to reach Postgres can ever return a row.
  */
 export async function consumeAuthCode(db: Queryable, code: string): Promise<AuthCodeRow | null> {
+  const improvement = await improvementCapabilityReady(db);
   const { rows } = await db.query<{
     code: string;
     client_id: string;
@@ -243,12 +246,14 @@ export async function consumeAuthCode(db: Queryable, code: string): Promise<Auth
     code_challenge: string;
     resource: string | null;
     scope: TokenScope;
+    decke_improvement_read: boolean;
   }>(
     `UPDATE oauth_code
         SET used_at = now()
       WHERE code = $1 AND used_at IS NULL AND expires_at > now()
         AND public.admin_account_active(user_id::text)
-      RETURNING code, client_id, user_id, redirect_uri, code_challenge, resource, scope`,
+      RETURNING code, client_id, user_id, redirect_uri, code_challenge, resource, scope,
+                ${improvement ? 'decke_improvement_read' : 'false AS decke_improvement_read'}`,
     [code],
   );
   const row = rows[0];
@@ -261,6 +266,7 @@ export async function consumeAuthCode(db: Queryable, code: string): Promise<Auth
     codeChallenge: row.code_challenge,
     resource: row.resource,
     scope: row.scope,
+    deckeImprovementRead: row.decke_improvement_read === true,
   };
 }
 
