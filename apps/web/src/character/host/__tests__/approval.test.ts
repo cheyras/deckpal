@@ -411,30 +411,12 @@ test('a reserved approval leg is not a free extra step for ordinary work', () =>
   assert.equal(legBudget(2), MAX_LEGS + 2)
 })
 
-test('the FIRST decline carries the same doctrine the repeat decline does', () => {
-  // Measured, 2026-08-29: the reader cancelled an approval and the next reply
-  // read as though they had agreed — "Got it, let's pull the real picture
-  // instead of guessing. First, I'll grab your deck's battle logs and strategy
-  // guide. One sec." — and the turn then ended with nothing run. Their words:
-  // "after i cancelled, you output a response that seemed canned like it was
-  // fore-assuming that i would say yes."
-  //
-  // A REPEAT decline has been answered server-side with a full [[NO_WORK]]
-  // briefing since #138 (`apps/api/src/decke/declined.ts`). This string is the
-  // entire thing the model is told about the FIRST one — the one the reader
-  // actually performs — and it was four words.
-  //
-  // The marker must LEAD: the prompt rule keys on a result *starting with* it.
-  assert.ok(DECLINED_REASON.startsWith('[[NO_WORK]]'), 'prompt.ts cannot match a marker that does not lead')
-  // Nothing happened, and it must not be narrated as though it had.
-  assert.match(DECLINED_REASON, /nothing was written and nothing changed/i)
-  assert.match(DECLINED_REASON, /There is NO result/)
-  assert.match(DECLINED_REASON, /do not carry on with the plan that needed it/i)
-  // A refusal is not a problem to solve: no re-offer, no work-around.
-  assert.match(DECLINED_REASON, /Do not re-offer it and do not work around it/i)
-  // …but he must still answer what they actually said. This is where it differs
-  // from `declined.ts`'s tail, which ends in "and stop".
-  assert.match(DECLINED_REASON, /follow what they actually said/i)
+test('a decline remembers the exact write while letting the conversation continue', () => {
+  assert.equal(
+    DECLINED_REASON,
+    '[[NO_WORK]] The reader said no to this exact change. Nothing changed. Do not ask ' +
+      'again for the same change; carry on with what they say next.',
+  )
 
   // AND `ABANDONED_REASON` STAYS EXACTLY AS IT WAS. `declined.ts` compares
   // against this string with `===` to tell a closed panel from a refusal;

@@ -53,7 +53,40 @@ import {
  * all of them without ever answering. Two copies of 12 is two copies that can
  * drift, and the drift would be silent — the check would simply stop firing.
  */
-const MAX_STEPS = 12
+const MAX_STEPS = 24
+
+const ANTHROPIC_CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } }
+const isAnthropic = (choice) => choice.id.startsWith('anthropic/')
+
+/**
+ * ai@7 accepts provider options on both SystemModelMessage and Tool. The replay
+ * probe verifies that the Gateway preserves this breakpoint via cache_read in
+ * provider metadata; an unrecognised provider option remains advisory.
+ */
+function cachedInstructions(choice, content) {
+  return isAnthropic(choice)
+    ? { role: 'system', content, providerOptions: ANTHROPIC_CACHE }
+    : content
+}
+
+function cachedTools(choice, tools) {
+  if (!isAnthropic(choice)) return tools
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, tool]) => [
+      name,
+      {
+        ...tool,
+        providerOptions: {
+          ...(tool.providerOptions ?? {}),
+          anthropic: {
+            ...(tool.providerOptions?.anthropic ?? {}),
+            cacheControl: { type: 'ephemeral' },
+          },
+        },
+      },
+    ]),
+  )
+}
 
 /**
  * The browser-fulfilled tools, as a Set, for the empty-answer guard's
@@ -84,6 +117,7 @@ const SERVER_SET = new Set(SERVER_TOOLS)
 const REPAIRABLE = new Set(['showScreen'])
 
 import { createGateway } from '@ai-sdk/gateway'
+import * as agentTools from '@deckpal/agent-tools'
 
 // Everything imported here comes from `apps/api/dist` — COMPILED output, not
 // source. `apps/web` builds a browser bundle and its `.ts` files are never
@@ -101,7 +135,7 @@ import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, safeUsa
 import { assertDeckeAccess, readPolicy, reserveCredits, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
-import { declinedCalls, researchRanInConversation } from '../apps/api/dist/decke/declined.js'
+import { declinedCalls } from '../apps/api/dist/decke/declined.js'
 import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
 import { outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
@@ -125,7 +159,6 @@ import {
   seedObservedIds,
 } from '../apps/api/dist/decke/turnGuards.js'
 import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
-import { priorSummaries } from '../apps/api/dist/decke/toldAlready.js'
 import { readReflex } from '../apps/api/dist/decke/reflex.js'
 import {
   auditTurn,
@@ -448,11 +481,8 @@ async function serve(request) {
 
   // ── AND WHAT THE METER ALREADY REFUSED IN THIS TURN ───────────────────────
   //
-  // The other half of `declined`, and a different fact: a decline is the reader
-  // saying no, a meter refusal is the account being unable. Both end in "do not
-  // ask again", and only the first was known — so an approved, cap-refused
-  // `write_strategy_guide` came straight back as a SECOND approval card for
-  // identical work in the same turn, charged against the same spent cap.
+  // Meter refusals are account state, distinct from a reader declining a write.
+  // Once a priced tool is unavailable, do not spend more steps retrying it.
   //
   // SEEDED FROM THE REPLAYED HISTORY for the reason this whole function
   // re-derives everything: each approval is a fresh POST and the server keeps
@@ -478,10 +508,6 @@ async function serve(request) {
   // makes for its own bypass. See `decke/failing.ts`.
   const failing = failingTools([...evidence, ...messages])
   const retryRequested = readerAsksRetry(latestUserText(messages))
-  // What the reader has already been shown, tool by tool — same reconstruct-
-  // from-the-wire shape as `failing` above. See `decke/toldAlready.ts`.
-  const told = priorSummaries([...evidence, ...messages])
-
   // ── THE METER ─────────────────────────────────────────────────────────────
   //
   // Charged AFTER validation and BEFORE the model, which is the only ordering
@@ -538,12 +564,10 @@ async function serve(request) {
   // ── THE REFLEX READ ───────────────────────────────────────────────────────
   //
   // What the reader is asking for, judged by Jev before the model runs: a
-  // collection change forces the first step to raise the real consent card, a
-  // walk to a list or deck takes `escort` out of view, and a "no" said in words
-  // counts as a decline. On every leg, from the reader's latest words — the
-  // server keeps nothing between requests, and a refusal must still hold after
-  // a browser result comes back — but only the leg carrying those words may
-  // force. AFTER the meter — this is a Gateway call, and nothing reaches the
+  // collection change forces the first step to raise the real consent card,
+  // and a walk to a list or deck takes `escort` out of view. On every leg, from
+  // the reader's latest words, but only the leg carrying those words may force.
+  // AFTER the meter — this is a Gateway call, and nothing reaches the
   // Gateway unpaid — and under a hard deadline. On a timeout, an error, a low-confidence answer or `DECKE_JEV`
   // off, it is `NO_REFLEX`, which is this function exactly as it was.
   //
@@ -561,11 +585,9 @@ async function serve(request) {
   // problem. A matching call is now refused without a dialog. See
   // `decke/declined.ts` for why the tool is not simply taken away instead.
   //
-  // `latestUserText` is the reader's OWN latest message — the one fact the model
-  // cannot fake, and what re-opens a name-level family (guide / research) the
-  // reader raises again. See `declined.ts`'s bypass section. A refusal SAID in
-  // that message (the reflex read above) counts too, and outranks the bypass.
-  const declined = declinedCalls(messages, latestUserText(messages), reflex.declines)
+  // Only an explicit denial replayed by the browser counts; ordinary prose is
+  // never interpreted as a tool-family refusal.
+  const declined = declinedCalls(messages)
 
   // Where this instance is reachable, for the API hop a tool makes. Derived
   // from the request rather than hardcoded, so a preview deployment talks to
@@ -705,6 +727,10 @@ async function serve(request) {
       // step one is what `showScreen` may draw on step three — evidence is a
       // property of the turn, not of a call.
       const grounding = createGrounding()
+      // Finished tool outputs are evidence even when they came from an earlier
+      // turn. This is the grounding used by sanitizeScreen/showDeck, not merely
+      // the audit set below.
+      for (const output of replayedToolOutputs(messages)) grounding.observe(output)
       // The same evidence, as a Set, for the ungrounded-id guard below. Built by
       // TAPPING `grounding.observe` through a structural proxy that delegates
       // every method to the real grounding and harvests ids into this Set using
@@ -743,14 +769,19 @@ async function serve(request) {
       // turn. AT MOST ONE guard step per turn — never stacked.
       let guardFired = false
 
-      const allDeckeTools = {
+      const allDeckeTools = cachedTools(choice, {
         // `emitToolEvent` here too, so a panel becomes a row like every data
         // lookup already does. Without it `showScreen` and `express` were
         // absent from the transcript entirely — and, worse, absent from the
         // compacted evidence the client replays into the next leg, so a turn
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
-        ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer)),
+        ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
+          checkDeck:
+            typeof agentTools.checkDeck === 'function'
+              ? (input) => agentTools.checkDeck(toolCtx, input)
+              : undefined,
+        }),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -767,7 +798,7 @@ async function serve(request) {
           // read-only hypothetical path. Shared MCP/default schemas stay as-is.
           conversationalLogging: true,
           onEvent: emitToolEvent(writer),
-          // ONLY HERE. The deep tier's sub-agents below get no
+          // ONLY HERE. The research worker below gets no
           // `onApprovalPreview`, because there is no reader watching a dialog
           // for them — and with nobody listening the adapter runs no preview at
           // all, so a sub-agent pays nothing for a card it cannot show.
@@ -792,10 +823,7 @@ async function serve(request) {
           // the browser re-POSTs the whole conversation each leg and the server
           // keeps nothing between requests.
           //
-          // Given to the data tools AND to the deep tier below, because the
-          // reader's complaint named one of each — `deck_strategy` (a data
-          // write) and `research_meta` (a deep call), four declines apiece
-          // across the corpus. See `decke/declined.ts`.
+          // Exact denied calls are refused without reopening the same dialog.
           declined,
           // ── AND WHAT HAS BEEN DOWN ALL CONVERSATION ──────────────────────
           //
@@ -805,66 +833,26 @@ async function serve(request) {
           // reader's own "try again", the only thing that closes the circuit.
           failing,
           retryRequested,
-          // ── AND WHAT THEY HAVE ALREADY BEEN SHOWN ────────────────────────
-          //
-          // A read whose summary matches one the reader already saw gets a
-          // one-line annotation on the MODEL's copy only — the chip stays
-          // honest about the lookup that really ran. Data tools only: the
-          // deep tier's sub-agents have no reader to have told anything to.
-          priorSummaries: told,
           // Log-only, for the one line a tripped breaker writes.
           conversationId,
           grounding: groundingForTools,
         }),
-        // THE DEEP TIER. Four sub-agents, each with its own model, step
-        // budget and tool subset — see `decke/deep.ts`.
-        //
-        // Tools rather than a router: a classifier turn in front of every
-        // message taxes the 90% that do not need one, and a misroute is
-        // INVISIBLE — the answer still arrives, quietly worse, and nothing
-        // says a cheap model answered a question that needed an expensive
-        // one. A tool call, by contrast, appears in the log.
-        //
-        // Each charges `deep_calls`, which is capped separately and far
-        // tighter than conversation because it is ~250x the price.
+        // Web research stays a separate tool because its search model and
+        // metering differ from the conversational agent.
         ...buildDeepTools({
           ctx: toolCtx,
           gateway,
-          // PRICED PER TOOL. A deck plan is measured at ~$0.75 and an analysis
-          // call at ~$0.036 — a 20x spread that a single "one deep call" unit
-          // cannot express, and the reason the old meter needed a separate
-          // counter for the tier at all.
           charge: async (toolName, toolCallId, args) =>
             meterTurn(user.id, {
               tier: 'deep_calls',
               toolCallId, args,
               reason: `deep:${toolName}`,
             }),
-          // `research_meta` was declined four times across the corpus, twice in
-          // consecutive turns, with the reader saying in the chat that being
-          // re-asked was the problem. Same set as the data tools above.
-          declined,
-          // What the meter already refused in this turn — no second card, no
-          // second charge, no second sub-agent for work that cannot happen.
+          // What the meter already refused in this turn — no repeated charge.
           refusals: deepRefusals,
-          // The turn grounding, so a card a deep tool RESOLVED survives into the
-          // panel. Without it every id that exists only in a plan_deck result is
-          // partitioned invented and stripped — the payoff turn renders an empty
-          // grid. research_meta is excluded at the tool, not here.
-          grounding: groundingForTools,
           onEvent: emitToolEvent(writer),
-          // ── PROVENANCE FOR THE NO-RESEARCH BAR ─────────────────────────────
-          //
-          // Did research (or a card read) actually run in this conversation?
-          // `researchRanInConversation` scans the same replayed `messages` for a
-          // `tool-research_meta` or `tool-get_card` part that ran to a result.
-          // The guide card's `no_research` flag fires when findings is trivial OR
-          // this returns false, so a guide is "backed by research" only when
-          // research genuinely ran AND the findings are non-trivial. See
-          // `decke/declined.ts` and `decke/deep.ts`.
-          researchRan: () => researchRanInConversation(messages),
         }),
-      }
+      })
 
       // THE MODEL SEES A WINDOW; EVERYTHING ELSE SEES THE WHOLE. Declines,
       // failures, what he already said, the paste and the charge hash above all
@@ -894,7 +882,7 @@ async function serve(request) {
         // `instructions` is the field that accepts a SystemModelMessage, which
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
         // whole animation vocabulary on every turn, so caching is load-bearing.
-        instructions: systemPrompt,
+        instructions: cachedInstructions(choice, systemPrompt),
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
         // `standardizePrompt` as "messages.some is not a function" — which
@@ -951,7 +939,8 @@ async function serve(request) {
         // `goTo` and friends and answers with `addToolOutput`, which opens a
         // fresh request rather than continuing this one.
         //
-        // RAISED FROM 4 TO 12 (spec §8.5). Four was sized for a loop with six
+        // RAISED FROM 12 TO 24 for a complete gather → draft → check → fix →
+        // show deck workflow. Four was sized for a loop with six
         // cosmetic tools, where a step could only ever be "move" or "speak".
         // A turn that reads now legitimately needs several: look the set up,
         // check what they own of it, then answer. Four made "what am I missing
@@ -971,7 +960,7 @@ async function serve(request) {
             // This used to read `last.text`, which meant the turn only ended if
             // one single step contained BOTH the words and the gesture. With
             // four steps that was nearly always true and the flaw never showed.
-            // With twelve, and with real lookups in between, the ordinary shape
+            // With a larger loop and real lookups in between, the ordinary shape
             // is: step 1 reads, step 2 answers in words, step 3 draws the
             // panel — and no step ever has both, so the loop ran on.
             //
@@ -1004,7 +993,7 @@ async function serve(request) {
           // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
           //
           // The flailing guard used to be a POST-MORTEM only: it summarised the
-          // turn's failures AFTER the loop had already burned to the 12-step
+          // turn's failures AFTER the loop had already burned to the step
           // cap. The mine asked for a circuit breaker, and this is it — stop
           // issuing further steps once the error budget across `guardEvents` is
           // exceeded, so a turn that has already failed 5 times does not spend
@@ -1030,9 +1019,9 @@ async function serve(request) {
         // Everything comes back on step two, so a capability is delayed by one
         // step and never removed.
         //
-        // AND WHAT HAS BECOME IMPOSSIBLE. Once the deep tier's own limit has
-        // refused once this turn — a spent daily cap, a held wallet — the four
-        // deep tools leave `activeTools` for the rest of it. This file's own
+        // AND WHAT HAS BECOME IMPOSSIBLE. Once the research tier's own limit has
+        // refused once this turn — a spent daily cap, a held wallet — its tool
+        // leaves `activeTools` for the rest of it. This file's own
         // measurement is why that is worth doing: with a tool absent from
         // `activeTools`, "a prompt begging the model to call it produced no
         // call". A decline is never removed this way (the reader can change
@@ -1045,7 +1034,9 @@ async function serve(request) {
         // Forcing it forces the question, never the answer.
         prepareStep: ({ stepNumber }) => ({
           activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
-          ...(stepNumber === 0 && reflex.force ? { toolChoice: { type: 'tool', toolName: reflex.force } } : {}),
+          ...(stepNumber === 0 && reflex.force
+            ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
+            : {}),
         }),
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
@@ -1286,7 +1277,7 @@ async function serve(request) {
             id: 'step-budget-exhausted',
             delta:
               'I went round in circles on that one and ran out of room before I could ' +
-              'answer — I never got to the reply. Ask me again, or narrow it down a bit?',
+              'answer — I never got to the reply. I can continue from a narrower angle.',
           })
           // The circles guard COUNTS toward the one-guard-per-turn budget — if it
           // wrote, no turn-guard below may fire. Never stack nudges.
@@ -1302,7 +1293,7 @@ async function serve(request) {
       // MINE FINDING (owner's 28-conversation history):
       //   (a) EMPTY ANSWERS — 13 of 28 turns: data tools ran, ZERO answer text,
       //       finishReason 'tool-calls'/null at 1–11 steps. The circles guard
-      //       above fires only at the 12-step cap, so the 1–11-step empty turn
+      //       above fires only at the 24-step cap, so a shorter empty turn
       //       went untouched. Quotes: "You didn't fucking show me it at all";
       //       "you told me you weee escorting me. You didn't actually DO it".
       //   (b) TRUNCATION — answers cut mid-sentence on finishReason 'length'
@@ -1378,7 +1369,7 @@ async function serve(request) {
           let corrective = null
           if (needsContinuation(String(finishReason ?? ''))) {
             // (b) TRUNCATION — cut off mid-sentence.
-            note = ' …I got cut off mid-sentence there. Say "keep going" and I\'ll finish the thought.'
+            note = ' …I got cut off mid-sentence there, before I finished the thought.'
           } else if (shouldFireFlailing(phases, answerText)) {
             // (c) FLAILING — too many errors across the turn AND the turn did
             // not recover into a substantive answer. `errorBudgetExceeded`
@@ -1391,7 +1382,7 @@ async function serve(request) {
               .map((e) => ({ name: e.name, title: e.title }))
             note =
               `\n\nI kept hitting walls there. ${summarizeFailures(chips)} ` +
-              'Rather than keep flailing, tell me to try a different way — or ask it differently and I will.'
+              'I need to take a different route from here.'
           } else if (
             needsAnswerNudge(answerText, calledToolNames, CLIENT_SET, completedToolNames, SERVER_SET)
           ) {
@@ -1401,7 +1392,7 @@ async function serve(request) {
             // two; see `completedToolNames` above for what happened without.
             note =
               'I looked things up and then never actually answered you — that\'s on me. ' +
-              'Ask that again and I\'ll answer from what I found.'
+              'The findings are still in this conversation.'
           } else {
             // (d) PHANTOM ACTIONS / PROMISES / UNGROUNDED IDS — only meaningful
             // AFTER the model produced text, which is why this branch is last:
@@ -1435,15 +1426,15 @@ async function serve(request) {
             } else if (phantoms.length > 0 || audit?.phantom) {
               note =
                 '\n\nOne correction: I talked about doing that just now, but I never actually ran it — ' +
-                'nothing has changed. Say the word and I\'ll actually do it.'
+                'nothing has changed.'
             } else if (promised) {
               note =
                 '\n\nAnd then I stopped: I said I was about to go and do that, and I never ran anything — ' +
-                'so nothing came back and nothing changed. Tell me to go ahead and I\'ll actually do it.'
+                'so nothing came back and nothing changed.'
             } else if (ungrounded.length > 0) {
               note =
                 `\n\nA caution: I named ${ungrounded.join(', ')} without looking it up this turn — ` +
-                'don\'t trust that detail until I check it. Ask me to verify and I will.'
+                'don\'t trust that detail until it is verified.'
             }
           }
 
@@ -1465,10 +1456,10 @@ async function serve(request) {
             writer.write({ type: 'text-delta', id: 'turn-guard', delta: CORRECTION_LINE })
             const leg = streamText({
               model: observeUsageModel(gateway(choice.id), meter),
-              instructions: `${systemPrompt}\n\n${correctiveInstruction(corrective)}`,
+              instructions: cachedInstructions(choice, `${systemPrompt}\n\n${correctiveInstruction(corrective)}`),
               messages: [...preparedMessages, ...(await result.response).messages],
               tools: correctiveApplyTools(allDeckeTools, corrective),
-              toolChoice: { type: 'tool', toolName: corrective },
+              toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: corrective },
               stopWhen: stepCountIs(1),
               ...(process.env.DECKE_APPROVAL_SECRET
                 ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
@@ -1583,6 +1574,31 @@ function replayedText(messages) {
         if (typeof p.output === 'string') out.push(p.output)
         if (typeof p.state === 'string') out.push(p.state)
         if (typeof p.result === 'string') out.push(p.result)
+      }
+    }
+  }
+  return out
+}
+
+/** Only completed tool results may ground cards shown from prior turns. */
+function replayedToolOutputs(messages) {
+  if (!Array.isArray(messages)) return []
+  const out = []
+  for (const message of messages) {
+    if (!Array.isArray(message?.parts)) continue
+    for (const part of message.parts) {
+      if (
+        typeof part?.type !== 'string' ||
+        !part.type.startsWith('tool-') ||
+        part.state !== 'output-available'
+      ) continue
+      if (typeof part.output === 'string') out.push(part.output)
+      else if (part.output !== undefined) {
+        try {
+          out.push(JSON.stringify(part.output))
+        } catch {
+          /* malformed replay evidence is ignored, never fatal */
+        }
       }
     }
   }

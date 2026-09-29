@@ -1066,6 +1066,15 @@ Run the legality engine and return `{ validation, cardRefs }` without persisting
 anything. Query `?format=` overrides the stored format for the check (defaults to
 the deck's `format_code`).
 
+### POST /deckpal/api/decks/check
+Read-only check for a proposed deck that has not been saved. Body has optional
+`format` (default `standard`) and exactly one of `cards` (`[{ name? | card_id?,
+quantity }]`) or `ptcgl_text`. Bare names prefer an owned printing, then the
+newest legal printing. Returns total and legality issues, evolution gaps,
+resolved lines with owned copies and USD unit prices, cost to acquire missing
+copies, and a normalized PTCG Live export. Unresolved names remain in `lines`
+with `resolved:false`; no deck or collection data is written.
+
 ### POST /deckpal/api/decks/import
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),
 "source"? = "ptcgl"\|"massentry" (the decklist syntax — defaults `ptcgl`),

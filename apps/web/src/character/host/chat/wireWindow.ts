@@ -26,11 +26,11 @@
 import { TOOL_RECORD_PREFIX } from './lookupRecord'
 
 /** Prior messages the model is shown. */
-export const WINDOW_MESSAGES = 24
+export const WINDOW_MESSAGES = 40
 
 /** Characters of prior history the model is shown. Larger than one pasted
  *  battle log, so "yes, log it" on the turn after a paste still carries it. */
-export const WINDOW_PRIOR_CHARS = 64_000
+export const WINDOW_PRIOR_CHARS = 160_000
 
 /**
  * The largest part the server reads. A message with a part past this was

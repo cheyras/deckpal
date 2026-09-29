@@ -59,6 +59,9 @@
  * the opposite call from the thinking counter, which keeps ticking under reduce
  * because there the number IS the signal — same principle, different answer,
  * which is why the strategy is per-element rather than a blanket rule.
+ *
+ * `activityAnimation.ts` now owns the turn-wide policy: tool starts select a
+ * working state and accents return to it. This helper remains for compatibility.
  */
 
 /** What a chip looks like to this decision. Deliberately not the whole `ToolChip`. */
@@ -85,9 +88,11 @@ export type BeatContext = {
   now: number
   /** `prefers-reduced-motion`. */
   reduced: boolean
+  /** The sustained working state to resume after the one-shot. */
+  workingState?: string
 }
 
-export type Beat = { state: string; mode: 'once' }
+export type Beat = { state: string; mode: 'once'; then: string }
 
 /**
  * How long he must go without a beat before another one means anything.
@@ -141,5 +146,5 @@ export function beatForChip(chip: BeatInput, ctx: BeatContext): Beat | null {
 
   if (ctx.lastBeatAt !== null && ctx.now - ctx.lastBeatAt < BEAT_COOLDOWN_MS) return null
 
-  return { state: 'nod_yes', mode: 'once' }
+  return { state: 'nod_yes', mode: 'once', then: ctx.workingState ?? 'thinking' }
 }

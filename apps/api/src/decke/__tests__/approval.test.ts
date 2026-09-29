@@ -191,107 +191,21 @@ test('forcePreview leaves reads alone', () => {
   assert.deepEqual(forcePreview(search, input), input)
 })
 
-test('a sub-agent NEVER gets a write it cannot have approved for it', async () => {
-  // THE BUG THIS PINS. A sub-agent runs inside `streamText`'s own loop with
-  // nothing draining an approval channel, so a write tool handed to one is not
-  // gated — it is SUSPENDED FOR EVER. The adversarial pass caught exactly this:
-  // the sub-agent composed a strategy guide, called `deck_strategy`, the SDK
-  // held the call, the sub-agent reported "stored", and nothing was written.
-  //
-  // Security-positive and functionally a lie, which is the failure this whole
-  // effort exists to remove — reintroduced by the mechanism added to prevent a
-  // different one.
-  //
-  // The fix moves the question to a boundary a human can answer, so the two
-  // halves must agree: a sub-agent tool set built `upstream` must be reachable
-  // ONLY from a deep tool that itself requires approval.
+test('the only deep tool is read-only web research and raises no approval', async () => {
   const { buildDeepTools } = await import('../deep.js')
   const deep = buildDeepTools({
     ctx: { pool: null as never, userId: 'u1', jwt: 'j', apiBase: 'https://x.test/api' },
     gateway: (() => {}) as never,
     charge: async () => ({ allowed: true, cap: 10 }),
   }) as Record<string, { needsApproval?: unknown }>
-
-  // ── A PREDICATE NOW, NOT A LITERAL `true` ─────────────────────────────────
-  //
-  // `needsApproval` became `(input) => !alreadyDeclined(name, input)`, so that a
-  // call the reader has ALREADY refused raises no second dialog — see
-  // `declined.ts` for the complaint that produced it. With no declined set,
-  // which is this test's construction and every sub-agent's, it must still
-  // answer true for every input.
-  //
-  // Asserted by CALLING it rather than by relaxing this to "truthy": a function
-  // is truthy whatever it returns, so a truthiness check here would pass for a
-  // predicate that always said no — which is the unapproved-write bug this test
-  // exists to catch, wearing a new coat.
-  const asks = (t: { needsApproval?: unknown } | undefined, input: unknown): boolean => {
-    const n = t?.needsApproval
-    return typeof n === 'function' ? (n as (i: unknown) => boolean)(input) === true : n === true
-  }
-
-  assert.ok(
-    asks(deep.write_strategy_guide, { deck: 'd1' }),
-    'write_strategy_guide stores a guide and must ask the human first',
+  assert.deepEqual(Object.keys(deep), ['web_research'])
+  const policy = deep.web_research?.needsApproval
+  assert.equal(
+    typeof policy === 'function'
+      ? (policy as (input: unknown) => boolean)({ query: 'x', topic: 'general', purpose: 'x' })
+      : policy === true,
+    false,
   )
-  // ── AND SO DO THE OTHER THREE, WHICH IS A REVERSAL ────────────────────────
-  //
-  // This assertion used to be the opposite, and its reason was: "the other three
-  // only read. Asking about a read is friction with no safety behind it, and
-  // friction people learn to click through is worse than none." That is right
-  // about SAFETY and silent about COST.
-  //
-  // A deep call is not a read. It is a sub-agent with its own model and up to
-  // 210 seconds of wall clock; it is the scarcest thing the account has, and
-  // under the credit model it is the only thing a reader can run out of.
-  // Measured, on camera: asked for "a new deck, doesn't have to be good", he
-  // spent one immediately — before the owner had confirmed anything — and then
-  // spent another. *"He should verify first and then do the deep question."*
-  //
-  // The friction argument is answered by what the card SAYS, not by hiding it:
-  // it carries his restatement of the request, so the tap confirms a specific
-  // piece of work. A confirmation with nothing in it is the one people learn to
-  // click through.
-  for (const n of ['plan_deck', 'analyze_collection', 'research_meta']) {
-    assert.ok(asks(deep[n], { query: 'x' }), `${n} spends the scarcest thing there is and must ask`)
-  }
-})
-
-test('a call the reader ALREADY declined raises no second dialog — and still does not run', async () => {
-  // The reader watched the same `deck_strategy` panel on three consecutive
-  // turns having declined it every time, and wrote the complaint into the chat.
-  //
-  // THE TWO HALVES MUST AGREE. `needsApproval: false` means "raise no dialog",
-  // never "run it" — if `execute` stopped checking, this would become a write
-  // that executes unasked, which is strictly worse than the nuisance it fixes.
-  const { buildDeepTools } = await import('../deep.js')
-  const { callKey } = await import('../repeat.js')
-
-  const input = { query: 'dhelmise meta' }
-  const deep = buildDeepTools({
-    ctx: { pool: null as never, userId: 'u1', jwt: 'j', apiBase: 'https://x.test/api' },
-    gateway: (() => {}) as never,
-    charge: async () => {
-      throw new Error('a declined call must never be charged')
-    },
-    declined: new Set([callKey('research_meta', input)]),
-  }) as Record<
-    string,
-    {
-      needsApproval?: unknown
-      execute?: (a: unknown, c: { toolCallId: string }) => Promise<string>
-    }
-  >
-
-  const t = deep.research_meta!
-  const ask = t.needsApproval as (i: unknown) => boolean
-  assert.equal(ask(input), false, 'the refused call must not be put to them again')
-  assert.equal(ask({ query: 'something else' }), true, 'a different question must still ask')
-
-  // And it does not run. `charge` throws above, so reaching the body at all
-  // would fail this loudly rather than quietly billing a deep call.
-  const out = await t.execute!(input, { toolCallId: 'c1' })
-  assert.match(out, /already said no/i)
-  assert.match(out, /has not run/)
 })
 
 test('`approvals: upstream` is never the default, on any tool', () => {

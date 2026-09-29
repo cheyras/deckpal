@@ -3,6 +3,7 @@ import { catalogTools } from './tools/catalog.js';
 import { collectionTools } from './tools/collection.js';
 import { deckIntelTools } from './tools/deckIntel.js';
 import { deckTools } from './tools/decks.js';
+import { deckCheckTools } from './tools/deckCheck.js';
 import { historyTools } from './tools/history.js';
 import { listTools } from './tools/lists.js';
 import { loggingTools } from './tools/logging.js';
@@ -40,6 +41,7 @@ const ALL: ToolDefinition[] = [
   ...collectionTools,
   ...catalogTools,
   ...deckTools,
+  ...deckCheckTools,
   ...deckIntelTools,
   ...listTools,
   ...loggingTools,
@@ -81,6 +83,10 @@ export { needDeck } from './entities.js';
  * and a resource is not a tool — it needs the function, not the definition.
  */
 export { summaryText } from './tools/collection.js';
+export {
+  checkDeck, checkDeckInputSchema, renderDeckCheck,
+  type CheckDeckInput, type DeckCheckLine, type DeckCheckResult,
+} from './tools/deckCheck.js';
 
 /**
  * Re-exported for `apps/mcp`, whose server-side `console.error` lines print a

@@ -13,19 +13,15 @@ const choice = (c: string, p: number, confidence: number | null = p): Answer => 
   probabilities: { [c]: p },
   confidence,
 })
-const bool = (probability: number): Answer => ({ type: 'boolean', probability })
-
 const answers = (o: Partial<Record<ReflexKey, Answer>> = {}): Record<ReflexKey, Answer> => ({
   intent: choice('something_else', 0.9),
   destination: choice('none', 0.95),
-  declines_research: bool(0.02),
-  declines_guide: bool(0.02),
   ...o,
 })
 
 test('no answer is today\'s harness, exactly', () => {
   assert.deepEqual(reflexFrom(null), NO_REFLEX)
-  assert.deepEqual(reflexFrom(undefined), { force: null, hide: [], declines: { research: false, guide: false } })
+  assert.deepEqual(reflexFrom(undefined), { force: null, hide: [] })
   assert.deepEqual(reflexFrom(answers()), NO_REFLEX)
 })
 
@@ -54,13 +50,6 @@ test('escort leaves view only for pages it cannot reach, and only when sure', ()
   assert.deepEqual(reflexFrom(answers({ destination: choice('deck', 0.76, 0.7) })).hide, [])
 })
 
-test('a spoken no is heard above the threshold and not below it', () => {
-  assert.deepEqual(reflexFrom(answers({ declines_research: bool(0.92) })).declines, { research: true, guide: false })
-  assert.deepEqual(reflexFrom(answers({ declines_guide: bool(0.95) })).declines, { research: false, guide: true })
-  // The eval's strongest wrong guide decline ("skip the research…") was 0.55.
-  assert.deepEqual(reflexFrom(answers({ declines_guide: bool(0.55) })).declines, { research: false, guide: false })
-})
-
 test('the reader\'s latest words are read on every leg; only their own leg is not a continuation', () => {
   const said = (text: string) => ({ role: 'assistant', parts: [{ type: 'text', text }] })
   const asked = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
@@ -74,20 +63,19 @@ test('the reader\'s latest words are read on every leg; only their own leg is no
   assert.equal(readerLeg([said('hello')]), null)
 })
 
-test('a continuation keeps the refusals and the hidden walk, and never forces (Astra, PR review)', async () => {
+test('a continuation keeps the hidden walk and never forces (Astra, PR review)', async () => {
   const before = process.env[JEV_VAR]
   process.env[JEV_VAR] = 'on'
   try {
     const judged = answers({
       intent: choice('change_collection', 0.99),
       destination: choice('deck', 0.95, 0.9),
-      declines_research: bool(0.97),
     })
     const ok = (async () => new Response(JSON.stringify({ answers: judged }), { status: 200 })) as never
     const first = [{ role: 'user', parts: [{ type: 'text', text: 'stop researching the meta; just open my deck' }] }]
     const afterGoTo = [...first, { role: 'assistant', parts: [{ type: 'tool-goTo', state: 'output-available', input: {}, output: { ok: true } }] }]
-    assert.deepEqual(await readReflex(first, '/', { key: 'k', fetchImpl: ok }), { force: 'log_cards', hide: ['escort'], declines: { research: true, guide: false } })
-    assert.deepEqual(await readReflex(afterGoTo, '/decks', { key: 'k', fetchImpl: ok }), { force: null, hide: ['escort'], declines: { research: true, guide: false } })
+    assert.deepEqual(await readReflex(first, '/', { key: 'k', fetchImpl: ok }), { force: 'log_cards', hide: ['escort'] })
+    assert.deepEqual(await readReflex(afterGoTo, '/decks', { key: 'k', fetchImpl: ok }), { force: null, hide: ['escort'] })
   } finally {
     if (before === undefined) delete process.env[JEV_VAR]
     else process.env[JEV_VAR] = before

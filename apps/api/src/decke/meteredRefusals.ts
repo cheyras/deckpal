@@ -70,10 +70,7 @@ import { meterRefusalScope, type MeterRefusalScope } from './deepOutcome.js';
  * `deep.test.ts` pins the two against each other.
  */
 export const DEEP_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'plan_deck',
-  'write_strategy_guide',
-  'research_meta',
-  'analyze_collection',
+  'web_research',
 ]);
 
 /**
@@ -111,32 +108,9 @@ export interface MeteredRefusals {
 /** The scope with the wider blast radius wins: a spent cap outranks a thin balance. */
 const TIER_WIDE = (s: MeterRefusalScope): boolean => s === 'cap' || s === 'hold';
 
-/**
- * Argument keys the SERVER puts into a call's input, not the model.
- *
- * `needsApproval` writes `no_research: true` onto a `write_strategy_guide`
- * input so the approval card can show the reader the guide is unbacked, and
- * `execute` then sees the MUTATED object. Keying off that made a refusal
- * unrecognisable the moment it came back: the model re-emits `{deck_id,
- * findings}`, the ledger holds `{deck_id, findings, no_research}`, the keys
- * differ, and a second card went up for the identical work — the exact loop
- * this module exists to close, surviving inside it.
- *
- * Stripped on BOTH sides (`note` and `blocked`), so the fingerprint is the work
- * the model asked for and nothing the server added to it. Everything else is
- * kept: a different deck, different findings or a different tool is different
- * work and stays askable.
- */
-const SERVER_INJECTED = ['no_research'];
-
-/** A call's identity for this ledger: `callKey`, minus what the server added. */
+/** A call's identity for the argument-specific insufficient-credit guard. */
 function fingerprint(name: string, input: unknown): string {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return callKey(name, input ?? {});
-  }
-  const args: Record<string, unknown> = { ...(input as Record<string, unknown>) };
-  for (const k of SERVER_INJECTED) delete args[k];
-  return callKey(name, args);
+  return callKey(name, input ?? {});
 }
 
 class TurnRefusals implements MeteredRefusals {

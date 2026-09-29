@@ -122,6 +122,12 @@ test('an empty conversation, a non-array and one with no reader message are malf
 
 // ── WHAT THE MODEL SEES ─────────────────────────────────────────────────────
 
+test('the expanded replay window is pinned', () => {
+  assert.equal(WINDOW_MESSAGES, 40)
+  assert.equal(WINDOW_PRIOR_CHARS, 160_000)
+  assert.equal(PART_MAX_CHARS, 60_000)
+})
+
 test('a short conversation reaches the model untouched', () => {
   const msgs = [...chat(3), ...approvalTurn()]
   const { messages, dropped } = windowForModel(msgs)
@@ -149,6 +155,36 @@ test('the character budget binds before the message count on wordy history', () 
   assert.ok(prior.length < WINDOW_MESSAGES, 'this case is meant to be bounded by characters')
 })
 
+test('tool outputs count toward the character budget and completed parts survive', async () => {
+  const toolReply = (i: number) => ({
+    role: 'assistant' as const,
+    parts: [{ type: 'tool-web_research', toolCallId: `r${i}`, state: 'output-available', input: { query: `${i}` }, output: 'f'.repeat(12_000) }],
+  })
+  const history = Array.from({ length: 20 }, (_, i) => [user(`q${i}`), toolReply(i)]).flat()
+  const denied = {
+    role: 'assistant' as const,
+    parts: [{ type: 'tool-save_deck', toolCallId: 'd1', state: 'output-denied', input: { name: 'No' }, approval: { id: 'a1', approved: false, reason: 'the reader declined' } }],
+  }
+  const { messages } = windowForModel([...history, user('now'), denied])
+  const priorChars = messages.slice(0, -2).reduce(
+    (sum, message) => sum + message.parts.reduce((partSum, part) => partSum + JSON.stringify(part).length, 0),
+    0,
+  )
+  assert.ok(priorChars <= WINDOW_PRIOR_CHARS)
+  assert.ok(messages.some((message) => message.parts.some((part) => part.type === 'tool-web_research')))
+  const converted = await convertToModelMessages(messages as never)
+  assert.ok(converted.some((message) => message.role === 'tool'), 'tool results were dropped during conversion')
+  const content: { type?: string; approved?: boolean }[] = []
+  for (const message of converted) {
+    if (!Array.isArray(message.content)) continue
+    for (const part of message.content) content.push(part as { type?: string; approved?: boolean })
+  }
+  assert.ok(
+    content.some((part) => part.type === 'tool-approval-response' && part.approved === false),
+    'the replayed denial was dropped during conversion',
+  )
+})
+
 test('the turn after a paste still carries the paste, so "yes, log it" has a log to log', () => {
   const msgs = [...chat(6), user(`here is my game\n${'Turn 1 '.repeat(7_000)}`), said('Want me to log it?'), user('yes')]
   const { messages } = windowForModel(msgs)
@@ -171,8 +207,7 @@ async function* chunks(total: number, size = 16 * 1024) {
   for (let sent = 0; sent < total; sent += size) yield new Uint8Array(Math.min(size, total - sent))
 }
 
-test('a 1 MB body is refused while it arrives; an honest one is read whole', async () => {
-  assert.equal(await readBodyCapped(chunks(1024 * 1024)), null)
+test('a body past the cap is refused while it arrives; a full capped body is read', async () => {
   assert.equal((await readBodyCapped(chunks(BODY_MAX_BYTES)))?.length, BODY_MAX_BYTES)
   assert.equal(await readBodyCapped(chunks(BODY_MAX_BYTES + 1)), null)
 })

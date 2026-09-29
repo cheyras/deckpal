@@ -13,7 +13,7 @@ const USD = {
   /** The cheap end of the deep tier: one analysis call. */
   deep_call: 0.0356,
   /** The expensive end, and the one that decides the number people feel. */
-  plan_deck: 0.75,
+  expensive_fallback: 0.75,
 } as const;
 
 /**
@@ -41,15 +41,12 @@ const ceilCredits = (usd: number): number => Math.max(1, Math.ceil(usd / CREDIT_
 export const COST = {
   chat_turn: ceilCredits(USD.chat_turn),
   deep: {
-    plan_deck: ceilCredits(USD.plan_deck),
-    write_strategy_guide: ceilCredits(USD.plan_deck),
-    analyze_collection: ceilCredits(USD.deep_call),
-    research_meta: ceilCredits(USD.deep_call),
+    web_research: ceilCredits(USD.deep_call),
   } as Record<string, number>,
 } as const;
 
 /** An unnamed deep tool costs the EXPENSIVE end, never nothing. */
-export const DEEP_DEFAULT = ceilCredits(USD.plan_deck);
+export const DEEP_DEFAULT = ceilCredits(USD.expensive_fallback);
 
 /** What one call of a deep tool costs. */
 export function deepCost(toolName: string): number {

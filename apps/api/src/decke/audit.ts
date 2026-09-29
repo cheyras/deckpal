@@ -85,7 +85,7 @@ export const ACTION_TOOLS: Record<string, readonly string[]> = {
   deck_deleted: ['delete_deck'],
   battle_log: ['add_battle_log', 'edit_battle_log', 'delete_battle_log'],
   battle_log_deleted: ['delete_battle_log'],
-  guide: ['deck_strategy', 'write_strategy_guide'],
+  guide: ['deck_strategy'],
   navigation: ['goTo', 'flyTo', 'escort', 'journey', 'click', 'highlight', 'scrollToMe'],
 }
 
@@ -93,9 +93,8 @@ export const ACTION_TOOLS: Record<string, readonly string[]> = {
  * The claims a corrective leg may act on, and the tool it pins. Each one holds
  * its write for the signed consent card, so the leg can only ASK.
  *
- * Not a guide: `write_strategy_guide` is a paid deep call that asks first on
- * its own terms, and `deck_strategy` would need him to write a whole guide in
- * one forced step. Not a walk: a navigation has no card to ask with, and a
+ * Not a guide: `deck_strategy` would need him to write a whole guide in one
+ * forced step. Not a walk: a navigation has no card to ask with, and a
  * forced `goTo` would have to invent a route. Deletions also get the
  * admission: the edit tools below cannot delete, and a deletion needs its own
  * identified target and consent card. None of those claims may force an edit.
@@ -194,4 +193,4 @@ export const CORRECTION_LINE =
   "\n\nOne correction: I said that as if it were done, but I hadn't actually run it. Here it is for you to confirm."
 
 /** And if the leg could not raise one — an unresolvable card, a provider fault. */
-export const CORRECTION_FAILED_LINE = " It didn't go through, so nothing has changed. Say the word and I'll try again."
+export const CORRECTION_FAILED_LINE = " It didn't go through, so nothing has changed. We can take a different approach from here."

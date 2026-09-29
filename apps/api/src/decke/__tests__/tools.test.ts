@@ -52,6 +52,43 @@ test('SERVER_TOOLS is exactly the set of tools that DO have an execute', () => {
   )
 })
 
+test('showDeck checks and writes a deck screen with the contracted summary', async () => {
+  const writes: Array<{ type: string; data: unknown }> = []
+  const events: Array<{ phase: string; name: string; summary?: string }> = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part as { type: string; data: unknown }) },
+    undefined,
+    undefined,
+    (event) => events.push(event),
+    { checkDeck: async () => ({
+      format: 'standard', total: 60, legal: true, issues: [], evolution_gaps: [], owned: 42,
+      missing_cost_usd: 18.25, ptcgl: 'Pokémon: 1\n4 Pikachu SVI 1\n',
+      lines: [{ card_id: 'sv01-1', name: 'Pikachu', supertype: 'Pokémon', quantity: 4, owned: 2, unit_price_usd: 1, resolved: true }],
+    }) },
+  ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
+  const output = await tools.showDeck!.execute({
+    name: 'Sparks', format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 4 }],
+  }, { toolCallId: 'deck-1' })
+  assert.match(output, /60 cards · legal · own 42\/60 · missing cost about \$18\.25/)
+  assert.match(output, /Save button.*Do not list its cards again/)
+  assert.equal(writes[0]?.type, 'data-decke-screen')
+  assert.deepEqual(events.map((event) => event.phase), ['start', 'ok'])
+  assert.equal(events[1]?.summary, 'Showed "Sparks" · 60 cards')
+})
+
+test('showDeck falls back to ids when checking is absent or throws', async () => {
+  const writes: Array<{ data: unknown }> = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part as { data: unknown }) }, undefined, undefined, undefined,
+    { checkDeck: async () => { throw new Error('offline') } },
+  ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
+  const output = await tools.showDeck!.execute({ name: 'Draft', format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 4 }] }, { toolCallId: 'deck-2' })
+  assert.match(output, /4 cards · could not be checked · own 0\/4 · missing cost unavailable/)
+  const payload = writes[0]?.data as { screen: { blocks: Array<{ legal: null; sections: Array<{ cards: Array<{ name: string }> }> }> } }
+  assert.equal(payload.screen.blocks[0]?.legal, null)
+  assert.equal(payload.screen.blocks[0]?.sections[0]?.cards[0]?.name, 'sv01-1')
+})
+
 /**
  * The union, and the thing that reads it.
  *

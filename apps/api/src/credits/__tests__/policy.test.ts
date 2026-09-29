@@ -11,6 +11,8 @@ test('fixed precision usage prices preserve legacy units and round upward once',
   assert.equal(priceFor(10_000,{...DEFAULT_POLICY,markupBps:5000}),2);
   assert.equal(priceFor(1_000_000_000,{...DEFAULT_POLICY,microUsdPerCredit:100,markupBps:100000}),110_000_000);
   assert.equal(operationFor('unknown_new_deep_tool'),'planDeck');
+  assert.equal(operationFor('web_research'),'analysis');
+  assert.equal(operationFor('research_meta'),'analysis');
 });
 test('economic configuration refuses unknown, unsafe, fractional, and overflowing inputs',()=>{
  for(const [key,value] of [['enabled','true'],['markupBps',NaN],['markupBps',-1],['microUsdPerCredit',0],['lowBalance',1.2],['microUsdPerCredit',Number.MAX_SAFE_INTEGER]] as const) {

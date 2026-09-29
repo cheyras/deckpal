@@ -41,154 +41,22 @@ export type ModelChoice = {
   readonly effort?: 'minimal' | 'low' | 'medium' | 'high'
   /** Ceiling on visible output. See `RESERVE` — reasoning models need headroom. */
   readonly maxOutputTokens: number
-  /**
-   * The better, dearer model, used ONLY when the person explicitly asks for it.
-   *
-   * The owner's standing decision, and it is a spend decision rather than a
-   * quality one: `analysis` measured at $0.0356 a call against $0.000143 for
-   * the chat tier — roughly 250x — and a realistic `plan_deck` (a large
-   * collection context, plus research, plus thinking) runs $0.50–$1. At that
-   * price one to three calls is an entire month's budget for a user, so the
-   * best model cannot be the default and cannot be chosen by a model either.
-   *
-   * "Explicitly asks" means the PERSON asked, in words, for the best/deepest
-   * work. It is not a flag the conversational model may set on a whim, because
-   * a model that can spend 250x by picking a boolean will pick it.
-   */
+  /** A dearer model used only when the person explicitly asks for deeper work. */
   readonly escalate?: string
 }
 
 export const MODELS: Record<Job, ModelChoice> = {
   /**
-   * Ordinary conversation and the animation commands that ride along with it.
-   * Latency-critical and by far the highest volume — this is the model the user
-   * actually experiences as "how fast is he".
-   *
-   * HISTORY — superseded by the 4.1 → 4.20 switch recorded below, 2026-08-22.
-   * The rationale that follows picked grok-4.1-fast-non-reasoning, which is no
-   * longer the shipped id; it stays because the measurements are why the 4.20
-   * comparison was run at all.
-   *
-   * grok-4.1-fast-non-reasoning: 593 ms median TTFT over 3 trials (fastest
-   * measured), 3/3 on the exact animation-command tool schema, honours
-   * json_schema, streams tool-call arguments incrementally, and is
-   * non-reasoning BY DESIGN — so the reasoning-tax failure above cannot happen
-   * here at all. It also showed heavy provider-side implicit caching, which
-   * matters because our system prompt carries the whole 27-state vocabulary on
-   * every turn.
-   *
-   * NOT openai/gpt-4.1-nano, despite a statistically tied TTFT (580 ms) and
-   * being 4x cheaper: it failed tool-calling 0/3 on this exact schema,
-   * mistaking the enum VALUE `nod_yes` for an op name. It is a fine classifier
-   * and a broken driver. Same model, different job, opposite verdict.
-   */
-  /**
-   * ONE KEYWORD KEPT THIS MODEL OUT OF THE BUILD FOR AN AFTERNOON, and the
-   * scar is worth recording here because it is invisible from the model id.
-   *
-   * grok-4.1-fast accepts `minLength` only at the TOP level of a tool's
-   * parameter object. Nested any deeper — a string inside an array inside an
-   * array item, which is what `z.string().min(1)` produced in the `cards`
-   * field — xAI rejects the entire request with an `error` part on an HTTP 200
-   * and never calls the tool. `maxLength`, `pattern` and numeric bounds are
-   * fine at any depth; only `minLength` does this. See `decke/tools.ts`.
-   *
-   * Scope, measured: `grok-4.1-fast-non-reasoning` and `-reasoning` both fail;
-   * `grok-4.20-non-reasoning` passes. A grok-4.1-fast family defect, not an
-   * xAI-wide one, so a future model bump likely retires this whole note.
+   * Sonnet owns conversation, planning and tool orchestration in one context.
+   * Grok 4.20 non-reasoning held this job until 2026-09-28; it was reliable at
+   * tool syntax but could not do the planning and recovery the chat now owns.
    */
   chat: {
-    /**
-     * ── 4.1 → 4.20, 2026-08-22, FOR THE ONE DEFECT PROMPTING COULD NOT MOVE ──
-     *
-     * Asked "where do I change my completion goal?" with a real landmark and a
-     * set route, `grok-4.1-fast-non-reasoning` called `flyTo` **0/5**. It wrote
-     * the call out as bare prose instead — `flyTo [data-decke-goal-switcher]
-     * with point: true` — 5/5. So the flight never happened, on every page with
-     * a landmark, which is half of what makes him a character rather than a
-     * text box.
-     *
-     * Five separate prompt rewrites moved it 0/5 each: making "movement is a
-     * TOOL CALL, never text" explicit, quoting the failure back at him, moving
-     * the section for recency, hardening `flyTo`'s description, and typing the
-     * landmarks as an enum. The schema was not implicated either — he never
-     * called `express` on those turns, and 4.20 produced 0/10 malformed
-     * commands against the identical flat schema.
-     *
-     * Same prompt, same 34 tools, only the model changed: 4.20 calls it **5/5**,
-     * clean, with zero narration in 32 turns.
-     *
-     * NOT A FREE SWITCH, and both costs are recorded because a table of
-     * measurements is worth nothing if the inconvenient half is left out.
-     *
-     * **Restraint changed.** 4.1 was silent 6/6 on plain "hey"/"thanks"; 4.20
-     * fires a small `express` 6/6 — a `curious` or `happy` nod alongside the
-     * words. Measured as a regression against the prompt's governing rule
-     * ("silence is a valid emission"), and accepted as a DIRECTION by the owner:
-     * more expressive is the character being aimed at, and a nod on "hey" is a
-     * different thing from an emotion fired at random. The rule stays in the
-     * prompt because it still governs the states that MEAN something; if the
-     * nods become noise, this is the entry that says where they came from.
-     *
-     * **It costs 7.49x, not the 6.25x on the pricing page.** Measured $/turn:
-     * $0.01153 against $0.00154. The gap is caching — verified directly on an
-     * identical 2k-token prompt, second call: 4.1 read 663 tokens from cache,
-     * 4.20 read 128. Across the bake-off, 4.1 ran at 98.4% cache-hit and 365
-     * no-cache input tokens per turn; 4.20 at 67.1% and 10,078. The heavy
-     * provider-side caching that helped pick 4.1 largely does not apply here.
-     *
-     * Also slower: 1148 ms median TTFT against 811, and slower in all six
-     * scenarios rather than on average. Still about a penny a turn in absolute
-     * terms, and the meter caps the blast radius at 120 turns a day.
-     *
-     * Held, and worth saying because a switch can quietly cost them: lookup 5/5,
-     * correction 5/5, navigation 5/5 with the canonical route. Schema validity
-     * IMPROVED — 0/16 malformed against 4.1's 3/30, the same `cardArt` taking
-     * `value` instead of `card` that this file already records.
-     */
-    id: 'spacexai/grok-4.20-non-reasoning',
-    // NOT `claude-haiku-4.5`, which was the obvious pick and is measurably
-    // wrong for THIS tool. In both trials it emitted `{"op":"nod_yes"}` —
-    // `nod_yes` is a `value`, not an `op`, and it is not in the `op` enum. That
-    // is systematic rather than a fluke, and `validateCommand` would drop the
-    // first half of every reaction it sent. A fallback that silently degrades
-    // is worse than a slower one that works.
-    //
-    // gemini-2.5-flash was one of only two models measured to produce CLEAN
-    // arguments (the other, gemini-3-flash, is ~340 ms slower). It costs 1784 ms
-    // TTFT against grok's 593, which is a real regression — but a fallback runs
-    // when the primary is down, where correct-and-slower beats fast-and-wrong.
-    // ── RE-BAKED 2026-08-21, AGAINST THE NEW JOB ────────────────────────────
-    //
-    // The choice above was made on 593 ms TTFT for a SIX-TOOL COSMETIC LOOP.
-    // The job then changed: converse, LOOK THINGS UP, and know when to escalate.
-    // A model chosen for how fast it can nod is not automatically the right one
-    // for that, so it was re-run rather than assumed — 5 trials per scenario,
-    // 150 calls, against the real prompt and a tool set including the data
-    // tools:
-    //
-    //   model                     lookup  correction  nav   malformed  restraint  TTFT
-    //   grok-4.1-fast-non-reas.   100%    100%        100%  2/19       100%       663 ms
-    //   gemini-2.5-flash          100%    100%        100%  0/5         80%      1251 ms
-    //   gpt-5-mini                  0%    100%         40%  6/6         10%       618 ms
-    //   claude-haiku-4.5          100%    100%         40%  never fired 20%       999 ms
-    //   gpt-4.1-mini              100%    100%          0%  never fired 70%       505 ms
-    //
-    // The incumbent kept the job: the only model clean on all five, and also the
-    // fastest. Nothing was changed on vibes and nothing was left unmeasured.
-    //
-    // THE FINDING THAT MATTERS MOST is not in the table. Lookup rate went from
-    // NEVER — a 20-sample probe of the shipped system saw not one attempt — to
-    // 100%. The model was never the problem. There was nothing to look with.
-    //
-    // Two failures worth keeping, because both look like model quality and are
-    // not: `gpt-5-mini` answered "which one should I look up?" and then never
-    // looked, and stuffed every optional field onto every `express` command
-    // (6/6 malformed) — the pattern `tools.ts` already records for it.
-    // `gpt-4.1-mini` treated "take me to my decks" as an in-page gesture,
-    // calling `flyTo` 5/5 times and never `goTo`; it never leaves the page.
+    id: 'anthropic/claude-sonnet-5',
+    // Cross-lab fallback retained: Gemini's tool arguments were clean in the
+    // shipped bake-off, so a provider outage still leaves a working tool caller.
     fallback: 'google/gemini-2.5-flash',
-    maxOutputTokens: 1200,
+    maxOutputTokens: 8000,
   },
 
   /**

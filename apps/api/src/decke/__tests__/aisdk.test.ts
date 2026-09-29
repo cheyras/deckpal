@@ -18,6 +18,7 @@ import {
   dataToolSummary,
   requiresApproval,
   safeToolError,
+  usefulToolFailure,
   previewSummary,
   summariseError,
   summariseText,
@@ -169,6 +170,97 @@ test('our own deliberate errors DO pass through, because they were written to be
   })
   assert.match(safeToolError(timeout), /stopped waiting/)
   assert.equal(safeToolError(new Error('aborted')), 'aborted')
+})
+
+test('an opaque API 500 becomes a named, useful failure without inventing details', () => {
+  assert.equal(
+    usefulToolFailure('battle_logs', 'battle_logs failed: Internal server error'),
+    "battle_logs failed: DeckPal's data service had a temporary problem; try again.",
+  )
+  assert.equal(
+    usefulToolFailure('decks', 'Internal server error'),
+    "decks failed: DeckPal's data service had a temporary problem; try again.",
+  )
+  assert.equal(
+    usefulToolFailure('decks', "decks failed: No deck matches 'Dhelmise'."),
+    "decks failed: No deck matches 'Dhelmise'.",
+    'specific safe failures must keep their recovery information',
+  )
+})
+
+test('parallel decks and battle_logs self-hops carry the browser protection credential', async () => {
+  // These are the two calls from the production transcript, executed together
+  // through the real adapter and handlers. Neither uses ctx.db: both self-hop
+  // to Express, where each HTTP request receives its own RLS client. The old
+  // code dropped this cookie, so both requests received the protected-preview
+  // response instead of DeckPal JSON and this test returned two failures.
+  const originalFetch = globalThis.fetch
+  const seen: Array<{ path: string; cookie: string | null }> = []
+  const deck = {
+    id: 'deck-1',
+    name: 'Slowking Toolbox',
+    formatCode: 'standard',
+    version: 3,
+    totalCount: 60,
+    valueUsd: 42,
+    legal: true,
+    updatedAt: '2026-09-01T00:00:00Z',
+    record: { wins: 2, losses: 1, ties: 0 },
+  }
+  let dbConnects = 0
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url)
+    const cookie = new Headers(init?.headers).get('cookie')
+    seen.push({ path: `${url.pathname}${url.search}`, cookie })
+    if (cookie !== '_vercel_jwt=preview-session') {
+      return Response.json({ error: { code: 'internal', message: 'Internal server error' } }, { status: 500 })
+    }
+    const body = url.pathname.endsWith('/decks')
+      ? { decks: [deck] }
+      : {
+          version: null,
+          logs: [],
+          totals: { total: 0, wins: 0, losses: 0, ties: 0 },
+          pagination: { page: 1, pageSize: 50, total: 0, pageCount: 0 },
+        }
+    return Response.json(body)
+  }) as typeof fetch
+
+  try {
+    const unprotectedTools = buildDataTools({
+      ...OPTS,
+      include: (def) => def.name === 'decks' || def.name === 'battle_logs',
+    }) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
+    const oldBehaviour = await Promise.all([
+      unprotectedTools.decks!.execute({}, { toolCallId: 'old-decks' }),
+      unprotectedTools.battle_logs!.execute({ deck_id: 'Slowking Toolbox' }, { toolCallId: 'old-logs' }),
+    ])
+    assert.ok(
+      oldBehaviour.every((text) => /temporary problem/.test(text)),
+      'the no-cookie control did not reproduce the two protected-preview failures',
+    )
+    seen.length = 0
+
+    const tools = buildDataTools({
+      ...OPTS,
+      pool: { connect: () => { dbConnects++; throw new Error('API-only tools touched the chat RLS pool') } } as never,
+      selfHopHeaders: { cookie: '_vercel_jwt=preview-session' },
+      include: (def) => def.name === 'decks' || def.name === 'battle_logs',
+    }) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
+
+    const [decks, logs] = await Promise.all([
+      tools.decks!.execute({}, { toolCallId: 'decks-1' }),
+      tools.battle_logs!.execute({ deck_id: 'Slowking Toolbox' }, { toolCallId: 'logs-1' }),
+    ])
+
+    assert.match(decks, /Slowking Toolbox/)
+    assert.match(logs, /No battle logs/)
+    assert.equal(dbConnects, 0, 'these handlers should not share or touch Deck-E\'s RLS client')
+    assert.ok(seen.length >= 3, 'the real handlers did not make their expected self-hops')
+    assert.ok(seen.every((call) => call.cookie === '_vercel_jwt=preview-session'))
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 // ── add_battle_log / edit_battle_log are now PREVIEWABLE (they gained dry_run)

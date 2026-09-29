@@ -158,7 +158,7 @@ export async function runUsageContracts({db,as,test,id,mode,api,connect}) {
   assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_credit_event WHERE user_id::text=$1',[member])).rows[0].n,before);
  });
  await test('observed costs use complete operation samples and preserve unknown totals',async()=>{
-  await db.query("INSERT INTO public.decke_ai_operation(id,request_id,category,tool_key,model_id,provider,operation_key,status,cost_usd,cost_source) VALUES($1,$3,'research','research_meta','fixture/model','fixture','research-1','completed',0.00123,'provider_reported'),($2,$3,'research','research_meta','fixture/model','fixture','research-2','failed',NULL,'unknown')",[id(830),id(831),shared]);
+  await db.query("INSERT INTO public.decke_ai_operation(id,request_id,category,tool_key,model_id,provider,operation_key,status,cost_usd,cost_source) VALUES($1,$3,'research','web_research','fixture/model','fixture','research-1','completed',0.00123,'provider_reported'),($2,$3,'research','web_research','fixture/model','fixture','research-2','failed',NULL,'unknown')",[id(830),id(831),shared]);
   const result=await call(owner,'SELECT public.decke_usage_observations(30,NULL) data');
   assert.equal(result.groups[0].completeCount,1);assert.equal(result.groups[0].unknownCount,1);assert.equal(result.groups[0].meanMicroUsd,1230);
   const detail=await call(owner,'SELECT public.decke_usage_detail($1) data',[shared]);
@@ -313,7 +313,7 @@ export async function runUsageContracts({db,as,test,id,mode,api,connect}) {
   await db.query('SELECT public.decke_usage_content_append($1,$2)',[requestId,'SERVER_ANSWER_SENTINEL']);
   await db.query("UPDATE public.decke_ai_request SET status='completed',finished_at=now(),charged_credits=1 WHERE id=$1",[requestId]);
   const client={conversationId:conversation,exchangeId:exchange,seq:0,asked:'Personal client question',answered:'Personal client answer',
-   tools:[{name:'plan_deck',phase:'ok',title:'Personal tool',summary:'PRIVATE_TOOL_SUMMARY',args:{secret:'PRIVATE_TOOL_ARGUMENT'}}],
+   tools:[{name:'private_tool',phase:'ok',title:'Personal tool',summary:'PRIVATE_TOOL_SUMMARY',args:{secret:'PRIVATE_TOOL_ARGUMENT'}}],
    finishReason:'stop',buildSha:'FORGED_BUILD',buildPr:999999,cost:{usd:'999999',source:'provider_reported'}};
   const created=await http(member,'/decke/history',{method:'POST',body:client});
   assert.equal(created.recorded,true);assert.equal(created.buildSha,'b'.repeat(40));assert.equal(created.buildPr,188);

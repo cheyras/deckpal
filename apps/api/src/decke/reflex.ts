@@ -2,7 +2,7 @@
  * The reflex read: what the reader is asking for, judged before he answers.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * THE THREE THINGS IT FIXES
+ * THE TWO THINGS IT FIXES
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * 1. THE "SOUND GOOD?" STALL. Asked to add a card, he sometimes answers in
@@ -21,20 +21,13 @@
  *    reader is going to one of those, it leaves his view for the turn, so the
  *    walk he picks is one that can arrive.
  *
- * 3. A "NO" SAID IN WORDS. A declined consent card is remembered
- *    (`declined.ts`); "stop researching the meta, you already did" was not —
- *    and worse, its words re-opened research through the reader-mention
- *    bypass, because "meta" is on that list. A spoken decline now counts as a
- *    decline for the rest of the turn, and it outranks the bypass.
- *
  * ══════════════════════════════════════════════════════════════════════════════
  * WHAT JEV SEES, AND WHEN
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * Once per request, from the reader's latest message: on the leg that carries
- * it, and again on each browser-result or approval leg of the same turn — the
- * server keeps nothing between requests, and a refusal said at the start of a
- * turn must still hold on its third leg. Only the first leg may force. The
+ * it, and again on each browser-result or approval leg of the same turn. Only
+ * the first leg may force. The
  * state is that message, the reply before it (so "yes" and "go ahead" have
  * something to refer to), and the page path. Clipped: context rot is a
  * documented Jev weakness, and nothing older changes the answer.
@@ -43,7 +36,7 @@
  * an action fires only where Jev was right every time on that set. Below
  * threshold, or with no answer at all, `NO_REFLEX` is today's behaviour.
  */
-import { confidentChoice, confidentTrue, evaluate, type Answer, type Question } from './jev.js'
+import { confidentChoice, evaluate, type Answer, type Question } from './jev.js'
 
 export const REFLEX_QUESTIONS = {
   intent: {
@@ -78,26 +71,6 @@ export const REFLEX_QUESTIONS = {
       none: 'they do not ask to go anywhere',
     },
   },
-  declines_research: {
-    type: 'boolean',
-    instructions:
-      'In their latest message, does the reader tell Deck-E not to do meta research (researching ' +
-      'the current metagame or tournament results), or object that he is doing it again?',
-    criteria: {
-      true: 'they refuse, stop, or object to meta research',
-      false: 'they ask for research, or do not refuse it',
-    },
-  },
-  declines_guide: {
-    type: 'boolean',
-    instructions:
-      'In their latest message, does the reader tell Deck-E not to write or save a strategy guide, ' +
-      'or object that he keeps offering one?',
-    criteria: {
-      true: 'they refuse, stop, or object to a strategy guide',
-      false: 'they ask for a guide, or do not refuse one',
-    },
-  },
 } as const satisfies Record<string, Question>
 
 export type ReflexKey = keyof typeof REFLEX_QUESTIONS
@@ -113,7 +86,6 @@ export type ReflexKey = keyof typeof REFLEX_QUESTIONS
 export const THRESHOLDS = {
   force: { p: 0.5, confidence: 0.3 },
   destination: { p: 0.85, confidence: 0.7 },
-  decline: { p: 0.8 },
 } as const
 
 /** Clip lengths for the state. The message is what matters; the rest is context. */
@@ -133,15 +105,12 @@ export interface Reflex {
   force: 'log_cards' | null
   /** Tools out of view for this turn. */
   hide: string[]
-  /** Refusals said in words, for `declinedCalls`. */
-  declines: { research: boolean; guide: boolean }
 }
 
 /** Today's harness, exactly. What every caller gets with no answer. */
 export const NO_REFLEX: Reflex = Object.freeze({
   force: null,
   hide: [],
-  declines: Object.freeze({ research: false, guide: false }),
 }) as Reflex
 
 /** Pages `escort` cannot reach: it builds walks from a series slug and a set id. */
@@ -154,10 +123,6 @@ export function reflexFrom(answers: Record<ReflexKey, Answer> | null | undefined
   return {
     force: intent === 'change_collection' ? 'log_cards' : null,
     hide: where && ESCORTLESS.has(where) ? ['escort'] : [],
-    declines: {
-      research: confidentTrue(answers.declines_research, THRESHOLDS.decline.p),
-      guide: confidentTrue(answers.declines_guide, THRESHOLDS.decline.p),
-    },
   }
 }
 

@@ -345,7 +345,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (24 tools + 1 resource)
+## 5. Tool surface (25 tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -460,7 +460,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 Exact request/response shapes: **read `apps/api/src/routes/decks.ts` / `lists.ts` first**; the
 routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST /decks/:id/cards`,
 `PATCH/DELETE /decks/:id/cards/:cardId`, `GET /decks/:id/{validate,export,testhand,pricing}`,
-`POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
+`POST /decks/check`, `POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
 `POST /decks/:id/revert`, `GET/POST /decks/:id/logs`, `GET/PATCH/DELETE /decks/:id/logs/:logId`;
 `GET/POST /lists`, `GET/PATCH/DELETE /lists/:id`, `POST /lists/:id/items`,
 `DELETE /lists/:id/items/:itemId`).
@@ -477,6 +477,10 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    plus the cart deep link(s) from `GET /decks/:id/massentry` (one line per URL — the user
    opens them; each adds to the same cart) and the Cart Optimizer consolidation tip
    (the API computes all of it; link failure degrades to lines-only).
+8a. **`check_deck`** — read-only `{ format? = standard, cards? | ptcgl_text? }`, with exactly
+   one list form. Resolves names or card ids, checks the 60-card and format rules plus evolution
+   gaps, and reports ownership, missing-copy cost and normalized PTCG Live text. Run it before
+   showing or saving any proposed deck, fix its findings, and check again.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create (POST /decks, or POST /decks/import when
    `ptcgl_text` given), rename (PATCH), and reconcile the card list to `cards` via the

@@ -41,10 +41,10 @@ test('real SDK stream persists one provider attempt with cache/reasoning and saf
  assert.equal(JSON.stringify(f.records).includes('PRIVATE_INPUT_SENTINEL'),false);
  assert.equal(f.records.filter(x=>x.sql.includes('content_append')).length,1);
 });
-test('nested research/planning calls keep distinct category/operation keys without tool content',async()=>{
+test('nested web research calls keep distinct operation keys without tool content',async()=>{
  const f=fixture();
  await runAiUsage(f.request,async()=>{
-  for(const [tool,key] of [['research_meta','call_research'],['plan_deck','call_plan']]){
+  for(const [tool,key] of [['web_research','call_research'],['web_research','call_research_again']]){
    await runUsageOperation(tool!,async()=>{
     const result=streamText({model:observeUsageModel(model()),prompt:'SECRET_TOOL_CONTEXT',maxRetries:0});
     for await(const _ of result.fullStream){}
@@ -52,8 +52,8 @@ test('nested research/planning calls keep distinct category/operation keys witho
   }
  });
  const inserts=f.records.filter(x=>x.sql.startsWith('SELECT public.decke_usage_operation_begin'));
- assert.deepEqual(inserts.map(x=>x.args[2]),['research','planning']);assert.notEqual(inserts[0]!.args[0],inserts[1]!.args[0]);
- assert.deepEqual(inserts.map(x=>x.args[6]),['call_research','call_plan']);
+ assert.deepEqual(inserts.map(x=>x.args[2]),['research','research']);assert.notEqual(inserts[0]!.args[0],inserts[1]!.args[0]);
+ assert.deepEqual(inserts.map(x=>x.args[6]),['call_research','call_research_again']);
  assert.equal(f.records.some(x=>x.sql.includes('content_append')),false);
  assert.equal(JSON.stringify(f.records).includes('SECRET_TOOL_CONTEXT'),false);
 });

@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
+import { withToolCtx } from '../ctx.js'
 import { ToolHoldTimeout, openRlsSession } from '../rls.js'
 
 const saved = process.env.DECKE_PGRLS_MAX_HOLD_MS
@@ -52,6 +53,64 @@ test('the ordinary path checks out, and gives the connection back intact', async
 
   assert.equal(state.released, 1)
   assert.equal(state.destroyed, 0, 'a clean session must return a reusable connection')
+})
+
+test('parallel tool executions safely take turns on a one-client RLS pool', async () => {
+  // This models pg.Pool({max: 1}), not an impossible pool that lends the same
+  // client twice. A PoolClient serialises its own queries, and the pool queues
+  // the second checkout until release. If Deck-E shared one request transaction
+  // across tool calls, the overlap guard below would reject the second BEGIN.
+  process.env.SUPABASE_MODE = '1'
+  let available = true
+  let queryActive = false
+  let peakQueries = 0
+  let activeQueries = 0
+  const waiters: Array<(client: unknown) => void> = []
+
+  const client = {
+    escapeLiteral: (s: string) => `'${s.replace(/'/g, "''")}'`,
+    query: async (_sql: string) => {
+      if (queryActive) throw new Error('another query is already in progress')
+      queryActive = true
+      activeQueries++
+      peakQueries = Math.max(peakQueries, activeQueries)
+      await new Promise((resolve) => setTimeout(resolve, 2))
+      activeQueries--
+      queryActive = false
+      return { rows: [] }
+    },
+    release: () => {
+      const next = waiters.shift()
+      if (next) next(client)
+      else available = true
+    },
+  }
+  const pool = {
+    connect: () => {
+      if (available) {
+        available = false
+        return Promise.resolve(client)
+      }
+      return new Promise((resolve) => waiters.push(resolve))
+    },
+  } as never
+  const opts = {
+    pool,
+    userId: 'u1',
+    jwt: 'jwt',
+    apiBase: 'https://example.test/api',
+  }
+
+  const results = await Promise.all(
+    [1, 2, 3].map((n) => withToolCtx(opts, async (ctx) => {
+      await ctx.db.query('SELECT $1', [n])
+      return n
+    })),
+  )
+
+  assert.deepEqual(results, [1, 2, 3])
+  assert.equal(peakQueries, 1, 'two tool transactions overlapped on the single PoolClient')
+  assert.equal(waiters.length, 0, 'a queued tool never received the released client')
 })
 
 test('a query that outlives the budget rejects rather than hanging for ever', async () => {

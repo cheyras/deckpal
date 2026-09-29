@@ -64,10 +64,8 @@ export const DECKE_MAX_DEEP_VAR = 'DECKE_MAX_DEEP_CALLS_PER_DAY'
  * exchanges a day. At $0.000143 a turn that is under two cents.
  *
  * 10 deep calls: `models.ts` measures a single analysis call at $0.0356, and a
- * realistic `plan_deck` — large collection context, research, thinking — at
- * $0.50-$1. Ten is therefore a ceiling of a few dollars a day per account, and
- * it is deliberately the tightest number in this file. The owner's standing
- * decision is Sonnet by default with Opus reserved for an explicit ask.
+ * research call at $0.0356. Ten is therefore a deliberately tighter ceiling
+ * than ordinary conversation and bounds provider-side search separately.
  *
  * Both are overridable per deployment; neither may be raised by a caller.
  */

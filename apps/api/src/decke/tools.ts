@@ -27,6 +27,8 @@ import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { ALLOWED_STATES, ROUTE_SHAPE_LINES } from './prompt.js'
 import { sanitizeScreen, screenSchema } from './screens.js'
+import type { DeckBlock } from './screens.js'
+import type { DeckCheckResult } from '@deckpal/agent-tools'
 import type { Grounding } from './grounding.js'
 import type { ToolEvent } from './adapters/aisdk.js'
 import { briefArgs } from './toolArgs.js'
@@ -570,6 +572,9 @@ export function buildTools(
    * Optional, because the dev preview and the tests have no stream to write to.
    */
   onEvent?: (e: ToolEvent) => void,
+  opts?: {
+    checkDeck?: (input: { format?: string; cards: { card_id: string; quantity: number }[] }) => Promise<DeckCheckResult>
+  },
 ): ToolSet {
   /** `start` now, and the matching `ok` when the work is done. */
   const began = (id: string, name: string, title: string, args: unknown): void => {
@@ -923,6 +928,67 @@ export function buildTools(
           : { shown: true, blocks: clean.blocks.length, done }
       },
     }),
+
+    showDeck: tool({
+      description:
+        'Show a complete proposed or revised deck as a card widget with Save and builder actions. Use this whenever proposing or revising a whole deck, and only after check_deck has checked the list.',
+      inputSchema: z.object({
+        name: z.string().trim().min(1).max(80),
+        format: z.string().trim().min(1).max(24).default('standard'),
+        cards: z.array(z.object({
+          card_id: z.string().trim().min(1).max(80),
+          quantity: z.number().int().min(1).max(60),
+        })).min(1).max(60),
+        note: z.string().trim().max(500).optional(),
+      }),
+      execute: async ({ name, format, cards }, { toolCallId }) => {
+        began(toolCallId, 'showDeck', 'Show a deck', { name, format, cards })
+        let checked: DeckCheckResult | null = null
+        try {
+          checked = opts?.checkDeck ? await opts.checkDeck({ format, cards }) : null
+        } catch {
+          checked = null
+        }
+        const total = checked?.total ?? cards.reduce((sum, card) => sum + card.quantity, 0)
+        const sections = checked
+          ? (['Pokémon', 'Trainer', 'Energy', 'Unknown'] as const).flatMap((supertype) => {
+              const found = checked!.lines.filter((line) => line.supertype === supertype && line.card_id)
+              if (!found.length) return []
+              return [{
+                title: supertype === 'Unknown' ? 'Other' as const : supertype,
+                count: found.reduce((sum, line) => sum + line.quantity, 0),
+                cards: found.map((line) => ({
+                  id: line.card_id!, name: line.name, quantity: line.quantity, owned: line.owned,
+                })),
+              }]
+            })
+          : [{
+              title: 'Other' as const,
+              count: total,
+              cards: cards.map((card) => ({ id: card.card_id, name: card.card_id, quantity: card.quantity, owned: 0 })),
+            }]
+        const block: DeckBlock = {
+          kind: 'deck', name, format: checked?.format ?? format, total,
+          legal: checked?.legal ?? null,
+          issues: (checked?.issues ?? []).slice(0, 6),
+          owned: checked?.owned ?? 0,
+          missingCostUsd: checked?.missing_cost_usd ?? null,
+          sections,
+          ptcgl: checked?.ptcgl ?? '',
+        }
+        const { screen, dropped } = sanitizeScreen({ title: name, blocks: [block] }, grounding)
+        if (screen.blocks.length) {
+          writer.write({ type: 'data-decke-screen', data: { screen }, transient: true })
+        }
+        const summary = `Showed "${name}" · ${total} cards`
+        ended(toolCallId, 'showDeck', 'Show a deck', summary)
+        const legality = checked ? checked.legal === true ? 'legal' : checked.legal === false ? 'not legal' : 'legality unknown' : 'could not be checked'
+        const cost = checked?.missing_cost_usd == null ? 'missing cost unavailable' : `missing cost about $${checked.missing_cost_usd.toFixed(2)}`
+        const line = `${total} cards · ${legality} · own ${checked?.owned ?? 0}/${total} · ${cost}. ` +
+          'The deck is on screen with a Save button. Do not list its cards again in words.'
+        return dropped.length ? `${line} (${dropped.join('; ')})` : line
+      },
+    }),
   }
 }
 
@@ -945,7 +1011,7 @@ export const CLIENT_TOOLS = [
  * half is not a union. `tools.test.ts` pins both halves against the structural
  * property that actually decides it — whether the tool has an `execute`.
  */
-export const SERVER_TOOLS = ['express', 'showScreen'] as const
+export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck'] as const
 
 /**
  * EVERY tool `buildTools` exposes: the character's own vocabulary.
