@@ -27,6 +27,7 @@ const db = new pg.Client(config);
 const results = { name: 'decke-improvement', status: 'running', cases: [] };
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const owner = id(1), member = id(2), outsider = id(3), newcomer = id(4);
+const slash = String.fromCharCode(92);
 
 async function test(name, fn) {
   await fn();
@@ -66,20 +67,20 @@ async function migration(file) {
   catch (error) { await db.query('ROLLBACK'); throw new Error(`${file}: ${error.message}`, { cause: error }); }
 }
 
-async function seedConversation({ conversation, request, operation, seq = 0, cost = 0.001, suffix }) {
+async function seedConversation({ conversation, request, operation, seq = 0, cost = 0.001, suffix, user = member }) {
   await db.query(`INSERT INTO public.decke_conversation(id,user_id,title,turns)
-    VALUES($1,$2,'private title',1)`, [conversation, member]);
+    VALUES($1,$2,'private title',1)`, [conversation, user]);
   await db.query(`INSERT INTO public.decke_turn
     (conversation_id,user_id,seq,asked,answered,tools,build_sha,build_pr,finish_reason,exchange_id)
     VALUES($1,$2,$3,$4,$5,$6::jsonb,'fixture-sha',278,'stop',$7)`, [
-    conversation, member, seq, `raw Jos\u00e9 question ${suffix}`,
+    conversation, user, seq, `raw Jos\u00e9 question ${suffix}`,
     `raw John Smith answer jsmith@example.invalid ${suffix}`,
     JSON.stringify([{ name: 'search_cards', phase: 'ok', title: 'private', summary: suffix }]), id(700 + Number(suffix)),
   ]);
   await db.query(`INSERT INTO public.decke_ai_request
     (id,user_id,conversation_id,exchange_id,seq,request_key,payload_hash,charge_mode,status,finished_at,build_sha,build_pr)
     VALUES($1,$2,$3,$4,$5,$6,$7,'daily','completed',now(),'fixture-sha',278)`, [
-    request, member, conversation, id(800 + Number(suffix)), seq, `improvement-${suffix}-request`, 'a'.repeat(64),
+    request, user, conversation, id(800 + Number(suffix)), seq, `improvement-${suffix}-request`, 'a'.repeat(64),
   ]);
   await db.query(`INSERT INTO public.decke_ai_operation
     (id,request_id,category,tool_key,model_id,provider,operation_key,status,finished_at,
@@ -98,7 +99,7 @@ const validLeg = (answer = 'redacted answer') => ({
   tool_calls: [{ id: 'tool-1', name: 'search_cards', args: { person: 'John+Smith', email: 'jsmith%40example.invalid' }, output: {
     owner: 'Jose\u0301', requestedAt: '2026-09-28T18:00:00.250Z', requestId: id(121), generationId: 'generation-secret',
     inputTokens: 123, costUsd: 0.00137,
-    encoded: JSON.stringify({ owner: 'John%20Smith', requestId: id(121), generationId: 'generation-secret', inputTokens: 123, costUsd: 0.00137, startedAt: '2026-09-28T18:00:00.250Z' }),
+    encoded: `{"mail":"j${slash}u0073mith${slash}u0040example.invalid","owner":"J${slash}u006fhn${slash}u0020Smith","startedAt":"2026-09-28T18:00:00.250Z"}`,
   }, phase: 'completed' }],
 });
 
@@ -154,6 +155,42 @@ try {
   await migration('078_decke_improvement.sql');
   await db.query('SELECT public.admin_bootstrap($1,$2,$3)', [owner, [], []]);
   await db.query("INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES($1,'new@example.invalid','{\"username\":\"new-name\"}')", [newcomer]);
+
+  await test('SQL redaction decodes JSON Unicode escapes and protects short identity words', async () => {
+    const encoded = `{"mail":"j${slash}u0073mith${slash}u0040example.invalid","owner":"J${slash}u006fhn${slash}u0020Smith"}`;
+    const cleaned = (await db.query(
+      "SELECT public.decke_improvement_redact_json_identifiers(to_jsonb($1::text),ARRAY['jsmith@example.invalid','John Smith'])#>>'{}' value",
+      [encoded],
+    )).rows[0].value;
+    assert.deepEqual(JSON.parse(cleaned), { mail: '[redacted]', owner: '[redacted]' });
+    const escapedText = (await db.query(
+      "SELECT public.decke_improvement_redact_text($1,ARRAY['John Smith']) value",
+      [`owner=J${slash}u006fhn${slash}u0020Smith`],
+    )).rows[0].value;
+    assert.equal(escapedText, 'owner=[redacted]');
+    const short = (await db.query(
+      "SELECT public.decke_improvement_redact_text($1,ARRAY['Li']) value",
+      ["Li's list and lithium; LI wins"],
+    )).rows[0].value;
+    assert.equal(short, "[redacted]'s list and lithium; [redacted] wins");
+  });
+
+  await test('Jev reflex and audit create uncharged operations on the current chat request', async () => {
+    const beforeSpends = (await db.query('SELECT count(*)::int n FROM public.credit_spend')).rows[0].n;
+    await db.query('SELECT public.decke_usage_external_operation_begin($1,$2,$3,$4,$5,$6,NULL)', [
+      id(94), legacyRequest, 'jev_reflex', 'typesafe-ai/jev', 'typesafe-ai', 'reflex',
+    ]);
+    await db.query('SELECT public.decke_usage_external_operation_begin($1,$2,$3,$4,$5,$6,NULL)', [
+      id(95), legacyRequest, 'jev_audit', 'typesafe-ai/jev', 'typesafe-ai', 'audit',
+    ]);
+    const operations = (await db.query(
+      'SELECT request_id,tool_key,credit_spend_id FROM public.decke_ai_operation WHERE id=ANY($1::uuid[]) ORDER BY tool_key DESC',
+      [[id(94), id(95)]],
+    )).rows;
+    assert.deepEqual(operations.map((operation) => operation.tool_key), ['jev_reflex', 'jev_audit']);
+    assert.ok(operations.every((operation) => operation.request_id === legacyRequest && operation.credit_spend_id === null));
+    assert.equal((await db.query('SELECT count(*)::int n FROM public.credit_spend')).rows[0].n, beforeSpends);
+  });
 
   await test('share prompts default on while collection defaults empty', async () => {
     const rows = (await db.query('SELECT decke_share_prompts FROM public.user_settings ORDER BY user_id')).rows;
@@ -347,6 +384,10 @@ try {
     assert.doesNotMatch(rendered, /John(?:%20|\+| )Smith|jsmith(?:%40|&#64;|@)example\.invalid|Jose\u0301|José/i);
     assert.equal(rendered.includes(new Date(accountingRequest.started_at).toISOString()), false);
     if (accountingRequest.finished_at) assert.equal(rendered.includes(new Date(accountingRequest.finished_at).toISOString()), false);
+    assert.equal(detail.turns[0].offsetSeconds % 10, 0);
+    for (const removed of ['updatedOffsetMs', 'startedOffsetMs', 'finishedOffsetMs', 'offsetMs', 'durationMs']) {
+      assert.equal(rendered.includes(`"${removed}"`), false, `${removed} must not reach an improvement reader`);
+    }
     assert.equal(detail.conversation.costUsd, 0);
     assert.notEqual(detail.conversation.costUsd, Number(accountingOperation.cost_usd));
     assert.equal(detail.turns[0].legs[0].tokens.input, 100);
@@ -360,6 +401,8 @@ try {
     assert.equal(toolOutput.costUsd, 0);
     assert.equal(String(toolOutput.encoded).includes('generation-secret'), false);
     assert.equal(String(toolOutput.encoded).includes('2026-09-28T18:00:00.250Z'), false);
+    assert.doesNotMatch(String(toolOutput.encoded), /John Smith|jsmith@example\.invalid/i);
+    assert.match(String(toolOutput.encoded), /\[redacted\]/);
     const search = await token(owner, tokenId, (c) => data(c, "SELECT public.decke_improvement_search('asked',20) data"));
     assert.ok(search.items.length > 0);
     assert.match(search.items[0].date, /^\d{4}-\d{2}-\d{2}$/);
@@ -409,6 +452,34 @@ try {
     assert.equal((await db.query('SELECT public.decke_improvement_purge_expired() n')).rows[0].n, 1);
     assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_leg WHERE conversation_id=$1', [shared.conversationId])).rows[0].n, 0);
     assert.equal((await db.query('SELECT status FROM public.decke_improvement_consent WHERE id=$1', [shared.conversationId])).rows[0].status, 'shared');
+  });
+
+  await test('180-day purge drains more than one 500-row batch and returns the total', async () => {
+    const ownerKey = (await db.query('SELECT public.decke_improvement_owner_key($1) owner', [member])).rows[0].owner;
+    await db.query(`INSERT INTO public.decke_improvement_conversation
+      (id,owner_key,started_at,updated_at,cost_coverage)
+      SELECT extensions.gen_random_uuid(),$1,now()-interval '182 days',now()-interval '181 days','unknown'
+      FROM generate_series(1,501)`, [ownerKey]);
+    assert.equal((await db.query('SELECT public.decke_improvement_purge_expired() n')).rows[0].n, 501);
+    assert.equal((await db.query("SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE updated_at<now()-interval '180 days'")).rows[0].n, 0);
+  });
+
+  await test('account deletion removes improvement rows even when settings were deleted first', async () => {
+    const directConversation = id(150), directRequest = id(151);
+    const settingsFirstConversation = id(160), settingsFirstRequest = id(161);
+    await seedConversation({ conversation: directConversation, request: directRequest, operation: id(152), suffix: '150', user: outsider });
+    await seedConversation({ conversation: settingsFirstConversation, request: settingsFirstRequest, operation: id(162), suffix: '160', user: newcomer });
+    await server(outsider, (c) => data(c, "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [outsider, directConversation]));
+    await server(newcomer, (c) => data(c, "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [newcomer, settingsFirstConversation]));
+    const outsiderKey = (await db.query('SELECT public.decke_improvement_owner_key($1) owner', [outsider])).rows[0].owner;
+    const newcomerKey = (await db.query('SELECT public.decke_improvement_owner_key($1) owner', [newcomer])).rows[0].owner;
+    await session(newcomer, (c) => c.query('DELETE FROM public.user_settings WHERE user_id=auth.uid()'));
+    await db.query('DELETE FROM public.app_user WHERE id=$1', [newcomer]);
+    await db.query('DELETE FROM public.app_user WHERE id=$1', [outsider]);
+    for (const ownerKey of [outsiderKey, newcomerKey]) {
+      assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_conversation WHERE owner_key=$1', [ownerKey])).rows[0].n, 0);
+      assert.equal((await db.query('SELECT count(*)::int n FROM public.decke_improvement_consent WHERE owner_key=$1', [ownerKey])).rows[0].n, 0);
+    }
   });
 
   await test('collection and consent tables are unreachable directly from web roles', async () => {

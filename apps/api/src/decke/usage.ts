@@ -44,8 +44,8 @@ export async function beginExternalUsage(tool:string,model:string,provider:strin
  const ctx=context.getStore();if(!ctx)return async()=>{};
  const {request}=ctx;const id=randomUUID();
   try {
-  await request.db.query('SELECT public.decke_usage_operation_begin($1,$2,$3,$4,$5,$6,$7,$8)',
-   [id,request.id,'response',tool,model.slice(0,160),provider.slice(0,80),operationKey.slice(0,160),request.spendId??null]);
+  await request.db.query('SELECT public.decke_usage_external_operation_begin($1,$2,$3,$4,$5,$6,$7)',
+   [id,request.id,tool,model.slice(0,160),provider.slice(0,80),operationKey.slice(0,160),request.spendId??null]);
  } catch {
   console.error('[deck-e] external usage begin unavailable',request.id,tool);return async()=>{};
  }

@@ -582,7 +582,7 @@ async function serve(request) {
   // LLM turn in front of every message. This is a typed evaluation — no
   // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
   // above a threshold chosen on a labelled set. See `decke/jev.ts`.
-  const reflex = await readReflex(messages, route, { key, signal: request.signal })
+  const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))
 
   // ── WHAT THEY HAVE ALREADY REFUSED ────────────────────────────────────────
   //

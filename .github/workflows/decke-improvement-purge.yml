@@ -1,6 +1,6 @@
 # Daily retention cleanup for the pseudonymised, per-chat Deck-E improvement
-# corpus. Migration 078 owns the retention rule; this workflow only invokes its
-# bounded database function, so it cannot invent a second deletion policy.
+# corpus. Migration 078 owns the retention rule and loops bounded delete batches
+# to exhaustion; this workflow reports the total without inventing a second policy.
 name: Deck-E improvement retention
 
 on:
@@ -9,8 +9,8 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
 
-# Queue instead of cancelling: each call deletes a bounded batch and a cancelled
-# run would leave ambiguous logs while a second runner is starting.
+# Queue instead of cancelling: each call drains all bounded batches, and a
+# cancelled run would leave ambiguous logs while a second runner is starting.
 concurrency:
   group: decke-improvement-retention
   cancel-in-progress: false

@@ -117,15 +117,16 @@ function post(body: unknown, method = 'POST'): LocalInit {
 
 function sampleDetail(): Record<string, unknown> {
   return {
-    conversation: { id: CORPUS, date: '2026-09-28', updatedOffsetMs: 60_000, buildFirst: 'abc', buildLast: 'def', costUsd: 0.01, costCoverage: 'complete' },
+    conversation: { id: CORPUS, date: '2026-09-28', buildFirst: 'abc', buildLast: 'def', costUsd: 0.01, costCoverage: 'complete' },
     turns: [{
       seq: 0,
+      offsetSeconds: 10,
       asked: 'Why did this fail?',
       answered: 'The lookup failed.',
       feedback: -1,
       feedbackComment: 'Wrong card',
-      legs: [{ leg: 0, modelId: 'openai/gpt', status: 'failed', costUsd: 0.01, startedOffsetMs: 100, durationMs: 900, toolCalls: [{ name: 'card_lookup', args: { id: 'x' }, output: { error: 'missing' } }] }],
-      events: [{ ordinal: 0, offsetMs: 500, kind: 'animation', payload: { state: 'confused' } }],
+      legs: [{ leg: 0, modelId: 'openai/gpt', status: 'failed', costUsd: 0.01, toolCalls: [{ name: 'card_lookup', args: { id: 'x' }, output: { error: 'missing' } }] }],
+      events: [{ ordinal: 0, kind: 'animation', payload: { state: 'confused' } }],
     }],
   };
 }
@@ -221,12 +222,14 @@ describe('Deck-E improvement administration', () => {
     assert.match(markdown, /0\.01 USD/);
     assert.match(markdown, /2026-09-28/);
     assert.doesNotMatch(markdown, /2026-09-28T/);
+    assert.doesNotMatch(markdown, /\bms\b|duration|last activity/i);
+    assert.match(markdown, /Turn 0 \(\+10 s\)/);
     assert.match(markdown, /thumbs down — Wrong card/);
   });
 
   it('keeps encoded identities redacted in Markdown and NDJSON serialization', () => {
     const cleaned = redact({
-      conversation: { id: CORPUS, date: '2026-09-28', updatedOffsetMs: 500, costUsd: 0, costCoverage: 'complete' },
+      conversation: { id: CORPUS, date: '2026-09-28', costUsd: 0, costCoverage: 'complete' },
       turns: [{
         seq: 0,
         asked: 'John%20Smith',

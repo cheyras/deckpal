@@ -25,12 +25,13 @@ usage accounting, or account tables.
   shared. Its improvement copy exists only while the conversation is shared.
 - Revoking deletes the one conversation's corpus in the same transaction and
   leaves a `revoked` consent row so Deck-E cannot ask again.
-- Deleting an account deletes its consent and corpus through the
-  `user_settings` cascade trigger.
+- Deleting an account deletes its consent and corpus through a trigger directly
+  on `app_user`; deleting `user_settings` first cannot bypass cleanup.
 - Conversations expire 180 days after
   `decke_improvement_conversation.updated_at`.
-  `decke_improvement_purge_expired()` is the scheduled cleanup contract;
-  improvement readers also attempt a bounded purge.
+  `decke_improvement_purge_expired()` deletes bounded batches in a loop until
+  every expired conversation is gone and returns the total; improvement readers
+  also invoke it opportunistically.
 - Migration 071's account-wide `decke_sharing` switch and `decke_ai_content`
   excerpts are retired by migration 078. Existing switches are disabled,
   existing excerpts are deleted, compatibility writers are metadata-only, and
@@ -54,7 +55,8 @@ The API must redact username, display name, email, email local part, and any
 self-identification before calling a content writer. Both API and SQL cover
 case-insensitive NFC/NFD Unicode forms, percent/form encodings, and HTML-entity
 escaped `@` in email addresses, including recursively nested JSON keys, values,
-and JSON encoded inside strings. SQL also recursively removes raw
+and JSON encoded inside strings after decoding JSON Unicode escapes. One- and
+two-character identity terms use case-insensitive whole-word matching. SQL also recursively removes raw
 user/conversation/request/exchange identifiers from JSON keys and values.
 
 ## Tables
@@ -325,9 +327,17 @@ function first performs the same grant as
 
 ### `decke_improvement_purge_expired() -> integer`
 
-Deletes up to 500 corpus conversations older than 180 days and returns the
-count. Consent remains shared so future activity can recreate the retained
-window. `service_role` receives the scheduled-cleanup grant.
+Deletes corpus conversations older than 180 days in bounded batches of 500,
+looping until none remain, and returns the total count. Consent remains shared
+so future activity can recreate the retained window. `service_role` receives
+the scheduled-cleanup grant.
+
+### `decke_usage_external_operation_begin(uuid, uuid, text, text, text, text, uuid) -> void`
+
+The server-only Jev ledger writer accepts only `jev_reflex` and `jev_audit`,
+requires the current started chat request, and reuses that request's base chat
+credit reservation (or its daily mode). It inserts a distinct operation on the
+same request without reserving or charging any additional credits.
 
 ## Improvement reader authorization
 
@@ -353,7 +363,7 @@ Limit is 1–100. Filters are `from`, `to`, `build_sha`, `build_pr`, `vote`,
 conversation UUID; SQL resolves its private timestamp internally. Result:
 
 ```json
-{"items":[{"id":"derived-uuid","date":"2026-09-28","updatedOffsetMs":42000,"buildFirst":"abc","buildLast":"def","turnCount":3,"costUsd":0.01,"costCoverage":"partial","hasError":false}],"nextCursor":null}
+{"items":[{"id":"derived-uuid","date":"2026-09-28","buildFirst":"abc","buildLast":"def","turnCount":3,"costUsd":0.01,"costCoverage":"partial","hasError":false}],"nextCursor":null}
 ```
 
 ### `decke_improvement_detail(uuid) -> jsonb`
@@ -361,20 +371,25 @@ conversation UUID; SQL resolves its private timestamp internally. Result:
 Returns `{conversation, turns}`. Turns are ordered by `seq` and expose all turn
 content including the History `tools` snapshot, ordered legs, and ordered
 events. No response contains `owner_key`, raw request/generation IDs, or an
-absolute timestamp. The conversation exposes only its UTC `date`; all later
-times are millisecond offsets from its first event, and durations are bucketed
-to 100 ms. Token counts are rounded to the nearest 100 and costs to the nearest
-$0.01 while cost coverage remains exact. The same projection applies inside
-nested tool/error/event JSON and to JSON, Markdown, NDJSON, MCP, and script
-readers.
+absolute timestamp. The conversation exposes only its UTC `date`; each turn
+has an `offsetSeconds` from conversation start rounded to the nearest 10
+seconds. Leg timing, durations, event offsets, and nested telemetry timestamps
+or timings are omitted while array order and event ordinals preserve sequence.
+Token counts are rounded to the nearest 100 and costs to the nearest $0.01
+while cost coverage remains exact. The same projection applies to JSON,
+Markdown, NDJSON, MCP, and script readers.
 
 ### `decke_improvement_search(text, integer) -> jsonb`
 
 Query length is 2–100 and limit 1–50. Literal case-insensitive search covers
 asked/answered text and tool-call names and returns bounded snippets plus only
-the conversation UTC date and relative updated offset.
+the conversation UTC date.
 
 ## All-chat conversation costs
+
+Jev reflex and audit calls create their own `decke_ai_operation` rows on the
+current chat request. They reuse the chat turn's existing credit reservation
+and never create an additional credit charge.
 
 ### `decke_usage_conversation_costs(jsonb, text, integer) -> jsonb`
 

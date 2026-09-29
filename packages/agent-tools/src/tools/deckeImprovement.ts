@@ -18,7 +18,7 @@ function listLine(raw: unknown): string {
   const item = object(raw);
   return [
     value(item.id),
-    `${value(item.date)} UTC | last activity +${value(item.updatedOffsetMs)} ms`,
+    `${value(item.date)} UTC`,
     `${value(item.turnCount)} turn(s)`,
     `build ${value(item.buildFirst)} → ${value(item.buildLast)}`,
     `cost ${value(item.costUsd)} USD (${value(item.costCoverage)})`,
@@ -60,16 +60,16 @@ function renderDetail(raw: unknown, fromTurn: number, limit: number): string {
   const turns = allTurns.filter((rawTurn) => Number(object(rawTurn).seq) >= fromTurn).slice(0, limit);
   const lines = [
     `conversation ${value(conversation.id)}`,
-    `date ${value(conversation.date)} UTC | last activity +${value(conversation.updatedOffsetMs)} ms | build ${value(conversation.buildFirst)} → ${value(conversation.buildLast)}`,
+    `date ${value(conversation.date)} UTC | build ${value(conversation.buildFirst)} → ${value(conversation.buildLast)}`,
     `cost bucket ${value(conversation.costUsd)} USD (${value(conversation.costCoverage)}) | ${conversation.hasError === true ? 'HAS ERROR' : 'no recorded error'}`,
   ];
   for (const rawTurn of turns) {
     const turn = object(rawTurn);
-    lines.push('', `TURN ${value(turn.seq)}`, `Reader: ${value(turn.asked)}`, `Deck-E: ${value(turn.answered)}`);
+    lines.push('', `TURN ${value(turn.seq)} | +${value(turn.offsetSeconds)} s`, `Reader: ${value(turn.asked)}`, `Deck-E: ${value(turn.answered)}`);
     if (turn.feedback !== null && turn.feedback !== undefined) {
       lines.push(`Feedback: ${Number(turn.feedback) > 0 ? 'thumbs up' : 'thumbs down'}${turn.feedbackComment ? ` — ${value(turn.feedbackComment)}` : ''}`);
     }
-    if (turn.tokens) lines.push(`Token buckets: ${JSON.stringify(turn.tokens)} | turn cost bucket ${value(turn.costUsd)} USD (${value(turn.costCoverage)}) | duration bucket ${value(turn.durationMs)} ms`);
+    if (turn.tokens) lines.push(`Token buckets: ${JSON.stringify(turn.tokens)} | turn cost bucket ${value(turn.costUsd)} USD (${value(turn.costCoverage)})`);
     const historyTools = Array.isArray(turn.tools) ? turn.tools : [];
     if (historyTools.length > 0) lines.push(`History tools: ${JSON.stringify(historyTools)}`);
     const legs = Array.isArray(turn.legs) ? turn.legs : [];
@@ -77,7 +77,7 @@ function renderDetail(raw: unknown, fromTurn: number, limit: number): string {
       const leg = object(rawLeg);
       lines.push(
         `Leg ${value(leg.leg)} | ${value(leg.provider)}/${value(leg.modelId)} | ${value(leg.status)} | ` +
-        `starts +${value(leg.startedOffsetMs)} ms | duration bucket ${value(leg.durationMs)} ms | cost bucket ${value(leg.costUsd)} USD | ` +
+        `cost bucket ${value(leg.costUsd)} USD | ` +
         `token buckets ${JSON.stringify(leg.tokens ?? {})}`,
       );
       const calls = Array.isArray(leg.toolCalls) ? leg.toolCalls : [];
@@ -132,7 +132,7 @@ const list = defineTool({
 const read = defineTool({
   name: 'decke_improvement_read',
   title: 'Read one shared Deck-E conversation',
-  description: 'Read a compact transcript with turns, full redacted tool arguments and outputs, model legs, errors, relative timing, bucketed costs/tokens, feedback, approvals and animation/browser events. Results are paged by turn to keep agent context bounded.',
+  description: 'Read a compact transcript with turns, full redacted tool arguments and outputs, model legs, errors, ten-second turn offsets, bucketed costs/tokens, feedback, approvals and animation/browser events. Results are paged by turn to keep agent context bounded.',
   inputSchema: z.object({
     id: z.string().uuid().describe('Pseudonymous conversation id from list or search.'),
     from_turn: z.number().int().nonnegative().default(0).describe('First turn sequence to include.'),

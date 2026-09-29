@@ -28,6 +28,21 @@ test('list writes JSONL with a fake fetch and never exposes the token', async ()
   assert.doesNotMatch(seen[0].url, /secret-token/);
 });
 
+test('markdown list omits legacy exact timing fields', async () => {
+  let output = '';
+  const fetch = async () => new Response(JSON.stringify({
+    items: [{ id: 'c1', date: '2026-09-28', updatedOffsetMs: 433421, turnCount: 2, costUsd: 0.01 }],
+    nextCursor: null,
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  await runCli(parseArgs(['list']), {
+    fetch,
+    stdout: { write(value) { output += value; } },
+    env: { DECKPAL_TOKEN: 'token', DECKPAL_API_BASE: 'https://example.test/api' },
+  });
+  assert.match(output, /2026-09-28 UTC/);
+  assert.doesNotMatch(output, /433421|last activity|\bms\b/i);
+});
+
 test('dump paginates and writes one markdown file plus index JSONL', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'decke-chats-dump-'));
   const fetch = async (url) => {

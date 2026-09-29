@@ -223,7 +223,7 @@ DECLARE raw_term text; normalized text; encoded text; form_encoded text; bytes b
  byte integer; position integer; variants text[]:='{}'::text[]; result text[];
 BEGIN
  FOREACH raw_term IN ARRAY coalesce(p_terms,'{}'::text[]) LOOP
-  CONTINUE WHEN raw_term IS NULL OR char_length(btrim(raw_term))<3;
+  CONTINUE WHEN raw_term IS NULL OR char_length(btrim(raw_term))<1;
   FOR normalized IN
    SELECT normalize(btrim(raw_term),NFC) UNION SELECT normalize(btrim(raw_term),NFD)
   LOOP
@@ -256,7 +256,7 @@ BEGIN
   END LOOP;
  END LOOP;
  SELECT coalesce(array_agg(value ORDER BY char_length(value) DESC,value),'{}'::text[]) INTO result
- FROM (SELECT DISTINCT value FROM unnest(variants) value WHERE char_length(value)>=3) expanded;
+ FROM (SELECT DISTINCT value FROM unnest(variants) value WHERE char_length(value)>=1) expanded;
  RETURN result;
 END $$;
 
@@ -272,21 +272,58 @@ BEGIN
  END IF;
  SELECT coalesce(array_agg(value ORDER BY char_length(value) DESC,value),'{}'::text[]) INTO terms
    FROM (SELECT DISTINCT value FROM unnest(ARRAY[username,display_name,email,split_part(email,'@',1)]) value
-          WHERE value IS NOT NULL AND char_length(btrim(value))>=3) candidates;
+          WHERE value IS NOT NULL AND char_length(btrim(value))>=1) candidates;
  RETURN terms;
 END $$;
 
 CREATE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE out_text text:=p_text; term text; at_pos integer; relative_pos integer; search_from integer;
+ before_char text; after_char text; escaped text[]; codepoint integer; low_escape text; low_point integer; consumed integer;
 BEGIN
  IF out_text IS NULL THEN RETURN NULL; END IF;
+ -- Decode JSON-style Unicode spellings before matching. This protects text
+ -- columns as well as JSON encoded inside arbitrary string fields.
+ search_from=1;
+ LOOP
+  SELECT regexp_match(substring(out_text FROM search_from),'(\\u([0-9A-Fa-f]{4}))') INTO escaped;
+  EXIT WHEN escaped IS NULL;
+  relative_pos=strpos(lower(substring(out_text FROM search_from)),lower(escaped[1]));
+  at_pos=search_from+relative_pos-1;
+  codepoint=get_byte(decode(escaped[2],'hex'),0)*256+get_byte(decode(escaped[2],'hex'),1);
+  consumed=6;
+  IF codepoint BETWEEN 55296 AND 56319 THEN
+   low_escape=substring(out_text FROM at_pos+6 FOR 6);
+   IF low_escape~'^\\u[dD][c-fC-F][0-9A-Fa-f]{2}$' THEN
+    low_point=get_byte(decode(substring(low_escape FROM 3 FOR 4),'hex'),0)*256
+      +get_byte(decode(substring(low_escape FROM 3 FOR 4),'hex'),1);
+    codepoint=65536+(codepoint-55296)*1024+(low_point-56320);
+    consumed=12;
+   ELSE
+    search_from=at_pos+6;
+    CONTINUE;
+   END IF;
+  ELSIF codepoint BETWEEN 56320 AND 57343 THEN
+   search_from=at_pos+6;
+   CONTINUE;
+  END IF;
+  out_text=overlay(out_text placing chr(codepoint) from at_pos for consumed);
+  search_from=at_pos+1;
+ END LOOP;
  FOREACH term IN ARRAY public.decke_improvement_redaction_variants(p_terms) LOOP
   search_from=1;
   LOOP
    relative_pos=strpos(substring(lower(out_text) FROM search_from),lower(term));
    EXIT WHEN relative_pos=0;
    at_pos=search_from+relative_pos-1;
+   IF char_length(term)<3 THEN
+    before_char=CASE WHEN at_pos>1 THEN substring(out_text FROM at_pos-1 FOR 1) ELSE '' END;
+    after_char=substring(out_text FROM at_pos+char_length(term) FOR 1);
+    IF before_char~'[[:alnum:]_]' OR after_char~'[[:alnum:]_]' THEN
+     search_from=at_pos+char_length(term);
+     CONTINUE;
+    END IF;
+   END IF;
    out_text=overlay(out_text placing '[redacted]' from at_pos for char_length(term));
    search_from=at_pos+char_length('[redacted]');
   END LOOP;
@@ -295,11 +332,11 @@ BEGIN
 END $$;
 
 -- Arbitrary tool/error/event JSON may contain model-call timestamps or raw
--- provider identifiers.  Improvement readers receive relative timing only,
--- and never receive accounting join keys hidden inside nested telemetry.
+-- provider identifiers. Readers get turn-level ten-second offsets separately;
+-- nested telemetry never exposes another wall-clock or duration fingerprint.
 CREATE FUNCTION public.decke_improvement_reader_json(p_value jsonb,p_base timestamptz) RETURNS jsonb
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE raw_text text; parsed timestamptz; parsed_json jsonb; result jsonb; matched text[];
+DECLARE raw_text text; parsed_json jsonb; result jsonb; matched text[];
 BEGIN
  CASE jsonb_typeof(p_value)
   WHEN 'string' THEN
@@ -314,16 +351,11 @@ BEGIN
    LOOP
     SELECT regexp_match(raw_text,'[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:?[0-9]{2})') INTO matched;
     EXIT WHEN matched IS NULL;
-    BEGIN
-     parsed=matched[1]::timestamptz;
-     raw_text=replace(raw_text,matched[1],round(extract(epoch FROM (parsed-p_base))*1000)::bigint::text);
-    EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN
-     raw_text=replace(raw_text,matched[1],'[relative-time-unavailable]');
-    END;
+    raw_text=replace(raw_text,matched[1],'[time omitted]');
    END LOOP;
    raw_text=regexp_replace(raw_text,
-    '("(?:latencyMs|latency_ms|durationMs|duration_ms|elapsedMs|elapsed_ms)"[[:space:]]*:[[:space:]]*)[0-9]+(?:\.[0-9]+)?',
-    '\1"[timing-bucket]"','gi');
+    '("(?:latencyMs|latency_ms|durationMs|duration_ms|elapsedMs|elapsed_ms|offsetMs|offset_ms|epochMs|epoch_ms)"[[:space:]]*:[[:space:]]*)[0-9]+(?:\.[0-9]+)?',
+    '\1"[timing omitted]"','gi');
    raw_text=regexp_replace(raw_text,
     '("(?:requestId|request_id|generationId|generation_id)"[[:space:]]*:[[:space:]]*)("[^"]*"|[0-9]+|null)',
     '\1"[redacted]"','gi');
@@ -334,8 +366,11 @@ BEGIN
    RETURN result;
   WHEN 'object' THEN
    SELECT coalesce(jsonb_object_agg(key,
-    CASE WHEN lower(replace(key,'_','')) IN ('latencyms','durationms','elapsedms') AND jsonb_typeof(value)='number'
-      THEN to_jsonb(round((value#>>'{}')::numeric/100)*100)
+    CASE WHEN lower(replace(key,'_','')) IN ('latencyms','durationms','elapsedms','offsetms','startedoffsetms','finishedoffsetms',
+      'timing','timings','steptiming','steptimings','epoch','epochms','now')
+      THEN to_jsonb('[timing omitted]'::text)
+     WHEN lower(replace(key,'_','')) IN ('at','time','timestamp','createdat','updatedat','startedat','finishedat','requestedat')
+      THEN to_jsonb('[time omitted]'::text)
      WHEN lower(replace(key,'_','')) IN ('inputtokens','outputtokens','cachereadtokens','cachewritetokens','reasoningtokens','totaltokens')
        AND jsonb_typeof(value)='number' THEN to_jsonb(round((value#>>'{}')::numeric,-2))
      WHEN lower(replace(key,'_',''))='costusd' AND jsonb_typeof(value)='number'
@@ -350,9 +385,19 @@ END $$;
 
 CREATE FUNCTION public.decke_improvement_redact_json_identifiers(p_value jsonb,p_terms text[]) RETURNS jsonb
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE raw_text text; parsed_json jsonb;
 BEGIN
  CASE jsonb_typeof(p_value)
-  WHEN 'string' THEN RETURN to_jsonb(public.decke_improvement_redact_text(p_value#>>'{}',p_terms));
+  WHEN 'string' THEN
+   raw_text=p_value#>>'{}';
+   BEGIN
+    parsed_json=raw_text::jsonb;
+    IF jsonb_typeof(parsed_json) IN ('object','array') THEN
+     RETURN to_jsonb(public.decke_improvement_redact_json_identifiers(parsed_json,p_terms)::text);
+    END IF;
+   EXCEPTION WHEN invalid_text_representation THEN NULL;
+   END;
+   RETURN to_jsonb(public.decke_improvement_redact_text(raw_text,p_terms));
   WHEN 'array' THEN RETURN coalesce((SELECT jsonb_agg(public.decke_improvement_redact_json_identifiers(value,p_terms) ORDER BY ordinality)
     FROM jsonb_array_elements(p_value) WITH ORDINALITY),'[]'::jsonb);
   WHEN 'object' THEN RETURN coalesce((SELECT jsonb_object_agg(public.decke_improvement_redact_text(key,p_terms),
@@ -909,25 +954,69 @@ CREATE FUNCTION public.decke_improvement_account_delete() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE owner bytea;
 BEGIN
- owner=public.decke_improvement_owner_key(OLD.user_id::text);
+ owner=public.decke_improvement_owner_key(OLD.id::text);
  DELETE FROM public.decke_improvement_conversation WHERE owner_key=owner;
  DELETE FROM public.decke_improvement_consent WHERE owner_key=owner;
  RETURN OLD;
 END $$;
-CREATE TRIGGER decke_improvement_settings_delete
- BEFORE DELETE ON public.user_settings
+CREATE TRIGGER decke_improvement_account_delete
+ BEFORE DELETE ON public.app_user
  FOR EACH ROW EXECUTE FUNCTION public.decke_improvement_account_delete();
 
 CREATE FUNCTION public.decke_improvement_purge_expired() RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE n integer;
+DECLARE n integer; total integer:=0;
 BEGIN
- DELETE FROM public.decke_improvement_conversation WHERE id IN (
-  SELECT id FROM public.decke_improvement_conversation
-   WHERE updated_at<now()-interval '180 days' ORDER BY updated_at,id LIMIT 500
+ LOOP
+  DELETE FROM public.decke_improvement_conversation WHERE id IN (
+   SELECT id FROM public.decke_improvement_conversation
+    WHERE updated_at<now()-interval '180 days' ORDER BY updated_at,id LIMIT 500
+  );
+  GET DIAGNOSTICS n=ROW_COUNT;
+  total=total+n;
+  EXIT WHEN n<500;
+ END LOOP;
+ RETURN total;
+END $$;
+
+-- Jev is part of the chat turn rather than a separately charged deep tool. It
+-- still needs its own operation rows, so authorize the chat reservation while
+-- preserving the Jev tool key and model/cost telemetry on the same request.
+CREATE FUNCTION public.decke_usage_external_operation_begin(
+ p_id uuid,p_request uuid,p_tool text,p_model text,p_provider text,p_key text,p_spend uuid DEFAULT NULL
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE r public.decke_ai_request; s public.credit_spend; first_start boolean=false;
+BEGIN
+ IF p_tool NOT IN ('jev_reflex','jev_audit') OR p_key IS NULL OR char_length(p_key) NOT BETWEEN 1 AND 160 THEN
+  RAISE EXCEPTION 'Invalid external usage operation' USING ERRCODE='22023';
+ END IF;
+ PERFORM pg_advisory_xact_lock_shared(741290064);
+ SELECT * INTO r FROM public.decke_ai_request WHERE id=p_request AND status='started';
+ IF r.id IS NULL THEN RAISE EXCEPTION 'Request unavailable' USING ERRCODE='42501'; END IF;
+ IF p_spend IS NOT NULL THEN
+  s=public.credit_spend_lock_authorize(r.user_id,p_spend);
+  IF s.request_key IS DISTINCT FROM r.request_key THEN
+   RAISE EXCEPTION 'Spend does not belong to this chat turn' USING ERRCODE='42501';
+  END IF;
+  first_start=s.provider_started_at IS NULL;
+  IF NOT first_start AND NOT EXISTS(
+   SELECT 1 FROM public.decke_ai_operation
+    WHERE request_id=r.id AND credit_spend_id=s.id AND NOT invocation_cancelled
+  ) THEN
+   RAISE EXCEPTION 'Spend already started outside this request' USING ERRCODE='40001';
+  END IF;
+ ELSIF r.charge_mode<>'daily' THEN
+  RAISE EXCEPTION 'A credit reservation is required' USING ERRCODE='42501';
+ END IF;
+ IF NOT public.admin_account_active(r.user_id) OR NOT public.admin_user_has_permission(r.user_id,'decke.use') THEN
+  RAISE EXCEPTION 'Account unavailable' USING ERRCODE='42501';
+ END IF;
+ INSERT INTO public.decke_ai_operation(
+  id,request_id,category,tool_key,model_id,provider,operation_key,credit_spend_id,starts_reservation
+ ) VALUES(
+  p_id,p_request,'response',p_tool,left(p_model,160),left(p_provider,80),left(p_key,160),p_spend,first_start
  );
- GET DIAGNOSTICS n=ROW_COUNT;
- RETURN n;
+ IF first_start THEN UPDATE public.credit_spend SET provider_started_at=now() WHERE id=s.id; END IF;
 END $$;
 
 -- Aggregate accounting for every chat, without transcript or tool content.
@@ -1058,7 +1147,6 @@ BEGIN
   ORDER BY c.updated_at DESC,c.id DESC LIMIT p_limit+1
  ), page AS (SELECT * FROM selected ORDER BY updated_at DESC,id DESC LIMIT p_limit)
  SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'date',to_char(started_at AT TIME ZONE 'UTC','YYYY-MM-DD'),
-   'updatedOffsetMs',round(extract(epoch FROM (updated_at-started_at))*1000)::bigint,
    'buildFirst',build_first,'buildLast',build_last,'turnCount',turn_count,
    'costUsd',CASE WHEN cost_usd IS NULL THEN NULL ELSE round(cost_usd,2) END,
    'costCoverage',cost_coverage,'hasError',has_error) ORDER BY updated_at DESC,id DESC),'[]'::jsonb),
@@ -1076,14 +1164,11 @@ BEGIN
  PERFORM public.decke_improvement_require_reader();
  BEGIN PERFORM public.decke_improvement_purge_expired(); EXCEPTION WHEN read_only_sql_transaction THEN NULL; END;
  SELECT jsonb_build_object('conversation',jsonb_build_object('id',c.id,'date',to_char(c.started_at AT TIME ZONE 'UTC','YYYY-MM-DD'),
-  'updatedOffsetMs',round(extract(epoch FROM (c.updated_at-c.started_at))*1000)::bigint,
   'buildFirst',c.build_first,'buildLast',c.build_last,'costUsd',CASE WHEN c.cost_usd IS NULL THEN NULL ELSE round(c.cost_usd,2) END,
   'costCoverage',c.cost_coverage,'hasError',c.has_error),
   'turns',coalesce((SELECT jsonb_agg(jsonb_build_object('seq',t.seq,'asked',t.asked,'answered',t.answered,
    'tools',public.decke_improvement_reader_json(t.tools,c.started_at),'feedback',t.feedback,'feedbackComment',t.feedback_comment,
-   'startedOffsetMs',round(extract(epoch FROM (t.started_at-c.started_at))*1000)::bigint,
-   'finishedOffsetMs',CASE WHEN t.finished_at IS NULL THEN NULL ELSE round(extract(epoch FROM (t.finished_at-c.started_at))*1000)::bigint END,
-   'durationMs',CASE WHEN t.latency_ms IS NULL THEN NULL ELSE round(t.latency_ms::numeric/100)*100 END,
+   'offsetSeconds',(round(extract(epoch FROM (t.started_at-c.started_at))/10)*10)::bigint,
    'tokens',jsonb_build_object(
     'input',CASE WHEN t.input_tokens IS NULL THEN NULL ELSE round(t.input_tokens::numeric,-2)::bigint END,
     'output',CASE WHEN t.output_tokens IS NULL THEN NULL ELSE round(t.output_tokens::numeric,-2)::bigint END,
@@ -1094,9 +1179,6 @@ BEGIN
    'costCoverage',t.cost_coverage,'buildSha',t.build_sha,'buildPr',t.build_pr,'finishReason',t.finish_reason,'hasError',t.has_error,
    'legs',coalesce((SELECT jsonb_agg(jsonb_build_object('id',l.id,'leg',l.leg,'asked',l.asked,'answered',l.answered,
     'modelId',l.model_id,'provider',l.provider,
-    'startedOffsetMs',round(extract(epoch FROM (l.started_at-c.started_at))*1000)::bigint,
-    'finishedOffsetMs',CASE WHEN l.finished_at IS NULL THEN NULL ELSE round(extract(epoch FROM (l.finished_at-c.started_at))*1000)::bigint END,
-    'durationMs',CASE WHEN l.latency_ms IS NULL THEN NULL ELSE round(l.latency_ms::numeric/100)*100 END,
     'tokens',jsonb_build_object(
      'input',CASE WHEN l.input_tokens IS NULL THEN NULL ELSE round(l.input_tokens::numeric,-2)::bigint END,
      'output',CASE WHEN l.output_tokens IS NULL THEN NULL ELSE round(l.output_tokens::numeric,-2)::bigint END,
@@ -1109,7 +1191,7 @@ BEGIN
     'toolCalls',public.decke_improvement_reader_json(l.tool_calls,c.started_at)) ORDER BY l.leg)
     FROM public.decke_improvement_leg l WHERE l.conversation_id=t.conversation_id AND l.seq=t.seq),'[]'::jsonb),
    'events',coalesce((SELECT jsonb_agg(jsonb_build_object('ordinal',e.ordinal,'batch',e.batch,'batchOrdinal',e.batch_ordinal,
-    'legId',e.leg_id,'offsetMs',round(extract(epoch FROM (e.at-c.started_at))*1000)::bigint,
+    'legId',e.leg_id,
     'kind',e.kind,'payload',public.decke_improvement_reader_json(e.payload,c.started_at)) ORDER BY e.ordinal)
     FROM public.decke_improvement_event e WHERE e.conversation_id=t.conversation_id AND e.seq=t.seq),'[]'::jsonb)
   ) ORDER BY t.seq) FROM public.decke_improvement_turn t WHERE t.conversation_id=c.id),'[]'::jsonb))
@@ -1131,7 +1213,6 @@ BEGIN
  END IF;
  SELECT coalesce(jsonb_agg(jsonb_build_object('conversationId',conversation_id,'seq',seq,
   'date',to_char(started_at AT TIME ZONE 'UTC','YYYY-MM-DD'),
-  'updatedOffsetMs',round(extract(epoch FROM (updated_at-started_at))*1000)::bigint,
   'askedSnippet',left(asked,240),'answeredSnippet',left(answered,240),'toolNames',tool_names) ORDER BY updated_at DESC,conversation_id,seq),'[]'::jsonb)
  INTO items FROM (
   SELECT t.conversation_id,t.seq,c.started_at,c.updated_at,t.asked,t.answered,
@@ -1279,7 +1360,8 @@ BEGIN
    'decke_improvement_record_feedback(text,uuid,integer,smallint,text,boolean)',
    'decke_improvement_revoke(text,uuid)','decke_improvement_list_mine(text)',
    'decke_improvement_account_delete()',
-   'decke_improvement_purge_expired()','decke_usage_conversation_costs(jsonb,text,integer)',
+   'decke_improvement_purge_expired()','decke_usage_external_operation_begin(uuid,uuid,text,text,text,text,uuid)',
+   'decke_usage_conversation_costs(jsonb,text,integer)',
    'decke_improvement_token_capability(uuid,boolean)','decke_improvement_oauth_capability(text,boolean)',
    'decke_improvement_list(jsonb,text,integer)',
    'decke_improvement_detail(uuid)','decke_improvement_search(text,integer)'] LOOP
@@ -1306,7 +1388,8 @@ BEGIN
   REVOKE INSERT(decke_improvement_read),UPDATE(decke_improvement_read) ON public.api_token FROM anon;
  END IF;
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
-  GRANT EXECUTE ON FUNCTION public.decke_improvement_purge_expired() TO service_role;
+  GRANT EXECUTE ON FUNCTION public.decke_improvement_purge_expired(),
+   public.decke_usage_external_operation_begin(uuid,uuid,text,text,text,text,uuid) TO service_role;
  END IF;
 END $acl$;
 
