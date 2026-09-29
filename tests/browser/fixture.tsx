@@ -24,7 +24,16 @@ import type { ApprovalPreview } from '../../apps/web/src/character/host/chat/app
 import type { DeepQuote } from '../../apps/web/src/character/host/chat/deepRequest'
 
 // Test-only entry: actual components, no host/WebGL/model or production route.
-const events = { closes: 0, sends: [] as string[], topUps: 0, retries: [] as string[], approves: 0, denies: 0 }
+const events = {
+  closes: 0,
+  sends: [] as string[],
+  topUps: 0,
+  retries: [] as string[],
+  approves: 0,
+  denies: 0,
+  composerActivity: [] as boolean[],
+  savedDecks: [] as { id: string; name: string; total: number }[],
+}
 type FixtureState = { open: boolean; busy: boolean; messages: ChatMessage[]; credits: { remaining: number; allowance: number }
   /** A held call and its dry run, for the approval card's geometry and rows. */
   asking: PendingApproval[] | null; preview: ApprovalPreview | null; quote: DeepQuote | null }
@@ -62,6 +71,8 @@ function Fixture() {
     approvalPreview={id => preview?.toolCallId === id ? preview : null}
     approvalChoices={new Map()} onApprovalChoice={() => {}} approvalBusy={false}
     onRetryTool={id => events.retries.push(id)} desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
+    onComposerActivity={typing => events.composerActivity.push(typing)}
+    onDeckSaved={deck => events.savedDecks.push(deck)}
     onTopUp={() => { events.topUps++ }} />
 }
 
@@ -139,6 +150,7 @@ function MeterFixture() {
     approvalPreview={chat.approvalPreview} approvalChoices={chat.approvalChoices}
     onApprovalChoice={chat.onApprovalChoice} approvalBusy={chat.approvalBusy}
     onRetryTool={chat.retry} desktop={innerWidth >= 1068} characterPx={160}
+    onComposerActivity={chat.composerActivity} onDeckSaved={chat.recordDeckSaved}
     credits={{ remaining: 2, allowance: 100 }} onTopUp={() => { events.topUps++ }} />
 }
 /**
@@ -253,6 +265,7 @@ function RefreshFixture() {
       approvalPreview={chat.approvalPreview} approvalChoices={chat.approvalChoices}
       onApprovalChoice={chat.onApprovalChoice} approvalBusy={chat.approvalBusy}
       onRetryTool={() => {}} desktop={innerWidth >= 1068} characterPx={160}
+      onComposerActivity={chat.composerActivity} onDeckSaved={chat.recordDeckSaved}
       credits={{ remaining: 2, allowance: 100 }} onTopUp={() => {}} />
   </>
 }

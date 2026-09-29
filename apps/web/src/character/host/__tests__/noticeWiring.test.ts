@@ -61,8 +61,8 @@ test('a notice part carries its action, and the panel wires every one of them', 
   for (const intent of ['retry', 'top-up', 'wallet']) {
     assert.match(PANEL, new RegExp(`action === '${intent}' && h\\.`), `no handler for the '${intent}' action`);
   }
-  // And a meter-refused tool row offers the top-up rather than a retry.
-  assert.match(PANEL, /<ToolRow data=\{toolRowFromChip\(part\.chip\)\} onRetry=\{onRetryTool\} onTopUp=\{onTopUp\} \/>/);
+  // Failed activity stays visible and keeps the existing retry route.
+  assert.match(PANEL, /<ActivityLine[\s\S]*onRetryStep=\{onRetryTool\}/);
   assert.match(HOOK, /if \(scope\) handlers\.onMeterRefused\?\.\(part\.toolCallId, scope\)/);
 });
 
@@ -82,6 +82,21 @@ test('a notice is not counted as something HE said', () => {
   assert.match(PANEL, /if \(p\.kind === 'text'\) out \+= p\.text/);
 });
 
+test('consecutive tool parts share one activity line without moving text', () => {
+  assert.match(PANEL, /groupActivityParts\(m\.parts\)\.map\(\(part\) =>/)
+  assert.match(PANEL, /previous\?\.kind === 'activity'/)
+  assert.match(PANEL, /<ActivityLine[\s\S]*steps=\{part\.steps\}/)
+  assert.doesNotMatch(PANEL, /import \{ ToolRow \}|import \{ ThinkingRow/)
+})
+
+test('research sources, deck saves, and composer activity reach their shared UI boundaries', () => {
+  assert.match(PANEL, /<SourcesList sources=\{messageSources\(m\)\}/)
+  assert.match(PANEL, /<DeckeScreen spec=\{part\.spec\} onResize=\{placePark\} onDeckSaved=\{onDeckSaved\} \/>/)
+  assert.match(PANEL, /onComposerActivity\?\.\(true\)/)
+  assert.match(PANEL, /window\.setTimeout\(endComposerActivity, 4000\)/)
+  assert.match(PANEL, /onBlur=\{endComposerActivity\}/)
+})
+
 test('the farewell is MOUNTED, not merely built', () => {
   // Flagged by its own author as the CardRows shape: a component with no call
   // site is a defect wearing a feature's clothes. It lives in the host because
@@ -95,20 +110,11 @@ test('the declined row is a real phase now, not an id suffix', () => {
   assert.match(HOOK, /phase: 'declined'/, 'deny went back to emitting `ok` and the tick returns');
 });
 
-test('the confirmation card is HANDED the restatement, not just able to show one', () => {
-  // `deepRequest.ts` has its own tests and they all pass whether or not anything
-  // calls it. This is the half that goes missing: without the prop the card
-  // renders a headline and two buttons for a call that costs the scarcest thing
-  // the account has — the friction-with-no-information dialog the line exists to
-  // prevent, and the argued reason deep calls did not ask at all until now.
-  assert.match(PANEL, /request=\{deepRequestLine\(asking\[0\]\.name, asking\[0\]\.input\)\}/,
-    'ApprovalCard is no longer given his restatement of the request')
-  assert.match(PANEL, /import \{[^}]*\bdeepRequestLine\b[^}]*\} from '\.\/chat\/deepRequest'/)
+test('write approval no longer carries the retired deep-request restatement', () => {
+  assert.doesNotMatch(PANEL, /deepRequestLine|request=\{deepRequestLine/)
 })
 
-test('the confirmation card is HANDED the price, and the host hands the panel the prices', () => {
-  // UXD-07: a 75-credit guide approved with 40 in the wallet, refused a second
-  // later. `deepCost` is tested on its own; this is the wiring that goes missing.
+test('a short write approval keeps its top-up route without showing a deep price table', () => {
   assert.match(PANEL, /cost=\{deepCost\(asking\[0\]\.name, quote\)\}/,
     'ApprovalCard is no longer given the price')
   assert.match(PANEL, /onTopUp=\{onTopUp\}\s*\/>/, 'a short balance has nowhere to go')

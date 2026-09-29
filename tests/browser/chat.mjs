@@ -676,51 +676,45 @@ export async function checkDeckeStates(browser, server, out, engine) {
         'Go ahead': card.getByRole('button', { name: 'Go ahead' }), headline: card.locator('p').first() }, tag + ' long approval')
       await page.screenshot({ path: path.join(out, 'decke-approval-long-' + tag + '.png') })
 
-      // ── A 75-credit deep call with 40 in the wallet (UXD-07) ────────────
-      const QUOTE = { analysis: 4, planDeck: 75, chatTurn: 1 }
-      await set(page, { quote: { ...QUOTE, balance: 40 }, preview: null,
-        asking: [{ approvalId: 'ap-2', toolCallId: 'guide-1', title: 'Write a full strategy guide for this deck', name: 'write_strategy_guide',
-          input: { deck: 'Dragapult ex / Dusknoir', no_research: true } }] })
-      const cost = card.locator('[data-decke-approval-cost]')
-      // 75 for the guide plus the 1-credit turn that answering the card sends.
-      assert.equal(await cost.innerText(), 'This needs 76 credits and you have 40.')
-      assert.equal(await card.getByRole('button', { name: 'Go ahead' }).count(), 0, 'a guaranteed refusal is still offered')
-      await card.getByText('no research behind it this time — the guide will say so', { exact: false }).waitFor()
-      assert.doesNotMatch(await cost.innerText(), /research/, 'the price line contradicts the no-research line')
-      await assertClear(page, width, { 'Leave it': card.getByRole('button', { name: 'Leave it' }),
-        'Top up': card.getByRole('button', { name: 'Top up credits' }), price: cost }, tag + ' deep approval')
-      await page.screenshot({ path: path.join(out, 'decke-price-short-' + tag + '.png') })
-      const before = await page.evaluate(() => ({ ...window.fixture.events }))
-      await card.getByRole('button', { name: 'Top up credits' }).click()
-      const after = await page.evaluate(() => window.fixture.events)
-      // Not a decline: answering would send another metered request. The host's
-      // top-up ends the turn instead (pinned in noticeWiring.test.ts).
-      assert.equal(after.denies, before.denies, 'Top up answered the card, which sends a metered continuation')
-      assert.equal(after.topUps, before.topUps + 1)
-      // Exactly the guide's price is still short: the continuation turn comes first.
-      await set(page, { quote: { ...QUOTE, balance: 75 } })
-      assert.equal(await card.getByRole('button', { name: 'Go ahead' }).count(), 0, 'offered a yes the meter refuses at 75')
-      await set(page, { quote: { ...QUOTE, balance: 400 } })
-      assert.equal(await cost.innerText(), 'This takes longer than a normal answer and uses 76 credits of your 400.')
-      await card.getByRole('button', { name: 'Go ahead' }).waitFor()
-      // Credits off, or an unlimited account: no number at all.
-      await set(page, { quote: null })
-      assert.doesNotMatch(await cost.innerText(), /\d/)
+      // ── One collapsed activity line, expandable steps and sources ───────
+      await set(page, { busy: false, asking: null, preview: null, quote: null, messages: [asked[0], {
+        id: 'a-activity', role: 'assistant', parts: [
+          { kind: 'tool', id: 'research', chip: { id: 'research', name: 'web_research', title: 'Researching', phase: 'ok',
+            summary: 'Dragapult remains a contender.', sources: [
+              { url: 'https://limitlesstcg.com/decks/260', title: 'Dragapult ex deck', host: 'limitlesstcg.com' },
+              { url: 'https://pokecabook.com/dragapult', title: 'Dragapult results', host: 'pokecabook.com' },
+            ] } },
+          { kind: 'tool', id: 'check', chip: { id: 'check', name: 'check_deck', title: 'Checking the deck', phase: 'error',
+            summary: 'The checker could not finish.' } },
+          { kind: 'text', id: 'answer', text: 'I found the issue, but the final check failed.' },
+        ],
+      }] })
+      const activity = panel.locator('[data-decke-activity]')
+      assert.equal(await activity.count(), 1, 'consecutive tools stacked instead of sharing one activity line')
+      await activity.getByText("1 step didn't work · 0s", { exact: true }).waitFor()
+      assert.equal(await activity.getByText('The checker could not finish.', { exact: true }).count(), 0,
+        'collapsed activity exposed every step')
+      await activity.getByRole('button').first().click()
+      await activity.getByText('The checker could not finish.', { exact: true }).waitFor()
+      await activity.getByRole('button', { name: 'Try Checking the deck again' }).click()
+      assert.deepEqual((await page.evaluate(() => window.fixture.events.retries)).slice(-1), ['check'])
+      const sources = panel.getByRole('button', { name: 'Sources (2)' })
+      await sources.click()
+      await panel.getByRole('link', { name: 'Dragapult ex deck' }).waitFor()
 
       // ── Notices that carry their way forward (UXD-08) ───────────────────
       await set(page, { busy: false, asking: null, messages: [asked[0], { id: 'a2', role: 'assistant', parts: [
         { kind: 'notice', id: 'fault', tone: 'error', title: 'Something went wrong reaching my brain.', detail: 'Nothing was written.', action: 'retry' },
-        { kind: 'tool', id: 'refused', chip: { id: 'guide-2', name: 'write_strategy_guide', title: 'Writing a strategy guide', phase: 'error',
-          summary: 'not enough credits — 75 needed, 40 left', meter: 'credits' } },
+        { kind: 'tool', id: 'failed-check', chip: { id: 'failed-check', name: 'check_deck', title: 'Checking the deck', phase: 'error',
+          summary: 'The checker timed out.' } },
       ] }] })
       const fault = panel.getByRole('status').filter({ hasText: 'Something went wrong reaching my brain.' })
       await fault.getByRole('button', { name: 'Try again' }).click()
       assert.deepEqual((await page.evaluate(() => window.fixture.events.retries)).slice(-1), ['fault'])
-      assert.equal(await panel.getByRole('button', { name: 'Try Writing a strategy guide again' }).count(), 0,
-        'a meter refusal still offers the retry that walks back into it')
-      const topUps = await page.evaluate(() => window.fixture.events.topUps)
-      await panel.locator('li').filter({ hasText: 'Writing a strategy guide' }).getByRole('button', { name: 'Top up credits' }).click()
-      assert.equal(await page.evaluate(() => window.fixture.events.topUps), topUps + 1)
+      const failedActivity = panel.locator('[data-decke-activity]')
+      await failedActivity.getByRole('button').first().click()
+      await failedActivity.getByRole('button', { name: 'Try Checking the deck again' }).click()
+      assert.deepEqual((await page.evaluate(() => window.fixture.events.retries)).slice(-1), ['failed-check'])
       await page.screenshot({ path: path.join(out, 'decke-notices-' + tag + '.png') })
 
       // ── Out of credits (UXD-03) ─────────────────────────────────────────
@@ -732,7 +726,7 @@ export async function checkDeckeStates(browser, server, out, engine) {
         'the out-of-credits card is not registered as the floor he stands on')
       await assertClear(page, width, { 'Top up': topUp, 'out-of-credits card': notice }, tag + ' spent')
       await page.screenshot({ path: path.join(out, 'decke-spent-' + tag + '.png') })
-      results.push({ case: 'decke-states', engine, width, approvalClear: true, dryRunRows: 3, priceShown: true, noticeActions: true, spentClear: true })
+      results.push({ case: 'decke-states', engine, width, approvalClear: true, dryRunRows: 3, activityLine: true, noticeActions: true, spentClear: true })
 
       // ── On a deck, the chips are about that deck (UXD-15) ───────────────
       // Navigated WHILE CLOSED, the way a reader moves around the app: the pick

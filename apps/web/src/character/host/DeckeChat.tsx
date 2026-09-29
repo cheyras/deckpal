@@ -43,16 +43,16 @@ import { Icon } from '../../components/Icon'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
 import { ChatMarkdown } from './chat/ChatMarkdown'
-import { ThinkingRow, WaitingRow } from './chat/ThinkingRow'
-import { ToolRow } from './chat/ToolRow'
+import { ActivityLine } from './chat/ActivityLine'
+import { SourcesList } from './chat/SourcesList'
+import { mergeSources } from './chat/sourcesState'
 import { panelBox, readPanelViewport } from './panelViewport'
 import { composerFocused, consumesScroll } from './panelScrollLock'
 import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
-import { toolRowFromChip } from './chat/toolRowState'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import type { NoticeAction } from './chat/httpNotice'
-import { deepCost, deepRequestLine, type DeepQuote } from './chat/deepRequest'
+import { deepCost, type DeepQuote } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import {
@@ -328,6 +328,7 @@ export function DeckeComposer({
   onStop,
   dropPx = 0,
   onDropEnd,
+  onBlur,
   inputRef,
   formRef,
   bottomPad = true,
@@ -347,6 +348,7 @@ export function DeckeComposer({
   /** The FLIP distance when the composer drops out of the middle. 0 = no flourish. */
   dropPx?: number
   onDropEnd?: () => void
+  onBlur?: () => void
   inputRef?: React.RefObject<HTMLTextAreaElement | null>
   formRef?: React.RefObject<HTMLFormElement | null>
   /**
@@ -516,6 +518,8 @@ export function DeckeComposer({
       rows={1}
 
       onChange={(e) => onDraftChange(e.target.value)}
+
+      onBlur={onBlur}
 
       onKeyDown={(e) => {
 
@@ -1015,24 +1019,30 @@ export function messageTools(m: ChatMessage): ToolChip[] {
   return out
 }
 
-/**
- * The status lines the thinking row shows, newest last.
- *
- * SOURCED, NEVER COMPOSED HERE. Each line is a `note` the server emitted at a
- * real tool boundary, or the real title of a call that actually started. The one
- * thing this must not do is invent a plausible line — "Checking your
- * collection…" with no lookup behind it is strictly worse than no line at all,
- * because it manufactures evidence. `ThinkingRow` handles an empty list by
- * saying something honest and non-specific.
- */
-function liveLabels(m: ChatMessage): string[] {
-  const out: string[] = []
-  for (const p of m.parts) {
-    if (p.kind !== 'tool') continue
-    if (p.chip.note) out.push(p.chip.note)
-    else if (p.chip.phase === 'start') out.push(`${p.chip.title}…`)
+type DisplayPart = Exclude<ChatPart, { kind: 'tool' }> | { kind: 'activity'; id: string; steps: ToolChip[] }
+
+/** Consecutive tool calls share one disclosure without disturbing text order. */
+export function groupActivityParts(parts: readonly ChatPart[]): DisplayPart[] {
+  const grouped: DisplayPart[] = []
+  for (const part of parts) {
+    if (part.kind !== 'tool') {
+      grouped.push(part)
+      continue
+    }
+    const previous = grouped.at(-1)
+    if (previous?.kind === 'activity') previous.steps.push(part.chip)
+    else grouped.push({ kind: 'activity', id: part.id, steps: [part.chip] })
   }
-  return out
+  return grouped
+}
+
+function messageSources(message: ChatMessage) {
+  return mergeSources(
+    message.parts
+      .filter((part): part is Extract<ChatPart, { kind: 'tool' }> => part.kind === 'tool')
+      .filter((part) => part.chip.name === 'web_research' || part.chip.name === 'research_meta')
+      .map((part) => part.chip.sources),
+  )
 }
 
 export function DeckeChat({
@@ -1060,6 +1070,8 @@ export function DeckeChat({
   conversationId,
   onNewChat,
   onTopUp,
+  onDeckSaved,
+  onComposerActivity,
 }: {
   open: boolean
   /** He has gone out onto the page; the transcript gets out of the way. */
@@ -1148,6 +1160,10 @@ export function DeckeChat({
   onNewChat?: () => void
   /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
   onTopUp?: () => void
+  /** Records a one-tap widget save in the next conversational wire. */
+  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  /** Lets the character react to typing without coupling the composer to the hook. */
+  onComposerActivity?: (typing: boolean) => void
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
@@ -1195,6 +1211,29 @@ export function DeckeChat({
    */
   const panelRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState('')
+  const lastTypingBeatRef = useRef(0)
+  const typingIdleRef = useRef<number | null>(null)
+
+  const endComposerActivity = useCallback(() => {
+    if (typingIdleRef.current !== null) window.clearTimeout(typingIdleRef.current)
+    typingIdleRef.current = null
+    onComposerActivity?.(false)
+  }, [onComposerActivity])
+
+  const changeDraft = useCallback((next: string) => {
+    setDraft(next)
+    const now = Date.now()
+    if (now - lastTypingBeatRef.current >= 1000) {
+      lastTypingBeatRef.current = now
+      onComposerActivity?.(true)
+    }
+    if (typingIdleRef.current !== null) window.clearTimeout(typingIdleRef.current)
+    typingIdleRef.current = window.setTimeout(endComposerActivity, 4000)
+  }, [endComposerActivity, onComposerActivity])
+
+  useEffect(() => () => {
+    if (typingIdleRef.current !== null) window.clearTimeout(typingIdleRef.current)
+  }, [])
   const empty = messages.length === 0
   // `spent` gates the composer, and nothing else about the panel. History,
   // scrolling, the header and the approval card are all unaffected: running out
@@ -2223,13 +2262,14 @@ export function DeckeChat({
       const text = draft.trim()
       if (!text || busy) return
       setDraft('')
+      endComposerActivity()
       // Sending re-arms the follow. Someone who has just spoken is asking to be
       // shown the answer, wherever they had scrolled to before typing it.
       stickRef.current = true
       setAtLatest(true)
       onSend(text)
     },
-    [draft, busy, onSend],
+    [draft, busy, endComposerActivity, onSend],
   )
 
   // `visible`, not `open`. See the state block at the top of this component:
@@ -2933,7 +2973,7 @@ export function DeckeChat({
                     lookup that did not happen, because this is not a thing the
                     model can ask for.
                   */}
-                  {m.parts.map((part) => {
+                  {groupActivityParts(m.parts).map((part) => {
                     if (part.kind === 'text') {
                       if (!part.text) return null
                       const bubble = (
@@ -2970,27 +3010,27 @@ export function DeckeChat({
                         </div>
                       )
                     }
-                    if (part.kind === 'tool') {
+                    if (part.kind === 'activity') {
+                      const live =
+                        busy &&
+                        m.id === lastAssistantId &&
+                        [...groupActivityParts(m.parts)].reverse().find((candidate) => candidate.kind === 'activity')?.id === part.id
                       return (
-                        <ul key={part.id} className="w-full self-start">
-                          {/*
-                            `toolRowFromChip` WAS A BRIDGE AND IS NOW A BACKSTOP.
-                            `deny` used to emit its "nothing was written" row as
-                            `phase: 'ok'` — the phase for a call that SUCCEEDED —
-                            so a refusal drew a tick, which is the owner's
-                            *"there should be a little red x"*. `useDeckeChat`
-                            emits `phase: 'declined'` directly now, so the
-                            mapping no longer fires: it matches `ok` AND the
-                            `-declined` id, and a real `declined` phase passes
-                            straight through untouched.
-
-                            Kept rather than deleted because it is pure, tested,
-                            and costs one comparison — and because a transcript
-                            that goes back to drawing a tick on a refusal is the
-                            one regression here nobody would notice in review.
-                          */}
-                          <ToolRow data={toolRowFromChip(part.chip)} onRetry={onRetryTool} onTopUp={onTopUp} />
-                        </ul>
+                        <div
+                          key={part.id}
+                          {...(live ? anchorProps : {})}
+                          data-decke-thinking={live || undefined}
+                          className={live ? 'decke-beside w-full self-start' : 'w-full self-start'}
+                        >
+                          <ActivityLine
+                            steps={part.steps}
+                            busy={live}
+                            waiting={live && Boolean(asking?.length)}
+                            startedAt={live ? turnStartedAt : undefined}
+                            sources={messageSources(m)}
+                            onRetryStep={onRetryTool}
+                          />
+                        </div>
                       )
                     }
                     if (part.kind === 'notice') {
@@ -3019,42 +3059,14 @@ export function DeckeChat({
                     // a column of one card.
                     return (
                       <div key={part.id} className="decke-figure">
-                        <DeckeScreen spec={part.spec} onResize={placePark} />
+                        <DeckeScreen spec={part.spec} onResize={placePark} onDeckSaved={onDeckSaved} />
                       </div>
                     )
                   })}
-                  {/*
-                    A REAL THINKING STATE, and there was none at all.
-
-                    The assistant message is inserted with no parts, and an
-                    empty message renders nothing — so between pressing send and
-                    the first token the transcript showed literally nothing. The
-                    owner sat through 210 seconds of that, 61 of them
-                    pixel-identical by direct frame comparison, and the answer
-                    that finally arrived was a tool failure he did not notice.
-
-                    It appears on the LAST assistant message while the turn is
-                    busy, and it carries the live status beats the server sends
-                    from real tool boundaries. It is not a spinner: it counts,
-                    and a counter cannot be caught looking stopped.
-
-                    NO `steps`, AND THAT IS A FIX RATHER THAN AN OMISSION. It
-                    used to be handed `messageTools(m)` — the very rows the loop
-                    above has already rendered inline, in the order they
-                    happened. So every row appeared TWICE while a turn was busy,
-                    and because a failed row opens itself, a failure showed its
-                    loud red row twice at once, each with its own "Try again",
-                    and announced itself twice to a screen reader. On the exact
-                    surface that exists because the owner once failed to notice
-                    a failure at all.
-
-                    The drawer was designed before the ordered part list, for a
-                    transcript that had nowhere else to put a row. It has
-                    somewhere else now, and occurrence order is the better
-                    place: a lookup that happened between two sentences belongs
-                    between them, not collapsed inside a spinner.
-                  */}
-                  {busy && m.role === 'assistant' && m.id === lastAssistantId ? (
+                  {busy &&
+                  m.role === 'assistant' &&
+                  m.id === lastAssistantId &&
+                  messageTools(m).length === 0 ? (
                     <div
                       {...anchorProps}
                       className="decke-beside w-full self-start"
@@ -3067,15 +3079,16 @@ export function DeckeChat({
                       // it is mounted exactly while he is working.
                       data-decke-thinking
                     >
-                      {/* The turn is still in flight while a card is up, so the
-                          hook above stays mounted; only what it CLAIMS changes.
-                          See `WaitingRow`. */}
-                      {asking?.length ? (
-                        <WaitingRow />
-                      ) : (
-                        <ThinkingRow startedAt={turnStartedAt} labels={liveLabels(m)} />
-                      )}
+                      <ActivityLine
+                        steps={[]}
+                        busy
+                        waiting={Boolean(asking?.length)}
+                        startedAt={turnStartedAt}
+                      />
                     </div>
+                  ) : null}
+                  {m.role === 'assistant' && !(busy && m.id === lastAssistantId) ? (
+                    <SourcesList sources={messageSources(m)} />
                   ) : null}
                   {/* His latest response ended in a widget: he stands BELOW it,
                       in a footprint of his own, never over it. */}
@@ -3157,10 +3170,6 @@ export function DeckeChat({
           <div ref={askRef} {...{ [APPROVAL_LANDMARK]: '' }} className="mx-auto w-full max-w-[760px]">
           <ApprovalCard
             title={asking[0].title}
-            // What he understood the request to be. Null for a tool whose call
-            // has a preview under it — there the ROWS are the restatement, and
-            // saying it twice would be noise.
-            request={deepRequestLine(asking[0].name, asking[0].input)}
             heldCalls={asking.length}
             // KEYED TO THE HELD CALL, which fixes a trust defect by
             // construction. This used to be `previewOf(messages)`, which
@@ -3254,13 +3263,14 @@ export function DeckeChat({
         ) : (
           <DeckeComposer
             draft={draft}
-            onDraftChange={setDraft}
+            onDraftChange={changeDraft}
             onSubmit={submit}
             busy={busy}
             waiting={Boolean(asking?.length)}
             onStop={onStop}
             dropPx={dropPx}
             onDropEnd={() => setDropPx(0)}
+            onBlur={endComposerActivity}
             inputRef={inputRef}
             formRef={composerRef}
             bottomPad={!(empty && desktop)}
