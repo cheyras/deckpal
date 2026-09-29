@@ -199,7 +199,8 @@ async function checkWriteRefresh(page, server, width, out) {
  * his view. Then the server answers 413, and the reader must see a sentence
  * rather than a generic failure.
  */
-const WINDOW_MESSAGES = 24
+// MIRRORS apps/web/src/character/host/chat/wireWindow.ts (40 since the 2026-09-28 overhaul).
+const WINDOW_MESSAGES = 40
 async function checkBounds(page, server, width, out) {
   const bodies = []
   let status = 200
