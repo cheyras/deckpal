@@ -74,6 +74,16 @@ test('recent turns replay complete bounded server results', () => {
   assert.match(HOOK, /const bounded = capOutput\(output\)/, 'captured outputs are not bounded')
 })
 
+test('old compact turns still replay exact declines', () => {
+  const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
+  assert.match(wire, /else \{[\s\S]{0,400}declineParts\(chips,/, 'old declines fell back to a lossy lookup line')
+})
+
+test('every leg fits the current-turn budget before it is posted', () => {
+  assert.match(HOOK, /const requestWire = fitCurrentTurn\(wire,/)
+  assert.match(HOOK, /streamLeg\(requestWire,/, 'the bounded copy is built but not sent')
+})
+
 test('a widget save is shown, refreshed, and queued once for the model', () => {
   assert.match(HOOK, /const recordDeckSaved = useCallback/)
   assert.match(HOOK, /savedDeckWireRef\.current = savedDeckRecord/)

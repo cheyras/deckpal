@@ -25,6 +25,7 @@
  * `deckpal-web` cannot import `deckpal-api` to share the type.
  */
 import { useEffect, useId, useLayoutEffect, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { Icon } from '../../components/Icon'
 import { CardImage } from '../../components/CardImage'
 import { CARD_ASPECT_RATIO_CSS } from '../../lib/cardGeometry'
@@ -35,6 +36,7 @@ import { COLLAPSE_LABEL, compactPlan, expandLabel, showingLabel } from './screen
 import { api } from '../../lib/api'
 import { saveDeckFromWidget, type WidgetDeck } from './chat/deckSave'
 import { deckHeader, nextSaveState, ownershipMark, visibleIssues, type SaveState } from './chat/deckWidgetState'
+import { DECK_SEARCH_DEFAULTS } from '../../routes/deckSearch'
 
 export type Block = {
   kind: string
@@ -386,7 +388,8 @@ function DeckWidget({
     owned: block.owned ?? 0,
     missingCostUsd: block.missingCostUsd ?? null,
   })
-  const issueList = visibleIssues(block.issues ?? [])
+  const issues = block.issues ?? []
+  const issueList = visibleIssues(issues)
   const sections = compact ? (block.sections ?? []).slice(0, 1) : (block.sections ?? [])
 
   async function copyList() {
@@ -429,7 +432,7 @@ function DeckWidget({
 
       {issueList.visible.length ? (
         <div className="flex flex-col gap-[4px]" aria-label="Deck issues">
-          {(issuesOpen ? block.issues : issueList.visible).map((issue, index) => (
+          {(issuesOpen ? issues : issueList.visible).map((issue, index) => (
             <p key={`${issue}-${index}`} className="flex gap-[5px] text-[12px] leading-[17px] text-text-body">
               <Icon name="alert" size={13} className="mt-[2px] shrink-0 text-icon-muted" />{issue}
             </p>
@@ -448,9 +451,9 @@ function DeckWidget({
 
       <div className="flex flex-wrap gap-[8px] border-t border-border-default pt-[10px]">
         {saved ? (
-          <a href={`/decks/${encodeURIComponent(saved.id)}`} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
+          <Link to="/decks/$id" params={{ id: saved.id }} search={DECK_SEARCH_DEFAULTS} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
             Open in deck builder
-          </a>
+          </Link>
         ) : (
           <button type="button" disabled={saveState === 'saving'} onClick={() => void save()} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground disabled:opacity-60">
             {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Try saving again' : 'Save to my decks'}

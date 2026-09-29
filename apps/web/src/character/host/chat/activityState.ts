@@ -34,7 +34,7 @@ export function stepLabel(step: ActivityStep): string {
 }
 
 export function activitySummary(steps: readonly ActivityStep[], elapsedSeconds: number): string {
-  const relevant = steps.filter((step) => !MOVE_TOOLS.has(step.name))
+  const relevant = steps.filter((step) => !MOVE_TOOLS.has(step.name) && step.phase !== 'declined')
   const failures = relevant.filter(isFailure).length
   const elapsed = `${Math.max(0, Math.floor(elapsedSeconds))}s`
 

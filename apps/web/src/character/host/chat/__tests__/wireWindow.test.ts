@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { TOOL_RECORD_PREFIX } from '../lookupRecord'
-import { BREAKER_PER_TOOL, EVIDENCE_MAX, PART_MAX_CHARS, WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, windowPrior } from '../wireWindow'
+import { BREAKER_PER_TOOL, CURRENT_TURN_MAX_CHARS, EVIDENCE_MAX, PART_MAX_CHARS, WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, fitCurrentTurn, windowPrior } from '../wireWindow'
 
 const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
 const said = (text: string) => ({ role: 'assistant', parts: [{ type: 'text', text }] })
@@ -77,6 +77,34 @@ test('an oversized tool part is dropped just like oversized text', () => {
   const prior = [...chat(3), user('tools'), huge]
   const { messages } = windowPrior(prior)
   assert.deepEqual(messages, [...chat(3), user('tools')])
+})
+
+test('an oversized current turn degrades oldest server outputs and preserves the final approval', () => {
+  const calls = Array.from({ length: 22 }, (_, index) => ({
+    type: 'tool-web_research',
+    toolCallId: `research-${index}`,
+    state: 'output-available',
+    input: { query: `${index}` },
+    output: `${index}:${'x'.repeat(12_000)}`,
+  }))
+  const approval = {
+    type: 'tool-save_deck', toolCallId: 'save-1', state: 'approval-responded',
+    input: { name: 'Dragapult' }, approval: { id: 'approval-1', approved: true, signature: 'signed' },
+  }
+  const wire = [user('build it'), { role: 'assistant', parts: [...calls, approval] }]
+  const fitted = fitCurrentTurn(wire, {
+    isServerTool: () => true,
+    summaryFor: (id) => `summary for ${id}`,
+  })
+  const parts = fitted[1]!.parts
+  const firstFull = parts.findIndex((part) => 'state' in part && part.state === 'output-available')
+  assert.ok(firstFull > 0, 'at least one old result should be compacted')
+  assert.ok(parts.slice(0, firstFull).every((part) => part.type === 'text'), 'compaction must be oldest-first')
+  assert.equal(parts.at(-1), approval, 'the signed approval must remain the final part')
+  const chars = fitted.reduce((sum, message) => sum + message.parts.reduce((n, part) => {
+    return n + (part.type === 'text' && 'text' in part ? String(part.text).length : JSON.stringify(part).length)
+  }, 0), 0)
+  assert.ok(chars <= CURRENT_TURN_MAX_CHARS)
 })
 
 const failed = (tool: string, id: string) =>

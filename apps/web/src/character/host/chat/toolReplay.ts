@@ -39,6 +39,27 @@ export type DeniedReplayPart = {
 
 export type ToolReplayPart = AvailableReplayPart | DeniedReplayPart | FailurePart
 
+/** Declines stay exact for the whole browser window, not only full-replay turns. */
+export function declineParts(
+  chips: readonly ReplayChip[],
+  opts: { isServerTool: (name: string) => boolean },
+): DeniedReplayPart[] {
+  return chips.flatMap((chip) => {
+    if (chip.phase !== 'declined' || chip.name === 'express' || !opts.isServerTool(chip.name)) return []
+    return [{
+      type: `tool-${chip.name}`,
+      toolCallId: chip.id,
+      input: chip.args ?? {},
+      state: 'output-denied' as const,
+      approval: {
+        id: chip.approvalId ?? `replay-${chip.id}`,
+        approved: false as const,
+        reason: chip.declineReason ?? DECLINED_REASON,
+      },
+    }]
+  })
+}
+
 /** Convert a captured SDK output to bounded text suitable for replay. */
 export function capOutput(output: unknown): string {
   const value = typeof output === 'string'
@@ -62,6 +83,7 @@ export function toolReplayParts(
   const parts: ToolReplayPart[] = []
   const unrecorded: ReplayChip[] = []
   const failures = new Map(failureParts(chips).map((part) => [part.toolCallId, part]))
+  const declines = new Map(declineParts(chips, opts).map((part) => [part.toolCallId, part]))
 
   for (const chip of chips) {
     if (chip.name === 'express' || !opts.isServerTool(chip.name)) continue
@@ -77,17 +99,8 @@ export function toolReplayParts(
     } else if (chip.phase === 'ok' || chip.phase === 'partial') {
       unrecorded.push(chip)
     } else if (chip.phase === 'declined') {
-      parts.push({
-        type: `tool-${chip.name}`,
-        toolCallId: chip.id,
-        input: chip.args ?? {},
-        state: 'output-denied',
-        approval: {
-          id: chip.approvalId ?? `replay-${chip.id}`,
-          approved: false,
-          reason: chip.declineReason ?? DECLINED_REASON,
-        },
-      })
+      const decline = declines.get(chip.id)
+      if (decline) parts.push(decline)
     } else if (chip.phase === 'error') {
       const failure = failures.get(chip.id)
       if (failure) parts.push(failure)

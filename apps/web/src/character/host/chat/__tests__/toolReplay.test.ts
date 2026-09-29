@@ -5,6 +5,7 @@ import {
   FULL_REPLAY_TURNS,
   TOOL_OUTPUT_MAX_CHARS,
   capOutput,
+  declineParts,
   replayPlan,
   savedDeckRecord,
   toolReplayParts,
@@ -85,6 +86,24 @@ test('only the six most recent assistant turns use full replay', () => {
   assert.equal(replayPlan(0), 'full')
   assert.equal(replayPlan(5), 'full')
   assert.equal(replayPlan(6), 'record')
+})
+
+test('a decline eight assistant turns back keeps its exact denied input', () => {
+  const turns = Array.from({ length: 8 }, (_, index) => ({
+    id: `write-${index}`,
+    name: 'collection_add',
+    phase: index === 0 ? 'declined' : 'ok',
+    args: { card_id: `sv1-${index}` },
+    approvalId: `approval-${index}`,
+  }))
+  const oldTurnPlan = replayPlan(7)
+  assert.equal(oldTurnPlan, 'record')
+  const parts = declineParts([turns[0]!], { isServerTool: (name) => serverTools.has(name) })
+  assert.deepEqual(parts, [{
+    type: 'tool-collection_add', toolCallId: 'write-0', input: { card_id: 'sv1-0' },
+    state: 'output-denied',
+    approval: { id: 'approval-0', approved: false, reason: DECLINED_REASON },
+  }])
 })
 
 test('a saved deck becomes a reader fact on the next wire', () => {

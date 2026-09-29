@@ -60,6 +60,7 @@ import type { DeckEInstance } from './runtime'
 import { failureParts, freshCalls, isShownInTranscript, lookupRecord } from './chat/lookupRecord'
 import {
   capOutput,
+  declineParts,
   replayPlan,
   savedDeckRecord,
   toolReplayParts,
@@ -75,7 +76,7 @@ import {
   wireCallIdentities,
   type MeterRefusal,
 } from './chat/meterRefusal'
-import { windowPrior } from './chat/wireWindow'
+import { fitCurrentTurn, windowPrior } from './chat/wireWindow'
 import {
   CLIENT_TOOLS,
   isClientTool,
@@ -1145,10 +1146,16 @@ export function useDeckeChat(
         const replayedChips = new Set<string>()
         /** Results arrive after their chips; keep a synchronous copy for this leg. */
         const capturedOutputs = new Map<string, string>()
+        /** Compact, trusted chip summaries used only if a long turn must shed output. */
+        const currentTurnSummaries = new Map<string, string>()
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
           applyActivity(animatorRef.current!.legStarted())
           let legTextStarted = false
-          const outcome = await streamLeg(wire, evidence, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
+          const requestWire = fitCurrentTurn(wire, {
+            isServerTool: (name) => !isClientTool(name),
+            summaryFor: (toolCallId) => currentTurnSummaries.get(toolCallId),
+          })
+          const outcome = await streamLeg(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
             onText: (chunk) => {
               if (!legTextStarted) {
                 legTextStarted = true
@@ -1409,6 +1416,9 @@ export function useDeckeChat(
             .map((chip) => chip.output !== undefined || !capturedOutputs.has(chip.id)
               ? chip
               : { ...chip, output: capturedOutputs.get(chip.id) })
+          for (const chip of calls) {
+            if (chip.summary && !isClientTool(chip.name)) currentTurnSummaries.set(chip.id, chip.summary)
+          }
           const replay = toolReplayParts(calls, { isServerTool: (name) => !isClientTool(name) })
           for (const part of replay.parts) parts.push(part)
           const record = lookupRecord(replay.unrecorded)
@@ -2362,6 +2372,7 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
         const record = lookupRecord(chips)
         if (record) parts.push(record)
         for (const failure of failureParts(chips)) parts.push(failure)
+        for (const decline of declineParts(chips, { isServerTool: (name) => !isClientTool(name) })) parts.push(decline)
       }
       // A turn that produced only tool records and no speech still has to be a
       // valid message; the filter above lets it through, so guard the shape.

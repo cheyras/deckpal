@@ -46,7 +46,7 @@ const KIND: Record<string, ToolKind> = {
   revert: 'write',
   deck_strategy: 'write',
   write_strategy_guide: 'write',
-  set_cart: 'write',
+  set_cart: 'prices',
   showScreen: 'show',
   showDeck: 'show',
   flyTo: 'move',
@@ -132,6 +132,7 @@ function completedLabel(label: string): string {
 }
 
 export function labelFor(chip: Chip): string {
+  if (chip.phase === 'declined') return 'Skipped that change'
   const done = !running(chip.phase)
   if (chip.label?.trim()) {
     const label = chip.label.trim()
@@ -171,6 +172,8 @@ export function labelFor(chip: Chip): string {
       return pair('Reading your history', 'Read your history')
     case 'card_price_history':
       return pair('Checking prices', 'Checked prices')
+    case 'set_cart':
+      return pair('Building your cart', 'Built your cart')
     default:
       return pair('Working on it', 'Finished the step')
   }

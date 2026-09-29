@@ -39,6 +39,11 @@ test('the scope is read off the server marker and nothing else', () => {
   assert.equal(meterRefusalScope(undefined), null)
 })
 
+test('current NOT RUN and legacy REFUSED meter markers are both accepted', () => {
+  assert.equal(meterRefusalScope('[[NO_WORK]] NOT RUN [meter:cap] — this tool did not run.'), 'cap')
+  assert.equal(meterRefusalScope('[[NO_WORK]] REFUSED [meter:credits] — this tool did not run.'), 'credits')
+})
+
 test('prose cannot mint a refusal, wherever the marker sits', () => {
   // The model narrating the marker mid-sentence must not read as one: the
   // pattern is anchored, so only a result that STARTS with it counts.

@@ -4,12 +4,12 @@ export type WidgetDeck = {
   name: string
   format: string
   total: number
+  ptcgl?: string
   sections: Array<{ cards: Array<{ id: string; quantity: number }> }>
 }
 
 export type DeckSaveApi = {
-  createDeck: (body: { name: string; formatCode?: DeckFormat }) => Promise<{ deck: { id: string } }>
-  addDeckCard: (deckId: string, cardId: string, quantity?: number) => Promise<unknown>
+  importDeck: (body: { text: string; name?: string; formatCode?: DeckFormat }) => Promise<{ deck: { id: string } }>
 }
 
 export type DeckSaveResult =
@@ -17,16 +17,17 @@ export type DeckSaveResult =
   | { ok: false; message: string }
 
 /**
- * The deck builder has no bulk-create endpoint: it creates a deck, then adds
- * its resolved card ids. The widget deliberately follows that public client
- * contract instead of reparsing its PTCGL text in a second code path.
+ * Import is one server transaction. Creating a shell and adding cards one by
+ * one can strand a partial deck, and retrying that failure creates duplicates.
  */
 export async function saveDeckFromWidget(block: WidgetDeck, api: DeckSaveApi): Promise<DeckSaveResult> {
   try {
-    const created = await api.createDeck({ name: block.name, formatCode: asDeckFormat(block.format) })
-    for (const card of block.sections.flatMap((section) => section.cards)) {
-      await api.addDeckCard(created.deck.id, card.id, card.quantity)
-    }
+    if (!block.ptcgl?.trim()) throw new Error('Deck list is missing')
+    const created = await api.importDeck({
+      text: block.ptcgl,
+      name: block.name,
+      formatCode: asDeckFormat(block.format),
+    })
     return { ok: true, id: created.deck.id, name: block.name, total: block.total }
   } catch {
     return { ok: false, message: "Couldn't save this deck. Please try again." }
