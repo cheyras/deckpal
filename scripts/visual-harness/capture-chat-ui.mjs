@@ -41,8 +41,9 @@ const OUT = resolve(arg('out', '.visual-harness/chat-ui'))
 /** Sections on the page, by their `id`. Each gets its own shot. */
 const SECTIONS = [
   'empty',
-  'thinking',
-  'tool-rows',
+  'activity',
+  'sources',
+  'deck-widget',
   'markdown',
   'screens',
   'approval',

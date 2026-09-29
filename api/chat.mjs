@@ -88,6 +88,11 @@ function cachedTools(choice, tools) {
   )
 }
 
+/** Gateway-native cross-model failover; no second application-level charge or retry loop. */
+function chatProviderOptions(choice) {
+  return { gateway: { models: [choice.fallback] } }
+}
+
 /**
  * The browser-fulfilled tools, as a Set, for the empty-answer guard's
  * navigation-handoff carve-out. Built from the real `CLIENT_TOOLS` export so it
@@ -878,6 +883,7 @@ async function serve(request) {
       })
       const result = streamText({
         model: observeUsageModel(gateway(choice.id), meter),
+        providerOptions: chatProviderOptions(choice),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
         // `instructions` is the field that accepts a SystemModelMessage, which
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
@@ -1456,6 +1462,7 @@ async function serve(request) {
             writer.write({ type: 'text-delta', id: 'turn-guard', delta: CORRECTION_LINE })
             const leg = streamText({
               model: observeUsageModel(gateway(choice.id), meter),
+              providerOptions: chatProviderOptions(choice),
               instructions: cachedInstructions(choice, `${systemPrompt}\n\n${correctiveInstruction(corrective)}`),
               messages: [...preparedMessages, ...(await result.response).messages],
               tools: correctiveApplyTools(allDeckeTools, corrective),

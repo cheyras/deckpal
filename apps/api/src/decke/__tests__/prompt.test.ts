@@ -27,7 +27,7 @@ test('the new conversation, memory, deck, and failure contracts are present', ()
   const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
   for (const phrase of [
     'Read the moment before you reach for a tool',
-    'Remember what you already did',
+    'Full tool results from your recent turns are',
     'Never ask them for something you can look up',
     'Check it with `check_deck`',
     'Show it with `showDeck`',
@@ -36,6 +36,10 @@ test('the new conversation, memory, deck, and failure contracts are present', ()
     assert.ok(p.includes(phrase), `missing: ${phrase}`)
   }
   assert.ok(p.includes('`web_research`'))
+  assert.match(flat(p), /older work may survive only as a one-line record/)
+  assert.match(flat(p), /correction to what they want.*is not a request for data/)
+  assert.match(flat(p), /If they correct a FACT.*verify it before you repeat/)
+  assert.doesNotMatch(flat(p), /Everything you looked up earlier.*still in front of you/)
 })
 
 test('retained body state list and automatic lifecycle states are still named', () => {

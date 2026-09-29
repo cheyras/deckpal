@@ -76,6 +76,9 @@ export const WINDOW_MESSAGES = 40;
  */
 export const WINDOW_PRIOR_CHARS = 160_000;
 
+/** All messages from the latest reader message through the approval leg. */
+export const CURRENT_TURN_MAX_CHARS = 240_000;
+
 /** The page path and each landmark string go into the system prompt. */
 export const ROUTE_MAX = 200;
 export const LANDMARKS_MAX = 40;
@@ -151,6 +154,20 @@ export function validateWire(messages: unknown): WireVerdict {
     if (!parsed.data.some((m) => m.role === 'user')) {
       return { ok: false, status: 400, code: 'invalid_conversation', error: 'messages must include the reader’s own message' };
     }
+    let current = parsed.data.length - 1;
+    while (current >= 0 && parsed.data[current]!.role !== 'user') current--;
+    const currentChars = parsed.data.slice(current).reduce(
+      (sum, message) => sum + message.parts.reduce((partSum, part) => partSum + partChars(part), 0),
+      0,
+    );
+    if (currentChars > CURRENT_TURN_MAX_CHARS) {
+      return {
+        ok: false,
+        status: 413,
+        code: 'current_turn_too_long',
+        error: 'This turn is too long for Deck-E to read. Send a new message to continue.',
+      };
+    }
     return { ok: true, messages: parsed.data };
   }
   const tooBig = parsed.error.issues.find((i) => i.code === 'too_big');
@@ -169,7 +186,7 @@ export function validateWire(messages: unknown): WireVerdict {
  * What the model is shown: the reader's current turn whole, plus as much
  * recent history as fits.
  *
- * THE CURRENT TURN IS NEVER CUT. It is the reader's latest message and every
+ * THE CURRENT TURN IS NEVER CUT after validation bounds it. It is the reader's latest message and every
  * leg after it, and the approval round trip lives at its very end — the SDK's
  * `collectToolApprovals` reads the final parts of the final message, so a
  * window that clipped the turn would silently drop a signed approval.

@@ -14,6 +14,7 @@ import { convertToModelMessages } from 'ai'
 import { failingTools } from '../failing.js'
 import {
   BODY_MAX_BYTES,
+  CURRENT_TURN_MAX_CHARS,
   EVIDENCE_MAX,
   boundedEvidence,
   MESSAGES_MAX,
@@ -126,6 +127,16 @@ test('the expanded replay window is pinned', () => {
   assert.equal(WINDOW_MESSAGES, 40)
   assert.equal(WINDOW_PRIOR_CHARS, 160_000)
   assert.equal(PART_MAX_CHARS, 60_000)
+  assert.equal(CURRENT_TURN_MAX_CHARS, 240_000)
+})
+
+test('a forged 1.5 MB current turn is rejected before it can reach the model', () => {
+  const forged = Array.from({ length: 30 }, (_, i) => ({
+    type: 'tool-web_research', toolCallId: `forged-${i}`, state: 'output-available',
+    input: { query: 'x' }, output: 'x'.repeat(50_000),
+  }))
+  const verdict = validateWire([user('continue'), { role: 'assistant', parts: forged }])
+  assert.deepEqual(verdict.ok ? null : [verdict.status, verdict.code], [413, 'current_turn_too_long'])
 })
 
 test('a short conversation reaches the model untouched', () => {

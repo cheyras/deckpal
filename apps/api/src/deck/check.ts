@@ -34,6 +34,8 @@ export interface ResolvedCheckLine {
   owned: number
   unitPriceUsd: number | null
   note?: string
+  /** Basic reached by following a Stage 2 card's catalog evolves-from chain. */
+  basicName?: string
 }
 
 const sectionOf = (card: CardFacts): DeckEntry['section'] =>
@@ -65,12 +67,15 @@ export function buildDeckCheckResult(
     if (card?.category === 'Pokemon' && (card.stage === 'Stage1' || card.stage === 'Stage2') && card.evolveFrom) {
       const prior = normalizeName(card.evolveFrom)
       if (!presentNames.has(prior)) {
-        if (card.stage === 'Stage2' && rareCandy) {
+        const basicPresent = row.basicName ? presentNames.has(normalizeName(row.basicName)) : false
+        if (card.stage === 'Stage2' && rareCandy && basicPresent) {
           note = [note, `Rare Candy covers the missing ${card.evolveFrom} stage.`].filter(Boolean).join(' ')
         } else {
+          const candyGap = card.stage === 'Stage2' && rareCandy && row.basicName && !basicPresent
+            ? `; Rare Candy still needs ${row.basicName}`
+            : card.stage === 'Stage2' && !rareCandy ? ' and no Rare Candy' : ''
           evolutionGaps.push(
-            `${card.name} (${card.stage === 'Stage2' ? 'Stage 2' : 'Stage 1'}) has no ${card.evolveFrom}` +
-              (card.stage === 'Stage2' ? ' and no Rare Candy' : ''),
+            `${card.name} (${card.stage === 'Stage2' ? 'Stage 2' : 'Stage 1'}) has no ${card.evolveFrom}${candyGap}`,
           )
         }
       }

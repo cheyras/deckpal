@@ -269,6 +269,12 @@ test('the corrective leg keeps Anthropic adaptive, the signature and the prompt 
   assert.match(CODE, /instructions: cachedInstructions\(choice, systemPrompt\),/, 'the turn and correction lost the cached prompt');
 });
 
+test('both chat model calls pass the configured fallback through Gateway routing', () => {
+  assert.match(CODE, /function chatProviderOptions\(choice\)/)
+  assert.match(CODE, /gateway:\s*\{ models:\s*\[choice\.fallback\] \}/)
+  assert.equal((CODE.match(/providerOptions: chatProviderOptions\(choice\)/g) ?? []).length, 2)
+})
+
 test('Anthropic prompt caching, deck checks and the expanded step budget are wired', () => {
   assert.match(CODE, /const MAX_STEPS = 24/);
   assert.match(CODE, /providerOptions: ANTHROPIC_CACHE/);

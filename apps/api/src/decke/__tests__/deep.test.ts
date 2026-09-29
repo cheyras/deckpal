@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { MockLanguageModelV3 } from 'ai/test';
 import type { GatewayProvider } from '@ai-sdk/gateway';
 import { buildDeepTools, DECKE_DEEP_BUDGET_VAR } from '../deep.js';
+import { DEEP_TOOLS } from '../tools.js';
 
 const CTX = {
   pool: null as never,
@@ -41,6 +42,7 @@ type Event = {
   sources?: Array<{ url: string; title: string; host: string }>;
 };
 type Runnable = {
+  inputSchema?: { safeParse: (input: unknown) => { success: boolean } };
   needsApproval?: (input: unknown) => boolean | Promise<boolean>;
   execute: (input: Record<string, unknown>, options: { toolCallId: string }) => Promise<string>;
 };
@@ -57,10 +59,13 @@ function tools(chunks: unknown[], events: Event[] = []): Record<string, Runnable
 test('Deck-E exposes only web_research and it never asks for approval', async () => {
   const built = tools([]);
   assert.deepEqual(Object.keys(built), ['web_research']);
+  assert.deepEqual([...DEEP_TOOLS], Object.keys(built));
   assert.equal(
-    await built.web_research!.needsApproval?.({ query: 'current meta', topic: 'competitive' }),
+    await built.web_research!.needsApproval?.({ query: 'current meta', topic: 'competitive', purpose: 'Current meta' }),
     false,
   );
+  assert.equal(built.web_research!.inputSchema?.safeParse({ query: 'current meta', topic: 'competitive' }).success, false);
+  assert.equal(built.web_research!.inputSchema?.safeParse({ query: 'current meta', topic: 'competitive', purpose: '  ' }).success, false);
 });
 
 test('purpose becomes a bounded label on every event and is derived when omitted', async () => {
@@ -140,6 +145,35 @@ test('terminal summary is the first findings sentence, never the untrusted-conte
   assert.match(output, /^The following was fetched from the open web/);
   assert.equal(events.at(-1)?.summary, 'Dragapult ex won the latest event.');
   assert.equal(events.at(-1)?.summary?.includes('fetched from the open web'), false);
+});
+
+test('a provider failure gets a failure summary, not the successful empty-search summary', async () => {
+  const events: Event[] = [];
+  const built = tools([
+    { type: 'stream-start', warnings: [] },
+    { type: 'error', error: new Error('research service unavailable') },
+    finish(),
+  ], events);
+  const output = await built.web_research!.execute(
+    { query: 'latest event', topic: 'competitive', purpose: 'Latest event' },
+    { toolCallId: 'r-fail' },
+  );
+  assert.match(output, /^\[\[NO_WORK\]\] Web research failed/);
+  assert.equal(events.at(-1)?.phase, 'error');
+  assert.match(events.at(-1)?.summary ?? '', /^Web research failed —/);
+  assert.doesNotMatch(events.at(-1)?.summary ?? '', /returned no findings/);
+});
+
+test('a successful empty search alone says it returned no findings', async () => {
+  const events: Event[] = [];
+  const built = tools([{ type: 'stream-start', warnings: [] }, finish()], events);
+  const output = await built.web_research!.execute(
+    { query: 'obscure result', topic: 'general', purpose: 'Obscure result' },
+    { toolCallId: 'r-empty' },
+  );
+  assert.equal(events.at(-1)?.phase, 'ok');
+  assert.equal(events.at(-1)?.summary, 'Web research returned no findings');
+  assert.match(output, /^The following was fetched from the open web/);
 });
 
 test('a timeout is partial and plainly marks the returned research incomplete', async () => {

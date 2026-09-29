@@ -281,15 +281,33 @@ export function circuitOpen(
  *     exactly the predicate: `readerAsksRetry` on their own next message is the
  *     only thing that re-opens it.
  */
+function readableCapability(tool: string): { action: string; activity: string } {
+  const known: Record<string, { action: string; activity: string }> = {
+    battle_logs: { action: 'read your battle logs', activity: 'reading your battle logs' },
+    collection_summary: { action: 'read your collection', activity: 'reading your collection' },
+    collection_cards: { action: 'read your collection cards', activity: 'reading your collection cards' },
+    decks: { action: 'read your decks', activity: 'reading your decks' },
+    lists: { action: 'read your lists', activity: 'reading your lists' },
+    search_cards: { action: 'search the card catalog', activity: 'searching the card catalog' },
+    get_card: { action: 'look up that card', activity: 'looking up that card' },
+    web_research: { action: 'research the web', activity: 'researching the web' },
+    check_deck: { action: 'check that deck', activity: 'checking that deck' },
+  }
+  const label = tool.replaceAll('_', ' ')
+  return known[tool] ?? { action: `use ${label}`, activity: `using ${label}` }
+}
+
 export function circuitMessage(tool: string, failures: number): string {
+  const { action } = readableCapability(tool)
+  const earlier = failures === 2 ? 'twice' : `${failures} times`
   return (
-    `${NO_WORK} TOOL DOWN — ${tool} has failed in ${failures} separate turns of this ` +
-    `conversation, so this call was NOT made and nothing came back. Tell them plainly, in one ` +
-    `line, that ${tool} is down and that you have recorded it as a tooling fault. Then answer ` +
+    `${NO_WORK} NOT RUN — ${action} failed in ${failures} separate turns of this ` +
+    `conversation, so this call was not made and nothing came back. Tell them plainly, in one ` +
+    `line, "I can't ${action} right now (it failed ${earlier} earlier), so I'll work from what we already have." Then answer ` +
     `what they actually asked using the data you already have — and do NOT restate summaries ` +
     `you have already given them in this conversation; refer back to them instead. Do not call ` +
-    `${tool} again unless they explicitly ask you to retry it. There is NO result from ` +
-    `${tool}: do not describe, summarise or invent anything it would have returned.`
+    `it again unless they explicitly ask you to retry it. There is no result: do not describe, ` +
+    `summarise or invent anything it would have returned.`
   )
 }
 
@@ -301,7 +319,9 @@ export function circuitMessage(tool: string, failures: number): string {
  * not made — which is why it is never `ok` and never carries a result.
  */
 export function circuitChipSummary(tool: string, failures: number): string {
-  return `not called — ${tool} has failed in ${failures} earlier turns; logged as a tooling fault`
+  const { activity } = readableCapability(tool)
+  const earlier = failures === 2 ? 'twice' : `${failures} times`
+  return `Not tried — ${activity} failed ${earlier} earlier`
 }
 
 /**

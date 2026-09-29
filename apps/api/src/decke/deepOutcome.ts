@@ -88,7 +88,7 @@ export type MeterRefusalScope = 'cap' | 'hold' | 'credits';
  * reach: `[[NO_WORK]]` is already the marker no plan contains, and the bracket
  * form is matched at the very start of the string.
  */
-const SCOPE_RE = /^\[\[NO_WORK\]\] REFUSED \[meter:(cap|hold|credits)\]/;
+const SCOPE_RE = /^\[\[NO_WORK\]\] (?:REFUSED|NOT RUN) \[meter:(cap|hold|credits)\]/;
 
 /**
  * A deep call that never ran a model, because it was refused before it started.
@@ -103,7 +103,7 @@ const SCOPE_RE = /^\[\[NO_WORK\]\] REFUSED \[meter:(cap|hold|credits)\]/;
  */
 export function deepRefused(reason: string, scope?: MeterRefusalScope): string {
   const tag = scope ? ` [meter:${scope}]` : '';
-  return `${NO_WORK} REFUSED${tag} — this tool did not run. ${reason}. ${TAIL}`;
+  return `${NO_WORK} NOT RUN${tag} — ${reason}. ${TAIL}`;
 }
 
 /**

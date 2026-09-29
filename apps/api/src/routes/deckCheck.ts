@@ -21,28 +21,65 @@ interface PrintRow {
   market_minor: number | null
 }
 
-function inputLines(body: Record<string, unknown>): InputLine[] {
+export function deckCheckInputLines(body: Record<string, unknown>): InputLine[] {
+  if (typeof body.format === 'string' && body.format.length > 24) throw badRequest('format must be at most 24 characters')
   const hasCards = body.cards !== undefined
   const hasText = body.ptcgl_text !== undefined
   if (hasCards === hasText) throw badRequest('Provide exactly one of cards or ptcgl_text')
   if (hasText) {
     if (typeof body.ptcgl_text !== 'string' || !body.ptcgl_text.trim()) throw badRequest('ptcgl_text must be non-empty')
-    if (body.ptcgl_text.length > 20_000) throw badRequest('ptcgl_text too large')
-    return parsePtcgl(body.ptcgl_text).lines.map((line) => ({ name: line.name, quantity: line.quantity, parsed: line }))
+    if (body.ptcgl_text.length > 8_000) throw badRequest('ptcgl_text too large')
+    return validateLines(parsePtcgl(body.ptcgl_text).lines.map((line) => ({ name: line.name, quantity: line.quantity, parsed: line })))
   }
   if (!Array.isArray(body.cards) || body.cards.length < 1 || body.cards.length > 60) {
     throw badRequest('cards must contain 1..60 distinct lines')
   }
-  return body.cards.map((raw, index) => {
+  return validateLines(body.cards.map((raw, index) => {
     if (!raw || typeof raw !== 'object') throw badRequest(`cards[${index}] must be an object`)
     const line = raw as Record<string, unknown>
     const name = typeof line.name === 'string' ? line.name.trim() : ''
     const cardId = typeof line.card_id === 'string' ? line.card_id.trim() : ''
+    if (name.length > 80) throw badRequest(`cards[${index}].name must be at most 80 characters`)
+    if (cardId.length > 40) throw badRequest(`cards[${index}].card_id must be at most 40 characters`)
     if ((!name && !cardId) || (name && cardId)) throw badRequest(`cards[${index}] needs exactly one of name or card_id`)
-    const quantity = Number(line.quantity)
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 60) throw badRequest(`cards[${index}].quantity must be an integer 1..60`)
-    return { ...(name ? { name } : { card_id: cardId }), quantity }
-  })
+    const quantity = line.quantity
+    if (!Number.isSafeInteger(quantity) || (quantity as number) < 1 || (quantity as number) > 60) {
+      throw badRequest(`cards[${index}].quantity must be a safe integer 1..60`)
+    }
+    return { ...(name ? { name } : { card_id: cardId }), quantity: quantity as number }
+  }))
+}
+
+function validateLines(lines: InputLine[]): InputLine[] {
+  if (lines.length < 1 || lines.length > 60) throw badRequest('deck list must contain 1..60 lines')
+  for (const [index, line] of lines.entries()) {
+    if (!Number.isSafeInteger(line.quantity) || line.quantity < 1 || line.quantity > 60) {
+      throw badRequest(`cards[${index}].quantity must be a safe integer 1..60`)
+    }
+    if ((line.name?.length ?? 0) > 80) throw badRequest(`cards[${index}].name must be at most 80 characters`)
+    if ((line.card_id?.length ?? 0) > 40) throw badRequest(`cards[${index}].card_id must be at most 40 characters`)
+  }
+  return lines
+}
+
+export async function mapConcurrent<T, R>(values: readonly T[], limit: number, fn: (value: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(values.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, async () => {
+    while (next < values.length) {
+      const index = next++
+      results[index] = await fn(values[index]!)
+    }
+  }))
+  return results
+}
+
+async function basicNameFor(card: CardFacts | null): Promise<string | undefined> {
+  if (card?.category !== 'Pokemon' || card.stage !== 'Stage2' || !card.evolveFrom) return undefined
+  const prior = await loadByName(dbHandle(), card.evolveFrom)
+  return prior.find((candidate) =>
+    candidate.category === 'Pokemon' && candidate.stage === 'Stage1' && candidate.evolveFrom,
+  )?.evolveFrom ?? undefined
 }
 
 async function chooseName(name: string, format: FormatCode, userId: string): Promise<{ card: CardFacts; note: string } | null> {
@@ -72,16 +109,21 @@ deckCheckRouter.post('/', asyncHandler(async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>
   const format = oneOf<FormatCode>(body.format, FORMATS, 'standard')
   const userId = currentUserId(req)
-  const requested = inputLines(body)
-  const resolved = await Promise.all(requested.map(async (line) => {
-    if (line.card_id) return { line, card: await loadByTcgdexId(dbHandle(), line.card_id), note: undefined }
+  const requested = deckCheckInputLines(body)
+  const resolved = await mapConcurrent(requested, 6, async (line) => {
+    if (line.card_id) {
+      const card = await loadByTcgdexId(dbHandle(), line.card_id)
+      return { line, card, note: undefined, basicName: await basicNameFor(card) }
+    }
     if (line.parsed?.setCode) {
       const entry = await resolveLine(dbHandle(), line.parsed, format)
-      return { line, card: entry?.card ?? null, note: entry ? `resolved '${line.name}' to ${entry.card.tcgdexId}` : undefined }
+      const card = entry?.card ?? null
+      return { line, card, note: entry ? `resolved '${line.name}' to ${entry.card.tcgdexId}` : undefined, basicName: await basicNameFor(card) }
     }
     const found = await chooseName(line.name!, format, userId)
-    return { line, card: found?.card ?? null, note: found?.note }
-  }))
+    const card = found?.card ?? null
+    return { line, card, note: found?.note, basicName: await basicNameFor(card) }
+  })
   // Import already folds repeated prints into one deck row. Do the same before
   // ownership allocation so one physical copy cannot be counted twice merely
   // because the pasted list repeated a line.
@@ -120,7 +162,7 @@ deckCheckRouter.post('/', asyncHandler(async (req, res) => {
   // printings. Thus `owned` may include an interchangeable printing, just as the
   // saved-deck page does; one physical copy is allocated to only one line.
   const allocations = await loadOwnedPrints(dbHandle(), userId, format, slots)
-  const rows: ResolvedCheckLine[] = selected.map(({ line, card, note }) => {
+  const rows: ResolvedCheckLine[] = selected.map(({ line, card, note, basicName }) => {
     const print = card ? printByCard.get(card.id) : undefined
     return {
       card,
@@ -129,6 +171,7 @@ deckCheckRouter.post('/', asyncHandler(async (req, res) => {
       owned: print ? allocations.get(Number(print.variant_id))?.owned ?? 0 : 0,
       unitPriceUsd: print?.market_minor != null ? toMajor(print.market_minor, 'USD') : null,
       ...(note ? { note } : {}),
+      ...(basicName ? { basicName } : {}),
     }
   })
   const cfg = formatConfig(format)

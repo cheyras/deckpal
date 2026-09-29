@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute } from '../tools.js'
 import { ROUTE_SHAPE_LINES } from '../prompt.js'
+import { createGrounding } from '../grounding.js'
 
 /** `buildTools` only ever calls `write`; nothing here needs a real stream. */
 const noopWriter = { write: () => {} }
@@ -63,7 +64,7 @@ test('showDeck checks and writes a deck screen with the contracted summary', asy
     { checkDeck: async () => ({
       format: 'standard', total: 60, legal: true, issues: [], evolution_gaps: [], owned: 42,
       missing_cost_usd: 18.25, ptcgl: 'Pokémon: 1\n4 Pikachu SVI 1\n',
-      lines: [{ card_id: 'sv01-1', name: 'Pikachu', supertype: 'Pokémon', quantity: 4, owned: 2, unit_price_usd: 1, resolved: true }],
+      lines: [{ card_id: 'sv01-1', name: 'Pikachu', supertype: 'Pokémon', quantity: 60, owned: 42, unit_price_usd: 1, resolved: true }],
     }) },
   ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
   const output = await tools.showDeck!.execute({
@@ -78,8 +79,10 @@ test('showDeck checks and writes a deck screen with the contracted summary', asy
 
 test('showDeck falls back to ids when checking is absent or throws', async () => {
   const writes: Array<{ data: unknown }> = []
+  const grounding = createGrounding()
+  grounding.observe('sv01-1')
   const tools = buildTools(
-    { write: (part) => writes.push(part as { data: unknown }) }, undefined, undefined, undefined,
+    { write: (part) => writes.push(part as { data: unknown }) }, grounding, undefined, undefined,
     { checkDeck: async () => { throw new Error('offline') } },
   ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
   const output = await tools.showDeck!.execute({ name: 'Draft', format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 4 }] }, { toolCallId: 'deck-2' })
@@ -87,6 +90,43 @@ test('showDeck falls back to ids when checking is absent or throws', async () =>
   const payload = writes[0]?.data as { screen: { blocks: Array<{ legal: null; sections: Array<{ cards: Array<{ name: string }> }> }> } }
   assert.equal(payload.screen.blocks[0]?.legal, null)
   assert.equal(payload.screen.blocks[0]?.sections[0]?.cards[0]?.name, 'sv01-1')
+})
+
+test('showDeck writes no screen and reports ids omitted by its check', async () => {
+  const writes: unknown[] = []
+  const events: Array<{ phase: string; summary?: string }> = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part) }, undefined, undefined, (event) => events.push(event),
+    { checkDeck: async () => ({
+      format: 'standard', total: 4, legal: null, issues: ['unresolved'], evolution_gaps: [], owned: 0,
+      missing_cost_usd: null, ptcgl: '',
+      lines: [{ card_id: null, name: 'Invented', supertype: 'Unknown', quantity: 4, owned: 0, unit_price_usd: null, resolved: false }],
+    }) },
+  ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
+  const output = await tools.showDeck!.execute(
+    { name: 'Bad', cards: [{ card_id: 'fake-999', quantity: 4 }] }, { toolCallId: 'deck-bad' },
+  )
+  assert.match(output, /^\[\[NO_WORK\]\] NOT SHOWN.*fake-999/)
+  assert.equal(writes.length, 0)
+  assert.deepEqual(events.map((event) => event.phase), ['start', 'error'])
+  assert.equal(events.at(-1)?.summary, "Couldn't show that deck — some cards weren't verified")
+})
+
+test('showDeck rejects a checked result whose displayed quantities do not equal total', async () => {
+  const writes: unknown[] = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part) }, undefined, undefined, undefined,
+    { checkDeck: async () => ({
+      format: 'standard', total: 60, legal: true, issues: [], evolution_gaps: [], owned: 4,
+      missing_cost_usd: 0, ptcgl: '',
+      lines: [{ card_id: 'sv01-1', name: 'Pikachu', supertype: 'Pokémon', quantity: 4, owned: 4, unit_price_usd: 1, resolved: true }],
+    }) },
+  ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
+  const output = await tools.showDeck!.execute(
+    { name: 'Partial', cards: [{ card_id: 'sv01-1', quantity: 4 }] }, { toolCallId: 'deck-partial' },
+  )
+  assert.match(output, /^\[\[NO_WORK\]\] NOT SHOWN.*4\/60 cards/)
+  assert.equal(writes.length, 0)
 })
 
 /**
@@ -128,6 +168,12 @@ test('the route allowlist keeps /profile out, by both spellings', () => {
   assert.equal(isAllowedRoute('//evil.example'), false)
   assert.equal(isAllowedRoute('/\\evil.example'), false)
   assert.equal(isAllowedRoute('/series/mega-evolution/me05'), true)
+})
+
+test('click delegates write confirmation to the platform', () => {
+  const click = buildTools(noopWriter).click as { description?: string }
+  assert.match(click.description ?? '', /call its write tool; the platform asks the reader automatically/)
+  assert.doesNotMatch(click.description ?? '', /ask first/)
 })
 
 test('a dot segment cannot walk an allowed prefix somewhere else (SEC-12)', () => {

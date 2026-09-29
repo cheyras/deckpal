@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { buildDeckCheckResult, type ResolvedCheckLine } from '../check.js'
 import { mkCard } from './fixtures.js'
+import { deckCheckInputLines, mapConcurrent } from '../../routes/deckCheck.js'
 
 const basic = mkCard({ id: 1, tcgdexId: 'sv-test-1', name: 'Cleffa', category: 'Pokemon', stage: 'Basic', regulationMark: 'I' })
 const energy = mkCard({ id: 2, tcgdexId: 'sve-2', name: 'Fire Energy', category: 'Energy', energyType: 'Normal', setTcgdexId: 'sve' })
 const trainer = mkCard({ id: 3, tcgdexId: 'sv-test-3', name: 'Nest Ball', category: 'Trainer', trainerType: 'Item', regulationMark: 'I' })
 const stage2 = mkCard({ id: 4, tcgdexId: 'sv-test-4', name: 'Charizard', category: 'Pokemon', stage: 'Stage2', evolveFrom: 'Charmeleon', regulationMark: 'I' })
 const candy = mkCard({ id: 5, tcgdexId: 'sv-test-5', name: 'Rare Candy', category: 'Trainer', trainerType: 'Item', regulationMark: 'I' })
+const charmander = mkCard({ id: 7, tcgdexId: 'sv-test-7', name: 'Charmander', category: 'Pokemon', stage: 'Basic', regulationMark: 'I' })
 const classicUltraBall = mkCard({ id: 6, tcgdexId: 'tcgc-92', name: 'Ultra Ball', category: 'Trainer', trainerType: 'Item', setTcgdexId: 'tcgc', localId: '92', localIdNumeric: null })
 
 const row = (card: ReturnType<typeof mkCard> | null, quantity: number, over: Partial<ResolvedCheckLine> = {}): ResolvedCheckLine => ({
@@ -37,8 +39,13 @@ test('Stage 2 without Stage 1 or Rare Candy reports an evolution gap', () => {
   assert.deepEqual(result.evolution_gaps, ['Charizard (Stage 2) has no Charmeleon and no Rare Candy'])
 })
 
-test('Rare Candy covers a missing Stage 1 and annotates the Stage 2 line', () => {
-  const result = buildDeckCheckResult('standard', [row(basic, 1), row(stage2, 2), row(candy, 4), row(energy, 53)])
+test('Rare Candy does not hide a missing Basic from the Stage 2 family', () => {
+  const result = buildDeckCheckResult('standard', [row(basic, 1), row(stage2, 2, { basicName: 'Charmander' }), row(candy, 4), row(energy, 53)])
+  assert.deepEqual(result.evolution_gaps, ['Charizard (Stage 2) has no Charmeleon; Rare Candy still needs Charmander'])
+})
+
+test('Rare Candy covers a missing Stage 1 when the family Basic is present', () => {
+  const result = buildDeckCheckResult('standard', [row(charmander, 1), row(stage2, 2, { basicName: 'Charmander' }), row(candy, 4), row(energy, 53)])
   assert.deepEqual(result.evolution_gaps, [])
   assert.match(result.lines.find((line) => line.name === 'Charizard')?.note ?? '', /Rare Candy covers/)
 })
@@ -75,4 +82,30 @@ test('GLC validation receives the reprint oracle for a Pokémon TCG Classic repr
   })
   assert.ok(calls > 0, 'validation must ask the supplied reprint oracle about Classic cards')
   assert.equal(result.legal, true, result.issues.join('\n'))
+})
+
+test('the HTTP deck-check boundary caps every caller-controlled field after parsing', () => {
+  for (const body of [
+    { format: 'x'.repeat(25), cards: [{ name: 'Pikachu', quantity: 1 }] },
+    { ptcgl_text: 'x'.repeat(8_001) },
+    { cards: [{ name: 'x'.repeat(81), quantity: 1 }] },
+    { cards: [{ card_id: 'x'.repeat(41), quantity: 1 }] },
+    { cards: [{ name: 'Pikachu', quantity: '1' }] },
+    { cards: [{ name: 'Pikachu', quantity: Number.MAX_SAFE_INTEGER + 1 }] },
+  ]) assert.throws(() => deckCheckInputLines(body))
+  assert.equal(deckCheckInputLines({ cards: [{ name: 'Pikachu', quantity: 1 }] }).length, 1)
+})
+
+test('deck-check lookup work runs at no more than six lines concurrently', async () => {
+  let active = 0
+  let peak = 0
+  const results = await mapConcurrent(Array.from({ length: 20 }, (_, i) => i), 6, async (value) => {
+    active++
+    peak = Math.max(peak, active)
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    active--
+    return value * 2
+  })
+  assert.equal(peak, 6)
+  assert.deepEqual(results, Array.from({ length: 20 }, (_, i) => i * 2))
 })

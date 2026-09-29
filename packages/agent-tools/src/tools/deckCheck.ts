@@ -32,17 +32,17 @@ export interface DeckCheckResult {
 }
 
 const cardLine = z.object({
-  name: z.string().trim().min(1).optional(),
-  card_id: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1).max(80).optional(),
+  card_id: z.string().trim().min(1).max(40).optional(),
   quantity: z.number().int().min(1).max(60),
 }).refine((line) => Number(line.name !== undefined) + Number(line.card_id !== undefined) === 1, {
   message: 'Provide exactly one of name or card_id.',
 })
 
 export const checkDeckInputSchema = z.object({
-  format: z.string().trim().min(1).default('standard'),
+  format: z.string().trim().min(1).max(24).default('standard'),
   cards: z.array(cardLine).min(1).max(60).optional(),
-  ptcgl_text: z.string().trim().min(1).max(20_000).optional(),
+  ptcgl_text: z.string().trim().min(1).max(8_000).optional(),
 }).refine((input) => Number(input.cards !== undefined) + Number(input.ptcgl_text !== undefined) === 1, {
   message: 'Provide exactly one of cards or ptcgl_text.',
 })

@@ -6,7 +6,7 @@ import type { GatewayProvider } from '@ai-sdk/gateway';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
 import { observeUsageModel, runUsageOperation, safeUsageCode, type ProviderCreditWork } from './usage.js';
 import { deepFailed, deepRefused, type MeterRefusalScope } from './deepOutcome.js';
-import { blockedReason, seedMeteredRefusals, type MeteredRefusals } from './meteredRefusals.js';
+import { seedMeteredRefusals, type MeteredRefusals } from './meteredRefusals.js';
 import { checkResearchQuery, normalizeResearchPurpose } from './researchQuery.js';
 import { researchProviderOptions, topicInstructions, type ResearchTopic } from './researchSources.js';
 import { briefArgs } from './toolArgs.js';
@@ -72,6 +72,7 @@ interface DeepOutcome {
   sources: ResearchSource[];
   partial?: 'timeout' | 'truncated';
   failed?: boolean;
+  failureSummary?: string;
 }
 
 /** Only trustworthy, displayable HTTPS source metadata crosses to the chip. */
@@ -229,7 +230,7 @@ async function runResearch(opts: {
   return {
     findings: urlsToHosts(findings),
     sources,
-    failure: failure ?? (!findings.trim() && !timedOut ? 'it returned nothing at all' : undefined),
+    failure,
     timedOut,
     truncated: finishReason === 'length' || (finishReason === 'tool-calls' && steps >= 1),
   };
@@ -237,7 +238,10 @@ async function runResearch(opts: {
 
 function finishOutcome(run: ResearchRun): DeepOutcome {
   if (run.failure) {
-    return { text: deepFailed(run.failure), findings: run.findings, sources: run.sources, failed: true };
+    return {
+      text: deepFailed(run.failure), findings: run.findings, sources: run.sources, failed: true,
+      failureSummary: run.failure,
+    };
   }
   const findings = run.findings + sourceHosts(run.sources);
   if (run.timedOut || run.truncated) {
@@ -265,6 +269,12 @@ function argsPart(input: unknown): { args?: Record<string, unknown> } {
   return args ? { args } : {};
 }
 
+function limitReason(scope: MeterRefusalScope): string {
+  if (scope === 'hold') return 'research did not run because AI credits are on hold';
+  if (scope === 'credits') return 'research did not run because there are not enough credits';
+  return "research did not run because today's research limit is used up";
+}
+
 /** C1 fields are accepted here while the shared event type is updated by its owning lane. */
 function emitResearchEvent(
   emit: DeepToolOptions['onEvent'],
@@ -290,7 +300,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
       inputSchema: z.object({
         query: z.string().max(300).describe('A plain-language Pokémon TCG question. Never include user data.'),
         topic: z.enum(['competitive', 'general']).default('general'),
-        purpose: z.string().max(60).optional().describe('Short reader-facing subject.'),
+        purpose: z.string().trim().min(1).max(60).describe('Short reader-facing subject.'),
       }),
       needsApproval: () => false,
       execute: async (raw: Record<string, unknown>, { toolCallId }: { toolCallId: string }) => {
@@ -300,7 +310,7 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         const chip = { id: toolCallId, name, title, label };
         const blocked = refusals.blocked(name, args);
         if (blocked) {
-          const summary = blockedReason(blocked);
+          const summary = limitReason(blocked);
           emitResearchEvent(opts.onEvent, { phase: 'error', ...chip, summary });
           return deepRefused(summary, blocked);
         }
@@ -311,10 +321,10 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
           const scope: MeterRefusalScope = meter.held ? 'hold' : meter.credits ? 'credits' : 'cap';
           refusals.note(name, args, scope);
           const summary = meter.held
-            ? 'AI credits are on hold; open the credit wallet for details'
+            ? 'research did not run because AI credits are on hold'
             : meter.credits
-              ? `not enough credits — ${meter.needed} needed, ${meter.balance} left`
-              : `today's ${meter.cap} research calls are spent`;
+              ? `research did not run because there are not enough credits — ${meter.needed} needed, ${meter.balance} left`
+              : "research did not run because today's research limit is used up";
           emitResearchEvent(opts.onEvent, { phase: 'error', ...chip, summary });
           return deepRefused(summary, scope);
         }
@@ -335,8 +345,9 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
         try {
           const vetted = checkResearchQuery(args.query, opts.readerDisplayName);
           if (!vetted.ok) {
-            emitResearchEvent(opts.onEvent, { phase: 'error', ...chip, summary: vetted.reason });
-            return deepRefused(vetted.reason);
+            const summary = `that search couldn't be sent because it contained personal details (${vetted.reason})`;
+            emitResearchEvent(opts.onEvent, { phase: 'error', ...chip, summary });
+            return deepRefused(summary);
           }
           const topic: ResearchTopic = args.topic === 'competitive' ? 'competitive' : 'general';
           const choice = MODELS.research;
@@ -372,7 +383,9 @@ export function buildDeepTools(opts: DeepToolOptions): ToolSet {
               ),
             toolCallId,
           );
-          const summary = firstSentence(outcome.findings);
+          const summary = outcome.failed
+            ? `Web research failed — ${outcome.failureSummary ?? "couldn't reach the research service"}`
+            : firstSentence(outcome.findings);
           const terminal = { ...chip, summary, sources: outcome.sources };
           if (outcome.failed) emitResearchEvent(opts.onEvent, { phase: 'error', ...terminal });
           else if (outcome.partial) {
