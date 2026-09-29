@@ -116,6 +116,14 @@ export async function contextFor(browser, server, width, options = {}) {
       server.stubbedThirdParty.push(url.href)
       return route.fulfill({ contentType: 'text/javascript', body: 'window.Stripe = function () { return {}; };' })
     }
+    // Research sources show favicons from DuckDuckGo's icon service by design
+    // (CSP img-src, SECURITY.md). Answer them with a local 1x1 PNG so the page
+    // behaves as in production without any real third-party request.
+    if (url.origin === 'https://icons.duckduckgo.com' && url.pathname.startsWith('/ip3/') && route.request().resourceType() === 'image') {
+      server.stubbedThirdParty.push(url.href)
+      return route.fulfill({ contentType: 'image/png', body: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64') })
+    }
     server.unexpected.push('Blocked non-fixture request: ' + url.origin + url.pathname)
     return route.abort()
   })
