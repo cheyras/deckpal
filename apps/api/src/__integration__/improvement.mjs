@@ -1001,6 +1001,29 @@ try {
       'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,false) data', [member, feedbackConversation, 'x'])));
   });
 
+  await test('reader-supplied History finish_reason reaches the corpus only from the closed vocabulary', async () => {
+    // Unmetered turns: no request row, so no later API backfill would replace
+    // what consent copies into the shell.
+    const finishConversation = id(9150);
+    await db.query("INSERT INTO public.decke_conversation(id,user_id,title,turns) VALUES($1,$2,'private title',2)", [finishConversation, member]);
+    await db.query(`INSERT INTO public.decke_turn(conversation_id,user_id,seq,asked,answered,tools,finish_reason)
+      VALUES($1,$2,0,'q0','a0','[]'::jsonb,$3),($1,$2,1,'q1','a1','[]'::jsonb,'tool-calls')`,
+      [finishConversation, member, 'My name is %C9%A4%61%6E']);
+    for (let round = 0; round < 2; round++) {
+      const answer = await server(member, (c) => data(c,
+        "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, finishConversation]));
+      const reasons = (await db.query('SELECT seq,finish_reason FROM public.decke_improvement_turn WHERE conversation_id=$1 ORDER BY seq',
+        [answer.conversationId])).rows.map((row) => row.finish_reason);
+      assert.deepEqual(reasons, ['other', 'tool-calls'], `consent round ${round + 1}`);
+    }
+    // The guard sits on the tables, so a direct write is normalised too.
+    const corpusId = (await db.query("SELECT public.decke_improvement_uuid('conversation:',$1) id", [finishConversation])).rows[0].id;
+    await db.query("UPDATE public.decke_improvement_turn SET finish_reason='jsmith@example.invalid' WHERE conversation_id=$1 AND seq=1", [corpusId]);
+    assert.equal((await db.query('SELECT finish_reason FROM public.decke_improvement_turn WHERE conversation_id=$1 AND seq=1', [corpusId])).rows[0].finish_reason, 'other');
+    // Leave the corpus as later reader cases expect it.
+    await server(member, (c) => data(c, 'SELECT public.decke_improvement_revoke($1,$2) data', [member, finishConversation]));
+  });
+
   let tokenId;
   await test('only eligible admins can grant token and OAuth improvement capabilities', async () => {
     const memberToken = (await db.query(

@@ -496,6 +496,32 @@ FROM identities i WHERE e.conversation_id=i.id;
 DROP FUNCTION public.decke_improvement_repair_terms(text,uuid);
 DROP TABLE pg_temp.decke_improvement_079_map;
 
+-- History's finish_reason is reader-supplied free text (up to 40 characters,
+-- migration 046), and consent copies it into turn and leg shells without either
+-- redaction layer. The corpus keeps only the SDK's closed vocabulary; anything
+-- else becomes 'other'. A trigger, so every writer — present or future — is
+-- covered, not only the paths reviewed today.
+CREATE FUNCTION public.decke_improvement_finish_reason(p_reason text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT CASE WHEN p_reason IS NULL THEN NULL
+  WHEN lower(p_reason) IN ('stop','length','content-filter','tool-calls','error','other','unknown') THEN lower(p_reason)
+  ELSE 'other' END
+$$;
+CREATE FUNCTION public.decke_improvement_finish_reason_guard() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ NEW.finish_reason=public.decke_improvement_finish_reason(NEW.finish_reason);
+ RETURN NEW;
+END $$;
+CREATE TRIGGER decke_improvement_turn_finish_reason
+ BEFORE INSERT OR UPDATE OF finish_reason ON public.decke_improvement_turn
+ FOR EACH ROW EXECUTE FUNCTION public.decke_improvement_finish_reason_guard();
+CREATE TRIGGER decke_improvement_leg_finish_reason
+ BEFORE INSERT OR UPDATE OF finish_reason ON public.decke_improvement_leg
+ FOR EACH ROW EXECUTE FUNCTION public.decke_improvement_finish_reason_guard();
+UPDATE public.decke_improvement_turn SET finish_reason=finish_reason WHERE finish_reason IS NOT NULL;
+UPDATE public.decke_improvement_leg SET finish_reason=finish_reason WHERE finish_reason IS NOT NULL;
+
 -- Feedback with the API's redacted copy of the comment. The 078 signature let
 -- a shared comment reach the corpus with SQL redaction alone, and SQL's case
 -- folding is bounded by the database's Unicode tables (a name using a
@@ -561,6 +587,8 @@ BEGIN
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_run(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_percent_decode(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_fold(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_finish_reason(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
+  EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_finish_reason_guard() FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_scalar(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_json_escapes(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);
   EXECUTE format('REVOKE ALL ON FUNCTION public.decke_improvement_decode_html_entities(text) FROM %s',CASE WHEN principal='PUBLIC' THEN 'PUBLIC' ELSE quote_ident(principal) END);

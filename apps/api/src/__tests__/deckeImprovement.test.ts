@@ -228,6 +228,22 @@ describe('Deck-E improvement consent, feedback, and telemetry', () => {
     });
   });
 
+  it('a maximum-length comment whose redaction expands it is bounded to 500, not rejected', async () => {
+    const { deps, state } = fakeDeps();
+    deps.terms = async () => ['Q'];
+    await serve(deps, async (request) => {
+      const comment = 'Q '.repeat(250);
+      assert.equal(comment.length, 500);
+      const { response } = await request('/decke/feedback', post({ conversationId: CHAT, seq: 0, vote: 1, comment, share: false }, 'PUT'));
+      assert.equal(response.status, 200);
+      const write = state.calls.find(({ sql }) => sql.includes('decke_improvement_record_feedback'));
+      assert.ok(write);
+      assert.equal(write.params[4], comment);
+      assert.equal([...String(write.params[6])].length, 500, 'the redacted copy is cut to the corpus bound');
+      assert.doesNotMatch(String(write.params[6]), /\bQ\b/);
+    });
+  });
+
   it('fails and rolls back consent or feedback when a required backfill fails', async () => {
     const { deps, state } = fakeDeps({ backfillFails: true });
     await serve(deps, async (request) => {
