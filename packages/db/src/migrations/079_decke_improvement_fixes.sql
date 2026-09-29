@@ -210,6 +210,9 @@ BEGIN
   normalized_view=public.decke_improvement_fold(current_view);
   FOREACH term IN ARRAY detection_terms LOOP
    lowered_term=public.decke_improvement_fold(term);
+   -- A term of combining marks alone folds to ''; strpos('') would match
+   -- every view. It is not a detection signal; the literal pass covers it.
+   CONTINUE WHEN coalesce(lowered_term,'')='';
    IF char_length(term)>=3 THEN
     IF strpos(normalized_view,lowered_term)>0 THEN RETURN '[redacted]'; END IF;
    ELSE

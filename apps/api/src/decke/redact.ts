@@ -152,8 +152,12 @@ function canonicalTerms(terms: readonly string[]): CanonicalTerm[] {
     if (!trimmed) continue
     const value = trimmed.normalize('NFKC')
     const lowered = fold(value)
-    if (!unique.has(lowered)) {
-      unique.set(lowered, {
+    // Keyed by the literal term, not the fold: two identities that fold alike
+    // ('José', 'Jose') both keep precise literal redaction, and a term that
+    // folds to nothing (combining marks only) still gets its literal pass.
+    const key = value.toLowerCase()
+    if (!unique.has(key)) {
+      unique.set(key, {
         value,
         lowered,
         formLowered: fold(value.replaceAll('+', ' ')),
@@ -231,6 +235,9 @@ function containsIdentity(value: string, terms: readonly CanonicalTerm[]): boole
 }
 
 function containsCanonical(value: string, term: string, wholeWord: boolean): boolean {
+  // A term that folds to nothing is not a detection signal (and '' would make
+  // the scan below stop advancing). Its literal pass still protects it.
+  if (term === '') return false
   let index = value.indexOf(term)
   while (index !== -1) {
     const end = index + term.length

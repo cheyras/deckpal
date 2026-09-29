@@ -547,6 +547,12 @@ try {
       const greek = (await db.query('SELECT public.decke_improvement_redact_text($1,ARRAY[$2]) value', [input, term])).rows[0].value;
       assert.equal(greek.includes('[redacted]'), true, `Greek identity ${term} must not survive in ${input}: ${greek}`);
     }
+    // A username of combining marks alone folds to ''. It must neither match
+    // every value (strpos('') is 1) nor stall; ordinary text is left alone.
+    for (const terms of [['́'], ['́̂'], ['́', 'Ada']]) {
+      const plain = (await db.query('SELECT public.decke_improvement_redact_text($1,$2::text[]) value', ['hello %68%65', terms])).rows[0].value;
+      assert.equal(plain, 'hello %68%65', `a combining-mark-only term must not redact ordinary text: ${JSON.stringify(terms)}`);
+    }
     const short = (await db.query(
       "SELECT public.decke_improvement_redact_text($1,ARRAY['Li']) value",
       ["Li's list and lithium; LI wins"],

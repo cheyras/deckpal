@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { redact, redactionTerms } from '../redact.js'
+
+test('a term of combining marks alone never hangs redaction', () => {
+  // A synchronous loop cannot be interrupted by the test runner, so the probe
+  // runs in a child process with a hard timeout.
+  const module = fileURLToPath(new URL('../redact.ts', import.meta.url))
+  const script = `import { redact } from ${JSON.stringify(module)};
+    const out = [redact('hello', ['\\u0301']), redact('hello', ['\\u0301\\u0302']), redact('%68%65', ['\\u0301', 'Ada'])];
+    process.stdout.write(JSON.stringify(out));`
+  const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], { encoding: 'utf8', timeout: 10_000 })
+  assert.equal(child.signal, null, 'redaction must terminate')
+  assert.equal(child.status, 0, child.stderr)
+  assert.deepEqual(JSON.parse(child.stdout), ['hello', 'hello', '%68%65'])
+})
 
 const PROPERTY_TERMS = [
   'John Smith',
