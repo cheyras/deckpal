@@ -817,9 +817,12 @@ BEGIN
  FROM public.decke_credit_event WHERE created_at>=since
   AND (ref IS NULL OR (ref NOT LIKE 'metered-%' AND ref NOT LIKE 'import-fix-%'));
  RETURN jsonb_set(result,'{creditsSpent}',to_jsonb(trim_scale((result->>'creditsSpent')::numeric
-   +coalesce((SELECT sum(credits-covered_credits) FROM public.decke_metered_settlement WHERE created_at>=since),0))))
+   +coalesce((SELECT sum(credits-covered_credits) FROM public.decke_metered_settlement WHERE created_at>=since),0)
+   +coalesce((SELECT sum(credits) FROM public.decke_import_fix_settlement WHERE created_at>=since),0))))
  ||jsonb_build_object(
- 'providerCostUsd',(SELECT trim_scale(coalesce(sum(known_cost_usd),0)) FROM public.decke_metered_settlement WHERE created_at>=since),
+ 'providerCostUsd',(SELECT trim_scale(
+   coalesce((SELECT sum(known_cost_usd) FROM public.decke_metered_settlement WHERE created_at>=since),0)
+   +coalesce((SELECT sum(cost_usd) FROM public.decke_import_fix_settlement WHERE created_at>=since),0))),
  'overageCoveredCredits',(SELECT trim_scale(coalesce(sum(-delta),0)) FROM public.credit_overage_buffer_event WHERE kind='overage' AND created_at>=since),
  'overageBufferCredits',(SELECT trim_scale(balance) FROM public.credit_overage_buffer WHERE singleton),
  'paidOrders',(SELECT count(*) FROM public.credit_order WHERE granted_at>=since),

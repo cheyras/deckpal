@@ -425,12 +425,15 @@ try {
       'every covered credit is one buffer event');
     const summary = await session(owner, (c) => value(c, 'SELECT public.credit_admin_summary(7) data'));
     const settledCharged = Number((await db.query('SELECT sum(credits-covered_credits) n FROM public.decke_metered_settlement')).rows[0].n);
+    const fixes = (await db.query('SELECT sum(credits) credits, sum(cost_usd) usd FROM public.decke_import_fix_settlement')).rows[0];
+    assert.ok(Number(fixes.credits) > 0, 'the import fix above must count toward spending');
     const plainSpent = Number((await db.query(`SELECT coalesce(sum(-delta),0) n FROM public.decke_credit_event
       WHERE delta<0 AND (ref IS NULL OR (ref NOT LIKE 'metered-%' AND ref NOT LIKE 'import-fix-%'))`)).rows[0].n);
-    assert.equal(Math.round(Number(summary.creditsSpent) * 1e6), Math.round((settledCharged + plainSpent) * 1e6));
+    assert.equal(Math.round(Number(summary.creditsSpent) * 1e6), Math.round((settledCharged + Number(fixes.credits) + plainSpent) * 1e6));
     assert.equal(Number(summary.overageCoveredCredits), Number(events));
     assert.equal(Number(summary.overageBufferCredits), await bufferNow());
-    assert.ok(Number(summary.providerCostUsd) > 0);
+    const chatUsd = Number((await db.query('SELECT sum(known_cost_usd) n FROM public.decke_metered_settlement')).rows[0].n);
+    assert.equal(Math.round(Number(summary.providerCostUsd) * 1e9), Math.round((chatUsd + Number(fixes.usd)) * 1e9));
     const settings = await session(owner, (c) => value(c, 'SELECT public.credit_policy_admin_read() data'));
     assert.equal(Number(settings.overageBuffer.balance), await bufferNow());
     assert.equal(Number(settings.overageBuffer.coveredTotal), Number(events));
