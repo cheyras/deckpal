@@ -53,27 +53,27 @@ test('redacts URL, form, HTML-entity and Unicode normalization variants recursiv
   }
   assert.deepEqual(redact(input, ['John Smith', 'jsmith@example.com', 'jsmith', 'Jos\u00e9']), {
     '[redacted]': {
-      toolArgs: { route: '/people/[redacted]', email: '[redacted]' },
+      toolArgs: { route: '[redacted]', email: '[redacted]%40example.com' },
       telemetry: [{ payload: 'owner=[redacted]&email=[redacted]' }],
-      feedbackComment: '{"person":"[redacted]","mail":"[redacted]"}',
+      feedbackComment: '{"person":"[redacted]","mail":"[redacted]%40example.com"}',
     },
   })
 })
 
 test('decodes case-insensitive percent and form encodings before identity matching', () => {
-  assert.equal(redact('owner=JOS%C3%89', ['Jos\u00e9']), 'owner=[redacted]')
-  assert.equal(redact('owner=%4A%6F%68%6E%20%53%6D%69%74%68', ['John Smith']), 'owner=[redacted]')
-  assert.equal(redact('owner=%4a%6F%68%6e%20%53%6d%69%74%68', ['John Smith']), 'owner=[redacted]')
-  assert.equal(redact('owner=%254A%256F%2568%256E%2520%2553%256D%2569%2574%2568', ['John Smith']), 'owner=[redacted]')
-  assert.equal(redact('owner=%25254A%25256F%252568%25256E%252520%252553%25256D%252569%252574%252568', ['John Smith']), 'owner=[redacted]')
-  assert.equal(redact('owner=John+Smith', ['John Smith']), 'owner=[redacted]')
+  assert.equal(redact('owner=JOS%C3%89', ['Jos\u00e9']), '[redacted]')
+  assert.equal(redact('owner=%4A%6F%68%6E%20%53%6D%69%74%68', ['John Smith']), '[redacted]')
+  assert.equal(redact('owner=%4a%6F%68%6e%20%53%6d%69%74%68', ['John Smith']), '[redacted]')
+  assert.equal(redact('owner=%254A%256F%2568%256E%2520%2553%256D%2569%2574%2568', ['John Smith']), '[redacted]')
+  assert.equal(redact('owner=%25254A%25256F%252568%25256E%252520%252553%25256D%252569%252574%252568', ['John Smith']), '[redacted]')
+  assert.equal(redact('owner=John+Smith', ['John Smith']), '[redacted]')
 })
 
 test('redacts plus-addressed email literals before form decoding and encoded variants after percent decoding', () => {
   const term = 'alice+tag@example.invalid'
   assert.equal(redact(`owner=${term}`, [term]), 'owner=[redacted]')
-  assert.equal(redact('owner=alice%2Btag%40example.invalid', [term]), 'owner=[redacted]')
-  assert.equal(redact('owner=alice+tag%40example.invalid', [term]), 'owner=[redacted]')
+  assert.equal(redact('owner=alice%2Btag%40example.invalid', [term]), '[redacted]')
+  assert.equal(redact('owner=alice+tag%40example.invalid', [term]), '[redacted]')
 })
 
 test('preserves ordinary plus, percent, and escape text when decoding exposes no identity', () => {
@@ -90,9 +90,19 @@ test('decodes encoded identities inside nested JSON strings', () => {
   })
 })
 
-test('retains malformed UTF-8 percent sequences without throwing', () => {
-  assert.equal(redact('broken=%E0%A4&owner=John+Smith', ['John Smith']), 'broken=%E0%A4&owner=[redacted]')
-  assert.equal(redact('owner=%FF%4A%6F%68%6E%20%53%6D%69%74%68', ['John Smith']), 'owner=%FF%4A%6F%68%6E%20%53%6D%69%74%68')
+test('redacts identities hidden in overwritten duplicate JSON members', () => {
+  const input = '{"owner":"%4A%6F%68%6E%20%53%6D%69%74%68","owner":"anonymous"}'
+  const output = redact(input, ['John Smith'])
+  assert.equal(output, '[redacted]')
+  assertNoIdentityInViews(output, ['John Smith'], 'duplicate JSON member')
+})
+
+test('malformed UTF-8 and NUL cannot shield an adjacent encoded identity', () => {
+  const name = '%4A%6F%68%6E%20%53%6D%69%74%68'
+  assert.equal(redact('broken=%E0%A4&owner=John+Smith', ['John Smith']), '[redacted]')
+  assert.equal(redact(`owner=%FF${name}%FF`, ['John Smith']), '[redacted]')
+  assert.equal(redact(`owner=%00${name}`, ['John Smith']), '[redacted]')
+  assert.equal(redact(`owner=%C3${name}`, ['John Smith']), '[redacted]')
 })
 
 test('retains percent NUL, malformed UTF-8, JSON NUL, and unpaired surrogate escapes', () => {
@@ -104,9 +114,124 @@ test('uses NFKC matching while preserving unrelated literal text', () => {
   assert.equal(redact('badge=① owner=Ｊｏｈｎ Smith', ['John Smith']), 'badge=① owner=[redacted]')
 })
 
+test('one string containing identities at every encoding depth is replaced whole', () => {
+  const encoded = percentEncode('John Smith')
+  const double = encoded.replaceAll('%', '%25')
+  const triple = double.replaceAll('%', '%25')
+  assert.equal(redact(`John Smith | ${encoded} | ${double} | ${triple}`, ['John Smith']), '[redacted]')
+})
+
+test('seeded generated outputs contain no identity in any lenient decoded view', () => {
+  const terms = ['John Smith', 'Jos\u00e9', 'jsmith@example.invalid', 'alice+tag@example.invalid']
+  const malformed = ['', '%FF', '%00', '%C3']
+  const separators = [' | ', '/', '?next=', ' :: ', '&value=']
+  const prose = ['C++', '100%', '50%off', 'safe=%2520']
+  const random = seededRandom(0x268_03)
+
+  for (let sample = 0; sample < 2_500; sample++) {
+    const pieces = [prose[random() % prose.length]!]
+    const count = 1 + random() % 4
+    for (let index = 0; index < count; index++) {
+      const term = terms[random() % terms.length]!
+      const variant = random() % 7
+      let represented = variant === 4
+        ? term.replace('@', random() % 2 ? '&commat;' : '&#64;')
+        : variant === 5
+          ? jsonEscape(term)
+          : variant === 6 && term === 'John Smith'
+            ? 'John+Smith'
+            : encodeDepth(term, random() % 4)
+      represented = malformed[random() % malformed.length]! + represented + malformed[random() % malformed.length]!
+      pieces.push(represented)
+    }
+    const input = pieces.join(separators[random() % separators.length]!)
+    const output = redact(input, terms)
+    assertNoIdentityInViews(output, terms, `seeded sample ${sample}`)
+
+    const harmless = `${prose[random() % prose.length]} item-${sample} ${separators[random() % separators.length]}`
+    assert.equal(redact(harmless, terms), harmless, `harmless seeded sample ${sample}`)
+  }
+})
+
 test('decodes many separate percent runs in linear time', () => {
   const input = 'x%2520'.repeat(Math.ceil(1_048_576 / 6)).slice(0, 1_048_576)
   const started = performance.now()
   assert.equal(redact(input, ['John Smith']), input)
   assert.ok(performance.now() - started < 1_000, 'near-1 MiB percent decoding should finish in under one second')
 })
+
+test('redacts ten thousand literal and encoded identities within the performance bound', () => {
+  const literal = 'John Smith '.repeat(10_000)
+  let started = performance.now()
+  assert.equal(redact(literal, ['John Smith']), '[redacted] '.repeat(10_000))
+  assert.ok(performance.now() - started < 1_000, '10,000 literal identities should redact in under one second')
+
+  const encoded = `${percentEncode('John Smith')} `.repeat(10_000)
+  started = performance.now()
+  assert.equal(redact(encoded, ['John Smith']), '[redacted]')
+  assert.ok(performance.now() - started < 1_000, '10,000 encoded identities should redact in under one second')
+})
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0
+    return state
+  }
+}
+
+function percentEncode(value: string): string {
+  return [...new TextEncoder().encode(value)]
+    .map((byte) => `%${byte.toString(16).padStart(2, '0').toUpperCase()}`)
+    .join('')
+}
+
+function encodeDepth(value: string, depth: number): string {
+  if (depth === 0) return value
+  let encoded = percentEncode(value)
+  for (let pass = 1; pass < depth; pass++) encoded = encoded.replaceAll('%', '%25')
+  return encoded
+}
+
+function jsonEscape(value: string): string {
+  return [...value].map((character) => {
+    const point = character.codePointAt(0)!
+    return point <= 0xffff ? `\\u${point.toString(16).padStart(4, '0')}` : character
+  }).join('')
+}
+
+function assertNoIdentityInViews(output: string, terms: readonly string[], message: string): void {
+  let view = output
+  for (let depth = 0; depth <= 3; depth++) {
+    if (depth > 0) view = lenientPercentDecode(view)
+    const variants = [view, view.replaceAll('+', ' ')]
+    for (const variant of variants) {
+      const normalized = decodeSyntax(variant).normalize('NFKC').toLocaleLowerCase()
+      for (const term of terms) {
+        const canonical = term.normalize('NFKC').toLocaleLowerCase()
+        const form = canonical.replaceAll('+', ' ')
+        assert.equal(normalized.includes(canonical) || normalized.includes(form), false, `${message}: ${term} at depth ${depth}`)
+      }
+    }
+  }
+}
+
+function lenientPercentDecode(value: string): string {
+  const decoder = new TextDecoder('utf-8', { fatal: false })
+  return value.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+    const bytes = new Uint8Array(run.length / 3)
+    for (let index = 0; index < bytes.length; index++) {
+      bytes[index] = Number.parseInt(run.slice(index * 3 + 1, index * 3 + 3), 16)
+    }
+    return decoder.decode(bytes).replaceAll('\u0000', '\ufffd')
+  })
+}
+
+function decodeSyntax(value: string): string {
+  return value
+    .replace(/\\u([0-9a-f]{4})/gi, (_match, hex: string) => {
+      const point = Number.parseInt(hex, 16)
+      return point === 0 || point >= 0xd800 && point <= 0xdfff ? '\ufffd' : String.fromCodePoint(point)
+    })
+    .replace(/&(?:commat;|#0*64;|#x0*40;)/gi, '@')
+}

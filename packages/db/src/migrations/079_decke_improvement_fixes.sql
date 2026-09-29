@@ -3,18 +3,18 @@
 -- Migration 078 is already deployed.  Keep its public signatures stable while
 -- replacing the affected functions and repairing retained corpus rows in place.
 
--- Each percent run is decoded atomically.  Invalid UTF-8 and PostgreSQL's
--- unsupported NUL scalar stay byte-for-byte encoded instead of aborting a
--- writer or the retained-data repair below.
+-- Valid percent runs keep the fast native decoder.  The fallback tokenises an
+-- invalid run once, preserving valid neighbouring UTF-8 while mapping invalid
+-- bytes and PostgreSQL's unsupported NUL scalar to the replacement character.
 CREATE FUNCTION public.decke_improvement_percent_run(p_run text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE bytes bytea; decoded text;
+DECLARE token_pattern text:='(%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])|%[cC][2-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE]0%[aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][1-9a-cA-C]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][dD]%[89][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[eE][eEfF]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]0%[9aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF][1-3]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[fF]4%8[0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]%[89aAbB][0-9A-Fa-f]|%[0-9A-Fa-f]{2})';
+ decoded text;
 BEGIN
- bytes=decode(replace(p_run,'%',''),'hex');
- IF position(decode('00','hex') IN bytes)>0 THEN RETURN p_run; END IF;
- decoded=convert_from(bytes,'UTF8');
- RETURN decoded;
-EXCEPTION WHEN OTHERS THEN RETURN p_run;
+ SELECT string_agg(CASE WHEN lower(m[1])='%00' OR char_length(m[1])=3 AND m[1]!~'^%(?:0[1-9A-Fa-f]|[1-7][0-9A-Fa-f])$'
+   THEN chr(65533) ELSE convert_from(decode(replace(m[1],'%',''),'hex'),'UTF8') END,'' ORDER BY ordinality)
+ INTO decoded FROM regexp_matches(p_run,token_pattern,'g') WITH ORDINALITY matched(m,ordinality);
+ RETURN coalesce(decoded,'');
 END $$;
 
 -- Splitting once and aggregating once avoids repeatedly copying/searching the
@@ -45,13 +45,13 @@ BEGIN
   codepoint=get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),0)*256
     +get_byte(decode(substring(p_escape FROM 3 FOR 4),'hex'),1);
   IF codepoint BETWEEN 55296 AND 56319 THEN
-   IF char_length(p_escape)<>12 THEN RETURN p_escape; END IF;
+   IF char_length(p_escape)<>12 THEN RETURN chr(65533); END IF;
    low_point=get_byte(decode(substring(p_escape FROM 9 FOR 4),'hex'),0)*256
      +get_byte(decode(substring(p_escape FROM 9 FOR 4),'hex'),1);
-   IF low_point NOT BETWEEN 56320 AND 57343 THEN RETURN p_escape; END IF;
+   IF low_point NOT BETWEEN 56320 AND 57343 THEN RETURN chr(65533); END IF;
    codepoint=65536+(codepoint-55296)*1024+(low_point-56320);
   ELSIF codepoint BETWEEN 56320 AND 57343 THEN
-   RETURN p_escape;
+   RETURN chr(65533);
   END IF;
  ELSIF p_escape~'^&#[xX]' THEN
   hex_value=substring(p_escape FROM 4 FOR char_length(p_escape)-4);
@@ -60,13 +60,13 @@ BEGIN
  ELSE
   codepoint=substring(p_escape FROM 3 FOR char_length(p_escape)-3)::integer;
  END IF;
- IF codepoint=0 OR codepoint>1114111 OR codepoint BETWEEN 55296 AND 57343 THEN RETURN p_escape; END IF;
+ IF codepoint=0 OR codepoint>1114111 OR codepoint BETWEEN 55296 AND 57343 THEN RETURN chr(65533); END IF;
  RETURN chr(codepoint);
-EXCEPTION WHEN OTHERS THEN RETURN p_escape;
+EXCEPTION WHEN OTHERS THEN RETURN chr(65533);
 END $$;
 
 -- JSON and numeric-entity scalars use the same split/aggregate shape as
--- percent runs.  A NUL or unpaired surrogate is retained as written.
+-- percent runs. NUL and unpaired surrogates become the replacement character.
 CREATE FUNCTION public.decke_improvement_decode_escapes(p_text text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 DECLARE pattern text:='(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|&#[xX][0-9A-Fa-f]{1,6};|&#[0-9]{1,7};)';
@@ -88,8 +88,8 @@ END $$;
 
 CREATE FUNCTION public.decke_improvement_replace_terms(p_text text,p_terms text[]) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE original text:=p_text; out_text text; term text; changed boolean:=false;
- at_pos integer; relative_pos integer; search_from integer; before_char text; after_char text;
+DECLARE original text:=p_text; out_text text; term text; pattern text; replaced text; changed boolean:=false;
+ character text; escaped_character text; codepoint integer; high_surrogate integer; low_surrogate integer; character_position integer;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
  out_text=normalize(p_text,NFKC);
@@ -98,25 +98,30 @@ BEGIN
    SELECT DISTINCT normalize(btrim(value),NFKC) normalized
    FROM unnest(coalesce(p_terms,'{}'::text[])) value
    WHERE value IS NOT NULL AND char_length(btrim(value))>=1
-  ) candidates ORDER BY char_length(normalized) DESC,normalized COLLATE "C"
+ ) candidates ORDER BY char_length(normalized) DESC,normalized COLLATE "C"
  LOOP
-  search_from=1;
-  LOOP
-   relative_pos=strpos(substring(lower(out_text COLLATE "C.utf8") FROM search_from),lower(term COLLATE "C.utf8"));
-   EXIT WHEN relative_pos=0;
-   at_pos=search_from+relative_pos-1;
-   IF char_length(term)<3 THEN
-    before_char=CASE WHEN at_pos>1 THEN substring(out_text FROM at_pos-1 FOR 1) ELSE '' END;
-    after_char=substring(out_text FROM at_pos+char_length(term) FOR 1);
-    IF before_char~'[[:alnum:]_]' OR after_char~'[[:alnum:]_]' THEN
-     search_from=at_pos+char_length(term);
-     CONTINUE;
-    END IF;
+  pattern='';
+  FOR character_position IN 1..char_length(term) LOOP
+   character=substring(term FROM character_position FOR 1);
+   escaped_character=regexp_replace(character,'([\\.^$|()\[\]{}*+?])','\\\1','g');
+   codepoint=ascii(character);
+   IF codepoint<=65535 THEN
+    escaped_character='(?:'||escaped_character||'|\\u'||lpad(to_hex(codepoint),4,'0')||')';
+   ELSE
+    high_surrogate=55296+((codepoint-65536)/1024);
+    low_surrogate=56320+((codepoint-65536)%1024);
+    escaped_character='(?:'||escaped_character||'|\\u'||lpad(to_hex(high_surrogate),4,'0')
+      ||'\\u'||lpad(to_hex(low_surrogate),4,'0')||')';
    END IF;
-   out_text=overlay(out_text placing '[redacted]' from at_pos for char_length(term));
-   search_from=at_pos+char_length('[redacted]');
-   changed=true;
+   IF character='@' THEN
+    escaped_character=substring(escaped_character FROM 1 FOR char_length(escaped_character)-1)
+      ||'|&commat;|&#0*64;|&#x0*40;)';
+   END IF;
+   pattern=pattern||escaped_character;
   END LOOP;
+  IF char_length(term)<3 THEN pattern='(?<![[:alnum:]_])'||pattern||'(?![[:alnum:]_])'; END IF;
+  replaced=regexp_replace(out_text,pattern,'[redacted]','gi');
+  IF replaced<>out_text THEN changed=true; out_text=replaced; END IF;
  END LOOP;
  RETURN CASE WHEN changed THEN out_text ELSE original END;
 END $$;
@@ -137,53 +142,43 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.decke_improvement_redact_text(p_text text,p_terms text[]) RETURNS text
 LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
-DECLARE literal text; current_view text:=p_text; next_view text; escaped_view text; redacted text;
- form_terms text[]; pass integer; exposed integer; view_count integer;
+DECLARE literal text; current_view text; candidate text; normalized_view text; term text; lowered_term text;
+ detection_pattern text; form_terms text[]; pass integer; form boolean; escaped boolean;
 BEGIN
  IF p_text IS NULL THEN RETURN NULL; END IF;
- -- Literal variants win so an unrelated '+' or '%' is never decoded merely
- -- because it occurs in the same field as an identity.
+ -- Literal replacements are precise and each variant scans the value once.
+ -- Decoded representations below are detection-only: if decoding exposes an
+ -- identity, the whole uncommon encoded field is safer to discard.
  literal=public.decke_improvement_replace_terms(p_text,public.decke_improvement_redaction_variants(p_terms));
- exposed=((char_length(literal)-char_length(replace(literal,'[redacted]','')))
-   -(char_length(p_text)-char_length(replace(p_text,'[redacted]',''))))/10;
- -- JSON/entity escapes are another literal representation.  Return their
- -- decoded view only when decoding is what exposes an identity.
- escaped_view=public.decke_improvement_decode_escapes(current_view);
- redacted=public.decke_improvement_replace_terms(escaped_view,p_terms);
- view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
-   -(char_length(escaped_view)-char_length(replace(escaped_view,'[redacted]',''))))/10;
- IF view_count>exposed THEN RETURN redacted; END IF;
- exposed=greatest(exposed,view_count);
- FOR pass IN 1..3 LOOP
-  next_view=public.decke_improvement_percent_decode(current_view);
-  EXIT WHEN next_view=current_view;
-  current_view=next_view;
-  redacted=public.decke_improvement_replace_terms(current_view,p_terms);
-  view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
-    -(char_length(current_view)-char_length(replace(current_view,'[redacted]',''))))/10;
-  IF view_count>exposed THEN RETURN redacted; END IF;
-  exposed=greatest(exposed,view_count);
-  escaped_view=public.decke_improvement_decode_escapes(current_view);
-  redacted=public.decke_improvement_replace_terms(escaped_view,p_terms);
-  view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
-    -(char_length(escaped_view)-char_length(replace(escaped_view,'[redacted]',''))))/10;
-  IF view_count>exposed THEN RETURN redacted; END IF;
-  exposed=greatest(exposed,view_count);
- END LOOP;
  SELECT coalesce(array_agg(value),'{}'::text[]) INTO form_terms
  FROM (SELECT value FROM unnest(coalesce(p_terms,'{}'::text[])) value
        UNION SELECT replace(value,'+',' ') FROM unnest(coalesce(p_terms,'{}'::text[])) value) variants;
- next_view=replace(current_view,'+',' ');
- redacted=public.decke_improvement_replace_terms(next_view,form_terms);
- view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
-   -(char_length(next_view)-char_length(replace(next_view,'[redacted]',''))))/10;
- IF view_count>exposed THEN RETURN redacted; END IF;
- exposed=greatest(exposed,view_count);
- escaped_view=public.decke_improvement_decode_escapes(next_view);
- redacted=public.decke_improvement_replace_terms(escaped_view,form_terms);
- view_count=((char_length(redacted)-char_length(replace(redacted,'[redacted]','')))
-   -(char_length(escaped_view)-char_length(replace(escaped_view,'[redacted]',''))))/10;
- IF view_count>exposed THEN RETURN redacted; END IF;
+ current_view=literal;
+ FOR pass IN 0..3 LOOP
+  IF pass>0 THEN current_view=public.decke_improvement_percent_decode(current_view); END IF;
+  FOREACH form IN ARRAY ARRAY[false,true] LOOP
+   candidate=CASE WHEN form THEN replace(current_view,'+',' ') ELSE current_view END;
+   FOREACH escaped IN ARRAY ARRAY[false,true] LOOP
+    IF escaped THEN candidate=public.decke_improvement_decode_escapes(candidate); END IF;
+    normalized_view=lower(normalize(candidate,NFKC) COLLATE "C.utf8");
+    FOR term IN
+     SELECT normalized FROM (
+      SELECT DISTINCT normalize(btrim(value),NFKC) normalized
+      FROM unnest(CASE WHEN form THEN form_terms ELSE coalesce(p_terms,'{}'::text[]) END) value
+      WHERE value IS NOT NULL AND char_length(btrim(value))>=1
+     ) candidates ORDER BY char_length(normalized) DESC,normalized COLLATE "C"
+    LOOP
+     lowered_term=lower(term COLLATE "C.utf8");
+     IF char_length(term)>=3 THEN
+      IF strpos(normalized_view,lowered_term)>0 THEN RETURN '[redacted]'; END IF;
+     ELSE
+      detection_pattern=regexp_replace(lowered_term,'([\\.^$|()\[\]{}*+?])','\\\1','g');
+      IF normalized_view~('(?<![[:alnum:]_])'||detection_pattern||'(?![[:alnum:]_])') THEN RETURN '[redacted]'; END IF;
+     END IF;
+    END LOOP;
+   END LOOP;
+  END LOOP;
+ END LOOP;
  RETURN literal;
 END $$;
 
@@ -412,7 +407,7 @@ UPDATE public.decke_improvement_turn t SET
  asked=public.decke_improvement_redact_text(t.asked,i.terms),
  answered=public.decke_improvement_redact_text(t.answered,i.terms),
  tools=public.decke_improvement_redact_json_identifiers(t.tools,i.terms),
- feedback_comment=public.decke_improvement_redact_text(t.feedback_comment,i.terms)
+ feedback_comment=left(public.decke_improvement_redact_text(t.feedback_comment,i.terms),500)
 FROM identities i WHERE t.conversation_id=i.id;
 
 WITH identities AS MATERIALIZED (

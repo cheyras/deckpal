@@ -26,6 +26,8 @@ export function redact<T>(value: T, terms: readonly string[]): T {
 
 interface CanonicalTerm {
   value: string
+  lowered: string
+  formLowered: string
   wholeWord: boolean
 }
 
@@ -39,13 +41,10 @@ interface MappedText {
   spans: SourceSpan[]
 }
 
-interface RedactedView {
-  output: string
-  counts: number[]
-}
-
-const percentDecoder = new TextDecoder('utf-8', { fatal: true })
+const percentDecoder = new TextDecoder('utf-8', { fatal: false })
 const graphemeSegmenter = new Intl.Segmenter('und', { granularity: 'grapheme' })
+const wordCharacter = /[\p{L}\p{N}_]/u
+const identitySyntax = /\\u[0-9a-f]{4}|&(?:commat;|#0*64;|#x0*40;)/iu
 
 function redactCanonical<T>(value: T, terms: readonly CanonicalTerm[]): T {
   if (typeof value === 'string') return redactString(value, terms) as T
@@ -67,43 +66,39 @@ function clean(value: string | null | undefined): string | null {
 }
 
 function redactString(value: string, terms: readonly CanonicalTerm[]): string {
+  if (terms.length === 0) return value
   const trimmed = value.trimStart()
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
       const parsed: unknown = JSON.parse(value)
-      if (parsed && typeof parsed === 'object') return JSON.stringify(redactCanonical(parsed, terms))
+      if (parsed && typeof parsed === 'object') {
+        const redacted = redactCanonical(parsed, terms)
+        // Preserve harmless JSON exactly; reserialize only when recursive
+        // redaction actually changed its parsed representation. When parsing
+        // finds no change, the raw text still needs the normal passes: JSON
+        // permits duplicate keys, and an overwritten member can contain an
+        // identity that is absent from the parsed object.
+        if (JSON.stringify(redacted) !== JSON.stringify(parsed)) return JSON.stringify(redacted)
+      }
     } catch {
       // Tool output is often ordinary prose beginning with punctuation. Fall
       // through and redact it as text when it is not actually encoded JSON.
     }
   }
 
-  // Prefer the least-decoded representation that exposes an identity. This
-  // keeps literal plus signs, percentages and unrelated escapes byte-for-byte
-  // intact unless decoding is necessary to find the protected term.
-  const literal = redactView(value, terms)
-  const exposed = [...literal.counts]
+  let literal = value
+  for (const term of terms) literal = redactLiteralTerm(literal, term)
 
-  let decoded = value
+  // Decoded representations are detection-only. Emitting a partly decoded
+  // view can expose a different identity at another supported encoding depth.
+  let decoded = literal
   for (let pass = 0; pass < 3; pass++) {
-    const next = percentDecode(decoded)
-    if (next === decoded) break
-    decoded = next
-    const view = redactView(decoded, terms)
-    if (view.counts.some((count, index) => count > exposed[index]!)) return view.output
-    for (let index = 0; index < exposed.length; index++) exposed[index] = Math.max(exposed[index]!, view.counts[index]!)
+    decoded = percentDecode(decoded)
+    if (containsIdentity(decoded, terms, false)) return '[redacted]'
+    const form = decoded.replaceAll('+', ' ')
+    if (containsIdentity(form, terms, true)) return '[redacted]'
   }
-
-  const form = decoded.replaceAll('+', ' ')
-  if (form !== decoded) {
-    const formTerms = terms.map((term) => {
-      const formValue = term.value.replaceAll('+', ' ').normalize('NFKC')
-      return { value: formValue, wholeWord: [...formValue].length < 3 }
-    })
-    const view = redactView(form, formTerms)
-    if (view.counts.some((count, index) => count > exposed[index]!)) return view.output
-  }
-  return literal.output
+  return literal
 }
 
 function canonicalTerms(terms: readonly string[]): CanonicalTerm[] {
@@ -113,93 +108,106 @@ function canonicalTerms(terms: readonly string[]): CanonicalTerm[] {
     const trimmed = raw.trim()
     if (!trimmed) continue
     const value = trimmed.normalize('NFKC')
-    const key = value.toLocaleLowerCase()
-    if (!unique.has(key)) unique.set(key, { value, wholeWord: [...value].length < 3 })
+    const lowered = value.toLocaleLowerCase()
+    if (!unique.has(lowered)) {
+      unique.set(lowered, {
+        value,
+        lowered,
+        formLowered: value.replaceAll('+', ' ').toLocaleLowerCase(),
+        wholeWord: [...value].length < 3,
+      })
+    }
   }
   return [...unique.values()].sort((a, b) => b.value.length - a.value.length || a.value.localeCompare(b.value))
 }
 
-/** Redact one view and count newly exposed occurrences by canonical term. */
-function redactView(value: string, terms: readonly CanonicalTerm[]): RedactedView {
-  if (terms.length === 0) return { output: value, counts: [] }
-  if (/^[\x00-\x7f]*$/.test(value) && !/\\u[0-9a-f]{4}|&(?:commat;|#0*64;|#x0*40;)/iu.test(value)) {
-    return redactAsciiView(value, terms)
+/** Replace every literal occurrence of one term in a single global scan. */
+function redactLiteralTerm(value: string, term: CanonicalTerm): string {
+  const pattern = termPattern(term)
+  // Avoid normalization/source-map allocation for the overwhelmingly common
+  // ASCII path, including large transcripts with many repeated identities.
+  if (/^[\x00-\x7f]*$/.test(value)
+    && /^[\x00-\x7f]*$/.test(term.value)
+    && !identitySyntax.test(value)) {
+    return value.replace(pattern, '[redacted]')
   }
+
   const mapped = normalizeMapped(decodeLiteralSyntax(value))
-  const occupied = new Uint8Array(value.length)
   const ranges: SourceSpan[] = []
-  const counts = terms.map(() => 0)
-
-  // Terms are longest-first, so marking source spans preserves the established
-  // overlap rule without repeatedly rescanning already-redacted output.
-  for (const [termIndex, term] of terms.entries()) {
-    const escaped = escapeRegExp(term.value)
-    const pattern = term.wholeWord
-      ? `(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`
-      : escaped
-    for (const match of mapped.text.matchAll(new RegExp(pattern, 'giu'))) {
-      const normalizedStart = match.index
-      const normalizedEnd = normalizedStart + match[0].length
-      const first = mapped.spans[normalizedStart]
-      const last = mapped.spans[normalizedEnd - 1]
-      if (!first || !last) continue
-      let overlaps = false
-      for (let index = first.start; index < last.end; index++) {
-        if (occupied[index]) { overlaps = true; break }
-      }
-      if (overlaps) continue
-      occupied.fill(1, first.start, last.end)
-      ranges.push({ start: first.start, end: last.end })
-      counts[termIndex] = counts[termIndex]! + 1
-    }
+  let occupiedUntil = -1
+  for (const match of mapped.text.matchAll(pattern)) {
+    const normalizedStart = match.index
+    const normalizedEnd = normalizedStart + match[0].length
+    const first = mapped.spans[normalizedStart]
+    const last = mapped.spans[normalizedEnd - 1]
+    if (!first || !last || first.start < occupiedUntil) continue
+    ranges.push({ start: first.start, end: last.end })
+    occupiedUntil = last.end
   }
+  if (ranges.length === 0) return value
 
-  if (ranges.length === 0) return { output: value, counts }
-  ranges.sort((a, b) => a.start - b.start)
   let output = ''
   let cursor = 0
   for (const range of ranges) {
     output += value.slice(cursor, range.start) + '[redacted]'
     cursor = range.end
   }
-  return { output: output + value.slice(cursor), counts }
+  return output + value.slice(cursor)
 }
 
-/** Avoid normalization/source-map allocation for the overwhelmingly common ASCII case. */
-function redactAsciiView(value: string, terms: readonly CanonicalTerm[]): RedactedView {
-  const occupied = new Uint8Array(value.length)
-  const ranges: SourceSpan[] = []
-  const counts = terms.map(() => 0)
-  for (const [termIndex, term] of terms.entries()) {
-    const escaped = escapeRegExp(term.value)
-    const pattern = term.wholeWord
-      ? `(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`
-      : escaped
-    for (const match of value.matchAll(new RegExp(pattern, 'giu'))) {
-      const start = match.index
-      const end = start + match[0].length
-      let overlaps = false
-      for (let index = start; index < end; index++) {
-        if (occupied[index]) { overlaps = true; break }
-      }
-      if (overlaps) continue
-      occupied.fill(1, start, end)
-      ranges.push({ start, end })
-      counts[termIndex] = counts[termIndex]! + 1
-    }
-  }
-  if (ranges.length === 0) return { output: value, counts }
-  ranges.sort((a, b) => a.start - b.start)
-  let output = ''
-  let cursor = 0
-  for (const range of ranges) {
-    output += value.slice(cursor, range.start) + '[redacted]'
-    cursor = range.end
-  }
-  return { output: output + value.slice(cursor), counts }
+function termPattern(term: CanonicalTerm): RegExp {
+  const escaped = escapeRegExp(term.value)
+  const pattern = term.wholeWord
+    ? `(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`
+    : escaped
+  return new RegExp(pattern, 'giu')
 }
 
-/** Decode safe JSON escapes and the identity-relevant entity spellings with source mapping. */
+/** Search a normalized decoded view without rewriting or rescanning it per match. */
+function containsIdentity(value: string, terms: readonly CanonicalTerm[], form: boolean): boolean {
+  // Source spans are necessary for literal replacement but wasteful for these
+  // read-only views, especially at the one-megabyte payload boundary.
+  const syntax = identitySyntax.test(value) ? decodeLiteralSyntax(value).text : value
+  const lowered = syntax.normalize('NFKC').toLocaleLowerCase()
+  for (const term of terms) {
+    if (containsCanonical(lowered, term.lowered, term.wholeWord)) return true
+    if (form && term.formLowered !== term.lowered
+      && containsCanonical(lowered, term.formLowered, term.wholeWord)) return true
+  }
+  return false
+}
+
+function containsCanonical(value: string, term: string, wholeWord: boolean): boolean {
+  let index = value.indexOf(term)
+  while (index !== -1) {
+    const end = index + term.length
+    if (!wholeWord || (!isWordBefore(value, index) && !isWordAfter(value, end))) return true
+    index = value.indexOf(term, index + 1)
+  }
+  return false
+}
+
+function isWordBefore(value: string, index: number): boolean {
+  if (index === 0) return false
+  const start = index > 1 && isLowSurrogate(value.charCodeAt(index - 1)) ? index - 2 : index - 1
+  return wordCharacter.test(value.slice(start, index))
+}
+
+function isWordAfter(value: string, index: number): boolean {
+  if (index >= value.length) return false
+  const width = isHighSurrogate(value.charCodeAt(index)) ? 2 : 1
+  return wordCharacter.test(value.slice(index, index + width))
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff
+}
+
+/** Decode JSON escapes and identity-relevant entities with source mapping. */
 function decodeLiteralSyntax(value: string): MappedText {
   const output: string[] = []
   const spans: SourceSpan[] = []
@@ -225,9 +233,8 @@ function decodeLiteralSyntax(value: string): MappedText {
         index += 6
         continue
       }
-      // PostgreSQL cannot store NUL and neither layer may synthesize an
-      // unpaired surrogate. Retain the original escape for both cases.
-      append(escape, index, index + 6)
+      // NUL and unpaired surrogates must not shield valid neighboring text.
+      append('\ufffd', index, index + 6)
       index += 6
       continue
     }
@@ -264,19 +271,14 @@ function normalizeMapped(value: MappedText): MappedText {
   return { text: output.join(''), spans }
 }
 
-/** Decode maximal percent-byte runs atomically, retaining invalid UTF-8 and NUL runs. */
+/** Decode every percent-byte run leniently, replacing invalid UTF-8 and NUL. */
 function percentDecode(value: string): string {
-  return value.replace(/(?:%[0-9a-f]{2})+/giu, (run) => {
+  return value.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
     const bytes = new Uint8Array(run.length / 3)
     for (let index = 0; index < bytes.length; index++) {
       bytes[index] = Number.parseInt(run.slice(index * 3 + 1, index * 3 + 3), 16)
     }
-    try {
-      const decoded = percentDecoder.decode(bytes)
-      return decoded.includes('\u0000') ? run : decoded
-    } catch {
-      return run
-    }
+    return percentDecoder.decode(bytes).replaceAll('\u0000', '\ufffd')
   })
 }
 

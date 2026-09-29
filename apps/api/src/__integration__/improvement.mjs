@@ -30,6 +30,79 @@ const results = { name: 'decke-improvement', status: 'running', cases: [] };
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const owner = id(1), member = id(2), outsider = id(3), newcomer = id(4), plusMember = id(5);
 const slash = String.fromCharCode(92);
+const identityTerms = ['John Smith', 'José', 'jsmith@example.invalid', 'alice+tag@example.invalid'];
+const lenientDecoder = new TextDecoder('utf-8', { fatal: false });
+
+function percentEncode(value) {
+  return [...Buffer.from(value, 'utf8')].map((byte) => `%${byte.toString(16).toUpperCase().padStart(2, '0')}`).join('');
+}
+
+function encodeDepth(value, depth) {
+  for (let pass = 0; pass < depth; pass++) value = percentEncode(value);
+  return value;
+}
+
+function lenientPercentDecode(value) {
+  return value.replace(/(?:%[0-9a-f]{2})+/giu, (run) => {
+    const bytes = Uint8Array.from(run.match(/%[0-9a-f]{2}/giu), (token) => Number.parseInt(token.slice(1), 16));
+    return lenientDecoder.decode(bytes).replaceAll('\u0000', '\uFFFD');
+  });
+}
+
+function literalDecode(value) {
+  return value
+    .replace(/\\u([0-9a-f]{4})/giu, (_match, hex) => {
+      const point = Number.parseInt(hex, 16);
+      return point === 0 || (point >= 0xD800 && point <= 0xDFFF) ? '\uFFFD' : String.fromCodePoint(point);
+    })
+    .replace(/&(?:commat;|#0*64;|#x0*40;)/giu, '@');
+}
+
+function assertIdentitySafe(value, label, terms = identityTerms) {
+  let view = value;
+  for (let depth = 0; depth <= 3; depth++) {
+    for (const form of [false, true]) {
+      const candidate = literalDecode(form ? view.replaceAll('+', ' ') : view).normalize('NFKC').toLocaleLowerCase();
+      for (const term of terms) {
+        for (const expected of [term, term.replaceAll('+', ' ')]) {
+          assert.equal(candidate.includes(expected.normalize('NFKC').toLocaleLowerCase()), false,
+            `${label} leaked ${term} at depth ${depth}${form ? ' form' : ''}: ${value}`);
+        }
+      }
+    }
+    view = lenientPercentDecode(view);
+  }
+}
+
+function seededRedactionCorpus(terms = identityTerms, size = 240, seed = 0x268079) {
+  const malformed = ['', '%FF', '%00', '%C3'];
+  const separators = [' | ', ' C++ ', ' 100% ', ' 50%off ', ' &amp; '];
+  let state = seed >>> 0;
+  const next = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state;
+  };
+  const corpus = [];
+  for (let index = 0; index < size; index++) {
+    const term = terms[index % terms.length];
+    const depth = Math.floor(index / terms.length) % 4;
+    const poison = malformed[Math.floor(index / 16) % malformed.length];
+    const separator = separators[next() % separators.length];
+    let representation = encodeDepth(term, depth);
+    if (index % 17 === 0) representation = [...term].map((character) =>
+      `${slash}u${character.charCodeAt(0).toString(16).padStart(4, '0')}`).join('');
+    if (index % 19 === 0 && term.includes('@')) representation = term.replace('@', index % 2 ? '&#64;' : '&commat;');
+    corpus.push(`case-${index}${separator}${poison}${representation}${poison}${separator}tail`);
+  }
+  const exactTerm = terms[0];
+  corpus.push(
+    `%FF${encodeDepth(exactTerm, 1)}%FF`,
+    `%00${encodeDepth(exactTerm, 1)}`,
+    [1, 2, 3].map((depth) => encodeDepth(exactTerm, depth)).join(' | '),
+    terms.map((term, index) => encodeDepth(term, index % 4)).join(' | '),
+  );
+  return corpus;
+}
 
 async function test(name, fn) {
   await fn();
@@ -191,6 +264,33 @@ try {
     });
   });
 
+  const retainedFeedbackConversation = id(196), retainedFeedbackRequest = id(197);
+  await seedConversation({
+    conversation: retainedFeedbackConversation, request: retainedFeedbackRequest,
+    operation: id(198), suffix: '196',
+  });
+  let retainedFeedbackShared;
+  await test('pre-079 corpus fixture contains maximum-length encoded feedback', async () => {
+    const answer = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, retainedFeedbackConversation]));
+    retainedFeedbackShared = answer.conversationId;
+    const comment = 'x'.repeat(491) + 'JOS%C3%89';
+    assert.equal(comment.length, 500);
+    const saved = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_feedback($1,$2,0,1::smallint,$3,false) data',
+      [member, retainedFeedbackConversation, comment]));
+    assert.equal(saved.copied, true);
+    // Model a row retained by an earlier live writer that did not recognise
+    // this encoded spelling; 079 must repair it without violating the bound.
+    await db.query('UPDATE public.decke_improvement_turn SET feedback_comment=$1 WHERE conversation_id=$2',
+      [comment, retainedFeedbackShared]);
+    const before = (await db.query(
+      'SELECT feedback_comment FROM public.decke_improvement_turn WHERE conversation_id=$1',
+      [retainedFeedbackShared])).rows[0].feedback_comment;
+    assert.equal(before.length, 500);
+    assert.match(before, /JOS%C3%89$/);
+  });
+
   const orphanConversation = id(99), orphanRequest = id(199);
   await seedConversation({ conversation: orphanConversation, request: orphanRequest, operation: id(299), suffix: '99' });
   let orphanShared;
@@ -220,6 +320,16 @@ try {
     // migration repair path.
     await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedConversation]);
     await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [retainedShared]);
+  });
+
+  await test('079 bounds repaired maximum-length feedback after redaction', async () => {
+    const repaired = (await db.query(
+      'SELECT feedback_comment FROM public.decke_improvement_turn WHERE conversation_id=$1',
+      [retainedFeedbackShared])).rows[0].feedback_comment;
+    assert.ok(repaired.length <= 500);
+    assert.doesNotMatch(repaired, /JOS%C3%89|José/i);
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [retainedFeedbackConversation]);
+    await db.query('DELETE FROM public.decke_improvement_consent WHERE id=$1', [retainedFeedbackShared]);
   });
 
   await test('079 removes existing History orphans and preserves revoked consent', async () => {
@@ -274,7 +384,7 @@ try {
       "SELECT public.decke_improvement_redact_text($1,ARRAY['John Smith','José']) value",
       ['John Smith + JOS%25C3%2589 keeps C++'],
     )).rows[0].value;
-    assert.equal(mixed, '[redacted] + [redacted] keeps C++');
+    assert.equal(mixed, '[redacted]');
   });
 
   await test('near-limit nested percent input redacts within a two-second statement timeout', async () => {
@@ -286,8 +396,11 @@ try {
       const result = (await db.query(
         "SELECT public.decke_improvement_redact_text($1,ARRAY['José']) value", [encoded],
       )).rows[0].value;
-      assert.ok(result.endsWith('[redacted]'));
-      assert.ok(result.startsWith('x '));
+      assert.equal(result, '[redacted]');
+      const repeated = (await db.query(
+        "SELECT public.decke_improvement_redact_text(repeat('John Smith ',10000),ARRAY['John Smith']) value",
+      )).rows[0].value;
+      assert.equal(repeated, '[redacted] '.repeat(10000));
       await db.query('COMMIT');
     } catch (error) {
       await db.query('ROLLBACK').catch(() => {});
@@ -413,7 +526,7 @@ try {
       ])]));
     assert.equal(backfill.recorded, true);
     const stored = (await db.query('SELECT asked,answered,tools FROM public.decke_improvement_turn WHERE conversation_id=$1', [derivedShared])).rows[0];
-    assert.equal(stored.asked, '[redacted] and [redacted] asked');
+    assert.equal(stored.asked, '[redacted]');
     assert.doesNotMatch(JSON.stringify(stored), /John(?:%20|\+| )Smith|%4A%6F%68%6E|jsmith(?:%40|&#64;|@)example\.invalid|JOS%C3%89|Jose\u0301|José/i);
   });
 
@@ -503,6 +616,65 @@ try {
     assert.match(rendered, /C\+\+/);
     assert.match(rendered, /100%/);
     await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [plusConversation]);
+  });
+
+  const propertyConversation = id(190), propertyRequest = id(191);
+  await seedConversation({ conversation: propertyConversation, request: propertyRequest, operation: id(192), suffix: '190' });
+  await test('seeded redaction corpus is safe through API and SQL writers plus admin detail', async () => {
+    const memberTerms = ['John Smith', 'José', 'jsmith@example.invalid'];
+    const corpus = seededRedactionCorpus(memberTerms);
+    assert.ok(corpus.length >= 200);
+    assert.ok(corpus.includes('%FF%4A%6F%68%6E%20%53%6D%69%74%68%FF'));
+    assert.ok(corpus.includes('%00%4A%6F%68%6E%20%53%6D%69%74%68'));
+    assert.ok(corpus.includes([1, 2, 3].map((depth) => encodeDepth('John Smith', depth)).join(' | ')));
+    const safe = ['C++ is 100% useful', '50%off is prose', '%FF and %00 without a name'];
+    const keyed = Object.fromEntries(corpus.slice(-4).map((value, index) => [value, index]));
+    keyed['C++ key'] = 'unchanged';
+    const answer = await server(member, (c) => data(c,
+      "SELECT public.decke_improvement_answer($1,$2,true,'reader') data", [member, propertyConversation]));
+
+    const backfilled = await server(member, (c) => backfillShared({
+      query: (...args) => c.query(...args), release() {},
+    }, { userId: member, conversationId: propertyConversation, backfill: { turns: [{
+      seq: 0, asked: safe[0], answered: safe[1], tools: [{ corpus, safe, keyed }],
+    }], requests: [] } }));
+    assert.equal(backfilled, true);
+    const rawEvent = [{
+      kind: 'notice', at: '2026-09-28T18:00:00Z', payload: { corpus, safe, keyed },
+    }];
+    const event = await server(member, (c) => data(c,
+      'SELECT public.decke_improvement_record_events($1,$2,0,79,$3::jsonb) data',
+      [member, propertyConversation, JSON.stringify(rawEvent)]));
+    assert.equal(event.recorded, true);
+
+    const detail = await session(owner, (c) => data(c,
+      'SELECT public.decke_improvement_detail($1) data', [answer.conversationId]));
+    const apiPayload = detail.turns[0].tools[0];
+    const sqlPayload = detail.turns[0].events.find((item) => item.batch === 79).payload;
+    assert.equal(apiPayload.corpus.length, corpus.length);
+    assert.equal(sqlPayload.corpus.length, corpus.length);
+    apiPayload.corpus.forEach((value, index) => assertIdentitySafe(value, `API corpus ${index}`, memberTerms));
+    sqlPayload.corpus.forEach((value, index) => assertIdentitySafe(value, `SQL corpus ${index}`, memberTerms));
+    Object.keys(apiPayload.keyed).forEach((value, index) => assertIdentitySafe(value, `API key ${index}`, memberTerms));
+    Object.keys(sqlPayload.keyed).forEach((value, index) => assertIdentitySafe(value, `SQL key ${index}`, memberTerms));
+    assert.deepEqual(apiPayload.safe, safe);
+    assert.deepEqual(sqlPayload.safe, safe);
+    assert.equal(apiPayload.keyed['C++ key'], 'unchanged');
+    assert.equal(sqlPayload.keyed['C++ key'], 'unchanged');
+
+    // The SQL primitive also receives the complete cross-account term set so
+    // this property covers every identity spelling in one deterministic run.
+    const complete = seededRedactionCorpus(identityTerms);
+    const sqlRows = (await db.query(`SELECT ordinality::int index,
+      public.decke_improvement_redact_text(value,$2::text[]) value
+      FROM unnest($1::text[]) WITH ORDINALITY input(value,ordinality) ORDER BY ordinality`,
+    [complete, identityTerms])).rows;
+    assert.equal(sqlRows.length, complete.length);
+    sqlRows.forEach((row) => assertIdentitySafe(row.value, `SQL primitive ${row.index}`));
+    const unchanged = (await db.query(`SELECT array_agg(public.decke_improvement_redact_text(value,$2::text[]) ORDER BY ordinality) values
+      FROM unnest($1::text[]) WITH ORDINALITY input(value,ordinality)`, [safe, identityTerms])).rows[0].values;
+    assert.deepEqual(unchanged, safe);
+    await db.query('DELETE FROM public.decke_conversation WHERE id=$1', [propertyConversation]);
   });
 
   await test('shared writers capture full legs/events and preserve pseudonymous IDs', async () => {
