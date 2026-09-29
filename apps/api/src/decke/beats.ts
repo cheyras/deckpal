@@ -64,10 +64,7 @@ export const MAX_BEAT_CHARS = 160;
  * this exists to end.
  */
 const OPENING: Readonly<Record<string, string>> = {
-  plan_deck: 'Working out a deck from what you actually own.',
-  analyze_collection: 'Going through your collection properly.',
-  research_meta: 'Reading up on what the meta is doing right now.',
-  write_strategy_guide: 'Writing a strategy guide for this deck.',
+  web_research: 'Searching the web.',
 };
 
 /**
@@ -77,8 +74,11 @@ const OPENING: Readonly<Record<string, string>> = {
  * refuses never runs a model, and "Working out a deck…" in front of a refusal
  * would be the exact fabrication this file exists to prevent.
  */
-export function openingBeat(deepToolName: string): Beat | null {
-  const note = OPENING[deepToolName];
+export function openingBeat(deepToolName: string, purpose?: string): Beat | null {
+  const note =
+    deepToolName === 'web_research' && purpose
+      ? `Searching: ${purpose}`.slice(0, 70).trimEnd()
+      : OPENING[deepToolName];
   return note ? { note, step: 0 } : null;
 }
 

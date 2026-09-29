@@ -1,7 +1,7 @@
 /**
  * The refusal that has to survive the browser's next POST.
  *
- * A cap-refused `write_strategy_guide` left no trace on the following leg's
+ * A credit-refused `web_research` left no trace on the following leg's
  * request, so the server — which keeps nothing between requests — re-derived
  * "nothing has been refused", raised a second approval card for the identical
  * work and charged the same spent cap again.
@@ -39,19 +39,24 @@ test('the scope is read off the server marker and nothing else', () => {
   assert.equal(meterRefusalScope(undefined), null)
 })
 
+test('current NOT RUN and legacy REFUSED meter markers are both accepted', () => {
+  assert.equal(meterRefusalScope('[[NO_WORK]] NOT RUN [meter:cap] — this tool did not run.'), 'cap')
+  assert.equal(meterRefusalScope('[[NO_WORK]] REFUSED [meter:credits] — this tool did not run.'), 'credits')
+})
+
 test('prose cannot mint a refusal, wherever the marker sits', () => {
   // The model narrating the marker mid-sentence must not read as one: the
   // pattern is anchored, so only a result that STARTS with it counts.
   assert.equal(meterRefusalScope(`I was told: ${refusalText('cap', 'spent')}`), null)
-  assert.equal(readMeterRefusal('c1', 'plan_deck', {}, 'the cap [meter:cap] is spent'), null)
+  assert.equal(readMeterRefusal('c1', 'web_research', {}, 'the cap [meter:cap] is spent'), null)
 })
 
 test('a refusal carries its id and its ORIGINAL input', () => {
-  const input = { deck_id: 'deck-9', findings: '' }
-  const r = readMeterRefusal('call-a', 'write_strategy_guide', input, refusalText('cap', 'spent'))
+  const input = { query: 'Dragapult results', topic: 'competitive', purpose: 'Dragapult results' }
+  const r = readMeterRefusal('call-a', 'web_research', input, refusalText('credits', 'spent'))
   assert.ok(r)
   assert.equal(r.toolCallId, 'call-a')
-  assert.equal(r.name, 'write_strategy_guide')
+  assert.equal(r.name, 'web_research')
   assert.deepEqual(r.input, input)
 })
 
@@ -64,12 +69,12 @@ test('a chunk with no known tool name is dropped rather than guessed at', () => 
 test('an ordinary server result is not carried', () => {
   // The cost argument in `lookupRecord.ts`: a replayed deck read is kilobytes
   // re-billed on every later leg. Only the refusal travels.
-  assert.equal(readMeterRefusal('call-a', 'analyze_collection', {}, 'You own 604 cards…'), null)
+  assert.equal(readMeterRefusal('call-a', 'web_research', {}, 'Dragapult reached three top cuts…'), null)
 })
 
 test('a hostile result cannot grow the payload without bound', () => {
   const long = refusalText('cap', 'x'.repeat(5000))
-  const r = readMeterRefusal('call-a', 'plan_deck', {}, long)
+  const r = readMeterRefusal('call-a', 'web_research', {}, long)
   assert.ok(r)
   assert.equal(r.output.length, MAX_REFUSAL_CHARS)
   assert.ok(meterRefusalScope(r.output), 'the marker survives the clamp')
@@ -78,16 +83,16 @@ test('a hostile result cannot grow the payload without bound', () => {
 test('the wire part is the SDK output-available shape', () => {
   const r = readMeterRefusal(
     'call-a',
-    'write_strategy_guide',
-    { deck_id: 'deck-9' },
+    'web_research',
+    { query: 'Dragapult results', topic: 'competitive', purpose: 'Dragapult results' },
     refusalText('credits', 'needs 2, 0 left'),
   ) as MeterRefusal
   assert.deepEqual(meterRefusalParts([r]), [
     {
-      type: 'tool-write_strategy_guide',
+      type: 'tool-web_research',
       toolCallId: 'call-a',
       state: 'output-available',
-      input: { deck_id: 'deck-9' },
+      input: { query: 'Dragapult results', topic: 'competitive', purpose: 'Dragapult results' },
       output: r.output,
     },
   ])
@@ -105,10 +110,10 @@ test('a call already on the wire can be named without the stream repeating it', 
       parts: [
         { type: 'text', text: 'I can write that.' },
         {
-          type: 'tool-write_strategy_guide',
+          type: 'tool-web_research',
           toolCallId: 'approved-original',
           state: 'approval-responded',
-          input: { deck: 'Toolbox', findings: '', no_research: true },
+          input: { query: 'Dragapult results', topic: 'competitive', purpose: 'Dragapult results' },
           approval: { id: 'ap-1', approved: true },
         },
       ],
@@ -118,22 +123,22 @@ test('a call already on the wire can be named without the stream repeating it', 
   assert.deepEqual(found, [
     {
       toolCallId: 'approved-original',
-      name: 'write_strategy_guide',
-      input: { deck: 'Toolbox', findings: '', no_research: true },
+      name: 'web_research',
+      input: { query: 'Dragapult results', topic: 'competitive', purpose: 'Dragapult results' },
     },
   ])
   // Which is what lets the output-only chunk be read at all.
   const r = readMeterRefusal('approved-original', found[0]!.name, found[0]!.input, refusalText('cap', 'spent'))
   assert.ok(r, 'the continuation leg could not name its own refused call')
-  assert.equal(r.name, 'write_strategy_guide')
+  assert.equal(r.name, 'web_research')
 })
 
 test('wire identities come from tool parts, never from text', () => {
   // Same rule the server's seed follows: prose naming a tool is not a call.
   assert.deepEqual(
     wireCallIdentities([
-      { role: 'assistant', parts: [{ type: 'text', text: 'tool-plan_deck', toolCallId: 'x' }] },
-      { role: 'assistant', parts: [{ type: 'tool-plan_deck' }] },
+      { role: 'assistant', parts: [{ type: 'text', text: 'tool-web_research', toolCallId: 'x' }] },
+      { role: 'assistant', parts: [{ type: 'tool-web_research' }] },
       { role: 'user', parts: undefined },
       {},
     ] as never),
@@ -143,7 +148,7 @@ test('wire identities come from tool parts, never from text', () => {
 
 test('one leg cannot replay more refusals than the budget', () => {
   const many = Array.from({ length: MAX_REPLAYED_REFUSALS + 3 }, (_, i) =>
-    readMeterRefusal(`call-${i}`, 'plan_deck', { goal: String(i) }, refusalText('credits', 'thin')),
+    readMeterRefusal(`call-${i}`, 'web_research', { query: String(i) }, refusalText('credits', 'thin')),
   ) as MeterRefusal[]
   assert.equal(meterRefusalParts(many).length, MAX_REPLAYED_REFUSALS)
 })

@@ -30,15 +30,14 @@
  *
  * ── IT REUSES THE REAL COMPONENTS, WHICH IS THE POINT ────────────────────────
  *
- * `ToolRow`, `ChatMarkdown` and the bubble classes are the ones the live
+ * `ActivityLine`, `ChatMarkdown` and the bubble classes are the ones the live
  * transcript uses, not copies of them. A second rendering of a tool row would
  * drift from the first within a release and the history would stop being a
  * record of anything — it would be a record of what a different component
  * thought the first one looked like.
  *
- * The one thing this adds is `recorded: true` on every row, which is a fact
- * about provenance rather than a style: nothing here is still running, and
- * nothing here can be retried. See `ToolRowData.recorded`.
+ * Nothing here is still running and nothing here can be retried, so the shared
+ * activity disclosure is always rendered in its settled state.
  *
  * ── THE BUILD STAMP IS THE FEATURE ───────────────────────────────────────────
  *
@@ -55,8 +54,8 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../../../components/Icon'
 import { api, type DeckeConversation } from '../../../lib/api'
+import { ActivityLine } from './ActivityLine'
 import { ChatMarkdown } from './ChatMarkdown'
-import { ToolRow } from './ToolRow'
 import { BuildStampChip } from './HistoryMenu'
 import {
   buildStamp,
@@ -283,15 +282,12 @@ export function TranscriptBody({ load, onRetry }: { load: TranscriptLoad; onRetr
               string, so the interleaving was never stored. Grouping them ahead
               of the reply is a presentation choice made once, said out loud
               here and in the end-of-record line, rather than an invented
-              sequence dressed as the real one — see `ToolRow`'s note (d) on why
-              faking order is not available at any price.
+              sequence dressed as the real one.
             */}
             {rows.length ? (
-              <ul className="decke-shift w-full">
-                {rows.map((r) => (
-                  <ToolRow key={r.id} data={r} />
-                ))}
-              </ul>
+              <div className="decke-shift w-full">
+                <ActivityLine steps={rows} busy={false} />
+              </div>
             ) : null}
 
             {t.answered ? (
@@ -313,7 +309,7 @@ export function TranscriptBody({ load, onRetry }: { load: TranscriptLoad; onRetr
       */}
       <li className="pt-[2px] text-[10.5px] leading-[16px] text-text-muted">
         <span className="mb-[6px] block h-px w-full bg-surface-tertiary" aria-hidden="true" />
-        End of record. Tool rows are grouped before each reply — the record keeps what ran, not where it
+        End of record. Activity is grouped before each reply — the record keeps what ran, not where it
         interrupted him.
       </li>
     </ul>

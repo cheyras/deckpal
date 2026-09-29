@@ -43,6 +43,17 @@
 
 /** Longest query accepted. The schema caps at 300; this is the backstop. */
 export const MAX_QUERY = 300;
+export const MAX_PURPOSE = 60;
+
+/** A missing model label falls back to its query, without preserving whitespace noise. */
+export function normalizeResearchPurpose(raw: unknown, query: unknown): string {
+  const supplied = typeof raw === 'string' ? raw.replace(/\s+/g, ' ').trim() : '';
+  const fallback = typeof query === 'string' ? query.replace(/\s+/g, ' ').trim() : '';
+  const purpose = supplied || fallback || 'Pokémon TCG updates';
+  return purpose.length <= MAX_PURPOSE
+    ? purpose
+    : `${purpose.slice(0, MAX_PURPOSE - 1).trimEnd()}…`;
+}
 
 /**
  * Things that are never part of a question about the Pokémon TCG, and are

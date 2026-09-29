@@ -122,7 +122,10 @@ test('decline matching accepts new exposed and legacy normalized shapes without 
     try {
       const tool = f.build({ declined: new Set([callKey('log_cards', declinedInput)]) }).log_cards;
       assert.equal(await tool.needsApproval(INPUT, { toolCallId: 'd' }), false);
-      assert.match(await tool.execute(INPUT, { toolCallId: 'd' }), /already said no/i);
+      const out = await tool.execute(INPUT, { toolCallId: 'd' });
+      assert.match(out, /reader said no/i);
+      assert.match(out, /nothing changed/i);
+      assert.match(out, /do not ask again/i);
       assert.deepEqual(f.counts(), { previews: 0, requests: 0, writes: 0 });
     } finally { f.restore(); }
   }

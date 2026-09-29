@@ -78,6 +78,7 @@ export const BLOCK_KINDS = [
   'empty',
   'table',
   'group',
+  'deck',
 ] as const
 
 export type BlockKind = (typeof BLOCK_KINDS)[number]
@@ -88,6 +89,35 @@ const TABLE_MAX_COLUMNS = 4
 const TABLE_MAX_ROWS = 10
 /** Blocks per column of a `group`. Enough for a heading, a figure and a note. */
 const GROUP_MAX_PER_COLUMN = 4
+
+const deckCardSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  name: z.string().trim().min(1).max(120),
+  quantity: z.number().int().min(1).max(60),
+  owned: z.number().int().min(0).max(60),
+})
+const deckSectionSchema = z.object({
+  title: z.enum(['Pokémon', 'Trainer', 'Energy', 'Other']),
+  count: z.number().int().min(0).max(60),
+  cards: z.array(deckCardSchema).max(60),
+})
+
+export interface DeckBlock {
+  kind: 'deck'
+  name: string
+  format: string
+  total: number
+  legal: boolean | null
+  issues: string[]
+  owned: number
+  missingCostUsd: number | null
+  sections: Array<{
+    title: 'Pokémon' | 'Trainer' | 'Energy' | 'Other'
+    count: number
+    cards: Array<{ id: string; name: string; quantity: number; owned: number }>
+  }>
+  ptcgl: string
+}
 
 /**
  * The fields every block may carry, minus the two that nest.
@@ -177,6 +207,15 @@ const blockSchema = leafBlockSchema.extend({
     .max(GROUP_MAX_PER_COLUMN)
     .optional()
     .describe('group only: the blocks in the right column. A group cannot contain another group.'),
+  name: z.string().trim().max(80).optional(),
+  format: z.string().trim().max(24).optional(),
+  total: z.number().int().min(0).max(3600).optional(),
+  legal: z.boolean().nullable().optional(),
+  issues: z.array(z.string().trim().max(240)).max(60).optional(),
+  owned: z.number().int().min(0).max(3600).optional(),
+  missingCostUsd: z.number().min(0).nullable().optional(),
+  sections: z.array(deckSectionSchema).max(4).optional(),
+  ptcgl: z.string().trim().max(20_000).optional(),
 })
 
 export type ScreenBlock = z.infer<typeof blockSchema>
@@ -298,6 +337,17 @@ export function validateBlock(b: ScreenBlock): string | null {
       }
       return null
     }
+    case 'deck': {
+      const deck = b as ScreenBlock & Partial<DeckBlock>
+      if (!deck.name || !deck.format || typeof deck.total !== 'number' || deck.legal === undefined ||
+          !deck.issues || typeof deck.owned !== 'number' || deck.missingCostUsd === undefined ||
+          !deck.sections || deck.ptcgl === undefined) return 'deck needs its complete checked result'
+      if (new Set(deck.sections.map((section) => section.title)).size !== deck.sections.length) {
+        return 'deck sections must have unique titles'
+      }
+      const distinct = new Set(deck.sections.flatMap((section) => section.cards.map((card) => card.id))).size
+      return distinct <= 60 ? null : 'deck has more than 60 distinct cards'
+    }
     default:
       return `unknown block "${String((b as { kind?: string }).kind)}"`
   }
@@ -350,6 +400,7 @@ function normalizeBlock(b: ScreenBlock): ScreenBlock {
 /** Every card id this block would put on screen, one level of nesting included. */
 function cardCount(b: ScreenBlock): number {
   if (b.kind === 'cardGrid') return b.cards?.length ?? 0
+  if (b.kind === 'deck') return new Set((b.sections ?? []).flatMap((section) => section.cards.map((card) => card.id))).size
   if (b.kind !== 'group') return 0
   return [...(b.left ?? []), ...(b.right ?? [])].reduce(
     (n, inner) => n + (inner.kind === 'cardGrid' ? (inner.cards?.length ?? 0) : 0),
@@ -379,7 +430,13 @@ export function sanitizeScreen(
   const dropped: string[] = []
   const blocks: ScreenBlock[] = []
   let cardsSpent = 0
-  screen.blocks.forEach((raw, i) => {
+  const deckIndex = screen.blocks.findIndex((block) => block.kind === 'deck')
+  const candidates = deckIndex >= 0 ? [screen.blocks[deckIndex]!] : screen.blocks
+  if (deckIndex >= 0 && screen.blocks.length > 1) {
+    dropped.push('a deck block must be the only block on its screen; removed the other blocks')
+  }
+  candidates.forEach((raw, candidateIndex) => {
+    const i = deckIndex >= 0 ? deckIndex : candidateIndex
     const b = normalizeBlock(raw)
     const bad = validateBlock(b)
     if (bad) {
@@ -406,6 +463,25 @@ export function sanitizeScreen(
         b.cards = kept
         if (b.quantities) b.quantities = keptIdx.map(([, j]) => b.quantities?.[j] ?? 1)
       }
+    }
+    if (b.kind === 'deck' && b.sections) {
+      const removed: string[] = []
+      b.sections = b.sections.map((section) => {
+        const ids = section.cards.map((card) => card.id)
+        const { kept, invented } = partitionCards(ids, grounding)
+        removed.push(...invented)
+        const cards = section.cards.filter((card) => kept.includes(card.id)).map((card) => ({
+          ...card,
+          id: card.id.trim(),
+          name: card.name.trim(),
+        }))
+        return { ...section, count: cards.reduce((sum, card) => sum + card.quantity, 0), cards }
+      }).filter((section) => section.cards.length > 0)
+      if (removed.length) dropped.push(`blocks[${i}]: removed ${removed.length} card id(s) no tool returned this turn (${removed.slice(0, 5).join(', ')}) — look them up before showing them`)
+      b.name = b.name?.trim()
+      b.format = b.format?.trim()
+      b.issues = b.issues?.slice(0, 6).map((issue) => issue.trim())
+      b.ptcgl = b.ptcgl?.trim()
     }
     const cards = cardCount(b)
     if (cardsSpent + cards > SCREEN_CARD_BUDGET) {

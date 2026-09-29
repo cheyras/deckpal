@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkResearchQuery, MAX_QUERY } from '../researchQuery.js';
+import { checkResearchQuery, MAX_PURPOSE, MAX_QUERY, normalizeResearchPurpose } from '../researchQuery.js';
 
 const ok = (q: string, name?: string) => {
   const v = checkResearchQuery(q, name);
@@ -84,4 +84,12 @@ test('the refusal says WHY, because the model has to explain it', () => {
   const why = no('What is my collection worth?');
   assert.ok(why.length > 10, 'a reason nobody can read is not a reason');
   assert.match(why, /never leaves DeckPal/);
+});
+
+test('purpose is trimmed, derived from query when absent, and capped', () => {
+  assert.equal(normalizeResearchPurpose('  Dragapult   tournament results ', 'ignored'), 'Dragapult tournament results');
+  assert.equal(normalizeResearchPurpose(undefined, '  current   Standard meta '), 'current Standard meta');
+  const capped = normalizeResearchPurpose('x'.repeat(100), 'ignored');
+  assert.equal(capped.length, MAX_PURPOSE);
+  assert.ok(capped.endsWith('…'));
 });

@@ -16,7 +16,7 @@ const fresh = (over: Partial<BeatContext> = {}): BeatContext => ({
 
 test('a call that finished is a beat — the "something changed" moment', () => {
   const beat = beatForChip({ phase: 'ok' }, fresh())
-  assert.deepEqual(beat, { state: 'nod_yes', mode: 'once' })
+  assert.deepEqual(beat, { state: 'nod_yes', mode: 'once', then: 'thinking' })
 })
 
 test('a progress note landing is a beat — his "little responses in between"', () => {
@@ -83,6 +83,10 @@ test('the beat is `once`, never sustained', () => {
   // beat leaves him holding a nod, which is not a nod.
   const beat = beatForChip({ phase: 'ok' }, fresh())
   assert.equal(beat?.mode, 'once')
+})
+
+test('the compatibility beat resumes work instead of dropping to idle', () => {
+  assert.equal(beatForChip({ phase: 'ok' }, fresh({ workingState: 'loading' }))?.then, 'loading')
 })
 
 test('the thinking beat is a DIFFERENT gesture from the answer-arriving beat', () => {

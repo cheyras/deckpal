@@ -19,7 +19,7 @@ import { currentUserId } from '../identity.js';
  * "did this get worse, and when". The second is the demanding one, and it is
  * why every turn carries a build stamp and every tool call carries the PHASE it
  * finished in rather than just its name — `ok`, `partial`, `error`, `declined`.
- * "When did `plan_deck` start coming back `error`" is the question, and it is a
+ * "When did `web_research` start coming back `error`" is the question, and it is a
  * query rather than a reading exercise.
  *
  * ══════════════════════════════════════════════════════════════════════════════
@@ -104,6 +104,12 @@ export function seqFrom(v: unknown): number | null {
 /** The chip phases a row may carry. Anything else is recorded as `unknown`. */
 const PHASES = new Set(['start', 'progress', 'ok', 'partial', 'error', 'declined']);
 
+/** Legacy research rows keep their stored name but use the current reader-facing label. */
+function toolTitle(name: string, raw: unknown): string {
+  if (name === 'web_research' || name === 'research_meta') return 'Research the web';
+  return (str(raw) ?? '').slice(0, 200);
+}
+
 export interface ToolRecord {
   name: string;
   phase: string;
@@ -170,7 +176,7 @@ function shapeArgs(v: unknown): Record<string, unknown> | undefined {
  * Normalise the tools a client sent.
  *
  * SHAPED, not trusted. The jsonb column's whole value is that a regression hunt
- * can query it — `tools @> '[{"name":"plan_deck"}]'` — and that only works if
+ * can query it — `tools @> '[{"name":"web_research"}]'` — and that only works if
  * every row has the same keys with the same meanings. A free-form blob would be
  * a column nobody can ask a question of.
  */
@@ -186,7 +192,7 @@ export function shapeTools(input: unknown): ToolRecord[] {
     out.push({
       name,
       phase: PHASES.has(phase) ? phase : 'unknown',
-      title: (str(t?.title) ?? '').slice(0, 200),
+      title: toolTitle(name, t?.title),
       summary: (str(t?.summary) ?? '').slice(0, 500),
       // Spread, so a tool with no arguments has no `args` KEY rather than a
       // null one — `args IS NULL` and "no args key" read differently in a jsonb

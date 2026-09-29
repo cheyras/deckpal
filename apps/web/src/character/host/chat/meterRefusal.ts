@@ -1,5 +1,5 @@
 /**
- * A deep call the METER refused, carried to the next leg of the same turn.
+ * A metered call the server refused, carried to the next leg of the same turn.
  *
  * ── WHY THE BROWSER HAS TO DO THIS ──────────────────────────────────────────
  *
@@ -10,14 +10,15 @@
  * `failureParts` replays `output-error`, and the SDK's `tool-output-available`
  * chunk was matched by nothing at all in `streamLeg`.
  *
- * So a guide refused on leg 2 left no trace on leg 3's request, and the next
- * leg raised a second approval card for the identical work and charged the same
- * spent cap again. The server-side ledger was correct and never got its seed.
+ * So a research call refused on leg 2 left no trace on leg 3's request, and the
+ * next leg tried identical work against the same empty balance. The server-side
+ * ledger was correct and never got its seed.
  *
  * ── WHAT IS CARRIED, AND WHAT IS NOT ────────────────────────────────────────
  *
  * Only refusals, and only ones the SERVER wrote: the output must match the
- * anchored `[[NO_WORK]] REFUSED [meter:…]` marker `decke/deepOutcome.ts` emits.
+ * anchored `[[NO_WORK]] NOT RUN [meter:…]` marker the server emits. Legacy
+ * `REFUSED` results remain valid because they can still be replayed.
  * Model prose cannot mint one — it never reaches this function, which reads
  * `tool-output-available` chunks and nothing else — so no sentence he writes
  * can suppress work the meter would have allowed.
@@ -36,11 +37,10 @@
 /**
  * The marker, anchored at the start of the result.
  *
- * MIRRORS `SCOPE_RE` in `apps/api/src/decke/deepOutcome.ts`. Change one, change
- * both — `meterRefusal.test.ts` pins this pattern against a refusal string
- * built by hand from that module's own format.
+ * MIRRORS `SCOPE_RE` in `apps/api/src/decke/deepOutcome.ts`, plus the legacy
+ * spelling retained for replay. Change one, change both.
  */
-const METER_MARKER = /^\[\[NO_WORK\]\] REFUSED \[meter:(cap|hold|credits)\]/
+const METER_MARKER = /^\[\[NO_WORK\]\] (?:NOT RUN|REFUSED) \[meter:(cap|hold|credits)\]/
 
 /** How many refusals one leg may carry forward. A turn cannot spend more. */
 export const MAX_REPLAYED_REFUSALS = 4

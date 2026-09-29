@@ -60,7 +60,7 @@ export function pricesFor(policy: CreditPolicy) {
   };
 }
 export function operationFor(tool: string): 'chatTurn' | 'analysis' | 'planDeck' {
-  return tool === 'chat_turn' ? 'chatTurn' : ['analyze_collection', 'research_meta'].includes(tool) ? 'analysis' : 'planDeck';
+  return tool === 'chat_turn' ? 'chatTurn' : ['web_research', 'research_meta'].includes(tool) ? 'analysis' : 'planDeck';
 }
 export function attemptKey(value: unknown): string {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(value)) throw badRequest('idempotencyKey must contain 8–100 letters, digits, underscores or hyphens');

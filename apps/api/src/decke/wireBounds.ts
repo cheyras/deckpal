@@ -42,13 +42,11 @@ import { z } from 'zod';
  * The largest request body `/api/chat` reads. Past this it answers 413 without
  * parsing.
  *
- * Sized from the largest HONEST body, not the typical one: a pasted battle log
- * (50,000 characters, `add_battle_log`'s own ceiling), a strategy guide held for
- * approval in the same turn (40,000), and the full prior window below — about
- * 155,000 characters, or ~170 KB of JSON. 256 KB leaves room for escaping and
- * multi-byte text without letting a body buy a materially larger turn.
+ * A full 160k prior window plus a 24-step turn of 12k tool results and a 60k
+ * reader part is about 508k characters. Two MiB covers four-byte UTF-8 and JSON
+ * framing while keeping the pre-meter bound.
  */
-export const BODY_MAX_BYTES = 256 * 1024;
+export const BODY_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Messages one request may carry at all. The window below is much smaller. */
 export const MESSAGES_MAX = 200;
@@ -65,7 +63,7 @@ export const PARTS_MAX = 80;
 export const PART_MAX_CHARS = 60_000;
 
 /** Prior messages (before the reader's current one) the model is shown. */
-export const WINDOW_MESSAGES = 24;
+export const WINDOW_MESSAGES = 40;
 
 /**
  * Characters of prior history the model is shown, about 16k tokens.
@@ -76,7 +74,10 @@ export const WINDOW_MESSAGES = 24;
  * smaller than one pasted log would drop it — the next request would carry no
  * log and `extractPastedLog` would have nothing to find.
  */
-export const WINDOW_PRIOR_CHARS = 64_000;
+export const WINDOW_PRIOR_CHARS = 160_000;
+
+/** All messages from the latest reader message through the approval leg. */
+export const CURRENT_TURN_MAX_CHARS = 240_000;
 
 /** The page path and each landmark string go into the system prompt. */
 export const ROUTE_MAX = 200;
@@ -153,6 +154,20 @@ export function validateWire(messages: unknown): WireVerdict {
     if (!parsed.data.some((m) => m.role === 'user')) {
       return { ok: false, status: 400, code: 'invalid_conversation', error: 'messages must include the reader’s own message' };
     }
+    let current = parsed.data.length - 1;
+    while (current >= 0 && parsed.data[current]!.role !== 'user') current--;
+    const currentChars = parsed.data.slice(current).reduce(
+      (sum, message) => sum + message.parts.reduce((partSum, part) => partSum + partChars(part), 0),
+      0,
+    );
+    if (currentChars > CURRENT_TURN_MAX_CHARS) {
+      return {
+        ok: false,
+        status: 413,
+        code: 'current_turn_too_long',
+        error: 'This turn is too long for Deck-E to read. Send a new message to continue.',
+      };
+    }
     return { ok: true, messages: parsed.data };
   }
   const tooBig = parsed.error.issues.find((i) => i.code === 'too_big');
@@ -171,7 +186,7 @@ export function validateWire(messages: unknown): WireVerdict {
  * What the model is shown: the reader's current turn whole, plus as much
  * recent history as fits.
  *
- * THE CURRENT TURN IS NEVER CUT. It is the reader's latest message and every
+ * THE CURRENT TURN IS NEVER CUT after validation bounds it. It is the reader's latest message and every
  * leg after it, and the approval round trip lives at its very end — the SDK's
  * `collectToolApprovals` reads the final parts of the final message, so a
  * window that clipped the turn would silently drop a signed approval.
@@ -208,13 +223,9 @@ export function windowForModel<T extends { role: string; parts: unknown[] }>(
 export const EVIDENCE_MAX = 24;
 
 /**
- * Evidence for the conversation-wide LEDGERS from replies the browser's window
- * dropped: their replayed failures and their lookup record, nothing else.
- *
- * The failing-tool breaker (`failing.ts`) and the already-told record
- * (`toldAlready.ts`) span the whole conversation, and they read exactly those
- * two things. Without this, a tool that failed in two turns and then scrolled
- * out of the window would have its breaker quietly re-closed.
+ * Evidence for the conversation-wide failing-tool ledger from replies the
+ * browser's window dropped. Lookup records remain accepted during rollout, but
+ * full recent outputs now make the old already-told injection unnecessary.
  *
  * ADVISORY, so it fails soft: anything that is not that shape makes the whole
  * field empty rather than failing the request. It never reaches the model —

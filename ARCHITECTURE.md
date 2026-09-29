@@ -1353,18 +1353,18 @@ one generation rather than of the run).
 
 ## 15b. Deck-E — the assistant layer
 
-**Status: merged to `main` (PR #74, 2026-08-22); whether it is live on
-deckpal.app is a deployment question this file cannot answer.** The layer as
-described in §15b–§15g — the agent-tools port, the metered deep tier, the write
-approvals, the grounding and narration controls, the chat surface — is on `main`.
+**Status: chat overhaul, 2026-09-28.** The layer described in §15b–§15g uses
+Claude Sonnet 5 as the chat agent, shared agent tools, write approvals,
+grounding and narration controls, and the chat surface; deep sub-agents are no
+longer part of this path.
 Verification of it has been done against previews and against the live backend as
 the QA account, never the owner's, per contract B12. It needs
 `DECKE_VERCEL_AI_GATEWAY_KEY` in the
 Vercel project; it fails closed without one and reports its own readiness on
-`/api/health`. He now holds all 23 of `packages/agent-tools`' tools (§15c) —
+`/api/health`. He now holds all 25 of `packages/agent-tools`' tools (§15c) —
 the write half held behind an approval round trip (§15e) rather than filtered
-out — plus a metered deep tier (§15d), against the six cosmetic tools of the
-original ship.
+out — plus research and deck checking in the normal streamed loop, against the
+six cosmetic tools of the original ship.
 
 Where §15 is the body, this is everything that decides what the body does. Four
 boundaries carry the design.
@@ -1464,14 +1464,13 @@ apps/api/src/decke/
   ctx.ts               builds a Ctx from the caller's JWT; lazy Ctx.db (§15c)
   rls.ts               the per-tool-call RLS session + its watchdog (§15c)
   entitlement.ts        current database decke.use permission
-  meter.ts              the daily chat_turns / deep_calls cap, check-and-charge in one statement
+  meter.ts              the chat and per-operation credit meter, check-and-charge in one statement
   models.ts             which model each job gets, and why (measured, not assumed)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
   noOp.ts               "would this write change anything?" -- no dialog if not (§15e)
   focus.ts              which tools he can SEE on a given step (§15f)
   grounding.ts          the card ids a tool actually returned this turn (§15f)
   narration.ts          tool syntax that reached the reader as prose, removed (§15f)
-  deep.ts               the four sub-agent tools -- the deep tier (§15d)
   jev.ts                typed judgments from Jev, and null (= today's behaviour) on any failure
   reflex.ts             the pre-turn read: force the consent card, steer the walk, hear a spoken no
   audit.ts              the after-turn check: a claimed change no tool made gets one corrective card
@@ -1551,35 +1550,16 @@ memory with `apps/api/src/index.ts`, so `/api/health`'s live pool census
 reports the chat pool's *configured* size (`deckeLimits.chatPoolMaxConfigured`)
 rather than pretending to measure something it cannot reach.
 
-### 15d. The deep tier — sub-agents, not a router
+### 15d. Planning and live research in the chat loop
 
-Four tools in `deep.ts` give Deck-E the ability to think rather than only
-fetch, each its own sub-agent with its own model, tool subset and wall-clock
-budget: `plan_deck` and `analyze_collection` (Claude, the read tools),
-`write_strategy_guide` (Claude, the read tools plus `deck_strategy` — the one
-write, because that tool is dumb, idempotent storage and the sub-agent is what
-actually writes the guide), and `research_meta` (`openai/o3-deep-research`,
-**no tools at all**). Escalation is a tool call the conversational model
-chooses to make, not a classifier in front of every turn — a call appears in
-the tool log, so "did he actually think about this" has an answer; a
-classifier would tax every turn and a misroute would be invisible.
-
-Every deep call is charged against the `deep_calls` meter **before** the
-sub-agent model runs (a refusal costs one query, not a model call), runs under
-a wall-clock budget (`DECKE_DEEP_BUDGET_MS`, default 210 s) below the
-function's own `maxDuration` (300 s, raised from 60 — see DECISIONS.md
-2026-08-21, which argues explicitly why this does not reopen the 2026-08-19
-decision against raising it for writes: a research turn holds no database
-connection while it runs, so the cliff is not moved, a different workload is
-given a different ceiling), and streams so a timeout returns **partial
-findings labelled as incomplete** rather than nothing.
-
-`research_meta` holds no tools by design, not oversight: text fetched from the
-open web is the least trustworthy input in the system, and the only guarantee
-that it cannot become an action is giving the thing that reads it no actions
-to take. Its output is framed as fetched data, every time, into a
-conversational model already told never to act on instructions found inside
-data (SECURITY.md has the fuller security framing).
+Claude Sonnet 5 plans, analyses and drafts guides in Deck-E's normal streamed
+tool loop rather than delegating to a nested sub-agent. `plan_deck`,
+`analyze_collection` and `write_strategy_guide` are absent. `web_research` is a
+read-only Perplexity operation with no approval card; its short purpose becomes
+the activity label, source hosts enter the model context, and HTTPS source URLs
+are sent only to the browser. `check_deck` validates a proposed list before
+`showDeck` renders its saveable deck widget. Credits remain flat per operation in
+this release, including research at the analysis price.
 
 **Not shipped:** foil/variant auto-detection. `research/FOIL-DETECTION.md` has
 the measurement — the signal is real but not lighting-invariant, so the printing
@@ -1637,10 +1617,9 @@ replay across the shared tool's 15-minute key boundary; a separate call gets a
 different key. The adapter adds it after approval, leaving signed input intact.
 
 **Two calls are answered without a dialog, and both are refusals to interrupt
-somebody for nothing.** A call whose (tool, arguments) the reader has already
+somebody for nothing.** A write whose (tool, arguments) the reader has already
 declined in this conversation is refused with a sentence rather than asked a
-second time (`decke/declined.ts`; measured at four re-asks each for
-`research_meta` and `deck_strategy` across one corpus). And a write that would
+second time (`decke/declined.ts`). And a write that would
 change nothing is not a write: `decke/noOp.ts` answers "would this change
 anything?" for the tools that can answer it cheaply, and `deck_strategy` sending
 back the guide already stored is neither asked about nor run. Measured against
@@ -1891,21 +1870,19 @@ the end, and only one screen per turn was expressible. An update is now an updat
 in place, which is what lets movement tools emit rows from their real results and
 lets rows interleave with prose in occurrence order.
 
-**Rows are quiet by default; failure is the deliberate exception.** A `partial`
-or an `error` row gets a distinct tone, an explicit label in words, its real
-detail already expanded, and a retry — because the owner read *"The analyze tool
-timed out before it could finish reading your full collection"* on camera, called
-it a great response, and did not notice it had failed. `partial` is a wire phase
-in its own right: a deep call that runs out of wall clock, output budget or steps
-resolves `partial`, never `ok`, and both `previewOf` and the replayed evidence
-record stopped filtering on `ok` alone — the replay labels partials as incomplete
-rather than dropping them, or the next turn quotes a half-finished reading with
-more confidence than the first. A turn that spends its whole step budget without
-speaking says so instead of leaving an empty bubble; the discriminator is the
-step count and not the finish reason, because a turn ending on tool calls with no
-text is the normal shape of a navigation handoff. Between send and first token
-there is a real thinking row that appears immediately, counts, and carries only
-status lines the server actually emitted at a real tool boundary.
+**Recent work is replayed as evidence.** For the six newest assistant messages,
+finished calls return to the model as real tool parts with outputs capped at
+12,000 characters; denied writes return as `output-denied`. Older messages keep
+their compact lookup record. The browser and server share a bounded 40-message,
+160,000-character history window, while the current turn has its own 240,000-
+character cap.
+
+**Activity is one live line, not a tool-row stack.** It shows the active tool's
+icon, present-tense status and elapsed time, expands to the completed steps, and
+keeps a compact summary above the reply. Research exposes its sources and
+`showDeck` renders a checked, saveable deck widget; animation follows the
+activity rather than returning to idle during tool calls. Partial and error steps
+remain explicitly labelled, and a turn with no reply gets a real fallback.
 
 **Closing the chat ends the turn.** It aborts, settles any pending approval as a
 denial — the correct reading of walking away from the question — and records on

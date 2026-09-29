@@ -18,6 +18,7 @@ import {
   COMPACT_CARDS,
   compactPlan,
   expandLabel,
+  isDeckOnlyScreen,
   showingLabel,
 } from '../screenCompact'
 import type { Block } from '../DeckeScreen'
@@ -115,6 +116,30 @@ test('a grid caption appears only when the grid is actually cut', () => {
   assert.equal(showingLabel(6, 24), 'Showing 6 of 24')
   assert.equal(showingLabel(6, 6), null)
   assert.equal(showingLabel(0, 0), null)
+})
+
+test('a screen containing a deck leaves compaction to the deck widget', () => {
+  const deck: Block = {
+    kind: 'deck',
+    sections: [
+      { title: 'Pokémon', count: 20, cards: Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, name: `P${i}`, quantity: 1, owned: 0 })) },
+      { title: 'Trainer', count: 30, cards: Array.from({ length: 30 }, (_, i) => ({ id: `t${i}`, name: `T${i}`, quantity: 1, owned: 0 })) },
+      { title: 'Energy', count: 10, cards: Array.from({ length: 10 }, (_, i) => ({ id: `e${i}`, name: `E${i}`, quantity: 1, owned: 0 })) },
+    ],
+  }
+  const plan = compactPlan(screen(deck))
+  assert.equal(plan.totalCards, 60)
+  assert.equal(plan.shownCards, 60)
+  assert.equal(plan.compactable, false)
+  assert.equal(expandLabel(plan), '')
+  assert.equal(compactPlan(screen(deck, ...Array.from({ length: 6 }, (_, i) => text(`${i}`)))).compactable, false)
+})
+
+test('only a lone deck block renders without the surrounding screen frame and title', () => {
+  const deck: Block = { kind: 'deck', name: 'Dragapult' }
+  assert.equal(isDeckOnlyScreen(screen(deck)), true)
+  assert.equal(isDeckOnlyScreen(screen(deck, text('extra context'))), false)
+  assert.equal(isDeckOnlyScreen(screen(text('not a deck'))), false)
 })
 
 test('an empty or malformed spec does not invent anything', () => {

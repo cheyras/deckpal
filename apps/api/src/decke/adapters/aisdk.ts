@@ -119,9 +119,9 @@ import {
  * exists to prevent.
  */
 export type ToolEvent =
-  | { phase: 'start'; id: string; name: string; title: string; args?: Record<string, unknown> }
-  | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number }
-  | { phase: 'ok'; id: string; name: string; title: string; summary: string }
+  | { phase: 'start'; id: string; name: string; title: string; args?: Record<string, unknown>; label?: string }
+  | { phase: 'progress'; id: string; name: string; title: string; note: string; step?: number; label?: string; sources?: Array<{ url: string; title: string; host: string }> }
+  | { phase: 'ok'; id: string; name: string; title: string; summary: string; label?: string; sources?: Array<{ url: string; title: string; host: string }> }
   | {
       phase: 'partial';
       id: string;
@@ -129,8 +129,10 @@ export type ToolEvent =
       title: string;
       summary: string;
       reason: 'timeout' | 'truncated';
+      label?: string;
+      sources?: Array<{ url: string; title: string; host: string }>;
     }
-  | { phase: 'error'; id: string; name: string; title: string; summary: string }
+  | { phase: 'error'; id: string; name: string; title: string; summary: string; label?: string }
   /**
    * The reader already refused this exact call earlier in the conversation, so
    * it was neither run nor asked about again. See `declined.ts`.
@@ -141,7 +143,7 @@ export type ToolEvent =
    * without a dialog, so a reader scanning their history sees one kind of row
    * for "this did not happen because I said no", however it was decided.
    */
-  | { phase: 'declined'; id: string; name: string; title: string; summary: string; args?: Record<string, unknown> };
+  | { phase: 'declined'; id: string; name: string; title: string; summary: string; args?: Record<string, unknown>; label?: string };
 
 /**
  * One printing a row could mean, for the picker on the approval card.
@@ -740,6 +742,20 @@ export function safeToolError(err: unknown): string {
     return `it failed with ${code}`
   }
   return 'it failed'
+}
+
+/**
+ * Replace the API's deliberately opaque 500 text with something the reader can
+ * act on, while keeping the tool name that tells the model what actually
+ * failed. The Express boundary is right to hide its exception; repeating
+ * "Internal server error" here merely turns that safety measure into a useless
+ * conversational dead end.
+ */
+export function usefulToolFailure(name: string, text: string): string {
+  if (/^(?:[^:\n]+ failed:\s*)?Internal server error\.?$/i.test(text.trim())) {
+    return `${name} failed: DeckPal's data service had a temporary problem; try again.`
+  }
+  return text
 }
 
 /**
@@ -1442,7 +1458,10 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // required there.
           const runOnce = async (): Promise<{ text: string; failed: boolean }> => {
             const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(runEffective, ctx));
-            const text = clampToolText(result.text, maxChars);
+            const visible = result.isError
+              ? usefulToolFailure(def.name, result.text)
+              : result.text;
+            const text = clampToolText(visible, maxChars);
             // BEFORE the clamp would have been wrong: an id cut off by the
             // ceiling is an id the model never saw, and grounding it would let
             // a half-read page license a full grid. Observe exactly what he
@@ -1456,7 +1475,9 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
               // lead-in whose whole job is to introduce the candidates — the
               // reader saw "The closest is:" and nothing after it. See
               // `summariseError`.
-              summary: result.isError ? summariseError(result) : summarise(result),
+              summary: result.isError
+                ? summariseError({ ...result, text })
+                : summarise({ ...result, text }),
             });
             return { text, failed: result.isError === true };
           };
@@ -1520,8 +1541,9 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // model's context, and it should read like something that happened
           // rather than like a serialised exception.
           const message = safeToolError(err);
-          opts.onEvent?.({ phase: 'error', ...chip, summary: message });
-          return `That did not work: ${message}`;
+          const failure = `${def.name} failed: ${message}`;
+          opts.onEvent?.({ phase: 'error', ...chip, summary: failure });
+          return failure;
         }
       },
     });
@@ -1581,8 +1603,9 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           return clampToolText(result.text, maxChars);
         } catch (err) {
           const message = safeToolError(err);
-          opts.onEvent?.({ phase: 'error', ...chip, summary: message });
-          return `That did not work: ${message}`;
+          const failure = `${PREVIEW_CARD_CHANGES} failed: ${message}`;
+          opts.onEvent?.({ phase: 'error', ...chip, summary: failure });
+          return failure;
         }
       },
     } as never;

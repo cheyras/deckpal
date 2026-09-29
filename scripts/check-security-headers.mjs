@@ -130,7 +130,7 @@ const paymentSources = {
   'script-src': ['https://js.stripe.com', 'https://*.js.stripe.com'],
   'frame-src': ['https://js.stripe.com', 'https://*.js.stripe.com', 'https://hooks.stripe.com', 'https://link.com', 'https://*.link.com'],
   'connect-src': ['https://api.stripe.com', 'https://link.com', 'https://*.link.com'],
-  'img-src': ['https://*.link.com'],
+  'img-src': ['https://*.link.com', 'https://icons.duckduckgo.com'],
 }
 for (const [directive, sources] of Object.entries(paymentSources)) {
   const allowed = new Set((generalCsp[directive] ?? '').split(/\s+/))

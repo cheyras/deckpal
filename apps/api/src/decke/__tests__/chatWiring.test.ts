@@ -113,12 +113,8 @@ test('the failing-tool ledger is rebuilt per request and handed to the data tool
   assert.doesNotMatch(CODE, /readerAsksRetry\((?!latestUserText)/);
 });
 
-test('the already-told ledger is rebuilt per request and handed to the data tools', () => {
-  // Same source, lifetime and argument as `failing` above — and the same
-  // defect class if unthreaded: `toldAlready.ts` with no caller is a green
-  // suite annotating nothing.
-  assert.match(CODE, /const told = priorSummaries\(\[\.\.\.evidence, \.\.\.messages\]\)/);
-  assert.match(CODE, /priorSummaries: told,/);
+test('the redundant already-told injection is not wired into chat', () => {
+  assert.doesNotMatch(CODE, /priorSummaries|const told\b/);
 });
 
 test('chat sends correlation into the server acceptance boundary before metering and model work', () => {
@@ -196,7 +192,7 @@ test('dropped replies\' evidence reaches the two ledgers and never the model', (
   // Read by the two ledgers and nothing else — in particular never spread into
   // what the model is shown.
   const reads = CODE.match(/\.\.\.evidence\b/g) ?? [];
-  assert.equal(reads.length, 2, `evidence is read ${reads.length} times; it belongs to the two ledgers only`);
+  assert.equal(reads.length, 1, `evidence is read ${reads.length} times; only the failing ledger needs it`);
   assert.doesNotMatch(CODE, /windowForModel\([^)]*evidence/);
 });
 
@@ -227,15 +223,16 @@ test('the reflex read runs after the meter, from the built module, with the turn
   assert.ok(read < CODE.indexOf('model: observeUsageModel('), 'the reflex read runs after the model starts');
 });
 
-test('a spoken refusal reaches the declined ledger', () => {
-  assert.match(CODE, /const declined = declinedCalls\(messages, latestUserText\(messages\), reflex\.declines\)/);
+test('only replayed approval denials reach the declined ledger', () => {
+  assert.match(CODE, /const declined = declinedCalls\(messages\)/);
+  assert.doesNotMatch(CODE, /reflex\.declines/);
 });
 
 test('a read collection change forces the first step, and only the first step', () => {
   assert.match(
     CODE,
-    /\.\.\.\(stepNumber === 0 && reflex\.force \? \{ toolChoice: \{ type: 'tool', toolName: reflex\.force \} \} : \{\}\)/,
-    'prepareStep no longer forces the reflex tool on step one',
+    /stepNumber === 0 && reflex\.force[\s\S]*toolChoice: isAnthropic\(choice\) \? 'auto' : \{ type: 'tool', toolName: reflex\.force \}/,
+    'prepareStep no longer keeps Anthropic adaptive while forcing other providers',
   );
 });
 
@@ -260,14 +257,32 @@ test('only a correctable phantom within the step budget gets a corrective leg; t
   assert.match(CODE, /\} else if \(phantoms\.length > 0 \|\| audit\?\.phantom\) \{/);
 });
 
-test('the corrective leg pins the card, keeps the signature and the prompt prefix, and takes one step', () => {
+test('the corrective leg keeps Anthropic adaptive, the signature and the prompt prefix, and takes one step', () => {
   const leg = CODE.slice(CODE.indexOf('if (corrective) {'))
   assert.match(SRC, /buildDataTools, correctiveApplyTools, dataToolSummary/)
   assert.match(leg, /tools: correctiveApplyTools\(allDeckeTools, corrective\)/)
-  assert.match(leg, /toolChoice: \{ type: 'tool', toolName: corrective \}/);
+  assert.match(leg, /toolChoice: isAnthropic\(choice\) \? 'auto' : \{ type: 'tool', toolName: corrective \}/);
   assert.match(leg, /stopWhen: stepCountIs\(1\)/);
   assert.match(leg, /experimental_toolApprovalSecret: process\.env\.DECKE_APPROVAL_SECRET/);
-  assert.match(leg, /instructions: `\$\{systemPrompt\}\\n\\n\$\{correctiveInstruction\(corrective\)\}`/);
+  assert.match(leg, /instructions: cachedInstructions\(choice, `\$\{systemPrompt\}\\n\\n\$\{correctiveInstruction\(corrective\)\}`\)/);
   assert.match(leg, /model: observeUsageModel\(gateway\(choice\.id\), meter\)/, 'the leg must be metered like any step');
-  assert.match(CODE, /instructions: systemPrompt,/, 'the turn and the correction no longer share one prompt');
+  assert.match(CODE, /instructions: cachedInstructions\(choice, systemPrompt\),/, 'the turn and correction lost the cached prompt');
+});
+
+test('both chat model calls pass the configured fallback through Gateway routing', () => {
+  assert.match(CODE, /function chatProviderOptions\(choice\)/)
+  assert.match(CODE, /gateway:\s*\{ models:\s*\[choice\.fallback\] \}/)
+  assert.equal((CODE.match(/providerOptions: chatProviderOptions\(choice\)/g) ?? []).length, 2)
+})
+
+test('Anthropic prompt caching, deck checks and the expanded step budget are wired', () => {
+  assert.match(CODE, /const MAX_STEPS = 24/);
+  assert.match(CODE, /providerOptions: ANTHROPIC_CACHE/);
+  assert.match(CODE, /cacheControl: \{ type: 'ephemeral' \}/);
+  // Through apps/api/dist, never '@deckpal/agent-tools' directly: the root
+  // package does not declare it, so the deployed function could not load it.
+  assert.match(CODE, /import \{ checkDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
+  assert.doesNotMatch(CODE, /from '@deckpal\/agent-tools'/);
+  assert.match(CODE, /checkDeck: \(input\) => checkDeck\(toolCtx, input\)/);
+  assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
 });

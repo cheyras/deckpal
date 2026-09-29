@@ -66,6 +66,14 @@ test('THE PANEL IS IN THE RECORD — this is the bug', () => {
   assert.match(rec.text, /do not repeat it in words/)
 })
 
+test('showDeck is recorded like showScreen for legacy chips', () => {
+  const rec = lookupRecord([
+    call({ name: 'showDeck', summary: 'Showed "Dragapult" · 60 cards' }),
+  ])
+  assert.ok(rec)
+  assert.match(rec.text, /showDeck: Showed "Dragapult" · 60 cards/)
+})
+
 test('nothing finished means nothing to replay', () => {
   assert.equal(lookupRecord([]), null)
   // A call still in flight is not evidence that anything was found.

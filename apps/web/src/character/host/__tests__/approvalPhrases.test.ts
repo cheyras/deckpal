@@ -37,7 +37,7 @@ const HOST_SRC = readFileSync(
 const TOOLS_DIR = fileURLToPath(
   new URL('../../../../../../packages/agent-tools/src/tools/', import.meta.url),
 )
-/** The deep tier lives in the API, not in `agent-tools`, and asks too. */
+/** Web research lives in the API, but read-only work must never ask. */
 const DEEP_SRC = fileURLToPath(
   new URL('../../../../../api/src/decke/deep.ts', import.meta.url),
 )
@@ -70,18 +70,14 @@ function writeTools(): string[] {
 }
 
 /**
- * Every DEEP tool, which now needs approval too.
- *
- * They stopped being exempt in this pass: a deep call is a sub-agent with its
- * own model and up to 210 seconds, and under the credit model it is the only
- * thing a reader can run out of. So each one reaches the same dialog and needs
- * the same written sentence — without one, "Let him plan deck?".
+ * Any API-side research tool that asks. The expected list is exactly empty.
  */
 function deepTools(): string[] {
   const src = readFileSync(DEEP_SRC, 'utf8')
-  const found = [...src.matchAll(/name: '([a-z_]+)'/g)].map((m) => m[1])
-  assert.ok(found.length >= 4, `only found ${found.length} deep tools — the scan broke, not the code`)
-  return found
+  assert.match(src, /const name = 'web_research'/, 'the research tool scan broke, not the code')
+  assert.match(src, /needsApproval:\s*\(\)\s*=>\s*false/, 'web research asks for approval')
+  assert.doesNotMatch(src, /needsApproval:\s*\(\)\s*=>\s*true/, 'a read-only API tool asks for approval')
+  return []
 }
 
 /** Everything that can put a consent dialog in front of a reader. */

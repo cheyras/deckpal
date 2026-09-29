@@ -13,24 +13,26 @@
  *
  * ── WHAT IS NEVER TRIMMED ───────────────────────────────────────────────────
  *
- * This is applied to the PRIOR wire only — the turns before the reader's new
- * message. The current turn, its legs and the approval answers at the end of
- * them are appended afterwards and never pass through here, because the SDK
- * collects approvals from the final parts of the final message.
+ * `windowPrior` applies to the turns before the reader's new message.
+ * `fitCurrentTurn` separately compacts old tool outputs between legs while
+ * preserving approval answers at the end, where the SDK collects them.
  *
- * MIRRORS `WINDOW_MESSAGES`, `WINDOW_PRIOR_CHARS`, `PART_MAX_CHARS` and `windowForModel` in
- * `apps/api/src/decke/wireBounds.ts`. Change one, change both —
+ * MIRRORS `WINDOW_MESSAGES`, `WINDOW_PRIOR_CHARS`, `CURRENT_TURN_MAX_CHARS`,
+ * `PART_MAX_CHARS` and `windowForModel` in `apps/api/src/decke/wireBounds.ts`. Change one, change both —
  * `wireBounds.test.ts` there pins the numbers against this file.
  */
 
 import { TOOL_RECORD_PREFIX } from './lookupRecord'
 
 /** Prior messages the model is shown. */
-export const WINDOW_MESSAGES = 24
+export const WINDOW_MESSAGES = 40
 
 /** Characters of prior history the model is shown. Larger than one pasted
  *  battle log, so "yes, log it" on the turn after a paste still carries it. */
-export const WINDOW_PRIOR_CHARS = 64_000
+export const WINDOW_PRIOR_CHARS = 160_000
+
+/** Characters the server accepts from the latest reader message onward. */
+export const CURRENT_TURN_MAX_CHARS = 240_000
 
 /**
  * The largest part the server reads. A message with a part past this was
@@ -129,6 +131,62 @@ function partChars(part: Record<string, unknown>): number {
   } catch {
     return Number.POSITIVE_INFINITY
   }
+}
+
+function outputSummary(part: Record<string, unknown>): string {
+  const raw = typeof part.output === 'string'
+    ? part.output
+    : (JSON.stringify(part.output) ?? String(part.output ?? 'completed'))
+  const line = raw.replace(/\s+/g, ' ').trim()
+  return line.length > 110 ? `${line.slice(0, 109)}…` : (line || 'completed')
+}
+
+/**
+ * Keep an in-progress multi-leg turn below the server's own budget.
+ *
+ * Full results are degraded oldest-first because later legs are more likely to
+ * depend on the newest result. Approval parts are never candidates: the SDK
+ * reads signed answers from the final message and losing one can turn consent
+ * into a silently skipped write.
+ */
+export function fitCurrentTurn<T extends WireLike>(
+  all: readonly T[],
+  opts: {
+    isServerTool: (name: string) => boolean
+    summaryFor?: (toolCallId: string) => string | undefined
+  },
+): T[] {
+  let current = all.length - 1
+  while (current >= 0 && all[current]!.role !== 'user') current--
+  if (current < 0) return [...all]
+
+  const messages = all.map((message) => ({ ...message, parts: [...message.parts] })) as T[]
+  let chars = messages.slice(current).reduce(
+    (sum, message) => sum + message.parts.reduce((partSum, part) => partSum + partChars(part), 0),
+    0,
+  )
+  if (chars <= CURRENT_TURN_MAX_CHARS) return messages
+
+  for (let messageIndex = current + 1; messageIndex < messages.length; messageIndex++) {
+    const message = messages[messageIndex]!
+    for (let partIndex = 0; partIndex < message.parts.length; partIndex++) {
+      if (chars <= CURRENT_TURN_MAX_CHARS) return messages
+      const part = message.parts[partIndex]!
+      const type = typeof part.type === 'string' ? part.type : ''
+      const name = type.startsWith('tool-') ? type.slice('tool-'.length) : ''
+      if (part.state !== 'output-available' || !name || !opts.isServerTool(name)) continue
+
+      const id = typeof part.toolCallId === 'string' ? part.toolCallId : ''
+      const summary = opts.summaryFor?.(id) ?? outputSummary(part)
+      const replacement = {
+        type: 'text',
+        text: `${TOOL_RECORD_PREFIX} you actually ran this, so its result is real]\n${name}: ${summary}`,
+      }
+      chars += partChars(replacement) - partChars(part)
+      message.parts[partIndex] = replacement
+    }
+  }
+  return messages
 }
 
 /**

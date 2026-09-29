@@ -46,11 +46,11 @@
  *    comes off that list, he will size himself against whichever specimen the
  *    document happens to reach first.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChatMarkdown } from '../../character/host/chat/ChatMarkdown'
-import { ThinkingRow } from '../../character/host/chat/ThinkingRow'
-import { ToolRow } from '../../character/host/chat/ToolRow'
-import { toolRowFromChip, type ToolRowData } from '../../character/host/chat/toolRowState'
+import { ActivityLine, type ActivityStep } from '../../character/host/chat/ActivityLine'
+import { SourcesList } from '../../character/host/chat/SourcesList'
+import type { Source } from '../../character/host/chat/sourcesState'
 import { ApprovalCard } from '../../character/host/chat/ApprovalCard'
 import type {
   ApprovalPreview,
@@ -109,109 +109,45 @@ const CARD_IDS = ['me05-013', 'swsh4-44', 'swsh4-25', 'me05-001', 'swsh4-1', 'me
  *  a card the catalogue does not have appears on this page too. */
 const MISSING_ID = 'me05-99999'
 
-const row = (over: Partial<ToolRowData> & Pick<ToolRowData, 'id' | 'name' | 'title' | 'phase'>): ToolRowData => over
+const ACTIVITY_STARTED = Date.now() - 12_000
 
-const TOOL_ROWS: { label: string; note: string; data: ToolRowData }[] = [
-  {
-    label: 'start',
-    note: 'A call that has just been made. Quiet by default (C16) — no chrome.',
-    data: row({ id: '1', name: 'search_cards', title: 'Searched the catalogue', phase: 'start' }),
-  },
-  {
-    label: 'progress',
-    note: 'A long call, carrying a server-composed note from a real tool boundary.',
-    data: row({
-      id: '2',
-      name: 'deck_strategy',
-      title: 'Writing a strategy guide',
-      phase: 'progress',
-      note: 'Reading 60 cards…',
-    }),
-  },
-  {
-    label: 'ok',
-    note: 'Finished. The summary is the first line of the REAL result, never prose.',
-    data: row({
-      id: '3',
-      name: 'set_progress',
-      title: 'Checked set completion',
-      phase: 'ok',
-      summary: 'Pitch Black — 12 of 214',
-    }),
-  },
-  {
-    label: 'partial (timeout)',
-    note: 'Neither success nor failure. Some of it happened; saying otherwise is the lie this pass removed.',
-    data: row({
-      id: '4',
-      name: 'deck_strategy',
-      title: 'Writing a strategy guide',
-      phase: 'partial',
-      reason: 'timeout',
-      summary: 'Timed out after 3 sections',
-    }),
-  },
-  {
-    label: 'partial (truncated)',
-    note: 'A journey that stopped part way. The steps after it did not run and are not claimed.',
-    data: row({
-      id: '5',
-      name: 'journey',
-      title: 'Walked you there',
-      phase: 'partial',
-      reason: 'truncated',
-      summary: 'Stopped at step 3 — that row never appeared',
-    }),
-  },
-  {
-    label: 'error',
-    note: 'The surface the owner once read as a success. Loud, worded, rounded like the rest of the app, and it offers a way back.',
-    data: row({
-      id: '6',
-      name: 'log_cards',
-      title: 'Adding to your collection',
-      phase: 'error',
-      summary: 'That set id does not exist',
-    }),
-  },
-  {
-    label: 'declined',
-    note: 'You pressed "Leave it". It used to draw a CHECK MARK — the phase for a call that succeeded — so a refusal looked like a completed write. Red ✗, and the word.',
-    // THE REAL ID `deny` BUILDS. `toolRowFromChip` recognises the `-declined`
-    // suffix on an `ok` chip; passing a made-up id here would photograph a state
-    // the product cannot reach. See `toolRowState.ts`.
-    data: row({
-      id: 'call_a7f3-declined',
-      name: 'log_cards',
-      title: 'Nothing was written',
-      phase: 'ok',
-      summary: 'You left it, so nothing changed.',
-    }),
-  },
-  {
-    label: 'unknown (replayed)',
-    note: 'Out of the transcript history: the record does not say what happened. A dash, never a tick — a tick is an assertion, and there is nothing here to assert.',
-    data: row({
-      id: '8',
-      name: 'plan_deck',
-      title: 'Building a deck list',
-      phase: 'unknown',
-      summary: 'Recorded before this app knew the phase',
-      recorded: true,
-    }),
-  },
-  {
-    label: 'never finished (replayed)',
-    note: 'A call that was still running when the turn was filed — the panel was closed, or stop was pressed. Live, this row spins forever; in a record it says what actually happened to it.',
-    data: row({
-      id: '9',
-      name: 'collection_summary',
-      title: 'Reading your collection',
-      phase: 'start',
-      recorded: true,
-    }),
-  },
+const RESEARCH_SOURCES: Source[] = [
+  { url: 'https://limitlesstcg.com/tournaments', title: 'Fixture: tournament results', host: 'limitlesstcg.com' },
+  { url: 'https://www.pokemon.com/us/pokemon-tcg', title: 'Fixture: Pokémon TCG news', host: 'pokemon.com' },
+  { url: 'https://bulbapedia.bulbagarden.net/wiki/Dragapult_(TCG)', title: 'Fixture: Dragapult card history', host: 'bulbapedia.bulbagarden.net' },
+  { url: 'https://www.reddit.com/r/pkmntcg/', title: 'Fixture: player discussion', host: 'reddit.com' },
+  { url: 'https://pkmncards.com/', title: 'Fixture: card database', host: 'pkmncards.com' },
+  { url: 'https://www.justinbasil.com/', title: 'Fixture: deck-building guide', host: 'justinbasil.com' },
 ]
+
+const ACTIVITY_STEPS: Record<string, ActivityStep[]> = {
+  collection: [{ id: 'collection', name: 'collection_summary', phase: 'progress' }],
+  research: [{
+    id: 'research',
+    name: 'web_research',
+    phase: 'progress',
+    label: 'Searching: Dragapult ex tournament results',
+    sources: RESEARCH_SOURCES.slice(0, 5),
+  }],
+  finished: [
+    { id: 'collection', name: 'collection_summary', phase: 'ok' },
+    { id: 'catalog', name: 'search_cards', phase: 'ok' },
+    { id: 'prices', name: 'card_price_history', phase: 'ok' },
+    { id: 'check', name: 'check_deck', phase: 'ok' },
+  ],
+  failed: [
+    { id: 'collection', name: 'collection_summary', phase: 'ok' },
+    { id: 'research', name: 'web_research', phase: 'error', label: 'Searching: Dragapult ex tournament results', summary: 'The search service did not answer.' },
+  ],
+  declined: [{ id: 'save', name: 'save_deck', phase: 'declined' }],
+  expanded: [
+    { id: 'collection', name: 'collection_summary', phase: 'ok' },
+    { id: 'catalog', name: 'search_cards', phase: 'ok' },
+    { id: 'research', name: 'web_research', phase: 'ok', label: 'Searching: Dragapult ex tournament results', sources: RESEARCH_SOURCES.slice(0, 5) },
+    { id: 'prices', name: 'card_price_history', phase: 'ok' },
+    { id: 'deck', name: 'check_deck', phase: 'ok' },
+  ],
+}
 
 const MARKDOWN = `Here's what I found in **Pitch Black**.
 
@@ -262,6 +198,97 @@ const SCREEN_LONG: ScreenSpec = {
     { kind: 'statTile', text: 'Set total', value: '26 of 214', tone: 'neutral' },
   ],
 }
+
+const DECK_SCREENS: readonly [ScreenSpec, ScreenSpec, ScreenSpec] = [
+  {
+    title: 'Fixture: mostly-owned 60-card deck',
+    blocks: [{
+      kind: 'deck',
+      name: 'Fixture: Charizard ex',
+      format: 'standard',
+      total: 60,
+      legal: true,
+      owned: 41,
+      missingCostUsd: 12.4,
+      ptcgl: 'Pokémon: 15\nTrainer: 30\nEnergy: 15',
+      sections: [
+        { title: 'Pokémon', count: 15, cards: [
+          { id: 'sv03-125', name: 'Charizard ex', quantity: 3, owned: 3 },
+          { id: 'sv01-040', name: 'Pikachu', quantity: 2, owned: 2 },
+          { id: 'sv01-150', name: 'Pokémon fixture', quantity: 2, owned: 2 },
+          { id: 'sv01-170', name: 'Pokémon fixture', quantity: 2, owned: 1 },
+          { id: 'sv03-009', name: 'Pokémon fixture', quantity: 1, owned: 1 },
+          { id: 'sv04-055', name: 'Dondozo', quantity: 1, owned: 1 },
+          { id: 'sv06-003', name: 'Pokémon fixture', quantity: 2, owned: 2 },
+          { id: 'sv10-004', name: 'Pokémon fixture', quantity: 2, owned: 1 },
+        ] },
+        { title: 'Trainer', count: 30, cards: [
+          { id: 'sv01-191', name: 'Rare Candy', quantity: 4, owned: 4 },
+          { id: 'sv01-196', name: 'Ultra Ball', quantity: 4, owned: 4 },
+          { id: 'sv02-185', name: 'Iono', quantity: 4, owned: 3 },
+          { id: 'sv10-010', name: 'Trainer fixture', quantity: 4, owned: 3 },
+          { id: 'sv10-043', name: 'Trainer fixture', quantity: 4, owned: 3 },
+          { id: 'sv10-047', name: 'Trainer fixture', quantity: 4, owned: 3 },
+          { id: 'sv10-050', name: 'Trainer fixture', quantity: 3, owned: 2 },
+          { id: 'sv10-057', name: 'Trainer fixture', quantity: 3, owned: 1 },
+        ] },
+        { title: 'Energy', count: 15, cards: [
+          { id: 'sv01-190', name: 'Basic Fire Energy', quantity: 8, owned: 8 },
+          { id: 'sv10-070', name: 'Basic Energy fixture', quantity: 7, owned: 0 },
+        ] },
+      ],
+    }],
+  },
+  {
+    title: 'Fixture: list with problems',
+    blocks: [{
+      kind: 'deck',
+      name: 'Fixture: incomplete evolution line',
+      format: 'standard',
+      total: 65,
+      legal: false,
+      owned: 21,
+      missingCostUsd: 29.75,
+      issues: [
+        'This list has 65 cards; Standard decks need exactly 60.',
+        'Rare Candy appears 5 times; the normal copy limit is 4.',
+        'Charizard ex has no Charmeleon or Rare Candy path in this list.',
+        'One card is not legal in Standard.',
+      ],
+      ptcgl: 'Pokémon: 20\nTrainer: 30\nEnergy: 15',
+      sections: [
+        { title: 'Pokémon', count: 20, cards: [
+          { id: 'sv03-125', name: 'Charizard ex', quantity: 4, owned: 2 },
+          { id: 'sv01-040', name: 'Pikachu', quantity: 4, owned: 4 },
+          { id: 'sv04-055', name: 'Dondozo', quantity: 4, owned: 2 },
+        ] },
+        { title: 'Trainer', count: 30, cards: [
+          { id: 'sv01-191', name: 'Rare Candy', quantity: 5, owned: 4 },
+          { id: 'sv01-196', name: 'Ultra Ball', quantity: 4, owned: 3 },
+        ] },
+        { title: 'Energy', count: 15, cards: [{ id: 'sv01-190', name: 'Basic Fire Energy', quantity: 15, owned: 6 }] },
+      ],
+    }],
+  },
+  {
+    title: 'Fixture: unchecked deck',
+    blocks: [{
+      kind: 'deck',
+      name: 'Fixture: first draft',
+      format: 'expanded',
+      total: 12,
+      legal: null,
+      owned: 0,
+      missingCostUsd: null,
+      ptcgl: 'Pokémon: 12',
+      sections: [{ title: 'Pokémon', count: 12, cards: [
+        { id: 'swsh1-1', name: 'Celebi V', quantity: 4, owned: 0 },
+        { id: 'swsh4-44', name: 'Pikachu VMAX', quantity: 4, owned: 0 },
+        { id: 'swsh4-25', name: 'Charizard', quantity: 4, owned: 0 },
+      ] }],
+    }],
+  },
+]
 
 /*
  * THE THREE PRINTINGS STATES, AS THE WIRE NOW PRODUCES THEM.
@@ -563,7 +590,7 @@ const RECORD: DeckeConversation = {
       asked: 'actually plan me a deck around it',
       answered: '',
       tools: [
-        { name: 'plan_deck', phase: 'start', title: 'Building a deck list', summary: '' },
+        { name: 'check_deck', phase: 'start', title: 'Checking a deck list', summary: '' },
         { name: 'deck_strategy', phase: 'weird-phase-from-an-older-build', title: 'Writing a strategy guide', summary: '' },
       ],
       buildPr: 78,
@@ -755,23 +782,26 @@ function Specimen({ label, note, children }: { label: string; note?: string; chi
   )
 }
 
+/** The expanded specimen opens the real disclosure once after mount. */
+function ExpandedSourcesFixture() {
+  const host = useRef<HTMLDivElement>(null)
+  const opened = useRef(false)
+
+  useEffect(() => {
+    if (opened.current) return
+    opened.current = true
+    host.current?.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')?.click()
+  }, [])
+
+  return <div ref={host}><SourcesList sources={RESEARCH_SOURCES} /></div>
+}
+
 export default function ChatUi() {
   const [width, setWidth] = useState<WidthKey>('desktop')
   const [choices, setChoices] = useState<Choices>(new Map())
   // The empty-screen specimens hold a real draft, so the composer on this page
   // grows the way it grows in the product rather than being a picture of one.
   const [draft, setDraft] = useState('')
-  const [started] = useState(() => Date.now() - 8_400)
-  const [, tick] = useState(0)
-
-  // The thinking row counts, and a still page would show it frozen at whatever
-  // it was when this mounted — which is precisely the "caught looking stopped"
-  // failure the row exists to avoid. So the page keeps it alive.
-  useEffect(() => {
-    const t = window.setInterval(() => tick((n) => n + 1), 500)
-    return () => window.clearInterval(t)
-  }, [])
-
   const onChoice = (index: number, choice: RowChoice) =>
     setChoices((prev) => {
       const next = new Map(prev)
@@ -816,37 +846,62 @@ export default function ChatUi() {
         <div className={frame} style={frameStyle}>
           <div className="flex flex-col gap-[36px]">
             <Section
-              id="thinking"
-              title="Thinking"
-              note="Appears the moment a turn starts. It counts, because a counter cannot be caught looking stopped — the owner once sat through 210 seconds of a transcript that showed nothing at all."
+              id="activity"
+              title="Activity line"
+              note="The one live line a reply uses while Deck-E works. Every specimen is fixture data with a pinned start time, so the finished summaries remain photographable."
             >
-              <Specimen label="no labels yet" note="the first instant of a turn">
-                <ThinkingRow startedAt={started} labels={[]} />
+              <Specimen label="thinking" note="before a tool has started">
+                <ActivityLine steps={[]} busy startedAt={ACTIVITY_STARTED} />
               </Specimen>
-              <Specimen label="with status lines" note="truthful lines from real tool boundaries, newest last">
-                <ThinkingRow
-                  startedAt={started}
-                  labels={['Reading your collection', 'Matching 3 printings', 'Checking prices']}
-                />
+              <Specimen label="reading a collection" note="a running read gets its collection icon and live elapsed time">
+                <ActivityLine steps={ACTIVITY_STEPS.collection} busy startedAt={ACTIVITY_STARTED} />
+              </Specimen>
+              <Specimen label="research with sources" note="the server's purpose drives the line; five arriving sources show three favicons and +2">
+                <ActivityLine steps={ACTIVITY_STEPS.research} busy startedAt={ACTIVITY_STARTED} />
+              </Specimen>
+              <Specimen label="waiting for approval" note="work pauses for a write confirmation">
+                <ActivityLine steps={ACTIVITY_STEPS.collection} busy waiting startedAt={ACTIVITY_STARTED} />
+              </Specimen>
+              <Specimen label="finished" note="a completed reply keeps one compact, expandable summary">
+                <ActivityLine steps={ACTIVITY_STEPS.finished} busy={false} startedAt={ACTIVITY_STARTED} />
+              </Specimen>
+              <Specimen label="one step failed" note="the finished line is tinted; expanding exposes the failed boundary and its retry">
+                <ActivityLine steps={ACTIVITY_STEPS.failed} busy={false} startedAt={ACTIVITY_STARTED} defaultOpen onRetryStep={() => {}} />
+              </Specimen>
+              <Specimen label="declined write" note="a declined approval is a truthful completed state, not a successful write">
+                <ActivityLine steps={ACTIVITY_STEPS.declined} busy={false} startedAt={ACTIVITY_STARTED} />
+              </Specimen>
+              <Specimen label="expanded steps" note="five mixed calls in the exact disclosure used by a finished reply">
+                <ActivityLine steps={ACTIVITY_STEPS.expanded} busy={false} startedAt={ACTIVITY_STARTED} defaultOpen />
               </Specimen>
             </Section>
 
             <Section
-              id="tool-rows"
-              title="Tool rows"
-              note="One row per real invocation, in the order the calls actually happened. Quiet by default; loud only when something went wrong."
+              id="sources"
+              title="Sources"
+              note="A finished reply keeps the pages Deck-E read available to the reader. Titles and hosts here are deliberately obvious fixtures on real public hosts."
             >
-              {TOOL_ROWS.map((t) => (
-                <Specimen key={t.data.id} label={t.label} note={t.note}>
-                  <ToolRow data={toolRowFromChip(t.data)} onRetry={() => {}} />
-                </Specimen>
-              ))}
-              <Specimen label="a run of rows" note="how a real turn reads: several calls, one after another">
-                <div className="flex flex-col gap-[2px]">
-                  {TOOL_ROWS.slice(0, 3).map((t) => (
-                    <ToolRow key={t.data.id} data={t.data} />
-                  ))}
-                </div>
+              <Specimen label="collapsed" note="the quiet default after a researched reply">
+                <SourcesList sources={RESEARCH_SOURCES} />
+              </Specimen>
+              <Specimen label="expanded" note="the same six sources, opened through the real disclosure">
+                <ExpandedSourcesFixture />
+              </Specimen>
+            </Section>
+
+            <Section
+              id="deck-widget"
+              title="Deck widget"
+              note="Checked deck ideas remain interactive blocks in chat. Counts, ownership, cost and card art are fixtures; Save is the product button and this gallery only logs its callback."
+            >
+              <Specimen label="legal, mostly owned" note="60 cards, 41 owned, about $12.40 remaining; the compact first look limits the Pokémon grid">
+                <DeckeScreen spec={DECK_SCREENS[0]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} onOpenDeck={(id) => console.info('fixture deck opened', id)} />
+              </Specimen>
+              <Specimen label="not legal" note="65 cards, four issues, a five-copy card and a broken evolution line">
+                <DeckeScreen spec={DECK_SCREENS[1]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} onOpenDeck={(id) => console.info('fixture deck opened', id)} />
+              </Specimen>
+              <Specimen label="unchecked" note="a first draft before a deck check can judge legality">
+                <DeckeScreen spec={DECK_SCREENS[2]} onDeckSaved={(deck) => console.info('fixture deck saved', deck)} onOpenDeck={(id) => console.info('fixture deck opened', id)} />
               </Specimen>
             </Section>
 
@@ -1439,7 +1494,7 @@ export default function ChatUi() {
             >
               <Specimen label="lookup → answer → panel" note="the ordinary shape of a good turn">
                 <div className="flex flex-col gap-[10px]">
-                  <ToolRow data={TOOL_ROWS[2].data} />
+                  <ActivityLine steps={ACTIVITY_STEPS.finished.slice(0, 1)} busy={false} startedAt={ACTIVITY_STARTED} />
                   <ChatMarkdown
                     text={'You have **12 of 214** in Pitch Black. Here are the five worth the most.'}
                     tone="transcript"
@@ -1449,14 +1504,13 @@ export default function ChatUi() {
               </Specimen>
               <Specimen label="a turn that failed" note="the failure is the loudest thing on screen, and it says what to do next">
                 <div className="flex flex-col gap-[10px]">
-                  <ToolRow data={TOOL_ROWS[0].data} />
-                  <ToolRow data={TOOL_ROWS[5].data} onRetry={() => {}} />
+                  <ActivityLine steps={ACTIVITY_STEPS.failed} busy={false} startedAt={ACTIVITY_STARTED} defaultOpen onRetryStep={() => {}} />
                   <ChatMarkdown text={'That did not go through — the set id was wrong. Want me to look it up?'} tone="transcript" />
                 </div>
               </Specimen>
               <Specimen label="a write, held" note="the calls, then the card that holds the write until you answer it">
                 <div className="flex flex-col gap-[10px]">
-                  <ToolRow data={TOOL_ROWS[2].data} />
+                  <ActivityLine steps={ACTIVITY_STEPS.collection} busy waiting startedAt={ACTIVITY_STARTED} />
                   <ApprovalCard
                     title="Log cards"
                     heldCalls={1}

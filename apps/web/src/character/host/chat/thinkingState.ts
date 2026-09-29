@@ -22,6 +22,7 @@
 
 import type { ToolRowData } from './toolRowState'
 import { isFailedPhase } from './toolRowState'
+import { labelFor } from './toolKinds'
 
 /**
  * What the row says when the server has told it nothing.
@@ -49,6 +50,16 @@ export function pickThinkingLabel(labels: readonly string[] | undefined): string
     }
   }
   return THINKING_FALLBACK_LABEL
+}
+
+/** Status labels from real chips, with the shared tool vocabulary as fallback. */
+export function liveLabels(
+  chips: readonly (Pick<ToolRowData, 'name' | 'phase' | 'title' | 'note'> & {
+    label?: string
+    args?: unknown
+  })[],
+): string[] {
+  return chips.map((chip) => chip.label?.trim() || labelFor(chip))
 }
 
 /**

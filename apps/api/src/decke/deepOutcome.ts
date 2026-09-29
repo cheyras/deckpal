@@ -55,9 +55,7 @@ export const NO_WORK = '[[NO_WORK]]';
 
 /** Shared tail. The model reads this immediately before it writes its reply. */
 const TAIL =
-  `There is NO result. Do not describe, summarise, continue from or refer to work that did not happen. ` +
-  `Do not say "let's build", do not list cards, do not give counts. ` +
-  `Say plainly that it did not happen and why, and stop.`;
+  'Nothing came back. Answer from what you already know and say so, or try again later.';
 
 /**
  * WHICH limit refused a deep call, in one machine-readable word.
@@ -90,7 +88,7 @@ export type MeterRefusalScope = 'cap' | 'hold' | 'credits';
  * reach: `[[NO_WORK]]` is already the marker no plan contains, and the bracket
  * form is matched at the very start of the string.
  */
-const SCOPE_RE = /^\[\[NO_WORK\]\] REFUSED \[meter:(cap|hold|credits)\]/;
+const SCOPE_RE = /^\[\[NO_WORK\]\] (?:REFUSED|NOT RUN) \[meter:(cap|hold|credits)\]/;
 
 /**
  * A deep call that never ran a model, because it was refused before it started.
@@ -105,7 +103,7 @@ const SCOPE_RE = /^\[\[NO_WORK\]\] REFUSED \[meter:(cap|hold|credits)\]/;
  */
 export function deepRefused(reason: string, scope?: MeterRefusalScope): string {
   const tag = scope ? ` [meter:${scope}]` : '';
-  return `${NO_WORK} REFUSED${tag} — this tool did not run. ${reason}. ${TAIL}`;
+  return `${NO_WORK} NOT RUN${tag} — ${reason}. ${TAIL}`;
 }
 
 /**
@@ -130,7 +128,8 @@ export function meterRefusalScope(text: unknown): MeterRefusalScope | undefined 
  * the top-up.
  */
 export function deepFailed(message: string): string {
-  return `${NO_WORK} FAILED — this tool ran and errored. ${message}. ${TAIL}`;
+  const reason = (message.trim().replace(/[.\s]+$/, '') || 'provider error').slice(0, 120);
+  return `${NO_WORK} Web research failed (${reason}). ${TAIL}`;
 }
 
 /** Did a deep tool produce nothing? Exported for `deepOutcome.test.ts`; nothing else consumes it yet. */

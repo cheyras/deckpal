@@ -14,7 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { NO_WORK, deepFailed, deepRefused, isNoWork } from '../deepOutcome.js';
+import { NO_WORK, deepFailed, deepRefused, isNoWork, meterRefusalScope } from '../deepOutcome.js';
 
 test('both outcomes lead with the marker, before any prose', () => {
   // FIRST, not somewhere in the middle. A model that reads a fluent opening
@@ -26,10 +26,10 @@ test('both outcomes lead with the marker, before any prose', () => {
 test('a refusal and a failure are told apart, because they need different sentences', () => {
   // A limit sends someone to the top-up. A fault sends them to support. Saying
   // the wrong one wastes their time in a way that feels like being lied to.
-  assert.match(deepRefused('x'), /REFUSED/);
-  assert.match(deepFailed('x'), /FAILED/);
-  assert.doesNotMatch(deepRefused('x'), /FAILED/);
-  assert.doesNotMatch(deepFailed('x'), /REFUSED/);
+  assert.match(deepRefused('x'), /NOT RUN/);
+  assert.match(deepFailed('x'), /Web research failed/);
+  assert.doesNotMatch(deepRefused('x'), /Web research failed/);
+  assert.doesNotMatch(deepFailed('x'), /REFUSED|NOT RUN/);
 });
 
 test('each carries its own reason through', () => {
@@ -37,12 +37,13 @@ test('each carries its own reason through', () => {
   assert.match(deepFailed('the planner timed out after 210s'), /timed out after 210s/);
 });
 
-test('both forbid the exact continuation that was recorded', () => {
-  for (const out of [deepRefused('x'), deepFailed('y')]) {
-    assert.match(out, /NO result/i, 'it does not say there is no result')
-    assert.match(out, /let's build/i, 'it does not name the continuation to avoid')
-    assert.match(out, /do not list cards/i)
-  }
+test('failure plainly says nothing came back and gives honest next choices', () => {
+  assert.equal(
+    deepFailed('provider timeout'),
+    '[[NO_WORK]] Web research failed (provider timeout). Nothing came back. ' +
+      'Answer from what you already know and say so, or try again later.',
+  );
+  assert.doesNotMatch(deepFailed('provider timeout'), /reader|refus|block/i);
 });
 
 test('a real deck plan does not contain the marker', () => {
@@ -68,6 +69,11 @@ test('isNoWork only fires on the LEADING marker', () => {
   assert.ok(!isNoWork(undefined));
   assert.ok(!isNoWork(null));
   assert.ok(!isNoWork(42));
+});
+
+test('meter scope reads new NOT RUN markers and legacy REFUSED replays', () => {
+  assert.equal(meterRefusalScope(deepRefused('limit', 'credits')), 'credits');
+  assert.equal(meterRefusalScope('[[NO_WORK]] REFUSED [meter:cap] — legacy'), 'cap');
 });
 
 test('the marker is not something a human ever reads', () => {

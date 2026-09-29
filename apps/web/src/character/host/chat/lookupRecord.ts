@@ -5,58 +5,15 @@
  * WHY A TURN'S LOOKUPS ARE REPLAYED, COMPACTED (spec §2.3)
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * The wire used to keep text and nothing else. So turn N+1 had no record that
- * turn N had read 604 cards — only its own prose about them. Which re-creates
- * the original pathology in a new form: he asserts from his own earlier
- * sentences rather than from data, and a sentence is exactly the thing that can
- * drift. "You've got 70 of them" becomes "you've got most of them" becomes a
- * number nobody looked up.
- *
- * Three options were on the table and the owner chose this one:
- *
- *   replay everything     truthful, and the input bill grows without bound on
- *                         a long conversation — colliding with the per-turn
- *                         input budget the tool ceiling exists to defend
- *   re-read per turn      always fresh, never stale, and costs a tool call and
- *                         a round trip on every follow-up question
- *   replay COMPACTED      what a lookup FOUND, in one line, not its 200 rows
- *
- * The compact form is the chip's own summary — the first line of the real tool
- * result, produced by the server's execute wrapper. So the record cannot
- * describe a lookup that did not happen: there is no chip without an
- * invocation.
- *
- * MARKED AS A RECORD, not folded into his speech. Appending "I read 604 cards"
- * to his words would put sentences in his mouth he never said, and the next
- * turn would replay them as if he had. It is a separate part, prefixed, and
- * plainly not dialogue.
+ * Recent turns now replay their complete bounded outputs. This compact form is
+ * retained for older turns and legacy chips that never captured an output.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * IT HAS TWO CALLERS, AND THE SECOND ONE IS WHY THIS FILE EXISTS
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * This lived inside `messagesToWire`, which replays between TURNS. Between the
- * LEGS of one turn — the extra round trips a client tool like `flyTo` forces,
- * because the browser has to run it and report back — the follow-up message
- * carried his text and the movement's own result and NOTHING ELSE. So the
- * moment he flew anywhere, he lost the record of every server tool he had just
- * run.
- *
- * Measured, from a real turn: asked to show a decklist he drew the panel with
- * `showScreen`, called `flyTo`, and on the next leg re-read `decks` and wrote
- * the whole list out AGAIN as prose. Both rules that should have stopped that
- * were live and neither could fire — the prompt's "when a panel carries the
- * answer, do not also narrate it", and `showScreen`'s own return value, *"The
- * panel is on screen. Do not repeat its contents in words"*. A rule cannot
- * apply to evidence that was thrown away before it was read.
- *
- * Which is the paragraph above, one level down: s/turn/leg/.
- *
- * Extracted here rather than exported from `useDeckeChat.ts` because that file
- * reaches `import.meta.env` through its imports and cannot be loaded under
- * `node --import tsx --test` at all — so anything left in it can only ever be
- * tested by pinning its source text. This is the same reason `toolRowState.ts`
- * and `historyState.ts` sit in this directory.
+ * It is also used between legs, where a client-side tool causes another request
+ * before the current turn is complete.
  */
 
 /**
@@ -82,9 +39,8 @@ export const TOOL_RECORD_PREFIX = '[lookups on that turn, for your own reference
  * listing an animation under it is a category error, and one that would arrive
  * in the prompt on every leg of every turn that used it.
  *
- * `showScreen` is not a lookup either and IS replayed, deliberately: it is the
- * line that tells the next leg a panel already exists, which is the entire
- * reason this file has a second caller.
+ * `showScreen` and `showDeck` are replayed deliberately so a later leg knows
+ * the reader already has the corresponding widget on screen.
  */
 const NOT_EVIDENCE = new Set(['express'])
 
@@ -105,9 +61,8 @@ const NOT_EVIDENCE = new Set(['express'])
  * that does the showing. One `Set.has` per chip.
  *
  * NOT the same set as `NOT_EVIDENCE`, and they must not be merged. That one is
- * about what the NEXT TURN is told; this one is about what the READER is shown,
- * and `showScreen` is deliberately in neither — a panel is both replayed and
- * displayed.
+ * about what the NEXT TURN is told; this one is about what the READER is shown.
+ * Widget tools are deliberately in neither set: they are replayed and displayed.
  */
 export const NOT_SHOWN = new Set(['express'])
 
@@ -156,26 +111,8 @@ export function lookupRecord(
  * AND THE FAILURES, WHICH THIS FILE USED TO THROW AWAY
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * `lookupRecord` above replays `ok` and `partial` only, which is right for a
- * record of what was FOUND. The consequence was that a failure had no way out
- * of its turn at all: the chip is transient, nothing else on the wire carried
- * it, and so every turn began in a context where no tool had ever failed.
- *
- * Measured, 2026-08-29: `battle_logs` returned "Internal server error" on four
- * turns of one conversation and was re-called, unprompted, on every one of them
- * — including the turn straight after *"I won't keep hammering that tool."* It
- * was not disobeying. It could not see.
- *
- * A FAILURE IS REPLAYED AS THE REAL THING, not as prose. `{type:'tool-<name>',
- * state:'output-error', errorText}` is the AI SDK's own part shape:
- * `convertToModelMessages` turns it into a `tool-call` plus an `error-text`
- * `tool-result`, so the model reads it as the failed call it was rather than as
- * a sentence about one — the same argument that made `declinedCalls` scan real
- * `approval` parts instead of text. `failing.ts` counts them server-side.
- *
- * ARGS RIDE ALONG because the chip already carries them (`toolArgs.ts` — "sent
- * on `start` only and carried forward"), and a `tool-call` with no input is a
- * call the model cannot recognise as the one it made.
+ * Failures remain real tool parts rather than prose so the model and the
+ * server-side circuit breaker see the call, its input, and its error together.
  */
 
 /** What a replayed failure looks like on the wire. */

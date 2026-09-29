@@ -12,6 +12,7 @@ import { test } from 'node:test'
 import {
   describeElapsed,
   formatElapsed,
+  liveLabels,
   pickThinkingLabel,
   shouldAutoExpandSteps,
   THINKING_FALLBACK_LABEL,
@@ -31,6 +32,14 @@ test('with nothing from the server it claims no activity', () => {
   assert.equal(pickThinkingLabel(undefined), THINKING_FALLBACK_LABEL)
   assert.equal(pickThinkingLabel(['', '  ']), THINKING_FALLBACK_LABEL)
   assert.doesNotMatch(THINKING_FALLBACK_LABEL, /search|read|analys|analyz|tool/i)
+})
+
+test('live labels prefer the server label, then use the shared tool vocabulary', () => {
+  assert.deepEqual(liveLabels([
+    { name: 'web_research', title: 'Research', phase: 'progress', label: 'Searching: Dragapult results' },
+    { name: 'check_deck', title: 'Check', phase: 'start' },
+    { name: 'showDeck', title: 'Show', phase: 'ok' },
+  ]), ['Searching: Dragapult results', 'Checking the list', 'Laid out the deck'])
 })
 
 test('the counter changes on every tick it is asked to render', () => {
@@ -71,8 +80,8 @@ test('the spoken duration is grammatical', () => {
 
 const step = (phase: ToolRowData['phase']): ToolRowData => ({
   id: `s-${phase}`,
-  name: 'analyze_collection',
-  title: 'Analyse the collection',
+  name: 'check_deck',
+  title: 'Check the deck',
   phase,
 })
 

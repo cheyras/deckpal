@@ -5,8 +5,8 @@
  * `scripts/decke-jev-eval.mjs`, which pays to ask Jev). This half needs no
  * network: it checks the set is well formed and pins what TODAY'S heuristics
  * score on it — the real `readerNamedPrinting`, `phantomClaims`,
- * `promisedWithoutActing` and `declinedCalls`. A change to any of them moves
- * these numbers, and the change has to say so.
+ * and `promisedWithoutActing`. A change to any of them moves these numbers,
+ * and the change has to say so.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -39,14 +39,9 @@ test('the set is well formed: unique ids, known labels, real candidates', () => 
 
 test("today's heuristics, scored on the set — the baseline Jev is measured against", async () => {
   const { reflex, audit, printing } = await scoreSet(set)
-  // Nothing today forces the consent card, steers the walk, or hears a no…
+  // Nothing today forces the consent card or steers the walk.
   assert.deepEqual(reflex.today.force, { tp: 0, fp: 0, fn: 20, tn: 46 })
   assert.deepEqual(reflex.today.hideEscort, { tp: 0, fp: 0, fn: 8, tn: 58 })
-  assert.deepEqual(reflex.today.spokenDecline, { tp: 0, fp: 0, fn: 8, tn: 58 })
-  // …and 7 of 8 spoken refusals re-open the family they refuse, through the
-  // reader-mention bypass, once a card has been declined.
-  assert.equal(reflex.today.declinesReopenedByBypass, 7)
-  assert.deepEqual(reflex.today.familyHandled, { right: 6, of: 13 })
   // The phantom-action regexes are precise and narrow: 3 of 17, no false flag.
   assert.deepEqual(audit.today.phantom, { tp: 3, fp: 0, fn: 14, tn: 26 })
   // The printing word list is per MESSAGE, so it files 9 of 13 unnamed rows

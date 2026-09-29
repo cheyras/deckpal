@@ -1,9 +1,11 @@
 import { defineConfig } from '../../apps/web/node_modules/vite/dist/node/index.js'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 const requireWeb = createRequire(new URL('../../apps/web/package.json', import.meta.url))
-const { default: react } = await import(requireWeb.resolve('@vitejs/plugin-react'))
-const { default: tailwindcss } = await import(requireWeb.resolve('@tailwindcss/vite'))
+// `resolve` returns a filesystem path; on Windows that is `E:\…`, which the ESM
+// loader rejects as an unknown URL scheme. Import it as a file URL.
+const { default: react } = await import(pathToFileURL(requireWeb.resolve('@vitejs/plugin-react')).href)
+const { default: tailwindcss } = await import(pathToFileURL(requireWeb.resolve('@tailwindcss/vite')).href)
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   envDir: false,

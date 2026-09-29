@@ -54,6 +54,13 @@ export type IconName =
   | 'shield-check'
   | 'credit-card'
   | 'heart'
+  | 'globe'
+  | 'clipboard-check'
+  | 'scroll'
+  | 'tag'
+  | 'pencil'
+  | 'panel'
+  | 'arrow-right'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -320,6 +327,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M12 20.2l-1.35-1.23C6.4 15.13 3.6 12.6 3.6 9.5A4.4 4.4 0 018 5.1c1.42 0 2.78.66 3.66 1.7l.34.4.34-.4A4.86 4.86 0 0116 5.1a4.4 4.4 0 014.4 4.4c0 3.1-2.8 5.63-7.05 9.47z" />
     </>
   ),
+  globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" /></>,
+  'clipboard-check': <><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4.5V3h6v1.5M8.5 13l2.2 2.2 4.8-5" /></>,
+  scroll: <><path d="M7 4h10a3 3 0 010 6H7a3 3 0 000 6h10" /><path d="M7 4a3 3 0 000 6v7a3 3 0 003 3h7" /></>,
+  tag: <><path d="M3.5 12V5.5a2 2 0 012-2H12l8.5 8.5-8.5 8.5z" /><circle cx="8" cy="8" r="1" /></>,
+  pencil: <><path d="M4 20l4.2-1 10.5-10.5a2.1 2.1 0 00-3-3L5.2 16z" /><path d="M14.5 6.5l3 3" /></>,
+  panel: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 9v11" /></>,
+  'arrow-right': <path d="M4 12h16M14 6l6 6-6 6" />,
 }
 
 export function Icon({

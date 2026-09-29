@@ -301,6 +301,13 @@ test('a leaked deep tool is stripped as an element', () => {
   }
 })
 
+test('a leaked web_research element is stripped directly', () => {
+  assert.equal(
+    through(['Checking. <web_research>{"query":"meta"}</web_research> Done.']),
+    'Checking.  Done.',
+  )
+})
+
 test('an ordinary attribute carrying a data-tool NAME still survives', () => {
   // This is the exact false positive the earlier exclusion was protecting, and
   // the reason these names are element-only. Widening the attribute rule to

@@ -181,19 +181,19 @@ const INFRASTRUCTURE: Processor[] = [
     gets: 'The bug reports you send: what you typed, the page, your screen size and browser, and a report ID. It also runs DeckPal’s scheduled jobs, which read the database.',
     why: 'DeckPal’s public issue tracker, and nightly jobs such as the daily snapshot of each collection’s value.',
   },
+  {
+    name: 'DuckDuckGo',
+    gets: 'The hostname of each web-research source shown in Deck-E, and your IP address when its favicon is loaded.',
+    why: 'Provides the favicons beside Deck-E web-research sources.',
+  },
 ]
 
 // Deck-E's models, all reached through the Vercel AI Gateway.
 const AI_MODELS: Processor[] = [
   {
-    name: 'xAI (Grok)',
-    gets: 'Your Deck-E messages, and the collection, deck, list and battle-log details Deck-E looks up to answer them.',
-    why: 'Writes Deck-E’s everyday replies, and fixes deck-list lines an import could not read.',
-  },
-  {
     name: 'Anthropic (Claude)',
-    gets: 'The same kind of detail when Deck-E does deeper work: planning a deck, analysing your collection or writing a strategy guide. Also the text of new bug reports.',
-    why: 'Deck-E’s deep analysis, and suggested next steps on bug reports.',
+    gets: 'Your Deck-E messages, and the collection, deck, list and battle-log details Deck-E looks up to answer them.',
+    why: 'Writes Deck-E’s replies, plans and analyses with its available tools. It also suggests next steps on bug reports.',
   },
   {
     name: 'Perplexity',

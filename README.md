@@ -55,7 +55,7 @@ self-hosters.
   addresses the object directly; the image function stays as the fallback that
   fills a cold asset); self-host uses a local disk cache with a dedicated image
   server. `warm:cloud` warms the whole catalog into the cloud tier.
-- **MCP server** ("deckpal-mcp") -- 24 tools for Claude, ChatGPT, Gemini, or any
+- **MCP server** ("deckpal-mcp") -- 25 tools for Claude, ChatGPT, Gemini, or any
   MCP-speaking assistant to query the collection, catalog, prices, decks, and
   per-card price history, and to log collection changes with attribution. Live
   and multi-user on cloud: connect with one click via OAuth 2.1
@@ -97,7 +97,7 @@ pnpm monorepo, deployed on Vercel + Supabase (cloud) or plain Postgres
 | `apps/mcp` (`deckpal-mcp`) | **deckpal-mcp** -- MCP server, live and multi-user on cloud |
 | `packages/db` (`@deckpal/db`) | Shared Postgres pool + numbered immutable SQL migrations |
 | `packages/storage` (`@deckpal/storage`) | Shared image path algebra + the provenance choke point used by `apps/images` and the cloud image function |
-| `packages/agent-tools` (`@deckpal/agent-tools`) | The 24 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
+| `packages/agent-tools` (`@deckpal/agent-tools`) | The 25 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
 | `packages/matching` (`@deckpal/matching`) | The scanner's card-identity embedding: one versioned input spec shared by the phone, the API and the catalogue job, with bit-exact TypeScript/Python parity |
 
 For the full topology, data flow, and design rationale, see

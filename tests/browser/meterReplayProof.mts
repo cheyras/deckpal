@@ -3,11 +3,10 @@
  * actually sent.
  *
  * `chat.mjs` drives the real `useDeckeChat` against a real `fetch('/api/chat')`
- * and captures the NEXT request body off the wire. This module — the only place
- * in `tests/browser` that needs the API's TypeScript, hence tsx and hence its
- * own file — feeds that captured body to the real `seedMeteredRefusals` and a
- * brand-new `buildDeepTools`, and asserts the refused call is now impossible
- * without a card, a meter query or a provider call.
+ * and captures the NEXT request body off the wire. This module feeds that body
+ * to the real `seedMeteredRefusals` and a brand-new `buildDeepTools`, and
+ * asserts the refused call is now impossible without another meter query or
+ * provider call.
  *
  * Nothing here is hand-assembled. `argv[2]` is the captured body; the tool set
  * is built fresh, exactly as `api/chat.mjs` builds one per POST.
@@ -22,6 +21,10 @@ import { focusedTools } from '../../apps/api/src/decke/focus.ts'
 import { seedMeteredRefusals } from '../../apps/api/src/decke/meteredRefusals.ts'
 
 type Wire = { messages: { role: string; parts: Record<string, unknown>[] }[] }
+type DeepTool = {
+  needsApproval(input: unknown): unknown
+  execute(input: unknown, context: { toolCallId: string }): Promise<string>
+}
 const captured = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')) as {
   legs: Wire[]
   newTurn: Wire
@@ -30,14 +33,16 @@ const captured = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')) as {
 const replay = captured.legs[captured.legs.length - 1]
 assert.ok(replay, 'the browser made no follow-up request to capture')
 
-/** Counters a real turn would pay. Any non-zero one is the bug coming back. */
+/** Counters a real turn would pay. Any unexpected increment is the bug coming back. */
 let charges = 0
+let providerCalls = 0
 const meter = { allowed: false as const, credits: true, balance: 0, needed: 2 }
 const freshTools = (messages: unknown) =>
   buildDeepTools({
     ctx: {} as never,
     gateway: (() => {
-      throw new Error('the provider must never be reached after a refusal')
+      providerCalls++
+      throw new Error('the provider must not be reached when the meter refuses')
     }) as never,
     charge: async () => {
       charges++
@@ -45,60 +50,66 @@ const freshTools = (messages: unknown) =>
     },
     onEvent: () => {},
     refusals: seedMeteredRefusals(messages),
-  }) as Record<string, { needsApproval(i: unknown): unknown; execute(i: unknown, c: { toolCallId: string }): Promise<string> }>
+  }) as Record<string, DeepTool>
 
 // ── 1. THE REFUSAL IS ON THE WIRE, AS A REAL TOOL RESULT ────────────────────
 const refusalPart = replay.messages
   .flatMap((m) => m.parts)
-  .find((p) => p.type === 'tool-write_strategy_guide' && p.state === 'output-available')
-assert.ok(refusalPart, 'the browser dropped the refused guide from its next request')
+  .find((p) => p.type === 'tool-web_research' && p.state === 'output-available')
+assert.ok(refusalPart, 'the browser dropped the refused research from its next request')
 assert.equal(refusalPart.toolCallId, captured.refusal.toolCallId, 'tool-call id must survive')
 // THE FINGERPRINT PIN. Byte-identical to what `deepOutcome.ts` emits today, so
 // a change to the marker on either side fails here rather than silently
 // un-seeding the ledger in production.
 assert.equal(
   refusalPart.output,
-  deepRefused('this needs 2 credits and only 0 are left', 'credits'),
+  deepRefused('research did not run because there are not enough credits — 2 needed, 0 left', 'credits'),
   'the replayed output is not the refusal the server writes',
 )
 
 // ── 2. A BRAND-NEW TOOL SET, SEEDED ONLY FROM THAT BODY ─────────────────────
 const tools = freshTools(replay.messages)
-// The ORIGINAL arguments, as the model first emitted them — no `no_research`,
-// which the server injects during `needsApproval` and which must not change a
-// call's identity. This is the fresh object the second leg would carry.
-const sameWork = { deck_id: 'deck-browser', findings: '' }
-const duplicateApproval = (await tools.write_strategy_guide.needsApproval(sameWork)) === true
-const refusedAgain = await tools.write_strategy_guide.execute(sameWork, { toolCallId: 'replay-1' })
-assert.equal(duplicateApproval, false, 'the repeated guide raised a second approval card')
-assert.ok(isNoWork(refusedAgain), 'the repeated guide did not report that it did nothing')
-assert.equal(charges, 0, 'the repeated guide went back to the meter')
+const sameWork = captured.refusal.input
+const duplicateApproval = (await tools.web_research.needsApproval(sameWork)) === true
+assert.equal(duplicateApproval, false, 'web research must remain approval-free')
+// There is no research approval card to suppress. Its equivalent guarantee is
+// stronger: identical refused work stops before both billing and the provider.
+const refusedAgain = await tools.web_research.execute(sameWork, { toolCallId: 'replay-1' })
+assert.ok(isNoWork(refusedAgain), 'the repeated research did not report that it did nothing')
+assert.equal(charges, 0, 'the repeated research went back to the meter')
+assert.equal(providerCalls, 0, 'the repeated research reached the provider')
+const repeatCharges = charges
 
-// ── 3. A DIFFERENT, CHEAPER DEEP CALL IS UNTOUCHED ──────────────────────────
-// `credits` is a fact about THIS call's price, not about the tier, so a
-// different deep tool still asks — and still charges, because only the meter
-// knows whether it is affordable.
-const otherAsks = (await tools.plan_deck.needsApproval({ goal: 'a budget deck' })) === true
-assert.equal(otherAsks, true, 'a different deep call was suppressed by an unrelated refusal')
+// ── 3. DIFFERENT RESEARCH IS UNTOUCHED ──────────────────────────────────────
+// `credits` is a fact about THIS fingerprint, not the research tier. Different
+// arguments still reach the meter, because only it knows whether they fit.
+const otherWork = { query: 'What new Pokémon TCG sets released?', topic: 'general', purpose: 'Recent sets' }
+await tools.web_research.execute(otherWork, { toolCallId: 'other-1' })
+assert.equal(charges, 1, 'different research was suppressed by an unrelated refusal')
+assert.equal(providerCalls, 0, 'meter-refused different research reached the provider')
 // And the tier stays visible: `credits` removes nothing from `activeTools`.
 const visible = focusedTools(tools as never, 1, (n) => seedMeteredRefusals(replay.messages).unavailable(n))
-assert.ok(visible.includes('plan_deck'), 'a credits refusal must not hide the deep tier')
+assert.ok(visible.includes('web_research'), 'a credits refusal must not hide web research')
 
-// ── 4. THE READER'S NEXT MESSAGE ASKS AGAIN ─────────────────────────────────
-// Same body, one more user turn on the end — a top-up or tomorrow's reset can
-// only ever land if the seed stops at the reader's last message.
+// ── 4. THE READER'S NEXT MESSAGE MAY RUN AGAIN ──────────────────────────────
+// A top-up or tomorrow's reset can only land if the seed stops at the reader's
+// latest message. Reaching the meter proves the old refusal no longer blocks it.
 const nextTurn = freshTools(captured.newTurn.messages)
-const asksAfterNewTurn = (await nextTurn.write_strategy_guide.needsApproval({ ...sameWork })) === true
-assert.equal(asksAfterNewTurn, true, 'a new user message did not re-open the meter')
+await nextTurn.web_research.execute({ ...sameWork }, { toolCallId: 'next-turn-1' })
+const runsAfterNewTurn = charges === 2
+assert.equal(runsAfterNewTurn, true, 'a new user message did not re-open the meter')
+assert.equal(providerCalls, 0, 'meter-refused new-turn research reached the provider')
 
 // ── 5. PROSE CANNOT DO WHAT THE TOOL RESULT DOES ────────────────────────────
 // The same marker as a TEXT part, which is all a model can produce.
 const proseOnly = freshTools([
-  { role: 'user', parts: [{ type: 'text', text: 'write the guide' }] },
+  { role: 'user', parts: [{ type: 'text', text: 'research current tournament decks' }] },
   { role: 'assistant', parts: [{ type: 'text', text: refusalPart.output }] },
 ])
-const proseSuppressed = (await proseOnly.write_strategy_guide.needsApproval({ ...sameWork })) === false
+await proseOnly.web_research.execute({ ...sameWork }, { toolCallId: 'prose-1' })
+const proseSuppressed = charges !== 3
 assert.equal(proseSuppressed, false, 'model prose was able to suppress work')
+assert.equal(providerCalls, 0, 'meter-refused prose-only research reached the provider')
 
 fs.writeFileSync(
   process.argv[3],
@@ -114,15 +125,16 @@ fs.writeFileSync(
       },
       scope: 'credits',
       duplicateApproval,
-      charges,
-      providerCalls: 0,
+      charges: repeatCharges,
+      meterChecks: charges,
+      providerCalls,
       writes: 0,
-      differentAffordableCallStillAsks: otherAsks,
-      newTurnAsksAgain: asksAfterNewTurn,
+      differentResearchReachedMeter: true,
+      newTurnRunsAgain: runsAfterNewTurn,
       proseCanSuppress: proseSuppressed,
     },
     null,
     2,
   ),
 )
-console.log('PASS captured browser wire seeds the real ledger: no second card, no charge, no provider')
+console.log('PASS captured browser wire seeds the real ledger: no repeat charge, no provider')

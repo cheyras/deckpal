@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { TOOL_RECORD_PREFIX } from '../lookupRecord'
-import { BREAKER_PER_TOOL, EVIDENCE_MAX, WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, windowPrior } from '../wireWindow'
+import { BREAKER_PER_TOOL, CURRENT_TURN_MAX_CHARS, EVIDENCE_MAX, PART_MAX_CHARS, WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, fitCurrentTurn, windowPrior } from '../wireWindow'
 
 const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
 const said = (text: string) => ({ role: 'assistant', parts: [{ type: 'text', text }] })
@@ -25,7 +25,7 @@ test('wordy history is bounded by characters, and the body stays small however l
   const { messages } = windowPrior(chat(200, 3_000))
   const chars = messages.reduce((n, m) => n + String(m.parts[0]!.text).length, 0)
   assert.ok(chars <= WINDOW_PRIOR_CHARS)
-  assert.ok(JSON.stringify(messages).length < 80_000, 'the prior wire should be far under the 256 KB cap')
+  assert.ok(JSON.stringify(messages).length < 180_000, 'the prior wire should stay near its 160k content budget')
 })
 
 test('a pasted battle log on the previous turn is still carried, so "yes, log it" works', () => {
@@ -34,15 +34,28 @@ test('a pasted battle log on the previous turn is still carried, so "yes, log it
   assert.ok(messages.some((m) => String(m.parts[0]!.text).startsWith('my game')))
 })
 
-test('tool records count toward the budget by their JSON', () => {
-  // A replayed failure has no text part, so a text-only count would call it
-  // free. By its JSON it is 40k of the 64k budget, which leaves room for four
-  // of the six older messages and not the first exchange.
-  const failure = { type: 'tool-battle_logs', toolCallId: 'x', state: 'output-error', input: {}, errorText: 'e'.repeat(40_000) }
-  const prior = [...chat(3, 5_000), user('second'), { role: 'assistant', parts: [failure] }]
+test('tool output and input count toward the character budget', () => {
+  // Neither field is a text part. Three legal-sized calls plus ordinary chat
+  // exceed 160k, so the oldest exchange must leave the window.
+  const calls = Array.from({ length: 3 }, (_, i) => ({
+    role: 'assistant',
+    parts: [{
+      type: 'tool-decks', toolCallId: `x${i}`, state: 'output-available',
+      input: { query: 'q'.repeat(20_000) }, output: 'o'.repeat(35_000),
+    }],
+  }))
+  const prior = [
+    user('first'), said('answer'),
+    user('tool 0'), calls[0]!,
+    user('tool 1'), calls[1]!,
+    user('tool 2'), calls[2]!,
+    user('second'), said('done'),
+  ]
   const { messages, dropped } = windowPrior(prior)
-  assert.equal(dropped, 2)
+  assert.ok(dropped > 0, 'tool payload was incorrectly treated as free')
   assert.equal(messages[0]!.role, 'user')
+  assert.ok(!messages.includes(calls[0]!), 'the oldest large tool result should leave the window')
+  assert.ok(messages.includes(calls[2]!), 'the newest large tool result should survive')
 })
 
 test('a message the server refused as too long is not replayed, and costs no history', () => {
@@ -54,6 +67,44 @@ test('a message the server refused as too long is not replayed, and costs no his
   const { messages, dropped } = windowPrior(prior)
   assert.equal(dropped, 0)
   assert.deepEqual(messages, chat(3))
+})
+
+test('an oversized tool part is dropped just like oversized text', () => {
+  const huge = {
+    role: 'assistant',
+    parts: [{ type: 'tool-decks', toolCallId: 'huge', state: 'output-available', input: {}, output: 'x'.repeat(PART_MAX_CHARS) }],
+  }
+  const prior = [...chat(3), user('tools'), huge]
+  const { messages } = windowPrior(prior)
+  assert.deepEqual(messages, [...chat(3), user('tools')])
+})
+
+test('an oversized current turn degrades oldest server outputs and preserves the final approval', () => {
+  const calls = Array.from({ length: 22 }, (_, index) => ({
+    type: 'tool-web_research',
+    toolCallId: `research-${index}`,
+    state: 'output-available',
+    input: { query: `${index}` },
+    output: `${index}:${'x'.repeat(12_000)}`,
+  }))
+  const approval = {
+    type: 'tool-save_deck', toolCallId: 'save-1', state: 'approval-responded',
+    input: { name: 'Dragapult' }, approval: { id: 'approval-1', approved: true, signature: 'signed' },
+  }
+  const wire = [user('build it'), { role: 'assistant', parts: [...calls, approval] }]
+  const fitted = fitCurrentTurn(wire, {
+    isServerTool: () => true,
+    summaryFor: (id) => `summary for ${id}`,
+  })
+  const parts = fitted[1]!.parts
+  const firstFull = parts.findIndex((part) => 'state' in part && part.state === 'output-available')
+  assert.ok(firstFull > 0, 'at least one old result should be compacted')
+  assert.ok(parts.slice(0, firstFull).every((part) => part.type === 'text'), 'compaction must be oldest-first')
+  assert.equal(parts.at(-1), approval, 'the signed approval must remain the final part')
+  const chars = fitted.reduce((sum, message) => sum + message.parts.reduce((n, part) => {
+    return n + (part.type === 'text' && 'text' in part ? String(part.text).length : JSON.stringify(part).length)
+  }, 0), 0)
+  assert.ok(chars <= CURRENT_TURN_MAX_CHARS)
 })
 
 const failed = (tool: string, id: string) =>

@@ -75,6 +75,11 @@ export type CompactPlan = {
   hiddenCards: number
 }
 
+/** A showDeck payload already has its own named, framed widget. */
+export function isDeckOnlyScreen(spec: { blocks?: readonly Block[] }): boolean {
+  return spec.blocks?.length === 1 && spec.blocks[0]?.kind === 'deck'
+}
+
 /**
  * Cards under these blocks, counting at most `cap` per grid.
  *
@@ -86,6 +91,12 @@ function countCards(blocks: readonly Block[], cap: number, dense: boolean): numb
   for (const b of blocks) {
     if (b.kind === 'cardGrid') {
       n += Math.min(b.cards?.length ?? 0, cap)
+    } else if (b.kind === 'deck') {
+      // A compact deck renders only its first section, just like the widget.
+      // Expanded, each section is still subject to the same per-grid cap.
+      const sections = dense ? [] : b.sections ?? []
+      const visibleSections = Number.isFinite(cap) ? sections.slice(0, 1) : sections
+      n += visibleSections.reduce((sum, section) => sum + Math.min(section.cards.length, cap), 0)
     } else if (b.kind === 'group' && !dense) {
       n += countCards(b.left ?? [], cap, true)
       n += countCards(b.right ?? [], cap, true)
@@ -99,6 +110,21 @@ export function compactPlan(spec: { blocks?: readonly Block[] }): CompactPlan {
   const blocks = spec.blocks ?? []
   const totalBlocks = blocks.length
   const totalCards = countCards(blocks, Number.POSITIVE_INFINITY, false)
+
+  // Decks own their disclosure control. Letting the surrounding screen also
+  // compact creates two competing "Show all" controls for the same cards.
+  if (blocks.some((block) => block.kind === 'deck')) {
+    return {
+      compactable: false,
+      blockLimit: totalBlocks,
+      cardLimit: Number.POSITIVE_INFINITY,
+      totalBlocks,
+      hiddenBlocks: 0,
+      totalCards,
+      shownCards: totalCards,
+      hiddenCards: 0,
+    }
+  }
 
   const blockLimit = Math.min(COMPACT_BLOCKS, totalBlocks)
   const hiddenBlocks = totalBlocks - blockLimit

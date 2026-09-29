@@ -23,16 +23,55 @@ test('there is no field a model could smuggle markup through', () => {
   // twice. `left`/`right` were added deliberately and are not strings at all.
   const shape = Object.keys(screenSchema.shape.blocks.element.shape).sort();
   assert.deepEqual(shape, [
-    'cards', 'columns', 'editable', 'kind', 'left', 'percent',
-    'quantities', 'right', 'rows', 'text', 'tone', 'value',
+    'cards', 'columns', 'editable', 'format', 'issues', 'kind', 'left', 'legal',
+    'missingCostUsd', 'name', 'owned', 'percent', 'ptcgl', 'quantities', 'right',
+    'rows', 'sections', 'text', 'tone', 'total', 'value',
   ]);
 });
 
-test('the leaf palette is the full palette minus the one kind that nests', () => {
+test('the leaf palette is the full palette minus the group and deck containers', () => {
   // `BLOCK_KINDS` is spelled out rather than derived, so that the browser-side
   // mirror test can read it as text. This is the assertion that pays for that.
-  assert.deepEqual([...BLOCK_KINDS], [...LEAF_BLOCK_KINDS, 'group']);
+  assert.deepEqual([...BLOCK_KINDS], [...LEAF_BLOCK_KINDS, 'group', 'deck']);
 });
+
+test('a deck is sanitised, grounded, capped, and kept as the only block', () => {
+  const grounding = { seen: (id: string) => id !== 'made-up-9', size: () => 1, observe: () => {} }
+  const { screen, dropped } = sanitizeScreen({
+    title: '  Fire deck  ',
+    blocks: [
+      { kind: 'text', text: 'remove me' },
+      {
+        kind: 'deck', name: '  Fire deck  ', format: ' standard ', total: 60, legal: false,
+        issues: [' issue 1 ', ' issue 2 ', '3', '4', '5', '6', 'discarded'], owned: 20,
+        missingCostUsd: 12.5, ptcgl: ' list ',
+        sections: [{ title: 'Pokémon', count: 5, cards: [
+          { id: 'sv01-1', name: ' Pikachu ', quantity: 4, owned: 2 },
+          { id: 'made-up-9', name: 'Wrong', quantity: 1, owned: 0 },
+        ] }],
+      },
+    ],
+  } as never, grounding as never)
+  assert.equal(screen.blocks.length, 1)
+  const deck = screen.blocks[0] as never as { name: string; format: string; issues: string[]; sections: Array<{ count: number; cards: Array<{ id: string; name: string }> }> }
+  assert.equal(deck.name, 'Fire deck')
+  assert.equal(deck.format, 'standard')
+  assert.deepEqual(deck.issues, ['issue 1', 'issue 2', '3', '4', '5', '6'])
+  assert.deepEqual(deck.sections[0]?.cards, [{ id: 'sv01-1', name: 'Pikachu', quantity: 4, owned: 2 }])
+  assert.equal(deck.sections[0]?.count, 4)
+  assert.ok(dropped.some((reason) => /only block/.test(reason)))
+  assert.ok(dropped.some((reason) => /made-up-9/.test(reason)))
+})
+
+test('deck schema rejects more than 60 distinct cards', () => {
+  const cards = Array.from({ length: 61 }, (_, i) => ({ id: `sv01-${i}`, name: `Card ${i}`, quantity: 1, owned: 0 }))
+  assert.equal(screenSchema.safeParse({
+    title: 'Too many', blocks: [{
+      kind: 'deck', name: 'Too many', format: 'standard', total: 61, legal: false,
+      issues: [], owned: 0, missingCostUsd: null, sections: [{ title: 'Other', count: 61, cards }], ptcgl: '',
+    }],
+  }).success, false)
+})
 
 test('a well-formed screen survives intact', () => {
   const screen: Screen = {

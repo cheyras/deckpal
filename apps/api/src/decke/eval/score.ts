@@ -9,8 +9,6 @@
  */
 import { readerNamedPrinting } from '../printingSaid.js'
 import { phantomClaims, promisedWithoutActing } from '../turnGuards.js'
-import { declinedCalls } from '../declined.js'
-import { callKey } from '../repeat.js'
 import { CLIENT_TOOLS } from '../tools.js'
 import { REFLEX_QUESTIONS, reflexFrom, reflexState } from '../reflex.js'
 import { ACTION_TOOLS, AUDIT_QUESTIONS, auditFrom, auditState } from '../audit.js'
@@ -63,52 +61,11 @@ const confusion = (pairs: [predicted: boolean, truth: boolean][]): Confusion => 
   return c
 }
 
-const tally = (xs: boolean[]) => ({ right: xs.filter(Boolean).length, of: xs.length })
-
 export const precision = (c: Confusion) => (c.tp + c.fp ? c.tp / (c.tp + c.fp) : null)
 export const recall = (c: Confusion) => (c.tp + c.fn ? c.tp / (c.tp + c.fn) : null)
 
 /** Pages `escort` cannot reach — the truth `reflexFrom`'s `hide` is scored against. */
 const ESCORTLESS = new Set(['list', 'deck', 'other_page'])
-
-/** A research_meta (or guide) decline already on the wire, for the bypass check. */
-const priorDecline = (tool: string, input: Record<string, unknown>) => [
-  {
-    role: 'assistant',
-    parts: [{ type: `tool-${tool}`, input, state: 'approval-responded', approval: { id: 'a', approved: false, reason: 'the reader declined' } }],
-  },
-]
-
-/**
- * Does today's code keep a family declined after this sentence? `declinedCalls`
- * lets the reader's own words re-open a declined family (the bypass), keyed on
- * words like "meta" and "strategy" — which a sentence REFUSING research
- * usually contains.
- */
-function keepsDeclined(
-  tool: 'research_meta' | 'write_strategy_guide',
-  text: string,
-  spoken?: { research: boolean; guide: boolean },
-): boolean {
-  const input = tool === 'research_meta' ? { query: 'q' } : { deck: 'd' }
-  const other = tool === 'research_meta' ? { query: 'something else' } : { deck: 'another deck' }
-  return declinedCalls(priorDecline(tool, input), text, spoken).has(callKey(tool, other))
-}
-
-/**
- * After an earlier card was declined, does this sentence leave the family
- * handled right — still refused when the reader said no again, re-opened when
- * they asked for it? The real `declinedCalls`, with or without Jev's spoken
- * declines.
- */
-function familyHandled(it: JudgmentSet['reflex'][number], spoken?: { research: boolean; guide: boolean }) {
-  const cases: boolean[] = []
-  if (it.declinesResearch) cases.push(keepsDeclined('research_meta', it.message, spoken))
-  if (it.declinesGuide) cases.push(keepsDeclined('write_strategy_guide', it.message, spoken))
-  if (it.asksResearch) cases.push(!keepsDeclined('research_meta', it.message, spoken))
-  if (it.asksGuide) cases.push(!keepsDeclined('write_strategy_guide', it.message, spoken))
-  return cases
-}
 
 export async function scoreSet(set: JudgmentSet, ask?: Ask) {
   // ── REFLEX ────────────────────────────────────────────────────────────────
@@ -123,22 +80,12 @@ export async function scoreSet(set: JudgmentSet, ask?: Ask) {
   }
   const forceTruth = (it: JudgmentSet['reflex'][number]) => it.intent === 'change_collection'
   const hideTruth = (it: JudgmentSet['reflex'][number]) => ESCORTLESS.has(it.destination)
-  const researchDecline = set.reflex.filter((it) => it.declinesResearch)
-  const guideDecline = set.reflex.filter((it) => it.declinesGuide)
   const reflex = {
     items: set.reflex.length,
     today: {
-      // Today nothing forces the consent card, hides escort, or hears a no.
+      // Today nothing forces the consent card or hides escort.
       force: confusion(set.reflex.map((it) => [false, forceTruth(it)])),
       hideEscort: confusion(set.reflex.map((it) => [false, hideTruth(it)])),
-      spokenDecline: confusion(set.reflex.map((it) => [false, !!(it.declinesResearch || it.declinesGuide)])),
-      // And a spoken "no" usually trips the reader-mention BYPASS, which
-      // re-opens the very family it refuses when an earlier card was declined.
-      declinesReopenedByBypass:
-        researchDecline.filter((it) => !keepsDeclined('research_meta', it.message)).length +
-        guideDecline.filter((it) => !keepsDeclined('write_strategy_guide', it.message)).length,
-      declineSentences: researchDecline.length + guideDecline.length,
-      familyHandled: tally(set.reflex.flatMap((it) => familyHandled(it))),
     },
     ...(ask
       ? {
@@ -146,17 +93,9 @@ export async function scoreSet(set: JudgmentSet, ask?: Ask) {
             answered: reflexRows.filter((x) => x.answers).length,
             force: confusion(reflexRows.map((x) => [x.r?.force === 'log_cards', forceTruth(x.it)])),
             hideEscort: confusion(reflexRows.map((x) => [!!x.r?.hide.includes('escort'), hideTruth(x.it)])),
-            spokenDecline: confusion(
-              reflexRows.flatMap((x) => [
-                [!!x.r?.declines.research, !!x.it.declinesResearch],
-                [!!x.r?.declines.guide, !!x.it.declinesGuide],
-              ]),
-            ),
-            familyHandled: tally(reflexRows.flatMap((x) => familyHandled(x.it, x.r?.declines))),
             intentAccuracy: reflexRows.filter((x) => (x.answers?.intent as { choice?: string } | undefined)?.choice === x.it.intent).length / set.reflex.length,
             misses: reflexRows
-              .filter((x) => (x.r?.force === 'log_cards') !== forceTruth(x.it) || !!x.r?.hide.includes('escort') !== hideTruth(x.it) ||
-                !!x.r?.declines.research !== !!x.it.declinesResearch || !!x.r?.declines.guide !== !!x.it.declinesGuide)
+              .filter((x) => (x.r?.force === 'log_cards') !== forceTruth(x.it) || !!x.r?.hide.includes('escort') !== hideTruth(x.it))
               .map((x) => x.it.id),
           },
         }

@@ -27,9 +27,12 @@ import { tool, type ToolSet } from 'ai'
 import { z } from 'zod'
 import { ALLOWED_STATES, ROUTE_SHAPE_LINES } from './prompt.js'
 import { sanitizeScreen, screenSchema } from './screens.js'
+import type { DeckBlock } from './screens.js'
+import type { DeckCheckResult } from '@deckpal/agent-tools'
 import type { Grounding } from './grounding.js'
 import type { ToolEvent } from './adapters/aisdk.js'
 import { briefArgs } from './toolArgs.js'
+import { NO_WORK } from './deepOutcome.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -570,6 +573,9 @@ export function buildTools(
    * Optional, because the dev preview and the tests have no stream to write to.
    */
   onEvent?: (e: ToolEvent) => void,
+  opts?: {
+    checkDeck?: (input: { format?: string; cards: { card_id: string; quantity: number }[] }) => Promise<DeckCheckResult>
+  },
 ): ToolSet {
   /** `start` now, and the matching `ok` when the work is done. */
   const began = (id: string, name: string, title: string, args: unknown): void => {
@@ -753,7 +759,7 @@ export function buildTools(
         'Only works on controls that have been marked as safe to press, which is a much smaller ' +
         'set than the things you can point at: pointing at something does not mean you may press ' +
         'it. Never changes their collection — nothing that adds, edits or deletes is pressable, ' +
-        'and if you need one of those, use the tool for it and ask first. One press at a time, ' +
+        'If you need to add, edit or delete something, call its write tool; the platform asks the reader automatically. One press at a time, ' +
         'then look at what happened.',
       inputSchema: z.object({
         selector: selector.describe('A marked, pressable control on the current page.'),
@@ -923,6 +929,92 @@ export function buildTools(
           : { shown: true, blocks: clean.blocks.length, done }
       },
     }),
+
+    showDeck: tool({
+      description:
+        'Show a complete proposed or revised deck as a card widget with Save and builder actions. Use this whenever proposing or revising a whole deck, and only after check_deck has checked the list.',
+      inputSchema: z.object({
+        name: z.string().trim().min(1).max(80),
+        format: z.string().trim().min(1).max(24).default('standard'),
+        cards: z.array(z.object({
+          card_id: z.string().trim().min(1).max(40),
+          quantity: z.number().int().min(1).max(60),
+        })).min(1).max(60),
+        note: z.string().trim().max(500).optional(),
+      }),
+      execute: async ({ name, format, cards }, { toolCallId }) => {
+        began(toolCallId, 'showDeck', 'Show a deck', { name, format, cards })
+        let checked: DeckCheckResult | null = null
+        try {
+          checked = opts?.checkDeck ? await opts.checkDeck({ format, cards }) : null
+        } catch {
+          checked = null
+        }
+        const checkedIds = new Set(
+          (checked?.lines ?? []).flatMap((line) => line.resolved && line.card_id ? [line.card_id.trim().toLowerCase()] : []),
+        )
+        if (checkedIds.size) grounding?.observe([...checkedIds].join('\n'))
+        const unverified = cards
+          .map((card) => card.card_id)
+          .filter((id) => !checkedIds.has(id.trim().toLowerCase()) && !grounding?.seen(id))
+        if (unverified.length) {
+          const summary = "Couldn't show that deck — some cards weren't verified"
+          onEvent?.({ phase: 'error', id: toolCallId, name: 'showDeck', title: 'Show a deck', summary })
+          return `${NO_WORK} NOT SHOWN — these card ids were not verified: ${unverified.join(', ')}. ` +
+            'Run check_deck for them, fix unresolved ids, then call showDeck again.'
+        }
+        const total = checked?.total ?? cards.reduce((sum, card) => sum + card.quantity, 0)
+        const sections = checked
+          ? (['Pokémon', 'Trainer', 'Energy', 'Unknown'] as const).flatMap((supertype) => {
+              const found = checked!.lines.filter((line) => line.supertype === supertype && line.card_id)
+              if (!found.length) return []
+              return [{
+                title: supertype === 'Unknown' ? 'Other' as const : supertype,
+                count: found.reduce((sum, line) => sum + line.quantity, 0),
+                cards: found.map((line) => ({
+                  id: line.card_id!, name: line.name, quantity: line.quantity, owned: line.owned,
+                })),
+              }]
+            })
+          : [{
+              title: 'Other' as const,
+              count: total,
+              cards: cards.map((card) => ({ id: card.card_id, name: card.card_id, quantity: card.quantity, owned: 0 })),
+            }]
+        const block: DeckBlock = {
+          kind: 'deck', name, format: checked?.format ?? format, total,
+          legal: checked?.legal ?? null,
+          issues: (checked?.issues ?? []).slice(0, 6),
+          owned: checked?.owned ?? 0,
+          missingCostUsd: checked?.missing_cost_usd ?? null,
+          sections,
+          ptcgl: checked?.ptcgl ?? '',
+        }
+        const { screen, dropped } = sanitizeScreen({ title: name, blocks: [block] }, grounding)
+        const cleanDeck = screen.blocks[0]
+        const shownTotal = cleanDeck?.kind === 'deck'
+          ? (cleanDeck.sections ?? []).reduce(
+              (sum, section) => sum + section.cards.reduce((cardSum, card) => cardSum + card.quantity, 0),
+              0,
+            )
+          : 0
+        if (!cleanDeck || cleanDeck.kind !== 'deck' || shownTotal < 1 || shownTotal !== cleanDeck.total) {
+          const summary = "Couldn't show that deck — some cards weren't verified"
+          onEvent?.({ phase: 'error', id: toolCallId, name: 'showDeck', title: 'Show a deck', summary })
+          return `${NO_WORK} NOT SHOWN — the verified screen contained ${shownTotal}/${total} cards. ` +
+            `Ids to verify again: ${cards.map((card) => card.card_id).join(', ')}. ` +
+            'Run check_deck for them before trying showDeck again.'
+        }
+        writer.write({ type: 'data-decke-screen', data: { screen }, transient: true })
+        const summary = `Showed "${name}" · ${total} cards`
+        ended(toolCallId, 'showDeck', 'Show a deck', summary)
+        const legality = checked ? checked.legal === true ? 'legal' : checked.legal === false ? 'not legal' : 'legality unknown' : 'could not be checked'
+        const cost = checked?.missing_cost_usd == null ? 'missing cost unavailable' : `missing cost about $${checked.missing_cost_usd.toFixed(2)}`
+        const line = `${total} cards · ${legality} · own ${checked?.owned ?? 0}/${total} · ${cost}. ` +
+          'The deck is on screen with a Save button. Do not list its cards again in words.'
+        return dropped.length ? `${line} (${dropped.join('; ')})` : line
+      },
+    }),
   }
 }
 
@@ -945,7 +1037,7 @@ export const CLIENT_TOOLS = [
  * half is not a union. `tools.test.ts` pins both halves against the structural
  * property that actually decides it — whether the tool has an `execute`.
  */
-export const SERVER_TOOLS = ['express', 'showScreen'] as const
+export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck'] as const
 
 /**
  * EVERY tool `buildTools` exposes: the character's own vocabulary.
@@ -968,7 +1060,7 @@ export const SERVER_TOOLS = ['express', 'showScreen'] as const
 export const COSMETIC_TOOLS = [...SERVER_TOOLS, ...CLIENT_TOOLS] as const
 
 /**
- * The four deep tools, by name.
+ * The current deep tools, by name.
  *
  * Written out rather than derived because `buildDeepTools` needs a live
  * `DeepToolOptions` to construct, and the only caller that wants just the NAMES
@@ -981,8 +1073,5 @@ export const COSMETIC_TOOLS = [...SERVER_TOOLS, ...CLIENT_TOOLS] as const
  * the factory returned nine.
  */
 export const DEEP_TOOLS = [
-  'plan_deck',
-  'analyze_collection',
-  'research_meta',
-  'write_strategy_guide',
+  'web_research',
 ] as const

@@ -203,10 +203,10 @@ test('the refusal leads with [[NO_WORK]] and forbids the two measured behaviours
   const m = circuitMessage('battle_logs', 4)
   // The prompt rule keys on a result STARTING with the marker.
   assert.ok(m.startsWith('[[NO_WORK]]'), 'the marker must lead or prompt.ts cannot match it')
-  assert.match(m, /battle_logs/)
+  assert.doesNotMatch(m, /battle_logs/)
+  assert.match(m, /read your battle logs/)
   assert.match(m, /4 separate turns/)
-  // (1) say it is down and that it was recorded — the reader's own request.
-  assert.match(m, /tooling fault/i)
+  assert.doesNotMatch(m, /tooling fault/i)
   // (2) do NOT restate the summary they were given four times.
   assert.match(m, /do NOT restate/i)
   // (3) do not call it again unless THEY ask.
@@ -218,9 +218,9 @@ test('the refusal leads with [[NO_WORK]] and forbids the two measured behaviours
 
 test('the chip says the call was NOT made — never dressed as a result (X2)', () => {
   const s = circuitChipSummary('battle_logs', 3)
-  assert.match(s, /^not called/)
-  assert.match(s, /battle_logs/)
-  assert.match(s, /3 earlier turns/)
+  assert.match(s, /^Not tried/)
+  assert.doesNotMatch(s, /battle_logs|tooling fault/)
+  assert.match(s, /reading your battle logs.*3 times earlier/)
 })
 
 test('the log line is one greppable record, and a missing id does not suppress it', () => {

@@ -155,16 +155,14 @@ test('“Jump to latest” never floats over a record', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('a past turn is drawn by the same components as a live one', () => {
-  // A second rendering of a tool row drifts from the first within a release,
+  // A second rendering of activity drifts from the first within a release,
   // and then the history stops being a record of anything — it becomes a record
   // of what a different component thought the first one looked like.
-  assert.match(VIEW, /import \{ ToolRow \} from '\.\/ToolRow'/, 'the viewer grew its own tool row')
+  assert.match(VIEW, /import \{ ActivityLine \} from '\.\/ActivityLine'/, 'the viewer grew its own activity line')
   assert.match(VIEW, /import \{ ChatMarkdown \} from '\.\/ChatMarkdown'/, 'the viewer grew its own markdown renderer')
-  assert.match(code(VIEW), /<ToolRow key=\{r\.id\} data=\{r\} \/>/, 'the rows are not rendered from the replayed data')
+  assert.match(code(VIEW), /<ActivityLine steps=\{rows\} busy=\{false\} \/>/, 'activity is not rendered from the replayed data')
   assert.match(code(VIEW), /historyToolRows\(t\)/, 'the stored rows are no longer coerced through historyState')
-  // NO `onRetry`. `canRetry` is already false for a record, but the prop is the
-  // second lock and it is the one a reader can see.
-  assert.doesNotMatch(code(VIEW), /<ToolRow[^>]*onRetry/, 'the viewer offered a retry for a turn that is over')
+  assert.doesNotMatch(code(VIEW), /<ActivityLine[^>]*onRetryStep/, 'the viewer offered a retry for a turn that is over')
   // MUTATION HISTORY: `match(/decke-bubble/)` came back GREEN when the class was
   // stripped from HIS reply, because the reader's own bubble still carried it —
   // one occurrence satisfied a claim about two elements. BOTH bubbles are

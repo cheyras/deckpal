@@ -83,7 +83,7 @@ test('NOTHING IS EVER FREE — an unnamed deep tool costs the expensive end', ()
   // never to zero.
   assert.equal(deepCost('some_tool_added_next_year'), DEEP_DEFAULT);
   assert.ok(DEEP_DEFAULT > 1);
-  for (const n of ['plan_deck', 'write_strategy_guide', 'analyze_collection', 'research_meta']) {
+  for (const n of ['web_research']) {
     assert.ok(deepCost(n) >= 1, `${n} costs ${deepCost(n)}`);
   }
 });
@@ -98,25 +98,23 @@ test('every price is a whole number of at least one credit', () => {
   }
 });
 
-test('the deep tier really is dearer than conversation', () => {
+test('web research remains dearer than conversation', () => {
   // The reason there were two counters at all: they differ by orders of
   // magnitude. Collapsing to one balance must not collapse that.
-  assert.ok(deepCost('plan_deck') > COST.chat_turn * 20, 'a deck plan is priced like a chat turn');
-  assert.ok(deepCost('plan_deck') >= deepCost('analyze_collection'));
+  assert.ok(deepCost('web_research') > COST.chat_turn, 'web research is priced like a chat turn');
 });
 
 test('the prices follow CREDIT_USD rather than being hand-picked', () => {
   // If somebody halves the value of a credit, every price must move with it.
   // A table of literals drifts from what things cost, invisibly, until a bill.
   assert.equal(CREDIT_USD, 0.01);
-  assert.equal(deepCost('plan_deck'), Math.ceil(0.75 / CREDIT_USD));
-  assert.equal(deepCost('analyze_collection'), Math.ceil(0.0356 / CREDIT_USD));
+  assert.equal(deepCost('web_research'), Math.ceil(0.0356 / CREDIT_USD));
 });
 
 test('low means "can I still do the expensive thing"', () => {
   // Not an arbitrary round number: the question someone is actually asking when
   // they glance at a balance is whether the big thing is still available.
-  assert.ok(LOW_BALANCE > deepCost('plan_deck'));
+  assert.ok(LOW_BALANCE > deepCost('unknown_expensive_tool'));
   assert.equal(balanceIsLow(0), true);
   assert.equal(balanceIsLow(LOW_BALANCE), true);
   assert.equal(balanceIsLow(LOW_BALANCE + 1), false);
