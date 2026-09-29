@@ -6,7 +6,7 @@ import { FormAlert } from './ui'
 export function ConversationSharing() {
   const access = useAccess(), client = useQueryClient(), [saving, setSaving] = useState(false), [error, setError] = useState('')
   const query = useQuery({ queryKey: ['settings', access.identity], queryFn: ({ signal }) => api.settings(signal), enabled: access.ready && !!access.identity, retry: false, gcTime: 0, refetchOnWindowFocus: true })
-  const enabled = query.data?.settings.deckeSharePrompts ?? true
+  const enabled = query.data?.settings?.deckeSharePrompts ?? true
   const change = async (next: boolean) => {
     setSaving(true); setError('')
     try {
