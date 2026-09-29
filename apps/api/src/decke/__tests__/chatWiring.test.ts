@@ -279,7 +279,10 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   assert.match(CODE, /const MAX_STEPS = 24/);
   assert.match(CODE, /providerOptions: ANTHROPIC_CACHE/);
   assert.match(CODE, /cacheControl: \{ type: 'ephemeral' \}/);
-  assert.match(CODE, /typeof agentTools\.checkDeck === 'function'/);
-  assert.match(CODE, /agentTools\.checkDeck\(toolCtx, input\)/);
+  // Through apps/api/dist, never '@deckpal/agent-tools' directly: the root
+  // package does not declare it, so the deployed function could not load it.
+  assert.match(CODE, /import \{ checkDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
+  assert.doesNotMatch(CODE, /from '@deckpal\/agent-tools'/);
+  assert.match(CODE, /checkDeck: \(input\) => checkDeck\(toolCtx, input\)/);
   assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
 });

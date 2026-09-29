@@ -122,7 +122,6 @@ const SERVER_SET = new Set(SERVER_TOOLS)
 const REPAIRABLE = new Set(['showScreen'])
 
 import { createGateway } from '@ai-sdk/gateway'
-import * as agentTools from '@deckpal/agent-tools'
 
 // Everything imported here comes from `apps/api/dist` — COMPILED output, not
 // source. `apps/web` builds a browser bundle and its `.ts` files are never
@@ -146,6 +145,7 @@ import { outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
+import { checkDeck } from '../apps/api/dist/decke/deckCheck.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
@@ -782,10 +782,7 @@ async function serve(request) {
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
         ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
-          checkDeck:
-            typeof agentTools.checkDeck === 'function'
-              ? (input) => agentTools.checkDeck(toolCtx, input)
-              : undefined,
+          checkDeck: (input) => checkDeck(toolCtx, input),
         }),
         // READS AND WRITES, because the approval round-trip now exists.
         //
