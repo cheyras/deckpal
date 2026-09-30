@@ -27,3 +27,23 @@ test('a failed transactional import creates no fallback deck and reports failure
   assert.equal(importCalls, 1)
   assert.deepEqual(result, { ok: false, message: "Couldn't save this deck. Please try again." })
 })
+
+test('unresolved import lines are surfaced instead of silently dropped', async () => {
+  const result = await saveDeckFromWidget(block, {
+    importDeck: async () => ({
+      deck: { id: 'unused' },
+      import: { unresolvedLines: ['4 Missingmon XYZ 999', '2 Othermon ABC 123'] },
+    }),
+  })
+  assert.deepEqual(result, {
+    ok: false,
+    message: "Couldn't save this deck. Unresolved lines: 4 Missingmon XYZ 999; 2 Othermon ABC 123",
+  })
+})
+
+test('an API rejection includes the unresolved line names', async () => {
+  const result = await saveDeckFromWidget(block, {
+    importDeck: async () => { throw new Error('Unresolved deck lines: 4 Missingmon XYZ 999. Nothing was saved.') },
+  })
+  assert.match(result.ok ? '' : result.message, /4 Missingmon XYZ 999/)
+})

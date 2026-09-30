@@ -65,7 +65,7 @@ import { CLIENT_TOOLS, SERVER_TOOLS } from './tools.js'
  * (`ungroundedCardIds`) uses the tighter `CARD_ID_STRICT` below, so ordinary
  * vocabulary like `late-game` or `win-loss` is never accused.
  */
-const CARD_ID = /\b(?=[a-z0-9]*[a-z])[a-z0-9]{2,12}-[a-z0-9]{1,12}\b/gi
+const CARD_ID = /\b(?=[a-z0-9]*[a-z])[a-z0-9]{2,12}(?:\.\d{1,2}[a-z]?)?-[a-z0-9]{1,12}\b/gi
 
 /**
  * The ACCUSATION-only card-id pattern: plausible catalog ids, nothing looser.

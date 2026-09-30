@@ -59,7 +59,7 @@ import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import { ShareChoice } from './chat/ShareChoice'
 import { submitImprovementConsent } from './chat/improvementConsent'
-import { Feedback } from './chat/Feedback'
+import { ReplyFeedback } from './chat/Feedback'
 import type { FeedbackVote } from './chat/feedbackState'
 import {
   creditHeaderLabel,
@@ -3140,12 +3140,16 @@ export function DeckeChat({
                       />
                     </div>
                   ) : null}
-                  {m.role === 'assistant' && !(busy && m.id === lastAssistantId) ? (
+                  {m.role === 'assistant' ? (
                     <>
-                      <SourcesList sources={messageSources(m)} />
-                      {m.seq !== undefined ? (
-                        <Feedback onSave={(value) => saveFeedback(m.seq as number, value)} />
-                      ) : null}
+                      {!(busy && m.id === lastAssistantId) ? <SourcesList sources={messageSources(m)} /> : null}
+                      <ReplyFeedback
+                        seq={m.seq}
+                        busy={busy}
+                        latest={m.id === lastAssistantId}
+                        approvalPending={Boolean(asking?.length)}
+                        onSave={saveFeedback}
+                      />
                     </>
                   ) : null}
                   {/* His latest response ended in a widget: he stands BELOW it,

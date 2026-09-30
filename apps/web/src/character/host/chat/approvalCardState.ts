@@ -210,7 +210,10 @@ export function approvalQuestion(title: string): string {
  */
 export function approvalHeadline(title: string, preview: ApprovalPreview | null): string {
   const rows = preview?.editable ? preview.rows : []
-  if (rows.length === 0) return approvalQuestion(title)
+  if (rows.length === 0) {
+    const fallback = /^change this list$/i.test(title.trim()) ? 'save these list changes' : title
+    return approvalQuestion(preview?.title || fallback)
+  }
   const deltas = rows.filter((r) => r.mode === 'delta')
   if (deltas.length === rows.length) {
     if (deltas.every((r) => r.value > 0)) {

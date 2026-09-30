@@ -4,8 +4,8 @@ export type ToolKind =
   | 'research' | 'catalog' | 'collection' | 'decks' | 'check' | 'lists'
   | 'logs' | 'prices' | 'write' | 'show' | 'move' | 'other'
 
-export type WorkingState = 'thinking' | 'curious' | 'loading'
-export type ActivityState = WorkingState | 'idle' | 'listening' | 'sleep' | 'point' | 'nod_yes' | 'alert_star' | 'alert_money'
+export type WorkingState = 'thinking' | 'curious' | 'loading' | 'card_show' | 'card_stash' | 'card_present' | 'point'
+export type ActivityState = WorkingState | 'idle' | 'listening' | 'sleep' | 'nod_yes' | 'alert_star' | 'alert_money'
 
 export type ActivityRequest = {
   state?: ActivityState
@@ -22,16 +22,55 @@ export type StepOutcome =
 export type StepMeta = { hasSources?: boolean; sources?: readonly unknown[] }
 
 export const ACTIVITY_BEAT_COOLDOWN_MS = 3000
+export const WORK_POSE_MIN_MS = 4000
+export const WORK_POSE_MAX_MS = 7000
+export const EXPRESS_GRACE_MS = 1800
 export const TYPING_IDLE_MS = 4000
 export const SLEEP_IDLE_MS = 90_000
 
-/** Select a work pose without using presentation states that need card art. */
+const WORK_POSES: Record<ToolKind, readonly WorkingState[]> = {
+  research: ['loading', 'curious', 'thinking'],
+  catalog: ['card_show', 'curious', 'thinking'],
+  collection: ['card_show', 'curious', 'thinking'],
+  decks: ['card_present', 'curious', 'thinking'],
+  check: ['thinking', 'curious', 'loading'],
+  lists: ['card_present', 'curious', 'thinking'],
+  logs: ['loading', 'curious', 'thinking'],
+  prices: ['card_show', 'curious', 'thinking'],
+  write: ['card_stash', 'thinking', 'curious'],
+  show: ['card_present', 'point'],
+  move: ['point', 'curious'],
+  other: ['thinking', 'curious', 'loading'],
+}
+
+/** Select the first fitting work pose for a newly-started step. */
 export function workingStateFor(kind: ToolKind, stepIndex: number): WorkingState | null {
-  const index = Math.max(0, stepIndex)
-  if (kind === 'research') return index % 2 === 0 ? 'loading' : 'thinking'
-  if (kind === 'check' || kind === 'write' || kind === 'other') return 'thinking'
-  if (kind === 'show' || kind === 'move') return null
-  return (['curious', 'thinking', 'loading'] as const)[index % 3]
+  const poses = WORK_POSES[kind]
+  return poses[Math.max(0, stepIndex) % poses.length] ?? null
+}
+
+/** Choose a later work pose. The previous pose is removed before sampling. */
+export function workPoseFor(kind: ToolKind, previous: WorkingState | null, reducedMotion: boolean, roll: number): WorkingState | null {
+  if (reducedMotion) return null
+  const choices = WORK_POSES[kind].filter((pose) => pose !== previous)
+  const pool = choices.length ? choices : WORK_POSES[kind]
+  const normalized = Number.isFinite(roll) ? Math.min(0.999999, Math.max(0, roll)) : 0
+  return pool[Math.floor(normalized * pool.length)] ?? null
+}
+
+/** A gentle, bounded cadence supplied from the host's random source. */
+export function workPoseDelay(roll: number): number {
+  const normalized = Number.isFinite(roll) ? Math.min(1, Math.max(0, roll)) : 0
+  return Math.round(WORK_POSE_MIN_MS + normalized * (WORK_POSE_MAX_MS - WORK_POSE_MIN_MS))
+}
+
+/** Explicit model gestures win briefly, not for the rest of the turn. */
+export function workPoseAllowedAfterExpress(expressAt: number | null, now: number): boolean {
+  return expressAt === null || now - expressAt >= EXPRESS_GRACE_MS
+}
+
+export function isWorkPose(state: ActivityState): state is WorkingState {
+  return state === 'thinking' || state === 'curious' || state === 'loading' || state === 'card_show' || state === 'card_stash' || state === 'card_present' || state === 'point'
 }
 
 /** Pick punctuation for a successful step; the animator enforces rarity. */
@@ -129,6 +168,9 @@ export function createActivityAnimator({ now, reducedMotion }: ActivityAnimatorO
     },
     turnEnded(modelMoved) {
       busy = false; typing = false; awake(); working = null
+      // A gesture that was the LAST thing he did this turn (the model's own
+      // express, or an error posture) stands; a work pose left over from the
+      // turn does not, because it is sustained and would loop forever.
       if (modelMoved) return null
       current = 'idle'
       return { state: 'idle', mode: 'sustain', talk: false }

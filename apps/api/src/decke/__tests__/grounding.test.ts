@@ -35,6 +35,14 @@ test('evidence accumulates across the whole turn, not per call', () => {
   assert.equal(g.seen('me05-014'), true)
 })
 
+test('a card id returned by a tool in a replayed earlier turn is grounded now', () => {
+  const g = createGrounding([
+    'Checked 60 cards (standard): LEGAL\n  4× Dragapult ex (sv06-130) — own 2',
+  ])
+  assert.deepEqual(partitionCards(['sv06-130'], g), { kept: ['sv06-130'], invented: [] })
+  assert.deepEqual(partitionCards(['sv06-999'], g), { kept: [], invented: ['sv06-999'] })
+})
+
 test('an invented id is removed and a real one is kept', () => {
   const g = createGrounding()
   g.observe(ROW)
@@ -87,4 +95,18 @@ test('real set-id shapes still match, including the odd ones', () => {
   for (const id of ['me05-013', 'sv3pt5-084', 'gym2-2', 'swshp-SWSH001']) {
     assert.equal(g.seen(id), true, `${id} should be recognised as a card id`)
   }
+})
+
+test('half-set ids with a dot ground whole: the owner\'s refused Dragapult deck', () => {
+  // Every one of these was "unverified" on 2026-09-29: the pattern found nothing
+  // in `sv08.5-071` and only the fragment `5w-029` in `sv10.5w-029`.
+  const g = createGrounding()
+  g.observe('Dreepy | sv08.5-071 | Common\nDragapult ex | me02.5-160\nVanilluxe | sv10.5w-029\nMunkidori | sv06.5-044')
+  for (const id of ['sv08.5-071', 'me02.5-160', 'sv10.5w-029', 'sv06.5-044']) {
+    assert.equal(g.seen(id), true, `${id} should be grounded whole`)
+  }
+  assert.equal(g.seen('5w-029'), false, 'a fragment of a dotted id is not an id')
+  const { kept, invented } = partitionCards(['sv08.5-071', 'me02.5-160', 'sv08.5-999'], g)
+  assert.deepEqual(kept, ['sv08.5-071', 'me02.5-160'])
+  assert.deepEqual(invented, ['sv08.5-999'])
 })

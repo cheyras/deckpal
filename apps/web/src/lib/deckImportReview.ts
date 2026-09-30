@@ -123,5 +123,13 @@ export function deriveImportReview(state: ImportReviewState) {
 
 /** The only path to a write, also used after the final read-only server check. */
 export function reviewedImportPayload(state: ImportReviewState) {
-  return deriveImportReview(state).canImport ? { text: state.text, formatCode: state.formatCode } : null
+  if (!deriveImportReview(state).canImport) return null
+  // The lines the reader chose to skip are removed HERE. The API used to drop
+  // unresolved lines itself; since 2026-09-29 it refuses a write that has any,
+  // so a deck is never saved short of cards nobody agreed to leave out.
+  const skipped = new Set(state.skipped?.revision === state.revision ? state.skipped.lineIds : [])
+  const text = skipped.size
+    ? state.text.split('\n').filter((_, index) => !skipped.has(state.lineIds[index])).join('\n')
+    : state.text
+  return { text, formatCode: state.formatCode }
 }

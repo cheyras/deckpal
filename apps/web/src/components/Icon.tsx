@@ -17,6 +17,8 @@ export type IconName =
   | 'binder'
   | 'arrow-up'
   | 'arrow-down'
+  | 'thumbs-up'
+  | 'thumbs-down'
   | 'arrow-up-down'
   | 'chevron-down'
   | 'chevron-left'
@@ -144,6 +146,18 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   'arrow-up': <path d="M12 20V4M6 10l6-6 6 6" />,
   'arrow-down': <path d="M12 4v16M6 14l6 6 6-6" />,
+  'thumbs-up': (
+    <>
+      <path d="M7.5 10.5l3.3-6.2c.4-.8 1.4-1.2 2.2-.8.7.3 1.1 1 .9 1.8l-.7 3.2h5.3a2 2 0 011.9 2.6l-2.1 7a2 2 0 01-1.9 1.4H7.5z" />
+      <path d="M3.5 10.5h4v9h-4z" />
+    </>
+  ),
+  'thumbs-down': (
+    <>
+      <path d="M7.5 13.5l3.3 6.2c.4.8 1.4 1.2 2.2.8.7-.3 1.1-1 .9-1.8l-.7-3.2h5.3a2 2 0 001.9-2.6l-2.1-7a2 2 0 00-1.9-1.4H7.5z" />
+      <path d="M3.5 4.5h4v9h-4z" />
+    </>
+  ),
   'arrow-up-down': <path d="M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4" />,
   'chevron-down': <path d="M6 9l6 6 6-6" />,
   'chevron-left': <path d="M15 6l-6 6 6 6" />,
@@ -341,18 +355,20 @@ export function Icon({
   size = 24,
   className,
   strokeWidth = 1.75,
+  fill = 'none',
 }: {
   name: IconName
   size?: number
   className?: string
   strokeWidth?: number
+  fill?: string
 }) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={fill}
       stroke="currentColor"
       strokeWidth={strokeWidth}
       strokeLinecap="round"

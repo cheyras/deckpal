@@ -1077,13 +1077,33 @@ resolved lines with owned copies and USD unit prices, cost to acquire missing
 copies, and a normalized PTCG Live export. Unresolved names remain in `lines`
 with `resolved:false`; no deck or collection data is written.
 
+### POST /deckpal/api/decks/save
+Create a deck, or replace an existing deck's whole card list, in ONE transaction.
+This is what `save_deck` (Deck-E and MCP) writes through. Body `{ "deckId"? (edit when
+present), "name"? (required to create), "formatCode"|"format"?, "cards"?:
+[{ "cardId", "quantity" 1..60 }] (≤60 distinct; replaces the list when present),
+"versionNote"?, "source"?, "idempotencyKey"? (≤200) }`. Every `cardId` (a TCGdex id or a
+catalogue id) is resolved before anything is written; one that does not resolve fails
+the whole request with `400` naming every bad id, and nothing is saved. The deck row,
+its cards and its version snapshot (bumped only if the current version has been
+played) commit together. A retry is safe: without `idempotencyKey` the API derives one
+from the request, a ten-minute window and — for an edit — the deck's state before the
+write, so repeating the same save returns the deck it already made (`200`,
+`"replayed": true`) while a genuine later save, or saving the same list again after the
+deck was deleted, writes normally. `201` (create) or `200` returns the detail payload
+plus `replayed`.
+
 ### POST /deckpal/api/decks/import
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),
 "source"? = "ptcgl"\|"massentry" (the decklist syntax — defaults `ptcgl`),
 "writeSource"? (writer attribution, since `source` is taken), "formatCode"|
 "format"?, "glcType"?, "name"? (default "Imported Deck"), "dryRun"? }`. Mass Entry set codes
 (a third namespace — TCGplayer abbrevs) are resolved by name only. Same print on
-two lines is summed (clamped to 60). Unresolved lines are reported, not dropped.
+two lines is summed (clamped to 60). A non-dry-run import with ANY unresolved line
+writes nothing and returns `400` naming those lines (2026-09-29: they used to be
+dropped silently); the dry run below still reports them for the dialog to fix or
+remove. The write is one transaction, and repeating the same import within ten
+minutes returns the deck it already made (`"replayed": true`) rather than a copy.
 `201` returns the detail payload plus an `import` summary:
 ```json
 { …detail payload…,

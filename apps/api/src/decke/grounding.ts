@@ -1,5 +1,6 @@
 /**
- * Card ids he may show, because a tool actually returned them this turn.
+ * Card ids he may show, because a tool actually returned them in this
+ * conversation.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * THE FAILURE THIS EXISTS FOR
@@ -37,7 +38,7 @@
  * Checking every number he says against tool output would need to understand
  * arithmetic he is entitled to do — "12 of 120" legitimately becomes "10%" — and
  * a checker that is wrong about that is worse than none. Card ids are the case
- * where the check is exact: an id either appeared in this turn's tool output or
+ * where the check is exact: an id either appeared in the conversation's tool output or
  * it did not.
  */
 
@@ -60,27 +61,35 @@
  * and would have silently refused to ground every promo card in the catalog,
  * which is the quiet kind of wrong: grids of real promos would have had their
  * ids stripped as "invented".
+ *
+ * AND THE SET PART MAY CARRY A DOT: `sv08.5-071`, `me02.5-160`, `sv10.5w-029`.
+ * Without the optional `.d[suffix]` segment none of those ever grounded — the
+ * pattern found nothing in `sv08.5-071` and only the fragment `5w-029` in
+ * `sv10.5w-029` — so every card from a half set was "invented". That is what
+ * refused the owner's Dragapult deck three times (2026-09-29) and dropped
+ * Vanilluxe from his list grid. The accusation pattern in `turnGuards.ts`
+ * already knew the shape; this one did not.
  */
-const CARD_ID = /\b(?=[a-z0-9]*[a-z])[a-z0-9]{2,12}-[a-z0-9]{1,12}\b/gi;
+const CARD_ID = /\b(?=[a-z0-9]*[a-z])[a-z0-9]{2,12}(?:\.\d{1,2}[a-z]?)?-[a-z0-9]{1,12}\b/gi;
 
 /**
- * Every card id a tool returned this turn.
+ * Every card id a tool returned in the conversation.
  *
  * Harvested from the tool RESULT TEXT rather than from a structured field,
  * because that is what every tool in the shared package actually produces — one
  * compact row per line — and because a harvester tied to one tool's shape would
  * silently stop working when a second tool started returning cards.
  *
- * Accumulated across the whole turn, not per call: he may reasonably search on
- * step one and draw the grid on step three.
+ * Seeded from replayed earlier results, then accumulated across the current
+ * turn: he may reasonably search on one turn and draw the grid on the next.
  */
-export function createGrounding(): {
+export function createGrounding(replayedToolResults: readonly string[] = []): {
   observe(toolResultText: string): void;
   seen(id: string): boolean;
   size(): number;
 } {
   const ids = new Set<string>();
-  return {
+  const grounding = {
     observe(text: string) {
       for (const m of text.matchAll(CARD_ID)) ids.add(m[0].toLowerCase());
     },
@@ -91,6 +100,8 @@ export function createGrounding(): {
       return ids.size;
     },
   };
+  for (const result of replayedToolResults) grounding.observe(result);
+  return grounding;
 }
 
 export type Grounding = ReturnType<typeof createGrounding>;

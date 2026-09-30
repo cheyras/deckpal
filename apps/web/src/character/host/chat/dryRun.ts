@@ -21,15 +21,20 @@
  */
 
 export type DryRunItem =
-  | { kind: 'card'; cardId: string; op: 'add' | 'remove' | 'set'; qty: number; from?: number }
+  | { kind: 'card'; cardId: string; op: 'add' | 'remove' | 'set'; qty: number; from?: number; label?: string }
   | { kind: 'deck'; name: string; created: boolean; format?: string }
+  | { kind: 'list'; name: string; created: boolean }
   | { kind: 'text'; text: string; more?: boolean }
 
-const ADD = /^add x(\d+) (\S+)$/
-const REMOVE = /^remove x(\d+) (\S+)$/
+const ADD = /^add x(\d+) (\S+)(?:\s+—\s+(.+))?$/
+const REMOVE = /^remove x(\d+) (\S+)(?:\s+—\s+(.+))?$/
+const LABELED_ADD = /^add (.+) — card: add x(\d+) (\S+)$/
+const CARD_DETAIL = /^card: (add|remove) x(\d+) (\S+)(?:\s+—\s+(.+))?$/
 const SET = /^set (\S+) x(\d+) → x(\d+)$/
 const EDIT = /^EDIT your existing deck '(.+)' \([^)]*\), \d+ distinct card\(s\) in it:$/
 const CREATE = /^CREATE a new deck called '(.+)' \(([\w-]+)\)$/
+const LIST_CREATE = /^CREATE a new \S+ list called '(.+)'$/
+const LIST_EDIT = /^ADD TO your existing list '(.+)' \(\d+ item\(s\) already in it\)$/
 const MORE = /^…and \d+ more$/
 
 export function dryRunItems(summary: string | null | undefined): DryRunItem[] {
@@ -41,11 +46,19 @@ export function dryRunItems(summary: string | null | undefined): DryRunItem[] {
     // ONLY this, and a card that shows it is the card this module replaces.
     if (!line || /^DRY RUN\b.*Would:?$/.test(line)) continue
     let m: RegExpMatchArray | null
-    if ((m = line.match(ADD))) out.push({ kind: 'card', op: 'add', qty: Number(m[1]), cardId: m[2]! })
-    else if ((m = line.match(REMOVE))) out.push({ kind: 'card', op: 'remove', qty: Number(m[1]), cardId: m[2]! })
+    if ((m = line.match(ADD))) out.push({ kind: 'card', op: 'add', qty: Number(m[1]), cardId: m[2]!, ...(m[3] ? { label: m[3] } : {}) })
+    else if ((m = line.match(REMOVE))) out.push({ kind: 'card', op: 'remove', qty: Number(m[1]), cardId: m[2]!, ...(m[3] ? { label: m[3] } : {}) })
+    else if ((m = line.match(LABELED_ADD))) out.push({ kind: 'card', op: 'add', qty: Number(m[2]), cardId: m[3]!, label: m[1] })
+    else if ((m = line.match(CARD_DETAIL))) {
+      const previous = out.at(-1)
+      if (m[1] === 'remove' && previous?.kind === 'text' && /^remove item /.test(previous.text)) out.pop()
+      out.push({ kind: 'card', op: m[1] as 'add' | 'remove', qty: Number(m[2]), cardId: m[3]!, ...(m[4] ? { label: m[4] } : {}) })
+    }
     else if ((m = line.match(SET))) out.push({ kind: 'card', op: 'set', cardId: m[1]!, from: Number(m[2]), qty: Number(m[3]) })
     else if ((m = line.match(EDIT))) out.push({ kind: 'deck', name: m[1]!, created: false })
     else if ((m = line.match(CREATE))) out.push({ kind: 'deck', name: m[1]!, created: true, format: m[2] })
+    else if ((m = line.match(LIST_CREATE))) out.push({ kind: 'list', name: m[1]!, created: true })
+    else if ((m = line.match(LIST_EDIT))) out.push({ kind: 'list', name: m[1]!, created: false })
     else out.push({ kind: 'text', text: line, ...(MORE.test(line) ? { more: true } : {}) })
   }
   return out
@@ -71,8 +84,9 @@ export function dryRunChange(it: Extract<DryRunItem, { kind: 'card' }>): { text:
 }
 
 /** The line that names the deck, in the reader's words rather than the tool's. */
-export function dryRunDeckLine(it: Extract<DryRunItem, { kind: 'deck' }>): string {
+export function dryRunDeckLine(it: Extract<DryRunItem, { kind: 'deck' | 'list' }>): string {
   if (!it.created) return `Changes to ${it.name}`
+  if (it.kind === 'list') return `A new list, ${it.name}`
   const format = it.format ? ` (${it.format.charAt(0).toUpperCase()}${it.format.slice(1)})` : ''
   return `A new deck, ${it.name}${format}`
 }

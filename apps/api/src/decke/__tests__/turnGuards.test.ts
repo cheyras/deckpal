@@ -397,6 +397,7 @@ test('promisedWithoutActing: the other measured shapes fire too', () => {
   assert.ok(fires('Give me one second.'))
   assert.ok(fires('Rebuilding the guide now. [starting the edit]'))
   assert.ok(fires('Hang on.'))
+  assert.ok(fires("Two could be it, so I'll open them and compare."))
 })
 
 test('promisedWithoutActing: a promise that was KEPT is not a defect', () => {

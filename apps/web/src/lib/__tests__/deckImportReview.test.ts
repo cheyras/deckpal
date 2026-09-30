@@ -62,7 +62,9 @@ function assertSafe(state: ImportReviewState): void {
   assert.equal(new Set(state.lineIds).size, state.lineIds.length)
   if (!payload) return
 
-  assert.equal(payload.text, state.text)
+  const skipped = new Set(state.skipped?.revision === state.revision ? state.skipped.lineIds : [])
+  assert.equal(payload.text, state.text.split('\n').filter((_, index) => !skipped.has(state.lineIds[index])).join('\n'),
+    'skipped lines are removed before the write, because the API refuses unresolved lines')
   assert.equal(payload.formatCode, state.formatCode)
   assert.equal(state.validation?.revision, state.revision, 'a checked old snapshot cannot import')
   assert.deepEqual(state.validation.summary, serverSummary(state.text, state.formatCode), 'the current server facts must agree with the physical lines')

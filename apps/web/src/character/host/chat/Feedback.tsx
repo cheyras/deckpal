@@ -2,7 +2,23 @@ import { useReducer, useRef } from 'react'
 import { Icon } from '../../../components/Icon'
 import { feedbackReducer, initialFeedbackState, type FeedbackVote } from './feedbackState'
 
-export function Feedback({ initialVote = null, onSave }: { initialVote?: FeedbackVote | null; onSave: (value: { vote: FeedbackVote | null; comment: string; share: boolean }) => Promise<void> }) {
+type FeedbackValue = { vote: FeedbackVote | null; comment: string; share: boolean }
+
+export function ReplyFeedback({ seq, busy, latest, approvalPending, onSave }: { seq?: number; busy: boolean; latest: boolean; approvalPending: boolean; onSave: (seq: number, value: FeedbackValue) => Promise<void> }) {
+  if (seq === undefined || (busy && latest && !approvalPending)) return null
+  return <Feedback onSave={(value) => onSave(seq, value)} />
+}
+
+export function TranscriptFeedback({ conversationId, seq, initialVote, comment, onSave }: { conversationId: string; seq: number; initialVote: FeedbackVote | null; comment?: string | null; onSave: (conversationId: string, seq: number, value: FeedbackValue) => Promise<void> }) {
+  return (
+    <div className="flex items-center gap-[8px]">
+      <Feedback initialVote={initialVote} onSave={(value) => onSave(conversationId, seq, value)} />
+      {comment ? <span className="text-[11px] leading-[16px] text-text-muted">{comment}</span> : null}
+    </div>
+  )
+}
+
+export function Feedback({ initialVote = null, onSave }: { initialVote?: FeedbackVote | null; onSave: (value: FeedbackValue) => Promise<void> }) {
   const [state, dispatch] = useReducer(feedbackReducer, undefined, () => ({ ...initialFeedbackState(), vote: initialVote }))
   const writes = useRef<Promise<unknown>>(Promise.resolve())
   const persist = (value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
@@ -31,13 +47,13 @@ export function Feedback({ initialVote = null, onSave }: { initialVote?: Feedbac
   }
 
   return (
-    <div className="decke-shift self-start text-[11.5px] text-text-muted">
+    <div className="decke-shift self-start text-[11.5px] text-text-body">
       <div className="flex items-center gap-[4px]">
-        <button type="button" aria-label="Good reply" aria-pressed={state.vote === 1} onClick={() => vote(1)} className="flex h-[27px] w-[27px] items-center justify-center rounded-[7px] border border-border-subtle hover:text-text-primary aria-pressed:border-action-primary aria-pressed:text-action-primary">
-          <Icon name="arrow-up" size={14} />
+        <button type="button" aria-label="Good reply" aria-pressed={state.vote === 1} onClick={() => vote(1)} className="flex h-[29px] w-[29px] items-center justify-center rounded-[7px] border border-border-default text-text-body outline-none transition-colors hover:border-action-primary hover:bg-action-primary/[0.08] hover:text-text-primary focus-visible:ring-2 focus-visible:ring-action-primary/45 aria-pressed:border-action-primary aria-pressed:bg-action-primary/[0.12] aria-pressed:text-action-primary">
+          <Icon name="thumbs-up" size={16} fill={state.vote === 1 ? 'currentColor' : 'none'} />
         </button>
-        <button type="button" aria-label="Bad reply" aria-pressed={state.vote === -1} onClick={() => vote(-1)} className="flex h-[27px] w-[27px] items-center justify-center rounded-[7px] border border-border-subtle hover:text-text-primary aria-pressed:border-action-primary aria-pressed:text-action-primary">
-          <Icon name="arrow-down" size={14} />
+        <button type="button" aria-label="Bad reply" aria-pressed={state.vote === -1} onClick={() => vote(-1)} className="flex h-[29px] w-[29px] items-center justify-center rounded-[7px] border border-border-default text-text-body outline-none transition-colors hover:border-action-primary hover:bg-action-primary/[0.08] hover:text-text-primary focus-visible:ring-2 focus-visible:ring-action-primary/45 aria-pressed:border-action-primary aria-pressed:bg-action-primary/[0.12] aria-pressed:text-action-primary">
+          <Icon name="thumbs-down" size={16} fill={state.vote === -1 ? 'currentColor' : 'none'} />
         </button>
         {state.thanked && !state.open ? <span className="ml-[3px]" aria-live="polite">Thanks</span> : null}
       </div>

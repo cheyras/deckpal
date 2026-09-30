@@ -381,8 +381,8 @@ sees them in `tools/list`:
    owned variant; unpriced count reported), top `top_n` owned cards by value, 5 nearest-complete
    sets for the user's default goal (`user_settings`). **The default entry point** — description
    says so. Also backs the `collection://summary` resource.
-3. **`search_cards`** — `{ query?, set_id?, category?, rarity?, owned_only? = false,
-   standard_legal?, min_value_usd?, page?, page_size? }`. Catalog+ownership search over
+3. **`search_cards`** — `{ query?, text?, text_same_attack? = true, damage?, set_id?, category?,
+   rarity?, owned_only? = false, standard_legal?, min_value_usd?, page?, page_size? }`. Catalog+ownership search over
    `card` (trgm + unaccent on `name_normalized`), joined to owned qty and best market price.
    Compact lines + total count. Each line ends with a trailing `series <slug>` cell (added
    2026-08-21, `packages/agent-tools` extraction) — the web route for a card is
@@ -393,6 +393,17 @@ sees them in `tools/list`:
    language. `OR`, `AND`, quotes and wildcards match literally and find nothing,
    and it cannot see artwork, rarity, popularity or price. A caller asking a
    question of that kind must research it and then look up the names.
+
+   **`text` searches what is printed on the card** (2026-09-29): up to six literal
+   terms matched against attack names and effects and Ability names and effects,
+   case- and accent-insensitive, all of which must match — on one attack or
+   Ability unless `text_same_attack: false`. `damage` matches an attack's damage
+   suffix: `x` (either `×` or a literal `x`), `+` or `-`. Text searches return one
+   compact row per distinct card text with the matching line, `printings: N` for
+   reprints (the representative is an owned printing first, then Standard-legal,
+   then newest), default 100 and at most 200 rows per page, and always say how many
+   matched and whether more pages exist. "Which cards do X" is answered here, not
+   by web research.
 
    **`min_value_usd: 0` is ignored** (changed 2026-08-25). It compiled to
    `best_minor >= 0` over a LEFT JOIN, so unpriced cards were `NULL` and silently
@@ -503,10 +514,12 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    gaps, and reports ownership, missing-copy cost and normalized PTCG Live text. Run it before
    showing or saving any proposed deck, fix its findings, and check again.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
-   version_note?, dry_run? = true }`. Create (POST /decks, or POST /decks/import when
-   `ptcgl_text` given), rename (PATCH), and reconcile the card list to `cards` via the
-   per-card routes — every write attributed `source: 'deckpal-mcp'` (`writeSource` on the
-   import route, whose `source` names the decklist syntax). `version_note` rides as
+   version_note?, dry_run? = true }`. Create or replace the list with ONE request to
+   `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,
+   its cards and its version snapshot in one transaction — a bad id saves nothing and is
+   named; a retry within ten minutes replays the deck it made. `ptcgl_text` still goes
+   through POST /decks/import. Every write is attributed `source: 'deckpal-mcp'`
+   (`writeSource` on the import route, whose `source` names the decklist syntax). `version_note` rides as
    `versionNote` on card ops and format PATCH and lands on the deck_version snapshot (§6b).
    Dry run returns the would-be diff (current vs proposed lines) and changes nothing, and
    says CREATE or EDIT by name — `mode?: create|edit` carries the same explicit choice and

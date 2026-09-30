@@ -35,7 +35,7 @@ export function DryRunList({ items, art }: { items: DryRunItem[]; art: CardArtMa
       aria-label="What would change"
     >
       {items.map((it, i) => {
-        if (it.kind === 'deck') {
+        if (it.kind === 'deck' || it.kind === 'list') {
           return (
             <li key={i} className="text-[12.5px] font-medium leading-[18px] text-text-primary">
               {dryRunDeckLine(it)}

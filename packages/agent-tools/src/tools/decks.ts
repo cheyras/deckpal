@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
@@ -112,7 +113,12 @@ interface TestHand {
 }
 
 interface ImportResult extends DeckDetail {
+  replayed?: boolean;
   import: { source: string; resolvedEntries: number; distinctCards: number; unresolved: string[]; warnings: { message: string }[] };
+}
+
+interface SaveDeckResult extends DeckDetail {
+  replayed?: boolean;
 }
 
 // ── Rendering helpers (deck prices arrive as USD majors, null = unpriced) ────
@@ -269,9 +275,18 @@ function diffCards(current: DeckCardRow[], target: Map<string, number>): Op[] {
   return ops;
 }
 
-async function runOp(ctx: Ctx, deckId: string, op: Op, versionNote?: string): Promise<void> {
-  // Attribution on every write; versionNote lands on the deck_version snapshot
-  // for the ops that touch versions (card ops + format change — rename never does).
+/**
+ * Rolling-deploy compatibility only. Once every API serves `/decks/save`, this
+ * path is unreachable: the current API always handles the whole list in one
+ * transaction. Keeping it for an older API avoids turning a package-first
+ * deployment into a total outage; ordinary write errors never fall back.
+ */
+function atomicSaveRouteMissing(error: unknown): boolean {
+  const message = errText(error);
+  return /unexpected send POST \/decks\/save|HTTP 404|route.*not found/i.test(message);
+}
+
+async function runLegacyOp(ctx: Ctx, deckId: string, op: Op, versionNote?: string): Promise<void> {
   const attrib = { source: SOURCE, ...(versionNote !== undefined ? { versionNote } : {}) };
   switch (op.kind) {
     case 'rename':
@@ -288,24 +303,35 @@ async function runOp(ctx: Ctx, deckId: string, op: Op, versionNote?: string): Pr
       return;
     case 'remove':
       await ctx.api.send('DELETE', `/decks/${encodeURIComponent(deckId)}/cards/${encodeURIComponent(op.cardId)}`, attrib);
-      return;
   }
 }
 
-/** Execute ops sequentially; a failure is reported per-op and does not stop the rest (SPEC §5 #9). */
-async function runOps(ctx: Ctx, deckId: string, ops: Op[], versionNote?: string): Promise<{ lines: string[]; failures: number }> {
-  const lines: string[] = [];
-  let failures = 0;
-  for (const op of ops) {
-    try {
-      await runOp(ctx, deckId, op, versionNote);
-      lines.push(`  done: ${describeOp(op)}`);
-    } catch (err) {
-      failures++;
-      lines.push(`  FAILED: ${describeOp(op)} — ${errText(err)}`);
-    }
-  }
-  return { lines, failures };
+async function runLegacyOps(ctx: Ctx, deckId: string, ops: Op[], versionNote?: string): Promise<void> {
+  for (const op of ops) await runLegacyOp(ctx, deckId, op, versionNote);
+}
+
+// The key exists to make a RETRY safe (the model repeating a call after a
+// timeout), so it only lives for one ten-minute window, and an edit's key
+// includes the deck's state before the write — otherwise A → B → A would
+// replay the first save and silently leave the deck on B.
+const RETRY_WINDOW_MS = 10 * 60_000;
+
+function saveDeckIdempotencyKey(input: {
+  deckId?: string;
+  name?: string;
+  format?: string;
+  cards?: Map<string, number>;
+  state?: string;
+}): string {
+  const canonical = {
+    deckId: input.deckId ?? null,
+    name: input.name?.trim() ?? null,
+    format: input.format ?? null,
+    cards: input.cards === undefined ? null : [...input.cards].sort(([a], [b]) => a.localeCompare(b)),
+    state: input.state ?? null,
+    window: Math.floor(Date.now() / RETRY_WINDOW_MS),
+  };
+  return `save-deck:${createHash('sha256').update(JSON.stringify(canonical)).digest('hex')}`;
 }
 
 // ── Tool registration ─────────────────────────────────────────────────────────
@@ -480,8 +506,8 @@ const saveDeckTool = defineTool({
   title: 'Create or edit a deck',
   description:
     'Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile ' +
-    'its card list to the given cards array (only changed rows are touched — adds, quantity sets, ' +
-    'removes). To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). ' +
+    'its card list to the given cards array in one all-or-nothing write. To create from a PTCG Live ' +
+    'decklist pass ptcgl_text instead of cards (creation only). ' +
     'Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id, use the cheapest printing OF ' +
     'THE SAME CARD unless the user asked for a specific rarity or art: printings of one card are ' +
     'gameplay-identical and can differ by hundreds of dollars (a Special Illustration Rare vs the ' +
@@ -577,7 +603,7 @@ const saveDeckTool = defineTool({
       .default(true)
       .describe('true (default): only print what would happen. false: execute.'),
   }),
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   handler: async ({ mode, deck_id, name, format, cards, ptcgl_text, version_note, dry_run }, ctx) => {
     try {
       if (ptcgl_text !== undefined && cards !== undefined) {
@@ -625,7 +651,9 @@ const saveDeckTool = defineTool({
         // compute is never a reason to fail the write.
         let nameCollision = false;
         const wanted = name?.trim().toLowerCase();
-        if (wanted) {
+        // The collision is approval-preview context. The approved create must
+        // be exactly one API request, so do not repeat this read on apply.
+        if (wanted && dry_run) {
           try {
             const all = (await ctx.api.get('/decks')) as { decks?: Array<{ name: string }> };
             nameCollision = (all.decks ?? []).some((d) => d.name.trim().toLowerCase() === wanted);
@@ -661,7 +689,7 @@ const saveDeckTool = defineTool({
             writeSource: SOURCE,
           })) as ImportResult;
           const lines = [
-            `Imported deck '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,
+            `${res.replayed ? 'Deck was already imported' : 'Imported deck'} '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,
             `  resolved ${res.import.resolvedEntries} line(s) → ${res.import.distinctCards} distinct card(s), ${res.counts.total} cards total`,
           ];
           for (const u of res.import.unresolved) lines.push(`  UNRESOLVED: ${u}`);
@@ -682,21 +710,36 @@ const saveDeckTool = defineTool({
           lines.push('Re-run with dry_run: false to execute.');
           return ok(lines.join('\n'));
         }
-        const created = (await ctx.api.send('POST', '/decks', {
+        const atomicBody = {
           name,
-          ...(format !== undefined ? { format } : {}),
+          ...(format !== undefined ? { formatCode: format } : {}),
+          cards: [...target].map(([cardId, quantity]) => ({ cardId, quantity })),
+          ...(version_note !== undefined ? { versionNote: version_note } : {}),
+          idempotencyKey: saveDeckIdempotencyKey({ name, format: format ?? 'standard', cards: target }),
           source: SOURCE,
-        })) as DeckDetail;
-        const lines = [`Created deck '${created.deck.name}' (${created.deck.formatCode}) — id ${created.deck.id}`];
-        const ops: Op[] = [...target].map(([cardId, qty]) => ({ kind: 'add', cardId, qty }));
-        if (ops.length > 0) {
-          const { lines: opLines, failures } = await runOps(ctx, created.deck.id, ops, version_note);
-          lines.push(...opLines);
-          const after = (await ctx.api.get(`/decks/${encodeURIComponent(created.deck.id)}`)) as DeckDetail;
-          lines.push(
-            `${failures ? `${failures} operation(s) FAILED — deck saved partially. ` : ''}Deck now has ${after.counts.total} card(s).`,
+        };
+        let created: SaveDeckResult;
+        try {
+          created = (await ctx.api.send('POST', '/decks/save', atomicBody)) as SaveDeckResult;
+        } catch (error) {
+          if (!atomicSaveRouteMissing(error)) throw error;
+          const shell = (await ctx.api.send('POST', '/decks', {
+            name, ...(format !== undefined ? { format } : {}), source: SOURCE,
+          })) as DeckDetail;
+          await runLegacyOps(
+            ctx,
+            shell.deck.id,
+            [...target].map(([cardId, qty]) => ({ kind: 'add' as const, cardId, qty })),
+            version_note,
           );
+          const loaded = (await ctx.api.get(`/decks/${encodeURIComponent(shell.deck.id)}`)) as SaveDeckResult;
+          created = { ...loaded, deck: { ...loaded.deck, ...shell.deck } };
         }
+        const lines = [
+          `${created.replayed ? 'Deck was already saved' : 'Created deck'} '${created.deck.name}' (${created.deck.formatCode}) — id ${created.deck.id}`,
+          `Deck has ${created.counts.total} card(s) and is ${created.validation.legal ? 'format-legal' : 'NOT format-legal'}.`,
+        ];
+        if (!created.validation.legal) lines.push(...validationLines(created.validation));
         return ok(lines.join('\n'));
       }
 
@@ -728,12 +771,39 @@ const saveDeckTool = defineTool({
         lines.push('Re-run with dry_run: false to execute.');
         return ok(lines.join('\n'));
       }
-      const { lines: opLines, failures } = await runOps(ctx, deckRef, ops, version_note);
-      const after = (await ctx.api.get(`/decks/${encodeURIComponent(deckRef)}`)) as DeckDetail;
-      const lines = [`Updated deck '${after.deck.name}' (${deckRef}):`, ...opLines];
+      const target = cards === undefined ? undefined : aggregate(cards);
+      const atomicBody = {
+        deckId: deckRef,
+        ...(name !== undefined ? { name } : {}),
+        ...(format !== undefined ? { formatCode: format } : {}),
+        ...(target !== undefined
+          ? { cards: [...target].map(([cardId, quantity]) => ({ cardId, quantity })) }
+          : {}),
+        ...(version_note !== undefined ? { versionNote: version_note } : {}),
+        idempotencyKey: saveDeckIdempotencyKey({
+          deckId: deckRef,
+          name: name ?? current.deck.name,
+          format: format ?? current.deck.formatCode,
+          state: current.deck.updatedAt,
+          cards: target,
+        }),
+        source: SOURCE,
+      };
+      let after: SaveDeckResult;
+      try {
+        after = (await ctx.api.send('POST', '/decks/save', atomicBody)) as SaveDeckResult;
+      } catch (error) {
+        if (!atomicSaveRouteMissing(error)) throw error;
+        await runLegacyOps(ctx, deckRef, ops, version_note);
+        after = (await ctx.api.get(`/decks/${encodeURIComponent(deckRef)}`)) as SaveDeckResult;
+      }
+      const lines = [
+        `${after.replayed ? 'Deck already matched this saved change' : 'Updated deck'} '${after.deck.name}' (${deckRef}):`,
+        ...ops.map((op) => `  done: ${describeOp(op)}`),
+      ];
       const versionChanged = after.deck.version !== current.deck.version;
       lines.push(
-        `${failures ? `${failures} operation(s) FAILED — applied partially. ` : ''}Deck now has ${after.counts.total} card(s), ${after.validation.legal ? 'legal' : 'NOT legal'}, at v${after.deck.version}${
+        `Deck now has ${after.counts.total} card(s), ${after.validation.legal ? 'legal' : 'NOT legal'}, at v${after.deck.version}${
           versionChanged
             ? ` (bumped from v${current.deck.version} — the previous version had battle logs; its snapshot is kept in deck_history)`
             : ''

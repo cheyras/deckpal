@@ -446,6 +446,12 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
  * in words he can also say out loud.
  */
 export const DEFAULT_MAX_TOOL_CHARS = 6_000;
+export const SEARCH_CARDS_MAX_TOOL_CHARS = 24_000;
+
+export function maxToolChars(toolName: string, configured?: number): number {
+  if (configured !== undefined) return configured;
+  return toolName === 'search_cards' ? SEARCH_CARDS_MAX_TOOL_CHARS : DEFAULT_MAX_TOOL_CHARS;
+}
 
 export function clampToolText(text: string, maxChars: number): string {
   if (maxChars <= 0 || text.length <= maxChars) return text;
@@ -931,12 +937,17 @@ function buildApprovalPreview(
   toolCallId: string,
   result: ToolResult,
   readerNamedPrinting: boolean,
+  input?: unknown,
 ): ApprovalPreview {
   const base = {
     toolCallId,
     tool: def.name,
-    title: def.title,
-    summary: result.isError ? summarise(result) : previewSummary(result.text),
+    title: approvalPreviewTitle(def.name, input, result.text) ?? def.title,
+    summary: result.isError
+      ? summarise(result)
+      : def.name === 'deck_strategy'
+        ? result.text
+        : previewSummary(result.text, def.name === 'save_deck' || def.name === 'edit_list' ? 501 : PREVIEW_LINES),
     ok: !result.isError,
   };
   if (def.name !== 'log_cards' || result.isError) {
@@ -985,6 +996,56 @@ export function summariseText(text: string): string {
 /** How many lines of a dry run the approval card carries before it counts the rest. */
 const PREVIEW_LINES = 12;
 
+function inputRecord(input: unknown): Record<string, unknown> {
+  return input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {};
+}
+
+function namedTarget(input: Record<string, unknown>, resultText: string, kind: 'deck' | 'list'): string | null {
+  const ref = input[`${kind}_id`];
+  if (typeof input.name === 'string' && input.name.trim()) return input.name.trim();
+  const patterns = kind === 'list'
+    ? [/list called '([^']+)'/, /existing list '([^']+)'/]
+    : [/deck called '([^']+)'/, /existing deck '([^']+)'/];
+  for (const pattern of patterns) {
+    const match = resultText.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return typeof ref === 'string' && ref.trim() ? ref.trim() : null;
+}
+
+function quoted(name: string | null): string {
+  return name ? ` “${name}”` : '';
+}
+
+/** The approval sentence describes this invocation, not the broad tool. */
+export function approvalPreviewTitle(toolName: string, input: unknown, resultText = ''): string | null {
+  const args = inputRecord(input);
+  if (toolName === 'edit_list') {
+    const target = namedTarget(args, resultText, 'list');
+    const create = args.mode === 'create' || (args.mode !== 'edit' && (!args.list_id || args.list_id === 'new'));
+    if (create) return `create a list called${quoted(target)}`;
+    const add = Array.isArray(args.add_cards)
+      ? args.add_cards.reduce((total: number, item: unknown) => {
+          const quantity = inputRecord(item).quantity;
+          return total + (typeof quantity === 'number' && Number.isFinite(quantity) ? quantity : 1);
+        }, 0)
+      : 0;
+    const remove = Array.isArray(args.remove_item_ids) ? args.remove_item_ids.length : 0;
+    if (add > 0 && remove === 0) return `add ${add} ${add === 1 ? 'card' : 'cards'} to${quoted(target)}`;
+    if (remove > 0 && add === 0) return `remove ${remove} ${remove === 1 ? 'card' : 'cards'} from${quoted(target)}`;
+    return `save these list changes${target ? ` to “${target}”` : ''}`;
+  }
+  if (toolName === 'save_deck') {
+    const target = namedTarget(args, resultText, 'deck');
+    const create = args.mode === 'create' || (args.mode !== 'edit' && (!args.deck_id || args.deck_id === 'new'));
+    return create ? `save${quoted(target)} as a new deck` : `change your deck${quoted(target)}`;
+  }
+  if (toolName === 'deck_strategy' && typeof args.markdown === 'string') {
+    return `save a strategy guide for${quoted(namedTarget(args, resultText, 'deck'))}`;
+  }
+  return null;
+}
+
 /**
  * What a dry run says it WOULD do, for the approval card — every line of it.
  *
@@ -1008,7 +1069,7 @@ const PREVIEW_LINES = 12;
  * the same defect as the one being fixed. Any other result keeps the chip's
  * one-line summary, unchanged.
  */
-export function previewSummary(text: string): string {
+export function previewSummary(text: string, maxLines = PREVIEW_LINES): string {
   const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
   if (!/^DRY RUN\b/.test(lines[0] ?? '')) return summariseText(text);
   const kept: string[] = [];
@@ -1021,8 +1082,8 @@ export function previewSummary(text: string): string {
     }
     if (line) kept.push(line.length > SUMMARY_CAP ? `${line.slice(0, SUMMARY_CAP - 3)}…` : line);
   }
-  if (kept.length <= PREVIEW_LINES) return kept.join('\n');
-  const shown = kept.slice(0, PREVIEW_LINES - 1);
+  if (kept.length <= maxLines) return kept.join('\n');
+  const shown = kept.slice(0, maxLines - 1);
   return [...shown, `…and ${kept.length - shown.length} more`].join('\n');
 }
 
@@ -1141,7 +1202,6 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const noOp = new NoOpMemo();
   const isNoOpWrite = (name: string, input: unknown): Promise<boolean> =>
     noOp.isNoOpWrite(name, input, (fn) => withToolCtx(opts, fn));
-  const maxChars = opts.maxChars ?? DEFAULT_MAX_TOOL_CHARS;
   const out: ToolSet = {};
 
   type LogPreflight = {
@@ -1186,6 +1246,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         toolCallId,
         result,
         opts.readerNamedPrinting === true,
+        input,
       );
       return { result, preview, eligible: approvalEligible(preview) };
     })();
@@ -1283,6 +1344,13 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         // other half of that sentence, and it was missing.
         if (alreadyDeclined(def.name, input)) return;
         if (!requiresApproval(def, input)) return;
+        if (def.name === 'deck_strategy') {
+          const markdown = inputRecord(input).markdown;
+          if (typeof markdown === 'string') {
+            emit(buildApprovalPreview(def, toolCallId, { isError: false, text: markdown }, opts.readerNamedPrinting === true, input));
+          }
+          return;
+        }
         if (!canPreviewSafely(def, input)) return;
         // ── THE PASTE CHANNEL (preview half) ──────────────────────────────────
         //
@@ -1306,7 +1374,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           const result = await withToolCtx(opts, (ctx: Ctx) =>
             def.handler(subPreview.value, ctx),
           );
-          emit(buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true));
+          emit(buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true, input));
         } catch {
           // Deliberately silent, and deliberately not an `onEvent`. A chip for
           // a failed dialog-preview would tell the reader a tool failed when
@@ -1387,7 +1455,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
                   ? summariseError(preflight.result)
                   : summarise(preflight.result),
               });
-              return clampToolText(preflight.result.text, maxChars);
+              return clampToolText(preflight.result.text, maxToolChars(def.name, opts.maxChars));
             }
           }
 
@@ -1461,7 +1529,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             const visible = result.isError
               ? usefulToolFailure(def.name, result.text)
               : result.text;
-            const text = clampToolText(visible, maxChars);
+            const text = clampToolText(visible, maxToolChars(def.name, opts.maxChars));
             // BEFORE the clamp would have been wrong: an id cut off by the
             // ceiling is an id the model never saw, and grounding it would let
             // a half-read page license a full grid. Observe exactly what he
@@ -1600,7 +1668,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             ...chip,
             summary: result.isError ? summariseError(result) : summarise(result),
           });
-          return clampToolText(result.text, maxChars);
+          return clampToolText(result.text, maxToolChars(PREVIEW_CARD_CHANGES, opts.maxChars));
         } catch (err) {
           const message = safeToolError(err);
           const failure = `${PREVIEW_CARD_CHANGES} failed: ${message}`;

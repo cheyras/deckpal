@@ -418,7 +418,7 @@ function cardCount(b: ScreenBlock): number {
 export function sanitizeScreen(
   screen: Screen,
   /**
-   * Card ids a tool actually returned this turn.
+   * Card ids a tool actually returned in this conversation.
    *
    * Optional, and its absence means "no evidence either way" rather than
    * "nothing is allowed" — see `partitionCards`. Passing it turns the ID
@@ -453,7 +453,7 @@ export function sanitizeScreen(
       const { kept, invented } = partitionCards(b.cards, grounding)
       if (invented.length > 0) {
         dropped.push(
-          `blocks[${i}]: removed ${invented.length} card id(s) no tool returned this turn ` +
+          `blocks[${i}]: removed ${invented.length} card id(s) no tool returned in this conversation ` +
             `(${invented.slice(0, 5).join(', ')}) — look them up before showing them`,
         )
         if (kept.length === 0) return
@@ -477,7 +477,7 @@ export function sanitizeScreen(
         }))
         return { ...section, count: cards.reduce((sum, card) => sum + card.quantity, 0), cards }
       }).filter((section) => section.cards.length > 0)
-      if (removed.length) dropped.push(`blocks[${i}]: removed ${removed.length} card id(s) no tool returned this turn (${removed.slice(0, 5).join(', ')}) — look them up before showing them`)
+      if (removed.length) dropped.push(`blocks[${i}]: removed ${removed.length} card id(s) no tool returned in this conversation (${removed.slice(0, 5).join(', ')}) — look them up before showing them`)
       b.name = b.name?.trim()
       b.format = b.format?.trim()
       b.issues = b.issues?.slice(0, 6).map((issue) => issue.trim())

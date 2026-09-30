@@ -433,6 +433,117 @@ try {
         `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, 1)
          ON CONFLICT (deck_id, card_variant_id) DO UPDATE SET quantity = LEAST(deck_card.quantity + 1, 60)`, [deck, card, variant, A]));
     });
+
+    // Deck-E feedback pass (2026-09-29): a half set with a DOTTED id, two cards
+    // that multiply damage by coin flips (one reprinted), and one that does not.
+    await db.query(`DO $half$
+      DECLARE s bigint; c bigint;
+      BEGIN
+       INSERT INTO card_set (series_id, tcgdex_id, slug, name)
+        SELECT series_id, 'rch2.5', 'rch2-5', 'Reach Two Point Five' FROM card_set WHERE tcgdex_id = 'reach1' RETURNING id INTO s;
+       FOR i IN 1..4 LOOP
+        INSERT INTO card (set_id, tcgdex_id, local_id, number_sort, name, name_normalized, category)
+         VALUES (s, 'rch2.5-00' || i, i::text, '00' || i,
+          (ARRAY['Flipper','Flipper','Doubler','Plain'])[i], lower((ARRAY['Flipper','Flipper','Doubler','Plain'])[i]), 'Pokemon')
+         RETURNING id INTO c;
+        INSERT INTO card_variant (card_id, variant_kind_code, sort_order) VALUES (c, 'reach-normal', 1);
+        INSERT INTO card_attack (card_id, ord, name, damage, effect) VALUES (c, 0,
+         (ARRAY['Fury Flip','Fury Flip','Double Down','Tackle'])[i],
+         (ARRAY['20×','20×','30x','30'])[i],
+         (ARRAY['Flip 3 coins. This attack does 20 damage for each heads.','Flip 3 coins. This attack does 20 damage for each heads.',
+                'Flip 2 coins. This attack does 30 damage for each heads.',NULL])[i]);
+       END LOOP;
+      END $half$`);
+
+    await test('search_cards finds cards by printed attack text and multiplier, collapsing reprints', async () => {
+      const { catalogTools } = await import('../../../../packages/agent-tools/src/tools/catalog.ts');
+      const search = catalogTools.find((t) => t.name === 'search_cards');
+      const text = await as('authenticated', A, async (c) => {
+        // Parsed the way both transports parse it, so schema defaults (page 1,
+        // text_same_attack) apply exactly as they do for Deck-E and MCP.
+        const args = search.inputSchema.parse({ text: ['flip', 'for each heads'], damage: 'x' });
+        const out = await search.handler(args, { db: c, api: {}, userId: A });
+        assert.notEqual(out.isError, true, out.text);
+        return out.text;
+      });
+      assert.match(text, /Flipper/);
+      assert.match(text, /Doubler/, 'a literal "x" multiplier matches as well as "×"');
+      assert.doesNotMatch(text, /Plain/);
+      assert.match(text, /Flip 3 coins/, 'each row carries the matching attack line');
+      assert.equal((text.match(/Flipper/g) ?? []).length >= 1, true);
+      assert.match(text, /printings?:?\s*2|2 printings/i, 'the two identical Flippers are one row with a printing count');
+    });
+
+    await test('POST /decks/save writes a whole deck or nothing, replays a retry, and a deleted deck can be saved again', async () => {
+      const { default: express } = await import('express');
+      const database = await import('../db.ts');
+      const { decksRouter } = await import('../routes/decks.ts');
+      const { errorMiddleware } = await import('../http.ts');
+      const { requestAccessStore } = await import('../admin/access.ts');
+      const app = express();
+      app.use(express.json());
+      app.use(async (req, res, next) => {
+        req.user = { id: A };
+        req.authKind = 'jwt';
+        const c = await database.pool.connect();
+        await c.query(`BEGIN; SELECT set_config('request.jwt.claims', $$${JSON.stringify({ sub: A, role: 'authenticated', deckpal_auth_kind: 'jwt', deckpal_server_request: true })}$$, true); SET LOCAL role = 'authenticated'`);
+        let done = false;
+        const finish = async (sql) => { if (done) return; done = true; try { await c.query(sql); c.release(); } catch { c.release(true); } };
+        res.once('finish', () => void finish('COMMIT; RESET ROLE'));
+        res.once('close', () => void finish('ROLLBACK; RESET ROLE'));
+        database.rlsStore.run(c, () => requestAccessStore.run(new Map(), next));
+      });
+      app.use('/decks', decksRouter);
+      app.use(errorMiddleware);
+      const server = await new Promise((resolveServer) => { const s = app.listen(0, '127.0.0.1', () => resolveServer(s)); });
+      const post = async (path, body) => {
+        const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+        });
+        return { status: r.status, body: await r.json().catch(() => null) };
+      };
+      const decksNamed = async (name) => Number((await db.query(
+        'SELECT count(*) FROM deck WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL', [A, name])).rows[0].count);
+      try {
+        const good = [{ cardId: 'rch2.5-001', quantity: 3 }, { cardId: 'rch2.5-003', quantity: 2 }];
+        const bad = await post('/decks/save', { name: 'Atomic', cards: [...good, { cardId: 'rch2.5-999', quantity: 1 }] });
+        assert.equal(bad.status, 400, JSON.stringify(bad.body));
+        assert.match(JSON.stringify(bad.body), /rch2\.5-999/);
+        assert.equal(await decksNamed('Atomic'), 0, 'one bad id leaves no deck behind');
+        assert.equal(Number((await db.query(
+          "SELECT count(*) FROM mutation_batch WHERE user_id = $1 AND tool = 'deck.save' AND status = 'committed'", [A])).rows[0].count), 0);
+
+        const first = await post('/decks/save', { name: 'Atomic', cards: good });
+        assert.equal(first.status, 201, JSON.stringify(first.body));
+        const retry = await post('/decks/save', { name: 'Atomic', cards: good });
+        assert.equal(retry.status, 200);
+        assert.equal(retry.body.replayed, true);
+        assert.equal(await decksNamed('Atomic'), 1, 'a retry of the same save does not make a twin');
+        const deckId = (await db.query('SELECT id FROM deck WHERE user_id = $1 AND name = $2', [A, 'Atomic'])).rows[0].id;
+        const cardsNow = async () => (await db.query(
+          `SELECT c.tcgdex_id, dc.quantity FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1 ORDER BY 1`, [deckId])).rows
+          .map((r) => `${r.tcgdex_id}x${r.quantity}`);
+        assert.deepEqual(await cardsNow(), ['rch2.5-001x3', 'rch2.5-003x2']);
+
+        // A → B → A on an existing deck applies every step; the third is not a replay of the first.
+        const b = [{ cardId: 'rch2.5-004', quantity: 4 }];
+        assert.equal((await post('/decks/save', { deckId, cards: b })).status, 200);
+        assert.deepEqual(await cardsNow(), ['rch2.5-004x4']);
+        const back = await post('/decks/save', { deckId, cards: good });
+        assert.equal(back.status, 200);
+        assert.deepEqual(await cardsNow(), ['rch2.5-001x3', 'rch2.5-003x2'], 'switching back to the first list applies it');
+
+        // Deleted, then the identical list saved again: a new deck, not the dead one's id.
+        await db.query('UPDATE deck SET deleted_at = now() WHERE id = $1', [deckId]);
+        const again = await post('/decks/save', { name: 'Atomic', cards: good });
+        assert.equal(again.status, 201, JSON.stringify(again.body));
+        assert.equal(await decksNamed('Atomic'), 1);
+        assert.notEqual((await db.query('SELECT id FROM deck WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL', [A, 'Atomic'])).rows[0].id, deckId);
+      } finally {
+        server.closeAllConnections();
+        await new Promise((resolveClose) => server.close(() => resolveClose()));
+      }
+    });
   }
   results.status = 'passed';
 } catch (error) {
