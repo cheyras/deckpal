@@ -500,7 +500,7 @@ async function checkLatestImport(page, server, width, out) {
   await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
   await page.getByRole('button', { name: 'Import without them' }).click()
   await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
-  assert.equal(writes.at(-1).text, '1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
+  assert.equal(writes.at(-1).text, '1 Squirtle SVI 54', 'the skipped Bulbasaur line is removed before the write')
   assert.equal(writes.at(-1).formatCode, 'expanded')
   console.log(JSON.stringify({ width, glcWater: true, glcGrass: true, glcAmbiguous: true,
     rapidEdits: 10, rapidChecks, canceled: true, latestTextAndFormat: true }))
