@@ -33,10 +33,13 @@ const events = {
   denies: 0,
   composerActivity: [] as boolean[],
   savedDecks: [] as { id: string; name: string; total: number }[],
+  feedback: [] as { seq: number; vote: number | null; comment: string; share: boolean }[],
 }
 type FixtureState = { open: boolean; busy: boolean; messages: ChatMessage[]; credits: { remaining: number; allowance: number }
   /** A held call and its dry run, for the approval card's geometry and rows. */
-  asking: PendingApproval[] | null; preview: ApprovalPreview | null; quote: DeepQuote | null }
+  asking: PendingApproval[] | null; preview: ApprovalPreview | null; quote: DeepQuote | null
+  /** Set to rate replies: feedback needs a conversation to belong to. */
+  conversationId?: string | null }
 declare global {
   interface Window {
     fixture: { events: typeof events; set: (patch: Partial<FixtureState>) => void; expectedSubhead: () => string | undefined }
@@ -73,6 +76,7 @@ function Fixture() {
     onRetryTool={id => events.retries.push(id)} desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
     onComposerActivity={typing => events.composerActivity.push(typing)}
     onDeckSaved={deck => events.savedDecks.push(deck)}
+    onFeedback={async (seq, value) => { events.feedback.push({ seq, ...value }) }}
     onTopUp={() => { events.topUps++ }} />
 }
 

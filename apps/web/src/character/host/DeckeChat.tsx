@@ -59,7 +59,7 @@ import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import { ShareChoice } from './chat/ShareChoice'
 import { submitImprovementConsent } from './chat/improvementConsent'
-import { ReplyFeedback } from './chat/Feedback'
+import { FeedbackCard, ReplyFeedback } from './chat/Feedback'
 import type { FeedbackVote } from './chat/feedbackState'
 import {
   creditHeaderLabel,
@@ -1255,6 +1255,13 @@ export function DeckeChat({
     }
   }, [conversationId, decke, onConsent, queryClient])
 
+  // THE "ANYTHING ELSE?" CARD, docked where the approval card docks: a vote
+  // under any reply opens it; Send or Skip closes it, and so does a new turn.
+  const [feedbackAsk, setFeedbackAsk] = useState<{ seq: number; vote: FeedbackVote } | null>(null)
+  const openFeedback = useCallback((seq: number, vote: FeedbackVote) => setFeedbackAsk({ seq, vote }), [])
+  useEffect(() => { if (busy) setFeedbackAsk(null) }, [busy])
+  useEffect(() => { setFeedbackAsk(null) }, [conversationId])
+
   const saveFeedback = useCallback(async (seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
     if (!conversationId) throw new Error('No conversation for feedback')
     if (onFeedback) await onFeedback(seq, value)
@@ -1588,7 +1595,7 @@ export function DeckeChat({
   // exit bar, and the panel observer measured "no composer" (0) meanwhile. The
   // composer that comes back is a new element; without re-measuring it, the
   // park box stayed at the not-measured fallback, 100 px low at 390x844.
-  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing])
+  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing, feedbackAsk])
 
 
   // HIS FOOTPRINT, from the one number that decides his size.
@@ -3149,6 +3156,7 @@ export function DeckeChat({
                         latest={m.id === lastAssistantId}
                         approvalPending={Boolean(asking?.length)}
                         onSave={saveFeedback}
+                        onOpenComment={openFeedback}
                       />
                     </>
                   ) : null}
@@ -3250,6 +3258,19 @@ export function DeckeChat({
             cost={deepCost(asking[0].name, quote)}
             onTopUp={onTopUp}
           />
+          </div>
+        ) : feedbackAsk && !viewing ? (
+          /* The same floor as the approval card: he stands on it, and on a
+             phone it is the composer's width instead of a box beside him. */
+          <div ref={askRef} data-decke-feedback-card="" className="mx-auto w-full max-w-[760px]">
+            <FeedbackCard
+              key={feedbackAsk.seq}
+              onSend={async (comment, share) => {
+                await saveFeedback(feedbackAsk.seq, { vote: feedbackAsk.vote, comment, share })
+                setFeedbackAsk(null)
+              }}
+              onSkip={() => setFeedbackAsk(null)}
+            />
           </div>
         ) : null}
 
