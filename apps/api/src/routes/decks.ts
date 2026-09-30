@@ -599,7 +599,8 @@ function contentKey(prefix: string, content: unknown): string {
 }
 
 function saveDeckKey(input: {
-  deckId: string | null; name: string | null; format: FormatCode | null; cards: SaveDeckCardInput[] | undefined;
+  deckId: string | null; name: string | null; format: FormatCode | null; glcType: PokemonType | null;
+  cards: SaveDeckCardInput[] | undefined;
   // The deck's updated_at before this write. An edit's key must change when the
   // deck does, or A → B → A would replay the first save and leave the deck on B.
   state: string | null;
@@ -657,7 +658,10 @@ decksRouter.post(
     if (deckId && !before) throw notFound(`No deck '${deckId}'`);
     const requestedKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
       ? body.idempotencyKey.trim()
-      : saveDeckKey({ deckId, name: requestedName, format: formatGiven ? format : null, cards, state: before?.updated_at ?? null });
+      : saveDeckKey({
+          deckId, name: requestedName, format: formatGiven ? format : null, glcType: glcGiven,
+          cards, state: before?.updated_at ?? null,
+        });
     if (requestedKey.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
     const { key: callerKey, replay } = await resolveRetryKey(userId, requestedKey);
     const keys = [callerKey];

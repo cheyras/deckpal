@@ -322,6 +322,7 @@ function saveDeckIdempotencyKey(input: {
   format?: string;
   cards?: Map<string, number>;
   state?: string;
+  ptcgl?: string;
 }): string {
   const canonical = {
     deckId: input.deckId ?? null,
@@ -329,6 +330,7 @@ function saveDeckIdempotencyKey(input: {
     format: input.format ?? null,
     cards: input.cards === undefined ? null : [...input.cards].sort(([a], [b]) => a.localeCompare(b)),
     state: input.state ?? null,
+    ptcgl: input.ptcgl ?? null,
   };
   return `save-deck:${createHash('sha256').update(JSON.stringify(canonical)).digest('hex')}`;
 }
@@ -686,6 +688,9 @@ const saveDeckTool = defineTool({
             // On /decks/import the attribution field is writeSource ('source'
             // is the decklist-syntax param on this one endpoint).
             writeSource: SOURCE,
+            // A repeated call after a lost response replays the deck it made
+            // instead of importing a twin (the web dialog sends no key).
+            idempotencyKey: saveDeckIdempotencyKey({ name, format, ptcgl: ptcgl_text }),
           })) as ImportResult;
           const lines = [
             `${res.replayed ? 'Deck was already imported' : 'Imported deck'} '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,

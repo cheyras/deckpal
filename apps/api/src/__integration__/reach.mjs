@@ -575,6 +575,12 @@ try {
         const glcId = (await db.query("SELECT id FROM deck WHERE user_id = $1 AND name = 'Fire GLC'", [A])).rows[0].id;
         assert.equal((await post('/decks/save', { deckId: glcId, formatCode: 'glc', cards: [{ cardId: 'rch2.5-004', quantity: 1 }, { cardId: 'rch2.5-001', quantity: 1 }] })).status, 200);
         assert.equal((await db.query('SELECT glc_type FROM deck WHERE id = $1', [glcId])).rows[0].glc_type, 'Fire');
+        // The same name and list as a WATER deck is a different request, not a
+        // retry of the Fire one (Astra, PR #270 re-check).
+        const water = await post('/decks/save', { name: 'Shell', formatCode: 'glc', glcType: 'Water', cards: [{ cardId: 'rch2.5-004', quantity: 1 }] });
+        const fire = await post('/decks/save', { name: 'Shell', formatCode: 'glc', glcType: 'Fire', cards: [{ cardId: 'rch2.5-004', quantity: 1 }] });
+        assert.deepEqual([water.status, fire.status], [201, 201], JSON.stringify(fire.body));
+        assert.deepEqual((await db.query("SELECT glc_type FROM deck WHERE user_id = $1 AND name = 'Shell' AND deleted_at IS NULL ORDER BY glc_type", [A])).rows.map((r) => r.glc_type), ['Fire', 'Water']);
 
         // Deleted, then the identical list saved again: a new deck, not the dead one's id.
         await db.query('UPDATE deck SET deleted_at = now() WHERE id = $1', [deckId]);

@@ -86,3 +86,23 @@ test('repeating an identical create reuses its deterministic key and returns the
   assert.match(first.text, /id deck-atomic/)
   assert.match(retry.text, /already saved.*id deck-atomic/i)
 })
+
+test('a pasted decklist save sends a stable retry key, so a repeated call replays instead of importing a twin', async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const importResult = {
+    ...detail(), import: { resolvedEntries: 1, distinctCards: 1, totalCards: 4, unresolved: [], unresolvedLines: [], warnings: [] },
+  }
+  const send = (async (_method: string, path: string, body: unknown) => {
+    if (path === '/decks/import') bodies.push(body as Record<string, unknown>)
+    return importResult
+  }) as Api['send']
+  const args = { mode: 'create', name: 'Sparks', ptcgl_text: 'Pokémon: 4\n4 Pikachu SVI 1', dry_run: false }
+  await saveDeck.handler(args, context(send))
+  await saveDeck.handler(args, context(send))
+  assert.equal(bodies.length, 2)
+  assert.equal(typeof bodies[0]!.idempotencyKey, 'string')
+  assert.equal(bodies[0]!.idempotencyKey, bodies[1]!.idempotencyKey)
+  const other = { ...args, ptcgl_text: 'Pokémon: 4\n4 Raichu SVI 2' }
+  await saveDeck.handler(other, context(send))
+  assert.notEqual(bodies[2]!.idempotencyKey, bodies[0]!.idempotencyKey, 'a different list is a different save')
+})
