@@ -1257,18 +1257,40 @@ export function DeckeChat({
 
   // THE "ANYTHING ELSE?" CARD, docked where the approval card docks: a vote
   // under any reply opens it; Send or Skip closes it, and so does a new turn.
+  // Not while he is working: a vote cast under an approval card would otherwise
+  // pop its question up mid-turn, after the approval clears the slot.
   const [feedbackAsk, setFeedbackAsk] = useState<{ seq: number; vote: FeedbackVote } | null>(null)
-  const openFeedback = useCallback((seq: number, vote: FeedbackVote) => setFeedbackAsk({ seq, vote }), [])
+  const feedbackBusyRef = useRef(busy)
+  feedbackBusyRef.current = busy
+  const openFeedback = useCallback((seq: number, vote: FeedbackVote) => {
+    if (!feedbackBusyRef.current) setFeedbackAsk({ seq, vote })
+  }, [])
+  const closeFeedback = useCallback((seq: number) => {
+    setFeedbackAsk((current) => (current?.seq === seq ? null : current))
+  }, [])
+  const feedbackDone = useCallback(() => {
+    setFeedbackAsk(null)
+    // Back to where the reader types, not to <body>.
+    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+  }, [])
   useEffect(() => { if (busy) setFeedbackAsk(null) }, [busy])
   useEffect(() => { setFeedbackAsk(null) }, [conversationId])
 
-  const saveFeedback = useCallback(async (seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
-    if (!conversationId) throw new Error('No conversation for feedback')
-    if (onFeedback) await onFeedback(seq, value)
-    else await api.deckeFeedback({ conversationId, seq, ...value })
-    if (value.share) {
-      window.dispatchEvent(new CustomEvent('deckpal:decke-shared', { detail: { conversationId } }))
-    }
+  // ONE QUEUE PER REPLY. The vote is saved on the tap and the comment on Send;
+  // two independent requests could land in the wrong order and the vote-only
+  // write would blank the comment (Opus, PR #271).
+  const feedbackWrites = useRef(new Map<number, Promise<unknown>>())
+  const saveFeedback = useCallback((seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
+    const write = (feedbackWrites.current.get(seq) ?? Promise.resolve()).then(async () => {
+      if (!conversationId) throw new Error('No conversation for feedback')
+      if (onFeedback) await onFeedback(seq, value)
+      else await api.deckeFeedback({ conversationId, seq, ...value })
+      if (value.share) {
+        window.dispatchEvent(new CustomEvent('deckpal:decke-shared', { detail: { conversationId } }))
+      }
+    })
+    feedbackWrites.current.set(seq, write.catch(() => undefined))
+    return write
   }, [conversationId, onFeedback])
 
   const endComposerActivity = useCallback(() => {
@@ -3157,6 +3179,7 @@ export function DeckeChat({
                         approvalPending={Boolean(asking?.length)}
                         onSave={saveFeedback}
                         onOpenComment={openFeedback}
+                        onCloseComment={closeFeedback}
                       />
                     </>
                   ) : null}
@@ -3267,9 +3290,9 @@ export function DeckeChat({
               key={feedbackAsk.seq}
               onSend={async (comment, share) => {
                 await saveFeedback(feedbackAsk.seq, { vote: feedbackAsk.vote, comment, share })
-                setFeedbackAsk(null)
+                feedbackDone()
               }}
-              onSkip={() => setFeedbackAsk(null)}
+              onSkip={feedbackDone}
             />
           </div>
         ) : null}

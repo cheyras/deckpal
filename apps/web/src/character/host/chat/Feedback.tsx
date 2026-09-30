@@ -5,14 +5,20 @@ import { feedbackReducer, initialFeedbackState, type FeedbackVote } from './feed
 
 type FeedbackValue = { vote: FeedbackVote | null; comment: string; share: boolean }
 
-export function ReplyFeedback({ seq, busy, latest, approvalPending, onSave, onOpenComment }: { seq?: number; busy: boolean; latest: boolean; approvalPending: boolean; onSave: (seq: number, value: FeedbackValue) => Promise<void>; onOpenComment?: (seq: number, vote: FeedbackVote) => void }) {
+export function ReplyFeedback({ seq, busy, latest, approvalPending, onSave, onOpenComment, onCloseComment }: { seq?: number; busy: boolean; latest: boolean; approvalPending: boolean; onSave: (seq: number, value: FeedbackValue) => Promise<void>; onOpenComment?: (seq: number, vote: FeedbackVote) => void; onCloseComment?: (seq: number) => void }) {
   if (seq === undefined || (busy && latest && !approvalPending)) return null
-  return <Feedback onSave={(value) => onSave(seq, value)} onOpenComment={onOpenComment ? (vote) => onOpenComment(seq, vote) : undefined} />
+  return (
+    <Feedback
+      onSave={(value) => onSave(seq, value)}
+      onOpenComment={onOpenComment ? (vote) => onOpenComment(seq, vote) : undefined}
+      onCloseComment={onCloseComment ? () => onCloseComment(seq) : undefined}
+    />
+  )
 }
 
 export function TranscriptFeedback({ conversationId, seq, initialVote, comment, onSave }: { conversationId: string; seq: number; initialVote: FeedbackVote | null; comment?: string | null; onSave: (conversationId: string, seq: number, value: FeedbackValue) => Promise<void> }) {
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex w-full flex-wrap items-center gap-[8px]">
       <Feedback initialVote={initialVote} onSave={(value) => onSave(conversationId, seq, value)} />
       {comment ? <span className="text-[11px] leading-[16px] text-text-muted">{comment}</span> : null}
     </div>
@@ -29,7 +35,7 @@ export function TranscriptFeedback({ conversationId, seq, initialVote, comment, 
  * and scrolled the panel sideways (owner, 2026-09-29). History has no composer,
  * so there it still opens in place, at the width of the transcript.
  */
-export function Feedback({ initialVote = null, onSave, onOpenComment }: { initialVote?: FeedbackVote | null; onSave: (value: FeedbackValue) => Promise<void>; onOpenComment?: (vote: FeedbackVote) => void }) {
+export function Feedback({ initialVote = null, onSave, onOpenComment, onCloseComment }: { initialVote?: FeedbackVote | null; onSave: (value: FeedbackValue) => Promise<void>; onOpenComment?: (vote: FeedbackVote) => void; onCloseComment?: () => void }) {
   const [state, dispatch] = useReducer(feedbackReducer, undefined, () => ({ ...initialFeedbackState(), vote: initialVote }))
   const writes = useRef<Promise<unknown>>(Promise.resolve())
   const persist = (value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
@@ -45,7 +51,15 @@ export function Feedback({ initialVote = null, onSave, onOpenComment }: { initia
     void persist({ vote: clearing ? null : next, comment: '', share: false }).catch(() =>
       dispatch({ type: 'failed', previous }),
     )
-    if (onOpenComment && !clearing) onOpenComment(next)
+    if (!onOpenComment) return
+    // Docked: the question lives in the card, so the thumbs say thanks at once;
+    // taking the vote back takes the card away with it, or its Send would put
+    // the vote back (Opus, PR #271).
+    if (clearing) onCloseComment?.()
+    else {
+      onOpenComment(next)
+      dispatch({ type: 'skip' })
+    }
   }
 
   const send = () => {
@@ -58,8 +72,9 @@ export function Feedback({ initialVote = null, onSave, onOpenComment }: { initia
     )
   }
 
+  const inlineForm = state.open && !onOpenComment
   return (
-    <div className="decke-shift self-start text-[11.5px] text-text-body">
+    <div className={`decke-shift self-start text-[11.5px] text-text-body${inlineForm ? ' w-full' : ''}`}>
       <div className="flex items-center gap-[4px]">
         <button type="button" aria-label="Good reply" aria-pressed={state.vote === 1} onClick={() => vote(1)} className="flex h-[29px] w-[29px] items-center justify-center rounded-[7px] border border-border-default text-text-body outline-none transition-colors hover:border-action-primary hover:bg-action-primary/[0.08] hover:text-text-primary focus-visible:ring-2 focus-visible:ring-action-primary/45 aria-pressed:border-action-primary aria-pressed:bg-action-primary/[0.12] aria-pressed:text-action-primary">
           <Icon name="thumbs-up" size={16} fill={state.vote === 1 ? 'currentColor' : 'none'} />
@@ -68,8 +83,9 @@ export function Feedback({ initialVote = null, onSave, onOpenComment }: { initia
           <Icon name="thumbs-down" size={16} fill={state.vote === -1 ? 'currentColor' : 'none'} />
         </button>
         {state.thanked && !state.open ? <span className="ml-[3px]" aria-live="polite">Thanks</span> : null}
+        {state.error && onOpenComment ? <span className="ml-[3px] text-error" role="alert">{state.error}</span> : null}
       </div>
-      {state.open && !onOpenComment ? (
+      {inlineForm ? (
         <FeedbackForm
           className="mt-[8px] w-full max-w-[520px] p-[12px]"
           comment={state.comment}
@@ -98,7 +114,7 @@ function FeedbackForm({ className, comment, share, saving, error, onComment, onS
 }) {
   const id = useRef(`decke-feedback-${Math.random().toString(36).slice(2)}`).current
   return (
-    <div className={`decke-composer-card ${className}`} role="group" aria-label="Tell us more about this reply">
+    <div className={`decke-feedback-form ${className}`} role="group" aria-label="Tell us more about this reply">
       <label className="block text-[14.5px] font-semibold leading-[21px] text-text-primary" htmlFor={id}>
         Anything else? <span className="font-normal text-text-muted">Optional</span>
       </label>

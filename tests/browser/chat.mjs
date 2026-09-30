@@ -604,6 +604,9 @@ export async function checkFeedbackCard(browser, server, out, engine) {
     const tag = engine + '-' + width
     try {
       await page.goto(server.origin + '/fixture.html', { waitUntil: 'networkidle' })
+      // The live default skin: its composer-card rules once blanked this card's
+      // text box and removed its focus rings (Opus, PR #271).
+      await page.evaluate(() => { document.documentElement.dataset.skin = 'premium' })
       const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
       await panel.waitFor({ state: 'visible' })
       await set(page, { busy: false, asking: null, preview: null, conversationId: '00000000-0000-4000-8000-00000000f00d', messages: [
@@ -636,12 +639,26 @@ export async function checkFeedbackCard(browser, server, out, engine) {
       const box = await rect(form)
       if (width < 1068) assert.ok(box.right - box.left >= width - 40, `${tag}: the card is ${box.right - box.left}px wide on a ${width}px phone`)
       await assertClear(page, width, { card: form, Send: form.getByRole('button', { name: 'Send' }), Skip: form.getByRole('button', { name: 'Skip' }) }, tag + ' feedback')
+      const field = await form.getByRole('textbox').evaluate(el => {
+        const s = getComputedStyle(el)
+        return { border: s.borderTopColor, background: s.backgroundColor }
+      })
+      assert.ok(!/rgba\(0, 0, 0, 0\)|transparent/.test(field.border), `${tag}: the text box has no visible edge under premium (${JSON.stringify(field)})`)
       await page.screenshot({ path: path.join(out, 'decke-feedback-card-' + tag + '.png') })
       await form.getByRole('textbox').fill('Useful answer')
       await form.getByRole('button', { name: 'Send' }).click()
       await card.waitFor({ state: 'detached' })
       const sent = await page.evaluate(() => window.fixture.events.feedback)
       assert.deepEqual(sent.at(-1), { seq: 1, vote: 1, comment: 'Useful answer', share: false })
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message Deck-E')
+
+      // Taking a vote back takes the card with it; nothing re-sends the old vote.
+      await panel.getByRole('button', { name: 'Bad reply' }).click()
+      await card.waitFor()
+      await panel.getByRole('button', { name: 'Bad reply' }).click()
+      await card.waitFor({ state: 'detached' })
+      await page.waitForFunction(() => window.fixture.events.feedback.at(-1)?.vote === null)
+      assert.deepEqual((await page.evaluate(() => window.fixture.events.feedback)).at(-1), { seq: 1, vote: null, comment: '', share: false })
       results.push({ case: 'decke-feedback-card', engine, width, feedbackCard: true })
     } finally {
       await context.close()
