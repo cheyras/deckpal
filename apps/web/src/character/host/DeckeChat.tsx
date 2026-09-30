@@ -1270,9 +1270,12 @@ export function DeckeChat({
   }, [])
   const feedbackDone = useCallback(() => {
     setFeedbackAsk(null)
-    // Back to where the reader types, not to <body>.
-    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
-  }, [])
+    // On desktop, back to where the reader types rather than <body>. Never on a
+    // phone: a programmatic composer focus raises the iOS keyboard without
+    // scrolling the composer into view (see the ruling at the composer's own
+    // autofocus below), which would bury him behind it (Opus, PR #271).
+    if (desktop) requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+  }, [desktop])
   useEffect(() => { if (busy) setFeedbackAsk(null) }, [busy])
   useEffect(() => { setFeedbackAsk(null) }, [conversationId])
 

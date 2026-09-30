@@ -650,7 +650,9 @@ export async function checkFeedbackCard(browser, server, out, engine) {
       await card.waitFor({ state: 'detached' })
       const sent = await page.evaluate(() => window.fixture.events.feedback)
       assert.deepEqual(sent.at(-1), { seq: 1, vote: 1, comment: 'Useful answer', share: false })
-      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message Deck-E')
+      // Desktop returns focus to the composer; a phone must not (the iOS keyboard).
+      if (width >= 1068) await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message Deck-E')
+      else assert.notEqual(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Message Deck-E', `${tag}: a phone focused the composer`)
 
       // Taking a vote back takes the card with it; nothing re-sends the old vote.
       await panel.getByRole('button', { name: 'Bad reply' }).click()
